@@ -482,3 +482,59 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
   which enforces the append-only invariant).
 - `lessons/LESSONS.md` regenerated from the updated lessons store.
 - A review summary printed to stdout.
+
+---
+
+### `/anchor:pairmode story`
+
+> **Note:** `story` is invoked directly via CLI, not through the pairmode skill dispatcher.
+> Correct invocation:
+> ```bash
+> PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/story_new.py" \
+>   --project-dir "$(pwd)" --rail BOOTSTRAP --title "My story title"
+> ```
+
+**When to use:** When starting a new story on a named rail. Creates a structured story file
+with frontmatter and section stubs, and optionally registers the story in a phase manifest.
+
+**Inputs expected:**
+- `--rail RAIL` — rail name (case-insensitive; stored uppercase). E.g. `BOOTSTRAP`, `AUDIT`.
+- `--title TEXT` — story title (required).
+- `--phase NNN` — optional phase number. When provided, appends a story row to the phase manifest.
+- `--project-dir PATH` — target project root (default: current directory).
+
+**What it does:**
+1. Resolves and validates `project_dir` (path traversal guard: rejects paths with fewer than
+   3 components).
+2. Normalizes the rail name to uppercase.
+3. Checks if `<project_dir>/docs/stories/<RAIL>/` exists.
+   - If not: prompts `"Rail <RAIL> does not exist. Create it? [Y/n]"`. Aborts on `n`.
+   - If creating: creates the directory. If a current era exists in `docs/eras/`, adds the
+     rail to the era's Rails table.
+4. Scans existing `<RAIL>-NNN.md` files in the rail directory. Next sequence = max existing + 1,
+   zero-padded to 3 digits (`001`, `002`, …). Starts at `001` if none exist.
+5. Writes `<project_dir>/docs/stories/<RAIL>/<RAIL>-NNN.md` with frontmatter and section stubs.
+6. If `--phase` given: opens `<project_dir>/docs/phases/phase-<NNN>.md` (or glob for
+   `<NNN>-*.md`), finds or creates the `## Stories` table, and appends a row
+   `| <RAIL>-NNN | <title> | draft |`.
+7. Prints: `  Created <RAIL>-NNN: <title>` (and `  Added to Phase <NNN>` if applicable).
+
+**Story file format written:**
+```yaml
+---
+id: RAIL-NNN
+rail: RAIL
+title: Story title
+status: draft
+phase: "NNN"
+primary_files:
+touches:
+---
+```
+Followed by `## Acceptance criterion`, `## Instructions`, and `## Tests` section stubs.
+
+**Flags:**
+- `--rail RAIL` — rail name (required)
+- `--title TEXT` — story title (required)
+- `--phase NNN` — phase number to register this story in (optional)
+- `--project-dir PATH` — target project root (default: current directory)
