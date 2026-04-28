@@ -62,6 +62,26 @@ Note: `--project-dir` is the only required flag. Other values (project name, sta
 **Agent file ownership:**
 Agent files in `.claude/agents/` are treated as project-owned after first bootstrap. Bootstrap will not overwrite them on subsequent runs unless `--force-agents` is passed explicitly. This preserves project-specific customisations made to agent definitions after initial scaffolding.
 
+**Rail initialization:**
+After writing scaffold files, bootstrap infers the project type from the stack string and suggests a set of default rails:
+
+| Project type | Inferred when stack or name contains | Default rails |
+|---|---|---|
+| `pairmode` | "pairmode" | BOOTSTRAP, AUDIT, RECONSTRUCT, LESSON, BUILD, TEMPLATE, AGENT, INFRA |
+| `web` | "web", "api", "ui", "flask", "django", "fastapi", "react", "vue" | API, UI, DB, AUTH, INFRA, TEST |
+| `cli` | "cli", "terminal", "argparse", "click", "typer" | CORE, INFRA, TEST |
+| `generic` | (default) | CORE, INFRA, TEST |
+
+In TTY mode (without `--ideology-skip`), bootstrap prompts:
+```
+Confirm rails (enter to accept, or type comma-separated list to override):
+```
+In non-TTY mode or with `--ideology-skip`, rails are created from defaults without prompting.
+
+For each confirmed rail, bootstrap creates `docs/stories/<RAIL>/`. Bootstrap also creates `docs/eras/001-initial.md` with the confirmed rails in its Rails table and sets `status: active`. If `docs/phases/phase-1.md` exists without an `era` frontmatter field, bootstrap prepends `era: "001"` to its frontmatter.
+
+Rail initialization is idempotent: existing rail directories and `docs/eras/001-initial.md` are not overwritten on re-bootstrap.
+
 To overwrite existing agent files:
 ```bash
 PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/bootstrap.py" \

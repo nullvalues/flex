@@ -11,9 +11,11 @@ from skills.pairmode.scripts.bootstrap import (
     bootstrap,
     AGENT_FILES,
     DEFAULT_DENY,
+    PAIRMODE_DEFAULT_RAILS,
     PAIRMODE_VERSION,
     _merge_deny_list,
     _glob_prefix,
+    _infer_project_type,
     _is_subsumed,
 )
 
@@ -1888,3 +1890,252 @@ class TestReconstructionAgentBootstrap:
             "reconstruction-agent.md was not overwritten despite --force-agents"
         )
         assert "## Phase 1 — Read the brief" in content
+
+
+# ---------------------------------------------------------------------------
+# Story 15.4: Rail initialization and Era 001
+# ---------------------------------------------------------------------------
+
+
+class TestRailDefaultsByProjectType:
+    """PAIRMODE_DEFAULT_RAILS contains expected project types."""
+
+    def test_generic_rails_present(self):
+        assert "CORE" in PAIRMODE_DEFAULT_RAILS["generic"]
+        assert "INFRA" in PAIRMODE_DEFAULT_RAILS["generic"]
+        assert "TEST" in PAIRMODE_DEFAULT_RAILS["generic"]
+
+    def test_web_rails_present(self):
+        assert "API" in PAIRMODE_DEFAULT_RAILS["web"]
+        assert "UI" in PAIRMODE_DEFAULT_RAILS["web"]
+        assert "DB" in PAIRMODE_DEFAULT_RAILS["web"]
+
+    def test_cli_rails_present(self):
+        assert "CORE" in PAIRMODE_DEFAULT_RAILS["cli"]
+        assert "TEST" in PAIRMODE_DEFAULT_RAILS["cli"]
+
+    def test_pairmode_rails_present(self):
+        assert "BOOTSTRAP" in PAIRMODE_DEFAULT_RAILS["pairmode"]
+        assert "BUILD" in PAIRMODE_DEFAULT_RAILS["pairmode"]
+
+
+class TestInferProjectType:
+    """_infer_project_type() maps stack/name keywords to project types."""
+
+    def test_web_keyword_in_stack(self):
+        assert _infer_project_type("Python / FastAPI / PostgreSQL", "myapp") == "web"
+
+    def test_cli_keyword_in_stack(self):
+        assert _infer_project_type("Python / click CLI tool", "mytool") == "cli"
+
+    def test_pairmode_in_project_name(self):
+        assert _infer_project_type("Python / pytest", "pairmode") == "pairmode"
+
+    def test_pairmode_in_stack(self):
+        assert _infer_project_type("pairmode framework", "myproject") == "pairmode"
+
+    def test_generic_fallback(self):
+        assert _infer_project_type("Python / pytest", "testproject") == "generic"
+
+    def test_django_stack_is_web(self):
+        assert _infer_project_type("Python / Django / PostgreSQL", "mysite") == "web"
+
+    def test_react_stack_is_web(self):
+        assert _infer_project_type("TypeScript / React / Node", "frontend") == "web"
+
+    def test_typer_stack_is_cli(self):
+        assert _infer_project_type("Python / typer", "mycli") == "cli"
+
+
+class TestBootstrapCreatesRailDirectories:
+    """Bootstrap creates docs/stories/<RAIL>/ for default rails."""
+
+    def test_default_rails_created_for_generic_project(self, tmp_path):
+        """Generic project (Python/pytest) creates CORE, INFRA, TEST rail dirs."""
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        for rail in PAIRMODE_DEFAULT_RAILS["generic"]:
+            rail_dir = tmp_path / "docs" / "stories" / rail
+            assert rail_dir.exists(), f"Rail dir docs/stories/{rail}/ not created"
+            assert rail_dir.is_dir()
+
+    def test_web_rails_created_for_web_project(self, tmp_path):
+        """Web stack gets web-specific rails."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "webapp",
+                "--stack", "Python / FastAPI",
+                "--build-command", "uv run pytest",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        for rail in PAIRMODE_DEFAULT_RAILS["web"]:
+            rail_dir = tmp_path / "docs" / "stories" / rail
+            assert rail_dir.exists(), f"Rail dir docs/stories/{rail}/ not created for web project"
+
+    def test_ideology_skip_creates_rails_without_prompting(self, tmp_path):
+        """--ideology-skip: rails created without prompting."""
+        result = run_bootstrap(tmp_path, extra_args=["--ideology-skip"])
+        assert result.exit_code == 0, result.output
+        for rail in PAIRMODE_DEFAULT_RAILS["generic"]:
+            rail_dir = tmp_path / "docs" / "stories" / rail
+            assert rail_dir.exists(), f"Rail dir docs/stories/{rail}/ not created with --ideology-skip"
+
+    def test_rebootstrap_does_not_overwrite_rail_directories(self, tmp_path):
+        """Re-bootstrap: existing rail directories are not overwritten (idempotent)."""
+        # First bootstrap
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+
+        # Put a sentinel file inside a rail dir
+        core_dir = tmp_path / "docs" / "stories" / "CORE"
+        sentinel = core_dir / "sentinel.txt"
+        sentinel.write_text("sentinel", encoding="utf-8")
+
+        # Second bootstrap — decline all overwrite prompts for scaffold files
+        runner = CliRunner()
+        result2 = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--ideology-skip",
+            ],
+            input="n\n" * 20,
+            catch_exceptions=False,
+        )
+        assert result2.exit_code == 0, result2.output
+
+        # Sentinel should still be present (dir not wiped)
+        assert sentinel.exists(), "Rail directory was wiped on re-bootstrap"
+
+    def test_skipped_message_when_rail_dir_exists(self, tmp_path):
+        """Bootstrap prints 'skipped (exists)' for rails that already exist."""
+        # First bootstrap -- creates rails
+        run_bootstrap(tmp_path)
+
+        # Second bootstrap -- decline overwrite prompts for scaffold files
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--ideology-skip",
+            ],
+            input="n\n" * 20,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert "skipped (exists)" in result.output
+
+
+class TestBootstrapCreatesEra001:
+    """Bootstrap creates docs/eras/001-initial.md."""
+
+    def test_era_001_created(self, tmp_path):
+        """Bootstrap creates docs/eras/001-initial.md."""
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        era_path = tmp_path / "docs" / "eras" / "001-initial.md"
+        assert era_path.exists(), "docs/eras/001-initial.md was not created"
+
+    def test_era_001_has_required_frontmatter(self, tmp_path):
+        """Era 001 has id, name, and status: active frontmatter."""
+        run_bootstrap(tmp_path)
+        era_path = tmp_path / "docs" / "eras" / "001-initial.md"
+        content = era_path.read_text(encoding="utf-8")
+        assert 'id: "001"' in content
+        assert "status: active" in content
+        assert "name:" in content
+
+    def test_era_001_rails_table_contains_confirmed_rails(self, tmp_path):
+        """Era 001 Rails table contains the default generic rails."""
+        run_bootstrap(tmp_path)
+        era_path = tmp_path / "docs" / "eras" / "001-initial.md"
+        content = era_path.read_text(encoding="utf-8")
+        assert "## Rails" in content
+        for rail in PAIRMODE_DEFAULT_RAILS["generic"]:
+            assert rail in content, f"Rail {rail} not found in era 001 Rails table"
+
+    def test_era_001_has_phases_section(self, tmp_path):
+        """Era 001 has a Phases section."""
+        run_bootstrap(tmp_path)
+        era_path = tmp_path / "docs" / "eras" / "001-initial.md"
+        content = era_path.read_text(encoding="utf-8")
+        assert "## Phases" in content
+
+    def test_era_001_not_overwritten_on_rebootstrap(self, tmp_path):
+        """Re-bootstrap: docs/eras/001-initial.md not overwritten if it exists."""
+        # First bootstrap
+        run_bootstrap(tmp_path)
+        era_path = tmp_path / "docs" / "eras" / "001-initial.md"
+        # Write sentinel into era file
+        era_path.write_text("# sentinel era content", encoding="utf-8")
+
+        # Second bootstrap -- decline overwrite prompts for scaffold files
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--ideology-skip",
+            ],
+            input="n\n" * 20,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert era_path.read_text(encoding="utf-8") == "# sentinel era content", (
+            "docs/eras/001-initial.md was overwritten on re-bootstrap"
+        )
+
+    def test_era_001_project_name_in_name_field(self, tmp_path):
+        """Era 001 name field contains the project name."""
+        run_bootstrap(tmp_path)
+        era_path = tmp_path / "docs" / "eras" / "001-initial.md"
+        content = era_path.read_text(encoding="utf-8")
+        assert "testproject" in content
+
+    def test_dry_run_does_not_create_era_001(self, tmp_path):
+        """Dry run does not create docs/eras/001-initial.md."""
+        runner = CliRunner()
+        runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--dry-run",
+            ],
+            catch_exceptions=False,
+        )
+        assert not (tmp_path / "docs" / "eras" / "001-initial.md").exists()
+
+    def test_dry_run_does_not_create_rail_dirs(self, tmp_path):
+        """Dry run does not create docs/stories/<RAIL>/ directories."""
+        runner = CliRunner()
+        runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--dry-run",
+            ],
+            catch_exceptions=False,
+        )
+        stories_dir = tmp_path / "docs" / "stories"
+        assert not stories_dir.exists() or not any(stories_dir.iterdir())
