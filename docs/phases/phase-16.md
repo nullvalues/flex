@@ -53,8 +53,9 @@ def clear_story_permissions(project_dir: Path) -> None:
 Implementation details:
 
 **`write_story_permissions`:**
-1. Read story frontmatter from `story_path` (use the same YAML parsing approach as
-   `schema_validator.py` from Story 15.0).
+1. Read story frontmatter from `story_path`. Import `schema_validator` and call
+   `schema_validator._parse_frontmatter(text)` — do not re-implement the parser inline.
+   `schema_validator.py` is the canonical frontmatter parser for all pairmode scripts.
 2. Collect all paths: `primary_files` + `touches` (deduplicated).
 3. For each path, generate two rules: `Edit(<path>)` and `Write(<path>)`.
    Also generate `Read(<path>)` for `touches` entries only.
@@ -79,6 +80,8 @@ Implementation details:
 - `write_story_permissions` is idempotent: calling twice does not duplicate rules.
 - If `settings.local.json` has no `permissions` key, create it.
 - If `permissions.allow` does not exist, create it as an empty list before merging.
+- If `primary_files` and `touches` are both empty (story not yet filled in): emit a warning
+  to stderr and write zero rules — do not crash or write an empty `story_scope.json`.
 
 **Tests — `tests/pairmode/test_permission_scope.py`** (new file):
 - `write_story_permissions` adds `Edit(file)` and `Write(file)` for each primary file.

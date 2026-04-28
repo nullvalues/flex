@@ -140,3 +140,15 @@ and asserts ideology.md output contains real conviction content. 910 tests pass.
 reconstruction-agent.md.j2 agent template created and wired into bootstrap scaffold.
 --brief path containment guard added to score.py (MEDIUM security finding). anchor's own
 .claude/agents/reconstruction-agent.md generated. 929 tests pass.
+
+---
+
+## cp15-rails-eras-story-structure
+
+**Phase:** 15 — Rails, eras, and story structure — foundation
+**Tag command:** `git tag cp15-rails-eras-story-structure && git push origin cp15-rails-eras-story-structure`
+**Acceptance:** schema_validator.py validates story/era/phase manifest frontmatter. story_new.py
+creates story files on named rails. era_new.py creates era documents. phase_new.py writes
+manifest format with era reference and empty Stories table. bootstrap.py suggests rails, prompts
+for confirmation, creates rail directories, and initializes docs/eras/001-initial.md. Template
+stubs for docs/stories/ and docs/eras/ added. 997 tests pass.
