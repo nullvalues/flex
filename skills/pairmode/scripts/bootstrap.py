@@ -644,6 +644,7 @@ def bootstrap(
         "next_phase": None,
         "goal": _resolved_phase_goal,
         "stories": [],
+        "era_id": None,
     }
     for dest_rel, template_name, ctx in [
         ("docs/phases/index.md", "docs/phases/index.md.j2", phase_index_context),

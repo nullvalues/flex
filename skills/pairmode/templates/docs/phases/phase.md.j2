@@ -1,3 +1,9 @@
+{% if era_id -%}
+---
+era: "{{ era_id }}"
+---
+
+{% endif -%}
 # {{ project_name }} — Phase {{ phase_id }}: {{ phase_title }}
 
 {% if prev_phase or next_phase -%}
@@ -16,23 +22,10 @@
 
 ## Stories
 
-{% if stories -%}
-{% for story in stories %}
-### Story {{ story.id }} — {{ story.title }}
-
-**Acceptance criterion:** — fill in —
-
-**Instructions:**
-
-— fill in —
+| ID | Title | Status |
+|----|-------|--------|
 
 ---
-{% endfor %}
-{%- else -%}
-_No stories defined yet. Add them here._
-
----
-{% endif %}
 
 ### CP-{{ phase_id }} Cold-eyes checklist
 
