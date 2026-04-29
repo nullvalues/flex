@@ -143,6 +143,19 @@ reconstruction-agent.md.j2 agent template created and wired into bootstrap scaff
 
 ---
 
+## cp16-build-loop-integration
+
+**Phase:** 16 — Build loop integration and rail-aware review
+**Tag command:** `git tag cp16-build-loop-integration && git push origin cp16-build-loop-integration`
+**Acceptance:** permission_scope.py writes/clears story-scoped allow rules in settings.local.json
+with path containment guard (HIGH security finding fixed in Story 16.5). story_resolver.py
+resolves story IDs and parses phase manifests. CLAUDE.build.md updated with manifest-aware
+orchestrator loop and feat(story-RAIL-NNN) commit format. CLAUDE.md item 9 renamed to RAIL
+SCOPE with MEDIUM/HIGH flag logic. reviewer.md.j2 and intent-reviewer.md.j2 updated with
+rail violation detection. sync.py detects and prompts for missing default rails. 1043 tests pass.
+
+---
+
 ## cp15-rails-eras-story-structure
 
 **Phase:** 15 — Rails, eras, and story structure — foundation

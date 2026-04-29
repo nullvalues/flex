@@ -51,6 +51,8 @@ anchor/
         story_new.py              ← create story files on named rails
         era_new.py                ← create era documents
         schema_validator.py       ← validate story/era/phase manifest frontmatter
+        permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json
+        story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
       templates/                  ← Jinja2 templates for scaffold generation
         CLAUDE.md.j2
         CLAUDE.build.md.j2
@@ -275,10 +277,28 @@ table; full story content lives in the individual story file.
 (or any public export added to it) must be used by sibling scripts that need to read YAML
 frontmatter from story/era/phase files. Do not re-implement the parser inline.
 
-**Rail-to-file mapping non-negotiable (Phase 16):** When Phase 16's `permission_scope.py`
-reads `primary_files` and `touches` from a story file, it must handle the case where both
-lists are empty (a newly created story not yet filled in). Empty lists should produce zero
-allow rules with a warning, not a crash or silent misconfiguration.
+**`permission_scope.py` path containment:** `write_story_permissions` validates every path
+from `primary_files` and `touches` against `project_dir` using `Path.resolve().relative_to()`
+before generating any allow rule. Paths that escape `project_dir` (traversal, absolute) are
+skipped with a stderr warning. This guard must not be removed or weakened.
+
+**`permission_scope.py` gitignore side-effect:** `write_story_permissions` appends
+`.claude/story_scope.json` to the project's `.gitignore` (creating it if absent). This is
+intentional — story_scope.json is ephemeral and must not be committed. Any project-level
+`.gitignore` management must account for this.
+
+**`permission_scope.py` empty-files behavior:** When both `primary_files` and `touches` are
+empty (or all paths are filtered by the containment guard), the function returns without
+writing `story_scope.json` or modifying `settings.local.json`. Callers must not assume that
+"clear was called" implies rules were removed if write was a no-op.
+
+**`PAIRMODE_DEFAULT_RAILS` (in `bootstrap.py`)** is the canonical source for default rail sets
+by project type. It is imported by `sync.py`'s `_check_rail_gaps`. Treat it as a public
+constant; changing its structure requires updating all callers.
+
+**Rail-to-file mapping:** When `permission_scope.py` reads `primary_files` and `touches`, both
+lists being empty produces zero allow rules with a warning, not a crash or silent
+misconfiguration.
 
 ### Pairmode non-negotiables
 

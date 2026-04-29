@@ -34,6 +34,7 @@ Important, not urgent. Quality improvements, architectural refinements.
 | CER-005 | phase_new.py missing len(parts) < 3 depth guard; resolve() is called but shallow-path check absent. All other pairmode entry points apply this guard consistently (bootstrap, audit, sync, score, reconstruct, story_new, era_new). phase_new.py:286 | Security audit cp15 | 2026-04-27 | 15 |
 | CER-006 | validate_story_file rejects empty primary_files list, but story_new.py writes primary_files: [] by default. Every new story file fails its own validator until primary_files is filled in. Either allow empty list for draft stories, or omit the field entirely when empty. schema_validator.py, story_new.py | Intent review cp15 | 2026-04-27 | 15 |
 | CER-007 | era_new.py writes unquoted id field (id: 001 — YAML integer) while bootstrap.py writes quoted id (id: "001" — YAML string). Current regex-based parsers tolerate both, but a proper YAML parser (e.g., python-frontmatter, PyYAML) would return integer 1 from era_new output. Fix era_new.py to write id: "{era_id}" (quoted string). era_new.py | Intent review cp15 | 2026-04-27 | 15 |
+| CER-008 | permission_scope.py: if settings.local.json contains valid non-object JSON (e.g., a bare array), _read_json returns it as-is and the subsequent .setdefault() call raises AttributeError. Add a guard: if the parsed value is not a dict, treat it as {}. permission_scope.py:75 | Security audit cp16 | 2026-04-28 | 16 | **RESOLVED** Story 16.5 (HIGH path traversal fixed); this LOW finding tracked separately |
 
 
 ---
