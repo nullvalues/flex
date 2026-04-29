@@ -55,21 +55,42 @@ def write_story_permissions(story_path: _Path, project_dir: _Path) -> None:
     seen: set[str] = set()
     new_rules: list[str] = []
 
-    for path in primary_files:
-        if path not in seen:
-            seen.add(path)
-            new_rules.append(f"Edit({path})")
-            new_rules.append(f"Write({path})")
+    for raw in primary_files:
+        safe = _safe_path(raw, project_dir)
+        if safe is None:
+            _sys.stderr.write(
+                f"permission_scope: warning: path {raw!r} resolves outside project_dir; "
+                "skipping.\n"
+            )
+            continue
+        if raw not in seen:
+            seen.add(raw)
+            new_rules.append(f"Edit({raw})")
+            new_rules.append(f"Write({raw})")
 
-    for path in touches:
-        if path not in seen:
-            seen.add(path)
-            new_rules.append(f"Edit({path})")
-            new_rules.append(f"Write({path})")
+    for raw in touches:
+        safe = _safe_path(raw, project_dir)
+        if safe is None:
+            _sys.stderr.write(
+                f"permission_scope: warning: path {raw!r} resolves outside project_dir; "
+                "skipping.\n"
+            )
+            continue
+        if raw not in seen:
+            seen.add(raw)
+            new_rules.append(f"Edit({raw})")
+            new_rules.append(f"Write({raw})")
         # Read rule for touches (deduplicate the Read rule itself too)
-        read_rule = f"Read({path})"
+        read_rule = f"Read({raw})"
         if read_rule not in new_rules:
             new_rules.append(read_rule)
+
+    if not new_rules:
+        _sys.stderr.write(
+            "permission_scope: warning: all paths were unsafe or skipped; "
+            "writing zero rules.\n"
+        )
+        return
 
     settings_path = project_dir / ".claude" / "settings.local.json"
     settings = _read_json(settings_path, default={})
@@ -123,6 +144,17 @@ def clear_story_permissions(project_dir: _Path) -> None:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _safe_path(raw: str, project_dir: _Path) -> _Path | None:
+    """Resolve raw path string relative to project_dir.
+    Return the resolved Path if it stays within project_dir, else None."""
+    try:
+        candidate = (project_dir.resolve() / raw).resolve()
+        candidate.relative_to(project_dir.resolve())
+        return candidate
+    except (ValueError, OSError):
+        return None
 
 
 def _read_json(path: _Path, *, default: object) -> dict:

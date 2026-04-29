@@ -234,3 +234,76 @@ def test_gitignore_not_duplicated(tmp_path):
 
     gitignore = (tmp_path / ".gitignore").read_text()
     assert gitignore.count(".claude/story_scope.json") == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests — path containment guard (_safe_path / write_story_permissions)
+# ---------------------------------------------------------------------------
+
+
+def _make_story(tmp_path: Path, primary_files: list, touches: list | None = None) -> Path:
+    touches_yaml = ""
+    if touches:
+        touches_yaml = "touches:\n" + "".join(f"  - {t}\n" for t in touches)
+    else:
+        touches_yaml = "touches:\n"
+    primary_yaml = "primary_files:\n" + "".join(f"  - {p}\n" for p in primary_files)
+    content = f"""\
+---
+id: RAIL-099
+rail: RAIL
+title: Guard test
+status: planned
+phase: 1
+{primary_yaml}{touches_yaml}---
+
+Body.
+"""
+    story = tmp_path / "story.md"
+    story.write_text(content)
+    return story
+
+
+def test_traversal_path_in_primary_skipped(tmp_path, capsys):
+    story = _make_story(tmp_path, primary_files=["../../etc/passwd"])
+    ps.write_story_permissions(story, tmp_path)
+
+    captured = capsys.readouterr()
+    assert "warning" in captured.err.lower()
+
+    settings = _read_settings(tmp_path)
+    allow = settings.get("permissions", {}).get("allow", [])
+    assert not any("etc/passwd" in r for r in allow)
+
+
+def test_absolute_path_in_primary_skipped(tmp_path, capsys):
+    story = _make_story(tmp_path, primary_files=["/etc/passwd"])
+    ps.write_story_permissions(story, tmp_path)
+
+    captured = capsys.readouterr()
+    assert "warning" in captured.err.lower()
+
+    settings = _read_settings(tmp_path)
+    allow = settings.get("permissions", {}).get("allow", [])
+    assert not any("etc/passwd" in r for r in allow)
+
+
+def test_valid_path_alongside_traversal(tmp_path, capsys):
+    story = _make_story(tmp_path, primary_files=["../../etc/passwd", "src/good.py"])
+    ps.write_story_permissions(story, tmp_path)
+
+    settings = _read_settings(tmp_path)
+    allow = settings.get("permissions", {}).get("allow", [])
+    # Valid path should produce rules
+    assert "Edit(src/good.py)" in allow
+    assert "Write(src/good.py)" in allow
+    # Traversal path should not appear
+    assert not any("etc/passwd" in r for r in allow)
+
+
+def test_all_traversal_no_scope_file_created(tmp_path, capsys):
+    story = _make_story(tmp_path, primary_files=["../../etc/passwd", "/etc/hosts"])
+    ps.write_story_permissions(story, tmp_path)
+
+    # No story_scope.json should be created
+    assert _read_scope(tmp_path) is None

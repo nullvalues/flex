@@ -287,6 +287,70 @@ In `sync()` (or `audit()`):
 
 ---
 
+### Story 16.5 — Security fix: path containment guard in `permission_scope.py`
+
+**Acceptance criterion:** `write_story_permissions` validates each path from `primary_files`
+and `touches` against `project_dir` before generating allow rules. Any path that resolves
+outside `project_dir` (absolute paths, `..` traversal, `~` home expansion) is rejected with
+a warning and skipped — it does not become an allow rule. Tests pass.
+
+**Instructions:**
+
+In `skills/pairmode/scripts/permission_scope.py`, add a `_safe_path` helper and call it
+before generating each allow rule:
+
+```python
+def _safe_path(raw: str, project_dir: _Path) -> _Path | None:
+    """Resolve raw path string relative to project_dir.
+    Return the resolved Path if it stays within project_dir, else None."""
+    try:
+        candidate = (project_dir / raw).resolve()
+        candidate.relative_to(project_dir.resolve())
+        return candidate
+    except (ValueError, OSError):
+        return None
+```
+
+In `write_story_permissions`, replace the raw-string path loop with:
+
+```python
+for raw in primary_files:
+    if _safe_path(raw, project_dir) is None:
+        sys.stderr.write(
+            f"permission_scope: warning: path '{raw}' is outside project_dir; skipping.\n"
+        )
+        continue
+    if raw not in seen:
+        seen.add(raw)
+        new_rules.append(f"Edit({raw})")
+        new_rules.append(f"Write({raw})")
+
+for raw in touches:
+    safe = _safe_path(raw, project_dir)
+    if safe is None:
+        sys.stderr.write(
+            f"permission_scope: warning: path '{raw}' is outside project_dir; skipping.\n"
+        )
+        continue
+    if raw not in seen:
+        seen.add(raw)
+        new_rules.append(f"Edit({raw})")
+        new_rules.append(f"Write({raw})")
+    read_rule = f"Read({raw})"
+    if read_rule not in new_rules:
+        new_rules.append(read_rule)
+```
+
+**Tests — `tests/pairmode/test_permission_scope.py`** (extend existing file):
+- Traversal path in `primary_files` (`../../etc/passwd`): skipped, no allow rule generated,
+  warning written to stderr.
+- Absolute path in `primary_files` (`/etc/passwd`): skipped, no allow rule generated.
+- Valid relative path alongside traversal path: valid path produces rules; traversal skipped.
+- All-traversal story: zero rules written, no `story_scope.json` created (because `new_rules`
+  is empty after filtering — keep the existing empty-list guard behavior).
+
+---
+
 ⚙️ DEVELOPER ACTION — Verify no stale permissions after Phase 16
 
 After Story 16.0 passes review, confirm `.claude/story_scope.json` is absent (no leftover
