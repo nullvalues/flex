@@ -541,6 +541,10 @@ class TestReviewerAgentTemplate:
         assert "What you must not do" in self.output
         assert "Do not write" in self.output
 
+    def test_rail_scope_checklist_item_present(self):
+        # Story 16.3: reviewer.md.j2 must contain RAIL SCOPE checklist item
+        assert "RAIL SCOPE" in self.output
+
 
 # ---------------------------------------------------------------------------
 # Loop-breaker agent template tests
@@ -691,6 +695,10 @@ class TestIntentReviewerAgentTemplate:
 
     def test_calibration_section(self):
         assert "Calibration" in self.output
+
+    def test_cross_rail_file_touches_in_pivot_detection(self):
+        # Story 16.3: intent-reviewer.md.j2 must contain Cross-rail pivot detection item
+        assert "Cross-rail" in self.output
 
 
 # ---------------------------------------------------------------------------

@@ -74,6 +74,16 @@ For each entry in `## Prototype fingerprints` marked "No" or "Conditional" under
 - Only LOW (5c) → PASS with note
 - `docs/ideology.md` absent → PASS with note (LOW)
 
+**6. RAIL SCOPE (new stories only — skip if story has no story file)**
+Read story `primary_files` and `touches` from `docs/stories/<RAIL>/<RAIL>-NNN.md`.
+- Any file in the diff NOT listed in `primary_files` or `touches`: MEDIUM (undeclared
+  file touched — possible scope creep).
+- Any file in the diff whose path falls under a different rail's primary domain AND is
+  not in `touches`: HIGH (rail violation — architectural boundary crossed without explicit
+  declaration).
+- If the story file is not found (legacy story): fall back to the story description text.
+  Flag undeclared out-of-scope changes MEDIUM.
+
 ---
 
 ## Test run
