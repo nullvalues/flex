@@ -52,6 +52,18 @@ re-scaffolding a project after a major methodology revision.
   `intent-reviewer.md` — skipped if they already exist unless `--force-agents` is passed.
 - `.claude/agents/reconstruction-agent.md` — skipped if already exists unless `--force-agents` is passed.
 
+**Orchestrator workflow — permission pre-writing:**
+After bootstrapping, the build orchestrator (`CLAUDE.build.md`) manages permissions around
+each story build loop:
+- Before spawning the builder: calls `permission_scope.write_story_permissions(story_path, project_dir)`
+  to write story-scoped allow rules to `.claude/settings.local.json`. This pre-authorizes all
+  edits declared in the story's `primary_files` and `touches` fields so the builder session
+  does not prompt mid-build.
+- After the reviewer commits or reverts: calls `permission_scope.clear_story_permissions(project_dir)`
+  to remove those allow rules, restoring the project's default deny posture.
+
+Story commits use the format: `feat(story-RAIL-NNN)` (e.g., `feat(story-BOOTSTRAP-003)`).
+
 **CLI invocation:**
 ```bash
 PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/bootstrap.py" \
