@@ -185,3 +185,30 @@ def test_brief_inside_project_dir_accepted(tmp_path: pathlib.Path) -> None:
     assert result.exit_code == 0, result.output
     out_path = tmp_path / "docs" / "RECONSTRUCTION.md"
     assert out_path.exists(), "docs/RECONSTRUCTION.md was not created"
+
+
+def test_jinja2_undefined_variable_no_exception(tmp_path: pathlib.Path) -> None:
+    """Rendering a template with an undefined variable must not raise an exception.
+
+    score.py uses jinja2.Undefined (lenient), not StrictUndefined, so missing
+    template variables silently render as empty string rather than crashing.
+    """
+    import jinja2
+    import sys
+
+    # Insert anchor repo root so the import works like in the actual script
+    sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent))
+
+    from skills.pairmode.scripts import score as _score_module
+
+    # Build a minimal in-memory environment using the same Undefined setting
+    # that score.py applies (jinja2.Undefined — lenient).
+    env = jinja2.Environment(
+        loader=jinja2.BaseLoader(),
+        undefined=jinja2.Undefined,
+    )
+    template = env.from_string("value={{ undefined_var }}")
+
+    # Must not raise UndefinedError
+    rendered = template.render()
+    assert rendered == "value="

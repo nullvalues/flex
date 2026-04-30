@@ -168,11 +168,21 @@ def _load_or_create_backlog(backlog_path: Path) -> list[dict]:
 
     content = backlog_path.read_text(encoding="utf-8")
     try:
-        return _parse_entries_from_backlog(content)
+        entries = _parse_entries_from_backlog(content)
     except Exception as exc:
         raise click.ClickException(
             f"Could not parse {backlog_path}: {exc}"
         ) from exc
+
+    if len(content.splitlines()) > 5 and len(entries) == 0:
+        click.echo(
+            "Warning: backlog.md exists but no table rows were parsed. "
+            "The file may have non-standard formatting. "
+            "Existing CER IDs may not be detected — verify before appending.",
+            err=True,
+        )
+
+    return entries
 
 
 def append_finding(
