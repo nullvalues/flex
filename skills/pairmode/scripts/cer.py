@@ -323,6 +323,10 @@ def cli(
     """Triage a cold-eyes review finding into docs/cer/backlog.md."""
     proj = Path(project_dir).resolve()
 
+    if not proj.is_dir() or len(proj.parts) < 3:
+        click.echo("Error: --project-dir is too shallow or not a directory.", err=True)
+        raise SystemExit(1)
+
     # --- Non-interactive path ---
     if finding is not None and quadrant is not None:
         internal_quadrant = QUADRANT_MAP[quadrant]

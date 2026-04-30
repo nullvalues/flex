@@ -261,6 +261,11 @@ def phase_new(
 ) -> None:
     """Create a new phase-N.md scaffold and update docs/phases/index.md."""
     project_path = Path(project_dir).resolve()
+
+    if not project_path.is_dir() or len(project_path.parts) < 3:
+        click.echo("Error: --project-dir is too shallow or not a directory.", err=True)
+        raise SystemExit(1)
+
     phases_dir = project_path / "docs" / "phases"
 
     # 1. Ensure docs/phases/ exists (skip in dry-run)

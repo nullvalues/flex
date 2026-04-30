@@ -424,3 +424,31 @@ def test_escape_table_cell_single_pipe() -> None:
 
 def test_escape_table_cell_multiple_pipes() -> None:
     assert _escape_table_cell("a | b | c") == r"a \| b \| c"
+
+
+# ---------------------------------------------------------------------------
+# Tests: depth guard
+# ---------------------------------------------------------------------------
+
+def test_depth_guard_root_exits_nonzero() -> None:
+    """--project-dir / is too shallow: must exit non-zero with error message."""
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["--project-dir", "/", "--finding", "x", "--quadrant", "now"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code != 0
+    assert "too shallow" in (result.output + (result.stderr if hasattr(result, "stderr") else "")).lower() or \
+           "too shallow" in result.output.lower()
+
+
+def test_depth_guard_tmp_exits_nonzero() -> None:
+    """--project-dir /tmp is only 2 parts deep: must exit non-zero."""
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["--project-dir", "/tmp", "--finding", "x", "--quadrant", "now"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code != 0

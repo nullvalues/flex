@@ -307,3 +307,37 @@ def test_all_traversal_no_scope_file_created(tmp_path, capsys):
 
     # No story_scope.json should be created
     assert _read_scope(tmp_path) is None
+
+
+# ---------------------------------------------------------------------------
+# Tests — _read_json non-dict guard
+# ---------------------------------------------------------------------------
+
+
+def test_read_json_list_returns_default(tmp_path):
+    p = tmp_path / "data.json"
+    p.write_text("[1, 2, 3]", encoding="utf-8")
+    result = ps._read_json(p, default={})
+    assert result == {}
+
+
+def test_read_json_string_returns_default(tmp_path):
+    p = tmp_path / "data.json"
+    p.write_text('"string"', encoding="utf-8")
+    result = ps._read_json(p, default={})
+    assert result == {}
+
+
+def test_read_json_null_returns_default(tmp_path):
+    p = tmp_path / "data.json"
+    p.write_text("null", encoding="utf-8")
+    result = ps._read_json(p, default={})
+    assert result == {}
+
+
+def test_read_json_valid_dict_returns_dict(tmp_path):
+    p = tmp_path / "data.json"
+    data = {"key": "value", "num": 42}
+    p.write_text(json.dumps(data), encoding="utf-8")
+    result = ps._read_json(p, default={})
+    assert result == data

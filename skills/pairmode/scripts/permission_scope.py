@@ -161,7 +161,10 @@ def _read_json(path: _Path, *, default: object) -> dict:
     if not path.exists():
         return default  # type: ignore[return-value]
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return default  # type: ignore[return-value]
+        return data
     except (json.JSONDecodeError, OSError):
         return default  # type: ignore[return-value]
 
