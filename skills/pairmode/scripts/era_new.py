@@ -46,7 +46,7 @@ def _era_content(era_id: str, name: str, goal: str) -> str:
     """Return the full content of a new era file."""
     frontmatter = (
         "---\n"
-        f"id: {era_id}\n"
+        f'id: "{era_id}"\n'
         f"name: {name}\n"
         "status: active\n"
         "---\n"

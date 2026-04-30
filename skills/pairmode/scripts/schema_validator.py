@@ -110,8 +110,13 @@ def validate_story_file(path: Path) -> list[str]:
         return ["Missing or malformed YAML frontmatter block"]
 
     for field in REQUIRED_STORY_FIELDS:
-        if field not in fm or fm[field] in (None, "", []):
-            errors.append(f"Missing required field: '{field}'")
+        # primary_files emptiness is checked separately with status awareness
+        if field == "primary_files":
+            if field not in fm or fm[field] is None:
+                errors.append(f"Missing required field: '{field}'")
+        else:
+            if field not in fm or fm[field] in (None, "", []):
+                errors.append(f"Missing required field: '{field}'")
 
     if "status" in fm and fm["status"] not in VALID_STORY_STATUSES:
         errors.append(
@@ -121,6 +126,12 @@ def validate_story_file(path: Path) -> list[str]:
 
     if "primary_files" in fm and not isinstance(fm["primary_files"], list):
         errors.append("Field 'primary_files' must be a list")
+
+    status = fm.get("status", "")
+    if status not in ("draft", "backlog"):
+        if not fm.get("primary_files"):
+            errors.append("primary_files must be non-empty for non-draft stories "
+                          "(status is not 'draft' or 'backlog')")
 
     return errors
 

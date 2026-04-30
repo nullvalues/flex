@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import pathlib
+import sys
 
 import pytest
 from click.testing import CliRunner
 
-from skills.pairmode.scripts.era_new import era_new
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts"))
+
+from era_new import era_new
+from schema_validator import validate_era_file
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +49,7 @@ class TestEraFileCreated:
         invoke(["--name", "My Era", "--project-dir", str(tmp_path)])
         era_file = tmp_path / "docs" / "eras" / "001-my-era.md"
         content = era_file.read_text()
-        assert "id: 001" in content
+        assert 'id: "001"' in content
         assert "name: My Era" in content
         assert "status: active" in content
 
@@ -125,6 +129,35 @@ class TestBodySectionStubs:
         content = era_file.read_text()
         assert "## Phases" in content
         assert "| Phase |" in content
+
+
+class TestIdQuoting:
+    """era_new.py writes the era id as a quoted YAML string, not a bare integer."""
+
+    def test_id_field_is_quoted_string(self, tmp_path: pathlib.Path) -> None:
+        invoke(["--name", "Quoted Id Era", "--project-dir", str(tmp_path)])
+        era_file = tmp_path / "docs" / "eras" / "001-quoted-id-era.md"
+        content = era_file.read_text()
+        assert 'id: "001"' in content, (
+            f"Expected 'id: \"001\"' in frontmatter, got:\n{content}"
+        )
+
+    def test_id_field_parsed_as_string_not_integer(self, tmp_path: pathlib.Path) -> None:
+        from schema_validator import _parse_frontmatter
+        invoke(["--name", "String Id Era", "--project-dir", str(tmp_path)])
+        era_file = tmp_path / "docs" / "eras" / "001-string-id-era.md"
+        content = era_file.read_text()
+        fm = _parse_frontmatter(content)
+        assert fm is not None, "Frontmatter should be parseable"
+        assert fm["id"] == "001", (
+            f"Expected id field to be string '001', got: {fm['id']!r}"
+        )
+
+    def test_validate_era_file_passes_on_new_era(self, tmp_path: pathlib.Path) -> None:
+        invoke(["--name", "Validated Era", "--project-dir", str(tmp_path)])
+        era_file = tmp_path / "docs" / "eras" / "001-validated-era.md"
+        errors = validate_era_file(era_file)
+        assert errors == [], f"Expected no validation errors, got: {errors}"
 
 
 class TestPathTraversalGuard:
