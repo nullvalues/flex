@@ -5,10 +5,11 @@
 ## Goal
 
 Phase 20 prepares the codebase for a pull request back to the parent anchor repo.
-Six stories: README.md, pipe architecture documentation, a standalone PAIRMODE.md
-for the upstream maintainer, CHANGELOG.md and CONTRIBUTING.md, a final pre-PR audit
-gate, and a careful git history review that pauses for developer approval before any
-destructive operations.
+Eight stories: README.md, pipe architecture documentation, a standalone PAIRMODE.md
+for the upstream maintainer, CHANGELOG.md and CONTRIBUTING.md, a SessionStart hook
+that injects pairmode awareness into every Claude session, a pairmode status CLI
+command, a final pre-PR audit gate, and a careful git history review that pauses for
+developer approval before any destructive operations.
 
 The pipe story is the most sensitive for the PR. This fork changed the hook pipe path
 from a hardcoded global singleton to a project-scoped path. That change is backwards-
@@ -27,6 +28,8 @@ Prerequisites: Phase 19 complete and tagged cp19-test-coverage-integration.
 | INFRA-015 | Document project-scoped pipe architecture and upstream divergence | planned |
 | BUILD-004 | Write docs/pairmode/PAIRMODE.md: standalone contribution guide | planned |
 | BUILD-005 | Write CHANGELOG.md and CONTRIBUTING.md | planned |
+| INFRA-018 | SessionStart hook: inject pairmode context into Claude's session | planned |
+| INFRA-019 | `pairmode_status.py`: print current pairmode state and sidebar attachment | planned |
 | INFRA-016 | Final pre-PR audit: full test suite, security pass, open CER review | planned |
 | INFRA-017 | Git history review and squash plan — pauses for developer approval | planned |
 
@@ -322,6 +325,213 @@ Sections:
 - **Pipe architecture**: one sentence + pointer to `docs/pipe-architecture.md`
 
 **Tests:** `tests/pairmode/test_docs.py` asserts both files exist and are under 200 lines.
+
+---
+
+### Story INFRA-018 — SessionStart hook: inject pairmode context into Claude's session
+
+**Rail:** INFRA
+
+**Acceptance criterion:** When a Claude Code session opens in a pairmode-bootstrapped
+repo, Claude receives an `additionalContext` block listing the pairmode version, current
+story (if any), loaded modules, and sidebar status — without any user prompt. If the
+sidebar is not detected, the message includes platform-appropriate attachment instructions
+for macOS and desktop Linux. Tests pass.
+
+**Protected file justification:** This story adds two new files to `hooks/`: a new
+`hooks/session_start.py` script and a new entry in `hooks/hooks.json`. No existing hook
+file is modified. The script is a thin file reader (sub-millisecond, no API calls, no
+blocking I/O). It does not write to the pipe, to spec files, or to any state. This is
+exactly the intended use of a SessionStart hook in the architecture.
+
+**Instructions:**
+
+**Step 1 — Read `hooks/hooks.json`:**
+Read the full file. Identify the exact JSON structure (top-level array vs. object with
+`hooks` key, entry format). Match that structure for the new entry.
+
+**Step 2 — Create `hooks/session_start.py`:**
+
+```python
+#!/usr/bin/env python3
+"""SessionStart hook — injects pairmode context into Claude's session."""
+import json
+import sys
+from pathlib import Path
+
+def _pipe_active(pipe_path: str) -> bool:
+    return bool(pipe_path) and Path(pipe_path).exists()
+
+def main() -> None:
+    state_path = Path(".companion/state.json")
+    if not state_path.exists():
+        return
+
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+
+    pairmode_version = state.get("pairmode_version")
+    if not pairmode_version:
+        return  # not a pairmode repo; emit nothing
+
+    lines: list[str] = [f"Pairmode v{pairmode_version} is active in this repo."]
+
+    # Current story
+    story = state.get("current_story")
+    if isinstance(story, dict):
+        sid = story.get("id", "")
+        title = story.get("title", "")
+        status = story.get("status", "")
+        lines.append(f"Current story: {sid} — {title} [{status}]")
+    else:
+        lines.append("No active story. Set one with: story_context.py --set RAIL-NNN")
+
+    # Loaded modules
+    modules = state.get("last_loaded_modules", [])
+    if modules:
+        lines.append(f"Loaded modules: {', '.join(modules)}")
+
+    # Sidebar
+    pipe_path = state.get("pipe_path", "")
+    if _pipe_active(pipe_path):
+        lines.append(f"Companion sidebar: active (pipe: {pipe_path})")
+    else:
+        project_dir = Path(".").resolve()
+        anchor_root = Path(__file__).resolve().parent.parent
+        start_sh = anchor_root / "skills" / "companion" / "scripts" / "start_sidebar.sh"
+        sidebar_log = project_dir / ".companion" / "sidebar.log"
+        lines.append("Companion sidebar: not detected")
+        lines.append(f"  To start (macOS / desktop Linux):")
+        lines.append(f"    bash {start_sh}")
+        if sidebar_log.exists():
+            lines.append(f"  If already running in background, attach with:")
+            lines.append(f"    tail -f {sidebar_log}")
+
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": "\n".join(lines),
+        }
+    }))
+
+if __name__ == "__main__":
+    main()
+```
+
+**Step 3 — Add the SessionStart entry to `hooks/hooks.json`:**
+
+Following the existing entry format in the file, add a SessionStart hook pointing to
+`hooks/session_start.py`. The hook must have a `timeout` of 5 seconds.
+
+**Step 4 — Write tests in `tests/pairmode/test_session_start_hook.py`:**
+
+- `test_no_output_without_state_json`: run `session_start.py` in a tmp_path with no
+  `.companion/state.json`; assert stdout is empty or exit code 0 with no output.
+- `test_no_output_without_pairmode_version`: state.json exists but has no
+  `pairmode_version`; assert no output.
+- `test_emits_pairmode_version`: state.json with `pairmode_version: "0.1.0"`;
+  assert output JSON contains `"Pairmode v0.1.0 is active"` in `additionalContext`.
+- `test_emits_current_story`: state.json with `pairmode_version` and
+  `current_story: {id: "INFRA-001", title: "depth guards", status: "in-progress"}`;
+  assert `additionalContext` contains `"INFRA-001"`.
+- `test_emits_no_story_message`: state.json with `pairmode_version` but no
+  `current_story`; assert `additionalContext` contains `"No active story"`.
+- `test_sidebar_active_when_pipe_exists`: state.json with `pipe_path` pointing to a
+  real tmp file; assert `additionalContext` contains `"Companion sidebar: active"`.
+- `test_sidebar_attachment_instructions_when_pipe_missing`: state.json with
+  `pipe_path` pointing to a non-existent path; assert `additionalContext` contains
+  `"To start"` and `"start_sidebar.sh"`.
+
+---
+
+### Story INFRA-019 — `pairmode_status.py`: print current pairmode state and sidebar attachment
+
+**Rail:** INFRA
+
+**Acceptance criterion:** `skills/pairmode/scripts/pairmode_status.py` is a Click CLI.
+Running it from a project root prints a formatted status block: pairmode version, active
+era, current story, loaded modules, and sidebar status with attachment instructions for
+macOS and desktop Linux. Running it in a non-pairmode repo exits cleanly with a message.
+Tests pass.
+
+**Instructions:**
+
+Create `skills/pairmode/scripts/pairmode_status.py`:
+
+```python
+@click.command()
+@click.option("--project-dir", default=".", type=click.Path(exists=True, file_okay=False))
+def pairmode_status(project_dir):
+    """Print pairmode status for the project at --project-dir."""
+```
+
+**Implementation:**
+
+1. Read `.companion/state.json`. If absent, print:
+   ```
+   Not a pairmode repo: .companion/state.json not found.
+   Run /anchor:pairmode bootstrap to initialize.
+   ```
+   Exit 0.
+
+2. If `pairmode_version` absent in state, print the same message and exit 0.
+
+3. Build and print the status block. Example output:
+   ```
+   Pairmode v0.1.0
+   ─────────────────────────────────────
+   Era:     001 — anchor Initial development
+   Story:   INFRA-014 — Close targeted test gaps [in-progress]
+   Modules: pairmode-skill, docs
+   ─────────────────────────────────────
+   Sidebar: active
+     Pipe:  /tmp/companion-a1b2c3d4.pipe
+   ```
+
+   If no active era: `Era: (none)`.
+   If no current story: `Story: (none set)`.
+
+4. **Era detection:** glob `project_dir/docs/eras/*.md`, read frontmatter from the
+   first one where `status: active`. Use `schema_validator._parse_frontmatter`.
+
+5. **Sidebar status and attachment instructions:**
+
+   If `state["pipe_path"]` exists as a file:
+   ```
+   Sidebar: active
+     Pipe:  <pipe_path>
+   ```
+
+   If not:
+   ```
+   Sidebar: not detected
+   
+   To start the companion sidebar:
+     macOS:         bash <anchor_root>/skills/companion/scripts/start_sidebar.sh
+     Linux (KDE):   bash <anchor_root>/skills/companion/scripts/start_sidebar.sh
+     Linux (GNOME): bash <anchor_root>/skills/companion/scripts/start_sidebar.sh
+   
+   If the sidebar is already running as a background process:
+     tail -f <project_dir>/.companion/sidebar.log
+   
+   The sidebar launch script auto-detects your terminal emulator
+   (Konsole, GNOME Terminal, Xfce Terminal, macOS Terminal, iTerm2).
+   ```
+
+   `anchor_root` is `Path(__file__).resolve().parent.parent.parent` (three levels up
+   from scripts/).
+
+**Tests — `tests/pairmode/test_pairmode_status.py`:**
+
+- `test_not_a_pairmode_repo`: no state.json → exit 0, message contains "Not a pairmode repo".
+- `test_shows_version`: state.json with `pairmode_version: "0.1.0"` → output contains "0.1.0".
+- `test_shows_current_story`: state.json with `current_story` → story ID in output.
+- `test_shows_no_story`: state.json without `current_story` → "(none set)" in output.
+- `test_shows_sidebar_active`: pipe_path pointing to real tmp file → "active" in output.
+- `test_shows_attachment_instructions`: pipe_path not found → output contains "start_sidebar.sh" and "tail -f".
+- `test_shows_modules`: `last_loaded_modules: ["pairmode-skill", "docs"]` → both in output.
 
 ---
 
