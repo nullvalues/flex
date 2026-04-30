@@ -2,12 +2,18 @@
 
 from pathlib import Path
 import json
+import re as _re
 
 LESSONS_FILE = Path(__file__).parent.parent.parent.parent / "lessons" / "lessons.json"
 
 
 def load_lessons() -> dict:
     """Load lessons.json and return the parsed dict."""
+    if not LESSONS_FILE.exists():
+        raise RuntimeError(
+            f"lessons.json not found at {LESSONS_FILE}. "
+            "Run '/anchor:pairmode lesson' to capture the first lesson and create it."
+        )
     with open(LESSONS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -94,10 +100,15 @@ def generate_lessons_md(data: dict) -> str:
     return "\n".join(lines)
 
 
-def next_lesson_id(data: dict) -> str:
+def next_lesson_id(lessons: list[dict]) -> str:
     """Return the next lesson ID string (e.g. 'L001', 'L002').
 
+    Uses max(existing numeric IDs) + 1 to avoid collision if any entry is absent.
     Returns 'L001' for an empty lessons list.
     """
-    lessons = data.get("lessons", [])
-    return f"L{len(lessons) + 1:03d}"
+    nums = []
+    for lesson in lessons:
+        m = _re.match(r"L(\d+)$", lesson.get("id", ""))
+        if m:
+            nums.append(int(m.group(1)))
+    return f"L{(max(nums) + 1):03d}" if nums else "L001"
