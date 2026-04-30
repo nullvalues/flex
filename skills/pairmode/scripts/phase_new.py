@@ -13,11 +13,14 @@ import re
 import sys
 from pathlib import Path
 
-# Insert anchor repo root so sibling imports work when run as CLI
+# Insert anchor repo root and scripts dir so sibling imports work when run as CLI
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
 import click
 import jinja2
+
+from schema_validator import _parse_frontmatter
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -66,32 +69,6 @@ def _read_phase_title(phase_file: Path, phase_id: int) -> str:
 
     # Fallback
     return f"Phase {phase_id}"
-
-
-_FRONTMATTER_RE = re.compile(r"^\s*---\s*\n(.*?)\n?---\s*(\n|$)", re.DOTALL)
-_YAML_SCALAR_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$')
-
-
-def _parse_frontmatter(text: str) -> dict | None:
-    """Parse YAML frontmatter (stdlib only, shallow key/value)."""
-    m = _FRONTMATTER_RE.match(text)
-    if not m:
-        return None
-    raw = m.group(1)
-    result: dict = {}
-    for line in raw.splitlines():
-        if not line.strip():
-            continue
-        sm = _YAML_SCALAR_RE.match(line)
-        if sm:
-            key = sm.group(1)
-            value_raw = sm.group(2).strip()
-            if (value_raw.startswith('"') and value_raw.endswith('"')) or (
-                value_raw.startswith("'") and value_raw.endswith("'")
-            ):
-                value_raw = value_raw[1:-1]
-            result[key] = value_raw
-    return result
 
 
 def _detect_active_era(project_dir: Path) -> str | None:

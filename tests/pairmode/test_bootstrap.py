@@ -2139,3 +2139,60 @@ class TestBootstrapCreatesEra001:
         )
         stories_dir = tmp_path / "docs" / "stories"
         assert not stories_dir.exists() or not any(stories_dir.iterdir())
+
+
+# ---------------------------------------------------------------------------
+# INFRA-006: era double-prepend guard in _initialize_rails
+# ---------------------------------------------------------------------------
+
+class TestEraFrontmatterDoublePrependGuard:
+    """_initialize_rails must not double-prepend era frontmatter on re-bootstrap."""
+
+    def _run_initialize_rails(self, tmp_path: pathlib.Path, phase_content: str) -> str:
+        """Write a phase-1.md with *phase_content*, invoke bootstrap (ideology-skip),
+        and return the updated file content."""
+        from skills.pairmode.scripts.bootstrap import _initialize_rails
+
+        phases_dir = tmp_path / "docs" / "phases"
+        phases_dir.mkdir(parents=True, exist_ok=True)
+        phase_file = phases_dir / "phase-1.md"
+        phase_file.write_text(phase_content, encoding="utf-8")
+
+        # Also create docs/eras/ so _initialize_rails doesn't complain
+        eras_dir = tmp_path / "docs" / "eras"
+        eras_dir.mkdir(parents=True, exist_ok=True)
+
+        context = {"project_name": "testproject"}
+        _initialize_rails(
+            project_dir=tmp_path,
+            context=context,
+            stack="Python / pytest",
+            dry_run=False,
+            ideology_skip=True,
+        )
+        return phase_file.read_text(encoding="utf-8")
+
+    def test_no_double_frontmatter_when_era_already_present(self, tmp_path: pathlib.Path) -> None:
+        """Phase file with existing era: \"001\" frontmatter must not get a second block prepended."""
+        original = '---\nera: "001"\n---\n\n# Phase 1\n\nContent here.\n'
+        result = self._run_initialize_rails(tmp_path, original)
+
+        # Count the number of --- delimiters: should be exactly 2 (one open, one close block)
+        frontmatter_delimiters = [line.strip() for line in result.splitlines() if line.strip() == "---"]
+        assert len(frontmatter_delimiters) == 2, (
+            f"Expected exactly one frontmatter block (2 delimiters), "
+            f"got {len(frontmatter_delimiters)}.\nFile content:\n{result}"
+        )
+
+    def test_era_frontmatter_prepended_when_absent(self, tmp_path: pathlib.Path) -> None:
+        """Phase file with no frontmatter gets era: \"001\" prepended exactly once."""
+        original = "# Phase 1\n\nContent here.\n"
+        result = self._run_initialize_rails(tmp_path, original)
+
+        assert 'era: "001"' in result, "era frontmatter not added to file without frontmatter"
+        # Still only one frontmatter block
+        frontmatter_delimiters = [line.strip() for line in result.splitlines() if line.strip() == "---"]
+        assert len(frontmatter_delimiters) == 2, (
+            f"Expected exactly one frontmatter block after prepend, "
+            f"got {len(frontmatter_delimiters)}.\nFile content:\n{result}"
+        )

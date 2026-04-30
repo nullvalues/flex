@@ -24,6 +24,7 @@ from skills.pairmode.scripts import spec_reader as _spec_reader
 from skills.pairmode.scripts import checklist_deriver as _checklist_deriver
 from skills.pairmode.scripts import denylist_deriver as _denylist_deriver
 import ideology_parser as _ideology_parser
+from schema_validator import _parse_frontmatter
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -450,9 +451,10 @@ def _initialize_rails(
         except OSError:
             continue
         # Only prepend era frontmatter if no era field exists yet
-        if "era:" not in content:
-            updated = '---\nera: "001"\n---\n\n' + content
-            phase_file.write_text(updated, encoding="utf-8")
+        existing_fm = _parse_frontmatter(content)
+        if existing_fm is None or "era" not in existing_fm:
+            content = '---\nera: "001"\n---\n\n' + content
+            phase_file.write_text(content, encoding="utf-8")
             click.echo(f"  updated: {phase_file.relative_to(project_dir)} — added era: \"001\"")
         break  # Only update the first found
 
