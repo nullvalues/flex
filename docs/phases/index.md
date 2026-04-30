@@ -14,5 +14,9 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 12 | Reconstruction seeding and comparison scaffolding | complete | [phase-12.md](phase-12.md) · cp12-reconstruction-seeding |
 | 13 | CER cleanup and end-to-end reconstruction verification | complete | [phase-13.md](phase-13.md) · cp13-cer-cleanup-e2e |
 | 14 | Reconstruction agent tooling | complete | [phase-14.md](phase-14.md) · cp14-reconstruction-agent-tooling |
-| 15 | Rails, eras, and story structure — foundation | planned | [phase-15.md](phase-15.md) |
-| 16 | Build loop integration and rail-aware review | planned | [phase-16.md](phase-16.md) |
+| 15 | Rails, eras, and story structure — foundation | complete | [phase-15.md](phase-15.md) · cp15-rails-eras-story-structure |
+| 16 | Build loop integration and rail-aware review | complete | [phase-16.md](phase-16.md) · cp16-build-loop-integration |
+| 17 | Correctness — fix all known bugs | planned | [phase-17.md](phase-17.md) |
+| 18 | Missing tooling — story lifecycle, overrides, --yes, orchestrator clarity | planned | [phase-18.md](phase-18.md) |
+| 19 | Test coverage and integration verification | planned | [phase-19.md](phase-19.md) |
+| 20 | PR readiness — documentation, changelog, git history | planned | [phase-20.md](phase-20.md) |
