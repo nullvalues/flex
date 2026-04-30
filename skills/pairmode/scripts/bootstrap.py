@@ -735,8 +735,8 @@ def bootstrap(
         "value_hierarchy": ideology_context.get("value_hierarchy", []),
         "constraints": ideology_context.get("constraints", []),
         "fingerprints": [],
-        "should_question": [],
-        "free_to_change": [],
+        "should_question": ideology_context.get("should_question", []),
+        "free_to_change": ideology_context.get("free_to_change", []),
         "comparison_dimensions": [],
         # reconstruction.md.j2 variables
         "reconstruction_what": what or "",

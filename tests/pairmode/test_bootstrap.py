@@ -2196,3 +2196,117 @@ class TestEraFrontmatterDoublePrependGuard:
             f"Expected exactly one frontmatter block after prepend, "
             f"got {len(frontmatter_delimiters)}.\nFile content:\n{result}"
         )
+
+
+# ---------------------------------------------------------------------------
+# --from-reconstruction ideology dimension tests (INFRA-007)
+# ---------------------------------------------------------------------------
+
+class TestFromReconstructionIdeologyDimensions:
+    """Tests that --from-reconstruction passes should_question and free_to_change
+    through to ideology.md rendering."""
+
+    _RECONSTRUCTION_BRIEF_WITH_SECTIONS = """\
+# Reconstruction brief — testproject
+
+## Non-negotiable ideology
+
+### Convictions
+- Correctness over speed
+
+### Constraints
+
+#### Data integrity
+**Rule:** Never drop data silently
+
+## What must survive any implementation
+- The core data model
+
+## What you should question
+- We should question whether batch processing is actually needed
+- We should question the current retry strategy
+
+## What you are free to change
+- File naming conventions
+- Log formatting
+
+## Comparison rubric
+- **Correctness:** Does it produce right answers?
+"""
+
+    _RECONSTRUCTION_BRIEF_NO_OPTIONAL_SECTIONS = """\
+# Reconstruction brief — testproject
+
+## Non-negotiable ideology
+
+### Convictions
+- Correctness over speed
+
+## What must survive any implementation
+- The core data model
+"""
+
+    def _write_brief(self, tmp_path: pathlib.Path, content: str) -> pathlib.Path:
+        brief_path = tmp_path / "reconstruction.md"
+        brief_path.write_text(content, encoding="utf-8")
+        return brief_path
+
+    def _run_from_reconstruction(
+        self, tmp_path: pathlib.Path, brief_path: pathlib.Path
+    ) -> object:
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--from-reconstruction", str(brief_path),
+                "--ideology-skip",
+            ],
+            catch_exceptions=False,
+        )
+        return result
+
+    def test_should_question_and_free_to_change_rendered_in_ideology_md(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """--from-reconstruction populates should_question and free_to_change in ideology.md."""
+        brief_path = self._write_brief(
+            tmp_path, self._RECONSTRUCTION_BRIEF_WITH_SECTIONS
+        )
+        result = self._run_from_reconstruction(tmp_path, brief_path)
+        assert result.exit_code == 0, result.output
+
+        ideology = (tmp_path / "docs" / "ideology.md").read_text(encoding="utf-8")
+        assert "should question whether batch processing" in ideology, (
+            "Expected 'should question whether batch processing' in ideology.md.\n"
+            f"ideology.md content:\n{ideology}"
+        )
+        assert "File naming conventions" in ideology, (
+            "Expected 'File naming conventions' in ideology.md.\n"
+            f"ideology.md content:\n{ideology}"
+        )
+
+    def test_missing_should_question_section_renders_without_error(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """Brief with no should_question/free_to_change sections renders ideology.md without error."""
+        brief_path = self._write_brief(
+            tmp_path, self._RECONSTRUCTION_BRIEF_NO_OPTIONAL_SECTIONS
+        )
+        result = self._run_from_reconstruction(tmp_path, brief_path)
+        assert result.exit_code == 0, result.output
+
+        ideology = (tmp_path / "docs" / "ideology.md").read_text(encoding="utf-8")
+        # The template renders placeholder text when lists are empty — just ensure the file exists
+        # and the relevant sections are present (no crash).
+        assert "### Should question" in ideology or "should question" in ideology.lower(), (
+            "Expected 'Should question' section in ideology.md.\n"
+            f"ideology.md content:\n{ideology}"
+        )
+        assert "### Free to change" in ideology or "free to change" in ideology.lower(), (
+            "Expected 'Free to change' section in ideology.md.\n"
+            f"ideology.md content:\n{ideology}"
+        )
