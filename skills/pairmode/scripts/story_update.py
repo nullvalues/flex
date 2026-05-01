@@ -32,34 +32,21 @@ _STORY_ID_RE = re.compile(r'^([A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*)-(\d+)$')
 
 
 def _parse_story_id(story_id: str) -> tuple[str, str]:
-    """Split 'RAIL-NNN' into (rail, seq_str).
+    """Split 'RAIL-NNN' into (rail, story_id).
 
-    Rail may contain hyphens between segments (e.g. MULTI-PART-003).
-    Last hyphen-delimited segment must be all digits.
+    Rail may contain hyphens between upper-case segments (e.g. MULTI-PART-003).
+    Uses _STORY_ID_RE to validate the full string before any path construction,
+    preventing path-traversal via crafted story IDs like '/etc/passwd-001'.
     Raises ValueError on invalid format.
     """
-    if '-' not in story_id:
+    m = _STORY_ID_RE.match(story_id)
+    if not m:
         raise ValueError(
             f"Invalid story ID format: {story_id!r}. "
-            "Expected format: RAIL-NNN (e.g. BOOTSTRAP-003)."
+            "Expected RAIL-NNN (e.g. BOOTSTRAP-003)."
         )
-
-    parts = story_id.split('-')
-    last = parts[-1]
-    if not last.isdigit():
-        raise ValueError(
-            f"Invalid story ID format: {story_id!r}. "
-            "Last segment must be all digits (e.g. BOOTSTRAP-003)."
-        )
-
-    rail = '-'.join(parts[:-1])
-    if not rail:
-        raise ValueError(
-            f"Invalid story ID format: {story_id!r}. "
-            "Rail portion must be non-empty."
-        )
-
-    return rail, last
+    rail = m.group(1)
+    return rail, story_id
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +69,12 @@ def update_story_status(story_id: str, project_dir: Path, status: str) -> Path:
     rail, _seq = _parse_story_id(story_id)
 
     story_path = resolved / "docs" / "stories" / rail / f"{story_id}.md"
+    try:
+        story_path.resolve().relative_to(resolved)
+    except ValueError:
+        raise FileNotFoundError(
+            f"Story path {story_path} is outside project directory {resolved}"
+        )
     if not story_path.exists():
         raise FileNotFoundError(f"Story file not found: {story_path}")
 

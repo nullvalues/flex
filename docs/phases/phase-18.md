@@ -23,6 +23,7 @@ Prerequisites: Phase 17 complete and tagged cp17-correctness-fixes.
 | BOOTSTRAP-001 | Add --yes flag to bootstrap for non-interactive callers (CER-002) | planned |
 | INFRA-011 | Integrate schema_validator into story_new.py and era_new.py creation flow | planned |
 | BUILD-002 | Update CLAUDE.build.md: explicit bash commands for permission_scope and story_update | planned |
+| INFRA-005 | Security fix: validate story_id format in story_update.py (HIGH — path traversal) | planned |
 
 ---
 
@@ -320,6 +321,66 @@ Apply identical changes to `skills/pairmode/templates/CLAUDE.build.md.j2`.
 - `CLAUDE.build.md.j2` renders and contains "write_story_permissions".
 - `CLAUDE.build.md.j2` renders and contains "clear_story_permissions".
 - `CLAUDE.build.md.j2` renders and contains "story_update.py".
+
+---
+
+### Story INFRA-005 — Security fix: validate story_id format in story_update.py (HIGH — path traversal)
+
+**Rail:** INFRA
+
+**Protected file justification:** N/A — `story_update.py` is a new file added in Phase 18,
+not a protected file.
+
+**Acceptance criterion:** `story_update.py` validates the `--story-id` argument using
+`_STORY_ID_RE` before any file path is constructed. A crafted story_id containing an
+absolute path component (e.g., `/etc/passwd-001`) is rejected with a clear error before
+any file I/O occurs. Tests pass.
+
+**Background:** Security audit cp18 found that `_parse_story_id` in `story_update.py`
+constructs `rail = '-'.join(parts[:-1])` without validating against the existing
+`_STORY_ID_RE = re.compile(r'^([A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*)-(\d+)$')`. A
+story_id like `/etc/passwd-001` produces `rail = "/etc/passwd"` which Python pathlib
+interprets as an absolute path, bypassing `project_dir` containment entirely.
+
+**Instructions:**
+
+In `skills/pairmode/scripts/story_update.py`, in `_parse_story_id`:
+
+```python
+def _parse_story_id(story_id: str) -> tuple[str, str]:
+    m = _STORY_ID_RE.match(story_id)
+    if not m:
+        raise ValueError(
+            f"Invalid story ID format: {story_id!r}. "
+            "Expected RAIL-NNN (e.g. BOOTSTRAP-003)."
+        )
+    rail = m.group(1)
+    return rail, story_id
+```
+
+This replaces the manual split-and-join logic entirely. The regex already anchors the
+full string and only allows `[A-Z][A-Z0-9]*` segments, preventing any path separator
+or absolute path component from passing.
+
+Also add a containment check on `story_path` in `update_story_status` after construction:
+
+```python
+story_path = resolved / "docs" / "stories" / rail / f"{story_id}.md"
+try:
+    story_path.resolve().relative_to(resolved)
+except ValueError:
+    raise FileNotFoundError(
+        f"Story path {story_path} is outside project directory {resolved}"
+    )
+```
+
+**Tests — `tests/pairmode/test_story_update.py`:**
+- `_parse_story_id` with `/etc/passwd-001` → raises `ValueError`.
+- `_parse_story_id` with `../../etc-001` → raises `ValueError`.
+- `_parse_story_id` with `INFRA-001` → returns `("INFRA", "INFRA-001")` (still works).
+- `update_story_status` with a crafted story_id that somehow passes regex → containment
+  guard raises `FileNotFoundError` (test via monkeypatching `_STORY_ID_RE` to allow
+  a path-like value, then confirming the secondary guard fires).
 
 ---
 

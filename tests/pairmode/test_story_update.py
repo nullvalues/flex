@@ -14,6 +14,7 @@ SCRIPTS_DIR = Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scr
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from story_update import (
+    _parse_story_id,
     update_story_status,
     update_phase_story_status,
 )
@@ -75,6 +76,38 @@ def _make_phase(project: Path, filename: str, rows: list[tuple[str, str, str]]) 
     )
     phase_path.write_text(content, encoding="utf-8")
     return phase_path
+
+
+# ---------------------------------------------------------------------------
+# _parse_story_id security / format tests
+# ---------------------------------------------------------------------------
+
+
+def test_parse_story_id_rejects_absolute_path_component():
+    with pytest.raises(ValueError):
+        _parse_story_id("/etc/passwd-001")
+
+
+def test_parse_story_id_rejects_relative_traversal():
+    with pytest.raises(ValueError):
+        _parse_story_id("../../etc-001")
+
+
+def test_parse_story_id_rejects_lowercase():
+    with pytest.raises(ValueError):
+        _parse_story_id("lowercase-001")
+
+
+def test_parse_story_id_accepts_simple_rail():
+    rail, sid = _parse_story_id("INFRA-001")
+    assert rail == "INFRA"
+    assert sid == "INFRA-001"
+
+
+def test_parse_story_id_accepts_multi_segment_rail():
+    rail, sid = _parse_story_id("BOOTSTRAP-003")
+    assert rail == "BOOTSTRAP"
+    assert sid == "BOOTSTRAP-003"
 
 
 # ---------------------------------------------------------------------------
