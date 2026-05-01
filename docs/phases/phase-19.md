@@ -8,8 +8,8 @@ Phase 19 fills test gaps identified in the self-review and verifies (and fixes) 
 `spec_exception → sidebar` integration chain. Three test categories are addressed:
 the `should_question`/`free_to_change` round-trip, the spec_exception pipe handler
 in the companion sidebar, and a set of targeted gap closures for edge cases in
-`phase_new.py`, `story_resolver.py`, and `cer.py`. The sidebar fix makes a justified
-modification to a protected file.
+`phase_new.py`, `story_resolver.py`, and `cer.py`. The spec_exception handler was
+already present in sidebar.py; INFRA-013 became test-only (no protected file modified).
 
 Prerequisites: Phase 18 complete and tagged cp18-missing-tooling.
 
@@ -49,7 +49,7 @@ reconstruction brief file containing:
 ## What must survive any implementation
 - The core pipeline contract
 
-## Should-question assumptions
+## What you should question
 - We should question whether the batch size default is appropriate
 - We should question whether Redis is the right backing store
 
@@ -136,8 +136,9 @@ In `tests/pairmode/test_spec_exception.py` (extend or create):
 - Add a doc note in `docs/architecture.md` in the Hook architecture section:
   "`spec_exception` pipe messages are produced by the sidebar's override prompt and
   handled by the sidebar's pipe reader to write conflict records to `spec.json`. The
-  pipe message payload must include: `project_dir`, `module`, `file_path`, `tool`,
-  `reason`."
+  pipe message payload fields: `type` (`"spec_exception"`), `path` (overridden file
+  path), `non_negotiable` (the rule violated), `override_reason` (developer-supplied
+  justification), `session_id` (Claude Code session identifier)."
 
 ---
 
