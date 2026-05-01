@@ -126,6 +126,7 @@ or `--constraint` flags to populate it non-interactively.
 - `--conviction TEXT` — core conviction (repeatable); bypasses TTY prompt, populates ideology.md directly
 - `--constraint TEXT` — key constraint rule (repeatable); bypasses TTY prompt, populates ideology.md directly
 - `--from-reconstruction PATH` — path to a `reconstruction.md` brief; pre-populates ideology context from it, seeding a new pairmode project without manual TTY entry
+- `--yes` / `-y` — auto-confirm all prompts (file overwrites, rail confirmation, ideology capture). Use for non-interactive or CI invocations where no stdin is available.
 
 **Pre-populating from a reconstruction brief:**
 ```bash

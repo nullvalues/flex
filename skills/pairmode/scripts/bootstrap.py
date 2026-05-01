@@ -142,19 +142,20 @@ def _write_file(
     dest: pathlib.Path,
     content: str,
     dry_run: bool,
+    yes: bool = False,
 ) -> bool:
     """
     Write *content* to *dest*.
 
     Returns True if the file was (or would be, in dry-run mode) written.
     If the file already exists and this is not a dry-run, prompts the user
-    for confirmation before overwriting.
+    for confirmation before overwriting (unless *yes* is True).
     """
     if dry_run:
         click.echo(f"  [dry-run] would write: {dest}")
         return True
 
-    if dest.exists():
+    if dest.exists() and not yes:
         overwrite = click.confirm(
             f"  {dest} already exists. Overwrite?", default=False
         )
@@ -392,6 +393,7 @@ def _initialize_rails(
     stack: str,
     dry_run: bool,
     ideology_skip: bool,
+    yes: bool = False,
 ) -> None:
     """Initialize rail directories and Era 001 after scaffold write."""
     project_name = context.get("project_name", "project")
@@ -399,7 +401,7 @@ def _initialize_rails(
     default_rails = PAIRMODE_DEFAULT_RAILS[project_type]
 
     # Determine confirmed rails
-    skip_prompt = ideology_skip or not sys.stdin.isatty()
+    skip_prompt = ideology_skip or yes or not sys.stdin.isatty()
     if skip_prompt:
         confirmed_rails = list(default_rails)
     else:
@@ -524,6 +526,12 @@ def _initialize_rails(
     default=None,
     help="Path to a reconstruction.md brief. Pre-populates ideology context.",
 )
+@click.option(
+    "--yes", "-y",
+    is_flag=True,
+    default=False,
+    help="Auto-confirm all prompts. Use for non-interactive/CI invocations.",
+)
 def bootstrap(
     project_dir: str,
     project_name: str | None,
@@ -539,6 +547,7 @@ def bootstrap(
     conviction: tuple[str, ...],
     constraint: tuple[str, ...],
     from_reconstruction: str | None,
+    yes: bool,
 ) -> None:
     """Bootstrap a pairmode scaffold into PROJECT_DIR."""
 
@@ -568,20 +577,19 @@ def bootstrap(
     if what is None:
         what = product.get("what") or (
             click.prompt("What does this project produce? (blank to skip)", default="")
-            if sys.stdin.isatty()
+            if sys.stdin.isatty() and not yes
             else ""
         )
 
     if why is None:
         why = product.get("why") or (
             click.prompt("Why does this project exist? (blank to skip)", default="")
-            if sys.stdin.isatty()
+            if sys.stdin.isatty() and not yes
             else ""
         )
 
-    # Non-TTY warning: if what or why ended up blank and we are not in TTY mode,
-    # inform the user how to populate them.
-    if not sys.stdin.isatty() and (not what or not why):
+    # Non-TTY/--yes warning: if what or why ended up blank, inform the user how to populate them.
+    if (not sys.stdin.isatty() or yes) and (not what or not why):
         click.echo(
             "warning: non-interactive mode — docs/brief.md what/why left blank.\n"
             "         Pass --what and --why flags to populate, or edit docs/brief.md after bootstrap.",
@@ -600,14 +608,14 @@ def bootstrap(
     if phase_title is None:
         phase_title = (
             click.prompt("Phase 1 title (blank to leave as placeholder)", default="")
-            if sys.stdin.isatty()
+            if sys.stdin.isatty() and not yes
             else ""
         )
 
     if phase_goal is None:
         phase_goal = (
             click.prompt("Phase 1 goal (blank to skip)", default="")
-            if sys.stdin.isatty()
+            if sys.stdin.isatty() and not yes
             else ""
         )
 
@@ -650,11 +658,11 @@ def bootstrap(
             ],
             "must_preserve": [],
         }
-    elif sys.stdin.isatty() and not ideology_skip:
+    elif sys.stdin.isatty() and not ideology_skip and not yes:
         ideology_context = _ideology_capture_flow()
     else:
         ideology_context = {}
-        if not ideology_skip:
+        if not ideology_skip and not yes:
             click.echo(
                 "warning: non-interactive mode — docs/ideology.md will be written as "
                 "placeholder.\n"
@@ -764,7 +772,7 @@ def bootstrap(
         except jinja2.TemplateError as exc:
             click.echo(f"  ERROR rendering {template_name}: {exc}", err=True)
             sys.exit(1)
-        _write_file(dest, content, dry_run=dry_run)
+        _write_file(dest, content, dry_run=dry_run, yes=yes)
 
     # ------------------------------------------------------------------
     # 4a. Write per-phase structure (replaces legacy docs/phase-prompts.md)
@@ -797,7 +805,7 @@ def bootstrap(
         except jinja2.TemplateError as exc:
             click.echo(f"  ERROR rendering {template_name}: {exc}", err=True)
             sys.exit(1)
-        _write_file(dest, content, dry_run=dry_run)
+        _write_file(dest, content, dry_run=dry_run, yes=yes)
 
     for dest_rel, template_name in AGENT_FILES:
         dest = project_path / dest_rel
@@ -817,7 +825,7 @@ def bootstrap(
             dest.write_text(content, encoding="utf-8")
             click.echo(f"  wrote: {dest}")
         else:
-            _write_file(dest, content, dry_run=dry_run)
+            _write_file(dest, content, dry_run=dry_run, yes=yes)
 
     # ------------------------------------------------------------------
     # 4.5. Save template context for audit/sync rendering
@@ -897,7 +905,7 @@ def bootstrap(
     # 8. Initialize rails and Era 001
     # ------------------------------------------------------------------
     click.echo("\nInitializing rails...")
-    _initialize_rails(project_path, context, stack, dry_run=dry_run, ideology_skip=ideology_skip)
+    _initialize_rails(project_path, context, stack, dry_run=dry_run, ideology_skip=ideology_skip, yes=yes)
 
     click.echo("\nDone." if not dry_run else "\nDry run complete.")
 

@@ -2310,3 +2310,153 @@ class TestFromReconstructionIdeologyDimensions:
             "Expected 'Free to change' section in ideology.md.\n"
             f"ideology.md content:\n{ideology}"
         )
+
+
+# ---------------------------------------------------------------------------
+# BOOTSTRAP-001: --yes / -y flag tests
+# ---------------------------------------------------------------------------
+
+
+class TestYesFlag:
+    """--yes / -y auto-confirms all prompts without requiring stdin."""
+
+    def test_yes_flag_bootstrap_completes_successfully(self, tmp_path):
+        """--yes: all scaffold files written, exit code 0, no prompts required."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        for rel in EXPECTED_DEST_PATHS:
+            assert (tmp_path / rel).exists(), (
+                f"Expected {rel} to be created with --yes.\nCLI output:\n{result.output}"
+            )
+
+    def test_short_yes_flag_works(self, tmp_path):
+        """-y (short form) is accepted and behaves identically to --yes."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "-y",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "CLAUDE.md").exists()
+
+    def test_yes_overwrites_existing_files_without_prompt(self, tmp_path):
+        """--yes on an existing project: files overwritten without confirmation prompt."""
+        # First bootstrap
+        run_bootstrap(tmp_path)
+
+        # Overwrite CLAUDE.md with sentinel
+        (tmp_path / "CLAUDE.md").write_text("sentinel content", encoding="utf-8")
+
+        # Second bootstrap with --yes and NO stdin input
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+            ],
+            # Deliberately provide no input to verify no prompts are issued
+            input=None,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+        assert "sentinel content" not in content, (
+            "--yes should overwrite CLAUDE.md without prompting"
+        )
+        assert "testproject" in content
+
+    def test_yes_ideology_skip_fully_non_interactive(self, tmp_path):
+        """--yes --ideology-skip: bootstrap completes fully without any prompts or stdin."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+                "--ideology-skip",
+            ],
+            input=None,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        # Scaffold files created
+        assert (tmp_path / "CLAUDE.md").exists()
+        assert (tmp_path / "docs/ideology.md").exists()
+        # Rails created
+        for rail in PAIRMODE_DEFAULT_RAILS["generic"]:
+            assert (tmp_path / "docs" / "stories" / rail).exists()
+
+    def test_yes_suppresses_ideology_warning(self, tmp_path):
+        """--yes: ideology placeholder warning is NOT emitted (--yes implies intentional skip)."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+            ],
+            input=None,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert "docs/ideology.md will be written as placeholder" not in result.output
+
+    def test_yes_flag_in_help(self):
+        """--yes flag must appear in help output."""
+        runner = CliRunner()
+        result = runner.invoke(bootstrap, ["--help"])
+        assert result.exit_code == 0
+        assert "yes" in result.output
+
+    def test_existing_tests_still_pass_without_yes_flag(self, tmp_path):
+        """Regression: bootstrap without --yes still prompts as before."""
+        # First bootstrap to create files
+        run_bootstrap(tmp_path)
+
+        # Write sentinel
+        (tmp_path / "CLAUDE.md").write_text("sentinel", encoding="utf-8")
+
+        # Second run without --yes, decline overwrite prompt
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+            ],
+            input="n\n" * 20,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        # File should be unchanged (user declined)
+        assert (tmp_path / "CLAUDE.md").read_text() == "sentinel"
