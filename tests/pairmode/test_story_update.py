@@ -110,6 +110,19 @@ def test_parse_story_id_accepts_multi_segment_rail():
     assert sid == "BOOTSTRAP-003"
 
 
+def test_containment_guard_fires_on_escape(tmp_path):
+    """Secondary containment guard rejects paths that escape project_dir."""
+    import re
+    import unittest.mock as mock
+    # Monkeypatch _STORY_ID_RE to allow a path-separator-containing ID
+    fake_re = re.compile(r'^(.+)-(\d+)$')
+    project_dir = tmp_path / "project" / "subdir"
+    project_dir.mkdir(parents=True)
+    with mock.patch("story_update._STORY_ID_RE", fake_re):
+        with pytest.raises((FileNotFoundError, ValueError)):
+            update_story_status("../../evil-001", project_dir, "complete")
+
+
 # ---------------------------------------------------------------------------
 # update_story_status tests
 # ---------------------------------------------------------------------------

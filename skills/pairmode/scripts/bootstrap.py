@@ -48,6 +48,7 @@ TEMPLATES_DIR = pathlib.Path(__file__).parent.parent / "templates"
 SCAFFOLD_FILES: list[tuple[str, str]] = [
     ("CLAUDE.md", "CLAUDE.md.j2"),
     ("CLAUDE.build.md", "CLAUDE.build.md.j2"),
+    (".pairmode-overrides", ".pairmode-overrides.j2"),
     ("docs/brief.md", "docs/brief.md.j2"),
     ("docs/ideology.md", "docs/ideology.md.j2"),
     ("docs/reconstruction.md", "docs/reconstruction.md.j2"),
