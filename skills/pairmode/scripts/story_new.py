@@ -213,6 +213,12 @@ def story_new(rail: str, title: str, phase: str | None, project_dir: str) -> Non
 
     click.echo(f"  Created {story_id}: {title}")
 
+    # Validate the newly created story file (non-fatal warnings only)
+    from schema_validator import validate_story_file as _vsf  # noqa: PLC0415
+    errors = _vsf(story_path)
+    for e in errors:
+        click.echo(f"  ⚠  validation: {e}", err=True)
+
     # Optionally append to phase manifest
     if phase is not None:
         added = _append_to_phase(resolved, phase, story_id, title)

@@ -160,6 +160,56 @@ class TestIdQuoting:
         assert errors == [], f"Expected no validation errors, got: {errors}"
 
 
+class TestValidationIntegration:
+    """Validation is called after era creation; errors are printed as warnings."""
+
+    def test_no_validation_warnings_on_new_era(self, tmp_path: pathlib.Path) -> None:
+        """A freshly created era must produce no validation warnings."""
+        result = invoke(["--name", "Clean Era", "--project-dir", str(tmp_path)])
+        assert result.exit_code == 0, result.output
+        assert "validation:" not in result.output
+
+    def test_validation_warning_printed_to_stderr_on_error(
+        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When the validator returns a fake error, it is printed to stderr, exit code stays 0."""
+        import sys
+        import skills.pairmode.scripts.schema_validator as _sv_pkg
+
+        # era_new.py imports 'schema_validator' via a sys.path insert (plain module name).
+        # Register under the plain name so the local import inside era_new resolves it.
+        monkeypatch.setitem(sys.modules, "schema_validator", _sv_pkg)
+        monkeypatch.setattr(_sv_pkg, "validate_era_file", lambda path: ["fake era error"])
+
+        # CliRunner mixes stdout+stderr into result.output by default
+        runner = CliRunner()
+        result = runner.invoke(
+            era_new,
+            ["--name", "Warn Era", "--project-dir", str(tmp_path)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert "fake era error" in result.output
+
+    def test_validation_warning_exit_code_still_zero(
+        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Exit code remains 0 even when validation warnings are emitted."""
+        import sys
+        import skills.pairmode.scripts.schema_validator as _sv_pkg
+
+        monkeypatch.setitem(sys.modules, "schema_validator", _sv_pkg)
+        monkeypatch.setattr(_sv_pkg, "validate_era_file", lambda path: ["another error"])
+
+        runner = CliRunner()
+        result = runner.invoke(
+            era_new,
+            ["--name", "Exit Era", "--project-dir", str(tmp_path)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+
+
 class TestPathTraversalGuard:
     """Too-shallow project_dir causes non-zero exit."""
 
