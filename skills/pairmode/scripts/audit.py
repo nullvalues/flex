@@ -367,6 +367,41 @@ def _find_lesson_for_file(lessons: list[dict], file_path: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Overrides helpers
+# ---------------------------------------------------------------------------
+
+
+def _load_overrides(project_dir: Path) -> set[tuple[str, str]]:
+    """Return set of (relative_file_path, normalised_section_key) pairs.
+
+    Parses ``project_dir / ".pairmode-overrides"``. Blank lines and lines
+    starting with ``#`` are skipped. Each valid line is split on ``:``
+    (max one split) into ``(file_path, section_key)``; both parts are
+    stripped of leading/trailing whitespace.
+    """
+    overrides_path = project_dir / ".pairmode-overrides"
+    if not overrides_path.exists():
+        return set()
+
+    result: set[tuple[str, str]] = set()
+    try:
+        text = overrides_path.read_text(encoding="utf-8")
+    except OSError:
+        return result
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if ":" not in stripped:
+            continue
+        file_path, section_key = stripped.split(":", 1)
+        result.add((file_path.strip(), section_key.strip()))
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Core audit logic
 # ---------------------------------------------------------------------------
 
@@ -433,6 +468,9 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
     # Load applicable lessons
     lessons = _load_applicable_lessons(applies_to)
 
+    # Load overrides: sections intentionally diverged from canonical templates
+    overrides = _load_overrides(project_dir)
+
     # Set of scaffold-file destination paths for stale-placeholder labelling
     scaffold_dests = {d for d, _t in SCAFFOLD_FILES}
 
@@ -454,6 +492,8 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
             for section_key, section_body in canonical_sections.items():
                 if _is_separator_key(section_key):
                     continue
+                if (dest_rel, section_key) in overrides:
+                    continue  # Intentionally diverged — skip
                 lesson_id = _find_lesson_for_file(lessons, dest_rel)
                 result.missing.append(
                     AuditItem(
@@ -473,6 +513,8 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
         for key in canonical_keys - project_keys:
             if _is_separator_key(key):
                 continue
+            if (dest_rel, key) in overrides:
+                continue  # Intentionally diverged — skip
             lesson_id = _find_lesson_for_file(lessons, dest_rel)
             result.missing.append(
                 AuditItem(
@@ -506,6 +548,8 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
             for key in canonical_keys & project_keys:
                 if _is_separator_key(key):
                     continue
+                if (dest_rel, key) in overrides:
+                    continue  # Intentionally diverged — skip
                 if _is_stale_placeholder(project_sections[key]):
                     result.inconsistent.append(
                         AuditItem(
@@ -520,6 +564,8 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
             for key in canonical_keys & project_keys:
                 if _is_separator_key(key):
                     continue
+                if (dest_rel, key) in overrides:
+                    continue  # Intentionally diverged — skip
                 canonical_body = _normalise(canonical_sections[key])
                 project_body = _normalise(project_sections[key])
                 if canonical_body != project_body:

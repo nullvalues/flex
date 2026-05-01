@@ -31,6 +31,7 @@ from skills.pairmode.scripts.audit import (  # noqa: E402
     _normalise,
     _enrich_scaffold_context,
     _load_project_context as _audit_load_project_context,
+    _load_overrides,
 )
 from skills.pairmode.scripts.bootstrap import (  # noqa: E402
     PAIRMODE_DEFAULT_RAILS,
@@ -271,6 +272,9 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
     # Load saved template context for rendering when creating/patching files
     context = _load_project_context(project_dir)
 
+    # Load overrides: sections intentionally diverged from canonical templates
+    overrides = _load_overrides(project_dir)
+
     # Run audit to get the delta
     audit = audit_project(project_dir, applies_to=applies_to)
 
@@ -324,6 +328,14 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
                 changed = False
                 for item in items:
                     section_key = item.section
+                    if (dest_rel, section_key) in overrides:
+                        click.echo(
+                            f"  (skipped: .pairmode-overrides declares this section as project-owned)"
+                        )
+                        result.skipped.append(
+                            f"{dest_rel}: section '{section_key}' (override declared)"
+                        )
+                        continue
                     if section_key in canonical_sections:
                         canonical_body = canonical_sections[section_key]
                         if not yes:
@@ -372,6 +384,14 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
             changed = False
             for item in items:
                 section_key = item.section
+                if (dest_rel, section_key) in overrides:
+                    click.echo(
+                        f"  (skipped: .pairmode-overrides declares this section as project-owned)"
+                    )
+                    result.skipped.append(
+                        f"{dest_rel}: section '{section_key}' (override declared)"
+                    )
+                    continue
                 if section_key in canonical_sections:
                     canonical_body = canonical_sections[section_key]
                     if not yes:
@@ -434,6 +454,14 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
         changed = False
         for item in items:
             section_key = item.section
+            if (dest_rel, section_key) in overrides:
+                click.echo(
+                    f"  (skipped: .pairmode-overrides declares this section as project-owned)"
+                )
+                result.skipped.append(
+                    f"{dest_rel}: section '{section_key}' (override declared)"
+                )
+                continue
             if section_key in canonical_sections:
                 canonical_body = canonical_sections[section_key]
                 if not yes:
