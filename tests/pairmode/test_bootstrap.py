@@ -2460,3 +2460,133 @@ class TestYesFlag:
         assert result.exit_code == 0
         # File should be unchanged (user declined)
         assert (tmp_path / "CLAUDE.md").read_text() == "sentinel"
+
+
+# ---------------------------------------------------------------------------
+# INFRA-012: should_question / free_to_change round-trip through --from-reconstruction
+# ---------------------------------------------------------------------------
+
+
+class TestFromReconstructionShouldQuestionFreeToChange:
+    """Integration tests: reconstruction brief with should_question and free_to_change
+    content flows through bootstrap --from-reconstruction into ideology.md."""
+
+    _FULL_IDEOLOGY_BRIEF = """\
+## Non-negotiable ideology
+- We prefer local-first storage
+
+## What must survive any implementation
+- The core pipeline contract
+
+## What you should question
+- We should question whether the batch size default is appropriate
+- We should question whether Redis is the right backing store
+
+## Free to change
+- File naming conventions throughout the codebase
+- Log output formatting
+
+## Comparison rubric
+- Ideological alignment
+"""
+
+    _BRIEF_WITHOUT_SHOULD_QUESTION = """\
+## Non-negotiable ideology
+- We prefer local-first storage
+
+## What must survive any implementation
+- The core pipeline contract
+
+## Free to change
+- File naming conventions throughout the codebase
+- Log output formatting
+
+## Comparison rubric
+- Ideological alignment
+"""
+
+    _BRIEF_WITHOUT_FREE_TO_CHANGE = """\
+## Non-negotiable ideology
+- We prefer local-first storage
+
+## What must survive any implementation
+- The core pipeline contract
+
+## What you should question
+- We should question whether the batch size default is appropriate
+- We should question whether Redis is the right backing store
+
+## Comparison rubric
+- Ideological alignment
+"""
+
+    def _write_brief(self, tmp_path: pathlib.Path, content: str) -> pathlib.Path:
+        brief_path = tmp_path / "reconstruction_brief.md"
+        brief_path.write_text(content, encoding="utf-8")
+        return brief_path
+
+    def _run_from_reconstruction(
+        self, tmp_path: pathlib.Path, brief_path: pathlib.Path
+    ) -> object:
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--from-reconstruction", str(brief_path),
+                "--ideology-skip",
+            ],
+            catch_exceptions=False,
+        )
+        return result
+
+    def test_should_question_in_ideology_md(self, tmp_path: pathlib.Path) -> None:
+        """Round-trip: should_question content from reconstruction brief appears in ideology.md."""
+        brief_path = self._write_brief(tmp_path, self._FULL_IDEOLOGY_BRIEF)
+        result = self._run_from_reconstruction(tmp_path, brief_path)
+        assert result.exit_code == 0, result.output
+
+        ideology = (tmp_path / "docs" / "ideology.md").read_text(encoding="utf-8")
+        assert (
+            "batch size default" in ideology
+            or "Redis is the right backing store" in ideology
+        ), (
+            "Expected should_question content in ideology.md.\n"
+            f"ideology.md content:\n{ideology}"
+        )
+
+    def test_free_to_change_in_ideology_md(self, tmp_path: pathlib.Path) -> None:
+        """Round-trip: free_to_change content from reconstruction brief appears in ideology.md."""
+        brief_path = self._write_brief(tmp_path, self._FULL_IDEOLOGY_BRIEF)
+        result = self._run_from_reconstruction(tmp_path, brief_path)
+        assert result.exit_code == 0, result.output
+
+        ideology = (tmp_path / "docs" / "ideology.md").read_text(encoding="utf-8")
+        assert (
+            "File naming conventions" in ideology
+            or "Log output formatting" in ideology
+        ), (
+            "Expected free_to_change content in ideology.md.\n"
+            f"ideology.md content:\n{ideology}"
+        )
+
+    def test_empty_should_question_no_crash(self, tmp_path: pathlib.Path) -> None:
+        """Brief with no should_question section: bootstrap completes, ideology.md exists."""
+        brief_path = self._write_brief(tmp_path, self._BRIEF_WITHOUT_SHOULD_QUESTION)
+        result = self._run_from_reconstruction(tmp_path, brief_path)
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "docs" / "ideology.md").exists(), (
+            "ideology.md should be created even when should_question section is absent"
+        )
+
+    def test_empty_free_to_change_no_crash(self, tmp_path: pathlib.Path) -> None:
+        """Brief with no free_to_change section: bootstrap completes, ideology.md exists."""
+        brief_path = self._write_brief(tmp_path, self._BRIEF_WITHOUT_FREE_TO_CHANGE)
+        result = self._run_from_reconstruction(tmp_path, brief_path)
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "docs" / "ideology.md").exists(), (
+            "ideology.md should be created even when free_to_change section is absent"
+        )
