@@ -2590,3 +2590,141 @@ class TestFromReconstructionShouldQuestionFreeToChange:
         assert (tmp_path / "docs" / "ideology.md").exists(), (
             "ideology.md should be created even when free_to_change section is absent"
         )
+
+
+# ---------------------------------------------------------------------------
+# BOOTSTRAP-002: --yes non-interactive path end-to-end tests
+# ---------------------------------------------------------------------------
+
+
+class TestBootstrapYesFlag:
+    """End-to-end coverage for the --yes non-interactive path introduced in Phase 18."""
+
+    def test_yes_flag_creates_all_files_without_interaction(self, tmp_path):
+        """--yes --ideology-skip: all standard scaffold files written, cli rail dir created,
+        Era 001 created — no prompts, no TTY required."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / cli",
+                "--build-command", "uv run pytest",
+                "--yes",
+                "--ideology-skip",
+            ],
+            input=None,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+        # Standard scaffold files must exist
+        for rel in ["CLAUDE.md", "CLAUDE.build.md", "docs/ideology.md", "docs/brief.md"]:
+            assert (tmp_path / rel).exists(), (
+                f"Expected {rel} to be created with --yes --ideology-skip.\n"
+                f"CLI output:\n{result.output}"
+            )
+
+        # cli stack → CORE rail directory must exist
+        assert (tmp_path / "docs" / "stories" / "CORE").exists(), (
+            "docs/stories/CORE/ was not created for cli-stack project with --yes.\n"
+            f"CLI output:\n{result.output}"
+        )
+
+        # Era 001 must be created
+        assert (tmp_path / "docs" / "eras" / "001-initial.md").exists(), (
+            "docs/eras/001-initial.md was not created with --yes --ideology-skip.\n"
+            f"CLI output:\n{result.output}"
+        )
+
+    def test_yes_flag_overwrites_existing_files(self, tmp_path):
+        """--yes on a project with a pre-existing CLAUDE.md overwrites it without prompting."""
+        # Pre-create CLAUDE.md with sentinel content
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "CLAUDE.md").write_text("old content", encoding="utf-8")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+                "--ideology-skip",
+            ],
+            input=None,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+        content = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+        assert "old content" not in content, (
+            "--yes should overwrite CLAUDE.md without prompting, "
+            "but 'old content' sentinel is still present."
+        )
+
+    def test_yes_flag_with_ideology_skip_no_stdin(self, tmp_path):
+        """Subprocess invocation: --yes --ideology-skip with stdin=DEVNULL exits 0."""
+        import os
+        import subprocess
+        import sys
+
+        bootstrap_path = str(
+            pathlib.Path(__file__).parent.parent.parent
+            / "skills" / "pairmode" / "scripts" / "bootstrap.py"
+        )
+
+        env = {k: v for k, v in os.environ.items()}
+
+        result = subprocess.run(
+            [
+                sys.executable, bootstrap_path,
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+                "--ideology-skip",
+            ],
+            cwd=str(tmp_path),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            f"bootstrap --yes --ideology-skip with stdin=DEVNULL exited {result.returncode}.\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+    def test_yes_flag_absent_and_no_tty_uses_defaults(self, tmp_path):
+        """Without --yes, non-TTY (CliRunner) bootstrap still completes using defaults.
+
+        Regression coverage for the pre-existing non-interactive path: when stdin is
+        not a TTY, bootstrap falls through to defaults rather than blocking on prompts.
+        """
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--ideology-skip",
+                # No --yes — relies on CliRunner being non-TTY
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, (
+            f"Non-TTY bootstrap without --yes should complete successfully.\n"
+            f"CLI output:\n{result.output}"
+        )
+        # Core files written via the non-interactive defaults path
+        assert (tmp_path / "CLAUDE.md").exists()
+        assert (tmp_path / "docs" / "ideology.md").exists()
+        assert (tmp_path / "docs" / "eras" / "001-initial.md").exists()
