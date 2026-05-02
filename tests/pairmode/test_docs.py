@@ -15,3 +15,8 @@ def test_readme_exists_and_under_400_lines() -> None:
 def test_pipe_architecture_doc_exists() -> None:
     pipe_doc = Path(__file__).resolve().parent.parent.parent / "docs" / "pipe-architecture.md"
     assert pipe_doc.exists(), "docs/pipe-architecture.md does not exist"
+
+
+def test_pairmode_contribution_guide_exists() -> None:
+    pairmode_doc = Path(__file__).resolve().parent.parent.parent / "docs" / "pairmode" / "PAIRMODE.md"
+    assert pairmode_doc.exists(), "docs/pairmode/PAIRMODE.md does not exist"
