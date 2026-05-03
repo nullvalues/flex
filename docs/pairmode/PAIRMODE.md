@@ -84,6 +84,7 @@ new-file additions.
 | `hooks/exit_plan_mode.py` | Same | Same |
 | `hooks/session_end.py` | Same | Same |
 | `.claude-plugin/plugin.json` | Added `pairmode` skill entry | Register the new `/anchor:pairmode` skill |
+| `tests/test_live_chart.py`, `tests/test_plan_impact.py`, `tests/debug_pipe.py`, `tests/simulate_planning.py` | Deleted (Story INFRA-021) | Four single-author manual diagnostic scripts that pre-dated pairmode, were not pytest tests, and had zero references in the codebase. `test_live_chart.py` called `os.chdir(tmpdir)` at module-import time, contaminating pytest's cwd and causing three unrelated tests to fail; `test_plan_impact.py` `sys.exit(1)`'d on missing `~/.anchor/auth.json` |
 
 The hook change is backwards-compatible: when `.companion/state.json` is absent (any
 project that has not run `/anchor:companion` to establish a `state.json`), the hooks fall
