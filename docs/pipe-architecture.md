@@ -47,9 +47,9 @@ establish a `state.json`. Such projects behave exactly as before.
 
 ---
 
-## 5. Files changed in anchor core (hook layer)
+## 5. Files changed in anchor core (hook + companion layer)
 
-This is the complete list of core files modified by this fork:
+This is the complete list of core files touched by the pipe-scoping change:
 
 | File | Change |
 |------|--------|
@@ -57,9 +57,12 @@ This is the complete list of core files modified by this fork:
 | `hooks/post_tool_use.py` | Same |
 | `hooks/exit_plan_mode.py` | Same |
 | `hooks/session_end.py` | Same |
+| `skills/companion/scripts/sidebar.py` | Computes the per-project pipe hash and writes `pipe_path` into `.companion/state.json` at startup so hooks can read it back |
+| `skills/companion/scripts/start_sidebar.sh`, `launch_sidebar.sh`, `launch_sidebar.command` | Pass `--project-dir` and use the hashed temp file path so the project directory survives across env boundaries (e.g. macOS `open`) |
 
-No other core files were modified. All pairmode additions are self-contained under
-`skills/pairmode/`, `lessons/`, `tests/pairmode/`, and `docs/`.
+For the complete list of all anchor-core file changes (including non-pipe pairmode work
+such as the SessionStart hook and `current_story` state field), see the table in
+`docs/pairmode/PAIRMODE.md` under "What pairmode changed in anchor core".
 
 ---
 

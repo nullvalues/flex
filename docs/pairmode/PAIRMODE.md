@@ -83,7 +83,11 @@ new-file additions.
 | `hooks/post_tool_use.py` | Same | Same |
 | `hooks/exit_plan_mode.py` | Same | Same |
 | `hooks/session_end.py` | Same | Same |
+| `hooks/hooks.json` | Added new `SessionStart` entry pointing to `hooks/session_start.py` (additive — no existing entry modified) | INFRA-018: inject pairmode context into Claude's session at startup so the developer doesn't need to ask whether pairmode is active |
 | `.claude-plugin/plugin.json` | Added `pairmode` skill entry | Register the new `/anchor:pairmode` skill |
+| `skills/companion/SKILL.md` | Added `current_story` state field documentation; updated CLI invocations to use `uv run` consistently | Pairmode tracks the active story in companion state; CLI uniformity for `uv`-based environments |
+| `skills/companion/scripts/sidebar.py` | Multiple additive changes during pairmode work: (a) story-context panel; (b) module-boundary detection; (c) permission-override capture and `spec_exception` handler that writes conflict records to `spec.json` (Story INFRA-013); (d) state.json writes from session_end and exit_plan_mode hooks were rerouted through pipe messages (`mode_change`, state-field events) so the sidebar remains the sole writer to `.companion/state.json`; (e) per-project pipe path indirection mirroring the hook changes | Sidebar must surface live spec context to the developer during planning; preserve the architectural rule that only the sidebar writes spec/state files (hooks are thin relays) |
+| `skills/companion/scripts/start_sidebar.sh`, `launch_sidebar.sh`, `launch_sidebar.command` | Pipe path now derived from `.companion/state.json` (with `/tmp/companion.pipe` legacy fallback) | Same multi-project pipe scoping as the hooks |
 | `tests/test_live_chart.py`, `tests/test_plan_impact.py`, `tests/debug_pipe.py`, `tests/simulate_planning.py` | Deleted (Story INFRA-021) | Four single-author manual diagnostic scripts that pre-dated pairmode, were not pytest tests, and had zero references in the codebase. `test_live_chart.py` called `os.chdir(tmpdir)` at module-import time, contaminating pytest's cwd and causing three unrelated tests to fail; `test_plan_impact.py` `sys.exit(1)`'d on missing `~/.anchor/auth.json` |
 
 The hook change is backwards-compatible: when `.companion/state.json` is absent (any
@@ -99,8 +103,6 @@ that avoids touching `state.json` entirely if the upstream maintainer prefers it
 ## What pairmode did NOT change
 
 - `skills/seed/` — all seed scripts are unchanged
-- `skills/companion/scripts/sidebar.py` — unchanged except for one addition in Story INFRA-013: a `spec_exception` pipe message handler that writes conflict records to `spec.json` when a developer overrides a protected file and provides a justification. This handler is purely additive (new `elif` branch in the pipe reader) and does not alter existing message handling.
-- `skills/companion/scripts/start_sidebar.sh` and launchers — unchanged
 - `.claude-plugin/marketplace.json` — unchanged
 - Any existing files in `docs/` (only new files were added to `docs/`)
 - `lessons/` did not exist before pairmode; the directory and its contents are entirely new

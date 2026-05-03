@@ -24,12 +24,14 @@ Prerequisites: Phase 19 complete and tagged cp19-test-coverage-integration.
 
 | ID | Title | Status |
 |----|-------|--------|
-| BUILD-003 | Write README.md | planned |
-| INFRA-015 | Document project-scoped pipe architecture and upstream divergence | planned |
-| BUILD-004 | Write docs/pairmode/PAIRMODE.md: standalone contribution guide | planned |
-| BUILD-005 | Write CHANGELOG.md and CONTRIBUTING.md | planned |
-| INFRA-018 | SessionStart hook: inject pairmode context into Claude's session | planned |
-| INFRA-019 | `pairmode_status.py`: print current pairmode state and sidebar attachment | planned |
+| BUILD-003 | Write README.md | complete |
+| INFRA-015 | Document project-scoped pipe architecture and upstream divergence | complete |
+| BUILD-004 | Write docs/pairmode/PAIRMODE.md: standalone contribution guide | complete |
+| BUILD-005 | Write CHANGELOG.md and CONTRIBUTING.md | complete |
+| INFRA-018 | SessionStart hook: inject pairmode context into Claude's session | complete |
+| INFRA-019 | `pairmode_status.py`: print current pairmode state and sidebar attachment | complete |
+| INFRA-020 | Fix `pairmode_status.py` ANCHOR_ROOT computation (CER-012) | complete |
+| INFRA-021 | Remove orphan upstream dev scripts from tests/ (cwd contamination) | complete |
 | INFRA-016 | Final pre-PR audit: full test suite, security pass, open CER review | planned |
 | INFRA-017 | Git history review and squash plan — pauses for developer approval | planned |
 
@@ -532,6 +534,79 @@ def pairmode_status(project_dir):
 - `test_shows_sidebar_active`: pipe_path pointing to real tmp file → "active" in output.
 - `test_shows_attachment_instructions`: pipe_path not found → output contains "start_sidebar.sh" and "tail -f".
 - `test_shows_modules`: `last_loaded_modules: ["pairmode-skill", "docs"]` → both in output.
+
+---
+
+### Story INFRA-020 — Fix `pairmode_status.py` ANCHOR_ROOT computation (CER-012)
+
+**Rail:** INFRA
+
+**Acceptance criterion:** `skills/pairmode/scripts/pairmode_status.py` correctly resolves
+the anchor repo root. The `start_sidebar.sh` instruction printed for missing-sidebar
+scenarios points to a real existing file. Tests assert the printed path resolves to
+an existing file. Tests pass.
+
+**Background (CER-012):** INFRA-019 implemented `ANCHOR_ROOT = Path(__file__).resolve().parent.parent.parent`
+per the original story spec. From `skills/pairmode/scripts/pairmode_status.py`, three
+`.parent` levels resolve to `<repo>/skills/`, not the repo root. The constructed
+`start_sidebar.sh` path therefore becomes `<repo>/skills/skills/companion/scripts/start_sidebar.sh`,
+which does not exist. Users would receive a broken instruction. Original spec was wrong.
+
+**Instructions:**
+
+1. In `skills/pairmode/scripts/pairmode_status.py`, change `ANCHOR_ROOT` to use four
+   `.parent` levels (or use `Path(__file__).resolve().parents[3]`) so it resolves to
+   the anchor repo root.
+2. Add an inline assertion (or test) confirming the resolved path actually contains
+   `skills/companion/scripts/start_sidebar.sh`.
+3. In `tests/pairmode/test_pairmode_status.py`, add a test
+   `test_start_sidebar_path_exists`: invoke the CLI with no sidebar; extract the
+   `start_sidebar.sh` path from the output; assert that path exists on disk.
+4. Update CER backlog: mark CER-012 as `**RESOLVED** Phase 20 INFRA-020`.
+
+**Tests:**
+- `test_start_sidebar_path_exists`: as above.
+- All existing INFRA-019 tests must still pass.
+
+---
+
+### Story INFRA-021 — Remove orphan upstream dev scripts from `tests/`
+
+**Rail:** INFRA
+
+**Acceptance criterion:** Four orphan dev scripts at `tests/` root are removed.
+`PATH=$HOME/.local/bin:$PATH uv run pytest tests/ -q` runs cleanly with no collection
+errors and no cwd-contamination failures. The PAIRMODE.md "What pairmode changed in
+anchor core" section documents the deletion so the upstream maintainer sees it
+explicitly.
+
+**Background:** The pre-PR audit (INFRA-016) revealed three test failures triggered
+by `tests/test_live_chart.py` doing `os.chdir(tmpdir)` at module-level (no fixture,
+no restoration). When pytest imports the file for collection, the chdir runs and
+subsequent tests see a deleted cwd. `tests/test_plan_impact.py` also breaks pytest
+collection (it `sys.exit(1)`s on missing `~/.anchor/auth.json`). All four scripts
+are single-author manual diagnostics: `test_live_chart.py`, `test_plan_impact.py`,
+`debug_pipe.py`, `simulate_planning.py`. None are referenced anywhere in the codebase
+or docs (verified by grep). They predate pairmode and have shebangs + module-level
+imperative code instead of pytest test functions.
+
+**Instructions:**
+
+1. Delete the four files:
+   - `tests/test_live_chart.py`
+   - `tests/test_plan_impact.py`
+   - `tests/debug_pipe.py`
+   - `tests/simulate_planning.py`
+
+2. In `docs/pairmode/PAIRMODE.md`, in the "What pairmode changed in anchor core"
+   section, add a new row to the table:
+
+   | Removed: 4 orphan dev scripts in `tests/` | Manual diagnostic scripts (`test_live_chart.py`, `test_plan_impact.py`, `debug_pipe.py`, `simulate_planning.py`) — single-author scratchpads, never integrated into the test suite, recoverable from git history if needed | Removed because they break `pytest tests/` collection (one calls `os.chdir` at module level; another `sys.exit(1)`s on a missing dev-machine credential file) |
+
+3. Verify: `PATH=$HOME/.local/bin:$PATH uv run pytest tests/ -q` reports a clean run
+   with no failures and no collection errors.
+
+**Tests:** No new tests. The acceptance criterion is "pytest runs cleanly."
 
 ---
 
