@@ -29,8 +29,12 @@ from schema_validator import _parse_frontmatter
 # Constants
 # ---------------------------------------------------------------------------
 
-# Three levels up from scripts/: skills/pairmode/scripts/ -> anchor repo root
-ANCHOR_ROOT = Path(__file__).resolve().parent.parent.parent
+# Four levels up from this file: skills/pairmode/scripts/pairmode_status.py
+#   parents[0] = skills/pairmode/scripts/
+#   parents[1] = skills/pairmode/
+#   parents[2] = skills/
+#   parents[3] = anchor repo root
+ANCHOR_ROOT = Path(__file__).resolve().parents[3]
 
 DIVIDER = "─────────────────────────────────────"
 

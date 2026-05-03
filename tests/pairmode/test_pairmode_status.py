@@ -120,6 +120,45 @@ def test_shows_attachment_instructions(tmp_path: pathlib.Path) -> None:
     assert "tail -f" in result.output
 
 
+def test_start_sidebar_path_exists(tmp_path: pathlib.Path) -> None:
+    """The printed ``bash <start_sidebar.sh>`` path must resolve to a real file.
+
+    Regression guard for CER-012: ``ANCHOR_ROOT`` previously resolved to
+    ``<repo>/skills/`` instead of the anchor repo root, producing a
+    ``<repo>/skills/skills/companion/scripts/start_sidebar.sh`` instruction
+    that pointed at a non-existent file.
+    """
+    missing_pipe = tmp_path / "does_not_exist.pipe"
+    _write_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "pipe_path": str(missing_pipe),
+        },
+    )
+    result = _invoke(tmp_path)
+    assert result.exit_code == 0, result.output
+
+    # Extract the start_sidebar.sh path from any "bash <path>" line.
+    extracted: str | None = None
+    for raw_line in result.output.splitlines():
+        line = raw_line.strip()
+        if line.startswith("macOS:") or line.startswith("Linux"):
+            # Each line looks like:  "macOS:         bash /path/to/start_sidebar.sh"
+            idx = line.find("bash ")
+            if idx != -1:
+                extracted = line[idx + len("bash ") :].strip()
+                break
+
+    assert extracted is not None, (
+        f"Could not find a 'bash <start_sidebar.sh>' instruction in output:\n{result.output}"
+    )
+    assert extracted.endswith("start_sidebar.sh"), extracted
+    assert pathlib.Path(extracted).exists(), (
+        f"start_sidebar.sh path printed to user does not exist on disk: {extracted}"
+    )
+
+
 def test_shows_modules(tmp_path: pathlib.Path) -> None:
     """state.json with last_loaded_modules → all modules appear in output."""
     _write_state(
