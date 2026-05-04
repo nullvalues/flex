@@ -1720,3 +1720,171 @@ class TestConvictionFlagRegressionStillWorks:
             )
         assert result.exit_code == 0, result.output
         mock_parser.parse_reconstruction_brief.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Story 13.1: end-to-end integration test for --from-reconstruction
+# ---------------------------------------------------------------------------
+
+
+def test_from_reconstruction_e2e_against_anchor_brief(tmp_path):
+    """Integration: runs bootstrap --from-reconstruction against anchor's own
+    docs/reconstruction.md and asserts the round-trip produces a populated
+    docs/ideology.md containing real conviction content."""
+    import re
+
+    brief_path = pathlib.Path(__file__).parents[2] / "docs" / "reconstruction.md"
+
+    if not brief_path.exists():
+        pytest.skip("docs/reconstruction.md not found")
+
+    # Parse the reconstruction brief to find at least one conviction under
+    # the ### Convictions sub-heading inside ## Non-negotiable ideology.
+    brief_text = brief_path.read_text(encoding="utf-8")
+
+    # Find the ### Convictions block and extract bullet lines from it.
+    convictions_match = re.search(
+        r"### Convictions\s*\n(.*?)(?=\n###|\n##|\Z)",
+        brief_text,
+        re.DOTALL,
+    )
+    convictions: list[str] = []
+    if convictions_match:
+        block = convictions_match.group(1)
+        for line in block.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("- ") and len(stripped) > 4:
+                candidate = stripped[2:].strip()
+                # Skip placeholder/separator lines
+                if candidate and not candidate.startswith("--"):
+                    convictions.append(candidate)
+
+    if not convictions:
+        pytest.skip("No convictions found in docs/reconstruction.md ### Convictions block")
+
+    conviction_text = convictions[0]
+    # Pick a 20+ character substring to assert against
+    assert len(conviction_text) >= 20, (
+        f"First conviction too short to assert against: {conviction_text!r}"
+    )
+    conviction_fragment = conviction_text[:40]
+
+    # Run bootstrap with --from-reconstruction
+    runner = CliRunner()
+    result = runner.invoke(
+        bootstrap,
+        [
+            "--project-dir", str(tmp_path),
+            "--project-name", "anchor-reconstruction-test",
+            "--stack", "Python / uv",
+            "--build-command", "uv run pytest",
+            "--from-reconstruction", str(brief_path),
+        ],
+        input="y\n" * 30,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, (
+        f"bootstrap exited with {result.exit_code}\nstdout: {result.output}"
+    )
+
+    ideology_path = tmp_path / "docs" / "ideology.md"
+    assert ideology_path.exists(), "docs/ideology.md was not written by bootstrap"
+
+    ideology_content = ideology_path.read_text(encoding="utf-8")
+
+    # Assert conviction fragment is present
+    assert conviction_fragment in ideology_content, (
+        f"Expected conviction fragment {conviction_fragment!r} not found in ideology.md.\n"
+        f"ideology.md content (first 500 chars):\n{ideology_content[:500]}"
+    )
+
+    # Assert standard ideology.md sections exist
+    assert "## Core convictions" in ideology_content, (
+        "ideology.md missing ## Core convictions section"
+    )
+    assert "## Accepted constraints" in ideology_content, (
+        "ideology.md missing ## Accepted constraints section"
+    )
+    assert "## Reconstruction guidance" in ideology_content, (
+        "ideology.md missing ## Reconstruction guidance section"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Story 14.2: reconstruction-agent.md bootstrap tests
+# ---------------------------------------------------------------------------
+
+class TestReconstructionAgentBootstrap:
+    """Bootstrap writes .claude/agents/reconstruction-agent.md as part of the scaffold."""
+
+    def test_fresh_bootstrap_creates_reconstruction_agent(self, tmp_path):
+        """On a fresh bootstrap, .claude/agents/reconstruction-agent.md is created."""
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / ".claude/agents/reconstruction-agent.md").exists(), (
+            ".claude/agents/reconstruction-agent.md was not created on fresh bootstrap"
+        )
+
+    def test_reconstruction_agent_contains_phase1_heading(self, tmp_path):
+        """Generated reconstruction-agent.md contains '## Phase 1 — Read the brief'."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / ".claude/agents/reconstruction-agent.md").read_text(encoding="utf-8")
+        assert "## Phase 1 — Read the brief" in content
+
+    def test_rebootstrap_without_force_agents_preserves_existing_reconstruction_agent(self, tmp_path):
+        """Re-bootstrap without --force-agents does NOT overwrite existing reconstruction-agent.md."""
+        # First bootstrap — creates all files
+        run_bootstrap(tmp_path)
+
+        # Write custom content into the agent file
+        agent_path = tmp_path / ".claude/agents/reconstruction-agent.md"
+        agent_path.write_text("# custom content", encoding="utf-8")
+
+        # Second bootstrap without --force-agents — should skip the agent file
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+            ],
+            input="n\n" * 20,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        # Custom content must be preserved
+        assert agent_path.read_text(encoding="utf-8") == "# custom content", (
+            "reconstruction-agent.md was overwritten on re-bootstrap without --force-agents"
+        )
+
+    def test_rebootstrap_with_force_agents_overwrites_reconstruction_agent(self, tmp_path):
+        """Re-bootstrap with --force-agents overwrites existing reconstruction-agent.md."""
+        # First bootstrap
+        run_bootstrap(tmp_path)
+
+        # Write custom content into the agent file
+        agent_path = tmp_path / ".claude/agents/reconstruction-agent.md"
+        agent_path.write_text("# custom content", encoding="utf-8")
+
+        # Second bootstrap with --force-agents — should overwrite
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--force-agents",
+            ],
+            input="n\n" * 20,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        content = agent_path.read_text(encoding="utf-8")
+        assert "# custom content" not in content, (
+            "reconstruction-agent.md was not overwritten despite --force-agents"
+        )
+        assert "## Phase 1 — Read the brief" in content

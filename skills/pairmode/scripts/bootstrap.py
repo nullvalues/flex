@@ -56,6 +56,7 @@ AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/loop-breaker.md", "agents/loop-breaker.md.j2"),
     (".claude/agents/security-auditor.md", "agents/security-auditor.md.j2"),
     (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
+    (".claude/agents/reconstruction-agent.md", "agents/reconstruction-agent.md.j2"),
 ]
 
 # Default deny list written into .claude/settings.json
@@ -76,6 +77,8 @@ DEFAULT_DENY: list[str] = [
     "Write(docs/ideology.md)",
     "Edit(docs/reconstruction.md)",
     "Write(docs/reconstruction.md)",
+    "Edit(docs/RECONSTRUCTION.md)",
+    "Write(docs/RECONSTRUCTION.md)",
 ]
 
 # Universal checklist items always included in templates
@@ -478,6 +481,18 @@ def bootstrap(
         ideology_context: dict = _ideology_parser.parse_reconstruction_brief(
             _Path(from_reconstruction)
         )
+        # Normalize constraints: parse_reconstruction_brief returns {name, rule} dicts
+        # but ideology.md.j2 expects {name, rule, protects, rationale} — fill defaults.
+        normalized_constraints = []
+        for c in ideology_context.get("constraints", []):
+            normalized_constraints.append({
+                "name": c.get("name", "Unnamed constraint"),
+                "rule": c.get("rule", ""),
+                "protects": c.get("protects", "_(to be filled in)_"),
+                "rationale": c.get("rationale", "_(to be filled in)_"),
+                "override_path": c.get("override_path", "Document the exception in spec.json conflicts with a stated reason before proceeding."),
+            })
+        ideology_context["constraints"] = normalized_constraints
     elif conviction or constraint:
         # CLI flags provided — use them directly, skip prompting
         ideology_context = {

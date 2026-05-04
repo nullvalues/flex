@@ -89,13 +89,15 @@ def _find_section(sections: dict[str, str], keyword: str) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-def parse_ideology_file(path: Path) -> dict:
-    """Parse docs/ideology.md into context dict.
+def parse_ideology_text(text: str) -> dict:
+    """Parse ideology.md text (already read) into a context dict.
+
+    Equivalent to parse_ideology_file but accepts the content directly,
+    avoiding any disk I/O.
 
     Returns: convictions, constraints, must_preserve, free_to_change,
              should_question, comparison_dimensions, value_hierarchy (all lists).
     """
-    text = path.read_text(encoding="utf-8")
     text = _strip_html_comments(text)
 
     # Extract project_name from first line: # Ideology — ProjectName
@@ -174,6 +176,18 @@ def parse_ideology_file(path: Path) -> dict:
         "free_to_change": free_to_change,
         "comparison_dimensions": comparison_dimensions,
     }
+
+
+def parse_ideology_file(path: Path) -> dict:
+    """Parse docs/ideology.md into context dict.
+
+    Reads the file and delegates to parse_ideology_text.
+
+    Returns: convictions, constraints, must_preserve, free_to_change,
+             should_question, comparison_dimensions, value_hierarchy (all lists).
+    """
+    text = path.read_text(encoding="utf-8")
+    return parse_ideology_text(text)
 
 
 def parse_reconstruction_brief(path: Path) -> dict:

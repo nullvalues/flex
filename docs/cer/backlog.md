@@ -27,7 +27,10 @@ Important, not urgent. Quality improvements, architectural refinements.
 
 | ID | Finding | Source | Date | Phase |
 |----|---------|--------|------|-------|
-| CER-001 | reconstruct.py `parse_ideology()` compat wrapper uses NamedTemporaryFile round-trip; on SIGKILL leaves ideology.md copy in /tmp. Fix: add `parse_ideology_text(text: str)` to ideology_parser.py to eliminate temp file. reconstruct.py:33-50 | Security audit cp12 | 2026-04-24 | 12 |
+| CER-001 | reconstruct.py `parse_ideology()` compat wrapper uses NamedTemporaryFile round-trip; on SIGKILL leaves ideology.md copy in /tmp. Fix: add `parse_ideology_text(text: str)` to ideology_parser.py to eliminate temp file. reconstruct.py:33-50 | Security audit cp12 | 2026-04-24 | 12 | **RESOLVED** Phase 13 |
+| CER-002 | bootstrap.py has no `--yes`/`--no-input` flag; non-interactive callers must use `input="y\n" * N` workaround. Limits CI/scripted use. Add `--yes` flag that auto-confirms all prompts. | Intent review cp13 | 2026-04-25 | 13 |
+| CER-003 | cer.py and phase_new.py call Path(project_dir).resolve() but do not apply the len(parts) < 3 suspicious-path depth check that all other pairmode scripts apply. Inconsistent guard discipline. | Security audit cp14 | 2026-04-25 | 14 |
+| CER-004 | lesson_review.py uses str.startswith() for path containment instead of Path.relative_to(); vulnerable to prefix collision on unusual paths. lesson_review.py:149 | Security audit cp14 | 2026-04-25 | 14 |
 
 
 ---

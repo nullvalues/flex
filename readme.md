@@ -116,6 +116,9 @@ A complete builder/reviewer workflow that any project can adopt. Pairmode turns 
 
 # Refresh docs/reconstruction.md from ideology.md + brief.md (handoff for blank-slate agent)
 /anchor:pairmode reconstruct
+
+# Render a pre-populated RECONSTRUCTION.md scoring report for a reconstruction agent to fill in
+/anchor:pairmode score
 ```
 
 The scaffold produces: `CLAUDE.md`, `CLAUDE.build.md`, `docs/` (brief, architecture, ideology, reconstruction, phases, CER backlog), `.claude/agents/` (builder, reviewer, loop-breaker, security-auditor, intent-reviewer), and `.claude/settings.json` with a spec-derived deny list.

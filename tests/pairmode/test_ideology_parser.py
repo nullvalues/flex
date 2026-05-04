@@ -340,6 +340,39 @@ _(not yet specified — add your convictions here)_
 
 
 # ---------------------------------------------------------------------------
+# parse_ideology_text — direct text parsing (no file I/O)
+# ---------------------------------------------------------------------------
+
+class TestParseIdeologyText:
+    def test_convictions_extracted_from_text(self):
+        result = ideology_parser.parse_ideology_text(MINIMAL_IDEOLOGY)
+        assert "We prefer simplicity over complexity because it reduces bugs." in result["convictions"]
+        assert "Correctness matters more than speed." in result["convictions"]
+
+    def test_returns_same_output_as_parse_ideology_file(self, tmp_path):
+        p = _write(tmp_path, "ideology.md", MINIMAL_IDEOLOGY)
+        result_file = ideology_parser.parse_ideology_file(p)
+        result_text = ideology_parser.parse_ideology_text(MINIMAL_IDEOLOGY)
+        assert result_file == result_text
+
+    def test_empty_text_returns_empty_lists(self):
+        result = ideology_parser.parse_ideology_text("")
+        assert result["convictions"] == []
+        assert result["project_name"] == ""
+        assert result["constraints"] == []
+        assert result["must_preserve"] == []
+        assert result["value_hierarchy"] == []
+
+    def test_all_keys_present(self):
+        result = ideology_parser.parse_ideology_text(MINIMAL_IDEOLOGY)
+        expected_keys = {
+            "project_name", "convictions", "value_hierarchy", "constraints",
+            "must_preserve", "should_question", "free_to_change", "comparison_dimensions",
+        }
+        assert expected_keys.issubset(result.keys())
+
+
+# ---------------------------------------------------------------------------
 # Regression: reconstruct.py still works after refactor
 # ---------------------------------------------------------------------------
 

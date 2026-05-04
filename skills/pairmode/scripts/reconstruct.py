@@ -36,18 +36,7 @@ def parse_ideology(text: str) -> dict:
     Delegates to ideology_parser; kept here for backward compatibility with
     any callers that import directly from reconstruct.
     """
-    import tempfile
-    import os
-    # Write to a temp file so ideology_parser.parse_ideology_file can read it
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".md", delete=False, encoding="utf-8"
-    ) as tmp:
-        tmp.write(text)
-        tmp_path = tmp.name
-    try:
-        return _ideology_parser.parse_ideology_file(Path(tmp_path))
-    finally:
-        os.unlink(tmp_path)
+    return _ideology_parser.parse_ideology_text(text)
 
 
 # ---------------------------------------------------------------------------

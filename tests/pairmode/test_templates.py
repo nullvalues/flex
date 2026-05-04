@@ -1606,3 +1606,29 @@ class TestReconstructionReportTemplate:
     def test_project_name_in_title(self):
         output = render_lenient("RECONSTRUCTION.md.j2", {"project_name": "TestProject"})
         assert "TestProject" in output
+
+
+# ---------------------------------------------------------------------------
+# Story 14.1 — reconstruction-agent.md.j2 agent definition template tests
+# ---------------------------------------------------------------------------
+
+class TestReconstructionAgentTemplate:
+    """Tests for agents/reconstruction-agent.md.j2."""
+
+    def setup_method(self):
+        self.output = render("agents/reconstruction-agent.md.j2", {"project_name": "TestProject"})
+
+    def test_renders_without_error(self):
+        assert self.output
+
+    def test_phase_1_read_the_brief_section_present(self):
+        assert "## Phase 1 — Read the brief" in self.output
+
+    def test_phase_4_fill_in_scoring_report_section_present(self):
+        assert "## Phase 4 — Fill in the scoring report" in self.output
+
+    def test_project_name_substituted(self):
+        assert "TestProject" in self.output
+
+    def test_allowed_tools_in_frontmatter(self):
+        assert "allowed-tools" in self.output
