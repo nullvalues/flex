@@ -18,6 +18,7 @@ from skills.pairmode.scripts.audit import (
     _is_stale_placeholder,
     _enrich_scaffold_context,
     _check_ideology_staleness,
+    _check_reconstruction_staleness,
     SCAFFOLD_FILES,
 )
 from skills.pairmode.scripts import audit as _audit_mod
@@ -180,6 +181,25 @@ def _write_clean_scaffold_files(project_dir: Path) -> None:
     ideology_path = project_dir / "docs" / "ideology.md"
     if not ideology_path.exists():
         _write_ideology_md(project_dir, stale=False)
+
+    # Write reconstruction.md as a completed scoring report (no generated footer)
+    # so it doesn't trigger MISSING/STALE in baseline tests
+    reconstruction_path = project_dir / "docs" / "reconstruction.md"
+    if not reconstruction_path.exists():
+        reconstruction_path.write_text(
+            "# Reconstruction Report — testproject\n\n"
+            "**Reconstruction date:** 2026-01-01\n\n"
+            "---\n\n"
+            "## Ideology adherence\n\n"
+            "The implementation expresses the core convictions fully.\n\n"
+            "## Constraint compliance\n\n"
+            "All constraints are satisfied.\n\n"
+            "## Comparison rubric scores\n\n"
+            "Performance: on par. Correctness: exceeds original.\n\n"
+            "## Summary verdict\n\n"
+            "Strong alignment with ideology.\n",
+            encoding="utf-8",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1730,3 +1750,205 @@ class TestAuditPathTraversalGuard:
         # Should not raise — may return a result with findings but must not exit
         result = audit_project(tmp_path)
         assert isinstance(result, AuditResult)
+
+
+# ---------------------------------------------------------------------------
+# Story 12.2 — Reconstruction.md staleness detection
+# ---------------------------------------------------------------------------
+
+_GENERATED_FOOTER = "Generated from `docs/ideology.md`"
+_PLACEHOLDER_RECONSTRUCTION = (
+    "# Reconstruction Brief — testproject\n\n"
+    "> This document is the sole input for an independent reconstruction agent.\n\n"
+    "---\n\n"
+    "## What you are building\n\n"
+    "_(derive from docs/brief.md — What this project produces)_\n\n"
+    "## Why it exists\n\n"
+    "_(derive from docs/brief.md — Why it exists)_\n\n"
+    "---\n\n"
+    "## Non-negotiable ideology\n\n"
+    "_(no convictions recorded — populate docs/ideology.md first)_\n\n"
+    "---\n\n"
+    "## Instructions for the reconstruction agent\n\n"
+    "1. Read this document in full before writing any code.\n\n"
+    f"*{_GENERATED_FOOTER} and `docs/brief.md` by `/anchor:pairmode reconstruct`.*\n"
+    "*Original project: testproject*\n"
+)
+
+_COMPLETED_REPORT = (
+    "# Reconstruction Report — testproject\n\n"
+    "**Reconstruction date:** 2026-01-01\n\n"
+    "---\n\n"
+    "## Ideology adherence\n\n"
+    "The implementation fully expresses all core convictions.\n\n"
+    "## Constraint compliance\n\n"
+    "All non-negotiable constraints are satisfied.\n\n"
+    "## Comparison rubric scores\n\n"
+    "Performance: on par. Correctness: exceeds original.\n\n"
+    "## Summary verdict\n\n"
+    "Strong alignment with ideology. Recommended for backport review.\n"
+)
+
+
+def _write_reconstruction_md(project_dir: Path, content: str) -> None:
+    """Write docs/reconstruction.md with the given content."""
+    docs_dir = project_dir / "docs"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    (docs_dir / "reconstruction.md").write_text(content, encoding="utf-8")
+
+
+class TestCheckReconstructionStaleness:
+    """Unit tests for _check_reconstruction_staleness."""
+
+    def test_absent_returns_none(self, tmp_path: Path) -> None:
+        """docs/reconstruction.md absent → returns None."""
+        result = _check_reconstruction_staleness(tmp_path)
+        assert result is None
+
+    def test_generated_brief_all_placeholder_returns_stale(self, tmp_path: Path) -> None:
+        """Generated brief with all placeholder content → returns 'STALE'."""
+        _write_reconstruction_md(tmp_path, _PLACEHOLDER_RECONSTRUCTION)
+        result = _check_reconstruction_staleness(tmp_path)
+        assert result == "STALE"
+
+    def test_generated_brief_with_real_content_returns_ok(self, tmp_path: Path) -> None:
+        """Generated brief with real content in one required section → returns 'OK'."""
+        content = (
+            _PLACEHOLDER_RECONSTRUCTION.rstrip() + "\n\n"
+            "## Comparison rubric\n\n"
+            "The implementation expresses the core convictions fully.\n"
+        )
+        _write_reconstruction_md(tmp_path, content)
+        result = _check_reconstruction_staleness(tmp_path)
+        assert result == "OK"
+
+    def test_completed_scoring_report_returns_ok(self, tmp_path: Path) -> None:
+        """Completed scoring report (no generated footer) → returns 'OK'."""
+        _write_reconstruction_md(tmp_path, _COMPLETED_REPORT)
+        result = _check_reconstruction_staleness(tmp_path)
+        assert result == "OK"
+
+    def test_completed_report_has_no_generated_footer(self) -> None:
+        """Sanity: _COMPLETED_REPORT must not contain the generated footer."""
+        assert _GENERATED_FOOTER not in _COMPLETED_REPORT
+
+
+class TestAuditReconstructionMd:
+    """Integration tests: audit_project detects reconstruction.md missing/stale."""
+
+    def test_missing_reconstruction_md_produces_missing_finding(self, tmp_path: Path) -> None:
+        """docs/reconstruction.md absent → MISSING finding that mentions reconstruction.md
+        and 'reconstruct'."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        # Remove the reconstruction.md that _copy_canonical_files created
+        reconstruction_path = tmp_path / "docs" / "reconstruction.md"
+        if reconstruction_path.exists():
+            reconstruction_path.unlink()
+
+        result = audit_project(tmp_path)
+
+        missing_files = {i.file for i in result.missing}
+        assert "docs/reconstruction.md" in missing_files, (
+            f"Expected docs/reconstruction.md in missing files, got: {missing_files}"
+        )
+        # Description must mention 'reconstruct'
+        missing_desc = next(
+            i.description for i in result.missing if i.file == "docs/reconstruction.md"
+        )
+        assert "reconstruct" in missing_desc.lower(), (
+            f"Expected 'reconstruct' in description, got: {missing_desc}"
+        )
+
+    def test_stale_generated_brief_produces_stale_placeholder_finding(
+        self, tmp_path: Path
+    ) -> None:
+        """Generated reconstruction.md with placeholder-only content → STALE PLACEHOLDER."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        # Overwrite with a placeholder-only generated brief
+        _write_reconstruction_md(tmp_path, _PLACEHOLDER_RECONSTRUCTION)
+
+        result = audit_project(tmp_path)
+
+        stale_items = [
+            i for i in result.inconsistent
+            if i.file == "docs/reconstruction.md" and "STALE PLACEHOLDER" in i.description
+        ]
+        assert len(stale_items) > 0, (
+            f"Expected STALE PLACEHOLDER finding for docs/reconstruction.md, "
+            f"got inconsistent: {result.inconsistent}"
+        )
+
+    def test_generated_brief_with_real_content_in_one_section_is_clean(
+        self, tmp_path: Path
+    ) -> None:
+        """Generated brief with real content in ## Comparison rubric → no finding."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        content = (
+            _PLACEHOLDER_RECONSTRUCTION.rstrip() + "\n\n"
+            "## Comparison rubric\n\n"
+            "The implementation expresses the core convictions fully.\n"
+        )
+        _write_reconstruction_md(tmp_path, content)
+
+        result = audit_project(tmp_path)
+
+        reconstruction_findings = [
+            i for i in result.missing + result.inconsistent
+            if i.file == "docs/reconstruction.md"
+        ]
+        assert reconstruction_findings == [], (
+            f"Expected no reconstruction findings when one section has real content, "
+            f"got: {reconstruction_findings}"
+        )
+
+    def test_completed_scoring_report_not_flagged(self, tmp_path: Path) -> None:
+        """Completed scoring report (no generated footer) → not flagged."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        _write_reconstruction_md(tmp_path, _COMPLETED_REPORT)
+
+        result = audit_project(tmp_path)
+
+        reconstruction_findings = [
+            i for i in result.missing + result.inconsistent
+            if i.file == "docs/reconstruction.md"
+        ]
+        assert reconstruction_findings == [], (
+            f"Expected no reconstruction findings for completed report, "
+            f"got: {reconstruction_findings}"
+        )
+        # Also verify _check_reconstruction_staleness returns OK directly
+        staleness = _check_reconstruction_staleness(tmp_path)
+        assert staleness == "OK"
+
+    def test_ideology_audit_findings_unaffected(self, tmp_path: Path) -> None:
+        """Regression: ideology.md audit findings are unaffected by reconstruction check."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        # Overwrite ideology.md with stale content
+        _write_ideology_md(tmp_path, stale=True)
+        # Reconstruction is missing (removed by helper logic won't run — remove explicitly)
+        reconstruction_path = tmp_path / "docs" / "reconstruction.md"
+        if reconstruction_path.exists():
+            reconstruction_path.unlink()
+
+        result = audit_project(tmp_path)
+
+        # Ideology stale finding must still be present
+        ideology_stale = [
+            i for i in result.inconsistent
+            if i.file == "docs/ideology.md" and "STALE PLACEHOLDER" in i.description
+        ]
+        assert len(ideology_stale) > 0, (
+            f"Expected ideology STALE PLACEHOLDER finding, got: {result.inconsistent}"
+        )
+        # Reconstruction MISSING finding must also be present
+        reconstruction_missing = [
+            i for i in result.missing if i.file == "docs/reconstruction.md"
+        ]
+        assert len(reconstruction_missing) > 0, (
+            f"Expected reconstruction MISSING finding, got: {result.missing}"
+        )

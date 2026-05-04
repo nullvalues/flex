@@ -97,3 +97,24 @@ has Core beliefs, Accepted tradeoffs, and What a second implementation must pres
 checks ideology alignment (item 5). Intent-reviewer detects ideology drift. Bootstrap guided
 capture mode with --ideology-skip/--conviction/--constraint flags. Audit detects stale ideology.
 Path traversal containment guard in bootstrap, audit, sync. 822 tests pass.
+
+---
+
+## cp11-reconstruction-workflow
+
+**Phase:** 11 — Brief hygiene and reconstruction workflow
+**Tag command:** `git tag cp11-reconstruction-workflow && git push origin cp11-reconstruction-workflow`
+**Acceptance:** must_preserve dual-type collision fixed (must_preserve_str for brief.md.j2,
+must_preserve list for ideology.md.j2). reconstruction.md.j2 brief template created.
+docs/reconstruction.md wired into bootstrap scaffold and DEFAULT_DENY. reconstruct.py script
+refreshes reconstruction.md from ideology.md and brief.md. 859 tests pass.
+
+---
+
+## cp12-reconstruction-seeding
+
+**Phase:** 12 — Reconstruction seeding and comparison scaffolding
+**Tag command:** `git tag cp12-reconstruction-seeding && git push origin cp12-reconstruction-seeding`
+**Acceptance:** RECONSTRUCTION.md.j2 scoring template created. audit.py detects missing or
+stale reconstruction.md. ideology_parser.py shared parser extracted. bootstrap.py accepts
+--from-reconstruction PATH to seed a new project from a reconstruction brief. 905 tests pass.

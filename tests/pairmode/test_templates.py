@@ -149,7 +149,7 @@ BRIEF_MD_CONTEXT = {
     "why": "Existing solutions lack fine-grained role management required by our enterprise customers.",
     "core_beliefs": "We prefer X.",
     "accepted_tradeoffs": "We gave up Y for Z.",
-    "must_preserve": "The data contract.",
+    "must_preserve_str": "The data contract.",
     "operator_contact": "alice@example.com",
 }
 
@@ -161,7 +161,7 @@ BRIEF_MD_EMPTY_CONTEXT = {
     "why": "",
     "core_beliefs": "",
     "accepted_tradeoffs": "",
-    "must_preserve": "",
+    "must_preserve_str": "",
     "operator_contact": "",
 }
 
@@ -227,7 +227,7 @@ BRIEF_MD_IDEOLOGY_EMPTY_CONTEXT = {
     "why": "",
     "core_beliefs": "",
     "accepted_tradeoffs": "",
-    "must_preserve": "",
+    "must_preserve_str": "",
     "operator_contact": "",
 }
 
@@ -1429,3 +1429,180 @@ class TestIntentReviewerIdeologyDrift:
 
     def test_recommended_doc_edits_still_present_regression(self):
         assert "RECOMMENDED DOC EDITS" in self.output
+
+
+# ---------------------------------------------------------------------------
+# Story 11.0 — must_preserve dual-key contract tests
+# ---------------------------------------------------------------------------
+
+class TestBriefMdMustPreserveStr:
+    """Story 11.0: brief.md.j2 uses must_preserve_str (string), not must_preserve (list)."""
+
+    def test_must_preserve_str_value_renders_in_brief_md(self):
+        """Providing must_preserve_str renders the string content, not a list repr."""
+        ctx = {**BRIEF_MD_IDEOLOGY_EMPTY_CONTEXT, "must_preserve_str": "- prefer X\n- prefer Y"}
+        output = render("docs/brief.md.j2", ctx)
+        assert "prefer X" in output
+        assert "prefer Y" in output
+
+    def test_must_preserve_str_no_list_repr_in_brief_md(self):
+        """must_preserve_str renders as prose — no Python list repr like ['item']."""
+        ctx = {**BRIEF_MD_IDEOLOGY_EMPTY_CONTEXT, "must_preserve_str": "- prefer X\n- prefer Y"}
+        output = render("docs/brief.md.j2", ctx)
+        assert "['prefer X'" not in output
+        assert "['prefer X', 'prefer Y']" not in output
+
+    def test_empty_must_preserve_str_shows_placeholder(self):
+        """Empty must_preserve_str renders the placeholder text."""
+        ctx = {**BRIEF_MD_IDEOLOGY_EMPTY_CONTEXT, "must_preserve_str": ""}
+        output = render("docs/brief.md.j2", ctx)
+        assert "_(not yet specified — which values, constraints, or behaviors must survive" in output
+
+    def test_must_preserve_str_key_used_not_must_preserve(self):
+        """brief.md.j2 renders correctly with must_preserve_str key present (no StrictUndefined error)."""
+        # Omitting 'must_preserve' key entirely — template should not reference it
+        ctx = {
+            "project_name": "myapp",
+            "what": "",
+            "why": "",
+            "core_beliefs": "",
+            "accepted_tradeoffs": "",
+            "must_preserve_str": "- key item",
+            "operator_contact": "",
+        }
+        output = render("docs/brief.md.j2", ctx)
+        assert "key item" in output
+
+
+class TestIdeologyMdMustPreserveList:
+    """Story 11.0: ideology.md.j2 uses must_preserve as a list via {% for %}."""
+
+    def test_must_preserve_list_renders_via_for_loop(self):
+        """ideology.md.j2 iterates must_preserve list and renders each item."""
+        ctx = {**IDEOLOGY_EMPTY_CONTEXT, "must_preserve": ["item one", "item two"]}
+        output = render("docs/ideology.md.j2", ctx)
+        assert "item one" in output
+        assert "item two" in output
+
+    def test_must_preserve_list_no_python_repr(self):
+        """ideology.md.j2 does not produce a Python list repr for must_preserve."""
+        ctx = {**IDEOLOGY_EMPTY_CONTEXT, "must_preserve": ["item one", "item two"]}
+        output = render("docs/ideology.md.j2", ctx)
+        assert "['item one'" not in output
+
+    def test_must_preserve_empty_list_shows_placeholder(self):
+        """Empty must_preserve list renders the placeholder text in ideology.md."""
+        ctx = {**IDEOLOGY_EMPTY_CONTEXT, "must_preserve": []}
+        output = render("docs/ideology.md.j2", ctx)
+        assert "Derive from the accepted constraints" in output
+
+
+# ---------------------------------------------------------------------------
+# Story 11.1 — reconstruction.md.j2 template tests
+# ---------------------------------------------------------------------------
+
+RECONSTRUCTION_EMPTY_CONTEXT: dict = {}
+
+
+def render_lenient(template_name: str, context: dict) -> str:
+    """Render a template with lenient (non-strict) undefined handling.
+
+    Used for partial-context tests where some variables are intentionally absent.
+    """
+    loader = jinja2.FileSystemLoader(str(TEMPLATES_DIR))
+    env = jinja2.Environment(loader=loader, undefined=jinja2.Undefined)
+    template = env.get_template(template_name)
+    return template.render(**context)
+
+
+class TestReconstructionMdTemplate:
+    """Tests for docs/reconstruction.md.j2."""
+
+    def test_renders_without_error_empty_context(self):
+        output = render_lenient("docs/reconstruction.md.j2", {})
+        assert output
+
+    def test_what_you_are_building_section_present(self):
+        output = render_lenient("docs/reconstruction.md.j2", {})
+        assert "## What you are building" in output
+
+    def test_non_negotiable_ideology_section_present(self):
+        output = render_lenient("docs/reconstruction.md.j2", {})
+        assert "## Non-negotiable ideology" in output
+
+    def test_what_must_survive_section_present(self):
+        output = render_lenient("docs/reconstruction.md.j2", {})
+        assert "## What must survive any implementation" in output
+
+    def test_comparison_rubric_section_present(self):
+        output = render_lenient("docs/reconstruction.md.j2", {})
+        assert "## Comparison rubric" in output
+
+    def test_instructions_for_reconstruction_agent_section_present(self):
+        output = render_lenient("docs/reconstruction.md.j2", {})
+        assert "## Instructions for the reconstruction agent" in output
+
+    def test_conviction_renders_when_provided(self):
+        output = render_lenient("docs/reconstruction.md.j2", {"convictions": ["We prefer X"]})
+        assert "We prefer X" in output
+
+    def test_constraint_name_rule_rationale_render(self):
+        ctx = {
+            "constraints": [
+                {"name": "C1", "rule": "never do X", "rationale": "because Y"}
+            ]
+        }
+        output = render_lenient("docs/reconstruction.md.j2", ctx)
+        assert "C1" in output
+        assert "never do X" in output
+        assert "because Y" in output
+
+    def test_project_name_in_title(self):
+        output = render_lenient("docs/reconstruction.md.j2", {"project_name": "TestProject"})
+        assert "TestProject" in output
+
+
+# ---------------------------------------------------------------------------
+# Story 12.1 — RECONSTRUCTION.md.j2 scoring template tests
+# ---------------------------------------------------------------------------
+
+class TestReconstructionReportTemplate:
+    """Tests for RECONSTRUCTION.md.j2 — the report a reconstruction agent produces."""
+
+    def test_renders_without_error_empty_context(self):
+        output = render_lenient("RECONSTRUCTION.md.j2", {})
+        assert output
+
+    def test_ideology_adherence_section_present(self):
+        output = render_lenient("RECONSTRUCTION.md.j2", {})
+        assert "## Ideology adherence" in output
+
+    def test_constraint_compliance_section_present(self):
+        output = render_lenient("RECONSTRUCTION.md.j2", {})
+        assert "## Constraint compliance" in output
+
+    def test_comparison_rubric_scores_section_present(self):
+        output = render_lenient("RECONSTRUCTION.md.j2", {})
+        assert "## Comparison rubric scores" in output
+
+    def test_summary_verdict_section_present(self):
+        output = render_lenient("RECONSTRUCTION.md.j2", {})
+        assert "## Summary verdict" in output
+
+    def test_conviction_heading_renders_when_provided(self):
+        output = render_lenient("RECONSTRUCTION.md.j2", {"convictions": ["We prefer X over Y"]})
+        assert "### Conviction: We prefer X over Y" in output
+
+    def test_comparison_dimension_name_and_description_render(self):
+        ctx = {
+            "comparison_dimensions": [
+                {"name": "Decision fidelity", "description": "desc"}
+            ]
+        }
+        output = render_lenient("RECONSTRUCTION.md.j2", ctx)
+        assert "Decision fidelity" in output
+        assert "desc" in output
+
+    def test_project_name_in_title(self):
+        output = render_lenient("RECONSTRUCTION.md.j2", {"project_name": "TestProject"})
+        assert "TestProject" in output

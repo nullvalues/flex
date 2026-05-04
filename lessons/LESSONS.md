@@ -37,3 +37,8 @@ or use `/anchor:pairmode lesson` to capture a new lesson.
 **Date:** 2026-04-21
 **Status:** applied
 **Learning:** The pipe path must be scoped to the project directory. Each project gets its own pipe derived from an 8-char md5 hash of the project dir. The sidebar reads its own pipe only. Hooks read the pipe_path from .companion/state.json at startup.
+
+## L008 — Phase 21 spec written, CER agent run on spec before build, found 20 issues including compile-blockers
+**Date:** 2026-04-24
+**Status:** captured
+**Learning:** Running a cold-eyes review on the phase spec itself (not just on built code) catches architectural and correctness errors before any builder time is spent. The CER agent reading actual source files alongside the spec finds mismatches the spec author missed. This is more valuable than a post-build reviewer alone.

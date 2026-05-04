@@ -27,9 +27,7 @@ Important, not urgent. Quality improvements, architectural refinements.
 
 | ID | Finding | Source | Date | Phase |
 |----|---------|--------|------|-------|
-
-
-| — | *(none)* | — | — | — |
+| CER-001 | reconstruct.py `parse_ideology()` compat wrapper uses NamedTemporaryFile round-trip; on SIGKILL leaves ideology.md copy in /tmp. Fix: add `parse_ideology_text(text: str)` to ideology_parser.py to eliminate temp file. reconstruct.py:33-50 | Security audit cp12 | 2026-04-24 | 12 |
 
 
 ---

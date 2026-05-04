@@ -112,6 +112,13 @@ IDEOLOGY_REQUIRED_SECTIONS = [
     "## Comparison basis",
 ]
 
+RECONSTRUCTION_PLACEHOLDER_MARKER = "_(not set)_"
+RECONSTRUCTION_REQUIRED_SECTIONS = [
+    "## Non-negotiable ideology",
+    "## What must survive any implementation",
+    "## Comparison rubric",
+]
+
 
 def _strip_html_comments(text: str) -> str:
     """Remove HTML comments (<!-- ... -->) from text."""
@@ -149,6 +156,57 @@ def _check_ideology_staleness(project_dir: Path) -> str | None:
             if not line.startswith(IDEOLOGY_PLACEHOLDER_MARKER):
                 found_real_content = True
                 break
+        if found_real_content:
+            break
+
+    if found_real_content:
+        return "OK"
+    return "STALE"
+
+
+def _check_reconstruction_staleness(project_dir: Path) -> str | None:
+    """None if absent, 'STALE' if generated+placeholder, 'OK' otherwise."""
+    reconstruction_path = project_dir / "docs" / "reconstruction.md"
+    if not reconstruction_path.exists():
+        return None
+
+    text = reconstruction_path.read_text(encoding="utf-8")
+
+    # If the file does NOT contain the generated-brief footer, it is a filled-in
+    # scoring report — treat as OK immediately without flagging.
+    generated_footer = "Generated from `docs/ideology.md`"
+    if generated_footer not in text:
+        return "OK"
+
+    # It is a generated brief. Check whether required scoring sections exist and
+    # have real (non-placeholder) content.
+    found_real_content = False
+
+    for section_header in RECONSTRUCTION_REQUIRED_SECTIONS:
+        pattern = re.compile(
+            r"^" + re.escape(section_header) + r"\s*$(.+?)(?=^##|\Z)",
+            re.MULTILINE | re.DOTALL | re.IGNORECASE,
+        )
+        match = pattern.search(text)
+        if not match:
+            # Section missing entirely — count as placeholder, continue
+            continue
+
+        body = match.group(1)
+        lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+        for line in lines:
+            # Skip Jinja2 comments, placeholder text, and horizontal rules
+            if line.startswith("{#"):
+                continue
+            if line.startswith("_"):
+                continue
+            if re.match(r"^-{3,}$", line):
+                continue
+            if line.startswith(">"):
+                continue
+            # Found a real content line
+            found_real_content = True
+            break
         if found_real_content:
             break
 
@@ -496,6 +554,30 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
         )
     # "OK" → no finding
 
+    # Reconstruction staleness check — handled separately from SCAFFOLD_FILES
+    reconstruction_status = _check_reconstruction_staleness(project_dir)
+    if reconstruction_status is None:
+        result.missing.append(
+            AuditItem(
+                file="docs/reconstruction.md",
+                section="__file__",
+                description=(
+                    "docs/reconstruction.md is missing — run /anchor:pairmode reconstruct to generate it"
+                ),
+            )
+        )
+    elif reconstruction_status == "STALE":
+        result.inconsistent.append(
+            AuditItem(
+                file="docs/reconstruction.md",
+                section="__content__",
+                description=(
+                    "STALE PLACEHOLDER — docs/reconstruction.md exists but contains only placeholder content"
+                ),
+            )
+        )
+    # "OK" → no finding
+
     return result
 
 
@@ -549,25 +631,38 @@ def format_audit_output(result: AuditResult) -> str:
             lines.append(f"  \u2717 {item.file}: {item.description}{lesson_tag}")
         lines.append("")
 
-    # Separate ideology stale-placeholder from other inconsistent items
+    # Separate ideology and reconstruction stale-placeholder from other inconsistent items
     ideology_stale = [
         i for i in result.inconsistent
         if i.file == "docs/ideology.md" and "STALE PLACEHOLDER" in i.description
     ]
+    reconstruction_stale = [
+        i for i in result.inconsistent
+        if i.file == "docs/reconstruction.md" and "STALE PLACEHOLDER" in i.description
+    ]
     other_inconsistent = [
         i for i in result.inconsistent
         if not (i.file == "docs/ideology.md" and "STALE PLACEHOLDER" in i.description)
+        and not (i.file == "docs/reconstruction.md" and "STALE PLACEHOLDER" in i.description)
     ]
 
-    if ideology_stale:
+    if ideology_stale or reconstruction_stale:
         lines.append("STALE PLACEHOLDER")
-        lines.append(
-            "  \u26a0 docs/ideology.md: all sections contain placeholder text"
-        )
-        lines.append(
-            "    Recommendation: run bootstrap in TTY to trigger guided ideology capture,"
-        )
-        lines.append("    or edit docs/ideology.md directly.")
+        if ideology_stale:
+            lines.append(
+                "  \u26a0 docs/ideology.md: all sections contain placeholder text"
+            )
+            lines.append(
+                "    Recommendation: run bootstrap in TTY to trigger guided ideology capture,"
+            )
+            lines.append("    or edit docs/ideology.md directly.")
+        if reconstruction_stale:
+            lines.append(
+                "  \u26a0 docs/reconstruction.md: exists but contains only placeholder content"
+            )
+            lines.append(
+                "    Recommendation: run /anchor:pairmode reconstruct to regenerate it."
+            )
         lines.append("")
 
     if other_inconsistent:

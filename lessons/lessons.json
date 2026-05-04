@@ -128,6 +128,25 @@
         "all"
       ],
       "status": "applied"
+    },
+    {
+      "id": "L008",
+      "date": "2026-04-24",
+      "source_project": "radar",
+      "trigger": "Phase 21 spec written, CER agent run on spec before build, found 20 issues including compile-blockers",
+      "problem": "Spec had multiple errors that would have caused the builder to produce uncompilable code or silently wrong behaviour: wrong call site argument in updateTask (data vs existing), missing explicit createRail body pass-through, reorderRail cross-context corruption, missing ApiRail type update in adapters.ts, stale contextRailsById race condition.",
+      "learning": "Running a cold-eyes review on the phase spec itself (not just on built code) catches architectural and correctness errors before any builder time is spent. The CER agent reading actual source files alongside the spec finds mismatches the spec author missed. This is more valuable than a post-build reviewer alone.",
+      "methodology_change": {
+        "affects": [
+          "orchestrator",
+          "reviewer_checklist"
+        ],
+        "description": "Add a spec-CER step to the build orchestrator sequence: after writing a phase spec and before saying Build Phase N, spawn a security-auditor (or general-purpose) agent to cold-eyes review the spec against the actual codebase, then incorporate findings before building. Document this as a standard checkpoint in CLAUDE.build.md."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured"
     }
   ]
 }

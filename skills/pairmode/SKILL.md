@@ -40,6 +40,7 @@ re-scaffolding a project after a major methodology revision.
 - `CLAUDE.build.md` — build orchestrator instructions (root)
 - `docs/brief.md` — project brief
 - `docs/ideology.md` — intent and conviction record
+- `docs/reconstruction.md` — reconstruction brief for independent agent
 - `docs/architecture.md` — architecture reference
 - `docs/checkpoints.md` — checkpoint tag commands
 - `docs/phases/index.md` — phase index table
@@ -91,6 +92,14 @@ or `--constraint` flags to populate it non-interactively.
 - `--ideology-skip` — skip guided ideology capture; write placeholder `docs/ideology.md`
 - `--conviction TEXT` — core conviction (repeatable); bypasses TTY prompt, populates ideology.md directly
 - `--constraint TEXT` — key constraint rule (repeatable); bypasses TTY prompt, populates ideology.md directly
+- `--from-reconstruction PATH` — path to a `reconstruction.md` brief; pre-populates ideology context from it, seeding a new pairmode project without manual TTY entry
+
+**Pre-populating from a reconstruction brief:**
+```bash
+# Pass a reconstruction.md brief to pre-populate ideology context
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/bootstrap.py" \
+  --project-dir "$(pwd)" --from-reconstruction path/to/reconstruction.md
+```
 
 ---
 
@@ -143,6 +152,13 @@ RECOMMENDATION
 - All required sections contain only placeholder text (`_(not yet specified…`) → `STALE PLACEHOLDER`
   finding with recommendation to run guided ideology capture
 - At least one section has real content → clean (no finding)
+
+**Reconstruction staleness detection:**
+- Detects missing or stale `docs/reconstruction.md` (run `/anchor:pairmode reconstruct` to fix).
+- `docs/reconstruction.md` absent → `MISSING` finding
+- File contains the generated-brief footer (`Generated from \`docs/ideology.md\``) and all
+  required scoring sections are placeholder-only → `STALE PLACEHOLDER` finding
+- Completed scoring report (no generated footer) → clean (no finding)
 
 **Outputs:**
 - A human-readable audit report printed to the session, summarizing all deltas and recommended
@@ -294,6 +310,38 @@ typically before a major bootstrap or sync campaign across projects.
 | `orchestrator`        | `skills/pairmode/templates/CLAUDE.build.md.j2`        |
 | `checkpoint_sequence` | `skills/pairmode/templates/CLAUDE.build.md.j2`        |
 | `all`                 | all three template files (one proposal per file)      |
+
+---
+
+### `/anchor:pairmode reconstruct`
+
+**When to use:** After populating `docs/ideology.md`, or any time the ideology evolves and
+`docs/reconstruction.md` needs refreshing without a full bootstrap.
+
+**Inputs expected:**
+- `docs/ideology.md` in the target project (required).
+- `docs/brief.md` (optional — used for what/why context).
+- Target project root path (defaults to current directory).
+
+**What it does:**
+1. Reads and parses `docs/ideology.md` to extract convictions, constraints, must-preserve
+   items, free-to-change items, should-question items, and comparison dimensions.
+2. Reads `docs/brief.md` (if present) for what/why context.
+3. Renders `docs/reconstruction.md` — the handoff prompt for a blank-slate reconstruction agent.
+4. Prompts for confirmation if `docs/reconstruction.md` already exists (use `--force` to skip).
+
+**Outputs:**
+- `docs/reconstruction.md` at the target project root.
+
+**CLI invocation:**
+```bash
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/reconstruct.py" \
+  --project-dir "$(pwd)"
+```
+
+**Flags:**
+- `--project-dir PATH` — target project root (default: current directory)
+- `--force` — overwrite existing `docs/reconstruction.md` without prompting
 
 ---
 

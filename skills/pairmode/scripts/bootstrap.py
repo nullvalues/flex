@@ -15,6 +15,7 @@ import sys
 from pathlib import Path as _Path
 
 sys.path.insert(0, str(_Path(__file__).parent.parent.parent.parent))
+sys.path.insert(0, str(_Path(__file__).parent))
 
 import click
 import jinja2
@@ -22,6 +23,7 @@ import jinja2
 from skills.pairmode.scripts import spec_reader as _spec_reader
 from skills.pairmode.scripts import checklist_deriver as _checklist_deriver
 from skills.pairmode.scripts import denylist_deriver as _denylist_deriver
+import ideology_parser as _ideology_parser
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -40,6 +42,7 @@ SCAFFOLD_FILES: list[tuple[str, str]] = [
     ("CLAUDE.build.md", "CLAUDE.build.md.j2"),
     ("docs/brief.md", "docs/brief.md.j2"),
     ("docs/ideology.md", "docs/ideology.md.j2"),
+    ("docs/reconstruction.md", "docs/reconstruction.md.j2"),
     ("docs/architecture.md", "docs/architecture.md.j2"),
     ("docs/checkpoints.md", "docs/checkpoints.md.j2"),
     ("docs/cer/backlog.md", "docs/cer/backlog.md.j2"),
@@ -71,6 +74,8 @@ DEFAULT_DENY: list[str] = [
     "Write(docs/brief.md)",
     "Edit(docs/ideology.md)",
     "Write(docs/ideology.md)",
+    "Edit(docs/reconstruction.md)",
+    "Write(docs/reconstruction.md)",
 ]
 
 # Universal checklist items always included in templates
@@ -369,6 +374,12 @@ def _ideology_capture_flow() -> dict:
     multiple=True,
     help="Key constraint rule (repeatable). Bypasses TTY prompt.",
 )
+@click.option(
+    "--from-reconstruction",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Path to a reconstruction.md brief. Pre-populates ideology context.",
+)
 def bootstrap(
     project_dir: str,
     project_name: str | None,
@@ -383,6 +394,7 @@ def bootstrap(
     ideology_skip: bool,
     conviction: tuple[str, ...],
     constraint: tuple[str, ...],
+    from_reconstruction: str | None,
 ) -> None:
     """Bootstrap a pairmode scaffold into PROJECT_DIR."""
 
@@ -459,11 +471,16 @@ def bootstrap(
     test_command = build_command
 
     # ------------------------------------------------------------------
-    # 1b. Ideology context: CLI flags → TTY prompt → non-TTY placeholder
+    # 1b. Ideology context: --from-reconstruction → CLI flags → TTY prompt → non-TTY placeholder
     # ------------------------------------------------------------------
-    if conviction or constraint:
+    if from_reconstruction is not None:
+        click.echo(f"  Reading reconstruction brief: {from_reconstruction}")
+        ideology_context: dict = _ideology_parser.parse_reconstruction_brief(
+            _Path(from_reconstruction)
+        )
+    elif conviction or constraint:
         # CLI flags provided — use them directly, skip prompting
-        ideology_context: dict = {
+        ideology_context = {
             "convictions": list(conviction),
             "value_hierarchy": [],
             "constraints": [
@@ -538,7 +555,9 @@ def bootstrap(
         "why": why or "",
         "core_beliefs": "",
         "accepted_tradeoffs": "",
-        "must_preserve": "",
+        # brief.md.j2 expects a string; ideology.md.j2 expects a list — use separate keys.
+        "must_preserve_str": "",   # newline-joined string for brief.md.j2
+        "must_preserve": [],       # list form for ideology.md.j2
         "operator_contact": product.get("operator_contact", ""),
         "build_command": build_command,
         "test_command": test_command,
@@ -560,15 +579,19 @@ def bootstrap(
         "value_hierarchy": ideology_context.get("value_hierarchy", []),
         "constraints": ideology_context.get("constraints", []),
         "fingerprints": [],
-        # must_preserve is defined above (shared with brief.md.j2) — empty string is falsy
-        # so ideology.md.j2's {% if must_preserve %} guard works correctly
         "should_question": [],
         "free_to_change": [],
         "comparison_dimensions": [],
+        # reconstruction.md.j2 variables
+        "reconstruction_what": what or "",
+        "reconstruction_why": why or "",
+        "generated_date": datetime.date.today().isoformat(),
     }
-    # Merge ideology_context must_preserve into context (overrides the empty-string default)
-    if ideology_context.get("must_preserve"):
-        context["must_preserve"] = ideology_context["must_preserve"]
+    # Merge ideology_context must_preserve into context.
+    # must_preserve (list) → ideology.md.j2; must_preserve_str (string) → brief.md.j2.
+    mp_list = ideology_context.get("must_preserve", [])
+    context["must_preserve"] = mp_list
+    context["must_preserve_str"] = "\n".join(f"- {item}" for item in mp_list) if mp_list else ""
 
     # ------------------------------------------------------------------
     # 4. Render and write scaffold files

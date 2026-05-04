@@ -99,7 +99,10 @@ A complete builder/reviewer workflow that any project can adopt. Pairmode turns 
 # Pass convictions directly without TTY prompts
 /anchor:pairmode bootstrap --conviction "we prefer X over Y because Z" --constraint "never write state from hooks"
 
-# Audit how far a project has drifted from canonical templates (detects stale ideology.md)
+# Seed a new pairmode project from an existing reconstruction.md brief (skips TTY ideology capture)
+/anchor:pairmode bootstrap --from-reconstruction path/to/reconstruction.md
+
+# Audit how far a project has drifted from canonical templates (detects stale ideology.md and reconstruction.md)
 /anchor:pairmode audit
 
 # Apply upstream methodology updates (with per-change confirmation prompts)
@@ -110,9 +113,12 @@ A complete builder/reviewer workflow that any project can adopt. Pairmode turns 
 
 # Review accumulated lessons and update templates
 /anchor:pairmode review
+
+# Refresh docs/reconstruction.md from ideology.md + brief.md (handoff for blank-slate agent)
+/anchor:pairmode reconstruct
 ```
 
-The scaffold produces: `CLAUDE.md`, `CLAUDE.build.md`, `docs/` (brief, architecture, ideology, phases, CER backlog), `.claude/agents/` (builder, reviewer, loop-breaker, security-auditor, intent-reviewer), and `.claude/settings.json` with a spec-derived deny list.
+The scaffold produces: `CLAUDE.md`, `CLAUDE.build.md`, `docs/` (brief, architecture, ideology, reconstruction, phases, CER backlog), `.claude/agents/` (builder, reviewer, loop-breaker, security-auditor, intent-reviewer), and `.claude/settings.json` with a spec-derived deny list.
 
 Phases are tracked individually in `docs/phases/phase-N.md`. A CER triage backlog (`docs/cer/backlog.md`) captures findings that cannot be resolved immediately.
 
