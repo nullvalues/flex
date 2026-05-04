@@ -22,12 +22,12 @@ already-submitted PR (nraychaudhuri/anchor#3).
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-040 | Companion-vs-pairmode positioning in README and PAIRMODE.md | planned |
-| INFRA-026 | Pin reviewer agents to `model: opus` in pairmode templates | planned |
-| INFRA-027 | Default reviewer agents to read-only tools `[Read, Grep, Glob, Bash]` | planned |
-| INFRA-033 | Document model fallback policy in agent templates | planned |
-| LESSON-002 | Capture model upgrade/downgrade pattern as a lesson | planned |
-| LESSON-003 | Capture reviewer-as-read-only-Bash pattern as a lesson | planned |
+| INFRA-040 | Companion-vs-pairmode positioning in README and PAIRMODE.md | complete |
+| INFRA-026 | Pin reviewer agents to `model: opus` in pairmode templates | complete |
+| INFRA-027 | Default reviewer agents to read-only tools `[Read, Grep, Glob, Bash]` | complete |
+| INFRA-033 | Document model fallback policy in agent templates | complete |
+| LESSON-002 | Capture model upgrade/downgrade pattern as a lesson | complete |
+| LESSON-003 | Capture reviewer-as-read-only-Bash pattern as a lesson | complete |
 
 ---
 

@@ -1,6 +1,6 @@
 # anchor — Cold-Eyes Review (CER) Backlog
 
-*Last updated: 2026-04-30*
+*Last updated: 2026-05-04*
 
 This file is the structured triage log for findings from external cold-eyes reviews.
 Each finding is assigned to one quadrant. Findings are not deleted — resolved findings
@@ -39,6 +39,8 @@ Important, not urgent. Quality improvements, architectural refinements.
 | CER-010 | story_new.py --rail input is .upper()'d but not validated against a regex before being used in path construction. A caller passing --rail "../../../etc" constructs a path that escapes project_dir. No containment check present. MEDIUM severity. story_new.py:183-185 | Security audit cp18 | 2026-04-30 | 18 |
 | CER-011 | era_new.py _slugify() neutralizes "/" and "." in --name before path construction, providing effective (but informal) traversal prevention. No formal resolve().relative_to() containment check present. LOW severity — _slugify() is correct but not a formal guard. era_new.py:25-31, 114-116 | Security audit cp18 | 2026-04-30 | 18 |
 | CER-012 | pairmode_status.py: ANCHOR_ROOT computed as `Path(__file__).resolve().parent.parent.parent` resolves to `<repo>/skills/`, not the anchor repo root. The constructed `start_sidebar.sh` path becomes `<repo>/skills/skills/companion/scripts/start_sidebar.sh` — a file that does not exist. Must be `parent.parent.parent.parent` (four levels up). HIGH severity — surfaced to user as broken instructions. pairmode_status.py:33 | Story review cp20 INFRA-019 | 2026-05-01 | 20 | **RESOLVED** Phase 20 INFRA-020 |
+| CER-013 | INFRA-033 propagation gap: fallback-policy pointer was added to anchor's own CLAUDE.build.md but NOT to the canonical `skills/pairmode/templates/CLAUDE.build.md.j2` template. Future bootstraps will not inherit the orchestrator-level pointer to the fallback policy (the inline `# fallback:` template comments and architecture.md subsection still propagate via separate paths). LOW severity — anchor's own dogfood is correct; downstream effect contained. | Phase 21 intent review | 2026-05-04 | 21 |
+| CER-014 | docs/architecture.md "Reviewer-class agent tool restriction (build-loop safety)" subsection asserts the existence of a "pre-reviewer commit discipline (committing story files and running `git checkout -- lessons/` before the reviewer fires)" as one of two layers protecting the working tree, but neither CLAUDE.build.md (project) nor CLAUDE.build.md.j2 (template) encodes this discipline. Either add the discipline to CLAUDE.build.md.j2 (preserving the architecture claim) or trim the claim (preserving truth). MEDIUM severity — defense-in-depth claim rests on aspirational orchestrator behaviour; the load-bearing tool-restriction layer remains in force regardless. | Phase 21 security audit + intent review | 2026-05-04 | 21 |
 
 
 ---
