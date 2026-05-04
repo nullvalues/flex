@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); echo \"$INPUT\" | jq -re '.tool_input.file_path // \"\"' | grep -q '\\.py$' && cd /mnt/work/anchor && PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q 2>&1 | tail -20 || true",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "Edit(hooks/stop.py)",
+      "Write(hooks/stop.py)",
+      "Edit(hooks/post_tool_use.py)",
+      "Write(hooks/post_tool_use.py)",
+      "Edit(hooks/exit_plan_mode.py)",
+      "Write(hooks/exit_plan_mode.py)",
+      "Edit(hooks/session_end.py)",
+      "Write(hooks/session_end.py)",
+      "Edit(hooks/hooks.json)",
+      "Write(hooks/hooks.json)",
+      "Edit(skills/seed/**)",
+      "Write(skills/seed/**)",
+      "Edit(skills/companion/scripts/sidebar.py)",
+      "Write(skills/companion/scripts/sidebar.py)",
+      "Edit(.claude-plugin/plugin.json)",
+      "Write(.claude-plugin/plugin.json)",
+      "Edit(.claude-plugin/marketplace.json)",
+      "Write(.claude-plugin/marketplace.json)",
+      "Edit(lessons/lessons.json)",
+      "Write(lessons/lessons.json)"
+    ]
+  }
+}
