@@ -9,7 +9,14 @@ import os
 import sys
 import tempfile
 
-PIPE_PATH = os.path.join(tempfile.gettempdir(), "companion.pipe")
+PIPE_PATH = os.path.join(tempfile.gettempdir(), "companion.pipe")  # legacy fallback
+try:
+    import json as _json
+    _state = _json.loads(open(".companion/state.json").read())
+    if _state.get("pipe_path"):
+        PIPE_PATH = _state["pipe_path"]
+except Exception:
+    pass
 STATE_PATH = ".companion/state.json"
 
 

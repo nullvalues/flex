@@ -14,7 +14,14 @@ import time
 import tempfile
 from pathlib import Path
 
-PIPE_PATH = "/tmp/companion.pipe"
+PIPE_PATH = "/tmp/companion.pipe"  # legacy fallback
+try:
+    import json as _json
+    _state = _json.loads(open(".companion/state.json").read())
+    if _state.get("pipe_path"):
+        PIPE_PATH = _state["pipe_path"]
+except Exception:
+    pass
 
 
 def write_to_pipe(event):

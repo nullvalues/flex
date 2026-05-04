@@ -432,19 +432,16 @@ class TestBootstrapIntegration:
         content = (tmp_path / "CLAUDE.md").read_text()
         assert "integration-project" in content
 
-    def test_spec_non_negotiable_in_reviewer_checklist(self, tmp_path):
-        """Auth non-negotiable text appears in the reviewer agent checklist."""
+    def test_reviewer_checklist_has_universal_items_only(self, tmp_path):
+        """Reviewer checklist contains only universal items; spec text is NOT injected (L005)."""
         _build_full_companion(tmp_path)
         self._run(tmp_path)
         content = (tmp_path / ".claude/agents/reviewer.md").read_text()
-        assert "Auth must never call billing directly" in content
-
-    def test_spec_business_rule_in_reviewer_checklist(self, tmp_path):
-        """Business rules from spec appear in the reviewer agent."""
-        _build_full_companion(tmp_path)
-        self._run(tmp_path)
-        content = (tmp_path / ".claude/agents/reviewer.md").read_text()
-        assert "All payments must be idempotent" in content
+        assert "Auth must never call billing directly" not in content
+        assert "All payments must be idempotent" not in content
+        assert "PROTECTED FILES" in content
+        assert "STORY SCOPE" in content
+        assert "BUILD GATE" in content
 
     def test_spec_derived_deny_in_settings_json(self, tmp_path):
         """Spec-derived deny patterns appear in .claude/settings.json."""

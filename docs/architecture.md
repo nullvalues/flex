@@ -35,7 +35,7 @@ anchor/
         start_sidebar.sh          ← detects OS, opens sidebar in new terminal
         launch_sidebar.command    ← macOS launcher
         launch_sidebar.sh         ← Linux launcher
-    pairmode/                     ← /anchor:pairmode — bootstrap and manage pairmode (TO BUILD)
+    pairmode/                     ← /anchor:pairmode — bootstrap and manage pairmode
       SKILL.md
       scripts/
         bootstrap.py              ← generate pairmode scaffold from spec
@@ -43,6 +43,8 @@ anchor/
         sync.py                   ← apply delta from audit non-destructively
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates
+        story_context.py          ← read/write current story in state.json; pairmode detection
+        spec_exception.py         ← record protected-file overrides into spec.json conflicts
       templates/                  ← Jinja2 templates for scaffold generation
         CLAUDE.md.j2
         CLAUDE.build.md.j2
@@ -73,7 +75,8 @@ anchor/
 ```
 Claude Code session
     ↓ (after each response)
-stop.py hook → writes to /tmp/companion.pipe (relay only, no API calls)
+stop.py hook → writes to /tmp/companion-<hash>.pipe (relay only, no API calls)
+    (pipe path is project-scoped; hash is first 8 chars of md5 of project dir)
     ↓
 sidebar.py reads pipe → calls Claude API → extracts decisions
     ↓
@@ -147,6 +150,38 @@ That config file contains `spec_location` — the path to the project's openspec
 Returns `None` if `product.json` is missing or has no `config` key. Returns a dict with
 `modules` (list of spec dicts) and `spec_location` (Path) if found.
 
+`.companion/state.json` is written by the companion skill on every session start. Schema:
+
+```json
+{
+  "pairmode_version": "1.0",
+  "last_loaded_modules": ["module-name"],
+  "current_story": {
+    "id": "2.3",
+    "title": "optional title",
+    "set_at": "2026-04-20T00:00:00+00:00"
+  }
+}
+```
+
+Fields:
+- `pairmode_version` — set by `/anchor:pairmode bootstrap`; the methodology version used
+  to scaffold the project. Read by `/anchor:pairmode audit` to compute the delta.
+- `last_loaded_modules` — updated on every companion session start; lists the module names
+  the user chose to load for that session.
+- `current_story` — **optional**; present only when pairmode is active and the user
+  confirmed which story they are working on. Contains `id` (required), optional `title`,
+  and `set_at` (UTC ISO-8601 timestamp). Absent when the user skips the prompt.
+
+Pairmode is considered active when `.claude/settings.deny-rationale.json` exists in the
+project root. The helper `skills/pairmode/scripts/story_context.py` provides:
+- `is_pairmode_active(project_dir)` — returns True when the deny-rationale file is present.
+- `set_current_story(companion_dir, story_id, title=None)` — writes the `current_story`
+  entry and returns the updated state dict.
+- `get_current_story(companion_dir)` — returns the `current_story` dict or None.
+- `clear_current_story(companion_dir)` — removes `current_story` from state.json.
+- `read_state(companion_dir)` / `write_state(companion_dir, state)` — low-level helpers.
+
 ---
 
 ## Hook architecture
@@ -163,6 +198,12 @@ The sidebar does all heavy work asynchronously. If the sidebar is not running, t
 silently fails and the session continues normally — no data is lost because the session
 transcript is always available for later mining.
 
+**Protected-file classification** belongs in the sidebar, not in the hook.
+The sidebar loads `.claude/settings.deny-rationale.json` lazily on first use (cached
+per `cwd` for the lifetime of the sidebar process) and calls `_check_protected()` when
+processing each `file_changed` event. The hook emits only `path` and `tool` — no
+deny-rationale reads occur in the hook.
+
 ---
 
 ## Pairmode design
@@ -176,9 +217,13 @@ workflow on top of any project that uses anchor. See the spec discussion in git 
 is generated from the project's `spec.json` non-negotiables, not hand-written. Each protection
 carries a comment linking back to the non-negotiable it encodes.
 
-**Permission override capture:** When a developer approves an edit to a protected file,
-the override and its stated reason are recorded as a conflict+resolution in the spec, creating
-an audit trail of why the protection was crossed.
+**Permission override capture:** When a developer edits a protected file, the sidebar
+(not the hook) classifies the file against `.claude/settings.deny-rationale.json` and
+displays an override prompt. If the developer provides a reason, the sidebar writes a
+`spec_exception` pipe message. The sidebar's pipe-reader calls
+`skills/pairmode/scripts/spec_exception.record_spec_exception()` to append a conflict
+entry to the relevant module's `spec.json` conflicts array. The hook emits only
+`path` and `tool` — deny-rationale reads never occur in hooks.
 
 **Lessons:** Methodology improvements are captured in `anchor/lessons/lessons.json`.
 Each lesson records the triggering situation, what was learned, what changed in the methodology,
@@ -215,6 +260,11 @@ etc.); body-level content comparison should not be relied upon for semantic drif
 
 Hooks must never import from skills. Skills may not call hooks directly. Both communicate
 only via the pipe.
+
+The companion sidebar (`skills/companion/scripts/sidebar.py`) imports
+`record_spec_exception` from `skills/pairmode/scripts/spec_exception.py`.
+This cross-skill dependency is intentional and permitted under the "sibling skills ok
+for shared utils" rule. It must be preserved when either module is modified.
 
 ---
 

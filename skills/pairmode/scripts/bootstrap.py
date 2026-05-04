@@ -11,6 +11,9 @@ from __future__ import annotations
 import json
 import pathlib
 import sys
+from pathlib import Path as _Path
+
+sys.path.insert(0, str(_Path(__file__).parent.parent.parent.parent))
 
 import click
 import jinja2
@@ -130,12 +133,48 @@ def _write_file(
     return True
 
 
+def _glob_prefix(entry: str) -> tuple[str, str] | None:
+    """If *entry* is a glob pattern like ``Tool(prefix/**)`` return ``(Tool, prefix/)``.
+
+    Returns None for non-glob entries (no ``**`` suffix).
+    """
+    if not entry.endswith("/**)") and not entry.endswith("/**"):
+        return None
+    paren = entry.index("(")
+    tool = entry[:paren]
+    inner = entry[paren + 1 : -1]  # strip ( and )
+    if inner.endswith("/**"):
+        prefix = inner[: -len("/**")] + "/"
+        return tool, prefix
+    return None
+
+
+def _is_subsumed(entry: str, globs: list[tuple[str, str]]) -> bool:
+    """Return True if *entry* is already covered by one of *globs*.
+
+    *globs* is a list of ``(tool, prefix/)`` pairs produced by ``_glob_prefix``.
+    An entry ``Tool(path)`` is subsumed when there exists a glob with the same
+    tool whose prefix is a proper prefix of ``path``.
+    """
+    paren = entry.find("(")
+    if paren == -1:
+        return False
+    tool = entry[:paren]
+    inner = entry[paren + 1 : -1]
+    for g_tool, g_prefix in globs:
+        if g_tool == tool and inner.startswith(g_prefix):
+            return True
+    return False
+
+
 def _merge_deny_list(settings_path: pathlib.Path, new_entries: list[str]) -> None:
     """
     Merge *new_entries* into the permissions.deny array in settings_path.
 
     Creates the file if it does not exist.  Existing entries are preserved;
-    duplicates are not added.
+    duplicates are not added.  Existing entries that are subsumed by a new
+    glob pattern (e.g. ``Edit(hooks/stop.py)`` subsumed by ``Edit(hooks/**)``)
+    are removed to avoid redundancy.
     """
     if settings_path.exists():
         try:
@@ -147,6 +186,17 @@ def _merge_deny_list(settings_path: pathlib.Path, new_entries: list[str]) -> Non
 
     permissions = data.setdefault("permissions", {})
     deny: list[str] = permissions.get("deny", [])
+
+    # Collect glob prefixes from the incoming new_entries so we can prune
+    # existing specific entries that are now subsumed.
+    incoming_globs: list[tuple[str, str]] = []
+    for entry in new_entries:
+        gp = _glob_prefix(entry)
+        if gp:
+            incoming_globs.append(gp)
+
+    # Drop existing entries that are subsumed by an incoming glob.
+    deny = [e for e in deny if not _is_subsumed(e, incoming_globs)]
 
     for entry in new_entries:
         if entry not in deny:

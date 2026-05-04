@@ -282,3 +282,13 @@ class TestMultipleModules:
         modules_seen = {r["module"] for r in result}
         assert "auth" in modules_seen
         assert "orphan" not in modules_seen
+
+    def test_trailing_slash_in_module_path_does_not_produce_double_slash(self):
+        # modules.json entries often carry a trailing slash; patterns must not.
+        m = make_module("svc", non_negotiables=["must never be bypassed"])
+        result = derive_denylist([m], {"svc": ["skills/companion/"]})
+        patterns = [r["path_pattern"] for r in result]
+        for p in patterns:
+            assert "//" not in p, f"double-slash in pattern: {p}"
+        assert "Edit(skills/companion/**)" in patterns
+        assert "Write(skills/companion/**)" in patterns

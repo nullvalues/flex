@@ -838,6 +838,13 @@ The sidebar handles `protected: true` by displaying an override capture prompt:
 If the user provides a reason, write a `spec_exception` message to the pipe.
 If the user skips (presses s), no record is written.
 
+> **As-built note (Phase 5 security audit):** The hook annotation approach described
+> above was not implemented. Protected-file classification was moved to the sidebar
+> (`_check_protected()` function) so the hook remains a zero-I/O thin relay. The pipe
+> message from the hook contains only `path` and `tool`. The sidebar enriches the event
+> with `protected`, `protection_rule`, and `non_negotiable` before calling
+> `display_override_prompt()`.
+
 ---
 
 ### Story 5.5 — Spec exception recording
@@ -874,6 +881,10 @@ def record_spec_exception(
 
 Create `tests/pairmode/test_spec_exception.py`.
 
+> **As-built note:** `record_spec_exception()` was extracted into a standalone module at
+> `skills/pairmode/scripts/spec_exception.py` and imported by sidebar.py. This keeps
+> spec-write logic in the pairmode skill layer and makes the function independently testable.
+
 ---
 
 ### Story 5.6 — Phase 5 test coverage pass
@@ -888,3 +899,277 @@ Tests only. Cover:
 - Protected file detection from deny-rationale.json
 - Spec exception recording with mock spec files
 - Sidebar story panel rendering (assert output contains story ID)
+
+---
+
+## Phase 6 — Audit Noise, SKILL.md Completeness, and End-to-End Validation
+
+**Goal:** Fix the two filed audit bugs (L001, L002), repair all SKILL.md invocation gaps, and
+add an end-to-end smoke test that validates the full bootstrap → audit → sync roundtrip.
+
+---
+
+### Story 6.1 — Fix L001: suppress INCONSISTENT when pairmode_context.json is absent
+
+**Acceptance criterion:** When `audit.py` is run against a project with no `pairmode_context.json`,
+the audit output emits a prominent warning and suppresses all INCONSISTENT findings. MISSING and
+EXTRA findings are unaffected. `sync.py` also skips the INCONSISTENT pass when context is missing.
+Tests pass.
+
+**Instructions:**
+
+Update `skills/pairmode/scripts/audit.py`:
+
+1. Extend `_load_project_context` to return a tuple `(context: dict, context_found: bool)`.
+   When `pairmode_context.json` exists and parses successfully, return `(context, True)`.
+   When it is absent or unparseable, return `(fallback_dict, False)`.
+
+2. Add `context_missing: bool = False` to the `AuditResult` dataclass.
+
+3. In `audit_project`, capture whether the context file was found. When `context_missing` is `True`,
+   skip the INCONSISTENT comparison loop entirely — do not add any items to `result.inconsistent`.
+   MISSING and EXTRA logic is unaffected.
+
+4. In `format_audit_output`, after the header line, when `result.context_missing` is `True`, emit:
+   ```
+   WARNING: No pairmode_context.json found — INCONSISTENT comparison disabled.
+     Template body comparison requires a context file to be meaningful.
+     Run /anchor:pairmode bootstrap to generate pairmode_context.json, then re-audit.
+   ```
+   This warning replaces the INCONSISTENT section entirely.
+
+5. In `skills/pairmode/scripts/sync.py`, after calling `audit_project()`, check
+   `audit_result.context_missing`. If `True`, skip the INCONSISTENT pass and emit:
+   `"Skipping INCONSISTENT patch: no pairmode_context.json — run bootstrap first."`
+   Do NOT write any files based on empty-context INCONSISTENT findings.
+
+Add tests to `tests/pairmode/test_audit.py`:
+- `audit_project` returns `context_missing=True` and empty `inconsistent` when context file absent.
+- `format_audit_output` contains the warning string when `context_missing=True`.
+- MISSING and EXTRA still populate correctly when `context_missing=True`.
+
+Add a test to `tests/pairmode/test_sync.py`:
+- When `pairmode_context.json` is absent, `sync_project` does not write any INCONSISTENT patches
+  (`applied` list contains no INCONSISTENT entries).
+
+Mark L001 status as `applied` in `lessons/lessons.json` after this story passes review.
+
+---
+
+### Story 6.2 — Fix L002: skip separator-keyed sections from INCONSISTENT output
+
+**Acceptance criterion:** Section keys that start with `---` (matching `^-+(__\d+)?$`) are
+silently skipped from MISSING, EXTRA, and INCONSISTENT reporting. `_split_sections` is unchanged —
+filtering happens in the comparison loop. Tests pass.
+
+**Instructions:**
+
+Update `skills/pairmode/scripts/audit.py`:
+
+1. Add a helper near `_normalise`:
+   ```python
+   def _is_separator_key(key: str) -> bool:
+       return bool(re.match(r'^-+(__\d+)?$', key))
+   ```
+
+2. In the MISSING loop: `if _is_separator_key(key): continue`
+3. In the EXTRA loop: `if _is_separator_key(key): continue`
+4. In the INCONSISTENT loop: `if _is_separator_key(key): continue`
+
+Add tests to `tests/pairmode/test_audit.py`:
+- Unit test `_is_separator_key`: `True` for `"---"`, `"---__0"`, `"---__1"`, `"----"`;
+  `False` for `"## session modes"`, `"__preamble__0"`.
+- Integration test: project file with `---` separators produces no INCONSISTENT items
+  with `---`-keyed sections.
+- Legitimate `##`-headed section differences still produce INCONSISTENT items.
+
+Mark L002 status as `applied` in `lessons/lessons.json` after this story passes review.
+
+---
+
+### Story 6.3 — Fix SKILL.md invocation gaps and bootstrap.py sys.path guard
+
+**Acceptance criterion:** All CLI invocations in `skills/pairmode/SKILL.md` use
+`PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/..."`.
+`bootstrap.py` has a `sys.path` self-insertion guard matching the pattern in `audit.py` and
+`sync.py`. The broken `PYTHONPATH=/path/to/anchor` placeholder in `skills/companion/SKILL.md`
+is replaced with a working invocation. Tests pass.
+
+**Instructions:**
+
+**Part A — bootstrap.py sys.path guard:**
+
+Add before the sibling imports at the top of `skills/pairmode/scripts/bootstrap.py`:
+```python
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).parent.parent.parent.parent))
+```
+This matches the pattern in `audit.py` line 20 and `sync.py` line 20 exactly.
+
+**Part B — pairmode SKILL.md bootstrap command block:**
+
+In `skills/pairmode/SKILL.md`, add a **"CLI invocation:"** block to the bootstrap section:
+```bash
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/bootstrap.py" \
+  --project-dir "$(pwd)"
+```
+Note: bootstrap is interactive; `--project-dir` is the only required flag. Omit
+`--project-name`, `--stack`, etc. to be prompted.
+
+**Part C — pairmode SKILL.md lesson and lesson_review invocations:**
+
+Replace the existing CLI invocation blocks:
+- lesson.py: `uv run python skills/pairmode/scripts/lesson.py ...` →
+  `PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/lesson.py" ...`
+- lesson_review.py: same pattern for lesson_review.py.
+
+**Part D — companion SKILL.md Step 2.5 fix:**
+
+In `skills/companion/SKILL.md`, find the story-write bash block that contains
+`PYTHONPATH=/path/to/anchor`. Remove the broken `PYTHONPATH=` prefix line. The
+`sys.path.insert` inside the `-c` script already handles the import path correctly.
+The corrected block should have no leading `PYTHONPATH=...` prefix.
+
+**Part E — audit and sync prerequisite note:**
+
+In `skills/pairmode/SKILL.md`, add one sentence after the "Inputs:" bullet list in both
+the `/anchor:pairmode audit` and `/anchor:pairmode sync` sections:
+> Note: `pairmode_context.json` (created by `/anchor:pairmode bootstrap`) must exist for
+> INCONSISTENT results to be meaningful. See Story 6.1 for details.
+
+**Tests:**
+
+Add to `tests/pairmode/test_bootstrap.py`:
+- Test that running `bootstrap.py --help` via subprocess with `cwd` set to an unrelated
+  temp directory (no PYTHONPATH set externally) exits with code 0. This verifies the
+  `sys.path` guard enables the sibling imports without external env setup.
+
+---
+
+### Story 6.4 — End-to-end smoke test: bootstrap → audit → sync roundtrip
+
+**Acceptance criterion:** `tests/pairmode/test_e2e_roundtrip.py` exercises the full pairmode
+adoption flow against a temporary directory and asserts coherent output at each stage. All
+existing tests continue to pass.
+
+**Instructions:**
+
+Create `tests/pairmode/test_e2e_roundtrip.py` with a test class `TestFullAdoptionJourney`.
+
+The test exercises this flow:
+
+1. **Bootstrap a fresh project:**
+   - Create a temp directory `project_dir`.
+   - Call `bootstrap.main` via Click's `CliRunner` with `["--project-dir", str(project_dir)]`
+     and simulate interactive prompts (project name, stack, etc.) OR use `--dry-run` first to
+     verify output, then re-run without `--dry-run`.
+   - Assert all scaffold files exist: `CLAUDE.md`, `CLAUDE.build.md`,
+     `.claude/agents/builder.md`, `.claude/settings.json`, etc.
+   - Assert `pairmode_context.json` exists at `.companion/pairmode_context.json`.
+   - Assert `state.json` contains `pairmode_version`.
+   - Assert `settings.deny-rationale.json` exists.
+
+2. **Audit immediately after bootstrap — expect clean result:**
+   - Call `audit_project(project_dir)`.
+   - Assert `result.missing` is empty.
+   - Assert `result.inconsistent` is empty.
+   - Assert `result.context_missing` is `False`.
+
+3. **Simulate drift — delete one canonical `##`-headed section from CLAUDE.md:**
+   - Read `project_dir / "CLAUDE.md"`, remove one complete `##` section (content between
+     two consecutive `##` headers), write back.
+   - Call `audit_project(project_dir)` again.
+   - Assert the missing section appears in `result.missing`.
+   - Assert `result.context_missing` is `False`.
+
+4. **Sync — apply the drift:**
+   - Call `sync_project(project_dir)`.
+   - Assert `SyncResult.applied` is non-empty.
+   - Read `project_dir / "CLAUDE.md"` and assert the removed section text is restored.
+
+5. **Post-sync audit — expect clean again:**
+   - Call `audit_project(project_dir)` a third time.
+   - Assert `result.missing` is empty.
+   - Assert `result.inconsistent` is empty.
+
+6. **Audit without context file — expect L001 behavior:**
+   - Delete `project_dir / ".companion" / "pairmode_context.json"`.
+   - Call `audit_project(project_dir)`.
+   - Assert `result.context_missing` is `True`.
+   - Assert `result.inconsistent` is empty (suppressed).
+   - Assert `format_audit_output(result)` contains `"No pairmode_context.json found"`.
+
+---
+
+### Story 6.5 — lesson_review output clarity: distinguish annotation from implementation
+
+**Acceptance criterion:** After `/anchor:pairmode review`, the CLI output clearly distinguishes
+"template annotated — action required" from a completed implementation. Tests assert the new
+output format. SKILL.md is updated to describe this distinction.
+
+**Instructions:**
+
+Update `skills/pairmode/scripts/lesson_review.py`:
+
+In the `cli` function, after calling `apply_template_change` for each approved lesson, change
+the echo to:
+```python
+click.echo(
+    f"  Annotated {proposal['template_file']} with lesson {lesson_id}.\n"
+    f"  ACTION REQUIRED: Open the template and implement the change:\n"
+    f"    {{# LESSON {lesson_id}: {proposal['description']} #}}"
+)
+```
+
+Change the end-of-run summary to:
+```
+REVIEW COMPLETE
+  N lesson(s) annotated — open affected templates to implement the changes.
+  M lesson(s) deferred for next review cycle.
+LESSONS.md regenerated.
+```
+
+In `skills/pairmode/SKILL.md`, update the `/anchor:pairmode review` section to note:
+> "Applying" a lesson writes a Jinja2 comment block marking the change location. The developer
+> must open the annotated template to implement the actual change. Lesson status is set to
+> `applied` once the annotation is written, not once the template change is implemented.
+
+Update `tests/pairmode/test_lesson_review.py`:
+- Assert CLI output for an approved lesson contains `"ACTION REQUIRED"`.
+- Assert end-of-run summary contains `"REVIEW COMPLETE"`.
+
+---
+
+### Story 6.6 — Phase 6 test coverage pass
+
+**Acceptance criterion:** Full test pass. All Phase 6 logic has test coverage. `tests/pairmode/`
+passes cleanly.
+
+**Instructions:**
+
+Tests only. Verify coverage for:
+- `_is_separator_key` (Story 6.2)
+- `context_missing` flag in AuditResult and format_audit_output (Story 6.1)
+- sync skips INCONSISTENT when context missing (Story 6.1)
+- bootstrap.py `--help` subprocess test (Story 6.3)
+- Full roundtrip bootstrap → audit → sync (Story 6.4)
+- lesson_review ACTION REQUIRED output (Story 6.5)
+
+Add any missing tests. Do not modify non-test files.
+
+---
+
+### ⚙️ DEVELOPER ACTION — Mark L001 and L002 lessons as applied
+
+After stories 6.1 and 6.2 pass review, run:
+```bash
+PYTHONPATH=/mnt/work/anchor uv run python skills/pairmode/scripts/lesson_review.py \
+  --approve L001 \
+  --approve L002
+```
+
+Confirm `lessons/lessons.json` shows `"status": "applied"` for both L001 and L002 before
+proceeding to Phase 7. As of the Phase 6 checkpoint, this action has NOT been run yet.
+The lesson_review.py `--approve` flow is the only permitted way to update lesson status
+(it enforces the append-only invariant). Do not edit lessons.json directly.

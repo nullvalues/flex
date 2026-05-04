@@ -34,7 +34,9 @@ Run every item on every review invocation.
    Hooks are thin relays only. Any blocking logic in a hook is CRITICAL.
 
 2. PIPE CONTRACT
-   Do all hook scripts write only to `/tmp/companion.pipe`?
+   Do all hook scripts write only to the project-scoped pipe (e.g. `/tmp/companion-<hash>.pipe`)?
+   The pipe path is read from `.companion/state.json["pipe_path"]` at hook startup,
+   with `/tmp/companion.pipe` as a legacy fallback when state.json is absent.
    Do any hook scripts write directly to spec files or `.companion/` directories?
    Direct spec writes from hooks violate the architecture. CRITICAL.
 

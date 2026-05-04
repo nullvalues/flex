@@ -17,7 +17,7 @@
       "applies_to": [
         "all"
       ],
-      "status": "captured"
+      "status": "applied"
     },
     {
       "id": "L002",
@@ -31,6 +31,78 @@
           "audit.py"
         ],
         "description": "In audit.py _split_sections or the INCONSISTENT loop, skip or relabel entries whose section key starts with '---' to reduce noise in audit output."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "applied"
+    },
+    {
+      "id": "L003",
+      "date": "2026-04-21",
+      "source_project": "anchor",
+      "trigger": "Bootstrap dogfood on anchor \u2014 re-running after bug fixes",
+      "problem": "Bootstrap overwrote hand-authored .claude/agents/ files with template output that was strictly worse: truncated checklist names, empty layer-rule sections, build_command interpolated into prose.",
+      "learning": "For mature projects, templates are a starting point, not a replacement. Files that already exist should be skipped by default (same as CLAUDE.md/CLAUDE.build.md), or bootstrap should warn before overwriting hand-authored content.",
+      "methodology_change": {
+        "affects": [
+          "orchestrator"
+        ],
+        "description": "Bootstrap should skip existing agent files by default. Add a --force-agents flag for intentional overwrites. Document in SKILL.md that agent files are treated as project-owned after first bootstrap."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured"
+    },
+    {
+      "id": "L004",
+      "date": "2026-04-21",
+      "source_project": "anchor",
+      "trigger": "Bootstrap dogfood \u2014 builder.md Python standards section",
+      "problem": "builder.md template uses {{ build_command }} inside the 'All Python execution uses ...' prose, producing 'All Python execution uses PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/'. The build command is not the Python runtime.",
+      "learning": "Template variables should be scoped to their semantic slot. build_command belongs in the build-gate section only; the Python standards section should hardcode 'uv run'.",
+      "methodology_change": {
+        "affects": [
+          "builder_agent"
+        ],
+        "description": "Fix builder.md.j2: replace '{{ build_command }}' in the Python standards prose with the literal string 'uv run'. Use build_command only in the build-gate verification block."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "applied"
+    },
+    {
+      "id": "L005",
+      "date": "2026-04-21",
+      "source_project": "anchor",
+      "trigger": "Bootstrap dogfood \u2014 reviewer.md checklist from spec non-negotiables",
+      "problem": "checklist_deriver produces items whose 'name' field is the first N chars of the non-negotiable text, truncated mid-sentence. reviewer.md became a 595-line wall of truncated constraint prose instead of a human-readable checklist.",
+      "learning": "Non-negotiables are constraints, not checklist item names. The reviewer checklist needs human-authored label + short action question, not raw spec text. checklist_deriver should either produce module-scoped labels (e.g. 'companion-skill: spec write isolation') or not populate the reviewer checklist at all \u2014 leaving that to the human.",
+      "methodology_change": {
+        "affects": [
+          "reviewer_checklist"
+        ],
+        "description": "Remove spec-derived checklist_items from the reviewer.md template, or change the template to use module+ordinal labels. The reviewer checklist should be maintained by the developer, seeded with universal items only."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "applied"
+    },
+    {
+      "id": "L006",
+      "date": "2026-04-21",
+      "source_project": "anchor",
+      "trigger": "Dogfood audit run on anchor after clean bootstrap",
+      "problem": "Audit reports INCONSISTENT for every hand-authored section that is richer than the template. It cannot distinguish 'unintentional drift' from 'intentional override with better content'. Result: a mature project sees constant audit noise it can never resolve without degrading its docs.",
+      "learning": "Audit needs a way to mark sections as intentionally overridden. Without that signal, any project that customises its scaffold will permanently live in a noisy INCONSISTENT state, eroding trust in the tool.",
+      "methodology_change": {
+        "affects": [
+          "orchestrator"
+        ],
+        "description": "Add a per-section override marker (e.g. a comment tag like '{# PROJECT_OVERRIDE #}') that audit treats as EXTRA rather than INCONSISTENT. Alternatively, add a .pairmode-overrides file listing section keys the project owns. Either approach lets audit surface real drift without nagging about deliberate customisation."
       },
       "applies_to": [
         "all"

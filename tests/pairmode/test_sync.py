@@ -29,7 +29,7 @@ def _copy_canonical_files(project_dir: Path) -> None:
     Uses the same context that audit_project/sync_project would use when
     pairmode_context.json is absent, so rendered canonical == rendered template.
     """
-    context = _load_project_context(project_dir)
+    context, _ = _load_project_context(project_dir)
     for dest_rel, template_rel in CANONICAL_FILES:
         dest_path = project_dir / dest_rel
         dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -533,4 +533,57 @@ class TestSyncUsesContextWhenCreatingFiles:
         assert "cora" in content, "Created CLAUDE.md should contain rendered project name"
         assert "{{ project_name }}" not in content, (
             "Created CLAUDE.md should not contain raw Jinja2 syntax"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Story 6.1 — context_missing: no INCONSISTENT patches applied
+# ---------------------------------------------------------------------------
+
+
+class TestSyncSkipsInconsistentWhenContextMissing:
+    """When pairmode_context.json is absent, sync_project does not write INCONSISTENT patches."""
+
+    def test_no_inconsistent_in_applied_when_context_missing(self, tmp_path: Path) -> None:
+        """With no pairmode_context.json, applied list contains no INCONSISTENT entries."""
+        _copy_canonical_files(tmp_path)
+        # Modify a file body so it would normally be INCONSISTENT
+        claude_md = tmp_path / "CLAUDE.md"
+        claude_md.write_text(
+            "## Session modes\n\nDifferent content that would differ from canonical.\n",
+            encoding="utf-8",
+        )
+        # Ensure no pairmode_context.json exists
+        context_path = tmp_path / ".companion" / "pairmode_context.json"
+        assert not context_path.exists()
+
+        result = sync_project(tmp_path)
+
+        inconsistent_entries = [
+            entry for entry in result.applied if "Updated section" in entry
+        ]
+        assert inconsistent_entries == [], (
+            f"Expected no INCONSISTENT patches when context is missing, got: {inconsistent_entries}"
+        )
+
+    def test_files_not_overwritten_for_inconsistent_when_context_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """When context is missing, the project file is not rewritten for INCONSISTENT sections."""
+        _copy_canonical_files(tmp_path)
+        # Write a custom body into CLAUDE.md
+        unique_marker = "UNIQUE_MARKER_CONTEXT_MISSING_TEST"
+        claude_md = tmp_path / "CLAUDE.md"
+        claude_md.write_text(
+            f"## Session modes\n\n{unique_marker}\n",
+            encoding="utf-8",
+        )
+
+        sync_project(tmp_path)
+
+        # The unique marker should still be in the file (sync did not overwrite it)
+        content = claude_md.read_text(encoding="utf-8")
+        assert unique_marker in content, (
+            "sync_project overwrote project file despite missing context — INCONSISTENT patch "
+            "should be skipped when pairmode_context.json is absent"
         )

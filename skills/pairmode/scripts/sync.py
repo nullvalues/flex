@@ -26,6 +26,7 @@ from skills.pairmode.scripts.audit import (  # noqa: E402
     PAIRMODE_VERSION,
     _split_sections,
     _normalise,
+    _load_project_context as _audit_load_project_context,
 )
 
 # ---------------------------------------------------------------------------
@@ -152,28 +153,8 @@ _JINJA_ENV = jinja2.Environment(
 
 def _load_project_context(project_dir: Path) -> dict:
     """Load the saved bootstrap context, or return a minimal empty context."""
-    context_path = project_dir / ".companion" / "pairmode_context.json"
-    if context_path.exists():
-        try:
-            return json.loads(context_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-    # Fallback: empty context (renders template variables as empty strings)
-    return {
-        "project_name": project_dir.name,
-        "project_description": "",
-        "stack": "",
-        "build_command": "",
-        "test_command": "",
-        "migration_command": "",
-        "domain_model": "",
-        "domain_isolation_rule": "",
-        "checklist_items": [],
-        "protected_paths": [],
-        "non_negotiables": [],
-        "module_structure": [],
-        "layer_rules": [],
-    }
+    context, _ = _audit_load_project_context(project_dir)
+    return context
 
 
 def _render_template(template_rel: str, context: dict) -> str:
@@ -268,7 +249,14 @@ def sync_project(project_dir: Path, applies_to: str = "all") -> SyncResult:
             if changed:
                 project_path.write_text(project_text, encoding="utf-8")
 
-    # Process files with INCONSISTENT items
+    # Process files with INCONSISTENT items (skipped when context file is absent)
+    if audit.context_missing:
+        click.echo(
+            "Skipping INCONSISTENT patch: no pairmode_context.json — run bootstrap first.",
+            err=True,
+        )
+        inconsistent_by_file = {}
+
     for dest_rel, items in inconsistent_by_file.items():
         template_rel = _dest_to_template(dest_rel)
         if template_rel is None:

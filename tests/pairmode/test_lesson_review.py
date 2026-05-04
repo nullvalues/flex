@@ -504,3 +504,59 @@ class TestAllAffectsMultipleProposals:
 
         for proposal in proposals:
             assert proposal["affects"] == "all"
+
+
+# ---------------------------------------------------------------------------
+# CLI output clarity tests
+# ---------------------------------------------------------------------------
+
+class TestCLIOutputClarity:
+    def test_approved_lesson_output_contains_action_required(self, patched_review_with_templates):
+        """Approving a lesson must print ACTION REQUIRED in the CLI output."""
+        from click.testing import CliRunner
+        import skills.pairmode.scripts.lesson_utils as lu
+
+        lr, lessons_json, _, templates_root = patched_review_with_templates
+
+        data = _make_data(_make_lesson("L001", status="captured", description="Add test gate"))
+        lessons_json.write_text(__import__("json").dumps(data) + "\n")
+
+        # Patch _ANCHOR_ROOT so apply_template_change uses the tmp templates
+        import skills.pairmode.scripts.lesson_review as lr_mod
+        original_root = lr_mod._ANCHOR_ROOT
+        lr_mod._ANCHOR_ROOT = templates_root
+        try:
+            runner = CliRunner()
+            result = runner.invoke(lr_mod.cli, ["--approve", "L001"])
+        finally:
+            lr_mod._ANCHOR_ROOT = original_root
+
+        assert result.exit_code == 0, result.output
+        assert "ACTION REQUIRED" in result.output
+
+    def test_end_of_run_summary_contains_review_complete(self, patched_review_with_templates):
+        """End-of-run summary must contain REVIEW COMPLETE."""
+        from click.testing import CliRunner
+        import skills.pairmode.scripts.lesson_utils as lu
+
+        lr, lessons_json, _, templates_root = patched_review_with_templates
+
+        data = _make_data(
+            _make_lesson("L001", status="captured", description="Add test gate"),
+            _make_lesson("L002", status="captured", description="Another change"),
+        )
+        lessons_json.write_text(__import__("json").dumps(data) + "\n")
+
+        import skills.pairmode.scripts.lesson_review as lr_mod
+        original_root = lr_mod._ANCHOR_ROOT
+        lr_mod._ANCHOR_ROOT = templates_root
+        try:
+            runner = CliRunner()
+            result = runner.invoke(lr_mod.cli, ["--approve", "L001", "--reject", "L002"])
+        finally:
+            lr_mod._ANCHOR_ROOT = original_root
+
+        assert result.exit_code == 0, result.output
+        assert "REVIEW COMPLETE" in result.output
+        assert "1 lesson(s) annotated" in result.output
+        assert "1 lesson(s) deferred" in result.output

@@ -93,15 +93,14 @@ class TestClaudeMdTemplate:
     def test_review_checklist_header(self):
         assert "## Review checklist" in self.output
 
-    def test_custom_checklist_items_rendered(self):
-        assert "HOOK PERFORMANCE" in self.output
-        assert "PIPE CONTRACT" in self.output
-        assert "SKILL ISOLATION" in self.output
+    def test_spec_checklist_items_not_rendered(self):
+        # L005: spec-derived items must NOT appear — reviewer checklist is universal only
+        assert "HOOK PERFORMANCE" not in self.output
+        assert "PIPE CONTRACT" not in self.output
+        assert "SKILL ISOLATION" not in self.output
 
     def test_universal_protected_files_item(self):
         assert "PROTECTED FILES" in self.output
-        assert "hooks/" in self.output
-        assert ".claude-plugin/plugin.json" in self.output
 
     def test_universal_story_scope_item(self):
         assert "STORY SCOPE" in self.output
@@ -315,15 +314,16 @@ class TestReviewerAgentTemplate:
         assert "architecture.md" in self.output
         assert "git diff HEAD" in self.output
 
-    def test_checklist_items_rendered(self):
-        assert "HOOK PERFORMANCE" in self.output
-        assert "PIPE CONTRACT" in self.output
-        assert "SKILL ISOLATION" in self.output
+    def test_spec_checklist_items_not_rendered(self):
+        # L005: spec-derived items must NOT appear in reviewer checklist
+        assert "HOOK PERFORMANCE" not in self.output
+        assert "PIPE CONTRACT" not in self.output
+        assert "SKILL ISOLATION" not in self.output
 
-    def test_protected_files_checklist_item(self):
+    def test_universal_checklist_items_rendered(self):
         assert "PROTECTED FILES" in self.output
-        assert "hooks/" in self.output
-        assert ".claude-plugin/plugin.json" in self.output
+        assert "STORY SCOPE" in self.output
+        assert "BUILD GATE" in self.output
 
     def test_story_scope_checklist_item(self):
         assert "STORY SCOPE" in self.output

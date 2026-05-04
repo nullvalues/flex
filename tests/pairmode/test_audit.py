@@ -14,6 +14,7 @@ from skills.pairmode.scripts.audit import (
     format_audit_output,
     _load_project_context,
     _JINJA_ENV,
+    _is_separator_key,
 )
 from skills.pairmode.scripts import audit as _audit_mod
 
@@ -41,7 +42,7 @@ def _copy_canonical_files(project_dir: Path) -> None:
     Uses the same context that audit_project would use when pairmode_context.json is absent,
     so that rendered canonical == rendered template and no false INCONSISTENT is produced.
     """
-    context = _load_project_context(project_dir)
+    context, _ = _load_project_context(project_dir)
     for dest_rel, template_rel in CANONICAL_FILES:
         dest_path = project_dir / dest_rel
         dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -515,7 +516,8 @@ class TestAuditRendersTemplateWithContext:
 
         # Read what audit will produce for canonical CLAUDE.md sections
         from skills.pairmode.scripts.audit import _read_template_sections, _load_project_context
-        loaded_ctx = _load_project_context(tmp_path)
+        loaded_ctx, ctx_found = _load_project_context(tmp_path)
+        assert ctx_found is True
         assert loaded_ctx["project_name"] == "cora"
 
         sections = _read_template_sections("CLAUDE.md.j2", loaded_ctx)
@@ -527,3 +529,332 @@ class TestAuditRendersTemplateWithContext:
         # At least some section should mention 'cora'
         all_text = " ".join(sections.values())
         assert "cora" in all_text, "Rendered CLAUDE.md canonical should contain 'cora'"
+
+
+# ---------------------------------------------------------------------------
+# Story 6.1 — context_missing behaviour
+# ---------------------------------------------------------------------------
+
+
+class TestContextMissingFlag:
+    """When pairmode_context.json is absent, context_missing=True and inconsistent is empty."""
+
+    def test_context_missing_true_when_no_context_file(self, tmp_path: Path) -> None:
+        """audit_project returns context_missing=True when pairmode_context.json is absent."""
+        result = audit_project(tmp_path)
+        assert result.context_missing is True
+
+    def test_inconsistent_empty_when_context_missing(self, tmp_path: Path) -> None:
+        """No INCONSISTENT items are produced when pairmode_context.json is absent."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        # Modify a canonical file so body differs — without context, this must not raise INCONSISTENT
+        (tmp_path / "CLAUDE.md").write_text(
+            "## Session modes\n\nDifferent content here.\n", encoding="utf-8"
+        )
+
+        result = audit_project(tmp_path)
+
+        assert result.context_missing is True
+        assert result.inconsistent == [], (
+            f"Expected no INCONSISTENT when context is missing, got: {result.inconsistent}"
+        )
+
+    def test_context_missing_false_when_context_file_present(self, tmp_path: Path) -> None:
+        """context_missing=False when pairmode_context.json is present and valid."""
+        import json as _json
+
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        ctx = {
+            "project_name": "testproject",
+            "project_description": "",
+            "stack": "",
+            "build_command": "",
+            "test_command": "",
+            "migration_command": "",
+            "domain_model": "",
+            "domain_isolation_rule": "",
+            "checklist_items": [],
+            "protected_paths": [],
+            "non_negotiables": [],
+            "module_structure": [],
+            "layer_rules": [],
+        }
+        (companion / "pairmode_context.json").write_text(_json.dumps(ctx), encoding="utf-8")
+
+        result = audit_project(tmp_path)
+
+        assert result.context_missing is False
+
+    def test_missing_still_populated_when_context_missing(self, tmp_path: Path) -> None:
+        """MISSING items are reported even when pairmode_context.json is absent."""
+        # Remove CLAUDE.md so it counts as MISSING
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        (tmp_path / "CLAUDE.md").unlink()
+
+        result = audit_project(tmp_path)
+
+        assert result.context_missing is True
+        claude_md_missing = [i for i in result.missing if i.file == "CLAUDE.md"]
+        assert len(claude_md_missing) > 0, (
+            "Expected MISSING items for CLAUDE.md even when context is absent"
+        )
+
+    def test_extra_still_populated_when_context_missing(self, tmp_path: Path) -> None:
+        """EXTRA items are reported even when pairmode_context.json is absent."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        # Append a project-specific section
+        claude_md = tmp_path / "CLAUDE.md"
+        existing = claude_md.read_text(encoding="utf-8")
+        claude_md.write_text(
+            existing + "\n## My Unique Extra Section\n\nProject-specific.\n",
+            encoding="utf-8",
+        )
+
+        result = audit_project(tmp_path)
+
+        assert result.context_missing is True
+        extra_files = [i.file for i in result.extra]
+        assert "CLAUDE.md" in extra_files, (
+            "Expected EXTRA items for CLAUDE.md even when context is absent"
+        )
+
+
+class TestFormatAuditOutputContextMissing:
+    """format_audit_output emits warning when context_missing=True."""
+
+    def _make_result_no_context(
+        self,
+        missing: list[AuditItem] | None = None,
+        extra: list[AuditItem] | None = None,
+    ) -> AuditResult:
+        return AuditResult(
+            project_name="myproject",
+            project_dir=Path("/tmp/myproject"),
+            missing=missing or [],
+            inconsistent=[],
+            extra=extra or [],
+            pairmode_version="0.1.0",
+            canonical_version="0.1.0",
+            context_missing=True,
+        )
+
+    def test_warning_present_when_context_missing(self) -> None:
+        result = self._make_result_no_context()
+        output = format_audit_output(result)
+        assert "WARNING: No pairmode_context.json found" in output
+
+    def test_warning_mentions_inconsistent_disabled(self) -> None:
+        result = self._make_result_no_context()
+        output = format_audit_output(result)
+        assert "INCONSISTENT comparison disabled" in output
+
+    def test_warning_mentions_bootstrap(self) -> None:
+        result = self._make_result_no_context()
+        output = format_audit_output(result)
+        assert "bootstrap" in output
+
+    def test_inconsistent_section_absent_when_context_missing(self) -> None:
+        result = self._make_result_no_context()
+        output = format_audit_output(result)
+        # The INCONSISTENT section header should not appear as a standalone line
+        # (The warning itself contains the word INCONSISTENT, but the section header does not)
+        lines = output.splitlines()
+        assert "INCONSISTENT" not in lines, (
+            "INCONSISTENT section header should not appear as a line when context is missing"
+        )
+
+    def test_missing_section_still_shown_when_context_missing(self) -> None:
+        result = self._make_result_no_context(
+            missing=[AuditItem(file="CLAUDE.md", section="intro", description="Missing")]
+        )
+        output = format_audit_output(result)
+        assert "MISSING" in output
+        assert "CLAUDE.md" in output
+
+    def test_extra_section_still_shown_when_context_missing(self) -> None:
+        result = self._make_result_no_context(
+            extra=[AuditItem(file="CLAUDE.md", section="custom", description="Custom")]
+        )
+        output = format_audit_output(result)
+        assert "EXTRA" in output
+        assert "CLAUDE.md" in output
+
+    def test_no_warning_when_context_present(self) -> None:
+        result = AuditResult(
+            project_name="myproject",
+            project_dir=Path("/tmp/myproject"),
+            context_missing=False,
+        )
+        output = format_audit_output(result)
+        assert "WARNING: No pairmode_context.json found" not in output
+
+
+# ---------------------------------------------------------------------------
+# Story 6.2 — separator-key filtering
+# ---------------------------------------------------------------------------
+
+
+class TestIsSeparatorKey:
+    """Unit tests for the _is_separator_key helper."""
+
+    def test_plain_triple_dash_is_separator(self) -> None:
+        assert _is_separator_key("---") is True
+
+    def test_quad_dash_is_separator(self) -> None:
+        assert _is_separator_key("----") is True
+
+    def test_dash_with_suffix_zero_is_separator(self) -> None:
+        assert _is_separator_key("---__0") is True
+
+    def test_dash_with_suffix_one_is_separator(self) -> None:
+        assert _is_separator_key("---__1") is True
+
+    def test_section_header_is_not_separator(self) -> None:
+        assert _is_separator_key("## session modes") is False
+
+    def test_preamble_key_is_not_separator(self) -> None:
+        assert _is_separator_key("__preamble__0") is False
+
+
+class TestSeparatorKeysFilteredFromOutput:
+    """Integration: separator-keyed sections never appear in MISSING, EXTRA, or INCONSISTENT."""
+
+    def _make_project_with_separators(self, project_dir: Path) -> None:
+        """Write a CLAUDE.md that contains --- separators between sections."""
+        content = (
+            "## Session modes\n\nSome content.\n\n"
+            "---\n\n"
+            "## Build rules\n\nOther content.\n"
+        )
+        (project_dir / "CLAUDE.md").write_text(content, encoding="utf-8")
+
+    def test_separator_keys_not_in_inconsistent(self, tmp_path: Path) -> None:
+        """Project file with --- separators must not produce INCONSISTENT items
+        whose section key matches the separator pattern."""
+        import json as _json
+
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        ctx = {
+            "project_name": "testproject",
+            "project_description": "",
+            "stack": "",
+            "build_command": "",
+            "test_command": "",
+            "migration_command": "",
+            "domain_model": "",
+            "domain_isolation_rule": "",
+            "checklist_items": [],
+            "protected_paths": [],
+            "non_negotiables": [],
+            "module_structure": [],
+            "layer_rules": [],
+        }
+        (companion / "pairmode_context.json").write_text(_json.dumps(ctx), encoding="utf-8")
+
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        # Append a separator to CLAUDE.md to simulate the pattern
+        claude_md = tmp_path / "CLAUDE.md"
+        existing = claude_md.read_text(encoding="utf-8")
+        claude_md.write_text(existing + "\n---\n\nExtra text after separator.\n", encoding="utf-8")
+
+        result = audit_project(tmp_path)
+
+        separator_inconsistent = [
+            i for i in result.inconsistent if _is_separator_key(i.section)
+        ]
+        assert separator_inconsistent == [], (
+            f"Separator-keyed sections must not appear in INCONSISTENT: {separator_inconsistent}"
+        )
+
+    def test_separator_keys_not_in_missing(self, tmp_path: Path) -> None:
+        """No MISSING item should have a separator-pattern section key."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        (tmp_path / "CLAUDE.md").unlink()
+
+        result = audit_project(tmp_path)
+
+        separator_missing = [i for i in result.missing if _is_separator_key(i.section)]
+        assert separator_missing == [], (
+            f"Separator-keyed sections must not appear in MISSING: {separator_missing}"
+        )
+
+    def test_separator_keys_not_in_extra(self, tmp_path: Path) -> None:
+        """No EXTRA item should have a separator-pattern section key."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        # Append a raw --- separator to CLAUDE.md
+        claude_md = tmp_path / "CLAUDE.md"
+        existing = claude_md.read_text(encoding="utf-8")
+        claude_md.write_text(existing + "\n---\n\nExtra text.\n", encoding="utf-8")
+
+        result = audit_project(tmp_path)
+
+        separator_extra = [i for i in result.extra if _is_separator_key(i.section)]
+        assert separator_extra == [], (
+            f"Separator-keyed sections must not appear in EXTRA: {separator_extra}"
+        )
+
+    def test_legitimate_section_differences_still_reported(self, tmp_path: Path) -> None:
+        """A real ## section difference is still reported as INCONSISTENT
+        even after the separator-key filter is applied."""
+        import json as _json
+
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        ctx = {
+            "project_name": "testproject",
+            "project_description": "",
+            "stack": "",
+            "build_command": "",
+            "test_command": "",
+            "migration_command": "",
+            "domain_model": "",
+            "domain_isolation_rule": "",
+            "checklist_items": [],
+            "protected_paths": [],
+            "non_negotiables": [],
+            "module_structure": [],
+            "layer_rules": [],
+        }
+        (companion / "pairmode_context.json").write_text(_json.dumps(ctx), encoding="utf-8")
+
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+
+        # Overwrite CLAUDE.md so that one real section body differs
+        from skills.pairmode.scripts.audit import _normalise
+        canonical_text = (
+            _audit_mod.TEMPLATES_DIR / "CLAUDE.md.j2"
+        ).read_text(encoding="utf-8")
+        import re as _re
+        headers = _re.findall(r"^## .+", canonical_text, _re.MULTILINE)
+        assert headers, "CLAUDE.md.j2 must have at least one ## header"
+
+        first_header = headers[0]
+        # Write a version where the first section has completely different content
+        claude_md = tmp_path / "CLAUDE.md"
+        existing = claude_md.read_text(encoding="utf-8")
+        # Replace content under the first header with something clearly different
+        altered = _re.sub(
+            rf"({_re.escape(first_header)}\n+)(.+?)(\n##|\Z)",
+            lambda m: m.group(1) + "COMPLETELY DIFFERENT CONTENT\n" + m.group(3),
+            existing,
+            count=1,
+            flags=_re.DOTALL,
+        )
+        claude_md.write_text(altered, encoding="utf-8")
+
+        result = audit_project(tmp_path)
+
+        # There should be at least one INCONSISTENT item for CLAUDE.md
+        inconsistent_claude = [i for i in result.inconsistent if i.file == "CLAUDE.md"]
+        assert len(inconsistent_claude) > 0, (
+            "Expected INCONSISTENT items for modified CLAUDE.md section, got none"
+        )

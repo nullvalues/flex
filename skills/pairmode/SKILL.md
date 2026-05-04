@@ -44,6 +44,13 @@ re-scaffolding a project after a major methodology revision.
 - `.claude/settings.json` with spec-derived deny list.
 - `.companion/state.json` with `pairmode_version` set.
 
+**CLI invocation:**
+```bash
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/bootstrap.py" \
+  --project-dir "$(pwd)"
+```
+Note: `--project-dir` is the only required flag. Other values (project name, stack, etc.) are read from `.companion/product.json` or prompted interactively.
+
 ---
 
 ### `/anchor:pairmode audit`
@@ -55,9 +62,11 @@ to see what's drifted, missing, or project-specific.
 - Current directory (used as project-dir)
 - Optional: project type tag for lesson filtering (defaults to "all")
 
+Note: `pairmode_context.json` (created by `/anchor:pairmode bootstrap`) must exist for INCONSISTENT results to be meaningful.
+
 **What it does:**
 1. Check for `.companion/state.json` in current directory (reads `pairmode_version`).
-2. Run: `uv run python ${CLAUDE_SKILL_DIR}/scripts/audit.py --project-dir "$(pwd)"`
+2. Run: `PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/audit.py" --project-dir "$(pwd)"`
 3. Display the output (MISSING / INCONSISTENT / EXTRA sections).
 4. If there are MISSING or INCONSISTENT items, ask: "Run sync to apply these changes?"
    - If yes → run sync (documented in sync command below)
@@ -96,12 +105,14 @@ pairmode scaffold up to date with the current canonical methodology.
 - Current directory (used as project-dir)
 - Optional: project type tag for lesson filtering (defaults to "all")
 
+Note: `pairmode_context.json` (created by `/anchor:pairmode bootstrap`) must exist for INCONSISTENT results to be meaningful.
+
 **What it does:**
-1. Run audit to get current delta: `uv run python ${CLAUDE_SKILL_DIR}/scripts/audit.py --project-dir "$(pwd)"`
+1. Run audit to get current delta: `PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/audit.py" --project-dir "$(pwd)"`
 2. Display the audit result
 3. If no MISSING or INCONSISTENT items: report "Already up to date" and stop
 4. Otherwise, confirm with user before applying changes
-5. Run: `uv run python ${CLAUDE_SKILL_DIR}/scripts/sync.py --project-dir "$(pwd)"`
+5. Run: `PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/sync.py" --project-dir "$(pwd)"`
 6. Display sync output
 
 **Output format:**
@@ -170,7 +181,7 @@ emerged — a workflow problem solved, a pattern discovered, a failure mode iden
 
 **CLI invocation (for testing and direct use):**
 ```bash
-uv run python skills/pairmode/scripts/lesson.py \
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/lesson.py" \
   --trigger "Builder skipped tests" \
   --problem "Tests failed after story was marked done." \
   --learning "Always run tests before marking a story done." \
@@ -237,9 +248,11 @@ typically before a major bootstrap or sync campaign across projects.
 This marks the location for the developer to implement the change manually. The comment
 is appended to the end of the template file.
 
+> **Note:** "Applying" a lesson writes a Jinja2 comment block that marks the change location. The developer must open the annotated template to implement the actual change. Lesson `status` is set to `applied` once the annotation is written — not once the template change is implemented. Always review annotated templates after running this command.
+
 **CLI invocation (for direct use / automation):**
 ```bash
-uv run python skills/pairmode/scripts/lesson_review.py \
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/lesson_review.py" \
   --approve L001 \
   --approve L002 \
   --reject L003

@@ -56,6 +56,7 @@ def _nn_mentions_concept(non_negotiable: str, concept: str) -> bool:
 
 def _make_rules(path: str, non_negotiable: str, module: str) -> list[dict]:
     """Emit one Edit and one Write deny rule for the given path."""
+    path = path.rstrip("/")
     return [
         {
             "path_pattern": f"{tool}({path}/**)",
@@ -111,8 +112,9 @@ def derive_denylist(
 
             # Protect all paths belonging to this module.
             for path in paths:
+                clean = path.rstrip("/")
                 for tool in _DENY_TOOLS:
-                    _add(f"{tool}({path}/**)", nn, module_name)
+                    _add(f"{tool}({clean}/**)", nn, module_name)
 
             # Concept-based cross-module path matching: if the non-negotiable
             # mentions a concept keyword, also protect paths in *any* module
@@ -124,7 +126,8 @@ def derive_denylist(
                 for other_module_name, other_paths in module_paths.items():
                     for path in other_paths:
                         if concept in path.lower():
+                            clean = path.rstrip("/")
                             for tool in _DENY_TOOLS:
-                                _add(f"{tool}({path}/**)", nn, module_name)
+                                _add(f"{tool}({clean}/**)", nn, module_name)
 
     return rules

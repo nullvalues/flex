@@ -7,7 +7,14 @@ import pathlib
 
 from click.testing import CliRunner
 
-from skills.pairmode.scripts.bootstrap import bootstrap, DEFAULT_DENY, PAIRMODE_VERSION
+from skills.pairmode.scripts.bootstrap import (
+    bootstrap,
+    DEFAULT_DENY,
+    PAIRMODE_VERSION,
+    _merge_deny_list,
+    _glob_prefix,
+    _is_subsumed,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +211,50 @@ class TestDenyListMerge:
         data = json.loads(settings_path.read_text())
         deny = data["permissions"]["deny"]
         assert deny.count(DEFAULT_DENY[0]) == 1
+
+    def test_glob_subsumption_removes_specific_entry(self, tmp_path):
+        settings_path = tmp_path / ".claude" / "settings.json"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        # Start with a specific entry
+        existing = {"permissions": {"deny": ["Edit(hooks/stop.py)"]}}
+        settings_path.write_text(json.dumps(existing), encoding="utf-8")
+
+        # Merge a glob that subsumes it
+        _merge_deny_list(settings_path, ["Edit(hooks/**)"])
+
+        deny = json.loads(settings_path.read_text())["permissions"]["deny"]
+        assert "Edit(hooks/**)" in deny
+        assert "Edit(hooks/stop.py)" not in deny, "specific entry should be removed when subsumed"
+
+    def test_glob_subsumption_does_not_remove_unrelated_entries(self, tmp_path):
+        settings_path = tmp_path / ".claude" / "settings.json"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = {"permissions": {"deny": ["Edit(other/file.py)", "Write(hooks/stop.py)"]}}
+        settings_path.write_text(json.dumps(existing), encoding="utf-8")
+
+        _merge_deny_list(settings_path, ["Edit(hooks/**)"])
+
+        deny = json.loads(settings_path.read_text())["permissions"]["deny"]
+        assert "Edit(other/file.py)" in deny, "unrelated entry must be kept"
+        # Write(hooks/stop.py) is not subsumed by Edit(hooks/**) (different tool)
+        assert "Write(hooks/stop.py)" in deny
+
+
+class TestGlobHelpers:
+    def test_glob_prefix_on_glob(self):
+        assert _glob_prefix("Edit(hooks/**)") == ("Edit", "hooks/")
+
+    def test_glob_prefix_on_non_glob(self):
+        assert _glob_prefix("Edit(hooks/stop.py)") is None
+
+    def test_is_subsumed_true(self):
+        assert _is_subsumed("Edit(hooks/stop.py)", [("Edit", "hooks/")])
+
+    def test_is_subsumed_false_different_tool(self):
+        assert not _is_subsumed("Write(hooks/stop.py)", [("Edit", "hooks/")])
+
+    def test_is_subsumed_false_different_prefix(self):
+        assert not _is_subsumed("Edit(other/file.py)", [("Edit", "hooks/")])
 
 
 # ---------------------------------------------------------------------------
@@ -436,6 +487,42 @@ def test_help_succeeds():
 
 
 # ---------------------------------------------------------------------------
+# sys.path guard test (subprocess, no PYTHONPATH in env)
+# ---------------------------------------------------------------------------
+
+def test_bootstrap_help_via_subprocess_no_pythonpath(tmp_path):
+    """Verify bootstrap.py --help works without PYTHONPATH set externally.
+
+    The sys.path guard inside bootstrap.py must handle the import path
+    insertion on its own, so no PYTHONPATH env var is required.
+    """
+    import os
+    import subprocess
+    import sys
+
+    bootstrap_path = str(
+        pathlib.Path(__file__).parent.parent.parent
+        / "skills" / "pairmode" / "scripts" / "bootstrap.py"
+    )
+
+    # Strip PYTHONPATH from the environment to ensure the guard does all the work
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+
+    result = subprocess.run(
+        [sys.executable, bootstrap_path, "--help"],
+        cwd=str(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        f"bootstrap.py --help failed without PYTHONPATH.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "project-dir" in result.stdout
+
+
+# ---------------------------------------------------------------------------
 # Spec-derived scenarios
 # ---------------------------------------------------------------------------
 
@@ -449,31 +536,14 @@ class TestSpecDerivedChecklist:
         # Templates still render — we just verify bootstrap succeeds cleanly
         assert (tmp_path / "CLAUDE.md").exists()
 
-    def test_spec_derived_checklist_items_passed_to_templates(self, tmp_path):
-        """When a spec has non-negotiables, they appear in the reviewer agent checklist."""
+    def test_reviewer_checklist_contains_only_universal_items(self, tmp_path):
+        """Reviewer checklist uses only universal items; spec non-negotiables are NOT injected."""
         _make_spec_structure(
             tmp_path,
             modules={
                 "auth": {
                     "module": "auth",
                     "non_negotiables": ["Auth must never call billing directly — events only"],
-                    "business_rules": [],
-                }
-            },
-        )
-        result = run_bootstrap(tmp_path)
-        assert result.exit_code == 0, result.output
-        content = (tmp_path / ".claude/agents/reviewer.md").read_text()
-        assert "Auth must never call billing directly" in content
-
-    def test_spec_business_rules_appear_in_checklist(self, tmp_path):
-        """Business rules from spec show up in the reviewer agent checklist."""
-        _make_spec_structure(
-            tmp_path,
-            modules={
-                "payments": {
-                    "module": "payments",
-                    "non_negotiables": [],
                     "business_rules": ["All payments must be idempotent"],
                 }
             },
@@ -481,7 +551,13 @@ class TestSpecDerivedChecklist:
         result = run_bootstrap(tmp_path)
         assert result.exit_code == 0, result.output
         content = (tmp_path / ".claude/agents/reviewer.md").read_text()
-        assert "All payments must be idempotent" in content
+        # Spec text must NOT appear in reviewer checklist (L005 fix)
+        assert "Auth must never call billing directly" not in content
+        assert "All payments must be idempotent" not in content
+        # Universal items must still be present
+        assert "PROTECTED FILES" in content
+        assert "STORY SCOPE" in content
+        assert "BUILD GATE" in content
 
 
 class TestSpecDerivedDenyList:

@@ -25,23 +25,16 @@ Report findings with file and line reference. Do not fix unless asked.
 
 Run every item on every review invocation.
 
-{% for item in checklist_items %}
-{{ loop.index }}. {{ item.name }}
-   {{ item.description }}
-   Violations are {{ item.severity }}.
-
-{% endfor %}
-{{ checklist_items | length + 1 }}. PROTECTED FILES
+1. PROTECTED FILES
    Were any protected files modified without a stated reason?
-   Protected: {{ protected_paths | join(', ') }}
    Unexplained modification is HIGH.
 
-{{ checklist_items | length + 2 }}. STORY SCOPE
+2. STORY SCOPE
    Did the builder touch files outside the stated story scope?
    Unexplained out-of-scope changes are MEDIUM.
 
-{{ checklist_items | length + 3 }}. BUILD GATE
-   Does `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q` pass?
+3. BUILD GATE
+   Does `{{ build_command }}` pass without errors?
    A failing build gate blocks story completion regardless of checklist outcome.
 
 ## Review output format
@@ -79,3 +72,5 @@ Invoked with: LOOP-BREAKER: [error] | FILE: [file:line] | TRIED: [what failed]
 - Propose ONE alternative approach with clear reasoning
 - Do not reproduce the failing code
 - If the error involves a protected file, say so and propose a different path
+
+{# LESSON L005: Remove spec-derived checklist_items from the reviewer.md template, or change the template to use module+ordinal labels. The reviewer checklist should be maintained by the developer, seeded with universal items only. #}

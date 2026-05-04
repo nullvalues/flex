@@ -213,6 +213,9 @@ def cli(approve_ids: tuple[str, ...], reject_ids: tuple[str, ...]) -> None:
     all_lessons = load_reviewable_lessons()
     lessons_by_id = {l["id"]: l for l in all_lessons}
 
+    approved_count = 0
+    rejected_count = 0
+
     for lesson_id in approve_ids:
         lesson = lessons_by_id.get(lesson_id)
         if lesson is None:
@@ -222,19 +225,28 @@ def cli(approve_ids: tuple[str, ...], reject_ids: tuple[str, ...]) -> None:
         for proposal in proposals:
             description = proposal["description"]
             apply_template_change(proposal, description)
-            click.echo(f"Applied lesson {lesson_id} to {proposal['template_file']}")
+            click.echo(
+                f"  Annotated {proposal['template_file']} with lesson {lesson_id}.\n"
+                f"  ACTION REQUIRED: Open the template and implement the change:\n"
+                f"    {{# LESSON {lesson_id}: {proposal['description']} #}}"
+            )
         mark_lesson_status(lesson_id, "applied")
-        click.echo(f"Marked {lesson_id} as applied.")
+        approved_count += 1
 
     for lesson_id in reject_ids:
         if lesson_id not in lessons_by_id:
             click.echo(f"WARNING: lesson {lesson_id} not found or not reviewable — skipping.")
             continue
         mark_lesson_status(lesson_id, "reviewed")
-        click.echo(f"Marked {lesson_id} as reviewed (rejected).")
+        rejected_count += 1
 
     regenerate_lessons_md()
-    click.echo("LESSONS.md regenerated.")
+    click.echo(
+        f"REVIEW COMPLETE\n"
+        f"  {approved_count} lesson(s) annotated — open affected templates to implement the changes.\n"
+        f"  {rejected_count} lesson(s) deferred for next review cycle.\n"
+        f"LESSONS.md regenerated."
+    )
 
 
 if __name__ == "__main__":

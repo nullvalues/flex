@@ -33,7 +33,7 @@ Protected files for this project:
 {{ domain_isolation_rule }}
 
 **Python standards:**
-- All Python execution uses `{{ build_command }}`. Follow project conventions.
+- All Python execution uses `uv run`. Never bare `python` or `pip`.
 - Use relative paths from `__file__` for file references within a skill. Never hardcode
   absolute paths.
 
@@ -86,3 +86,5 @@ If you encounter an error you cannot resolve after two attempts:
   Attempted again: [second approach, briefly]
 
 Then stop. The orchestrator will invoke the loop-breaker.
+
+{# LESSON L004: Fix builder.md.j2: replace '{{ build_command }}' in the Python standards prose with the literal string 'uv run'. Use build_command only in the build-gate verification block. #}

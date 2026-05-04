@@ -12,4 +12,5 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest",
+    "rich>=13.0.0",
 ]
