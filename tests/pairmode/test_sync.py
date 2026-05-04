@@ -60,12 +60,18 @@ def _copy_canonical_files(project_dir: Path) -> None:
             "A test project for unit tests.\n\n"
             "## Why it exists\n\n"
             "To provide a baseline for sync tests.\n\n"
+            "## Core beliefs\n\n"
+            "We prefer simplicity over complexity in all design decisions.\n\n"
+            "## Accepted tradeoffs\n\n"
+            "We accepted slower startup in exchange for easier configuration.\n\n"
             "## Constraints\n\n"
             "_Explicit constraints the operator has placed on scope or approach:_\n\n"
             "- _(add operator constraints here)_\n\n"
             "## Not in scope\n\n"
             "_Things that might seem related but are intentional omissions:_\n\n"
             "- _(add out-of-scope items here)_\n\n"
+            "## What a second implementation must preserve\n\n"
+            "The core data model and persistence contract must be preserved.\n\n"
             "## Operator contact\n\n"
             "_(not specified)_\n",
             encoding="utf-8",
@@ -119,6 +125,28 @@ def _write_state(project_dir: Path, extra_fields: dict | None = None) -> None:
     companion.mkdir(parents=True, exist_ok=True)
     state: dict = extra_fields.copy() if extra_fields else {}
     (companion / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+
+def _write_ideology_md(project_dir: Path) -> None:
+    """Write docs/ideology.md with non-placeholder content."""
+    (project_dir / "docs").mkdir(parents=True, exist_ok=True)
+    ideology_path = project_dir / "docs" / "ideology.md"
+    ideology_path.write_text(
+        "# Ideology — testproject\n\n"
+        "## Core convictions\n\n"
+        "We believe in simplicity over complexity at every level of the stack.\n\n"
+        "## Value hierarchy\n\n"
+        "Correctness > Performance > Convenience.\n\n"
+        "## Accepted constraints\n\n"
+        "We operate within a strict budget; no expensive third-party APIs.\n\n"
+        "## Prototype fingerprints\n\n"
+        "The canonical implementation uses Python with uv and Rich.\n\n"
+        "## Reconstruction guidance\n\n"
+        "Start from the spec, not the code. The spec is the source of truth.\n\n"
+        "## Comparison basis\n\n"
+        "Compare against the reference implementation in the anchor repo.\n",
+        encoding="utf-8",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1015,3 +1043,33 @@ class TestNoDeadCodeInLoadProjectContext:
         assert "enriched" not in source, (
             "Dead code 'return enriched' must not exist in _load_project_context"
         )
+
+
+# ---------------------------------------------------------------------------
+# Story 10.6: path traversal containment guard
+# ---------------------------------------------------------------------------
+
+
+class TestSyncPathTraversalGuard:
+    """sync_project() must reject paths that are too close to the filesystem root."""
+
+    def test_root_dir_raises_system_exit(self):
+        """Calling sync_project('/') raises SystemExit."""
+        with pytest.raises(SystemExit) as exc_info:
+            sync_project(Path("/"))
+        assert exc_info.value.code != 0
+
+    def test_etc_dir_raises_system_exit(self):
+        """Calling sync_project('/etc') raises SystemExit."""
+        with pytest.raises(SystemExit) as exc_info:
+            sync_project(Path("/etc"))
+        assert exc_info.value.code != 0
+
+    def test_valid_project_dir_succeeds(self, tmp_path):
+        """A valid project dir with 3+ path parts does not raise SystemExit (regression)."""
+        _copy_canonical_files(tmp_path)
+        _write_ideology_md(tmp_path)
+        _write_state(tmp_path)
+        # Should not raise — sync may produce a result with no changes
+        result = sync_project(tmp_path, yes=True)
+        assert isinstance(result, SyncResult)

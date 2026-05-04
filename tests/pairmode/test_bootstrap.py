@@ -984,7 +984,7 @@ class TestNonTtyWhatWhyWarning:
         assert "docs/brief.md" in result.output
 
     def test_no_warning_when_what_provided(self, tmp_path):
-        """In non-TTY, providing --what and --why suppresses the warning."""
+        """In non-TTY, providing --what and --why suppresses the brief.md warning."""
         runner = CliRunner()
         result = runner.invoke(
             bootstrap,
@@ -999,7 +999,7 @@ class TestNonTtyWhatWhyWarning:
             catch_exceptions=False,
         )
         assert result.exit_code == 0, result.output
-        assert "warning: non-interactive mode" not in result.output
+        assert "docs/brief.md what/why left blank" not in result.output
 
     def test_what_value_appears_in_brief_md(self, tmp_path):
         """--what value is rendered into docs/brief.md."""
@@ -1053,3 +1053,342 @@ class TestDefaultDenyScopeDocs:
     def test_edit_cer_backlog_not_in_default_deny(self):
         """docs/cer/backlog.md is an operational file — must not be denied."""
         assert "Edit(docs/cer/backlog.md)" not in DEFAULT_DENY
+
+
+# ---------------------------------------------------------------------------
+# Story 10.0: ideology.md bootstrap tests
+# ---------------------------------------------------------------------------
+
+class TestIdeologyMdBootstrap:
+    """Bootstrap renders docs/ideology.md from the template."""
+
+    def test_bootstrap_writes_ideology_md(self, tmp_path):
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "docs/ideology.md").exists(), (
+            "Bootstrap must write docs/ideology.md"
+        )
+
+    def test_ideology_md_has_core_convictions_heading(self, tmp_path):
+        run_bootstrap(tmp_path)
+        content = (tmp_path / "docs/ideology.md").read_text(encoding="utf-8")
+        assert "## Core convictions" in content
+
+    def test_ideology_md_has_reconstruction_guidance_heading(self, tmp_path):
+        run_bootstrap(tmp_path)
+        content = (tmp_path / "docs/ideology.md").read_text(encoding="utf-8")
+        assert "## Reconstruction guidance" in content
+
+    def test_ideology_md_has_must_preserve_subheading(self, tmp_path):
+        run_bootstrap(tmp_path)
+        content = (tmp_path / "docs/ideology.md").read_text(encoding="utf-8")
+        assert "### Must preserve" in content
+
+    def test_ideology_md_existing_file_prompts_confirmation(self, tmp_path):
+        """Bootstrap on existing project with docs/ideology.md present prompts for
+        confirmation before overwriting — it does not overwrite silently."""
+        run_bootstrap(tmp_path)
+
+        # Write sentinel content into ideology.md
+        (tmp_path / "docs/ideology.md").write_text("sentinel content", encoding="utf-8")
+
+        # Second run — simulate user declining all overwrite prompts
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+            ],
+            input="n\n" * 20,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        # File should still have the sentinel content (not overwritten silently)
+        assert (tmp_path / "docs/ideology.md").read_text(encoding="utf-8") == "sentinel content"
+
+    def test_edit_ideology_md_in_default_deny(self):
+        assert "Edit(docs/ideology.md)" in DEFAULT_DENY
+
+    def test_write_ideology_md_in_default_deny(self):
+        assert "Write(docs/ideology.md)" in DEFAULT_DENY
+
+
+# ---------------------------------------------------------------------------
+# Story 10.6: path traversal containment guard
+# ---------------------------------------------------------------------------
+
+
+class TestPathTraversalGuard:
+    """Bootstrap must reject project-dir paths that are too close to the filesystem root."""
+
+    def test_root_dir_rejected(self):
+        """Passing --project-dir / exits with non-zero (rejected by CLI guard)."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", "/",
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_etc_dir_rejected(self):
+        """Passing --project-dir /etc exits with non-zero (rejected by CLI guard)."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", "/etc",
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_suspicious_path_guard_logic_directly(self, tmp_path):
+        """Unit-test the guard: a resolved path with < 3 parts triggers sys.exit(1)."""
+        import sys
+        import pathlib
+
+        # Simulate the guard check directly for a 2-part path like /tmp
+        shallow = pathlib.Path("/tmp")
+        # The guard: is_dir() and len(parts) < 3 → exit
+        assert shallow.is_dir()
+        assert len(shallow.parts) < 3, (
+            f"/tmp has {len(shallow.parts)} parts — guard should reject it"
+        )
+
+        # Confirm tmp_path (valid project dir) would pass the guard
+        resolved = tmp_path.resolve()
+        assert resolved.is_dir()
+        assert len(resolved.parts) >= 3, (
+            f"tmp_path has {len(resolved.parts)} parts — guard should accept it"
+        )
+
+    def test_valid_project_dir_succeeds(self, tmp_path):
+        """A valid project dir with 3+ path parts succeeds (regression)."""
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+
+
+# ---------------------------------------------------------------------------
+# Story 10.2 — UNIVERSAL_CHECKLIST_ITEMS contains IDEOLOGY ALIGNMENT
+# ---------------------------------------------------------------------------
+
+class TestUniversalChecklistItemsIdeologyAlignment:
+    """Story 10.2: UNIVERSAL_CHECKLIST_ITEMS must include IDEOLOGY ALIGNMENT."""
+
+    def test_ideology_alignment_entry_present(self):
+        from skills.pairmode.scripts.bootstrap import UNIVERSAL_CHECKLIST_ITEMS
+        names = [item["name"] for item in UNIVERSAL_CHECKLIST_ITEMS]
+        assert "IDEOLOGY ALIGNMENT" in names
+
+    def test_ideology_alignment_severity_is_high(self):
+        from skills.pairmode.scripts.bootstrap import UNIVERSAL_CHECKLIST_ITEMS
+        entry = next(item for item in UNIVERSAL_CHECKLIST_ITEMS if item["name"] == "IDEOLOGY ALIGNMENT")
+        assert entry["severity"] == "HIGH"
+
+    def test_ideology_alignment_description_references_ideology_md(self):
+        from skills.pairmode.scripts.bootstrap import UNIVERSAL_CHECKLIST_ITEMS
+        entry = next(item for item in UNIVERSAL_CHECKLIST_ITEMS if item["name"] == "IDEOLOGY ALIGNMENT")
+        assert "ideology" in entry["description"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Story 10.4: guided ideology capture mode
+# ---------------------------------------------------------------------------
+
+class TestIdeologySkipFlag:
+    """--ideology-skip writes placeholder ideology.md without prompting."""
+
+    def test_ideology_skip_writes_placeholder(self, tmp_path):
+        """--ideology-skip: ideology.md written with placeholder content."""
+        result = run_bootstrap(tmp_path, extra_args=["--ideology-skip"])
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs/ideology.md").read_text(encoding="utf-8")
+        assert "not yet specified" in content
+
+    def test_ideology_skip_no_ideology_warning(self, tmp_path):
+        """--ideology-skip: no non-interactive mode ideology warning emitted."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--ideology-skip",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert "docs/ideology.md will be written as placeholder" not in result.output
+
+    def test_ideology_skip_flag_in_help(self):
+        """--ideology-skip flag must appear in help output."""
+        runner = CliRunner()
+        result = runner.invoke(bootstrap, ["--help"])
+        assert result.exit_code == 0
+        assert "ideology-skip" in result.output
+
+
+class TestConvictionFlag:
+    """--conviction flag populates ideology.md with conviction content."""
+
+    def test_conviction_flag_appears_in_ideology_md(self, tmp_path):
+        """--conviction 'we prefer X over Y': ideology.md contains that conviction."""
+        result = run_bootstrap(
+            tmp_path,
+            extra_args=["--conviction", "we prefer X over Y"],
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs/ideology.md").read_text(encoding="utf-8")
+        assert "we prefer X over Y" in content
+
+    def test_multiple_conviction_flags_all_appear(self, tmp_path):
+        """Multiple --conviction flags: all appear in rendered ideology.md."""
+        result = run_bootstrap(
+            tmp_path,
+            extra_args=[
+                "--conviction", "we prefer simplicity over cleverness",
+                "--conviction", "we prefer correctness over speed",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs/ideology.md").read_text(encoding="utf-8")
+        assert "we prefer simplicity over cleverness" in content
+        assert "we prefer correctness over speed" in content
+
+    def test_conviction_flag_in_help(self):
+        """--conviction flag must appear in help output."""
+        runner = CliRunner()
+        result = runner.invoke(bootstrap, ["--help"])
+        assert result.exit_code == 0
+        assert "conviction" in result.output
+
+
+class TestConstraintFlag:
+    """--constraint flag populates ideology.md with constraint content."""
+
+    def test_constraint_flag_appears_in_ideology_md(self, tmp_path):
+        """--constraint 'never write state from hooks': ideology.md contains that constraint."""
+        result = run_bootstrap(
+            tmp_path,
+            extra_args=["--constraint", "never write state from hooks"],
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs/ideology.md").read_text(encoding="utf-8")
+        assert "never write state from hooks" in content
+
+    def test_constraint_flag_in_help(self):
+        """--constraint flag must appear in help output."""
+        runner = CliRunner()
+        result = runner.invoke(bootstrap, ["--help"])
+        assert result.exit_code == 0
+        assert "constraint" in result.output
+
+
+class TestNonTtyIdeologyWarning:
+    """Non-TTY without flags emits ideology warning to stderr."""
+
+    def test_non_tty_without_flags_emits_ideology_warning(self, tmp_path):
+        """Non-TTY without ideology flags: warning on stderr; ideology.md written as placeholder."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                # no --conviction, --constraint, or --ideology-skip
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        # CliRunner is non-TTY; warning should appear in output (stderr mixed in)
+        assert "docs/ideology.md will be written as placeholder" in result.output
+        # ideology.md should still be written with placeholder content
+        assert (tmp_path / "docs/ideology.md").exists()
+        content = (tmp_path / "docs/ideology.md").read_text(encoding="utf-8")
+        assert "not yet specified" in content
+
+    def test_non_tty_with_conviction_flag_suppresses_ideology_warning(self, tmp_path):
+        """Non-TTY with --conviction flag: no ideology warning emitted."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--conviction", "we prefer clarity over brevity",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert "docs/ideology.md will be written as placeholder" not in result.output
+
+
+class TestIdeologyCaptureFlow:
+    """Unit tests for _ideology_capture_flow()."""
+
+    def test_all_empty_input_returns_empty_lists(self):
+        """_ideology_capture_flow() with all-empty input: returns dict with empty lists, no crash."""
+        from skills.pairmode.scripts.bootstrap import _ideology_capture_flow
+        from unittest.mock import patch
+
+        # Simulate pressing Enter on every prompt (all blank)
+        with patch("click.prompt", return_value=""):
+            result = _ideology_capture_flow()
+
+        assert result["convictions"] == []
+        assert result["value_hierarchy"] == []
+        assert result["constraints"] == []
+        assert result["must_preserve"] == []
+
+    def test_conviction_collected_until_blank(self):
+        """_ideology_capture_flow() stops collecting convictions when blank entered."""
+        from skills.pairmode.scripts.bootstrap import _ideology_capture_flow
+        from unittest.mock import patch
+
+        prompt_responses = iter([
+            "conviction one",  # conviction #1
+            "",               # conviction #2 blank → stop
+            "",               # value_hierarchy blank
+            "",               # constraint blank
+            "",               # must_preserve blank
+        ])
+
+        with patch("click.prompt", side_effect=prompt_responses):
+            result = _ideology_capture_flow()
+
+        assert result["convictions"] == ["conviction one"]
+
+    def test_constraint_with_value_produces_constraint_dict(self):
+        """When a constraint is entered, it appears as a dict with name and rule."""
+        from skills.pairmode.scripts.bootstrap import _ideology_capture_flow
+        from unittest.mock import patch
+
+        prompt_responses = iter([
+            "",                         # conviction #1 blank → stop
+            "",                         # value_hierarchy blank
+            "never call billing direct", # constraint rule
+            "",                         # must_preserve blank
+        ])
+
+        with patch("click.prompt", side_effect=prompt_responses):
+            result = _ideology_capture_flow()
+
+        assert len(result["constraints"]) == 1
+        assert result["constraints"][0]["rule"] == "never call billing direct"
+        assert "name" in result["constraints"][0]

@@ -89,11 +89,17 @@ The first time the companion sidebar starts, it will run `claude setup-token` in
 
 A complete builder/reviewer workflow that any project can adopt. Pairmode turns Claude Code into a disciplined pair — specifications are written first, builders implement against them, and reviewers enforce acceptance criteria at every commit.
 
+**Era 2 — Ideology capture:** Pairmode now captures not just what you're building and how, but _why_ — the convictions, tradeoffs, and constraints that define your project's intent. A blank-slate agent given only the ideology document and the brief should be able to reconstruct an implementation that is recognizably the same project.
+
 ```bash
 # Bootstrap a new project with the pairmode scaffold
+# (TTY mode guides you through ideology capture interactively)
 /anchor:pairmode bootstrap
 
-# Audit how far a project has drifted from canonical templates
+# Pass convictions directly without TTY prompts
+/anchor:pairmode bootstrap --conviction "we prefer X over Y because Z" --constraint "never write state from hooks"
+
+# Audit how far a project has drifted from canonical templates (detects stale ideology.md)
 /anchor:pairmode audit
 
 # Apply upstream methodology updates (with per-change confirmation prompts)
@@ -106,7 +112,7 @@ A complete builder/reviewer workflow that any project can adopt. Pairmode turns 
 /anchor:pairmode review
 ```
 
-The scaffold produces: `CLAUDE.md`, `CLAUDE.build.md`, `docs/` (brief, architecture, phases, CER backlog), `.claude/agents/` (builder, reviewer, loop-breaker, security-auditor, intent-reviewer), and `.claude/settings.json` with a spec-derived deny list.
+The scaffold produces: `CLAUDE.md`, `CLAUDE.build.md`, `docs/` (brief, architecture, ideology, phases, CER backlog), `.claude/agents/` (builder, reviewer, loop-breaker, security-auditor, intent-reviewer), and `.claude/settings.json` with a spec-derived deny list.
 
 Phases are tracked individually in `docs/phases/phase-N.md`. A CER triage backlog (`docs/cer/backlog.md`) captures findings that cannot be resolved immediately.
 

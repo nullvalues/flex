@@ -230,6 +230,15 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
     are recorded in result.skipped.
     """
     project_dir = Path(project_dir).resolve()
+
+    # Security: path traversal containment guard
+    if not project_dir.is_dir() or len(project_dir.parts) < 3:
+        click.echo(
+            f"error: project-dir resolves to a suspicious path: {project_dir}",
+            err=True,
+        )
+        sys.exit(1)
+
     result = SyncResult(project_dir=project_dir)
 
     # Load saved template context for rendering when creating/patching files

@@ -147,6 +147,9 @@ BRIEF_MD_CONTEXT = {
     "stack": "Python 3.11+ / FastAPI / PostgreSQL",
     "what": "A REST API that manages user accounts and permissions for enterprise clients.",
     "why": "Existing solutions lack fine-grained role management required by our enterprise customers.",
+    "core_beliefs": "We prefer X.",
+    "accepted_tradeoffs": "We gave up Y for Z.",
+    "must_preserve": "The data contract.",
     "operator_contact": "alice@example.com",
 }
 
@@ -156,6 +159,9 @@ BRIEF_MD_EMPTY_CONTEXT = {
     "stack": "Python",
     "what": "",
     "why": "",
+    "core_beliefs": "",
+    "accepted_tradeoffs": "",
+    "must_preserve": "",
     "operator_contact": "",
 }
 
@@ -207,6 +213,61 @@ class TestBriefMdTemplateEmptyFields:
     def test_empty_why_shows_placeholder(self):
         output = render("docs/brief.md.j2", BRIEF_MD_EMPTY_CONTEXT)
         assert "not yet specified" in output
+
+
+# ---------------------------------------------------------------------------
+# Story 10.1 — brief.md.j2 positive ideology sections
+# ---------------------------------------------------------------------------
+
+BRIEF_MD_IDEOLOGY_EMPTY_CONTEXT = {
+    "project_name": "myapp",
+    "project_description": "",
+    "stack": "Python",
+    "what": "",
+    "why": "",
+    "core_beliefs": "",
+    "accepted_tradeoffs": "",
+    "must_preserve": "",
+    "operator_contact": "",
+}
+
+
+class TestBriefMdIdeologySections:
+    """Story 10.1: three new ideology sections in docs/brief.md.j2."""
+
+    def test_core_beliefs_heading_present_in_empty_render(self):
+        output = render("docs/brief.md.j2", BRIEF_MD_IDEOLOGY_EMPTY_CONTEXT)
+        assert "## Core beliefs" in output
+
+    def test_accepted_tradeoffs_heading_present_in_empty_render(self):
+        output = render("docs/brief.md.j2", BRIEF_MD_IDEOLOGY_EMPTY_CONTEXT)
+        assert "## Accepted tradeoffs" in output
+
+    def test_must_preserve_heading_present_in_empty_render(self):
+        output = render("docs/brief.md.j2", BRIEF_MD_IDEOLOGY_EMPTY_CONTEXT)
+        assert "## What a second implementation must preserve" in output
+
+    def test_core_beliefs_real_value_renders(self):
+        ctx = {**BRIEF_MD_IDEOLOGY_EMPTY_CONTEXT, "core_beliefs": "We prefer X."}
+        output = render("docs/brief.md.j2", ctx)
+        assert "We prefer X." in output
+
+    def test_core_beliefs_real_value_no_placeholder(self):
+        ctx = {**BRIEF_MD_IDEOLOGY_EMPTY_CONTEXT, "core_beliefs": "We prefer X."}
+        output = render("docs/brief.md.j2", ctx)
+        # Placeholder for core_beliefs should not appear when real value provided
+        assert "_(not yet specified — what does this project believe" not in output
+
+    def test_empty_core_beliefs_shows_placeholder(self):
+        output = render("docs/brief.md.j2", BRIEF_MD_IDEOLOGY_EMPTY_CONTEXT)
+        assert "_(not yet specified" in output
+
+    def test_existing_headings_still_present(self):
+        output = render("docs/brief.md.j2", BRIEF_MD_IDEOLOGY_EMPTY_CONTEXT)
+        assert "## What this project produces" in output
+        assert "## Why it exists" in output
+        assert "## Constraints" in output
+        assert "## Not in scope" in output
 
 
 # ---------------------------------------------------------------------------
@@ -1227,3 +1288,144 @@ class TestIntentReviewerPhasePromptsReferences:
     def test_phase_n_md_is_primary_reference(self):
         """docs/phases/phase-N.md appears as the primary phase file reference."""
         assert "docs/phases/phase-N.md" in self.output
+
+
+# ---------------------------------------------------------------------------
+# Story 10.0 — ideology.md.j2 template tests
+# ---------------------------------------------------------------------------
+
+IDEOLOGY_EMPTY_CONTEXT = {
+    "project_name": "myapp",
+    "convictions": [],
+    "value_hierarchy": [],
+    "constraints": [],
+    "fingerprints": [],
+    "must_preserve": [],
+    "should_question": [],
+    "free_to_change": [],
+    "comparison_dimensions": [],
+}
+
+
+class TestIdeologyMdTemplate:
+    """Tests for docs/ideology.md.j2."""
+
+    def test_renders_without_error_empty_context(self):
+        output = render("docs/ideology.md.j2", IDEOLOGY_EMPTY_CONTEXT)
+        assert output
+
+    def test_all_six_section_headings_present(self):
+        output = render("docs/ideology.md.j2", IDEOLOGY_EMPTY_CONTEXT)
+        assert "## Core convictions" in output
+        assert "## Value hierarchy" in output
+        assert "## Accepted constraints" in output
+        assert "## Prototype fingerprints" in output
+        assert "## Reconstruction guidance" in output
+        assert "## Comparison basis" in output
+
+    def test_placeholder_strings_present_in_empty_context(self):
+        output = render("docs/ideology.md.j2", IDEOLOGY_EMPTY_CONTEXT)
+        # Each empty section should contain the "_(not yet specified" placeholder
+        assert "_(not yet specified" in output
+
+    def test_project_name_in_title(self):
+        output = render("docs/ideology.md.j2", IDEOLOGY_EMPTY_CONTEXT)
+        assert "myapp" in output
+
+    def test_project_name_substituted_with_testproject(self):
+        context = {**IDEOLOGY_EMPTY_CONTEXT, "project_name": "TestProject"}
+        output = render("docs/ideology.md.j2", context)
+        assert "TestProject" in output
+
+    def test_conviction_value_renders_when_provided(self):
+        context = {**IDEOLOGY_EMPTY_CONTEXT, "convictions": ["We prefer X over Y"]}
+        output = render("docs/ideology.md.j2", context)
+        assert "We prefer X over Y" in output
+
+    def test_conviction_placeholder_absent_when_convictions_provided(self):
+        context = {**IDEOLOGY_EMPTY_CONTEXT, "convictions": ["We prefer X over Y"]}
+        output = render("docs/ideology.md.j2", context)
+        # The placeholder should not appear when actual convictions are provided
+        assert "_(not yet specified — fill in before first story" not in output
+
+
+# ---------------------------------------------------------------------------
+# Story 10.2 — reviewer.md.j2: IDEOLOGY ALIGNMENT checklist item
+# ---------------------------------------------------------------------------
+
+class TestReviewerAgentIdeologyAlignment:
+    """Story 10.2: reviewer.md.j2 must contain IDEOLOGY ALIGNMENT as checklist item 5."""
+
+    def setup_method(self):
+        self.output = render("agents/reviewer.md.j2", AGENT_CONTEXT)
+
+    def test_ideology_alignment_present(self):
+        assert "IDEOLOGY ALIGNMENT" in self.output
+
+    def test_sub_checks_5a_5b_5c_present(self):
+        assert "5a." in self.output
+        assert "5b." in self.output
+        assert "5c." in self.output
+
+    def test_docs_ideology_md_referenced(self):
+        assert "docs/ideology.md" in self.output
+
+    def test_documentation_currency_still_present_regression(self):
+        assert "DOCUMENTATION CURRENCY" in self.output
+
+    def test_protected_files_still_present_regression(self):
+        assert "PROTECTED FILES" in self.output
+
+    def test_story_scope_still_present_regression(self):
+        assert "STORY SCOPE" in self.output
+
+    def test_build_gate_still_present_regression(self):
+        assert "BUILD GATE" in self.output
+
+
+# ---------------------------------------------------------------------------
+# Story 10.3 — intent-reviewer.md.j2: ideology drift check
+# ---------------------------------------------------------------------------
+
+class TestIntentReviewerIdeologyDrift:
+    """Story 10.3: intent-reviewer.md.j2 must include ideology drift checks."""
+
+    def setup_method(self):
+        self.output = render("agents/intent-reviewer.md.j2", AGENT_CONTEXT)
+
+    def test_ideology_drift_in_output_format(self):
+        assert "IDEOLOGY DRIFT" in self.output
+
+    def test_step_6_docs_ideology_md_in_before_reviewing(self):
+        # Step 6 must reference docs/ideology.md in the ## Before reviewing section
+        before_idx = self.output.index("## Before reviewing")
+        # Find the next ## section after "Before reviewing"
+        next_section_idx = self.output.find("\n## ", before_idx + 1)
+        before_section = self.output[before_idx:next_section_idx] if next_section_idx != -1 else self.output[before_idx:]
+        assert "docs/ideology.md" in before_section
+        assert "6." in before_section
+
+    def test_ideology_drift_in_design_pivot_detection(self):
+        # "Ideology drift" entry must appear in Design pivot detection section
+        pivot_idx = self.output.index("## Design pivot detection")
+        next_section_idx = self.output.find("\n## ", pivot_idx + 1)
+        pivot_section = self.output[pivot_idx:next_section_idx] if next_section_idx != -1 else self.output[pivot_idx:]
+        assert "Ideology drift" in pivot_section
+
+    def test_docs_ideology_md_in_recommended_doc_edits(self):
+        # docs/ideology.md: block must appear in RECOMMENDED DOC EDITS
+        rec_idx = self.output.index("RECOMMENDED DOC EDITS")
+        edits_section = self.output[rec_idx:]
+        assert "docs/ideology.md" in edits_section
+
+    def test_story_alignment_still_present_regression(self):
+        assert "STORY ALIGNMENT" in self.output
+
+    def test_pivots_and_concerns_still_present_regression(self):
+        assert "PIVOTS AND CONCERNS" in self.output
+
+    def test_downstream_risks_still_present_regression(self):
+        assert "DOWNSTREAM RISKS" in self.output
+
+    def test_recommended_doc_edits_still_present_regression(self):
+        assert "RECOMMENDED DOC EDITS" in self.output

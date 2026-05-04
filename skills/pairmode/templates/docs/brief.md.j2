@@ -17,6 +17,24 @@
 
 ---
 
+## Core beliefs
+
+> What does this project believe? State convictions as positive claims.
+> These are the values that shaped the design — what the project prefers and why.
+
+{{ core_beliefs if core_beliefs else "_(not yet specified — what does this project believe about how software should be built? What does it value over what?)_" }}
+
+---
+
+## Accepted tradeoffs
+
+> Decisions that had a real cost. What was given up, and why the exchange was worth it.
+> A second implementation should understand what alternatives were considered and rejected.
+
+{{ accepted_tradeoffs if accepted_tradeoffs else "_(not yet specified — what did the project explicitly give up? What was the rationale?)_" }}
+
+---
+
 ## Constraints
 
 _Explicit constraints the operator has placed on scope or approach:_
@@ -30,6 +48,15 @@ _Explicit constraints the operator has placed on scope or approach:_
 _Things that might seem related but are intentional omissions:_
 
 - _(add out-of-scope items here)_
+
+---
+
+## What a second implementation must preserve
+
+> The irreducible requirements. An implementation that violates these is not this project.
+> Everything else is negotiable.
+
+{{ must_preserve if must_preserve else "_(not yet specified — which values, constraints, or behaviors must survive across any implementation of this project?)_" }}
 
 ---
 

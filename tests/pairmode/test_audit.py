@@ -17,6 +17,7 @@ from skills.pairmode.scripts.audit import (
     _is_separator_key,
     _is_stale_placeholder,
     _enrich_scaffold_context,
+    _check_ideology_staleness,
     SCAFFOLD_FILES,
 )
 from skills.pairmode.scripts import audit as _audit_mod
@@ -64,6 +65,45 @@ def _copy_canonical_files(project_dir: Path) -> None:
     _write_clean_scaffold_files(project_dir)
 
 
+def _write_ideology_md(project_dir: Path, stale: bool = False) -> None:
+    """Write docs/ideology.md — real content when stale=False, placeholders when stale=True."""
+    (project_dir / "docs").mkdir(parents=True, exist_ok=True)
+    ideology_path = project_dir / "docs" / "ideology.md"
+    if stale:
+        content = (
+            "# Ideology — testproject\n\n"
+            "## Core convictions\n\n"
+            "_(not yet specified — what do you believe?)_\n\n"
+            "## Value hierarchy\n\n"
+            "_(not yet specified — what do you value most?)_\n\n"
+            "## Accepted constraints\n\n"
+            "_(not yet specified — what constraints do you accept?)_\n\n"
+            "## Prototype fingerprints\n\n"
+            "_(not yet specified — what are your fingerprints?)_\n\n"
+            "## Reconstruction guidance\n\n"
+            "_(not yet specified — how would you reconstruct?)_\n\n"
+            "## Comparison basis\n\n"
+            "_(not yet specified — what is the comparison basis?)_\n"
+        )
+    else:
+        content = (
+            "# Ideology — testproject\n\n"
+            "## Core convictions\n\n"
+            "We believe in simplicity over complexity at every level of the stack.\n\n"
+            "## Value hierarchy\n\n"
+            "Correctness > Performance > Convenience.\n\n"
+            "## Accepted constraints\n\n"
+            "We operate within a strict budget; no expensive third-party APIs.\n\n"
+            "## Prototype fingerprints\n\n"
+            "The canonical implementation uses Python with uv and Rich.\n\n"
+            "## Reconstruction guidance\n\n"
+            "Start from the spec, not the code. The spec is the source of truth.\n\n"
+            "## Comparison basis\n\n"
+            "Compare against the reference implementation in the anchor repo.\n"
+        )
+    ideology_path.write_text(content, encoding="utf-8")
+
+
 def _write_clean_scaffold_files(project_dir: Path) -> None:
     """Write scaffold files with non-placeholder content for test baseline purposes."""
     (project_dir / "docs").mkdir(parents=True, exist_ok=True)
@@ -78,12 +118,18 @@ def _write_clean_scaffold_files(project_dir: Path) -> None:
             "A test project for unit tests.\n\n"
             "## Why it exists\n\n"
             "To provide a baseline for audit tests.\n\n"
+            "## Core beliefs\n\n"
+            "We prefer simplicity over complexity in all design decisions.\n\n"
+            "## Accepted tradeoffs\n\n"
+            "We accepted slower startup in exchange for easier configuration.\n\n"
             "## Constraints\n\n"
             "_Explicit constraints the operator has placed on scope or approach:_\n\n"
             "- _(add operator constraints here)_\n\n"
             "## Not in scope\n\n"
             "_Things that might seem related but are intentional omissions:_\n\n"
             "- _(add out-of-scope items here)_\n\n"
+            "## What a second implementation must preserve\n\n"
+            "The core data model and persistence contract must be preserved.\n\n"
             "## Operator contact\n\n"
             "_(not specified)_\n",
             encoding="utf-8",
@@ -129,6 +175,11 @@ def _write_clean_scaffold_files(project_dir: Path) -> None:
             "| — | *(none)* | — | — | — | — |\n",
             encoding="utf-8",
         )
+
+    # Write ideology.md with real content so it doesn't trigger MISSING/STALE
+    ideology_path = project_dir / "docs" / "ideology.md"
+    if not ideology_path.exists():
+        _write_ideology_md(project_dir, stale=False)
 
 
 # ---------------------------------------------------------------------------
@@ -1105,6 +1156,12 @@ class TestAuditStalePlaceholderLabelling:
             "## Why it exists\n\n"
             f"{why}\n\n"
             "---\n\n"
+            "## Core beliefs\n\n"
+            "We prefer simplicity over complexity in all design decisions.\n\n"
+            "---\n\n"
+            "## Accepted tradeoffs\n\n"
+            "We accepted slower startup in exchange for easier configuration.\n\n"
+            "---\n\n"
             "## Constraints\n\n"
             "_Explicit constraints the operator has placed on scope or approach:_\n\n"
             "- _(add operator constraints here)_\n\n"
@@ -1112,6 +1169,9 @@ class TestAuditStalePlaceholderLabelling:
             "## Not in scope\n\n"
             "_Things that might seem related but are intentional omissions:_\n\n"
             "- _(add out-of-scope items here)_\n\n"
+            "---\n\n"
+            "## What a second implementation must preserve\n\n"
+            "The core data model and persistence contract must be preserved.\n\n"
             "---\n\n"
             "## Operator contact\n\n"
             "_(not specified)_\n"
@@ -1273,3 +1333,400 @@ class TestAuditPhase7SectionLevelComparison:
         assert "docs/cer/backlog.md" not in existence_dests, (
             "docs/cer/backlog.md must NOT be in EXISTENCE_CHECK_FILES"
         )
+
+
+# ---------------------------------------------------------------------------
+# Story 10.1 — Core beliefs / What a second implementation must preserve
+# ---------------------------------------------------------------------------
+
+
+def _write_brief_with_core_beliefs(
+    project_dir: Path, core_beliefs_body: str, include_must_preserve: bool = True
+) -> None:
+    """Write a docs/brief.md that includes the new Story 10.1 sections."""
+    must_preserve_section = (
+        "## What a second implementation must preserve\n\n"
+        "The core data model and persistence contract must be preserved.\n\n"
+        if include_must_preserve
+        else ""
+    )
+    brief_content = (
+        "# Brief — testproject\n\n"
+        "> One-page project brief.\n\n"
+        "---\n\n"
+        "## What this project produces\n\n"
+        "A test project for unit tests.\n\n"
+        "---\n\n"
+        "## Why it exists\n\n"
+        "To provide a baseline for audit tests.\n\n"
+        "---\n\n"
+        f"## Core beliefs\n\n"
+        f"{core_beliefs_body}\n\n"
+        "---\n\n"
+        "## Accepted tradeoffs\n\n"
+        "We accepted slower startup in exchange for easier configuration.\n\n"
+        "---\n\n"
+        "## Constraints\n\n"
+        "_Explicit constraints the operator has placed on scope or approach:_\n\n"
+        "- _(add operator constraints here)_\n\n"
+        "---\n\n"
+        "## Not in scope\n\n"
+        "_Things that might seem related but are intentional omissions:_\n\n"
+        "- _(add out-of-scope items here)_\n\n"
+        "---\n\n"
+        f"{must_preserve_section}"
+        "## Operator contact\n\n"
+        "_(not specified)_\n"
+    )
+    brief_path = project_dir / "docs" / "brief.md"
+    brief_path.parent.mkdir(parents=True, exist_ok=True)
+    brief_path.write_text(brief_content, encoding="utf-8")
+
+
+class TestAuditCoreBeliefsSection:
+    """Story 10.1 — audit checks for ## Core beliefs in docs/brief.md."""
+
+    def test_missing_core_beliefs_heading_produces_missing_finding(self, tmp_path: Path) -> None:
+        """docs/brief.md without ## Core beliefs → MISSING section finding."""
+        _write_state(tmp_path)
+        _write_context(tmp_path)
+        _copy_canonical_files(tmp_path)
+
+        # Write a brief.md that lacks the Core beliefs section
+        brief_path = tmp_path / "docs" / "brief.md"
+        brief_path.write_text(
+            "# Brief — testproject\n\n"
+            "## What this project produces\n\n"
+            "A test project.\n\n"
+            "## Why it exists\n\n"
+            "For testing.\n\n"
+            "## Accepted tradeoffs\n\n"
+            "We gave up Y.\n\n"
+            "## Constraints\n\n"
+            "- _(add operator constraints here)_\n\n"
+            "## Not in scope\n\n"
+            "- _(add out-of-scope items here)_\n\n"
+            "## What a second implementation must preserve\n\n"
+            "The data model.\n\n"
+            "## Operator contact\n\n"
+            "_(not specified)_\n",
+            encoding="utf-8",
+        )
+
+        result = audit_project(tmp_path)
+
+        missing_sections = {i.section for i in result.missing if i.file == "docs/brief.md"}
+        from skills.pairmode.scripts.audit import _normalise
+        assert _normalise("## Core beliefs") in missing_sections, (
+            f"Expected '## core beliefs' in missing sections, got: {missing_sections}"
+        )
+
+    def test_core_beliefs_with_placeholder_produces_stale_placeholder(self, tmp_path: Path) -> None:
+        """docs/brief.md with ## Core beliefs containing only placeholder text → STALE PLACEHOLDER."""
+        _write_state(tmp_path)
+        _write_context(tmp_path)
+        _copy_canonical_files(tmp_path)
+
+        _write_brief_with_core_beliefs(
+            tmp_path,
+            core_beliefs_body="_(not yet specified — what does this project believe about how software should be built? What does it value over what?)_",
+        )
+
+        result = audit_project(tmp_path)
+
+        stale_items = [
+            i for i in result.inconsistent
+            if i.file == "docs/brief.md" and "STALE PLACEHOLDER" in i.description
+            and "core beliefs" in i.section.lower()
+        ]
+        assert len(stale_items) > 0, (
+            f"Expected STALE PLACEHOLDER for ## Core beliefs with placeholder text. "
+            f"Got inconsistent: {result.inconsistent}"
+        )
+
+    def test_core_beliefs_with_real_content_is_clean(self, tmp_path: Path) -> None:
+        """docs/brief.md with ## Core beliefs containing real content → no STALE PLACEHOLDER."""
+        _write_state(tmp_path)
+        _write_context(tmp_path)
+        _copy_canonical_files(tmp_path)
+
+        _write_brief_with_core_beliefs(
+            tmp_path,
+            core_beliefs_body="We prefer simplicity over complexity in all design decisions.",
+        )
+
+        result = audit_project(tmp_path)
+
+        stale_items = [
+            i for i in result.inconsistent
+            if i.file == "docs/brief.md" and "STALE PLACEHOLDER" in i.description
+            and "core beliefs" in i.section.lower()
+        ]
+        assert stale_items == [], (
+            f"Expected no STALE PLACEHOLDER for ## Core beliefs with real content. "
+            f"Got: {stale_items}"
+        )
+
+    def test_missing_must_preserve_heading_produces_missing_finding(self, tmp_path: Path) -> None:
+        """docs/brief.md without ## What a second implementation must preserve → MISSING."""
+        _write_state(tmp_path)
+        _write_context(tmp_path)
+        _copy_canonical_files(tmp_path)
+
+        _write_brief_with_core_beliefs(
+            tmp_path,
+            core_beliefs_body="We prefer simplicity over complexity.",
+            include_must_preserve=False,
+        )
+
+        result = audit_project(tmp_path)
+
+        missing_sections = {i.section for i in result.missing if i.file == "docs/brief.md"}
+        from skills.pairmode.scripts.audit import _normalise
+        assert _normalise("## What a second implementation must preserve") in missing_sections, (
+            f"Expected 'what a second implementation must preserve' in missing sections, "
+            f"got: {missing_sections}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Story 10.5 — Ideology staleness detection
+# ---------------------------------------------------------------------------
+
+
+class TestCheckIdeologyStaleness:
+    """Unit tests for _check_ideology_staleness."""
+
+    def test_absent_returns_none(self, tmp_path: Path) -> None:
+        """docs/ideology.md absent → returns None."""
+        result = _check_ideology_staleness(tmp_path)
+        assert result is None
+
+    def test_all_placeholder_returns_stale(self, tmp_path: Path) -> None:
+        """All required sections have placeholder text → returns 'STALE'."""
+        _write_ideology_md(tmp_path, stale=True)
+        result = _check_ideology_staleness(tmp_path)
+        assert result == "STALE"
+
+    def test_one_real_section_returns_ok(self, tmp_path: Path) -> None:
+        """At least one section with real content → returns 'OK'."""
+        (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+        content = (
+            "# Ideology\n\n"
+            "## Core convictions\n\n"
+            "We believe in simplicity.\n\n"  # real content
+            "## Value hierarchy\n\n"
+            "_(not yet specified — values)_\n\n"
+            "## Accepted constraints\n\n"
+            "_(not yet specified — constraints)_\n\n"
+            "## Prototype fingerprints\n\n"
+            "_(not yet specified — fingerprints)_\n\n"
+            "## Reconstruction guidance\n\n"
+            "_(not yet specified — guidance)_\n\n"
+            "## Comparison basis\n\n"
+            "_(not yet specified — basis)_\n"
+        )
+        (tmp_path / "docs" / "ideology.md").write_text(content, encoding="utf-8")
+        result = _check_ideology_staleness(tmp_path)
+        assert result == "OK"
+
+    def test_fully_populated_returns_ok(self, tmp_path: Path) -> None:
+        """Fully populated ideology.md → returns 'OK'."""
+        _write_ideology_md(tmp_path, stale=False)
+        result = _check_ideology_staleness(tmp_path)
+        assert result == "OK"
+
+    def test_mixed_file_returns_ok(self, tmp_path: Path) -> None:
+        """Some placeholder sections, one real → returns 'OK'."""
+        (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+        content = (
+            "# Ideology\n\n"
+            "## Core convictions\n\n"
+            "_(not yet specified — convictions)_\n\n"
+            "## Value hierarchy\n\n"
+            "Correctness over performance.\n\n"  # real content
+            "## Accepted constraints\n\n"
+            "_(not yet specified — constraints)_\n\n"
+            "## Prototype fingerprints\n\n"
+            "_(not yet specified — fingerprints)_\n\n"
+            "## Reconstruction guidance\n\n"
+            "_(not yet specified — guidance)_\n\n"
+            "## Comparison basis\n\n"
+            "_(not yet specified — basis)_\n"
+        )
+        (tmp_path / "docs" / "ideology.md").write_text(content, encoding="utf-8")
+        result = _check_ideology_staleness(tmp_path)
+        assert result == "OK"
+
+    def test_html_comment_lines_ignored(self, tmp_path: Path) -> None:
+        """HTML comment lines in section body do not count as real content."""
+        (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+        content = (
+            "# Ideology\n\n"
+            "## Core convictions\n\n"
+            "<!-- This is an HTML comment -->\n"
+            "_(not yet specified — convictions)_\n\n"
+            "## Value hierarchy\n\n"
+            "_(not yet specified — values)_\n\n"
+            "## Accepted constraints\n\n"
+            "_(not yet specified — constraints)_\n\n"
+            "## Prototype fingerprints\n\n"
+            "_(not yet specified — fingerprints)_\n\n"
+            "## Reconstruction guidance\n\n"
+            "_(not yet specified — guidance)_\n\n"
+            "## Comparison basis\n\n"
+            "_(not yet specified — basis)_\n"
+        )
+        (tmp_path / "docs" / "ideology.md").write_text(content, encoding="utf-8")
+        result = _check_ideology_staleness(tmp_path)
+        assert result == "STALE"
+
+
+class TestAuditIdeologyMd:
+    """Integration tests: audit_project detects ideology.md missing/stale."""
+
+    def test_missing_ideology_md_produces_missing_finding(self, tmp_path: Path) -> None:
+        """docs/ideology.md absent → MISSING finding in result."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        # Remove ideology.md that _copy_canonical_files created
+        ideology_path = tmp_path / "docs" / "ideology.md"
+        if ideology_path.exists():
+            ideology_path.unlink()
+
+        result = audit_project(tmp_path)
+
+        missing_files = {i.file for i in result.missing}
+        assert "docs/ideology.md" in missing_files, (
+            f"Expected docs/ideology.md in missing files, got: {missing_files}"
+        )
+
+    def test_stale_ideology_md_produces_stale_placeholder_finding(self, tmp_path: Path) -> None:
+        """docs/ideology.md with all placeholder sections → STALE PLACEHOLDER inconsistent finding."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        # Overwrite with a fully stale ideology.md
+        _write_ideology_md(tmp_path, stale=True)
+
+        result = audit_project(tmp_path)
+
+        stale_items = [
+            i for i in result.inconsistent
+            if i.file == "docs/ideology.md" and "STALE PLACEHOLDER" in i.description
+        ]
+        assert len(stale_items) > 0, (
+            f"Expected STALE PLACEHOLDER finding for docs/ideology.md, "
+            f"got inconsistent: {result.inconsistent}"
+        )
+
+    def test_real_ideology_md_produces_no_finding(self, tmp_path: Path) -> None:
+        """docs/ideology.md with real content in at least one section → no staleness finding."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        # _write_ideology_md(stale=False) is already done by _copy_canonical_files via
+        # _write_clean_scaffold_files; confirm no finding
+        _write_ideology_md(tmp_path, stale=False)
+
+        result = audit_project(tmp_path)
+
+        ideology_findings = [
+            i for i in result.missing + result.inconsistent
+            if i.file == "docs/ideology.md"
+        ]
+        assert ideology_findings == [], (
+            f"Expected no ideology findings for real ideology.md, got: {ideology_findings}"
+        )
+
+    def test_stale_ideology_format_output_shows_stale_placeholder_header(self, tmp_path: Path) -> None:
+        """format_audit_output shows 'STALE PLACEHOLDER' header for stale ideology.md."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        _write_ideology_md(tmp_path, stale=True)
+
+        result = audit_project(tmp_path)
+        output = format_audit_output(result)
+
+        assert "STALE PLACEHOLDER" in output
+        assert "docs/ideology.md" in output
+        assert "guided ideology capture" in output
+
+    def test_missing_ideology_format_output_shows_missing_header(self, tmp_path: Path) -> None:
+        """format_audit_output shows 'MISSING' header for absent ideology.md."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        ideology_path = tmp_path / "docs" / "ideology.md"
+        if ideology_path.exists():
+            ideology_path.unlink()
+
+        result = audit_project(tmp_path)
+        output = format_audit_output(result)
+
+        assert "MISSING" in output
+        assert "docs/ideology.md" in output
+
+    def test_ideology_not_in_scaffold_or_existence_files(self) -> None:
+        """docs/ideology.md must not be in SCAFFOLD_FILES or EXISTENCE_CHECK_FILES."""
+        from skills.pairmode.scripts import audit as _audit_mod_local
+
+        scaffold_dests = {d for d, _t in _audit_mod_local.SCAFFOLD_FILES}
+        existence_dests = {d for d, _t, _desc in _audit_mod_local.EXISTENCE_CHECK_FILES}
+
+        assert "docs/ideology.md" not in scaffold_dests, (
+            "docs/ideology.md must NOT be in SCAFFOLD_FILES — handled by _check_ideology_staleness"
+        )
+        assert "docs/ideology.md" not in existence_dests, (
+            "docs/ideology.md must NOT be in EXISTENCE_CHECK_FILES"
+        )
+
+    def test_other_findings_unaffected_by_ideology_check(self, tmp_path: Path) -> None:
+        """Ideology staleness check does not interfere with other audit findings."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        # Remove CLAUDE.md to trigger a separate MISSING finding
+        (tmp_path / "CLAUDE.md").unlink()
+        # Keep ideology.md with real content
+        _write_ideology_md(tmp_path, stale=False)
+
+        result = audit_project(tmp_path)
+
+        claude_missing = [i for i in result.missing if i.file == "CLAUDE.md"]
+        assert len(claude_missing) > 0, (
+            "Expected MISSING items for CLAUDE.md even with real ideology.md present"
+        )
+        ideology_findings = [
+            i for i in result.missing + result.inconsistent
+            if i.file == "docs/ideology.md"
+        ]
+        assert ideology_findings == [], (
+            f"Expected no ideology findings when ideology.md has real content: {ideology_findings}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Story 10.6: path traversal containment guard
+# ---------------------------------------------------------------------------
+
+
+class TestAuditPathTraversalGuard:
+    """audit_project() must reject paths that are too close to the filesystem root."""
+
+    def test_root_dir_raises_system_exit(self):
+        """Calling audit_project('/') raises SystemExit."""
+        with pytest.raises(SystemExit) as exc_info:
+            audit_project(Path("/"))
+        assert exc_info.value.code != 0
+
+    def test_etc_dir_raises_system_exit(self):
+        """Calling audit_project('/etc') raises SystemExit."""
+        with pytest.raises(SystemExit) as exc_info:
+            audit_project(Path("/etc"))
+        assert exc_info.value.code != 0
+
+    def test_valid_project_dir_succeeds(self, tmp_path):
+        """A valid project dir with 3+ path parts does not raise SystemExit (regression)."""
+        _copy_canonical_files(tmp_path)
+        _write_ideology_md(tmp_path, stale=False)
+        _write_state(tmp_path)
+        # Should not raise — may return a result with findings but must not exit
+        result = audit_project(tmp_path)
+        assert isinstance(result, AuditResult)

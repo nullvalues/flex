@@ -300,6 +300,12 @@ Add to `RECOMMENDED DOC EDITS`:
 and constraints before writing `docs/ideology.md`. Non-TTY writes a placeholder with a
 warning. `--ideology-skip`, `--conviction`, `--constraint` flags work correctly. Tests pass.
 
+**Known gap (intent review finding):** When `_ideology_capture_flow()` returns a non-empty
+`must_preserve` list and it is merged into the shared context dict, `brief.md.j2` receives a
+Python list where it expects a string, rendering as `['item']` instead of `item`. This only
+affects the TTY interactive path. Fix: join the list to a string before populating the
+brief.md context, or use separate keys. See architecture.md "Pairmode non-negotiables".
+
 **Instructions:**
 
 **Part A — `_ideology_capture_flow()` in `bootstrap.py`:**
