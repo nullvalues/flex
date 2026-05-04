@@ -1615,3 +1615,8 @@ existing operator intent documentation. The brief is the canonical one-page summ
 project-specific source documents remain in place alongside it.
 
 Confirm this action is complete before saying "Continue building Phase 8".
+
+---
+
+
+## Phase 8 — See docs/phases/phase-8.md

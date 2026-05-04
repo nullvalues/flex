@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import pathlib
 
 from click.testing import CliRunner
 
-from skills.pairmode.scripts.phase_new import phase_new, _read_phase_title
+from skills.pairmode.scripts.phase_new import phase_new, _read_phase_title, _create_index
 
 
 # ---------------------------------------------------------------------------
@@ -211,3 +212,122 @@ class TestPrevPhaseNoHeading:
         f.write_text("# MyProject — Phase 2: The Real Deal\n\nContent\n", encoding="utf-8")
         title = _read_phase_title(f, 2)
         assert title == "The Real Deal"
+
+
+class TestProjectNameFromContext:
+    """project_name is read from pairmode_context.json when present."""
+
+    def test_project_name_from_context_renders_in_phase_file(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        # Write context file
+        companion_dir = tmp_path / ".companion"
+        companion_dir.mkdir()
+        ctx = {"project_name": "myawesome"}
+        (companion_dir / "pairmode_context.json").write_text(
+            json.dumps(ctx), encoding="utf-8"
+        )
+
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "First",
+                "--goal", "",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs" / "phases" / "phase-1.md").read_text()
+        assert "myawesome" in content
+
+    def test_project_name_fallback_when_context_absent(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        # No .companion directory at all
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "First",
+                "--goal", "",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs" / "phases" / "phase-1.md").read_text()
+        assert "project" in content
+
+
+class TestCreateIndex:
+    """_create_index() threads project_name into the rendered index.md."""
+
+    def test_project_name_in_rendered_index(self, tmp_path: pathlib.Path) -> None:
+        index_path = tmp_path / "index.md"
+        _create_index(index_path, phase_id=1, phase_title="First Phase", project_name="MyProject")
+        content = index_path.read_text()
+        assert "MyProject" in content
+
+    def test_default_fallback_renders_without_crash(self, tmp_path: pathlib.Path) -> None:
+        index_path = tmp_path / "index.md"
+        # Call with default project_name — must not raise
+        _create_index(index_path, phase_id=1, phase_title="First Phase")
+        assert index_path.exists()
+        content = index_path.read_text()
+        assert "First Phase" in content
+
+
+class TestDryRun:
+    """--dry-run prints what would be written without writing files."""
+
+    def test_dry_run_no_files_written(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "2",
+                "--title", "Second Phase",
+                "--goal", "Do things",
+                "--dry-run",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        # No files should have been written
+        assert not (tmp_path / "docs").exists()
+
+    def test_dry_run_output_contains_would_write(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "3",
+                "--title", "Third Phase",
+                "--goal", "",
+                "--dry-run",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        assert "Would write" in result.output
+
+    def test_dry_run_with_existing_index_shows_would_update(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        # Create index first (non-dry-run)
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "First",
+                "--goal", "",
+            ]
+        )
+        # Now dry-run for phase 2
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "2",
+                "--title", "Second",
+                "--goal", "",
+                "--dry-run",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        assert "Would write" in result.output or "Would update" in result.output
+        # phase-2.md must not exist
+        assert not (tmp_path / "docs" / "phases" / "phase-2.md").exists()

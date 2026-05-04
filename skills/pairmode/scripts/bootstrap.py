@@ -64,6 +64,10 @@ DEFAULT_DENY: list[str] = [
     "Write(.claude/agents/**)",
     "Edit(docs/architecture.md)",
     "Write(docs/architecture.md)",
+    "Edit(docs/phases/**)",
+    "Write(docs/phases/**)",
+    "Edit(docs/brief.md)",
+    "Write(docs/brief.md)",
 ]
 
 # Universal checklist items always included in templates
@@ -264,6 +268,16 @@ def _load_product_json(project_dir: pathlib.Path) -> dict:
     help="Build/test command (inferred from project files if omitted, else prompted).",
 )
 @click.option(
+    "--phase-title",
+    default=None,
+    help="Title for the initial phase-1.md (prompted in TTY if omitted; blank allowed).",
+)
+@click.option(
+    "--phase-goal",
+    default=None,
+    help="Goal for the initial phase-1.md (prompted in TTY if omitted; blank allowed).",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     default=False,
@@ -282,6 +296,8 @@ def bootstrap(
     what: str | None,
     why: str | None,
     build_command: str | None,
+    phase_title: str | None,
+    phase_goal: str | None,
     dry_run: bool,
     force_agents: bool,
 ) -> None:
@@ -314,6 +330,15 @@ def bootstrap(
             else ""
         )
 
+    # Non-TTY warning: if what or why ended up blank and we are not in TTY mode,
+    # inform the user how to populate them.
+    if not sys.stdin.isatty() and (not what or not why):
+        click.echo(
+            "warning: non-interactive mode — docs/brief.md what/why left blank.\n"
+            "         Pass --what and --why flags to populate, or edit docs/brief.md after bootstrap.",
+            err=True,
+        )
+
     if build_command is None:
         inferred = _infer_build_command(project_path)
         if inferred:
@@ -322,6 +347,20 @@ def bootstrap(
             build_command = click.prompt(
                 "Build command (e.g. pnpm build && pnpm typecheck)"
             )
+
+    if phase_title is None:
+        phase_title = (
+            click.prompt("Phase 1 title (blank to leave as placeholder)", default="")
+            if sys.stdin.isatty()
+            else ""
+        )
+
+    if phase_goal is None:
+        phase_goal = (
+            click.prompt("Phase 1 goal (blank to skip)", default="")
+            if sys.stdin.isatty()
+            else ""
+        )
 
     # test_command is derived from build_command for now
     test_command = build_command
@@ -410,19 +449,21 @@ def bootstrap(
     # ------------------------------------------------------------------
     # 4a. Write per-phase structure (replaces legacy docs/phase-prompts.md)
     # ------------------------------------------------------------------
+    _resolved_phase_title = phase_title if phase_title else "— fill in —"
+    _resolved_phase_goal = phase_goal if phase_goal else ""
     phase_index_context = {
         "project_name": project_name,
         "phases": [
-            {"id": 1, "title": "— fill in —", "status": "planned", "file": "phase-1.md"},
+            {"id": 1, "title": _resolved_phase_title, "status": "planned", "file": "phase-1.md"},
         ],
     }
     phase_one_context = {
         "project_name": project_name,
         "phase_id": 1,
-        "phase_title": "— fill in —",
+        "phase_title": _resolved_phase_title,
         "prev_phase": None,
         "next_phase": None,
-        "goal": "",
+        "goal": _resolved_phase_goal,
         "stories": [],
     }
     for dest_rel, template_name, ctx in [

@@ -124,7 +124,13 @@ class TestFullAdoptionJourney:
     # -----------------------------------------------------------------------
 
     def test_step2_audit_after_bootstrap_is_clean(self, tmp_path: Path) -> None:
-        """Audit immediately after bootstrap should report no missing or inconsistent sections."""
+        """Audit immediately after bootstrap should report no missing sections and no
+        non-stale-placeholder inconsistent sections.
+
+        Note: STALE PLACEHOLDER findings for scaffold files (docs/brief.md etc.) are expected
+        when --what and --why are not passed to bootstrap — they signal unfilled templates,
+        not a structural drift from canonical. They are excluded from this assertion.
+        """
         _run_bootstrap(tmp_path)
 
         result = audit_project(tmp_path)
@@ -132,8 +138,12 @@ class TestFullAdoptionJourney:
         assert result.missing == [], (
             f"Expected no missing sections after bootstrap, got: {result.missing}"
         )
-        assert result.inconsistent == [], (
-            f"Expected no inconsistent sections after bootstrap, got: {result.inconsistent}"
+        non_stale_inconsistent = [
+            i for i in result.inconsistent if "STALE PLACEHOLDER" not in i.description
+        ]
+        assert non_stale_inconsistent == [], (
+            f"Expected no non-stale INCONSISTENT sections after bootstrap, "
+            f"got: {non_stale_inconsistent}"
         )
 
     def test_step2_audit_after_bootstrap_context_not_missing(self, tmp_path: Path) -> None:
@@ -189,7 +199,7 @@ class TestFullAdoptionJourney:
         text, _ = _remove_first_h2_section(claude_md.read_text(encoding="utf-8"))
         claude_md.write_text(text, encoding="utf-8")
 
-        sync_result = sync_project(tmp_path)
+        sync_result = sync_project(tmp_path, yes=True)
 
         assert sync_result.applied, (
             "SyncResult.applied should be non-empty after applying drift"
@@ -214,7 +224,7 @@ class TestFullAdoptionJourney:
             "The removed heading should not be present before sync"
         )
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         restored_text = claude_md.read_text(encoding="utf-8")
         # The heading text should be back (sync writes the normalised lowercase key as header)
@@ -235,7 +245,7 @@ class TestFullAdoptionJourney:
         text, _ = _remove_first_h2_section(claude_md.read_text(encoding="utf-8"))
         claude_md.write_text(text, encoding="utf-8")
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         result = audit_project(tmp_path)
 
@@ -243,9 +253,12 @@ class TestFullAdoptionJourney:
             f"Expected no missing sections after sync, got: "
             f"{[(item.file, item.section) for item in result.missing]}"
         )
-        assert result.inconsistent == [], (
-            f"Expected no inconsistent sections after sync, got: "
-            f"{[(item.file, item.section) for item in result.inconsistent]}"
+        non_stale_inconsistent = [
+            i for i in result.inconsistent if "STALE PLACEHOLDER" not in i.description
+        ]
+        assert non_stale_inconsistent == [], (
+            f"Expected no non-stale INCONSISTENT sections after sync, "
+            f"got: {[(i.file, i.section) for i in non_stale_inconsistent]}"
         )
 
     # -----------------------------------------------------------------------
@@ -265,15 +278,21 @@ class TestFullAdoptionJourney:
             "context_missing should be True when pairmode_context.json is deleted"
         )
 
-    def test_step6_no_context_inconsistent_is_empty(self, tmp_path: Path) -> None:
-        """When context_missing, inconsistent list should be empty (suppressed)."""
+    def test_step6_no_context_inconsistent_canonical_files_suppressed(self, tmp_path: Path) -> None:
+        """When context_missing, INCONSISTENT findings for canonical files (CLAUDE.md etc.)
+        should be suppressed. STALE PLACEHOLDER findings for scaffold files may still appear
+        since they read the project file body directly without needing the context."""
         _run_bootstrap(tmp_path)
 
         (tmp_path / ".companion" / "pairmode_context.json").unlink()
 
         result = audit_project(tmp_path)
-        assert result.inconsistent == [], (
-            "inconsistent should be empty (suppressed) when context file is absent"
+        # All inconsistent items should be STALE PLACEHOLDER (from scaffold files)
+        # — no regular body-diff INCONSISTENT for canonical files
+        non_stale = [i for i in result.inconsistent if "STALE PLACEHOLDER" not in i.description]
+        assert non_stale == [], (
+            "Non-stale INCONSISTENT items should be suppressed when context file is absent; "
+            f"got: {non_stale}"
         )
 
     def test_step6_no_context_format_output_contains_warning(self, tmp_path: Path) -> None:

@@ -6,11 +6,13 @@ import json
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 
 from skills.pairmode.scripts.sync import (
     SyncResult,
     sync_project,
     format_sync_output,
+    main as sync_main,
 )
 from skills.pairmode.scripts import audit as _audit_mod
 from skills.pairmode.scripts.audit import _load_project_context, _JINJA_ENV
@@ -28,11 +30,14 @@ def _copy_canonical_files(project_dir: Path) -> None:
 
     Uses the same context that audit_project/sync_project would use when
     pairmode_context.json is absent, so rendered canonical == rendered template.
-    Also creates Phase 7 existence-check placeholder files so they are not flagged MISSING.
+    Also creates Phase 7 scaffold files with non-placeholder content so they are not
+    flagged MISSING or STALE PLACEHOLDER.
     """
-    from skills.pairmode.scripts.audit import EXISTENCE_CHECK_FILES
+    from skills.pairmode.scripts.audit import SCAFFOLD_FILES, _enrich_scaffold_context
 
     context, _ = _load_project_context(project_dir)
+    enriched_context = _enrich_scaffold_context(context)
+
     for dest_rel, template_rel in CANONICAL_FILES:
         dest_path = project_dir / dest_rel
         dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -42,12 +47,70 @@ def _copy_canonical_files(project_dir: Path) -> None:
             rendered = "# placeholder\n"
         dest_path.write_text(rendered, encoding="utf-8")
 
-    # Also create Phase 7 existence-check files so they are not flagged MISSING
-    for dest_rel, _template_rel, _desc in EXISTENCE_CHECK_FILES:
-        dest_path = project_dir / dest_rel
-        if not dest_path.exists():
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
-            dest_path.write_text("# placeholder\n", encoding="utf-8")
+    # Also create Phase 7 scaffold files with non-placeholder content
+    (project_dir / "docs").mkdir(parents=True, exist_ok=True)
+    (project_dir / "docs" / "phases").mkdir(parents=True, exist_ok=True)
+    (project_dir / "docs" / "cer").mkdir(parents=True, exist_ok=True)
+
+    brief_path = project_dir / "docs" / "brief.md"
+    if not brief_path.exists():
+        brief_path.write_text(
+            "# Brief — testproject\n\n"
+            "## What this project produces\n\n"
+            "A test project for unit tests.\n\n"
+            "## Why it exists\n\n"
+            "To provide a baseline for sync tests.\n\n"
+            "## Constraints\n\n"
+            "_Explicit constraints the operator has placed on scope or approach:_\n\n"
+            "- _(add operator constraints here)_\n\n"
+            "## Not in scope\n\n"
+            "_Things that might seem related but are intentional omissions:_\n\n"
+            "- _(add out-of-scope items here)_\n\n"
+            "## Operator contact\n\n"
+            "_(not specified)_\n",
+            encoding="utf-8",
+        )
+
+    index_path = project_dir / "docs" / "phases" / "index.md"
+    if not index_path.exists():
+        index_path.write_text(
+            "# testproject — Phase Index\n\n"
+            "This document is the index of all build phases for the project.\n"
+            "Each phase has a dedicated file in `docs/phases/`.\n\n"
+            "| Phase | Title | Status | Link |\n"
+            "|-------|-------|--------|------|\n"
+            "| 1 | Phase 1 | in progress | [docs/phases/phase-1.md](docs/phases/phase-1.md) |\n",
+            encoding="utf-8",
+        )
+
+    backlog_path = project_dir / "docs" / "cer" / "backlog.md"
+    if not backlog_path.exists():
+        backlog_path.write_text(
+            "# testproject — Cold-Eyes Review (CER) Backlog\n\n"
+            "*Last updated: 2026-01-01*\n\n"
+            "This file is the structured triage log for findings from external cold-eyes reviews.\n\n"
+            "## Do Now\n\n"
+            "Urgent and important.\n\n"
+            "| ID | Finding | Source | Date | Phase |\n"
+            "|----|---------|--------|------|-------|\n"
+            "| — | *(none)* | — | — | — |\n\n"
+            "## Do Later\n\n"
+            "Important, not urgent.\n\n"
+            "| ID | Finding | Source | Date | Phase |\n"
+            "|----|---------|--------|------|-------|\n"
+            "| — | *(none)* | — | — | — |\n\n"
+            "## Do Much Later\n\n"
+            "Not urgent.\n\n"
+            "| ID | Finding | Source | Date | Phase |\n"
+            "|----|---------|--------|------|-------|\n"
+            "| — | *(none)* | — | — | — |\n\n"
+            "## Do Never\n\n"
+            "Rejected findings.\n\n"
+            "| ID | Finding | Source | Date | Phase | Resolution |\n"
+            "|----|---------|--------|------|-------|------------|\n"
+            "| — | *(none)* | — | — | — | — |\n",
+            encoding="utf-8",
+        )
 
 
 def _write_state(project_dir: Path, extra_fields: dict | None = None) -> None:
@@ -79,13 +142,13 @@ class TestSyncCreatesMissingFile:
             else:
                 dest_path.write_text("# placeholder\n", encoding="utf-8")
 
-        result = sync_project(tmp_path)
+        result = sync_project(tmp_path, yes=True)
 
         assert (tmp_path / "CLAUDE.md").exists(), "CLAUDE.md should have been created"
 
     def test_applied_list_mentions_claude_md(self, tmp_path: Path) -> None:
         # Project with no files at all
-        result = sync_project(tmp_path)
+        result = sync_project(tmp_path, yes=True)
 
         applied_text = " ".join(result.applied)
         assert "CLAUDE.md" in applied_text, (
@@ -93,7 +156,7 @@ class TestSyncCreatesMissingFile:
         )
 
     def test_created_file_has_content(self, tmp_path: Path) -> None:
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         content = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
         assert len(content) > 0, "Created CLAUDE.md should have non-empty content"
@@ -110,7 +173,7 @@ class TestSyncNoChangesWhenIdentical:
     def test_no_applied_items_when_all_identical(self, tmp_path: Path) -> None:
         _copy_canonical_files(tmp_path)
 
-        result = sync_project(tmp_path)
+        result = sync_project(tmp_path, yes=True)
 
         assert result.applied == [], (
             f"Expected no applied items when files are identical, got: {result.applied}"
@@ -120,7 +183,7 @@ class TestSyncNoChangesWhenIdentical:
         """With identical files, any sections flagged as EXTRA are listed under preserved."""
         _copy_canonical_files(tmp_path)
 
-        result = sync_project(tmp_path)
+        result = sync_project(tmp_path, yes=True)
 
         # Extra can be empty or non-empty — just verify it is a list
         assert isinstance(result.preserved, list)
@@ -128,7 +191,7 @@ class TestSyncNoChangesWhenIdentical:
     def test_sync_result_type(self, tmp_path: Path) -> None:
         _copy_canonical_files(tmp_path)
 
-        result = sync_project(tmp_path)
+        result = sync_project(tmp_path, yes=True)
 
         assert isinstance(result, SyncResult)
 
@@ -148,14 +211,14 @@ class TestSyncUpdatesStateJson:
         if state_path.exists():
             state_path.unlink()
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         assert state_path.exists(), ".companion/state.json should have been created"
 
     def test_pairmode_version_written(self, tmp_path: Path) -> None:
         _copy_canonical_files(tmp_path)
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         state = json.loads((tmp_path / ".companion" / "state.json").read_text(encoding="utf-8"))
         assert "pairmode_version" in state
@@ -164,7 +227,7 @@ class TestSyncUpdatesStateJson:
     def test_last_sync_written(self, tmp_path: Path) -> None:
         _copy_canonical_files(tmp_path)
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         state = json.loads((tmp_path / ".companion" / "state.json").read_text(encoding="utf-8"))
         assert "last_sync" in state
@@ -180,7 +243,7 @@ class TestSyncMergesStateJson:
         _copy_canonical_files(tmp_path)
         _write_state(tmp_path, extra_fields={"custom_field": "custom_value", "another": 42})
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         state = json.loads((tmp_path / ".companion" / "state.json").read_text(encoding="utf-8"))
         assert state.get("custom_field") == "custom_value", (
@@ -192,7 +255,7 @@ class TestSyncMergesStateJson:
         _copy_canonical_files(tmp_path)
         _write_state(tmp_path, extra_fields={"pairmode_version": "0.0.1", "other": "keep"})
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         state = json.loads((tmp_path / ".companion" / "state.json").read_text(encoding="utf-8"))
         assert state["pairmode_version"] == "0.1.0", "pairmode_version should be updated"
@@ -201,7 +264,7 @@ class TestSyncMergesStateJson:
     def test_lessons_applied_written(self, tmp_path: Path) -> None:
         _copy_canonical_files(tmp_path)
 
-        result = sync_project(tmp_path)
+        result = sync_project(tmp_path, yes=True)
 
         state = json.loads((tmp_path / ".companion" / "state.json").read_text(encoding="utf-8"))
         assert "lessons_applied" in state
@@ -290,7 +353,7 @@ class TestExtraItemsNeverModified:
         extra_content = "\n## My Custom Project Section\n\nThis is project-specific content.\n"
         claude_md.write_text(original + extra_content, encoding="utf-8")
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         updated = claude_md.read_text(encoding="utf-8")
         assert "My Custom Project Section" in updated, (
@@ -309,7 +372,7 @@ class TestExtraItemsNeverModified:
             encoding="utf-8",
         )
 
-        result = sync_project(tmp_path)
+        result = sync_project(tmp_path, yes=True)
 
         # The extra section key should appear in preserved, not applied
         preserved_text = " ".join(result.preserved)
@@ -333,10 +396,10 @@ class TestSyncIdempotency:
 
     def test_second_sync_applies_nothing(self, tmp_path: Path) -> None:
         # First sync on empty project — will create all missing files
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         # Second sync — files now exist and match canonical, nothing to apply
-        result2 = sync_project(tmp_path)
+        result2 = sync_project(tmp_path, yes=True)
 
         assert result2.applied == [], (
             f"Second sync should apply nothing, but applied: {result2.applied}"
@@ -344,8 +407,8 @@ class TestSyncIdempotency:
 
     def test_second_sync_state_matches_first(self, tmp_path: Path) -> None:
         """State after second sync should have same pairmode_version as after first."""
-        sync_project(tmp_path)
-        result2 = sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
+        result2 = sync_project(tmp_path, yes=True)
 
         state = json.loads(
             (tmp_path / ".companion" / "state.json").read_text(encoding="utf-8")
@@ -354,10 +417,10 @@ class TestSyncIdempotency:
 
     def test_second_sync_files_unchanged(self, tmp_path: Path) -> None:
         """File contents after first and second sync should be identical."""
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
         claude_md_after_first = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
         claude_md_after_second = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
 
         assert claude_md_after_first == claude_md_after_second, (
@@ -384,7 +447,7 @@ class TestSyncNoPairmodeVersionInState:
         _copy_canonical_files(tmp_path)
 
         # Should not raise
-        result = sync_project(tmp_path)
+        result = sync_project(tmp_path, yes=True)
         assert isinstance(result, SyncResult)
 
     def test_sync_writes_pairmode_version_to_state(self, tmp_path: Path) -> None:
@@ -392,7 +455,7 @@ class TestSyncNoPairmodeVersionInState:
         _write_state(tmp_path)  # no pairmode_version key
         _copy_canonical_files(tmp_path)
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         state = json.loads(
             (tmp_path / ".companion" / "state.json").read_text(encoding="utf-8")
@@ -419,18 +482,18 @@ class TestSyncCreatesMissingClaudeMd:
 
         assert not (tmp_path / "CLAUDE.md").exists()
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         assert (tmp_path / "CLAUDE.md").exists(), "sync should create CLAUDE.md"
 
     def test_created_claude_md_has_non_empty_content(self, tmp_path: Path) -> None:
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         content = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
         assert len(content.strip()) > 0, "Created CLAUDE.md should not be empty"
 
     def test_applied_records_claude_md_creation(self, tmp_path: Path) -> None:
-        result = sync_project(tmp_path)
+        result = sync_project(tmp_path, yes=True)
 
         applied_text = " ".join(result.applied)
         assert "CLAUDE.md" in applied_text, (
@@ -452,7 +515,7 @@ class TestSyncPreservesProjectSpecificSections:
             encoding="utf-8",
         )
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         updated = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
         assert unique_text in updated, (
@@ -469,7 +532,7 @@ class TestSyncPreservesProjectSpecificSections:
             encoding="utf-8",
         )
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         updated = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
         assert "## Project Checklist" in updated, (
@@ -486,7 +549,7 @@ class TestSyncPreservesProjectSpecificSections:
             encoding="utf-8",
         )
 
-        result = sync_project(tmp_path)
+        result = sync_project(tmp_path, yes=True)
 
         # The extra section should be preserved, not applied
         assert len(result.preserved) > 0, (
@@ -536,7 +599,7 @@ class TestSyncUsesContextWhenCreatingFiles:
 
         # No CLAUDE.md exists — sync should create it
         assert not (tmp_path / "CLAUDE.md").exists()
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         content = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
         # Should contain rendered project name, not raw Jinja2
@@ -567,7 +630,7 @@ class TestSyncSkipsInconsistentWhenContextMissing:
         context_path = tmp_path / ".companion" / "pairmode_context.json"
         assert not context_path.exists()
 
-        result = sync_project(tmp_path)
+        result = sync_project(tmp_path, yes=True)
 
         inconsistent_entries = [
             entry for entry in result.applied if "Updated section" in entry
@@ -589,7 +652,7 @@ class TestSyncSkipsInconsistentWhenContextMissing:
             encoding="utf-8",
         )
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         # The unique marker should still be in the file (sync did not overwrite it)
         content = claude_md.read_text(encoding="utf-8")
@@ -616,7 +679,7 @@ class TestSyncPhase7FilesCreated:
         if brief.exists():
             brief.unlink()
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         assert (tmp_path / "docs" / "brief.md").exists(), (
             "sync_project should create docs/brief.md"
@@ -630,7 +693,7 @@ class TestSyncPhase7FilesCreated:
         if index.exists():
             index.unlink()
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         assert (tmp_path / "docs" / "phases" / "index.md").exists(), (
             "sync_project should create docs/phases/index.md"
@@ -644,7 +707,7 @@ class TestSyncPhase7FilesCreated:
         if backlog.exists():
             backlog.unlink()
 
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
 
         assert (tmp_path / "docs" / "cer" / "backlog.md").exists(), (
             "sync_project should create docs/cer/backlog.md"
@@ -655,7 +718,7 @@ class TestSyncPhase7FilesCreated:
         from skills.pairmode.scripts.audit import audit_project
 
         # Step 1: sync creates all files including docs/brief.md
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
         assert (tmp_path / "docs" / "brief.md").exists()
 
         # Step 2: delete docs/brief.md
@@ -669,7 +732,7 @@ class TestSyncPhase7FilesCreated:
         )
 
         # Step 4: sync creates it again
-        sync_project(tmp_path)
+        sync_project(tmp_path, yes=True)
         assert (tmp_path / "docs" / "brief.md").exists(), (
             "sync_project should recreate docs/brief.md"
         )
@@ -679,4 +742,276 @@ class TestSyncPhase7FilesCreated:
         missing_files2 = {i.file for i in audit_result2.missing}
         assert "docs/brief.md" not in missing_files2, (
             "docs/brief.md should not be MISSING after sync recreated it"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Story 8.0 — confirmation gate tests
+# ---------------------------------------------------------------------------
+
+
+class TestSyncYesFlagBypassesPrompts:
+    """With --yes, all changes are applied without any prompts."""
+
+    def test_yes_applies_missing_file_without_prompt(self, tmp_path: Path) -> None:
+        """With yes=True, a MISSING file is created without confirmation prompt."""
+        # Empty project — CLAUDE.md will be missing
+        result = sync_project(tmp_path, yes=True)
+
+        assert (tmp_path / "CLAUDE.md").exists(), "CLAUDE.md should be created with yes=True"
+        applied_text = " ".join(result.applied)
+        assert "CLAUDE.md" in applied_text
+
+    def test_yes_skipped_list_empty(self, tmp_path: Path) -> None:
+        """With yes=True, skipped list is always empty."""
+        result = sync_project(tmp_path, yes=True)
+
+        assert result.skipped == [], (
+            f"Expected empty skipped list with yes=True, got: {result.skipped}"
+        )
+
+    def test_yes_flag_via_cli(self, tmp_path: Path) -> None:
+        """CLI --yes flag applies all changes without prompts."""
+        runner = CliRunner()
+        result = runner.invoke(sync_main, ["--project-dir", str(tmp_path), "--yes"])
+
+        assert result.exit_code == 0, f"CLI exited with {result.exit_code}: {result.output}"
+        assert (tmp_path / "CLAUDE.md").exists(), "CLAUDE.md should be created via CLI --yes"
+
+    def test_yes_shortflag_via_cli(self, tmp_path: Path) -> None:
+        """CLI -y short flag also works."""
+        runner = CliRunner()
+        result = runner.invoke(sync_main, ["--project-dir", str(tmp_path), "-y"])
+
+        assert result.exit_code == 0, f"CLI exited with {result.exit_code}: {result.output}"
+
+
+class TestSyncConfirmationPromptMissingFile:
+    """Without --yes, a prompt is shown for MISSING files; accepting creates the file."""
+
+    def test_prompt_shown_for_missing_file(self, tmp_path: Path) -> None:
+        """Confirmation prompt text is shown for a missing file."""
+        runner = CliRunner()
+        # Provide "y" to accept the first prompt (CLAUDE.md missing)
+        # then "y" for every subsequent prompt
+        result = runner.invoke(
+            sync_main,
+            ["--project-dir", str(tmp_path)],
+            input="y\n" * 20,  # enough y's for all prompts
+        )
+
+        assert result.exit_code == 0, f"CLI exited with {result.exit_code}: {result.output}"
+        # The prompt text for a missing file should appear
+        assert "file missing" in result.output.lower() or "Create" in result.output
+
+    def test_accepting_prompt_creates_missing_file(self, tmp_path: Path) -> None:
+        """Accepting the confirmation prompt for a MISSING file causes it to be created."""
+        runner = CliRunner()
+        result = runner.invoke(
+            sync_main,
+            ["--project-dir", str(tmp_path)],
+            input="y\n" * 20,
+        )
+
+        assert result.exit_code == 0, f"CLI exited with {result.exit_code}: {result.output}"
+        assert (tmp_path / "CLAUDE.md").exists(), (
+            "CLAUDE.md should be created when user accepts the prompt"
+        )
+
+    def test_accepting_prompt_applies_to_result(self, tmp_path: Path) -> None:
+        """When user accepts, the file appears in applied and skipped is empty."""
+        result = sync_project(tmp_path, yes=True)
+
+        assert len(result.applied) > 0, "Should have applied items when accepting"
+        assert result.skipped == [], "skipped should be empty when user accepts (or yes=True)"
+
+
+class TestSyncConfirmationPromptDeclineInconsistent:
+    """Without --yes, declining an INCONSISTENT section prompt skips the update."""
+
+    def _setup_inconsistent_project(self, tmp_path: Path) -> None:
+        """Set up a project with pairmode_context.json and a modified CLAUDE.md section."""
+        import json as _json
+
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        ctx = {
+            "project_name": "testproject",
+            "project_description": "a test project",
+            "stack": "Python",
+            "build_command": "uv run pytest",
+            "test_command": "uv run pytest",
+            "migration_command": "",
+            "domain_model": "",
+            "domain_isolation_rule": "",
+            "checklist_items": [],
+            "protected_paths": [],
+            "non_negotiables": [],
+            "module_structure": [],
+            "layer_rules": [],
+        }
+        (companion / "pairmode_context.json").write_text(_json.dumps(ctx), encoding="utf-8")
+
+        # Copy all canonical files to set up a baseline
+        _copy_canonical_files(tmp_path)
+
+    def test_declining_inconsistent_skips_update(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Declining the INCONSISTENT prompt leaves the section unchanged."""
+        self._setup_inconsistent_project(tmp_path)
+
+        # Modify a section in CLAUDE.md so it becomes INCONSISTENT
+        claude_md = tmp_path / "CLAUDE.md"
+        original = claude_md.read_text(encoding="utf-8")
+
+        # Find a section that exists and modify its body
+        from skills.pairmode.scripts.sync import _split_by_h2, _reconstruct_from_parts
+        parts = _split_by_h2(original)
+        modified = False
+        new_parts = []
+        unique_marker = "UNIQUE_DECLINE_MARKER_12345"
+        for header, body in parts:
+            if not modified and header.startswith("## "):
+                new_parts.append((header, f"\n{unique_marker}\n\nModified content.\n"))
+                modified = True
+            else:
+                new_parts.append((header, body))
+        if not modified:
+            claude_md.write_text(
+                f"## Session modes\n\n{unique_marker}\n\nModified content.\n",
+                encoding="utf-8",
+            )
+        else:
+            claude_md.write_text(_reconstruct_from_parts(new_parts), encoding="utf-8")
+
+        # Patch click.confirm to always decline
+        import skills.pairmode.scripts.sync as sync_mod
+        monkeypatch.setattr(sync_mod.click, "confirm", lambda *a, **kw: False)
+
+        result = sync_project(tmp_path, yes=False)
+
+        # The unique marker should still be in the file (sync did not overwrite it)
+        content = claude_md.read_text(encoding="utf-8")
+        assert unique_marker in content, (
+            "File should not be modified when user declines the INCONSISTENT prompt"
+        )
+
+    def test_declined_items_in_skipped_not_applied(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When user declines, the item appears in result.skipped, not result.applied."""
+        self._setup_inconsistent_project(tmp_path)
+
+        # Modify a section in CLAUDE.md so it becomes INCONSISTENT
+        claude_md = tmp_path / "CLAUDE.md"
+        original = claude_md.read_text(encoding="utf-8")
+        from skills.pairmode.scripts.sync import _split_by_h2, _reconstruct_from_parts
+        parts = _split_by_h2(original)
+        new_parts = []
+        modified = False
+        unique_marker = "DECLINED_TEST_MARKER_99999"
+        for header, body in parts:
+            if not modified and header.startswith("## "):
+                new_parts.append((header, f"\n{unique_marker}\n"))
+                modified = True
+            else:
+                new_parts.append((header, body))
+        if modified:
+            claude_md.write_text(_reconstruct_from_parts(new_parts), encoding="utf-8")
+
+        # Monkeypatch click.confirm to always return False (user declines)
+        import skills.pairmode.scripts.sync as sync_mod
+        monkeypatch.setattr(sync_mod.click, "confirm", lambda *a, **kw: False)
+
+        result = sync_project(tmp_path, yes=False)
+
+        # All prompts were declined — nothing should be applied (for INCONSISTENT)
+        # skipped should have entries
+        assert len(result.skipped) > 0 or len(result.applied) == 0, (
+            "When user declines all prompts, items should be in skipped, not applied"
+        )
+        # The unique marker should still be in the file
+        content = claude_md.read_text(encoding="utf-8")
+        assert unique_marker in content, (
+            "File should not be modified when user declines the prompt"
+        )
+
+    def test_declined_items_not_written(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When user declines a MISSING file, the file is not created."""
+        # Empty project — all files missing
+        import skills.pairmode.scripts.sync as sync_mod
+        monkeypatch.setattr(sync_mod.click, "confirm", lambda *a, **kw: False)
+
+        result = sync_project(tmp_path, yes=False)
+
+        # CLAUDE.md should NOT be created (user declined)
+        assert not (tmp_path / "CLAUDE.md").exists(), (
+            "CLAUDE.md should not be created when user declines the prompt"
+        )
+        # All items should be in skipped
+        assert len(result.skipped) > 0, "Declined items should appear in result.skipped"
+        assert result.applied == [], "No items should be applied when user declines all"
+
+
+class TestSyncFormatOutputSkipped:
+    """format_sync_output includes a skipped section when items were declined."""
+
+    def _make_result_with_skipped(self, skipped: list[str]) -> SyncResult:
+        return SyncResult(
+            project_dir=Path("/tmp/myproject"),
+            applied=[],
+            preserved=[],
+            skipped=skipped,
+            pairmode_version="0.1.0",
+            last_sync="2026-04-21",
+            lessons_applied=[],
+        )
+
+    def test_skipped_section_present_when_items(self) -> None:
+        result = self._make_result_with_skipped(
+            ["CLAUDE.md: section '## review checklist' (user declined)"]
+        )
+        output = format_sync_output(result)
+        assert "Skipped" in output
+        assert "user declined" in output
+
+    def test_skipped_section_shows_x_marker(self) -> None:
+        result = self._make_result_with_skipped(
+            ["CLAUDE.md: section '## review checklist' (user declined)"]
+        )
+        output = format_sync_output(result)
+        assert "\u2717" in output  # ✗
+
+    def test_skipped_section_absent_when_empty(self) -> None:
+        result = self._make_result_with_skipped([])
+        output = format_sync_output(result)
+        assert "Skipped" not in output
+
+    def test_skipped_section_shows_item_text(self) -> None:
+        item_text = "CLAUDE.md: section '## review checklist' (user declined)"
+        result = self._make_result_with_skipped([item_text])
+        output = format_sync_output(result)
+        assert "review checklist" in output
+
+    def test_skipped_in_result_dataclass(self) -> None:
+        """SyncResult has a skipped field that is a list."""
+        result = SyncResult(project_dir=Path("/tmp/test"))
+        assert hasattr(result, "skipped")
+        assert isinstance(result.skipped, list)
+        assert result.skipped == []
+
+
+# ---------------------------------------------------------------------------
+# Story 9.0 — dead code removal
+# ---------------------------------------------------------------------------
+
+
+class TestNoDeadCodeInLoadProjectContext:
+    """The orphaned 'return enriched' dead code was removed from _load_project_context."""
+
+    def test_enriched_not_in_source(self) -> None:
+        """Source-level check: 'enriched' does not appear in _load_project_context."""
+        import inspect
+        from skills.pairmode.scripts import sync
+
+        source = inspect.getsource(sync._load_project_context)
+        assert "enriched" not in source, (
+            "Dead code 'return enriched' must not exist in _load_project_context"
         )

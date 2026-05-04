@@ -190,3 +190,31 @@ def test_two_projects_get_different_pipes():
             pipe_a = _expected_pipe(str(Path(dir_a).resolve()))
             pipe_b = _expected_pipe(str(Path(dir_b).resolve()))
             assert pipe_a != pipe_b
+
+
+# ── exit_plan_mode.py structural checks ──────────────────────────────────────
+
+def _read_hook_source(hook_name: str) -> str:
+    """Read the source of a hook file relative to the repo root."""
+    repo_root = Path(__file__).parent.parent.parent
+    hook_path = repo_root / "hooks" / hook_name
+    return hook_path.read_text(encoding="utf-8")
+
+
+def test_exit_plan_mode_does_not_write_state_json_directly():
+    """exit_plan_mode.py must not contain STATE_PATH or open(STATE_PATH, 'w')."""
+    source = _read_hook_source("exit_plan_mode.py")
+    assert "STATE_PATH" not in source, (
+        "exit_plan_mode.py still defines STATE_PATH — direct state write must be removed"
+    )
+    assert 'open(STATE_PATH, "w")' not in source, (
+        "exit_plan_mode.py still writes STATE_PATH directly — architecture violation"
+    )
+
+
+def test_exit_plan_mode_sends_mode_change_event():
+    """exit_plan_mode.py must emit a mode_change pipe event."""
+    source = _read_hook_source("exit_plan_mode.py")
+    assert "mode_change" in source, (
+        "exit_plan_mode.py does not contain 'mode_change' — pipe event must be added"
+    )

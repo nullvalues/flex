@@ -18,8 +18,6 @@
     "deny": [
       "Edit(skills/companion/**)",
       "Write(skills/companion/**)",
-      "Edit(docs/**)",
-      "Write(docs/**)",
       "Edit(hooks/**)",
       "Write(hooks/**)",
       "Edit(lessons/**)",

@@ -7,6 +7,7 @@ Running it twice with the same phase ID is idempotent (warns, does not overwrite
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -26,6 +27,15 @@ TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _load_project_name(project_dir: Path) -> str:
+    """Read project_name from pairmode_context.json, falling back to 'project'."""
+    ctx_path = project_dir / ".companion" / "pairmode_context.json"
+    try:
+        return json.loads(ctx_path.read_text()).get("project_name", "project")
+    except Exception:
+        return "project"
 
 
 def _load_env() -> jinja2.Environment:
@@ -87,7 +97,7 @@ def _append_index_row(index_path: Path, phase_id: int, phase_title: str) -> None
     index_path.write_text("".join(new_lines), encoding="utf-8")
 
 
-def _create_index(index_path: Path, phase_id: int, phase_title: str) -> None:
+def _create_index(index_path: Path, phase_id: int, phase_title: str, project_name: str = "project") -> None:
     """Create a brand-new index.md from the index template."""
     env = _load_env()
     tmpl = env.get_template("docs/phases/index.md.j2")
@@ -99,8 +109,7 @@ def _create_index(index_path: Path, phase_id: int, phase_title: str) -> None:
             "file": f"phase-{phase_id}.md",
         }
     ]
-    # project_name is unknown here; use a placeholder
-    content = tmpl.render(project_name="project", phases=phases)
+    content = tmpl.render(project_name=project_name, phases=phases)
     index_path.write_text(content, encoding="utf-8")
 
 
@@ -133,13 +142,26 @@ def _create_index(index_path: Path, phase_id: int, phase_title: str) -> None:
     default=None,
     help="Phase goal. Prompted if omitted (blank is acceptable).",
 )
-def phase_new(project_dir: str, phase_id: int, title: str | None, goal: str | None) -> None:
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Print what would be written without writing any files.",
+)
+def phase_new(
+    project_dir: str,
+    phase_id: int,
+    title: str | None,
+    goal: str | None,
+    dry_run: bool,
+) -> None:
     """Create a new phase-N.md scaffold and update docs/phases/index.md."""
     project_path = Path(project_dir).resolve()
     phases_dir = project_path / "docs" / "phases"
 
-    # 1. Ensure docs/phases/ exists
-    phases_dir.mkdir(parents=True, exist_ok=True)
+    # 1. Ensure docs/phases/ exists (skip in dry-run)
+    if not dry_run:
+        phases_dir.mkdir(parents=True, exist_ok=True)
 
     # 2. Idempotency check
     phase_file = phases_dir / f"phase-{phase_id}.md"
@@ -156,7 +178,10 @@ def phase_new(project_dir: str, phase_id: int, title: str | None, goal: str | No
     if goal is None:
         goal = click.prompt(f"Phase {phase_id} goal (blank is OK)", default="")
 
-    # 4. Determine prev_phase
+    # 4. Load project_name from context
+    project_name = _load_project_name(project_path)
+
+    # 5. Determine prev_phase
     prev_phase = None
     if phase_id > 1:
         prev_file = phases_dir / f"phase-{phase_id - 1}.md"
@@ -164,11 +189,11 @@ def phase_new(project_dir: str, phase_id: int, title: str | None, goal: str | No
             prev_title = _read_phase_title(prev_file, phase_id - 1)
             prev_phase = {"id": phase_id - 1, "title": prev_title}
 
-    # 5. Render phase-N.md
+    # 6. Render phase-N.md
     env = _load_env()
     phase_tmpl = env.get_template("docs/phases/phase.md.j2")
     rendered = phase_tmpl.render(
-        project_name="project",
+        project_name=project_name,
         phase_id=phase_id,
         phase_title=title,
         goal=goal,
@@ -177,18 +202,48 @@ def phase_new(project_dir: str, phase_id: int, title: str | None, goal: str | No
         stories=[],
     )
 
-    # 6. Write phase-N.md
-    phase_file.write_text(rendered, encoding="utf-8")
-    click.echo(f"Created {phase_file.relative_to(project_path)}")
+    # 7. Write or preview phase-N.md
+    if dry_run:
+        rel = phase_file.relative_to(project_path)
+        click.echo(f"[DRY RUN] Would write: {rel}")
+        click.echo("--- content preview (first 20 lines) ---")
+        for line in rendered.splitlines()[:20]:
+            click.echo(line)
+    else:
+        phase_file.write_text(rendered, encoding="utf-8")
+        click.echo(f"Created {phase_file.relative_to(project_path)}")
 
-    # 7. Update or create index.md
+    # 8. Update or create index.md
     index_path = phases_dir / "index.md"
     if index_path.exists():
-        _append_index_row(index_path, phase_id, title or f"Phase {phase_id}")
-        click.echo(f"Updated {index_path.relative_to(project_path)}")
+        if dry_run:
+            rel = index_path.relative_to(project_path)
+            click.echo(f"[DRY RUN] Would update: {rel}")
+        else:
+            _append_index_row(index_path, phase_id, title or f"Phase {phase_id}")
+            click.echo(f"Updated {index_path.relative_to(project_path)}")
     else:
-        _create_index(index_path, phase_id, title or f"Phase {phase_id}")
-        click.echo(f"Created {index_path.relative_to(project_path)}")
+        if dry_run:
+            # Render index for preview
+            index_env = _load_env()
+            index_tmpl = index_env.get_template("docs/phases/index.md.j2")
+            phases_list = [
+                {
+                    "id": phase_id,
+                    "title": title or f"Phase {phase_id}",
+                    "status": "planned",
+                    "file": f"phase-{phase_id}.md",
+                }
+            ]
+            index_rendered = index_tmpl.render(project_name=project_name, phases=phases_list)
+            rel = index_path.relative_to(project_path)
+            click.echo(f"[DRY RUN] Would write: {rel}")
+            click.echo("--- content preview (first 20 lines) ---")
+            for line in index_rendered.splitlines()[:20]:
+                click.echo(line)
+        else:
+            _create_index(index_path, phase_id, title or f"Phase {phase_id}", project_name)
+            click.echo(f"Created {index_path.relative_to(project_path)}")
 
 
 if __name__ == "__main__":

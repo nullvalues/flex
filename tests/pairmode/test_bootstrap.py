@@ -913,3 +913,143 @@ class TestCerBacklogBootstrap:
         run_bootstrap(tmp_path)
         content = (tmp_path / "docs/cer/backlog.md").read_text(encoding="utf-8")
         assert "*(none)*" in content
+
+
+# ---------------------------------------------------------------------------
+# Story 8.4: phase-title / phase-goal / non-TTY what/why warning
+# ---------------------------------------------------------------------------
+
+class TestPhaseTitleAndGoal:
+    """Bootstrap --phase-title and --phase-goal populate docs/phases/phase-1.md."""
+
+    def test_phase_title_in_phase1_md(self, tmp_path):
+        """--phase-title 'My Phase' causes phase-1.md to contain 'My Phase'."""
+        result = run_bootstrap(tmp_path, extra_args=["--phase-title", "My Phase"])
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs/phases/phase-1.md").read_text(encoding="utf-8")
+        assert "My Phase" in content
+
+    def test_phase_goal_in_phase1_md(self, tmp_path):
+        """--phase-goal text is rendered into phase-1.md."""
+        result = run_bootstrap(tmp_path, extra_args=["--phase-goal", "Ship the MVP"])
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs/phases/phase-1.md").read_text(encoding="utf-8")
+        assert "Ship the MVP" in content
+
+    def test_no_phase_title_non_tty_no_crash(self, tmp_path):
+        """Without --phase-title in non-TTY, phase-1.md renders with empty/placeholder title."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                # no --phase-title
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "docs/phases/phase-1.md").exists()
+
+    def test_phase_title_also_rendered_in_index(self, tmp_path):
+        """--phase-title is reflected in docs/phases/index.md as well."""
+        result = run_bootstrap(tmp_path, extra_args=["--phase-title", "Launch Phase"])
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs/phases/index.md").read_text(encoding="utf-8")
+        assert "Launch Phase" in content
+
+
+class TestNonTtyWhatWhyWarning:
+    """Non-TTY bootstrap emits a warning when what/why are blank."""
+
+    def test_warning_on_stderr_when_no_what(self, tmp_path):
+        """In non-TTY (CliRunner), omitting --what produces a warning on stderr."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                # no --what or --why
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        # CliRunner mixes stderr into output by default; warning should appear there.
+        assert "warning: non-interactive mode" in result.output
+        assert "docs/brief.md" in result.output
+
+    def test_no_warning_when_what_provided(self, tmp_path):
+        """In non-TTY, providing --what and --why suppresses the warning."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--what", "something useful",
+                "--why", "because reasons",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert "warning: non-interactive mode" not in result.output
+
+    def test_what_value_appears_in_brief_md(self, tmp_path):
+        """--what value is rendered into docs/brief.md."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--what", "something useful",
+                "--why", "because reasons",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs/brief.md").read_text(encoding="utf-8")
+        assert "something useful" in content
+
+
+# ---------------------------------------------------------------------------
+# Story 9.4: DEFAULT_DENY scope tests for docs/phases and docs/brief.md
+# ---------------------------------------------------------------------------
+
+class TestDefaultDenyScopeDocs:
+    """DEFAULT_DENY must protect docs/phases/** and docs/brief.md but not operational files."""
+
+    def test_edit_docs_phases_glob_in_default_deny(self):
+        assert "Edit(docs/phases/**)" in DEFAULT_DENY
+
+    def test_write_docs_phases_glob_in_default_deny(self):
+        assert "Write(docs/phases/**)" in DEFAULT_DENY
+
+    def test_edit_docs_brief_in_default_deny(self):
+        assert "Edit(docs/brief.md)" in DEFAULT_DENY
+
+    def test_write_docs_brief_in_default_deny(self):
+        assert "Write(docs/brief.md)" in DEFAULT_DENY
+
+    def test_blanket_edit_docs_not_in_default_deny(self):
+        assert "Edit(docs/**)" not in DEFAULT_DENY
+
+    def test_blanket_write_docs_not_in_default_deny(self):
+        assert "Write(docs/**)" not in DEFAULT_DENY
+
+    def test_edit_checkpoints_not_in_default_deny(self):
+        """docs/checkpoints.md is an operational file — must not be denied."""
+        assert "Edit(docs/checkpoints.md)" not in DEFAULT_DENY
+
+    def test_edit_cer_backlog_not_in_default_deny(self):
+        """docs/cer/backlog.md is an operational file — must not be denied."""
+        assert "Edit(docs/cer/backlog.md)" not in DEFAULT_DENY

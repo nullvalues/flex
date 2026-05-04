@@ -40,21 +40,30 @@ CANONICAL_FILES: list[tuple[str, str]] = [
     (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
 ]
 
-# File-existence checks: (dest path in project, template path, description)
-# If present → not flagged. If absent → MISSING.
-EXISTENCE_CHECK_FILES: list[tuple[str, str, str]] = [
-    ("docs/brief.md", "docs/brief.md.j2", "Operator intent — what and why; see Story 7.1"),
-    (
-        "docs/phases/index.md",
-        "docs/phases/index.md.j2",
-        "Per-phase prompt index; see Story 7.2",
-    ),
-    (
-        "docs/cer/backlog.md",
-        "docs/cer/backlog.md.j2",
-        "CER triage backlog; see Story 7.3",
-    ),
+# Scaffold files: Phase 7 docs that receive full section-level comparison.
+# These are distinguished from CANONICAL_FILES only in that INCONSISTENT findings
+# on them may be labelled STALE PLACEHOLDER when the project body is placeholder-only.
+SCAFFOLD_FILES: list[tuple[str, str]] = [
+    ("docs/brief.md", "docs/brief.md.j2"),
+    ("docs/phases/index.md", "docs/phases/index.md.j2"),
+    ("docs/cer/backlog.md", "docs/cer/backlog.md.j2"),
 ]
+
+# File-existence checks: kept as an alias for backwards-compat with sync.py callers.
+# Now empty — Phase 7 files moved to SCAFFOLD_FILES for section-level comparison.
+EXISTENCE_CHECK_FILES: list[tuple[str, str, str]] = []
+
+# Sentinel placeholder patterns (normalised, stripped). A section body consisting
+# solely of one of these patterns (or empty) is classified as STALE PLACEHOLDER.
+_PLACEHOLDER_PATTERNS: frozenset[str] = frozenset(
+    [
+        "_(not yet specified)_",
+        "*(none)*",
+        "— fill in —",
+        "-- fill in --",
+        "",
+    ]
+)
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +184,26 @@ def _normalise(text: str) -> str:
     return re.sub(r"\s+", " ", text.lower()).strip()
 
 
+def _is_stale_placeholder(body: str) -> bool:
+    """Return True when *body* consists solely of placeholder text (or is empty).
+
+    Strips leading/trailing whitespace, then checks whether the result matches
+    any sentinel pattern in _PLACEHOLDER_PATTERNS, or consists only of table rows
+    that themselves contain only placeholder cell values.
+    """
+    stripped = body.strip()
+    if stripped in _PLACEHOLDER_PATTERNS:
+        return True
+    # Handle multi-line bodies: split into non-empty lines and check each
+    lines = [ln.strip() for ln in stripped.splitlines() if ln.strip()]
+    if not lines:
+        return True
+    # If every non-empty line is a placeholder pattern, treat as stale
+    if all(ln in _PLACEHOLDER_PATTERNS for ln in lines):
+        return True
+    return False
+
+
 def _is_separator_key(key: str) -> bool:
     """Return True when *key* represents a ``---`` separator line (not a real section)."""
     return bool(re.match(r'^-+(__\d+)?$', key))
@@ -274,9 +303,20 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
     # Load applicable lessons
     lessons = _load_applicable_lessons(applies_to)
 
-    # Compare each canonical file
-    for dest_rel, template_rel in CANONICAL_FILES:
-        canonical_sections = _read_template_sections(template_rel, context)
+    # Set of scaffold-file destination paths for stale-placeholder labelling
+    scaffold_dests = {d for d, _t in SCAFFOLD_FILES}
+
+    # Combine canonical + scaffold files into one pass
+    all_files: list[tuple[str, str]] = list(CANONICAL_FILES) + list(SCAFFOLD_FILES)
+
+    # Compare each file
+    for dest_rel, template_rel in all_files:
+        # Scaffold files need the enriched context (with Phase 7 defaults)
+        file_context = context
+        if dest_rel in scaffold_dests:
+            file_context = _enrich_scaffold_context(context)
+
+        canonical_sections = _read_template_sections(template_rel, file_context)
         project_sections = _read_project_sections(project_dir, dest_rel)
 
         if project_sections is None:
@@ -325,8 +365,28 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
                 )
             )
 
-        # Sections in both → check content (skipped when context file is absent)
-        if not result.context_missing:
+        # Sections in both → check content
+        # For scaffold files (Phase 7 docs): only flag STALE PLACEHOLDER (never INCONSISTENT).
+        #   Body content in scaffold files is inherently project-specific so body-level
+        #   drift detection would produce false positives. We only warn when the body is
+        #   entirely placeholder text, signalling the user hasn't filled it in yet.
+        # For canonical files: full body comparison when context file is present.
+        if dest_rel in scaffold_dests:
+            # Stale-placeholder check runs even when context_missing (body is in project file)
+            for key in canonical_keys & project_keys:
+                if _is_separator_key(key):
+                    continue
+                if _is_stale_placeholder(project_sections[key]):
+                    result.inconsistent.append(
+                        AuditItem(
+                            file=dest_rel,
+                            section=key,
+                            description=(
+                                f"STALE PLACEHOLDER — section '{key}' contains only placeholder text"
+                            ),
+                        )
+                    )
+        elif not result.context_missing:
             for key in canonical_keys & project_keys:
                 if _is_separator_key(key):
                     continue
@@ -342,21 +402,24 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
                     )
                 # else: consistent — nothing to add
 
-    # File-existence checks for Phase 7 files
-    for dest_rel, _template_rel, description in EXISTENCE_CHECK_FILES:
-        full_path = project_dir / dest_rel
-        if not full_path.exists():
-            lesson_id = _find_lesson_for_file(lessons, dest_rel)
-            result.missing.append(
-                AuditItem(
-                    file=dest_rel,
-                    section="__file_existence__",
-                    description=f"File missing: {description}",
-                    lesson_id=lesson_id,
-                )
-            )
-
     return result
+
+
+def _enrich_scaffold_context(context: dict) -> dict:
+    """Add Phase 7 template defaults for keys absent from pairmode_context.json."""
+    from datetime import date
+
+    enriched = dict(context)
+    enriched.setdefault("what", "")
+    enriched.setdefault("why", "")
+    enriched.setdefault("operator_contact", "")
+    enriched.setdefault("cer_entries", [])
+    enriched.setdefault(
+        "phases",
+        [{"id": 1, "title": "Phase 1", "status": "in progress", "file": "docs/phases/phase-1.md"}],
+    )
+    enriched.setdefault("last_updated", date.today().isoformat())
+    return enriched
 
 
 # ---------------------------------------------------------------------------

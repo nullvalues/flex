@@ -137,6 +137,11 @@ def _parse_entries_from_backlog(content: str) -> list[dict]:
     return entries
 
 
+def _escape_table_cell(text: str) -> str:
+    """Escape pipe characters so they don't corrupt markdown table cells."""
+    return text.replace("|", "\\|")
+
+
 def _next_cer_id(entries: list[dict]) -> str:
     """Determine the next sequential CER-NNN id."""
     max_num = 0
@@ -191,8 +196,8 @@ def append_finding(
 
     entry: dict = {
         "id": new_id,
-        "finding": finding,
-        "source": reviewer,
+        "finding": _escape_table_cell(finding),
+        "source": _escape_table_cell(reviewer),
         "date": today,
         "quadrant": quadrant,
     }
@@ -203,15 +208,26 @@ def append_finding(
 
     entries.append(entry)
 
-    # Detect project name from backlog if present (first heading line)
-    backlog_path_obj = project_dir / BACKLOG_REL_PATH
+    # Resolve project name: pairmode_context.json > heading parse > default
     project_name = "Project"
-    if backlog_path_obj.exists():
-        first_line = backlog_path_obj.read_text(encoding="utf-8").splitlines()
-        if first_line:
-            heading = first_line[0].lstrip("# ").split("—")[0].strip()
-            if heading:
-                project_name = heading
+    context_path = project_dir / ".companion" / "pairmode_context.json"
+    if context_path.exists():
+        import json as _json
+        try:
+            ctx = _json.loads(context_path.read_text(encoding="utf-8"))
+            name_from_ctx = ctx.get("project_name", "").strip()
+            if name_from_ctx:
+                project_name = name_from_ctx
+        except Exception:
+            pass
+    if project_name == "Project":
+        backlog_path_obj = project_dir / BACKLOG_REL_PATH
+        if backlog_path_obj.exists():
+            first_line = backlog_path_obj.read_text(encoding="utf-8").splitlines()
+            if first_line:
+                heading = first_line[0].lstrip("# ").split("—")[0].strip()
+                if heading:
+                    project_name = heading
 
     rendered = _render_backlog(entries, project_name=project_name)
     backlog_path.write_text(rendered, encoding="utf-8")
@@ -225,14 +241,15 @@ def append_finding(
 
 def _prompt_finding() -> str:
     """Prompt for a multiline finding description; end with a blank line."""
-    click.echo("Enter finding description (end with a blank line):")
+    print("Enter finding (blank line to finish):")
     lines: list[str] = []
     while True:
-        line = click.prompt("", default="", prompt_suffix="")
-        if line == "":
+        line = input()
+        if line == "" and lines:
             break
-        lines.append(line)
-    return "\n".join(lines).strip()
+        if line:
+            lines.append(line)
+    return "\n".join(lines)
 
 
 def _prompt_quadrant() -> str:

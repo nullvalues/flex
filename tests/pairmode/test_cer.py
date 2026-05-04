@@ -10,6 +10,7 @@ from click.testing import CliRunner
 from skills.pairmode.scripts.cer import (
     cli,
     append_finding,
+    _escape_table_cell,
     _load_or_create_backlog,
     _next_cer_id,
     _parse_entries_from_backlog,
@@ -290,3 +291,136 @@ def test_next_cer_id_existing() -> None:
         {"id": "CER-003", "finding": "b", "quadrant": "do_later"},
     ]
     assert _next_cer_id(entries) == "CER-004"
+
+
+# ---------------------------------------------------------------------------
+# Test: project_name read from pairmode_context.json
+# ---------------------------------------------------------------------------
+
+def test_project_name_from_context_json(tmp_path: Path) -> None:
+    """When .companion/pairmode_context.json has project_name, backlog header uses it."""
+    import json
+
+    companion_dir = tmp_path / ".companion"
+    companion_dir.mkdir(parents=True, exist_ok=True)
+    context_file = companion_dir / "pairmode_context.json"
+    context_file.write_text(
+        json.dumps({"project_name": "MyAwesomeProject"}), encoding="utf-8"
+    )
+
+    runner = CliRunner()
+    result = _invoke(
+        runner,
+        [
+            "--project-dir", str(tmp_path),
+            "--finding", "Auth bypass on admin route",
+            "--quadrant", "now",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    content = _backlog_path(tmp_path).read_text(encoding="utf-8")
+    assert "MyAwesomeProject" in content
+
+
+# ---------------------------------------------------------------------------
+# Test: project_name fallback when no context.json present
+# ---------------------------------------------------------------------------
+
+def test_project_name_fallback_no_context(tmp_path: Path) -> None:
+    """When pairmode_context.json is absent, heading-parse fallback does not crash."""
+    runner = CliRunner()
+    result = _invoke(
+        runner,
+        [
+            "--project-dir", str(tmp_path),
+            "--finding", "Some finding without context file",
+            "--quadrant", "later",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    content = _backlog_path(tmp_path).read_text(encoding="utf-8")
+    assert "Some finding without context file" in content
+    assert "CER-001" in content
+
+
+# ---------------------------------------------------------------------------
+# Test: project_name from .companion/pairmode_context.json (correct subdir)
+# ---------------------------------------------------------------------------
+
+def test_project_name_from_companion_subdir(tmp_path: Path) -> None:
+    """project_name is read from .companion/pairmode_context.json (not project root)."""
+    import json
+
+    # Write context to the correct location (.companion/ subdir)
+    companion_dir = tmp_path / ".companion"
+    companion_dir.mkdir(parents=True, exist_ok=True)
+    (companion_dir / "pairmode_context.json").write_text(
+        json.dumps({"project_name": "CorrectPathProject"}), encoding="utf-8"
+    )
+
+    # Also ensure a stale file at the wrong (old) path does NOT take precedence
+    (tmp_path / "pairmode_context.json").write_text(
+        json.dumps({"project_name": "WrongPathProject"}), encoding="utf-8"
+    )
+
+    runner = CliRunner()
+    result = _invoke(
+        runner,
+        [
+            "--project-dir", str(tmp_path),
+            "--finding", "Path verification finding",
+            "--quadrant", "now",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    content = _backlog_path(tmp_path).read_text(encoding="utf-8")
+    assert "CorrectPathProject" in content
+    assert "WrongPathProject" not in content
+
+
+# ---------------------------------------------------------------------------
+# Test: pipe character in finding text is escaped in table cell
+# ---------------------------------------------------------------------------
+
+def test_pipe_in_finding_is_escaped(tmp_path: Path) -> None:
+    """A literal | in a finding is escaped as \\| so the markdown table row is not broken."""
+    runner = CliRunner()
+    result = _invoke(
+        runner,
+        [
+            "--project-dir", str(tmp_path),
+            "--finding", "foo | bar",
+            "--quadrant", "now",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    content = _backlog_path(tmp_path).read_text(encoding="utf-8")
+    # Escaped form must be present
+    assert r"foo \| bar" in content
+    # Raw unescaped form must not appear inside a table cell (the heading may contain
+    # project name; check only the CER row lines)
+    for line in content.splitlines():
+        if line.strip().startswith("| CER-"):
+            assert "foo | bar" not in line, (
+                f"Unescaped pipe found in table row: {line!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Test: _escape_table_cell helper
+# ---------------------------------------------------------------------------
+
+def test_escape_table_cell_no_pipe() -> None:
+    assert _escape_table_cell("no pipes here") == "no pipes here"
+
+
+def test_escape_table_cell_single_pipe() -> None:
+    assert _escape_table_cell("a | b") == r"a \| b"
+
+
+def test_escape_table_cell_multiple_pipes() -> None:
+    assert _escape_table_cell("a | b | c") == r"a \| b \| c"

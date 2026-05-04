@@ -247,9 +247,10 @@ class TestClaudeBuildMdTemplate:
         assert "### 1. Build gate" in self.output
         assert "### 2. Security audit" in self.output
         assert "### 3. Intent review" in self.output
-        assert "### 4. CER backlog review" in self.output
-        assert "### 5. Tag the checkpoint" in self.output
-        assert "### 6. Report" in self.output
+        assert "### 4. Documentation review" in self.output
+        assert "### 5. CER backlog review" in self.output
+        assert "### 6. Tag the checkpoint" in self.output
+        assert "### 7. Report" in self.output
 
     def test_brief_md_before_architecture_md_in_before_loop(self):
         # docs/brief.md must appear before docs/architecture.md in the before-the-first-build-loop section
@@ -268,16 +269,29 @@ class TestClaudeBuildMdTemplate:
         assert "CER backlog:" in self.output
 
     def test_checkpoint_regression_all_pre_phase7_lines_present(self):
-        # Regression: no pre-Phase-7 checkpoint lines removed by CER step insertion
+        # Regression: no pre-Phase-7 checkpoint lines removed by Documentation review step insertion
         assert "### 1. Build gate" in self.output
         assert "### 2. Security audit" in self.output
         assert "### 3. Intent review" in self.output
-        assert "### 5. Tag the checkpoint" in self.output
-        assert "### 6. Report" in self.output
+        assert "### 5. CER backlog review" in self.output
+        assert "### 6. Tag the checkpoint" in self.output
+        assert "### 7. Report" in self.output
         assert "Build gate:" in self.output
         assert "Security audit:" in self.output
         assert "Intent review:" in self.output
         assert "Git tag:" in self.output
+
+    def test_documentation_review_step_present(self):
+        # Story 8.8: Documentation review step must be present in checkpoint sequence
+        assert "### 4. Documentation review" in self.output
+
+    def test_documentation_review_references_readme(self):
+        # Story 8.8: The documentation review step must mention README.md
+        checkpoint_start = self.output.index("## Checkpoint sequence")
+        # Find where the checkpoint sequence ends (next top-level section)
+        next_section_match = self.output.find("\n## ", checkpoint_start + 1)
+        checkpoint_section = self.output[checkpoint_start:next_section_match] if next_section_match != -1 else self.output[checkpoint_start:]
+        assert "README" in checkpoint_section
 
     def test_build_command_substituted(self):
         assert "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q" in self.output
@@ -435,6 +449,7 @@ class TestReviewerAgentTemplate:
         assert "PROTECTED FILES" in self.output
         assert "STORY SCOPE" in self.output
         assert "BUILD GATE" in self.output
+        assert "DOCUMENTATION CURRENCY" in self.output
 
     def test_story_scope_checklist_item(self):
         assert "STORY SCOPE" in self.output
@@ -1138,3 +1153,77 @@ class TestCerBacklogTemplateWithEntries:
         assert "CER-002" in self.output
         assert "CER-003" in self.output
         assert "CER-004" in self.output
+
+
+# ---------------------------------------------------------------------------
+# Story 8.1 — template migration: phase-prompts.md reference tests
+# ---------------------------------------------------------------------------
+
+import re
+
+
+class TestClaudeBuildMdPhasePromptsReferences:
+    """Assert that CLAUDE.build.md.j2 references phase-prompts.md only as a
+    parenthetical legacy fallback, never as a standalone primary instruction."""
+
+    def setup_method(self):
+        self.output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
+
+    def _standalone_references(self) -> list[str]:
+        """Return lines that mention phase-prompts.md outside a parenthetical."""
+        bad = []
+        for line in self.output.splitlines():
+            if "phase-prompts.md" in line:
+                # A parenthetical legacy note contains "(or" and "legacy"
+                if not ("(or" in line and "legacy" in line):
+                    bad.append(line.strip())
+        return bad
+
+    def test_no_standalone_phase_prompts_md_reference(self):
+        """phase-prompts.md must not appear as a standalone read instruction."""
+        bad_lines = self._standalone_references()
+        assert bad_lines == [], (
+            f"Found standalone phase-prompts.md reference(s) in CLAUDE.build.md.j2:\n"
+            + "\n".join(bad_lines)
+        )
+
+    def test_legacy_fallback_notes_present(self):
+        """At least one parenthetical legacy fallback note must exist."""
+        assert "(or" in self.output and "legacy" in self.output and "phase-prompts.md" in self.output
+
+    def test_phase_n_md_is_primary_reference(self):
+        """docs/phases/phase-N.md appears as the primary phase file reference."""
+        assert "docs/phases/phase-N.md" in self.output
+
+
+class TestIntentReviewerPhasePromptsReferences:
+    """Assert that agents/intent-reviewer.md.j2 references phase-prompts.md only
+    as a parenthetical legacy fallback, never as a standalone primary instruction."""
+
+    def setup_method(self):
+        self.output = render("agents/intent-reviewer.md.j2", AGENT_CONTEXT)
+
+    def _standalone_references(self) -> list[str]:
+        """Return lines that mention phase-prompts.md outside a parenthetical."""
+        bad = []
+        for line in self.output.splitlines():
+            if "phase-prompts.md" in line:
+                if not ("(or" in line and "legacy" in line):
+                    bad.append(line.strip())
+        return bad
+
+    def test_no_standalone_phase_prompts_md_reference(self):
+        """phase-prompts.md must not appear as a standalone read instruction."""
+        bad_lines = self._standalone_references()
+        assert bad_lines == [], (
+            f"Found standalone phase-prompts.md reference(s) in intent-reviewer.md.j2:\n"
+            + "\n".join(bad_lines)
+        )
+
+    def test_legacy_fallback_notes_present(self):
+        """At least one parenthetical legacy fallback note must exist."""
+        assert "(or" in self.output and "legacy" in self.output and "phase-prompts.md" in self.output
+
+    def test_phase_n_md_is_primary_reference(self):
+        """docs/phases/phase-N.md appears as the primary phase file reference."""
+        assert "docs/phases/phase-N.md" in self.output

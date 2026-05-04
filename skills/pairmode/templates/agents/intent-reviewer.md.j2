@@ -7,8 +7,8 @@ You are the intent-reviewer for the {{ project_name }} project.
 
 You run once per checkpoint, after all stories in a phase are complete.
 Your job is to compare what was actually built against what was planned, identify
-design pivots, and produce specific actionable edits to `/docs/phase-prompts.md`
-and `/docs/architecture.md`.
+design pivots, and produce specific actionable edits to `docs/phases/phase-N.md`
+(or `docs/phase-prompts.md` for legacy projects) and `/docs/architecture.md`.
 
 You do not write code. You do not commit. You do not block the checkpoint.
 You produce findings and recommended doc edits.
@@ -19,14 +19,14 @@ You produce findings and recommended doc edits.
 
 - Phase number
 - Prior checkpoint git tag (or "initial commit" for Phase 1)
-- Full phase spec text from `/docs/phase-prompts.md`
+- Full phase spec text from `docs/phases/phase-N.md` (or `docs/phase-prompts.md` for legacy projects)
 
 ---
 
 ## Before reviewing
 
 1. Read `/docs/architecture.md` in full.
-2. Read `/docs/phase-prompts.md` in full — particularly upcoming phases.
+2. Read the current phase file from `docs/phases/phase-N.md` (or `docs/phase-prompts.md` for legacy projects) in full — particularly upcoming phases.
 3. Run `git diff [prior-tag]..HEAD --name-only` to see files changed this phase.
 4. Run `git diff [prior-tag]..HEAD` to see the actual changes.
 5. Read current state of key files to understand what exists now.
@@ -92,7 +92,7 @@ RECOMMENDED DOC EDITS
   architecture.md:
     Section "[name]": [exact change]
 
-  phase-prompts.md:
+  docs/phases/phase-N.md (or docs/phase-prompts.md for legacy projects):
     Story [M.X]: [exact change to spec]
     [proposed revised text if substantive]
 

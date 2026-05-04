@@ -122,7 +122,22 @@ After the intent-reviewer completes:
 - Apply its recommended changes to `/docs/phase-prompts.md` and `/docs/architecture.md`.
   Do not apply changes that contradict the core architecture — flag those to the user.
 
-### 4. CER backlog review
+### 4. Documentation review
+
+Before tagging, verify that documentation reflects what was shipped this phase.
+
+Check each of the following:
+- `README.md` — does it reflect all user-facing changes from this phase?
+  Look for: new commands/flags, changed behaviour, new workflow steps, updated status.
+- `docs/brief.md` — still accurate? Update if project goals or constraints changed.
+- Any doc file explicitly referenced in this phase's spec.
+
+If README is stale: update it inline (do not spawn a subagent — this is a write task,
+not a review task). Mark `Doc updates: [list of changes]` in the step 7 report.
+
+If no user-facing changes shipped this phase: mark `Doc updates: none` and proceed.
+
+### 5. CER backlog review
 
 Check `docs/cer/backlog.md` for any "Do Now" entries without a resolution.
 
@@ -136,14 +151,14 @@ If open "Do Now" entries exist:
     Options: fix the issue (update backlog.md resolution), or re-triage to a lower
     quadrant with an explicit reason.
 
-If no open "Do Now" entries (or backlog.md does not exist): proceed to step 5.
+If no open "Do Now" entries (or backlog.md does not exist): proceed to step 6.
 
-### 5. Tag the checkpoint
+### 6. Tag the checkpoint
 
 Run the tag command from `/docs/checkpoints.md` for this phase.
 Commit any doc updates from step 3 alongside the tag.
 
-### 6. Report
+### 7. Report
 
   ═══════════════════════════════════════════════
   CHECKPOINT [CP-N] COMPLETE — [tag name]

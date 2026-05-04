@@ -31,18 +31,23 @@ re-scaffolding a project after a major methodology revision.
 3. Renders all Jinja2 templates in `skills/pairmode/templates/` against the project context.
 4. Generates the deny list in `.claude/settings.json` from spec non-negotiables, each rule
    annotated with a comment linking it to the source non-negotiable.
-5. Presents the full list of files that will be written and prompts for confirmation before
-   writing anything.
-6. Writes the scaffold only after explicit user approval.
-7. Records `pairmode_version` in `.companion/state.json` for future audit comparisons.
+5. Writes scaffold files immediately on a fresh project. For each file that already exists,
+   prompts for confirmation before overwriting that individual file.
+6. Records `pairmode_version` in `.companion/state.json` for future audit comparisons.
 
 **Outputs:**
-- `CLAUDE.md` and `CLAUDE.build.md` at project root.
-- `docs/architecture.md`, `docs/phase-prompts.md`, `docs/checkpoints.md`.
+- `CLAUDE.md` — project methodology guide (root)
+- `CLAUDE.build.md` — build orchestrator instructions (root)
+- `docs/brief.md` — project brief
+- `docs/architecture.md` — architecture reference
+- `docs/checkpoints.md` — checkpoint tag commands
+- `docs/phases/index.md` — phase index table
+- `docs/phases/phase-1.md` — initial phase scaffold
+- `docs/cer/backlog.md` — cold-eyes review triage backlog
+- `.claude/settings.json` — permissions file with spec-derived deny list
+- `.companion/state.json` — companion state with `pairmode_version` set
 - `.claude/agents/builder.md`, `reviewer.md`, `loop-breaker.md`, `security-auditor.md`,
-  `intent-reviewer.md`.
-- `.claude/settings.json` with spec-derived deny list.
-- `.companion/state.json` with `pairmode_version` set.
+  `intent-reviewer.md` — skipped if they already exist unless `--force-agents` is passed.
 
 **CLI invocation:**
 ```bash
@@ -64,7 +69,11 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 - `--project-dir PATH` — target project root (default: current directory)
 - `--project-name NAME` — project name (read from `product.json` or prompted if omitted)
 - `--stack TEXT` — technology stack (prompted if omitted)
+- `--what TEXT` — what the project produces (prompted in TTY; blank left as-is in non-TTY with warning)
+- `--why TEXT` — why the project exists (prompted in TTY; blank left as-is in non-TTY with warning)
 - `--build-command TEXT` — build/test command (inferred from project files or prompted if omitted)
+- `--phase-title TEXT` — title for the initial `docs/phases/phase-1.md` (prompted in TTY if omitted; blank allowed)
+- `--phase-goal TEXT` — goal for the initial `docs/phases/phase-1.md` (prompted in TTY if omitted; blank allowed)
 - `--dry-run` — print what would be written without writing anything
 - `--force-agents` — overwrite existing agent files in `.claude/agents/` (default: skip if present)
 
@@ -262,6 +271,13 @@ typically before a major bootstrap or sync campaign across projects.
 
 ### `/anchor:pairmode phase-new`
 
+> **Note:** `phase-new` is invoked directly via CLI, not through the pairmode skill dispatcher.
+> Correct invocation:
+> ```bash
+> PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/phase_new.py" \
+>   --project-dir "$(pwd)" --phase-id N
+> ```
+
 **When to use:** When starting a new build phase and you want to lazy-scaffold the phase
 file without interrupting the flow. Run this instead of manually creating a phase file
 from scratch.
@@ -299,14 +315,21 @@ Optional flags:
 
 ### `/anchor:pairmode cer`
 
+> **Note:** `cer` is invoked directly via CLI, not through the pairmode skill dispatcher.
+> Correct invocation:
+> ```bash
+> PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/cer.py" \
+>   --project-dir "$(pwd)"
+> ```
+
 **When to use:** After a Cold-Eyes Review (CER) session to record findings in the project's
 structured triage backlog. Run this once per review session to capture the findings before
 they are forgotten.
 
 **Inputs expected:**
 - Findings from the CER session (provided interactively or via file).
-- Each finding needs: finding text, quadrant (`do_now` / `do_later` / `do_much_later` /
-  `do_never`), source reviewer name, and an optional phase reference.
+- Each finding needs: finding text, quadrant (`now` / `later` / `much_later` /
+  `never`), source reviewer name, and an optional phase reference.
 
 **What it does:**
 1. Reads existing `docs/cer/backlog.md` if present; creates it from template if absent.
@@ -328,8 +351,8 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 Optional flags:
 - `--project-dir PATH` — target project root (default: current directory)
 - `--finding TEXT` — finding text (repeatable; if omitted, prompts interactively)
-- `--quadrant QUADRANT` — one of `do_now`, `do_later`, `do_much_later`, `do_never`
-- `--source TEXT` — reviewer name or identifier
+- `--quadrant QUADRANT` — one of `now`, `later`, `much_later`, `never`
+- `--reviewer TEXT` — reviewer name or identifier
 - `--phase TEXT` — phase reference (e.g. "Phase 3")
 
 **Template comment format written by `apply_template_change`:**

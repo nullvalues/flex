@@ -35,7 +35,7 @@ Anchor has already saved me hours. It reminds me of decisions made in other sess
 
 1. **Captures specs as you build** - decisions, rules, tradeoffs, lineage - without you having to write them down
 2. **Validates decisions across sessions** - flags when a new session contradicts something already established
-3. **Verifies implementation** - because Anchor holds the spec, it naturally becomes the verification layer. Not "does this code look right" but "does this code do what we said it should do" (WIP)
+3. **Verifies implementation** - because Anchor holds the spec, it naturally becomes the verification layer. Not "does this code look right" but "does this code do what we said it should do"
 
 ## Who is this for
 Anchor is for builders who are primarily building software using AI agents. If you're spending more time steering agents than writing code. Anchor is built for you.
@@ -64,6 +64,8 @@ All of this runs in a **companion sidebar** — a separate terminal window that 
 /plugin install anchor@nraychaudhuri-anchor
 ```
 
+> **Note:** After installing, restart your Claude Code session. `/reload-plugins` loads hooks but skills require a restart to appear.
+
 For development:
 ```bash
 claude --plugin-dir /path/to/anchor
@@ -79,9 +81,36 @@ claude --plugin-dir /path/to/anchor
 /anchor:companion
 ```
 
-The first time the companion sidebar starts, it will generate an OAuth token using your existing Claude subscription (no extra cost).
+The first time the companion sidebar starts, it will run `claude setup-token` interactively in the companion terminal to generate an OAuth token. This uses your existing Claude subscription — no extra API costs. The token is saved to `~/.anchor/auth.json` and reused automatically.
 
-## The Two Commands
+## The Three Skills
+
+### `/anchor:pairmode` — Structured build methodology (for teams and self-directed builders)
+
+A complete builder/reviewer workflow that any project can adopt. Pairmode turns Claude Code into a disciplined pair — specifications are written first, builders implement against them, and reviewers enforce acceptance criteria at every commit.
+
+```bash
+# Bootstrap a new project with the pairmode scaffold
+/anchor:pairmode bootstrap
+
+# Audit how far a project has drifted from canonical templates
+/anchor:pairmode audit
+
+# Apply upstream methodology updates (with per-change confirmation prompts)
+/anchor:pairmode sync
+
+# Capture a methodology insight as a lesson
+/anchor:pairmode lesson
+
+# Review accumulated lessons and update templates
+/anchor:pairmode review
+```
+
+The scaffold produces: `CLAUDE.md`, `CLAUDE.build.md`, `docs/` (brief, architecture, phases, CER backlog), `.claude/agents/` (builder, reviewer, loop-breaker, security-auditor, intent-reviewer), and `.claude/settings.json` with a spec-derived deny list.
+
+Phases are tracked individually in `docs/phases/phase-N.md`. A CER triage backlog (`docs/cer/backlog.md`) captures findings that cannot be resolved immediately.
+
+---
 
 ### `/anchor:seed` — Bootstrap (run once)
 
@@ -200,7 +229,7 @@ All hooks are thin relays — no API calls, exit in milliseconds. The sidebar do
 | Hook | Trigger | Role | What it does |
 |---|---|---|---|
 | `stop.py` | After each agent response | Historian | Relay to sidebar for incremental extraction |
-| `exit_plan_mode.py` | Plan approved | Historian | Send plan content for impact analysis |
+| `exit_plan_mode.py` | Plan approved | — | Persist captures, relay plan content to sidebar |
 | `post_tool_use.py` | File written/edited | Pair Partner | File change to sidebar for module tracking |
 | `session_end.py` | Session closes | — | Signal sidebar to show summary and exit |
 
@@ -211,14 +240,16 @@ Planning conversation
     ↓
 Stop hook → sidebar → LLM extraction → captures displayed
     ↓
-persist_capture() → incremental.json (saved immediately per capture)
+persist_capture() → incremental.json (saved immediately, per capture)
     ↓
-Session ends → sidebar shows summary + exits
+Plan file written → sidebar detects it → impact analysis (adds/modifies/conflicts)
+    ↓
+Session ends → sidebar shows session summary + exits cleanly
     ↓
 Next /anchor:companion → detects unreconciled sessions → reconciles into spec.json
 ```
 
-No data loss at any point. If the session crashes, captures are already on disk.
+No data loss at any point. Captures are saved to disk immediately — if the session crashes, everything up to the last capture is preserved. Reconcile runs on the next companion startup, not at session end.
 
 ## Directory Structure
 
@@ -243,6 +274,29 @@ anchor/
         sidebar.py           ← companion sidebar process
         start_sidebar.sh     ← shell launcher
         launch_sidebar.command  ← macOS Terminal launcher + OAuth setup
+    pairmode/
+      SKILL.md               ← /anchor:pairmode
+      requirements.txt
+      templates/             ← Jinja2 scaffold templates
+        CLAUDE.md.j2
+        CLAUDE.build.md.j2
+        docs/brief.md.j2
+        docs/architecture.md.j2
+        docs/phases/index.md.j2
+        docs/phases/phase.md.j2
+        docs/cer/backlog.md.j2
+        .claude/settings.json.j2
+        agents/builder.md.j2
+        agents/reviewer.md.j2
+        agents/loop-breaker.md.j2
+        agents/security-auditor.md.j2
+        agents/intent-reviewer.md.j2
+      scripts/
+        bootstrap.py         ← scaffold writer
+        audit.py             ← drift detector
+        sync.py              ← update applier (with confirmation)
+        cer.py               ← CER triage CLI
+        phase_new.py         ← per-phase file creator
   hooks/
     hooks.json               ← hook configuration
     stop.py                  ← Historian: incremental capture
