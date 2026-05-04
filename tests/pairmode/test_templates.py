@@ -1814,3 +1814,57 @@ class TestReviewerClassAgentsToolRestriction:
             f"builder.md.j2: expected tools=[Read, Write, Edit, Glob, Grep, Bash], "
             f"got tools={fm.get('tools')!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Story INFRA-033 — model fallback comments in agent templates
+# ---------------------------------------------------------------------------
+
+REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
+
+REVIEWER_FALLBACK_COMMENT = "# fallback: sonnet  (never below)"
+BUILDER_FALLBACK_COMMENT = "# fallback: haiku  (never below)"
+
+
+class TestAgentTemplateFallbackComments:
+    """Story INFRA-033: each agent template carries an inline YAML comment
+    after `model:` declaring the fallback tier. Builder falls to haiku;
+    reviewer-class agents fall to sonnet."""
+
+    @pytest.mark.parametrize("template_name", REVIEWER_CLASS_TEMPLATES)
+    def test_reviewer_class_template_has_fallback_comment(self, template_name):
+        raw = (TEMPLATES_DIR / template_name).read_text(encoding="utf-8")
+        assert REVIEWER_FALLBACK_COMMENT in raw, (
+            f"{template_name}: expected fallback comment "
+            f"{REVIEWER_FALLBACK_COMMENT!r} in raw template"
+        )
+
+    @pytest.mark.parametrize("template_name", REVIEWER_CLASS_TEMPLATES)
+    def test_reviewer_class_rendered_has_fallback_comment(self, template_name):
+        rendered = render(template_name, AGENT_CONTEXT)
+        assert REVIEWER_FALLBACK_COMMENT in rendered, (
+            f"{template_name}: expected fallback comment "
+            f"{REVIEWER_FALLBACK_COMMENT!r} in rendered output"
+        )
+
+    def test_builder_template_has_fallback_comment(self):
+        raw = (TEMPLATES_DIR / "agents/builder.md.j2").read_text(encoding="utf-8")
+        assert BUILDER_FALLBACK_COMMENT in raw, (
+            f"builder.md.j2: expected fallback comment "
+            f"{BUILDER_FALLBACK_COMMENT!r} in raw template"
+        )
+
+    def test_builder_rendered_has_fallback_comment(self):
+        rendered = render("agents/builder.md.j2", AGENT_CONTEXT)
+        assert BUILDER_FALLBACK_COMMENT in rendered, (
+            f"builder.md.j2: expected fallback comment "
+            f"{BUILDER_FALLBACK_COMMENT!r} in rendered output"
+        )
+
+    def test_architecture_doc_has_model_selection_subsection(self):
+        arch_path = REPO_ROOT / "docs" / "architecture.md"
+        text = arch_path.read_text(encoding="utf-8")
+        assert "Model selection and fallback" in text, (
+            "docs/architecture.md: expected 'Model selection and fallback' "
+            "subsection heading"
+        )

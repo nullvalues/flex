@@ -65,6 +65,8 @@ Spawn the `builder` subagent with:
 
 The builder will implement the story and stop without committing.
 
+If the preferred model for an agent is rate-limited, override at call time via the `model` parameter (Opus → Sonnet on reviewers; Sonnet → Haiku on builder; never below Haiku). See `docs/architecture.md` § Model selection and fallback.
+
 If the builder reports a DEVELOPER ACTION gate mid-story, or cannot resolve an error
 after two attempts: stop the build loop. Report to the user:
 

@@ -341,6 +341,38 @@ constant; changing its structure requires updating all callers.
 lists being empty produces zero allow rules with a warning, not a crash or silent
 misconfiguration.
 
+### Model selection and fallback
+
+Pairmode pins each agent to a specific Claude model in its template frontmatter.
+This is deliberate. Inheriting the orchestrator's model is a silent capability
+leak — a phase started with Opus will give every builder Opus, hiding the cost
+and obscuring whether the work actually requires that tier.
+
+**Role-based pinning rationale:**
+- **Builder** is pinned to `sonnet`. The builder does volume work — many small,
+  well-specified edits. Sonnet has the compute efficiency to make this loop
+  affordable without sacrificing correctness on tightly-scoped stories.
+- **Reviewer-class agents** (`reviewer`, `intent-reviewer`, `loop-breaker`,
+  `security-auditor`) are pinned to `opus`. These agents make judgment calls:
+  spotting subtle scope creep, noticing ideology drift across a phase,
+  reasoning about a failing build from first principles, identifying security
+  smells. The reasoning quality difference matters here in a way it does not
+  for the builder's mechanical edits.
+
+**Fallback policy:** if the preferred model is rate-limited, fall back exactly
+one tier. Reviewers fall Opus → Sonnet. The builder falls Sonnet → Haiku.
+Never fall below Haiku — the reasoning quality cliff below Haiku is too steep
+to preserve loop integrity; better to wait for the rate limit to clear than
+to ship with a model that cannot follow the spec.
+
+**Operational procedure when rate-limited:** override the agent's `model` at
+*call time* via the Agent tool's `model` parameter rather than editing the
+template file. The template encodes intent (what model the role *should* use);
+the override is per-invocation and leaves the template clean. Example:
+`Agent({..., subagent_type: "builder", model: "haiku"})`. Each agent template
+also carries an inline YAML comment after `model:` documenting the fallback
+target (e.g. `# fallback: haiku  (never below)` on the builder).
+
 ### Pairmode non-negotiables
 
 - Template context uses separate keys for brief.md and ideology.md must-preserve content:
