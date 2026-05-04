@@ -1,11 +1,14 @@
 # CLAUDE.md — {{ project_name }}
 
-## Project context
+> Stack: {{ stack }}.
 
-{{ project_name }} — {{ project_description }}
-Stack: {{ stack }}.
-{% if domain_model %}Domain model: {{ domain_model }}.
-{% endif %}Read `/docs/architecture.md` before any task. It is the source of truth.
+## Read before any task
+
+1. `docs/brief.md` — what and why (operator intent)
+2. `docs/architecture.md` — how and architectural decisions
+3. Current phase file from `docs/phases/` (see current phase for active stories); or `docs/phase-prompts.md` for legacy projects that have not migrated
+
+These three documents should be sufficient for any model or toolchain to cold-start this project and reproduce a valid variant without prior session context.
 
 ## Session modes
 

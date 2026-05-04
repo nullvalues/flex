@@ -24,7 +24,7 @@
       "Write(hooks/**)",
       "Edit(lessons/**)",
       "Write(lessons/**)",
-"Edit(.claude-plugin/**)",
+      "Edit(.claude-plugin/**)",
       "Write(.claude-plugin/**)",
       "Edit(skills/seed/**)",
       "Write(skills/seed/**)"

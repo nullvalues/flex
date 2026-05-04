@@ -26,12 +26,13 @@ In build mode: follow the build loop below. Do not ask clarifying questions befo
 
 ## Before the first build loop
 
-1. Read `/docs/phase-prompts.md` in full.
+1. Read `/docs/brief.md` in full (operator intent — what and why).
 2. Read `/docs/architecture.md` in full.
-3. Run `git log --oneline -20` to identify the most recently completed story.
-4. Identify the next story: the first story in the current phase with no corresponding commit.
+3. Read `/docs/phase-prompts.md` in full (or `docs/phases/phase-N.md` for per-phase projects).
+4. Run `git log --oneline -20` to identify the most recently completed story.
+5. Identify the next story: the first story in the current phase with no corresponding commit.
    A commit corresponds to a story if its message contains `story-N.X` in the format below.
-5. Check whether a ⚙️ DEVELOPER ACTION gate appears before that story in phase-prompts.md.
+6. Check whether a ⚙️ DEVELOPER ACTION gate appears before that story in the phase doc.
    If yes: present the gate to the user. Do not proceed until the user confirms it is complete.
 
 ---
@@ -121,12 +122,28 @@ After the intent-reviewer completes:
 - Apply its recommended changes to `/docs/phase-prompts.md` and `/docs/architecture.md`.
   Do not apply changes that contradict the core architecture — flag those to the user.
 
-### 4. Tag the checkpoint
+### 4. CER backlog review
+
+Check `docs/cer/backlog.md` for any "Do Now" entries without a resolution.
+
+If open "Do Now" entries exist:
+  Stop. Report:
+
+    CHECKPOINT BLOCKED — Open CER findings
+    The following "Do Now" items must be resolved before tagging:
+      [list each: CER-NNN — finding text]
+
+    Options: fix the issue (update backlog.md resolution), or re-triage to a lower
+    quadrant with an explicit reason.
+
+If no open "Do Now" entries (or backlog.md does not exist): proceed to step 5.
+
+### 5. Tag the checkpoint
 
 Run the tag command from `/docs/checkpoints.md` for this phase.
 Commit any doc updates from step 3 alongside the tag.
 
-### 5. Report
+### 6. Report
 
   ═══════════════════════════════════════════════
   CHECKPOINT [CP-N] COMPLETE — [tag name]
@@ -137,6 +154,7 @@ Commit any doc updates from step 3 alongside the tag.
   Build gate:       PASS
   Security audit:   PASS / [N findings at LOW/MEDIUM]
   Intent review:    [ALIGNED / N pivots found]
+  CER backlog:      [N open Do Now / clean]
   Doc updates:      [list of changes, or "none"]
 
   Git tag: [tag name]

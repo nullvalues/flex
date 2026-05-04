@@ -53,7 +53,7 @@
       "applies_to": [
         "all"
       ],
-      "status": "captured"
+      "status": "applied"
     },
     {
       "id": "L004",
@@ -108,6 +108,26 @@
         "all"
       ],
       "status": "captured"
+    },
+    {
+      "id": "L007",
+      "date": "2026-04-21",
+      "source_project": "anchor",
+      "trigger": "Dogfood pairmode on multiple projects simultaneously \u2014 anchor + ud running at same time",
+      "problem": "All hook scripts wrote to /tmp/companion.pipe, and pgrep -f sidebar.py checked for any sidebar process. With two projects running, all events from both projects merged into one sidebar window. The wrong project's spec was shown for every event.",
+      "learning": "The pipe path must be scoped to the project directory. Each project gets its own pipe derived from an 8-char md5 hash of the project dir. The sidebar reads its own pipe only. Hooks read the pipe_path from .companion/state.json at startup.",
+      "methodology_change": {
+        "affects": [
+          "hooks",
+          "sidebar",
+          "bootstrap"
+        ],
+        "description": "Per-project pipe isolation: compute PIPE_PATH = /tmp/companion-<md5hash>.pipe from project dir. Hooks read pipe_path from .companion/state.json (with /tmp/companion.pipe fallback). Sidebar writes pipe_path to state.json at startup. start_sidebar.sh passes --project-dir and uses per-project /tmp/anchor_project_dir_<hash> temp file."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "applied"
     }
   ]
 }

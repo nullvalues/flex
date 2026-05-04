@@ -23,6 +23,7 @@ from skills.pairmode.scripts.audit import audit_project, AuditResult, AuditItem 
 from skills.pairmode.scripts.audit import (  # noqa: E402
     TEMPLATES_DIR,
     CANONICAL_FILES,
+    EXISTENCE_CHECK_FILES,
     PAIRMODE_VERSION,
     _split_sections,
     _normalise,
@@ -157,6 +158,21 @@ def _load_project_context(project_dir: Path) -> dict:
     return context
 
 
+def _enrich_context_for_phase7(context: dict) -> dict:
+    """Add Phase 7 template defaults for keys absent from pairmode_context.json."""
+    enriched = dict(context)
+    enriched.setdefault("what", "")
+    enriched.setdefault("why", "")
+    enriched.setdefault("operator_contact", "")
+    enriched.setdefault("cer_entries", [])
+    enriched.setdefault(
+        "phases",
+        [{"id": 1, "title": "Phase 1", "status": "in progress", "file": "docs/phases/phase-1.md"}],
+    )
+    enriched.setdefault("last_updated", date.today().isoformat())
+    return enriched
+
+
 def _render_template(template_rel: str, context: dict) -> str:
     """Render a Jinja2 template with context. Returns empty string on failure."""
     try:
@@ -176,6 +192,10 @@ def _get_template_text(template_rel: str) -> str:
 def _dest_to_template(dest_rel: str) -> str | None:
     """Look up the template path for a given destination relative path."""
     for d, t in CANONICAL_FILES:
+        if d == dest_rel:
+            return t
+    # Also check existence-check files
+    for d, t, _desc in EXISTENCE_CHECK_FILES:
         if d == dest_rel:
             return t
     return None
@@ -216,10 +236,24 @@ def sync_project(project_dir: Path, applies_to: str = "all") -> SyncResult:
     for item in audit.inconsistent:
         inconsistent_by_file.setdefault(item.file, []).append(item)
 
+    # Build existence-check file set for quick lookup
+    existence_check_dests = {d for d, _t, _desc in EXISTENCE_CHECK_FILES}
+
     # Process files with MISSING items
     for dest_rel, items in missing_by_file.items():
         template_rel = _dest_to_template(dest_rel)
         if template_rel is None:
+            continue
+
+        # Existence-check files use enriched context with Phase 7 defaults
+        if dest_rel in existence_check_dests:
+            enriched_context = _enrich_context_for_phase7(context)
+            rendered_text = _render_template(template_rel, enriched_context) or _get_template_text(template_rel)
+            project_path = project_dir / dest_rel
+            if not project_path.exists():
+                project_path.parent.mkdir(parents=True, exist_ok=True)
+                project_path.write_text(rendered_text, encoding="utf-8")
+                result.applied.append(f"Created {dest_rel} (file was missing)")
             continue
 
         rendered_text = _render_template(template_rel, context) or _get_template_text(template_rel)

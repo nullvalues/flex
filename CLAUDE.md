@@ -5,7 +5,7 @@
 anchor — a Claude Code plugin that gives Claude persistent memory of architectural decisions,
 specs, and constraints across sessions.
 Stack: Python 3.11+ / uv / Rich (TUI) / Anthropic SDK.
-Read `/docs/architecture.md` before any task. It is the source of truth.
+Read `/docs/brief.md` then `/docs/architecture.md` before any task. These are the source of truth.
 
 This repo is currently building the `pairmode` feature — a structured builder/reviewer
 workflow that any project can adopt. See `/docs/phase-prompts.md` for the build plan.

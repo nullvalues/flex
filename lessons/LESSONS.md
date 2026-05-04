@@ -15,7 +15,7 @@ or use `/anchor:pairmode lesson` to capture a new lesson.
 
 ## L003 — Bootstrap dogfood on anchor — re-running after bug fixes
 **Date:** 2026-04-21
-**Status:** captured
+**Status:** applied
 **Learning:** For mature projects, templates are a starting point, not a replacement. Files that already exist should be skipped by default (same as CLAUDE.md/CLAUDE.build.md), or bootstrap should warn before overwriting hand-authored content.
 
 ## L004 — Bootstrap dogfood — builder.md Python standards section
@@ -32,3 +32,8 @@ or use `/anchor:pairmode lesson` to capture a new lesson.
 **Date:** 2026-04-21
 **Status:** captured
 **Learning:** Audit needs a way to mark sections as intentionally overridden. Without that signal, any project that customises its scaffold will permanently live in a noisy INCONSISTENT state, eroding trust in the tool.
+
+## L007 — Dogfood pairmode on multiple projects simultaneously — anchor + ud running at same time
+**Date:** 2026-04-21
+**Status:** applied
+**Learning:** The pipe path must be scoped to the project directory. Each project gets its own pipe derived from an 8-char md5 hash of the project dir. The sidebar reads its own pipe only. Hooks read the pipe_path from .companion/state.json at startup.

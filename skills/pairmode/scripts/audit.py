@@ -40,6 +40,22 @@ CANONICAL_FILES: list[tuple[str, str]] = [
     (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
 ]
 
+# File-existence checks: (dest path in project, template path, description)
+# If present → not flagged. If absent → MISSING.
+EXISTENCE_CHECK_FILES: list[tuple[str, str, str]] = [
+    ("docs/brief.md", "docs/brief.md.j2", "Operator intent — what and why; see Story 7.1"),
+    (
+        "docs/phases/index.md",
+        "docs/phases/index.md.j2",
+        "Per-phase prompt index; see Story 7.2",
+    ),
+    (
+        "docs/cer/backlog.md",
+        "docs/cer/backlog.md.j2",
+        "CER triage backlog; see Story 7.3",
+    ),
+]
+
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -325,6 +341,20 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
                         )
                     )
                 # else: consistent — nothing to add
+
+    # File-existence checks for Phase 7 files
+    for dest_rel, _template_rel, description in EXISTENCE_CHECK_FILES:
+        full_path = project_dir / dest_rel
+        if not full_path.exists():
+            lesson_id = _find_lesson_for_file(lessons, dest_rel)
+            result.missing.append(
+                AuditItem(
+                    file=dest_rel,
+                    section="__file_existence__",
+                    description=f"File missing: {description}",
+                    lesson_id=lesson_id,
+                )
+            )
 
     return result
 

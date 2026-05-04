@@ -419,8 +419,9 @@ class TestBootstrapIntegration:
             ".claude/agents/security-auditor.md",
             ".claude/agents/intent-reviewer.md",
             "docs/architecture.md",
-            "docs/phase-prompts.md",
             "docs/checkpoints.md",
+            "docs/phases/index.md",
+            "docs/phases/phase-1.md",
         ]
         for rel in expected:
             assert (tmp_path / rel).exists(), f"Expected {rel} to exist"

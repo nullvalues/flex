@@ -28,7 +28,10 @@ def _copy_canonical_files(project_dir: Path) -> None:
 
     Uses the same context that audit_project/sync_project would use when
     pairmode_context.json is absent, so rendered canonical == rendered template.
+    Also creates Phase 7 existence-check placeholder files so they are not flagged MISSING.
     """
+    from skills.pairmode.scripts.audit import EXISTENCE_CHECK_FILES
+
     context, _ = _load_project_context(project_dir)
     for dest_rel, template_rel in CANONICAL_FILES:
         dest_path = project_dir / dest_rel
@@ -38,6 +41,13 @@ def _copy_canonical_files(project_dir: Path) -> None:
         except Exception:
             rendered = "# placeholder\n"
         dest_path.write_text(rendered, encoding="utf-8")
+
+    # Also create Phase 7 existence-check files so they are not flagged MISSING
+    for dest_rel, _template_rel, _desc in EXISTENCE_CHECK_FILES:
+        dest_path = project_dir / dest_rel
+        if not dest_path.exists():
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            dest_path.write_text("# placeholder\n", encoding="utf-8")
 
 
 def _write_state(project_dir: Path, extra_fields: dict | None = None) -> None:
@@ -586,4 +596,87 @@ class TestSyncSkipsInconsistentWhenContextMissing:
         assert unique_marker in content, (
             "sync_project overwrote project file despite missing context — INCONSISTENT patch "
             "should be skipped when pairmode_context.json is absent"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Story 7.7 — Phase 7 file creation
+# ---------------------------------------------------------------------------
+
+
+class TestSyncPhase7FilesCreated:
+    """sync_project creates docs/brief.md, docs/phases/index.md, and docs/cer/backlog.md
+    when they are MISSING."""
+
+    def test_sync_creates_docs_brief_md_when_missing(self, tmp_path: Path) -> None:
+        """sync_project creates docs/brief.md when it is absent."""
+        _copy_canonical_files(tmp_path)
+        # Remove the placeholder to simulate a project without this file
+        brief = tmp_path / "docs" / "brief.md"
+        if brief.exists():
+            brief.unlink()
+
+        sync_project(tmp_path)
+
+        assert (tmp_path / "docs" / "brief.md").exists(), (
+            "sync_project should create docs/brief.md"
+        )
+
+    def test_sync_creates_docs_phases_index_md_when_missing(self, tmp_path: Path) -> None:
+        """sync_project creates docs/phases/index.md when it is absent."""
+        _copy_canonical_files(tmp_path)
+        # Remove the placeholder to simulate a project without this file
+        index = tmp_path / "docs" / "phases" / "index.md"
+        if index.exists():
+            index.unlink()
+
+        sync_project(tmp_path)
+
+        assert (tmp_path / "docs" / "phases" / "index.md").exists(), (
+            "sync_project should create docs/phases/index.md"
+        )
+
+    def test_sync_creates_docs_cer_backlog_md_when_missing(self, tmp_path: Path) -> None:
+        """sync_project creates docs/cer/backlog.md when it is absent."""
+        _copy_canonical_files(tmp_path)
+        # Remove the placeholder to simulate a project without this file
+        backlog = tmp_path / "docs" / "cer" / "backlog.md"
+        if backlog.exists():
+            backlog.unlink()
+
+        sync_project(tmp_path)
+
+        assert (tmp_path / "docs" / "cer" / "backlog.md").exists(), (
+            "sync_project should create docs/cer/backlog.md"
+        )
+
+    def test_roundtrip_brief_md(self, tmp_path: Path) -> None:
+        """Roundtrip: fresh project → delete docs/brief.md → audit MISSING → sync creates → audit clean."""
+        from skills.pairmode.scripts.audit import audit_project
+
+        # Step 1: sync creates all files including docs/brief.md
+        sync_project(tmp_path)
+        assert (tmp_path / "docs" / "brief.md").exists()
+
+        # Step 2: delete docs/brief.md
+        (tmp_path / "docs" / "brief.md").unlink()
+
+        # Step 3: audit reports it as MISSING
+        audit_result = audit_project(tmp_path)
+        missing_files = {i.file for i in audit_result.missing}
+        assert "docs/brief.md" in missing_files, (
+            "Expected docs/brief.md in missing after deletion"
+        )
+
+        # Step 4: sync creates it again
+        sync_project(tmp_path)
+        assert (tmp_path / "docs" / "brief.md").exists(), (
+            "sync_project should recreate docs/brief.md"
+        )
+
+        # Step 5: audit no longer reports it as MISSING
+        audit_result2 = audit_project(tmp_path)
+        missing_files2 = {i.file for i in audit_result2.missing}
+        assert "docs/brief.md" not in missing_files2, (
+            "docs/brief.md should not be MISSING after sync recreated it"
         )

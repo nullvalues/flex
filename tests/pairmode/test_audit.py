@@ -41,7 +41,10 @@ def _copy_canonical_files(project_dir: Path) -> None:
 
     Uses the same context that audit_project would use when pairmode_context.json is absent,
     so that rendered canonical == rendered template and no false INCONSISTENT is produced.
+    Also creates Phase 7 existence-check files so they are not flagged as MISSING.
     """
+    from skills.pairmode.scripts import audit as _audit_mod_inner
+
     context, _ = _load_project_context(project_dir)
     for dest_rel, template_rel in CANONICAL_FILES:
         dest_path = project_dir / dest_rel
@@ -51,6 +54,13 @@ def _copy_canonical_files(project_dir: Path) -> None:
         except Exception:
             rendered = "# placeholder\n"
         dest_path.write_text(rendered, encoding="utf-8")
+
+    # Also create Phase 7 existence-check files so they are not flagged MISSING
+    for dest_rel, _template_rel, _desc in _audit_mod_inner.EXISTENCE_CHECK_FILES:
+        dest_path = project_dir / dest_rel
+        if not dest_path.exists():
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            dest_path.write_text("# placeholder\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -857,4 +867,84 @@ class TestSeparatorKeysFilteredFromOutput:
         inconsistent_claude = [i for i in result.inconsistent if i.file == "CLAUDE.md"]
         assert len(inconsistent_claude) > 0, (
             "Expected INCONSISTENT items for modified CLAUDE.md section, got none"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Story 7.7 — Phase 7 file-existence checks
+# ---------------------------------------------------------------------------
+
+
+class TestAuditPhase7FileExistenceChecks:
+    """audit_project reports MISSING for docs/brief.md, docs/phases/index.md,
+    and docs/cer/backlog.md when absent."""
+
+    def test_docs_brief_md_missing_when_absent(self, tmp_path: Path) -> None:
+        """docs/brief.md absent → reported as MISSING."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        # Remove the placeholder created by _copy_canonical_files to simulate absence
+        brief = tmp_path / "docs" / "brief.md"
+        if brief.exists():
+            brief.unlink()
+
+        result = audit_project(tmp_path)
+
+        missing_files = {i.file for i in result.missing}
+        assert "docs/brief.md" in missing_files, (
+            f"Expected docs/brief.md in missing files, got: {missing_files}"
+        )
+
+    def test_docs_phases_index_md_missing_when_absent(self, tmp_path: Path) -> None:
+        """docs/phases/index.md absent → reported as MISSING."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        index = tmp_path / "docs" / "phases" / "index.md"
+        if index.exists():
+            index.unlink()
+
+        result = audit_project(tmp_path)
+
+        missing_files = {i.file for i in result.missing}
+        assert "docs/phases/index.md" in missing_files, (
+            f"Expected docs/phases/index.md in missing files, got: {missing_files}"
+        )
+
+    def test_docs_cer_backlog_md_missing_when_absent(self, tmp_path: Path) -> None:
+        """docs/cer/backlog.md absent → reported as MISSING."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        backlog = tmp_path / "docs" / "cer" / "backlog.md"
+        if backlog.exists():
+            backlog.unlink()
+
+        result = audit_project(tmp_path)
+
+        missing_files = {i.file for i in result.missing}
+        assert "docs/cer/backlog.md" in missing_files, (
+            f"Expected docs/cer/backlog.md in missing files, got: {missing_files}"
+        )
+
+    def test_no_missing_when_all_three_present(self, tmp_path: Path) -> None:
+        """When all three Phase 7 files are present, none are reported MISSING."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+
+        # Create the three Phase 7 files
+        (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "docs" / "brief.md").write_text("# Brief\n", encoding="utf-8")
+        (tmp_path / "docs" / "phases").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "docs" / "phases" / "index.md").write_text("# Index\n", encoding="utf-8")
+        (tmp_path / "docs" / "cer").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "docs" / "cer" / "backlog.md").write_text("# Backlog\n", encoding="utf-8")
+
+        result = audit_project(tmp_path)
+
+        missing_files = {i.file for i in result.missing}
+        assert "docs/brief.md" not in missing_files, "docs/brief.md should not be MISSING"
+        assert "docs/phases/index.md" not in missing_files, (
+            "docs/phases/index.md should not be MISSING"
+        )
+        assert "docs/cer/backlog.md" not in missing_files, (
+            "docs/cer/backlog.md should not be MISSING"
         )
