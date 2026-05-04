@@ -42,3 +42,8 @@ or use `/anchor:pairmode lesson` to capture a new lesson.
 **Date:** 2026-04-24
 **Status:** captured
 **Learning:** Running a cold-eyes review on the phase spec itself (not just on built code) catches architectural and correctness errors before any builder time is spent. The CER agent reading actual source files alongside the spec finds mismatches the spec author missed. This is more valuable than a post-build reviewer alone.
+
+## L009 — Cross-project audit (cora, radar, forqsite) of .claude/agents/ configurations
+**Date:** 2026-05-04
+**Status:** captured
+**Learning:** Model selection should be explicit per role, not inherited. Volume work (builder) -> sonnet for compute efficiency. Judgment work (reviewer, intent-reviewer, loop-breaker, security-auditor) -> opus for judgment quality. Inheritance from the orchestrator is a silent capability leak. Add a documented fallback policy: if the preferred model is rate-limited, fall back one tier (Opus -> Sonnet on reviewers; Sonnet -> Haiku on builder), never below Haiku.

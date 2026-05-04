@@ -147,6 +147,24 @@
         "all"
       ],
       "status": "captured"
+    },
+    {
+      "id": "L009",
+      "date": "2026-05-04",
+      "source_project": "anchor",
+      "trigger": "Cross-project audit (cora, radar, forqsite) of .claude/agents/ configurations",
+      "problem": "Pairmode templates pinned only the builder to sonnet, leaving reviewer-class agents to inherit the orchestrator's model. If the orchestrator ran on sonnet (efficiency reasons), the entire quality gate ran on sonnet, losing the judgment-quality benefit.",
+      "learning": "Model selection should be explicit per role, not inherited. Volume work (builder) -> sonnet for compute efficiency. Judgment work (reviewer, intent-reviewer, loop-breaker, security-auditor) -> opus for judgment quality. Inheritance from the orchestrator is a silent capability leak. Add a documented fallback policy: if the preferred model is rate-limited, fall back one tier (Opus -> Sonnet on reviewers; Sonnet -> Haiku on builder), never below Haiku.",
+      "methodology_change": {
+        "affects": [
+          "pairmode-builder-reviewer-loop"
+        ],
+        "description": "Pairmode templates pin model per agent: builder=sonnet, reviewers=opus, with fallback comments. INFRA-026, INFRA-033 implement this in templates; future bootstraps inherit it. Validation comes from Phase 22's pairmode_effort.py models report -- once token-and-PASS-rate data accrues per (model, role), the methodology is data-defensible rather than aesthetic."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured"
     }
   ]
 }
