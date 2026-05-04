@@ -1733,3 +1733,84 @@ class TestReviewerClassAgentsPinnedToOpus:
         assert "description" in fm, (
             f"{template_name}: missing `description` in frontmatter"
         )
+
+
+# ---------------------------------------------------------------------------
+# Story INFRA-027 — reviewer-class agents restricted to read-only tools
+# ---------------------------------------------------------------------------
+
+REVIEWER_CLASS_WITH_BASH = [
+    "agents/reviewer.md.j2",
+    "agents/intent-reviewer.md.j2",
+    "agents/loop-breaker.md.j2",
+]
+
+
+class TestReviewerClassAgentsToolRestriction:
+    """Story INFRA-027: reviewer-class agent templates restrict the `tools`
+    frontmatter field to read-only tools plus Bash (security-auditor: no Bash
+    since it never runs commands). Builder remains unrestricted."""
+
+    @pytest.mark.parametrize("template_name", REVIEWER_CLASS_WITH_BASH)
+    def test_reviewer_class_tools_field_is_read_only_plus_bash(self, template_name):
+        rendered = render(template_name, AGENT_CONTEXT)
+        fm = _parse_frontmatter(rendered)
+        assert fm is not None, (
+            f"{template_name}: rendered output has no parseable frontmatter"
+        )
+        assert "tools" in fm, (
+            f"{template_name}: frontmatter missing `tools` key — got keys {sorted(fm)}"
+        )
+        # The minimal frontmatter parser stores flow-style YAML lists as the
+        # raw scalar string. Compare against the canonical literal.
+        assert fm["tools"] == "[Read, Grep, Glob, Bash]", (
+            f"{template_name}: expected tools=[Read, Grep, Glob, Bash], "
+            f"got tools={fm['tools']!r}"
+        )
+
+    @pytest.mark.parametrize("template_name", REVIEWER_CLASS_WITH_BASH)
+    def test_reviewer_class_raw_source_has_tools_field(self, template_name):
+        # Verify the raw template source carries the restriction as well, so a
+        # project bootstrapped from these files inherits the field even without
+        # a Jinja context that overrides it.
+        raw = (TEMPLATES_DIR / template_name).read_text(encoding="utf-8")
+        fm = _parse_frontmatter(raw)
+        assert fm is not None, (
+            f"{template_name}: raw template has no parseable frontmatter"
+        )
+        assert fm.get("tools") == "[Read, Grep, Glob, Bash]", (
+            f"{template_name}: raw template expected tools=[Read, Grep, Glob, Bash], "
+            f"got {fm.get('tools')!r}"
+        )
+
+    def test_security_auditor_tools_field_omits_bash(self):
+        rendered = render("agents/security-auditor.md.j2", AGENT_CONTEXT)
+        fm = _parse_frontmatter(rendered)
+        assert fm is not None, (
+            "agents/security-auditor.md.j2: rendered output has no parseable frontmatter"
+        )
+        assert fm.get("tools") == "[Read, Grep, Glob]", (
+            f"security-auditor: expected tools=[Read, Grep, Glob] (no Bash), "
+            f"got tools={fm.get('tools')!r}"
+        )
+
+    def test_security_auditor_raw_source_tools_field_omits_bash(self):
+        raw = (TEMPLATES_DIR / "agents/security-auditor.md.j2").read_text(encoding="utf-8")
+        fm = _parse_frontmatter(raw)
+        assert fm is not None, (
+            "security-auditor.md.j2 raw template has no parseable frontmatter"
+        )
+        assert fm.get("tools") == "[Read, Grep, Glob]", (
+            f"security-auditor raw: expected tools=[Read, Grep, Glob] (no Bash), "
+            f"got {fm.get('tools')!r}"
+        )
+
+    def test_builder_tools_field_unchanged(self):
+        # Builder must retain the full tool set (Read, Write, Edit, Glob, Grep, Bash).
+        rendered = render("agents/builder.md.j2", AGENT_CONTEXT)
+        fm = _parse_frontmatter(rendered)
+        assert fm is not None, "builder.md.j2 has no parseable frontmatter"
+        assert fm.get("tools") == "[Read, Write, Edit, Glob, Grep, Bash]", (
+            f"builder.md.j2: expected tools=[Read, Write, Edit, Glob, Grep, Bash], "
+            f"got tools={fm.get('tools')!r}"
+        )

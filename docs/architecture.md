@@ -245,6 +245,16 @@ pairmode functions without the sidebar (the deny list still blocks protected-fil
 the reviewer still runs), and companion functions without a pairmode scaffold (the
 sidebar still captures decisions; the spec still grows).
 
+**Reviewer-class agent tool restriction (build-loop safety).** Reviewer-class agents
+(`reviewer`, `intent-reviewer`, `loop-breaker`, `security-auditor`) are restricted to
+read-only tools plus `Bash` (`security-auditor` has no `Bash` since it never runs
+commands). This is one of two layers protecting the working tree: tool restriction
+prevents the reviewer from backdooring a fix into the code instead of reverting it; the
+orchestrator's pre-reviewer commit discipline (committing story files and running
+`git checkout -- lessons/` before the reviewer fires) prevents accidental erasure of
+uncommitted methodology files. Both commit and revert paths in the reviewer template
+are Bash-mediated (`git add`, `git commit`, `git checkout .`, `git clean -fd`).
+
 This document describes pairmode's internals: the scaffold it generates, the rails/eras
 model, the schema validators, and the non-negotiables that keep its bootstraps repeatable.
 
