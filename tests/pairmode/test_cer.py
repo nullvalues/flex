@@ -294,6 +294,66 @@ def test_next_cer_id_existing() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Test: CER IDs increment from existing entries on re-run
+# ---------------------------------------------------------------------------
+
+def test_cer_id_increments_from_existing(tmp_path: Path) -> None:
+    """When backlog already contains CER-001 through CER-003, new entry gets CER-004."""
+    runner = CliRunner()
+
+    # Seed CER-001 through CER-003
+    for i, finding in enumerate(["First", "Second", "Third"], start=1):
+        result = _invoke(
+            runner,
+            ["--project-dir", str(tmp_path), "--finding", finding, "--quadrant", "now"],
+        )
+        assert result.exit_code == 0, result.output
+
+    # Add a fourth entry — must be CER-004, not CER-001
+    result = _invoke(
+        runner,
+        ["--project-dir", str(tmp_path), "--finding", "Fourth", "--quadrant", "later"],
+    )
+    assert result.exit_code == 0, result.output
+    content = _backlog_path(tmp_path).read_text(encoding="utf-8")
+    assert "CER-004" in content
+    # CER-001 through CER-003 must still be present
+    for expected in ["CER-001", "CER-002", "CER-003"]:
+        assert expected in content
+
+
+def test_cer_id_not_restarted_after_gap(tmp_path: Path) -> None:
+    """When backlog has CER-001 and CER-003 (gap at CER-002), new entry gets CER-004."""
+    runner = CliRunner()
+
+    # Seed CER-001 and CER-003 directly via two calls, then simulate a gap
+    # by building CER-001, CER-002, CER-003 and then manually removing CER-002's row
+    # from the markdown so entries list has a gap.
+    for finding in ("Alpha", "Beta", "Gamma"):
+        result = _invoke(
+            runner,
+            ["--project-dir", str(tmp_path), "--finding", finding, "--quadrant", "now"],
+        )
+        assert result.exit_code == 0, result.output
+
+    # Remove the CER-002 row from backlog.md to simulate a resolved/removed entry
+    backlog = _backlog_path(tmp_path)
+    original = backlog.read_text(encoding="utf-8")
+    lines = [ln for ln in original.splitlines(keepends=True) if "CER-002" not in ln]
+    backlog.write_text("".join(lines), encoding="utf-8")
+
+    # Now add a new finding — should use max+1 = CER-004, not len+1 = CER-003
+    result = _invoke(
+        runner,
+        ["--project-dir", str(tmp_path), "--finding", "Delta", "--quadrant", "later"],
+    )
+    assert result.exit_code == 0, result.output
+    content = backlog.read_text(encoding="utf-8")
+    assert "CER-004" in content
+    assert "Delta" in content
+
+
+# ---------------------------------------------------------------------------
 # Test: project_name read from pairmode_context.json
 # ---------------------------------------------------------------------------
 

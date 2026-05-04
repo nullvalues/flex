@@ -1,6 +1,6 @@
 # anchor — Cold-Eyes Review (CER) Backlog
 
-*Last updated: 2026-04-27*
+*Last updated: 2026-04-30*
 
 This file is the structured triage log for findings from external cold-eyes reviews.
 Each finding is assigned to one quadrant. Findings are not deleted — resolved findings

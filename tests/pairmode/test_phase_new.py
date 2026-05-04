@@ -431,6 +431,28 @@ class TestUpdateErasPhasesTable:
         # Trying to update era 002 which doesn't exist — must not raise
         _update_era_phases_table(tmp_path, "002", 1, "Whatever")
 
+    def test_update_era_phases_table_with_no_frontmatter(self, tmp_path: pathlib.Path) -> None:
+        """Era file with body content but no frontmatter block must not crash.
+
+        _update_era_phases_table should gracefully skip or add the row if a
+        Phases table is present.  It must never raise an exception.
+        """
+        eras_dir = tmp_path / "docs" / "eras"
+        eras_dir.mkdir(parents=True, exist_ok=True)
+        body_only_content = (
+            "## Strategic intent\n\nBuilding the foundation.\n\n"
+            "## Phases\n\n"
+            "| Phase | Title | Status |\n"
+            "|-------|-------|--------|\n"
+        )
+        era_file = eras_dir / "001-foundation.md"
+        era_file.write_text(body_only_content, encoding="utf-8")
+
+        # Must not raise regardless of whether it inserts the row
+        _update_era_phases_table(tmp_path, "001", 3, "My Phase")
+        # Era file still readable after the call
+        assert era_file.exists()
+
 
 class TestEraFrontmatterInPhaseFile:
     """Phase file gets era frontmatter when active era exists."""

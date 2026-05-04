@@ -223,6 +223,8 @@ per `cwd` for the lifetime of the sidebar process) and calls `_check_protected()
 processing each `file_changed` event. The hook emits only `path` and `tool` — no
 deny-rationale reads occur in the hook.
 
+`spec_exception` pipe messages are produced by the sidebar's override prompt (when a developer provides a reason for overriding a protected file) and handled by the sidebar's pipe reader to write conflict records to the module's `spec.json`. The pipe message payload fields used by the handler: `type` (`"spec_exception"`), `path` (overridden file path), `non_negotiable` (the rule violated), `override_reason` (developer-supplied justification), `session_id` (Claude Code session identifier).
+
 ---
 
 ## Pairmode design

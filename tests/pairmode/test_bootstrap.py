@@ -2460,3 +2460,271 @@ class TestYesFlag:
         assert result.exit_code == 0
         # File should be unchanged (user declined)
         assert (tmp_path / "CLAUDE.md").read_text() == "sentinel"
+
+
+# ---------------------------------------------------------------------------
+# INFRA-012: should_question / free_to_change round-trip through --from-reconstruction
+# ---------------------------------------------------------------------------
+
+
+class TestFromReconstructionShouldQuestionFreeToChange:
+    """Integration tests: reconstruction brief with should_question and free_to_change
+    content flows through bootstrap --from-reconstruction into ideology.md."""
+
+    _FULL_IDEOLOGY_BRIEF = """\
+## Non-negotiable ideology
+- We prefer local-first storage
+
+## What must survive any implementation
+- The core pipeline contract
+
+## What you should question
+- We should question whether the batch size default is appropriate
+- We should question whether Redis is the right backing store
+
+## Free to change
+- File naming conventions throughout the codebase
+- Log output formatting
+
+## Comparison rubric
+- Ideological alignment
+"""
+
+    _BRIEF_WITHOUT_SHOULD_QUESTION = """\
+## Non-negotiable ideology
+- We prefer local-first storage
+
+## What must survive any implementation
+- The core pipeline contract
+
+## Free to change
+- File naming conventions throughout the codebase
+- Log output formatting
+
+## Comparison rubric
+- Ideological alignment
+"""
+
+    _BRIEF_WITHOUT_FREE_TO_CHANGE = """\
+## Non-negotiable ideology
+- We prefer local-first storage
+
+## What must survive any implementation
+- The core pipeline contract
+
+## What you should question
+- We should question whether the batch size default is appropriate
+- We should question whether Redis is the right backing store
+
+## Comparison rubric
+- Ideological alignment
+"""
+
+    def _write_brief(self, tmp_path: pathlib.Path, content: str) -> pathlib.Path:
+        brief_path = tmp_path / "reconstruction_brief.md"
+        brief_path.write_text(content, encoding="utf-8")
+        return brief_path
+
+    def _run_from_reconstruction(
+        self, tmp_path: pathlib.Path, brief_path: pathlib.Path
+    ) -> object:
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--from-reconstruction", str(brief_path),
+                "--ideology-skip",
+            ],
+            catch_exceptions=False,
+        )
+        return result
+
+    def test_should_question_in_ideology_md(self, tmp_path: pathlib.Path) -> None:
+        """Round-trip: should_question content from reconstruction brief appears in ideology.md."""
+        brief_path = self._write_brief(tmp_path, self._FULL_IDEOLOGY_BRIEF)
+        result = self._run_from_reconstruction(tmp_path, brief_path)
+        assert result.exit_code == 0, result.output
+
+        ideology = (tmp_path / "docs" / "ideology.md").read_text(encoding="utf-8")
+        assert (
+            "batch size default" in ideology
+            or "Redis is the right backing store" in ideology
+        ), (
+            "Expected should_question content in ideology.md.\n"
+            f"ideology.md content:\n{ideology}"
+        )
+
+    def test_free_to_change_in_ideology_md(self, tmp_path: pathlib.Path) -> None:
+        """Round-trip: free_to_change content from reconstruction brief appears in ideology.md."""
+        brief_path = self._write_brief(tmp_path, self._FULL_IDEOLOGY_BRIEF)
+        result = self._run_from_reconstruction(tmp_path, brief_path)
+        assert result.exit_code == 0, result.output
+
+        ideology = (tmp_path / "docs" / "ideology.md").read_text(encoding="utf-8")
+        assert (
+            "File naming conventions" in ideology
+            or "Log output formatting" in ideology
+        ), (
+            "Expected free_to_change content in ideology.md.\n"
+            f"ideology.md content:\n{ideology}"
+        )
+
+    def test_empty_should_question_no_crash(self, tmp_path: pathlib.Path) -> None:
+        """Brief with no should_question section: bootstrap completes, ideology.md exists."""
+        brief_path = self._write_brief(tmp_path, self._BRIEF_WITHOUT_SHOULD_QUESTION)
+        result = self._run_from_reconstruction(tmp_path, brief_path)
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "docs" / "ideology.md").exists(), (
+            "ideology.md should be created even when should_question section is absent"
+        )
+
+    def test_empty_free_to_change_no_crash(self, tmp_path: pathlib.Path) -> None:
+        """Brief with no free_to_change section: bootstrap completes, ideology.md exists."""
+        brief_path = self._write_brief(tmp_path, self._BRIEF_WITHOUT_FREE_TO_CHANGE)
+        result = self._run_from_reconstruction(tmp_path, brief_path)
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "docs" / "ideology.md").exists(), (
+            "ideology.md should be created even when free_to_change section is absent"
+        )
+
+
+# ---------------------------------------------------------------------------
+# BOOTSTRAP-002: --yes non-interactive path end-to-end tests
+# ---------------------------------------------------------------------------
+
+
+class TestBootstrapYesFlag:
+    """End-to-end coverage for the --yes non-interactive path introduced in Phase 18."""
+
+    def test_yes_flag_creates_all_files_without_interaction(self, tmp_path):
+        """--yes --ideology-skip: all standard scaffold files written, cli rail dir created,
+        Era 001 created — no prompts, no TTY required."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / cli",
+                "--build-command", "uv run pytest",
+                "--yes",
+                "--ideology-skip",
+            ],
+            input=None,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+        # Standard scaffold files must exist
+        for rel in ["CLAUDE.md", "CLAUDE.build.md", "docs/ideology.md", "docs/brief.md"]:
+            assert (tmp_path / rel).exists(), (
+                f"Expected {rel} to be created with --yes --ideology-skip.\n"
+                f"CLI output:\n{result.output}"
+            )
+
+        # cli stack → CORE rail directory must exist
+        assert (tmp_path / "docs" / "stories" / "CORE").exists(), (
+            "docs/stories/CORE/ was not created for cli-stack project with --yes.\n"
+            f"CLI output:\n{result.output}"
+        )
+
+        # Era 001 must be created
+        assert (tmp_path / "docs" / "eras" / "001-initial.md").exists(), (
+            "docs/eras/001-initial.md was not created with --yes --ideology-skip.\n"
+            f"CLI output:\n{result.output}"
+        )
+
+    def test_yes_flag_overwrites_existing_files(self, tmp_path):
+        """--yes on a project with a pre-existing CLAUDE.md overwrites it without prompting."""
+        # Pre-create CLAUDE.md with sentinel content
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "CLAUDE.md").write_text("old content", encoding="utf-8")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+                "--ideology-skip",
+            ],
+            input=None,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+        content = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+        assert "old content" not in content, (
+            "--yes should overwrite CLAUDE.md without prompting, "
+            "but 'old content' sentinel is still present."
+        )
+
+    def test_yes_flag_with_ideology_skip_no_stdin(self, tmp_path):
+        """Subprocess invocation: --yes --ideology-skip with stdin=DEVNULL exits 0."""
+        import os
+        import subprocess
+        import sys
+
+        bootstrap_path = str(
+            pathlib.Path(__file__).parent.parent.parent
+            / "skills" / "pairmode" / "scripts" / "bootstrap.py"
+        )
+
+        env = {k: v for k, v in os.environ.items()}
+
+        result = subprocess.run(
+            [
+                sys.executable, bootstrap_path,
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+                "--ideology-skip",
+            ],
+            cwd=str(tmp_path),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            f"bootstrap --yes --ideology-skip with stdin=DEVNULL exited {result.returncode}.\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+    def test_yes_flag_absent_and_no_tty_uses_defaults(self, tmp_path):
+        """Without --yes, non-TTY (CliRunner) bootstrap still completes using defaults.
+
+        Regression coverage for the pre-existing non-interactive path: when stdin is
+        not a TTY, bootstrap falls through to defaults rather than blocking on prompts.
+        """
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--ideology-skip",
+                # No --yes — relies on CliRunner being non-TTY
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, (
+            f"Non-TTY bootstrap without --yes should complete successfully.\n"
+            f"CLI output:\n{result.output}"
+        )
+        # Core files written via the non-interactive defaults path
+        assert (tmp_path / "CLAUDE.md").exists()
+        assert (tmp_path / "docs" / "ideology.md").exists()
+        assert (tmp_path / "docs" / "eras" / "001-initial.md").exists()

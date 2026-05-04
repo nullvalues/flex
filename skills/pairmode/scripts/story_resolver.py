@@ -180,8 +180,9 @@ def _parse_stories_table(text: str) -> list[str]:
             separator_seen = True
             continue
 
-        # This is a data row
+        # This is a data row — strip Markdown link syntax [TEXT](URL) → TEXT
         if first_col:
+            first_col = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', first_col)
             ids.append(first_col)
 
     return ids

@@ -315,3 +315,115 @@ class TestConflictsArrayInitialisation:
         spec = _read_spec(tmp_path)
         assert "conflicts" in spec
         assert len(spec["conflicts"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# INFRA-013: Confirmation tests — pipe message contract and direct write
+# ---------------------------------------------------------------------------
+
+
+class TestRecordSpecExceptionWritesConflict:
+    """Verify record_spec_exception appends a conflict entry to spec.json."""
+
+    def test_record_spec_exception_writes_conflict(self, tmp_path):
+        """Call record_spec_exception directly; assert conflict is appended."""
+        project_dir = _make_env(
+            tmp_path,
+            module_name="core",
+            module_paths=["src/core/"],
+            spec_data={
+                "module": "core",
+                "summary": "Core module",
+                "business_rules": [],
+                "non_negotiables": ["No direct DB writes from handlers"],
+                "tradeoffs": [],
+                "conflicts": [],
+                "lineage": [],
+            },
+        )
+
+        record_spec_exception(
+            project_dir=project_dir,
+            file_path="src/core/handler.py",
+            non_negotiable="No direct DB writes from handlers",
+            override_reason="Hotfix for production outage",
+            session_id="sess-infra013",
+        )
+
+        spec_path = (
+            tmp_path
+            / "product-spec"
+            / "openspec"
+            / "specs"
+            / "core"
+            / "spec.json"
+        )
+        spec = json.loads(spec_path.read_text())
+
+        assert "conflicts" in spec
+        assert len(spec["conflicts"]) == 1
+
+        entry = spec["conflicts"][0]
+        assert entry["file"] == "src/core/handler.py"
+        assert entry["non_negotiable"] == "No direct DB writes from handlers"
+        assert entry["override_reason"] == "Hotfix for production outage"
+        assert entry["session_id"] == "sess-infra013"
+        assert entry["status"] == "open"
+        assert "date" in entry
+
+
+class TestSpecExceptionPipeMessageContract:
+    """Contract test: pipe message structure matches record_spec_exception parameters."""
+
+    def test_spec_exception_pipe_message_contract(self):
+        """A spec_exception pipe message must have all fields the sidebar handler uses.
+
+        The sidebar handler (sidebar.py) reads these fields from the event dict and
+        passes them to record_spec_exception:
+          - event["type"]             → must equal "spec_exception"
+          - event["path"]             → file_path parameter
+          - event["non_negotiable"]   → non_negotiable parameter
+          - event["override_reason"]  → override_reason parameter
+          - event["session_id"]       → session_id parameter (passed separately)
+
+        This test constructs such a message and asserts that each expected key is
+        present and maps to the correct record_spec_exception parameter name.
+        """
+        # Build a pipe message as the sidebar would emit it
+        pipe_message = {
+            "type": "spec_exception",
+            "path": "src/core/handler.py",
+            "non_negotiable": "No direct DB writes from handlers",
+            "override_reason": "Hotfix for production outage",
+            "session_id": "sess-contract-test",
+        }
+
+        # type must be the correct discriminator value
+        assert pipe_message["type"] == "spec_exception"
+
+        # Each key maps to the matching record_spec_exception kwarg
+        param_mapping = {
+            "path": "file_path",
+            "non_negotiable": "non_negotiable",
+            "override_reason": "override_reason",
+            "session_id": "session_id",
+        }
+        for pipe_key, param_name in param_mapping.items():
+            assert pipe_key in pipe_message, (
+                f"pipe message is missing required key '{pipe_key}' "
+                f"(maps to record_spec_exception param '{param_name}')"
+            )
+            # Values are non-empty strings
+            assert isinstance(pipe_message[pipe_key], str)
+            assert pipe_message[pipe_key] != ""
+
+        # Confirm the mapping names match the actual function signature
+        import inspect
+        from skills.pairmode.scripts.spec_exception import record_spec_exception
+
+        sig_params = set(inspect.signature(record_spec_exception).parameters.keys())
+        # project_dir is not in the pipe message (it's resolved by the sidebar)
+        for param_name in param_mapping.values():
+            assert param_name in sig_params, (
+                f"'{param_name}' is not a parameter of record_spec_exception"
+            )

@@ -182,3 +182,18 @@ class TestListPhaseStories:
         )
         result = list_phase_stories(phase_path)
         assert result == []
+
+    def test_list_phase_stories_link_formatted_id(self, tmp_path):
+        """Story IDs formatted as Markdown links are stripped to bare IDs."""
+        phase_path = tmp_path / "phase-link.md"
+        phase_path.write_text(
+            "---\nid: 20\ntitle: Link Phase\nstatus: active\n---\n\n"
+            "## Stories\n\n"
+            "| ID | Title | Status |\n"
+            "|----|-------|--------|\n"
+            "| [BOOTSTRAP-001](docs/stories/BOOTSTRAP/BOOTSTRAP-001.md) | Bootstrap init | planned |\n"
+            "| [AUDIT-002](docs/stories/AUDIT/AUDIT-002.md) | Audit check | complete |\n",
+            encoding="utf-8",
+        )
+        result = list_phase_stories(phase_path)
+        assert result == ["BOOTSTRAP-001", "AUDIT-002"]
