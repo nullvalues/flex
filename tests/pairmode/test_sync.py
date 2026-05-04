@@ -1073,3 +1073,139 @@ class TestSyncPathTraversalGuard:
         # Should not raise — sync may produce a result with no changes
         result = sync_project(tmp_path, yes=True)
         assert isinstance(result, SyncResult)
+
+
+# ---------------------------------------------------------------------------
+# Story AUDIT-001 — .pairmode-overrides: sync skips declared sections
+# ---------------------------------------------------------------------------
+
+
+def _write_overrides(project_dir: Path, lines: list[str]) -> None:
+    """Write .pairmode-overrides at project root."""
+    content = "\n".join(lines) + "\n"
+    (project_dir / ".pairmode-overrides").write_text(content, encoding="utf-8")
+
+
+class TestSyncOverrides:
+    """sync_project respects .pairmode-overrides: declared sections are skipped with a note."""
+
+    def _get_first_canonical_section_key(self) -> tuple[str, str]:
+        """Return (raw_header, normalised_key) for the first ## header in CLAUDE.md.j2."""
+        import re
+        from skills.pairmode.scripts.audit import _normalise
+        canonical_text = (TEMPLATES_DIR / "CLAUDE.md.j2").read_text(encoding="utf-8")
+        headers = re.findall(r"^## .+", canonical_text, re.MULTILINE)
+        assert headers, "CLAUDE.md.j2 must have at least one ## header"
+        return headers[0], _normalise(headers[0])
+
+    def test_override_section_not_appended_to_existing_file(self, tmp_path: Path) -> None:
+        """When a MISSING section in an existing file is declared in .pairmode-overrides,
+        sync does not append it to the file."""
+        import re
+        from skills.pairmode.scripts.audit import _normalise, audit_project
+
+        _copy_canonical_files(tmp_path)
+        _write_ideology_md(tmp_path)
+        _write_state(tmp_path)
+
+        canonical_text = (TEMPLATES_DIR / "CLAUDE.md.j2").read_text(encoding="utf-8")
+        headers = re.findall(r"^## .+", canonical_text, re.MULTILINE)
+        assert len(headers) >= 2, "CLAUDE.md.j2 must have at least 2 ## headers"
+
+        last_header = headers[-1]
+        last_key = _normalise(last_header)
+
+        # Write a CLAUDE.md stub with only the first section so the last section is MISSING
+        (tmp_path / "CLAUDE.md").write_text(
+            f"{headers[0]}\n\nSome content.\n",
+            encoding="utf-8",
+        )
+
+        # Confirm the section is MISSING without overrides
+        result_pre = audit_project(tmp_path)
+        missing_keys = {i.section for i in result_pre.missing if i.file == "CLAUDE.md"}
+        assert last_key in missing_keys, (
+            f"Expected '{last_key}' to be MISSING before override. Got: {missing_keys}"
+        )
+
+        # Declare the last section as override
+        _write_overrides(tmp_path, [f"CLAUDE.md:{last_key}"])
+
+        # With override, the section should not be MISSING in audit
+        result_override = audit_project(tmp_path)
+        missing_after = {i.section for i in result_override.missing if i.file == "CLAUDE.md"}
+        assert last_key not in missing_after, (
+            f"Override section '{last_key}' still appears as MISSING: {missing_after}"
+        )
+
+        # Sync should not append the section
+        content_before = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+        sync_project(tmp_path, yes=True)
+        content_after = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+
+        # The last_header should not appear in the file (it was not appended)
+        assert last_header not in content_after, (
+            f"Override section '{last_header}' was appended by sync despite .pairmode-overrides"
+        )
+
+    def test_sync_with_override_skips_inconcsistent_section_print(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When sync encounters a section in overrides (via monkeypatched audit), it prints the note."""
+        import re
+        from skills.pairmode.scripts.audit import _normalise, AuditItem
+        import skills.pairmode.scripts.sync as sync_mod
+
+        _copy_canonical_files(tmp_path)
+        _write_ideology_md(tmp_path)
+        _write_state(tmp_path)
+
+        canonical_text = (TEMPLATES_DIR / "CLAUDE.md.j2").read_text(encoding="utf-8")
+        headers = re.findall(r"^## .+", canonical_text, re.MULTILINE)
+        last_key = _normalise(headers[-1])
+
+        # Write a CLAUDE.md stub so file exists but last section is missing
+        (tmp_path / "CLAUDE.md").write_text(
+            f"{headers[0]}\n\nSome content.\n",
+            encoding="utf-8",
+        )
+
+        # Declare the last section as an override in the file
+        _write_overrides(tmp_path, [f"CLAUDE.md:{last_key}"])
+
+        # Monkeypatch audit_project to return the override section as MISSING
+        # (simulating the case where audit returns it despite it being in overrides)
+        from skills.pairmode.scripts.audit import audit_project, AuditResult
+        original_audit = audit_project
+
+        def patched_audit(project_dir, applies_to="all"):
+            real_result = original_audit(project_dir, applies_to=applies_to)
+            # Inject an extra MISSING item for the override section
+            real_result.missing.append(
+                AuditItem(
+                    file="CLAUDE.md",
+                    section=last_key,
+                    description=f"Section '{last_key}' present in canonical but not in project",
+                )
+            )
+            return real_result
+
+        monkeypatch.setattr(sync_mod, "audit_project", patched_audit)
+
+        output_lines = []
+        original_echo = sync_mod.click.echo
+        def capture_echo(msg="", **kw):
+            output_lines.append(str(msg))
+            original_echo(msg, **kw)
+        monkeypatch.setattr(sync_mod.click, "echo", capture_echo)
+
+        result = sync_project(tmp_path, yes=True)
+
+        combined_output = "\n".join(output_lines)
+        assert "project-owned" in combined_output, (
+            f"Expected 'project-owned' skip message when sync defensive check fires. "
+            f"Got: {combined_output}"
+        )
+        assert any("override declared" in s for s in result.skipped), (
+            f"Expected 'override declared' in result.skipped. Got: {result.skipped}"
+        )

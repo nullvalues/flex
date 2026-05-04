@@ -208,6 +208,63 @@ class TestPhaseFlag:
         assert "Added to Phase 003" in result.output
 
 
+class TestValidationIntegration:
+    """Validation is called after creation; errors are printed as warnings."""
+
+    def test_no_validation_warnings_on_new_draft_story(self, tmp_path: pathlib.Path) -> None:
+        """Draft stories with empty primary_files must produce no validation warnings."""
+        result = invoke(
+            ["--rail", "INFRA", "--title", "Validation test", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        # stderr (mixed into output by CliRunner by default) must not contain warning text
+        assert "validation:" not in result.output
+
+    def test_validation_warning_printed_to_stderr_on_error(
+        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When the validator returns a fake error, it is printed to stderr, exit code stays 0."""
+        import sys
+
+        # story_new.py imports 'schema_validator' via a sys.path insert (plain module name).
+        # Ensure that plain-name module is loaded and patch it.
+        import skills.pairmode.scripts.schema_validator as _sv_pkg  # ensure loaded
+
+        # Register under the plain name so the local import inside story_new resolves it
+        monkeypatch.setitem(sys.modules, "schema_validator", _sv_pkg)
+        monkeypatch.setattr(_sv_pkg, "validate_story_file", lambda path: ["fake validation error"])
+
+        # CliRunner mixes stdout+stderr into result.output by default
+        runner = CliRunner()
+        result = runner.invoke(
+            story_new,
+            ["--rail", "WARN", "--title", "Warn story", "--project-dir", str(tmp_path)],
+            input="Y\n",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert "fake validation error" in result.output
+
+    def test_validation_warning_exit_code_still_zero(
+        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Exit code remains 0 even when validation warnings are emitted."""
+        import sys
+        import skills.pairmode.scripts.schema_validator as _sv_pkg
+
+        monkeypatch.setitem(sys.modules, "schema_validator", _sv_pkg)
+        monkeypatch.setattr(_sv_pkg, "validate_story_file", lambda path: ["some error"])
+
+        runner = CliRunner()
+        result = runner.invoke(
+            story_new,
+            ["--rail", "EXIT", "--title", "Exit story", "--project-dir", str(tmp_path)],
+            input="Y\n",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+
+
 class TestPathTraversalGuard:
     """Too-shallow project_dir causes non-zero exit."""
 

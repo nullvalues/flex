@@ -43,11 +43,20 @@ In build mode: follow the build loop below. Do not ask clarifying questions befo
 
 ### Step 1 — Spawn the builder
 
-Before spawning the builder:
-1. Run `permission_scope.write_story_permissions(story_path, project_dir)`
-   to write story-scoped allow rules to `.claude/settings.local.json`.
-   This pre-authorizes all edits within the story's declared scope.
-   The builder session will not prompt for edits to declared files.
+Before spawning the builder, pre-authorize edits within the story's declared scope:
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python -c "
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path('skills/pairmode/scripts').resolve()))
+from permission_scope import write_story_permissions
+from pathlib import Path
+write_story_permissions(Path('docs/stories/RAIL/RAIL-NNN.md'), Path('.'))
+"
+```
+
+Replace RAIL/RAIL-NNN with the current story's ID. After this runs, the builder
+session will not prompt for edits to any file declared in primary_files or touches.
 
 Spawn the `builder` subagent with:
 - The complete story text (verbatim from the story file — do not paraphrase)
@@ -77,11 +86,25 @@ Story commits use the format: `feat(story-RAIL-NNN)` (e.g., `feat(story-BOOTSTRA
 ### Step 3 — Handle the result
 
 After the reviewer commits or reverts:
-1. Run `permission_scope.clear_story_permissions(project_dir)`
-   to remove story-scoped allow rules from `.claude/settings.local.json`.
-2. Update the story file status to `complete` (if committed) or leave
-   as `planned` (if reverted).
-3. Update the phase manifest Stories table status column.
+
+1. Clean up story-scoped allow rules:
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python -c "
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path('skills/pairmode/scripts').resolve()))
+from permission_scope import clear_story_permissions
+from pathlib import Path
+clear_story_permissions(Path('.'))
+"
+```
+
+2. If the reviewer committed (PASS): update the story status to complete:
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/story_update.py \
+  --story-id RAIL-NNN --status complete --project-dir .
+```
+
+3. If the reviewer reverted (FAIL): leave the story status as `planned`.
 
 **If reviewer reports PASS (committed):**
 Read `git log --oneline -1` to confirm the commit. Advance to the next story.

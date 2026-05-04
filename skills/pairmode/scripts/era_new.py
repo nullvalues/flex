@@ -46,7 +46,7 @@ def _era_content(era_id: str, name: str, goal: str) -> str:
     """Return the full content of a new era file."""
     frontmatter = (
         "---\n"
-        f"id: {era_id}\n"
+        f'id: "{era_id}"\n'
         f"name: {name}\n"
         "status: active\n"
         "---\n"
@@ -121,6 +121,12 @@ def era_new(name: str, goal: str, project_dir: str) -> None:
 
     click.echo(f"  Created era {era_id}: {name}")
     click.echo(f"  at docs/eras/{filename}")
+
+    # Validate the newly created era file (non-fatal warnings only)
+    from schema_validator import validate_era_file as _vef  # noqa: PLC0415
+    errors = _vef(era_path)
+    for e in errors:
+        click.echo(f"  ⚠  validation: {e}", err=True)
 
 
 if __name__ == "__main__":

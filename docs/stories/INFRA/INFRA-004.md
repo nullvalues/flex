@@ -2,8 +2,8 @@
 id: INFRA-004
 rail: INFRA
 title: Guard _read_json against non-dict JSON in permission_scope.py
-status: backlog
-phase: "backlog"
+status: complete
+phase: "17"
 primary_files:
 touches:
 ---

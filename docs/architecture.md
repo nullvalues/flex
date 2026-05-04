@@ -273,9 +273,22 @@ table; full story content lives in the individual story file.
 
 **Era files** live at `docs/eras/NNN-kebab-name.md` with frontmatter: `id`, `name`, `status`.
 
-**`schema_validator.py` is the canonical frontmatter parser.** Its `_parse_frontmatter` helper
-(or any public export added to it) must be used by sibling scripts that need to read YAML
-frontmatter from story/era/phase files. Do not re-implement the parser inline.
+**`schema_validator.py` is the canonical frontmatter parser.** Its `_parse_frontmatter` function
+must be imported and used by sibling scripts that need to read YAML frontmatter from
+story/era/phase files. Do not re-implement the parser inline. Callers import it as
+`from schema_validator import _parse_frontmatter` after inserting the scripts dir into `sys.path`.
+
+**`schema_validator.py` draft/backlog exemption:** `validate_story_file` permits an empty
+`primary_files` list when `status` is `draft` or `backlog`. Non-draft, non-backlog stories
+must have at least one entry in `primary_files`.
+
+**`story_update.py` is the canonical tool for updating story status.**
+`update_story_status(story_id, project_dir, status)` updates a story file's frontmatter
+`status` field. `update_phase_story_status(story_id, project_dir, status)` finds all phase
+manifests containing the story's ID in their `## Stories` table and updates the status column.
+CLI: `uv run python skills/pairmode/scripts/story_update.py --story-id RAIL-NNN --status complete --project-dir .`
+Orchestrators must call this after a successful reviewer commit (see CLAUDE.build.md Step 3).
+Valid statuses: `draft`, `planned`, `in-progress`, `complete`, `backlog`.
 
 **`permission_scope.py` path containment:** `write_story_permissions` validates every path
 from `primary_files` and `touches` against `project_dir` using `Path.resolve().relative_to()`

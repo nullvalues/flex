@@ -424,3 +424,112 @@ def test_escape_table_cell_single_pipe() -> None:
 
 def test_escape_table_cell_multiple_pipes() -> None:
     assert _escape_table_cell("a | b | c") == r"a \| b \| c"
+
+
+# ---------------------------------------------------------------------------
+# Tests: depth guard
+# ---------------------------------------------------------------------------
+
+def test_depth_guard_root_exits_nonzero() -> None:
+    """--project-dir / is too shallow: must exit non-zero with error message."""
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["--project-dir", "/", "--finding", "x", "--quadrant", "now"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code != 0
+    assert "too shallow" in (result.output + (result.stderr if hasattr(result, "stderr") else "")).lower() or \
+           "too shallow" in result.output.lower()
+
+
+def test_depth_guard_tmp_exits_nonzero() -> None:
+    """--project-dir /tmp is only 2 parts deep: must exit non-zero."""
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["--project-dir", "/tmp", "--finding", "x", "--quadrant", "now"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: malformed-markdown warning (INFRA-010)
+# ---------------------------------------------------------------------------
+
+_MALFORMED_BACKLOG = """\
+# Some Project — CER Backlog
+
+This file has more than five lines but contains no pipe-delimited table rows.
+It uses freeform prose instead of the expected markdown table format.
+There are no CER IDs here at all.
+Just a heading and some paragraphs.
+No tables to parse.
+Nothing that matches the row regex.
+End of file.
+"""
+
+
+def test_malformed_backlog_emits_warning(tmp_path: Path) -> None:
+    """backlog.md with 10+ lines but no table rows → warning printed to stderr; process continues."""
+    backlog = _backlog_path(tmp_path)
+    backlog.parent.mkdir(parents=True, exist_ok=True)
+    backlog.write_text(_MALFORMED_BACKLOG, encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "--project-dir", str(tmp_path),
+            "--finding", "Finding after malformed backlog",
+            "--quadrant", "now",
+        ],
+        catch_exceptions=False,
+    )
+
+    # Process must continue without error
+    assert result.exit_code == 0, result.output
+    # Warning must appear in output (Click merges stderr into output by default)
+    assert "Warning: backlog.md exists but no table rows were parsed" in result.output
+    # Finding must be written
+    content = backlog.read_text(encoding="utf-8")
+    assert "Finding after malformed backlog" in content
+
+
+def test_normal_backlog_no_warning(tmp_path: Path) -> None:
+    """backlog.md with CER-001 and CER-002 → no warning; CER-003 assigned to new finding."""
+    runner = CliRunner()
+
+    # Seed two entries
+    for finding in ("First finding", "Second finding"):
+        result = runner.invoke(
+            cli,
+            [
+                "--project-dir", str(tmp_path),
+                "--finding", finding,
+                "--quadrant", "now",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+    # Now add a third entry
+    result = runner.invoke(
+        cli,
+        [
+            "--project-dir", str(tmp_path),
+            "--finding", "Third finding",
+            "--quadrant", "now",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    # No warning should be emitted for a well-formed backlog
+    assert "Warning: backlog.md exists but no table rows were parsed" not in result.output
+
+    content = _backlog_path(tmp_path).read_text(encoding="utf-8")
+    assert "CER-001" in content
+    assert "CER-002" in content
+    assert "CER-003" in content
+    assert "Third finding" in content

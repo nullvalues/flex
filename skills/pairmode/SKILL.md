@@ -126,6 +126,7 @@ or `--constraint` flags to populate it non-interactively.
 - `--conviction TEXT` — core conviction (repeatable); bypasses TTY prompt, populates ideology.md directly
 - `--constraint TEXT` — key constraint rule (repeatable); bypasses TTY prompt, populates ideology.md directly
 - `--from-reconstruction PATH` — path to a `reconstruction.md` brief; pre-populates ideology context from it, seeding a new pairmode project without manual TTY entry
+- `--yes` / `-y` — auto-confirm all prompts (file overwrites, rail confirmation, ideology capture). Use for non-interactive or CI invocations where no stdin is available.
 
 **Pre-populating from a reconstruction brief:**
 ```bash
@@ -192,6 +193,23 @@ RECOMMENDATION
 - File contains the generated-brief footer (`Generated from \`docs/ideology.md\``) and all
   required scoring sections are placeholder-only → `STALE PLACEHOLDER` finding
 - Completed scoring report (no generated footer) → clean (no finding)
+
+**Suppressing intentional customisation noise with `.pairmode-overrides`:**
+Projects may declare sections that are intentionally diverged from the canonical templates
+by placing a `.pairmode-overrides` file at the project root. Sections declared in this file
+are treated as EXTRA (project-owned) rather than INCONSISTENT or MISSING. Sync will never
+overwrite or append a declared override section.
+
+File format — one entry per line: `<relative-file-path>:<normalised-section-key>`
+The section key is the lowercased, stripped header text (e.g. `## Review checklist` → `review checklist`).
+Lines starting with `#` are comments; blank lines are ignored. Example:
+```
+CLAUDE.md:review checklist
+.claude/agents/reviewer.md:checklist
+```
+
+Bootstrap creates an empty `.pairmode-overrides` from `templates/.pairmode-overrides.j2` so
+the format is documented for the project owner from day one.
 
 **Outputs:**
 - A human-readable audit report printed to the session, summarizing all deltas and recommended

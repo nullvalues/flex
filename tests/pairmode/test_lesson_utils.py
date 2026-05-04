@@ -187,21 +187,54 @@ class TestGenerateLessonsMd:
 class TestNextLessonId:
     def test_empty_returns_l001(self):
         from skills.pairmode.scripts.lesson_utils import next_lesson_id
-        assert next_lesson_id({"version": "1.0.0", "lessons": []}) == "L001"
+        assert next_lesson_id([]) == "L001"
 
     def test_one_entry_returns_l002(self):
         from skills.pairmode.scripts.lesson_utils import next_lesson_id
-        data = _make_data(_make_lesson("L001"))
-        assert next_lesson_id(data) == "L002"
+        assert next_lesson_id([_make_lesson("L001")]) == "L002"
 
     def test_nine_entries_returns_l010(self):
         from skills.pairmode.scripts.lesson_utils import next_lesson_id
         lessons = [_make_lesson(f"L{i:03d}") for i in range(1, 10)]
-        data = {"version": "1.0.0", "lessons": lessons}
-        assert next_lesson_id(data) == "L010"
+        assert next_lesson_id(lessons) == "L010"
 
     def test_zero_padded_to_three_digits(self):
         from skills.pairmode.scripts.lesson_utils import next_lesson_id
         lessons = [_make_lesson(f"L{i:03d}") for i in range(1, 100)]
-        data = {"version": "1.0.0", "lessons": lessons}
-        assert next_lesson_id(data) == "L100"
+        assert next_lesson_id(lessons) == "L100"
+
+    def test_gap_uses_max_not_len(self):
+        """With a gap (L001, L003), returns L004 not L003."""
+        from skills.pairmode.scripts.lesson_utils import next_lesson_id
+        lessons = [_make_lesson("L001"), _make_lesson("L003")]
+        assert next_lesson_id(lessons) == "L004"
+
+    def test_larger_gap(self):
+        """With L001, L002, L010, returns L011."""
+        from skills.pairmode.scripts.lesson_utils import next_lesson_id
+        lessons = [_make_lesson("L001"), _make_lesson("L002"), _make_lesson("L010")]
+        assert next_lesson_id(lessons) == "L011"
+
+
+# ---------------------------------------------------------------------------
+# load_lessons error handling
+# ---------------------------------------------------------------------------
+
+class TestLoadLessonsErrorHandling:
+    def test_missing_file_raises_runtime_error(self, tmp_path, monkeypatch):
+        """load_lessons raises RuntimeError when lessons.json does not exist."""
+        import skills.pairmode.scripts.lesson_utils as lu
+        absent = tmp_path / "lessons.json"
+        monkeypatch.setattr(lu, "LESSONS_FILE", absent)
+        with pytest.raises(RuntimeError) as exc_info:
+            lu.load_lessons()
+        msg = str(exc_info.value)
+        assert "lessons.json" in msg
+        assert str(absent) in msg
+
+    def test_existing_file_returns_list(self, lessons_file):
+        """load_lessons returns a dict when file exists (existing behaviour)."""
+        lu, _ = lessons_file
+        result = lu.load_lessons()
+        assert isinstance(result, dict)
+        assert "lessons" in result

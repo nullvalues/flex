@@ -19,6 +19,7 @@ from skills.pairmode.scripts.audit import (
     _enrich_scaffold_context,
     _check_ideology_staleness,
     _check_reconstruction_staleness,
+    _load_overrides,
     SCAFFOLD_FILES,
 )
 from skills.pairmode.scripts import audit as _audit_mod
@@ -1951,4 +1952,220 @@ class TestAuditReconstructionMd:
         ]
         assert len(reconstruction_missing) > 0, (
             f"Expected reconstruction MISSING finding, got: {result.missing}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Story AUDIT-001 — .pairmode-overrides suppression
+# ---------------------------------------------------------------------------
+
+
+def _write_overrides(project_dir: Path, lines: list[str]) -> None:
+    """Write .pairmode-overrides at project root."""
+    content = "\n".join(lines) + "\n"
+    (project_dir / ".pairmode-overrides").write_text(content, encoding="utf-8")
+
+
+class TestLoadOverrides:
+    """Unit tests for _load_overrides helper."""
+
+    def test_no_file_returns_empty_set(self, tmp_path: Path) -> None:
+        assert _load_overrides(tmp_path) == set()
+
+    def test_empty_file_returns_empty_set(self, tmp_path: Path) -> None:
+        (tmp_path / ".pairmode-overrides").write_text("", encoding="utf-8")
+        assert _load_overrides(tmp_path) == set()
+
+    def test_comment_lines_ignored(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, ["# this is a comment", "# another comment"])
+        assert _load_overrides(tmp_path) == set()
+
+    def test_blank_lines_ignored(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, ["", "   ", ""])
+        assert _load_overrides(tmp_path) == set()
+
+    def test_valid_entry_parsed(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, ["CLAUDE.md:review checklist"])
+        assert _load_overrides(tmp_path) == {("CLAUDE.md", "review checklist")}
+
+    def test_multiple_entries_parsed(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, [
+            "CLAUDE.md:review checklist",
+            ".claude/agents/reviewer.md:checklist",
+        ])
+        assert _load_overrides(tmp_path) == {
+            ("CLAUDE.md", "review checklist"),
+            (".claude/agents/reviewer.md", "checklist"),
+        }
+
+    def test_whitespace_stripped(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, ["  CLAUDE.md : review checklist  "])
+        assert _load_overrides(tmp_path) == {("CLAUDE.md", "review checklist")}
+
+    def test_line_without_colon_ignored(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, ["CLAUDE.md review checklist"])
+        assert _load_overrides(tmp_path) == set()
+
+    def test_mixed_valid_and_comment_lines(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, [
+            "# comment",
+            "CLAUDE.md:review checklist",
+            "",
+            "# another comment",
+            ".claude/agents/reviewer.md:checklist",
+        ])
+        assert _load_overrides(tmp_path) == {
+            ("CLAUDE.md", "review checklist"),
+            (".claude/agents/reviewer.md", "checklist"),
+        }
+
+
+class TestAuditOverridesSuppress:
+    """Integration: .pairmode-overrides suppresses INCONSISTENT and MISSING findings."""
+
+    def _get_first_canonical_section_key(self) -> str:
+        """Return the normalised key for the first ## header in CLAUDE.md.j2."""
+        import re
+        canonical_text = (_audit_mod.TEMPLATES_DIR / "CLAUDE.md.j2").read_text(encoding="utf-8")
+        headers = re.findall(r"^## .+", canonical_text, re.MULTILINE)
+        assert headers, "CLAUDE.md.j2 must have at least one ## header"
+        from skills.pairmode.scripts.audit import _normalise
+        return _normalise(headers[0])
+
+    def test_inconsistent_finding_suppressed_when_in_overrides(self, tmp_path: Path) -> None:
+        """An INCONSISTENT finding for a section declared in .pairmode-overrides is suppressed."""
+        import json as _json
+        import re
+
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        ctx = {
+            "project_name": "testproject",
+            "project_description": "",
+            "stack": "",
+            "build_command": "",
+            "test_command": "",
+            "migration_command": "",
+            "domain_model": "",
+            "domain_isolation_rule": "",
+            "checklist_items": [],
+            "protected_paths": [],
+            "non_negotiables": [],
+            "module_structure": [],
+            "layer_rules": [],
+        }
+        (companion / "pairmode_context.json").write_text(_json.dumps(ctx), encoding="utf-8")
+
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+
+        # Find the first real section key in CLAUDE.md
+        section_key = self._get_first_canonical_section_key()
+
+        # Alter the section body to produce an INCONSISTENT finding
+        claude_md = tmp_path / "CLAUDE.md"
+        existing = claude_md.read_text(encoding="utf-8")
+        canonical_text = (_audit_mod.TEMPLATES_DIR / "CLAUDE.md.j2").read_text(encoding="utf-8")
+        headers = re.findall(r"^## .+", canonical_text, re.MULTILINE)
+        first_header = headers[0]
+        altered = re.sub(
+            rf"({re.escape(first_header)}\n+)(.+?)(\n##|\Z)",
+            lambda m: m.group(1) + "COMPLETELY DIFFERENT CONTENT\n" + m.group(3),
+            existing,
+            count=1,
+            flags=re.DOTALL,
+        )
+        claude_md.write_text(altered, encoding="utf-8")
+
+        # Confirm without overrides this produces an INCONSISTENT finding
+        result_without = audit_project(tmp_path)
+        inconsistent_without = [
+            i for i in result_without.inconsistent
+            if i.file == "CLAUDE.md" and i.section == section_key
+        ]
+        assert len(inconsistent_without) > 0, (
+            f"Expected INCONSISTENT for section '{section_key}' without overrides"
+        )
+
+        # Now declare the section as an override
+        _write_overrides(tmp_path, [f"CLAUDE.md:{section_key}"])
+        result_with = audit_project(tmp_path)
+        inconsistent_with = [
+            i for i in result_with.inconsistent
+            if i.file == "CLAUDE.md" and i.section == section_key
+        ]
+        assert inconsistent_with == [], (
+            f"Expected INCONSISTENT for '{section_key}' to be suppressed by .pairmode-overrides, "
+            f"got: {inconsistent_with}"
+        )
+
+    def test_missing_finding_suppressed_when_in_overrides(self, tmp_path: Path) -> None:
+        """A MISSING finding for a section declared in .pairmode-overrides is suppressed."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+
+        # Remove CLAUDE.md entirely — all its sections become MISSING
+        (tmp_path / "CLAUDE.md").unlink()
+
+        # Without overrides, CLAUDE.md sections appear as MISSING
+        result_without = audit_project(tmp_path)
+        claude_missing_without = [i for i in result_without.missing if i.file == "CLAUDE.md"]
+        assert len(claude_missing_without) > 0, "Expected MISSING items for CLAUDE.md"
+
+        # Pick the first missing section key
+        first_missing_key = claude_missing_without[0].section
+
+        # Declare that section as an override
+        _write_overrides(tmp_path, [f"CLAUDE.md:{first_missing_key}"])
+        result_with = audit_project(tmp_path)
+        claude_missing_with = [
+            i for i in result_with.missing
+            if i.file == "CLAUDE.md" and i.section == first_missing_key
+        ]
+        assert claude_missing_with == [], (
+            f"Expected MISSING for '{first_missing_key}' to be suppressed by .pairmode-overrides, "
+            f"got: {claude_missing_with}"
+        )
+
+    def test_section_not_in_overrides_still_surfaces(self, tmp_path: Path) -> None:
+        """A MISSING finding for a section NOT in .pairmode-overrides still surfaces."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+
+        # Remove CLAUDE.md to produce multiple MISSING findings
+        (tmp_path / "CLAUDE.md").unlink()
+
+        # Get all missing sections
+        result_all_missing = audit_project(tmp_path)
+        claude_missing = [i for i in result_all_missing.missing if i.file == "CLAUDE.md"]
+        assert len(claude_missing) >= 2, "Need at least 2 missing sections for this test"
+
+        # Declare only the first section as override
+        first_key = claude_missing[0].section
+        second_key = claude_missing[1].section
+        _write_overrides(tmp_path, [f"CLAUDE.md:{first_key}"])
+
+        result = audit_project(tmp_path)
+        # The first section should be suppressed
+        suppressed = [i for i in result.missing if i.file == "CLAUDE.md" and i.section == first_key]
+        assert suppressed == [], f"Expected first section suppressed, got: {suppressed}"
+        # The second section should still appear
+        still_present = [i for i in result.missing if i.file == "CLAUDE.md" and i.section == second_key]
+        assert len(still_present) > 0, (
+            f"Expected second section '{second_key}' still in MISSING, got: {result.missing}"
+        )
+
+    def test_no_overrides_file_no_behavioral_change(self, tmp_path: Path) -> None:
+        """When .pairmode-overrides does not exist, audit behaves as before."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        (tmp_path / "CLAUDE.md").unlink()
+
+        # No .pairmode-overrides file
+        assert not (tmp_path / ".pairmode-overrides").exists()
+
+        result = audit_project(tmp_path)
+        claude_missing = [i for i in result.missing if i.file == "CLAUDE.md"]
+        assert len(claude_missing) > 0, (
+            "Expected MISSING items for CLAUDE.md when no .pairmode-overrides file"
         )

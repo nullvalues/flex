@@ -2139,3 +2139,324 @@ class TestBootstrapCreatesEra001:
         )
         stories_dir = tmp_path / "docs" / "stories"
         assert not stories_dir.exists() or not any(stories_dir.iterdir())
+
+
+# ---------------------------------------------------------------------------
+# INFRA-006: era double-prepend guard in _initialize_rails
+# ---------------------------------------------------------------------------
+
+class TestEraFrontmatterDoublePrependGuard:
+    """_initialize_rails must not double-prepend era frontmatter on re-bootstrap."""
+
+    def _run_initialize_rails(self, tmp_path: pathlib.Path, phase_content: str) -> str:
+        """Write a phase-1.md with *phase_content*, invoke bootstrap (ideology-skip),
+        and return the updated file content."""
+        from skills.pairmode.scripts.bootstrap import _initialize_rails
+
+        phases_dir = tmp_path / "docs" / "phases"
+        phases_dir.mkdir(parents=True, exist_ok=True)
+        phase_file = phases_dir / "phase-1.md"
+        phase_file.write_text(phase_content, encoding="utf-8")
+
+        # Also create docs/eras/ so _initialize_rails doesn't complain
+        eras_dir = tmp_path / "docs" / "eras"
+        eras_dir.mkdir(parents=True, exist_ok=True)
+
+        context = {"project_name": "testproject"}
+        _initialize_rails(
+            project_dir=tmp_path,
+            context=context,
+            stack="Python / pytest",
+            dry_run=False,
+            ideology_skip=True,
+        )
+        return phase_file.read_text(encoding="utf-8")
+
+    def test_no_double_frontmatter_when_era_already_present(self, tmp_path: pathlib.Path) -> None:
+        """Phase file with existing era: \"001\" frontmatter must not get a second block prepended."""
+        original = '---\nera: "001"\n---\n\n# Phase 1\n\nContent here.\n'
+        result = self._run_initialize_rails(tmp_path, original)
+
+        # Count the number of --- delimiters: should be exactly 2 (one open, one close block)
+        frontmatter_delimiters = [line.strip() for line in result.splitlines() if line.strip() == "---"]
+        assert len(frontmatter_delimiters) == 2, (
+            f"Expected exactly one frontmatter block (2 delimiters), "
+            f"got {len(frontmatter_delimiters)}.\nFile content:\n{result}"
+        )
+
+    def test_era_frontmatter_prepended_when_absent(self, tmp_path: pathlib.Path) -> None:
+        """Phase file with no frontmatter gets era: \"001\" prepended exactly once."""
+        original = "# Phase 1\n\nContent here.\n"
+        result = self._run_initialize_rails(tmp_path, original)
+
+        assert 'era: "001"' in result, "era frontmatter not added to file without frontmatter"
+        # Still only one frontmatter block
+        frontmatter_delimiters = [line.strip() for line in result.splitlines() if line.strip() == "---"]
+        assert len(frontmatter_delimiters) == 2, (
+            f"Expected exactly one frontmatter block after prepend, "
+            f"got {len(frontmatter_delimiters)}.\nFile content:\n{result}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# --from-reconstruction ideology dimension tests (INFRA-007)
+# ---------------------------------------------------------------------------
+
+class TestFromReconstructionIdeologyDimensions:
+    """Tests that --from-reconstruction passes should_question and free_to_change
+    through to ideology.md rendering."""
+
+    _RECONSTRUCTION_BRIEF_WITH_SECTIONS = """\
+# Reconstruction brief — testproject
+
+## Non-negotiable ideology
+
+### Convictions
+- Correctness over speed
+
+### Constraints
+
+#### Data integrity
+**Rule:** Never drop data silently
+
+## What must survive any implementation
+- The core data model
+
+## What you should question
+- We should question whether batch processing is actually needed
+- We should question the current retry strategy
+
+## What you are free to change
+- File naming conventions
+- Log formatting
+
+## Comparison rubric
+- **Correctness:** Does it produce right answers?
+"""
+
+    _RECONSTRUCTION_BRIEF_NO_OPTIONAL_SECTIONS = """\
+# Reconstruction brief — testproject
+
+## Non-negotiable ideology
+
+### Convictions
+- Correctness over speed
+
+## What must survive any implementation
+- The core data model
+"""
+
+    def _write_brief(self, tmp_path: pathlib.Path, content: str) -> pathlib.Path:
+        brief_path = tmp_path / "reconstruction.md"
+        brief_path.write_text(content, encoding="utf-8")
+        return brief_path
+
+    def _run_from_reconstruction(
+        self, tmp_path: pathlib.Path, brief_path: pathlib.Path
+    ) -> object:
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--from-reconstruction", str(brief_path),
+                "--ideology-skip",
+            ],
+            catch_exceptions=False,
+        )
+        return result
+
+    def test_should_question_and_free_to_change_rendered_in_ideology_md(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """--from-reconstruction populates should_question and free_to_change in ideology.md."""
+        brief_path = self._write_brief(
+            tmp_path, self._RECONSTRUCTION_BRIEF_WITH_SECTIONS
+        )
+        result = self._run_from_reconstruction(tmp_path, brief_path)
+        assert result.exit_code == 0, result.output
+
+        ideology = (tmp_path / "docs" / "ideology.md").read_text(encoding="utf-8")
+        assert "should question whether batch processing" in ideology, (
+            "Expected 'should question whether batch processing' in ideology.md.\n"
+            f"ideology.md content:\n{ideology}"
+        )
+        assert "File naming conventions" in ideology, (
+            "Expected 'File naming conventions' in ideology.md.\n"
+            f"ideology.md content:\n{ideology}"
+        )
+
+    def test_missing_should_question_section_renders_without_error(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """Brief with no should_question/free_to_change sections renders ideology.md without error."""
+        brief_path = self._write_brief(
+            tmp_path, self._RECONSTRUCTION_BRIEF_NO_OPTIONAL_SECTIONS
+        )
+        result = self._run_from_reconstruction(tmp_path, brief_path)
+        assert result.exit_code == 0, result.output
+
+        ideology = (tmp_path / "docs" / "ideology.md").read_text(encoding="utf-8")
+        # The template renders placeholder text when lists are empty — just ensure the file exists
+        # and the relevant sections are present (no crash).
+        assert "### Should question" in ideology or "should question" in ideology.lower(), (
+            "Expected 'Should question' section in ideology.md.\n"
+            f"ideology.md content:\n{ideology}"
+        )
+        assert "### Free to change" in ideology or "free to change" in ideology.lower(), (
+            "Expected 'Free to change' section in ideology.md.\n"
+            f"ideology.md content:\n{ideology}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# BOOTSTRAP-001: --yes / -y flag tests
+# ---------------------------------------------------------------------------
+
+
+class TestYesFlag:
+    """--yes / -y auto-confirms all prompts without requiring stdin."""
+
+    def test_yes_flag_bootstrap_completes_successfully(self, tmp_path):
+        """--yes: all scaffold files written, exit code 0, no prompts required."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        for rel in EXPECTED_DEST_PATHS:
+            assert (tmp_path / rel).exists(), (
+                f"Expected {rel} to be created with --yes.\nCLI output:\n{result.output}"
+            )
+
+    def test_short_yes_flag_works(self, tmp_path):
+        """-y (short form) is accepted and behaves identically to --yes."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "-y",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "CLAUDE.md").exists()
+
+    def test_yes_overwrites_existing_files_without_prompt(self, tmp_path):
+        """--yes on an existing project: files overwritten without confirmation prompt."""
+        # First bootstrap
+        run_bootstrap(tmp_path)
+
+        # Overwrite CLAUDE.md with sentinel
+        (tmp_path / "CLAUDE.md").write_text("sentinel content", encoding="utf-8")
+
+        # Second bootstrap with --yes and NO stdin input
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+            ],
+            # Deliberately provide no input to verify no prompts are issued
+            input=None,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+        assert "sentinel content" not in content, (
+            "--yes should overwrite CLAUDE.md without prompting"
+        )
+        assert "testproject" in content
+
+    def test_yes_ideology_skip_fully_non_interactive(self, tmp_path):
+        """--yes --ideology-skip: bootstrap completes fully without any prompts or stdin."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+                "--ideology-skip",
+            ],
+            input=None,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        # Scaffold files created
+        assert (tmp_path / "CLAUDE.md").exists()
+        assert (tmp_path / "docs/ideology.md").exists()
+        # Rails created
+        for rail in PAIRMODE_DEFAULT_RAILS["generic"]:
+            assert (tmp_path / "docs" / "stories" / rail).exists()
+
+    def test_yes_suppresses_ideology_warning(self, tmp_path):
+        """--yes: ideology placeholder warning is NOT emitted (--yes implies intentional skip)."""
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+            ],
+            input=None,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert "docs/ideology.md will be written as placeholder" not in result.output
+
+    def test_yes_flag_in_help(self):
+        """--yes flag must appear in help output."""
+        runner = CliRunner()
+        result = runner.invoke(bootstrap, ["--help"])
+        assert result.exit_code == 0
+        assert "yes" in result.output
+
+    def test_existing_tests_still_pass_without_yes_flag(self, tmp_path):
+        """Regression: bootstrap without --yes still prompts as before."""
+        # First bootstrap to create files
+        run_bootstrap(tmp_path)
+
+        # Write sentinel
+        (tmp_path / "CLAUDE.md").write_text("sentinel", encoding="utf-8")
+
+        # Second run without --yes, decline overwrite prompt
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+            ],
+            input="n\n" * 20,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        # File should be unchanged (user declined)
+        assert (tmp_path / "CLAUDE.md").read_text() == "sentinel"

@@ -46,7 +46,7 @@ def capture_lesson(
     """
     data = lesson_utils.load_lessons()
 
-    lesson_id = lesson_utils.next_lesson_id(data)
+    lesson_id = lesson_utils.next_lesson_id(data.get("lessons", []))
     today = date.today().isoformat()
 
     lesson = {

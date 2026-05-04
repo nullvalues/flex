@@ -113,7 +113,8 @@ def score(project_dir: str, brief: str | None, force: bool) -> None:
     loader = jinja2.FileSystemLoader(str(template_dir))
     env = jinja2.Environment(
         loader=loader,
-        undefined=jinja2.StrictUndefined,
+        # Lenient — scoring report generation must not crash on missing brief fields.
+        undefined=jinja2.Undefined,
         keep_trailing_newline=True,
     )
     template = env.get_template("RECONSTRUCTION.md.j2")

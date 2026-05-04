@@ -87,6 +87,52 @@ def test_story_invalid_status(tmp_path):
     assert any("status" in e.lower() for e in errors), f"Expected status error, got: {errors}"
 
 
+def test_story_draft_empty_primary_files_allowed(tmp_path):
+    """status: draft with empty primary_files must not produce an error."""
+    content = (
+        VALID_STORY
+        .replace("status: planned", "status: draft")
+        .replace("  - src/main.py\n", "")
+    )
+    p = _write(tmp_path, "story.md", content)
+    errors = validate_story_file(p)
+    assert not any("primary_files" in e for e in errors), (
+        f"Expected no primary_files error for draft story, got: {errors}"
+    )
+
+
+def test_story_backlog_empty_primary_files_allowed(tmp_path):
+    """status: backlog with empty primary_files must not produce an error."""
+    content = (
+        VALID_STORY
+        .replace("status: planned", "status: backlog")
+        .replace("  - src/main.py\n", "")
+    )
+    p = _write(tmp_path, "story.md", content)
+    errors = validate_story_file(p)
+    assert not any("primary_files" in e for e in errors), (
+        f"Expected no primary_files error for backlog story, got: {errors}"
+    )
+
+
+def test_story_planned_empty_primary_files_errors(tmp_path):
+    """status: planned with empty primary_files must produce an error."""
+    content = VALID_STORY.replace("  - src/main.py\n", "")
+    p = _write(tmp_path, "story.md", content)
+    errors = validate_story_file(p)
+    assert any("primary_files" in e for e in errors), (
+        f"Expected primary_files error for planned story, got: {errors}"
+    )
+
+
+def test_story_complete_with_primary_files_no_error(tmp_path):
+    """status: complete with non-empty primary_files must not produce an error."""
+    content = VALID_STORY.replace("status: planned", "status: complete")
+    p = _write(tmp_path, "story.md", content)
+    errors = validate_story_file(p)
+    assert errors == [], f"Expected no errors for complete story with files, got: {errors}"
+
+
 # ---------------------------------------------------------------------------
 # Era file tests
 # ---------------------------------------------------------------------------

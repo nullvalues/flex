@@ -168,11 +168,21 @@ def _load_or_create_backlog(backlog_path: Path) -> list[dict]:
 
     content = backlog_path.read_text(encoding="utf-8")
     try:
-        return _parse_entries_from_backlog(content)
+        entries = _parse_entries_from_backlog(content)
     except Exception as exc:
         raise click.ClickException(
             f"Could not parse {backlog_path}: {exc}"
         ) from exc
+
+    if len(content.splitlines()) > 5 and len(entries) == 0:
+        click.echo(
+            "Warning: backlog.md exists but no table rows were parsed. "
+            "The file may have non-standard formatting. "
+            "Existing CER IDs may not be detected — verify before appending.",
+            err=True,
+        )
+
+    return entries
 
 
 def append_finding(
@@ -322,6 +332,10 @@ def cli(
 ) -> None:
     """Triage a cold-eyes review finding into docs/cer/backlog.md."""
     proj = Path(project_dir).resolve()
+
+    if not proj.is_dir() or len(proj.parts) < 3:
+        click.echo("Error: --project-dir is too shallow or not a directory.", err=True)
+        raise SystemExit(1)
 
     # --- Non-interactive path ---
     if finding is not None and quadrant is not None:

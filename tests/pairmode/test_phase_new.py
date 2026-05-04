@@ -499,3 +499,31 @@ class TestEraFrontmatterInPhaseFile:
         assert "era:" not in content
         # Frontmatter block should be absent — file must not start with ---
         assert not content.startswith("---")
+
+
+# ---------------------------------------------------------------------------
+# Tests: depth guard
+# ---------------------------------------------------------------------------
+
+
+class TestDepthGuard:
+    """phase_new depth guard rejects too-shallow project directories."""
+
+    def test_project_dir_root_exits_nonzero(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            phase_new,
+            ["--project-dir", "/", "--phase-id", "1", "--title", "T", "--goal", ""],
+            catch_exceptions=False,
+        )
+        assert result.exit_code != 0
+        assert "too shallow" in result.output.lower()
+
+    def test_project_dir_tmp_exits_nonzero(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            phase_new,
+            ["--project-dir", "/tmp", "--phase-id", "1", "--title", "T", "--goal", ""],
+            catch_exceptions=False,
+        )
+        assert result.exit_code != 0

@@ -1226,6 +1226,23 @@ class TestCerBacklogTemplateWithEntries:
 import re
 
 
+class TestClaudeBuildMdPermissionScopeCommands:
+    """Story BUILD-002: CLAUDE.build.md.j2 must contain explicit bash commands for
+    write_story_permissions, clear_story_permissions, and story_update."""
+
+    def setup_method(self):
+        self.output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
+
+    def test_write_story_permissions_present(self):
+        assert "write_story_permissions" in self.output
+
+    def test_clear_story_permissions_present(self):
+        assert "clear_story_permissions" in self.output
+
+    def test_story_update_py_present(self):
+        assert "story_update.py" in self.output
+
+
 class TestClaudeBuildMdPhasePromptsReferences:
     """Assert that CLAUDE.build.md.j2 references phase-prompts.md only as a
     parenthetical legacy fallback, never as a standalone primary instruction."""
