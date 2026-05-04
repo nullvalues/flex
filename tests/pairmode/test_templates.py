@@ -1652,3 +1652,84 @@ class TestReconstructionAgentTemplate:
 
     def test_allowed_tools_in_frontmatter(self):
         assert "allowed-tools" in self.output
+
+
+# ---------------------------------------------------------------------------
+# Story INFRA-026 — reviewer-class agents pinned to model: opus
+# ---------------------------------------------------------------------------
+
+import sys as _sys
+
+_SCRIPTS_DIR = (
+    pathlib.Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts"
+)
+if str(_SCRIPTS_DIR) not in _sys.path:
+    _sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from schema_validator import _parse_frontmatter  # noqa: E402
+
+
+REVIEWER_CLASS_TEMPLATES = [
+    "agents/reviewer.md.j2",
+    "agents/intent-reviewer.md.j2",
+    "agents/loop-breaker.md.j2",
+    "agents/security-auditor.md.j2",
+]
+
+
+class TestReviewerClassAgentsPinnedToOpus:
+    """Story INFRA-026: reviewer-class agent templates carry `model: opus` in
+    YAML frontmatter; builder remains pinned to `sonnet`."""
+
+    @pytest.mark.parametrize("template_name", REVIEWER_CLASS_TEMPLATES)
+    def test_reviewer_class_template_has_model_opus(self, template_name):
+        rendered = render(template_name, AGENT_CONTEXT)
+        fm = _parse_frontmatter(rendered)
+        assert fm is not None, (
+            f"{template_name}: rendered output has no parseable frontmatter"
+        )
+        assert "model" in fm, (
+            f"{template_name}: frontmatter missing `model` key — got keys {sorted(fm)}"
+        )
+        assert fm["model"] == "opus", (
+            f"{template_name}: expected model=opus, got model={fm['model']!r}"
+        )
+
+    @pytest.mark.parametrize("template_name", REVIEWER_CLASS_TEMPLATES)
+    def test_reviewer_class_template_raw_source_has_model_opus(self, template_name):
+        # Also verify the raw template source carries the pin (pre-render),
+        # so a project bootstrapped from these files inherits the pin even
+        # if the consuming Jinja context does not pass any model variable.
+        raw = (TEMPLATES_DIR / template_name).read_text(encoding="utf-8")
+        fm = _parse_frontmatter(raw)
+        assert fm is not None, (
+            f"{template_name}: raw template has no parseable frontmatter"
+        )
+        assert fm.get("model") == "opus", (
+            f"{template_name}: raw template expected model=opus, got {fm.get('model')!r}"
+        )
+
+    def test_builder_template_pinned_to_sonnet(self):
+        rendered = render("agents/builder.md.j2", AGENT_CONTEXT)
+        fm = _parse_frontmatter(rendered)
+        assert fm is not None, "builder.md.j2 has no parseable frontmatter"
+        assert fm.get("model") == "sonnet", (
+            f"builder.md.j2: expected model=sonnet, got {fm.get('model')!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "template_name",
+        REVIEWER_CLASS_TEMPLATES + ["agents/builder.md.j2"],
+    )
+    def test_affected_templates_have_valid_frontmatter(self, template_name):
+        rendered = render(template_name, AGENT_CONTEXT)
+        fm = _parse_frontmatter(rendered)
+        assert fm is not None, (
+            f"{template_name}: rendered output produced no parseable frontmatter"
+        )
+        # Sanity-check the frontmatter at least carries the canonical fields
+        # all agent templates have (`name` and `description`).
+        assert "name" in fm, f"{template_name}: missing `name` in frontmatter"
+        assert "description" in fm, (
+            f"{template_name}: missing `description` in frontmatter"
+        )
