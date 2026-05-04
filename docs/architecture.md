@@ -216,6 +216,7 @@ Hooks must:
 The sidebar does all heavy work asynchronously. If the sidebar is not running, the pipe write
 silently fails and the session continues normally — no data is lost because the session
 transcript is always available for later mining.
+See `docs/pipe-architecture.md` for the project-scoped pipe design, its backwards-compatibility guarantee, and what changed relative to the original single-pipe design.
 
 **Protected-file classification** belongs in the sidebar, not in the hook.
 The sidebar loads `.claude/settings.deny-rationale.json` lazily on first use (cached
