@@ -165,6 +165,24 @@
         "all"
       ],
       "status": "captured"
+    },
+    {
+      "id": "L010",
+      "date": "2026-05-04",
+      "source_project": "anchor",
+      "trigger": "Forqsite restricted reviewer tools to [Read, Grep, Glob, Bash]; cora and radar did not. Cross-project audit surfaced the divergence.",
+      "problem": "Reviewers with full tool access can \"fix\" failing code (edit a test until it passes, edit production until the test passes) instead of reverting, hiding the real failure. Concrete example: a reviewer faced with a failing assertion can edit the assertion to match the (wrong) actual output and commit, presenting a green test that no longer tests the invariant. This compromises the commit-or-revert contract.",
+      "learning": "Reviewer-class agents should be limited to read-only tools plus Bash. Bash preserves the commit-or-revert capability via git; Edit/Write removal closes the \"reviewer backdoor\" failure mode. This is layered with the orchestrator's pre-reviewer commit discipline (which protects against accidental erasure of uncommitted methodology files) \u2014 neither layer alone is sufficient.",
+      "methodology_change": {
+        "affects": [
+          "pairmode-builder-reviewer-loop"
+        ],
+        "description": "Pairmode templates restrict reviewer tools. INFRA-027 implements this."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured"
     }
   ]
 }
