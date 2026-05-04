@@ -272,9 +272,10 @@ Create `skills/pairmode/scripts/spec_reader.py`.
 ```python
 def read_project_spec(companion_dir: Path) -> dict | None:
     """
-    Reads .companion/product.json to find spec_location, then reads all
-    spec.json files from <spec_location>/openspec/specs/*/spec.json.
-    Returns None if no spec is found.
+    Reads .companion/product.json["config"] to find the config file path,
+    then reads config["spec_location"] to locate the openspec directory,
+    then reads all spec.json files from <spec_location>/openspec/specs/*/spec.json.
+    Returns None if product.json is missing or has no 'config' key.
     Returns dict with keys:
       modules: list of spec dicts (full spec.json content per module)
       spec_location: Path
@@ -334,8 +335,10 @@ Tests pass.
 Create `skills/pairmode/scripts/denylist_deriver.py`.
 
 ```python
-def derive_denylist(modules: list[dict]) -> list[dict]:
+def derive_denylist(modules: list[dict], module_paths: dict[str, list[str]]) -> list[dict]:
     """
+    modules: list of spec.json dicts.
+    module_paths: mapping of module name → list of path strings (from .companion/modules.json).
     Returns list of dicts:
       { "path_pattern": str, "non_negotiable": str, "module": str }
     path_pattern is suitable for settings.json deny array (e.g. "Edit(src/services/auth/**)")
@@ -371,6 +374,10 @@ Update `skills/pairmode/scripts/bootstrap.py` to:
 2. If spec found: call `checklist_deriver.derive_checklist(modules)` and
    `denylist_deriver.derive_denylist(modules, module_paths)`
 3. If no spec: use universal defaults
+
+Edge case: if spec is present but no deny rules are derived (e.g. no module paths
+registered in modules.json), bootstrap falls back to DEFAULT_DENY. A spec with no
+path mappings is treated the same as no spec for deny-list purposes.
 4. Pass derived data to templates
 
 IMPORTANT: Pass only spec-derived items in `checklist_items`. Do NOT include universal items
@@ -560,6 +567,12 @@ canonical templates + applicable lessons. Output matches the format defined in a
 
 Create `skills/pairmode/scripts/audit.py`.
 
+Import pattern: audit.py may call `lesson_utils.load_lessons()` directly. Use the same
+relative-import workaround already established in other pairmode scripts (sys.path insertion
+or PYTHONPATH). Do not introduce a new import pattern without aligning with lesson.py and
+bootstrap.py. The pattern is: at the top of the script, insert the anchor repo root into
+sys.path before importing sibling modules.
+
 Audit logic:
 1. Read project's `.companion/state.json` for `pairmode_version`
 2. Load canonical templates at current version
@@ -571,7 +584,7 @@ Audit logic:
    - EXTRA: project-specific items not in canonical (preserve these)
 
 ```python
-def audit_project(project_dir: Path) -> AuditResult:
+def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
     """
     Returns AuditResult with:
       missing: list[AuditItem]

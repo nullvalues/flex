@@ -15,6 +15,10 @@ import sys
 import click
 import jinja2
 
+from skills.pairmode.scripts import spec_reader as _spec_reader
+from skills.pairmode.scripts import checklist_deriver as _checklist_deriver
+from skills.pairmode.scripts import denylist_deriver as _denylist_deriver
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -241,7 +245,44 @@ def bootstrap(
     test_command = build_command
 
     # ------------------------------------------------------------------
-    # 2. Build template context
+    # 2. Derive spec-based checklist and deny list (if spec present)
+    # ------------------------------------------------------------------
+    companion_dir = project_path / ".companion"
+    spec = _spec_reader.read_project_spec(companion_dir)
+
+    if spec is not None:
+        modules = spec["modules"]
+
+        # Load module_paths from .companion/modules.json
+        modules_json_path = companion_dir / "modules.json"
+        if modules_json_path.exists():
+            try:
+                raw_modules = json.loads(modules_json_path.read_text(encoding="utf-8"))
+                module_paths: dict[str, list[str]] = {
+                    entry["name"]: entry.get("paths", [])
+                    for entry in raw_modules
+                    if "name" in entry
+                }
+            except (json.JSONDecodeError, KeyError):
+                module_paths = {}
+        else:
+            module_paths = {}
+
+        derived_checklist = _checklist_deriver.derive_checklist(modules)
+        derived_denylist = _denylist_deriver.derive_denylist(modules, module_paths)
+    else:
+        derived_checklist = []
+        derived_denylist = []
+
+    # The effective deny list: spec-derived when available, static default otherwise.
+    effective_deny = (
+        [rule["path_pattern"] for rule in derived_denylist]
+        if derived_denylist
+        else DEFAULT_DENY
+    )
+
+    # ------------------------------------------------------------------
+    # 3. Build template context
     # ------------------------------------------------------------------
     context: dict = {
         "project_name": project_name,
@@ -251,7 +292,7 @@ def bootstrap(
         "test_command": test_command,
         "migration_command": "",
         "domain_model": "",
-        "checklist_items": [],  # universal items (PROTECTED FILES, STORY SCOPE, BUILD GATE) are hardcoded in templates
+        "checklist_items": derived_checklist,  # spec-derived only; universal items are hardcoded in templates
         "protected_paths": [],
         "non_negotiables": [],
         # architecture.md.j2 needs these; provide empty defaults
@@ -262,7 +303,7 @@ def bootstrap(
     }
 
     # ------------------------------------------------------------------
-    # 3. Render and write scaffold files
+    # 4. Render and write scaffold files
     # ------------------------------------------------------------------
     if dry_run:
         click.echo("Dry run — no files will be written.\n")
@@ -279,17 +320,68 @@ def bootstrap(
         _write_file(dest, content, dry_run=dry_run)
 
     # ------------------------------------------------------------------
-    # 4. Merge deny list into .claude/settings.json
+    # 4.5. Save template context for audit/sync rendering
+    # ------------------------------------------------------------------
+    context_path = project_path / ".companion" / "pairmode_context.json"
+    serialisable_context = {
+        "project_name": context["project_name"],
+        "project_description": context["project_description"],
+        "stack": context["stack"],
+        "build_command": context["build_command"],
+        "test_command": context["test_command"],
+        "migration_command": context["migration_command"],
+        "domain_model": context["domain_model"],
+        "domain_isolation_rule": context["domain_isolation_rule"],
+        "checklist_items": context["checklist_items"],
+        "protected_paths": context["protected_paths"],
+        "non_negotiables": context["non_negotiables"],
+        "module_structure": context["module_structure"],
+        "layer_rules": context["layer_rules"],
+    }
+    if dry_run:
+        click.echo(f"  [dry-run] would save template context to: {context_path}")
+    else:
+        context_path.parent.mkdir(parents=True, exist_ok=True)
+        context_path.write_text(json.dumps(serialisable_context, indent=2) + "\n", encoding="utf-8")
+        click.echo(f"Saving template context to {context_path}")
+
+    # ------------------------------------------------------------------
+    # 5. Merge deny list into .claude/settings.json
     # ------------------------------------------------------------------
     settings_path = project_path / ".claude" / "settings.json"
     if dry_run:
         click.echo(f"\n  [dry-run] would merge deny list into: {settings_path}")
     else:
         click.echo(f"\nMerging deny list into {settings_path}")
-        _merge_deny_list(settings_path, DEFAULT_DENY)
+        _merge_deny_list(settings_path, effective_deny)
 
     # ------------------------------------------------------------------
-    # 5. Record pairmode version
+    # 6. Write deny-rationale sidecar
+    # ------------------------------------------------------------------
+    rationale_path = project_path / ".claude" / "settings.deny-rationale.json"
+    rationale_data: dict = {
+        "generated_by": "anchor:pairmode",
+        "pairmode_version": PAIRMODE_VERSION,
+        "rules": [
+            {
+                "pattern": rule["path_pattern"],
+                "module": rule["module"],
+                "non_negotiable": rule["non_negotiable"],
+            }
+            for rule in derived_denylist
+        ],
+    }
+    if dry_run:
+        click.echo(f"  [dry-run] would write deny rationale to: {rationale_path}")
+    else:
+        rationale_path.parent.mkdir(parents=True, exist_ok=True)
+        rationale_path.write_text(
+            json.dumps(rationale_data, indent=2) + "\n", encoding="utf-8"
+        )
+        click.echo(f"Writing deny rationale to {rationale_path}")
+
+    # ------------------------------------------------------------------
+    # 7. Record pairmode version
     # ------------------------------------------------------------------
     state_path = project_path / ".companion" / "state.json"
     if dry_run:

@@ -48,22 +48,38 @@ re-scaffolding a project after a major methodology revision.
 
 ### `/anchor:pairmode audit`
 
-**When to use:** Periodically, or before a sync, to understand how far a project's pairmode
-scaffold has drifted from the current canonical methodology.
+**When to use:** Compare a project's current pairmode scaffold against the canonical methodology
+to see what's drifted, missing, or project-specific.
 
-**Inputs expected:**
-- `.companion/state.json` in the target project — must contain `pairmode_version`.
-- Target project root path (prompted if not provided).
+**Inputs:**
+- Current directory (used as project-dir)
+- Optional: project type tag for lesson filtering (defaults to "all")
 
 **What it does:**
-1. Reads `pairmode_version` from `.companion/state.json`.
-2. Loads the current canonical templates from `skills/pairmode/templates/`.
-3. Loads applicable lessons from `anchor/lessons/lessons.json` whose `affects` field matches
-   this project's attributes.
-4. Renders canonical templates against the project's current context.
-5. Diffs the rendered output against the project's existing scaffold files.
-6. Produces a structured audit report: files that differ, sections that differ, lessons not yet
-   incorporated, and a recommended action for each delta.
+1. Check for `.companion/state.json` in current directory (reads `pairmode_version`).
+2. Run: `uv run python ${CLAUDE_SKILL_DIR}/scripts/audit.py --project-dir "$(pwd)"`
+3. Display the output (MISSING / INCONSISTENT / EXTRA sections).
+4. If there are MISSING or INCONSISTENT items, ask: "Run sync to apply these changes?"
+   - If yes → run sync (documented in sync command below)
+   - If no → display the output and stop
+
+**Output format:**
+```
+AUDIT: <project_name> vs pairmode v<version>
+
+MISSING
+  ✗ <file>: <description>
+
+INCONSISTENT
+  ~ <file>: <description>
+
+EXTRA (project-specific, keep as-is)
+  ✓ <file>: <description>
+
+RECOMMENDATION
+  Run /anchor:pairmode sync to apply missing/inconsistent items
+  Project-specific items will be preserved
+```
 
 **Outputs:**
 - A human-readable audit report printed to the session, summarizing all deltas and recommended
@@ -73,27 +89,38 @@ scaffold has drifted from the current canonical methodology.
 
 ### `/anchor:pairmode sync`
 
-**When to use:** After reviewing an audit report and deciding to incorporate upstream methodology
-changes into the project.
+**When to use:** Apply missing or inconsistent items from an audit result to bring a project's
+pairmode scaffold up to date with the current canonical methodology.
 
-**Inputs expected:**
-- Audit report from a preceding `/anchor:pairmode audit` run (or the user confirms a fresh audit
-  should be run first).
-- Target project root path.
-- User confirmation of which deltas to apply (all, or a selected subset).
+**Inputs:**
+- Current directory (used as project-dir)
+- Optional: project type tag for lesson filtering (defaults to "all")
 
 **What it does:**
-1. Runs (or reuses) an audit to identify deltas.
-2. For each selected delta, applies the canonical update to the project file while preserving
-   project-specific content in designated customisation zones (marked in templates with
-   `{# PROJECT_CUSTOM #}` blocks).
-3. Presents each proposed change to the user before writing.
-4. Writes approved changes and updates `pairmode_version` in `.companion/state.json`.
+1. Run audit to get current delta: `uv run python ${CLAUDE_SKILL_DIR}/scripts/audit.py --project-dir "$(pwd)"`
+2. Display the audit result
+3. If no MISSING or INCONSISTENT items: report "Already up to date" and stop
+4. Otherwise, confirm with user before applying changes
+5. Run: `uv run python ${CLAUDE_SKILL_DIR}/scripts/sync.py --project-dir "$(pwd)"`
+6. Display sync output
 
-**Outputs:**
-- Updated scaffold files in the target project.
-- Updated `pairmode_version` in `.companion/state.json`.
-- A sync summary listing every file changed.
+**Output format:**
+```
+SYNC COMPLETE — <project_name>
+
+Applied:
+  ✓ <description of each change>
+
+Preserved:
+  → <project-specific items kept>
+
+State updated: .companion/state.json
+```
+
+**What it never does:**
+- Never overwrites project-specific content (EXTRA items)
+- Never modifies hooks/ or spec files
+- Never runs without showing audit output first
 
 ---
 
@@ -102,24 +129,62 @@ changes into the project.
 **When to use:** At the end of a session (or any time) when a meaningful methodology insight has
 emerged — a workflow problem solved, a pattern discovered, a failure mode identified.
 
-**Inputs expected (prompted interactively):**
+**Inputs expected (prompted interactively via AskUserQuestion, or as CLI arguments):**
 - **trigger** — what situation or event prompted this lesson.
 - **problem** — what went wrong or was inefficient.
 - **learning** — the insight or corrective pattern.
 - **methodology_change** — how the methodology (templates, process, tooling) should change as
   a result.
-- **affects** — which project types or contexts this lesson applies to (used by audit to filter
-  relevant lessons).
+- **affects** — which components are affected (e.g. `reviewer_checklist`, `builder_agent`).
+- **applies_to** — which project types this applies to (e.g. `all`, `python`, `typescript`).
+- **source_project** — (optional) the project that produced this lesson; defaults to `unknown`.
 
 **What it does:**
-1. Prompts the user for each field.
-2. Constructs a lesson entry with a generated `id`, `date`, and `status: active`.
-3. Appends the entry to `anchor/lessons/lessons.json` (in the anchor repo, not the project).
-4. Lessons are append-only — existing entries are never modified except to update `status`.
+1. Loads the current `anchor/lessons/lessons.json`.
+2. Generates the next sequential lesson ID (L001, L002, …).
+3. Constructs a lesson entry with `id`, `date` (today), `source_project`, `trigger`, `problem`,
+   `learning`, `methodology_change` (with `affects` and `description`), `applies_to`, and
+   `status: captured`.
+4. Appends the entry to `anchor/lessons/lessons.json` via `lesson_utils.save_lessons()`, which
+   enforces the append-only invariant (existing entries may only have `status` changed).
+5. Calls `lesson_utils.generate_lessons_md()` and writes the result to `lessons/LESSONS.md`.
+6. Returns the captured lesson dict and prints a confirmation with the lesson `id`.
+
+**Lesson schema written to lessons.json:**
+```json
+{
+  "id": "L001",
+  "date": "YYYY-MM-DD",
+  "source_project": "project name or 'unknown'",
+  "trigger": "...",
+  "problem": "...",
+  "learning": "...",
+  "methodology_change": {
+    "affects": ["reviewer_checklist"],
+    "description": "..."
+  },
+  "applies_to": ["all"],
+  "status": "captured"
+}
+```
+
+**CLI invocation (for testing and direct use):**
+```bash
+uv run python skills/pairmode/scripts/lesson.py \
+  --trigger "Builder skipped tests" \
+  --problem "Tests failed after story was marked done." \
+  --learning "Always run tests before marking a story done." \
+  --methodology-change "Add test gate to builder checklist." \
+  --affects reviewer_checklist \
+  --affects builder_agent \
+  --applies-to all \
+  --source-project my-project
+```
 
 **Outputs:**
 - New entry appended to `anchor/lessons/lessons.json`.
-- Confirmation message with the lesson `id`.
+- `lessons/LESSONS.md` regenerated from the updated lessons store.
+- Confirmation message with the lesson `id` printed to stdout.
 
 ---
 
@@ -129,20 +194,64 @@ emerged — a workflow problem solved, a pattern discovered, a failure mode iden
 typically before a major bootstrap or sync campaign across projects.
 
 **Inputs expected:**
-- `anchor/lessons/lessons.json` — must exist with at least one `status: active` lesson.
-- User approval for each proposed template change.
+- `anchor/lessons/lessons.json` — must exist with at least one lesson with `status: captured`
+  or `status: reviewed`.
+- User approval or rejection for each proposed template change (handled via AskUserQuestion
+  in the skill; `lesson_review.py` provides the underlying logic).
 
 **What it does:**
-1. Loads all lessons with `status: active` from `anchor/lessons/lessons.json`.
-2. Groups lessons by their `affects` field to identify patterns across project types.
-3. For each group, proposes specific, minimal template updates that incorporate the learning.
-4. Presents each proposed change to the user with the source lesson(s) and rationale.
-5. Writes approved template updates to `skills/pairmode/templates/`.
-6. Updates the `status` of incorporated lessons to `incorporated` in `lessons.json`.
-7. Increments the canonical `pairmode_version` if any templates were updated.
+1. Calls `load_reviewable_lessons()` — loads all lessons with `status: captured` or
+   `status: reviewed` from `anchor/lessons/lessons.json`.
+2. Calls `group_lessons_by_affects()` — groups lessons by the `methodology_change.affects`
+   values. A lesson with `affects: ["all"]` appears under every known affects key
+   (`reviewer_checklist`, `builder_agent`, `orchestrator`, `checkpoint_sequence`).
+3. For each lesson, calls `propose_template_change()` to produce a proposal dict:
+   - `lesson_id` — the lesson's ID
+   - `affects` — the specific affects value for this proposal
+   - `template_file` — relative path to the template to edit (see mapping below)
+   - `description` — the methodology change description from the lesson
+   - `lesson_trigger` — copied from lesson for context
+   - `lesson_learning` — copied from lesson for context
+4. Presents each proposed change to the user (via AskUserQuestion) with the source
+   lesson and rationale.
+5. For approved lessons: calls `apply_template_change(proposal, change_text)` which
+   appends a Jinja2 comment block `{# LESSON <id>: <change_text> #}` to the template
+   file, then marks the lesson `status: applied`.
+6. For rejected lessons: marks the lesson `status: reviewed` (for future consideration).
+7. Calls `regenerate_lessons_md()` to write an updated `lessons/LESSONS.md`.
+
+**Affects → template file mapping:**
+
+| affects value         | template file                                         |
+|-----------------------|-------------------------------------------------------|
+| `reviewer_checklist`  | `skills/pairmode/templates/CLAUDE.md.j2`              |
+| `builder_agent`       | `skills/pairmode/templates/agents/builder.md.j2`      |
+| `orchestrator`        | `skills/pairmode/templates/CLAUDE.build.md.j2`        |
+| `checkpoint_sequence` | `skills/pairmode/templates/CLAUDE.build.md.j2`        |
+| `all`                 | all three template files (one proposal per file)      |
+
+**Template comment format written by `apply_template_change`:**
+```
+{# LESSON L001: <change_text> #}
+```
+This marks the location for the developer to implement the change manually. The comment
+is appended to the end of the template file.
+
+**CLI invocation (for direct use / automation):**
+```bash
+uv run python skills/pairmode/scripts/lesson_review.py \
+  --approve L001 \
+  --approve L002 \
+  --reject L003
+```
+- `--approve LESSON_ID` (repeatable): apply_template_change is called with the lesson's
+  own description as change_text, then status is set to `applied`.
+- `--reject LESSON_ID` (repeatable): status is set to `reviewed`.
+- After processing all flags, `regenerate_lessons_md()` is called automatically.
 
 **Outputs:**
-- Updated Jinja2 templates in `skills/pairmode/templates/`.
-- Updated `status` fields in `anchor/lessons/lessons.json`.
-- Updated canonical `pairmode_version`.
-- A review summary listing every change made.
+- Jinja2 comment blocks appended to affected template files in `skills/pairmode/templates/`.
+- Updated `status` fields in `anchor/lessons/lessons.json` (via `lesson_utils.save_lessons()`,
+  which enforces the append-only invariant).
+- `lessons/LESSONS.md` regenerated from the updated lessons store.
+- A review summary printed to stdout.

@@ -1,0 +1,382 @@
+"""
+sync.py — Pairmode project syncer.
+
+Applies the delta from an audit result to a project non-destructively.
+Project-specific content (EXTRA items) is always preserved.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+
+import click
+import jinja2
+
+# Insert anchor repo root so sibling imports work when run as CLI
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+from skills.pairmode.scripts.audit import audit_project, AuditResult, AuditItem  # noqa: E402
+from skills.pairmode.scripts.audit import (  # noqa: E402
+    TEMPLATES_DIR,
+    CANONICAL_FILES,
+    PAIRMODE_VERSION,
+    _split_sections,
+    _normalise,
+)
+
+# ---------------------------------------------------------------------------
+# Data types
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SyncResult:
+    project_dir: Path
+    applied: list[str] = field(default_factory=list)
+    preserved: list[str] = field(default_factory=list)
+    pairmode_version: str = PAIRMODE_VERSION
+    last_sync: str = field(default_factory=lambda: date.today().isoformat())
+    lessons_applied: list[str] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Section-aware merge helpers
+# ---------------------------------------------------------------------------
+
+
+def _header_from_key(key: str) -> str:
+    """Convert a normalised section key back to a best-effort header.
+
+    Keys derived from ``## Foo bar`` headers will have the form ``## foo bar``.
+    We just title-case words after the leading ``#`` markers.
+    """
+    return key
+
+
+def _split_by_h2(text: str) -> list[tuple[str, str]]:
+    """Split text into (header_line, section_body) pairs.
+
+    The first tuple's header_line may be empty (preamble content).
+    Each section_body does NOT include the trailing newline before the next header.
+    """
+    lines = text.splitlines(keepends=True)
+    parts: list[tuple[str, str]] = []
+    current_header = ""
+    current_body_lines: list[str] = []
+
+    for line in lines:
+        if line.startswith("## "):
+            # Flush previous section
+            parts.append((current_header, "".join(current_body_lines)))
+            current_header = line.rstrip("\n")
+            current_body_lines = []
+        else:
+            current_body_lines.append(line)
+
+    # Flush final section
+    parts.append((current_header, "".join(current_body_lines)))
+    return parts
+
+
+def _reconstruct_from_parts(parts: list[tuple[str, str]]) -> str:
+    """Reconstruct a file from (header_line, body) pairs."""
+    chunks: list[str] = []
+    for header, body in parts:
+        if header:
+            chunks.append(header + "\n")
+        if body:
+            chunks.append(body)
+    return "".join(chunks)
+
+
+def _replace_section_in_file(project_text: str, section_key: str, canonical_body: str) -> str:
+    """Locate the section identified by section_key in project_text and replace its body.
+
+    section_key is the normalised form produced by _normalise(header_line).
+    canonical_body is the raw body text from the canonical template.
+    If the section is not found (shouldn't happen for INCONSISTENT), the text is returned unchanged.
+    """
+    parts = _split_by_h2(project_text)
+    new_parts: list[tuple[str, str]] = []
+    replaced = False
+
+    for header, body in parts:
+        if not replaced and _normalise(header) == section_key:
+            # Ensure canonical_body ends with a newline for clean reconstruction
+            new_body = canonical_body if canonical_body.endswith("\n") else canonical_body + "\n"
+            new_parts.append((header, new_body))
+            replaced = True
+        else:
+            new_parts.append((header, body))
+
+    return _reconstruct_from_parts(new_parts)
+
+
+def _append_section_to_file(project_text: str, header_key: str, canonical_body: str) -> str:
+    """Append a new section to the end of project_text.
+
+    header_key is the normalised form. We try to reconstruct an approximate header
+    from the key (e.g. ``## foo bar`` → ``## Foo bar``).
+    """
+    # Reconstruct a plausible header from the normalised key
+    # Keys look like: "## foo bar" or "__preamble__0"
+    if header_key.startswith("__"):
+        # Preamble — just append the canonical body directly
+        if not project_text.endswith("\n"):
+            project_text += "\n"
+        return project_text + "\n" + canonical_body
+    else:
+        # Try to recover something readable from the key
+        # The key was normalised from the actual template header
+        header_text = header_key  # Already in "## ..." form
+        if not project_text.endswith("\n"):
+            project_text += "\n"
+        body_text = canonical_body if canonical_body.endswith("\n") else canonical_body + "\n"
+        return project_text + "\n" + header_text + "\n" + body_text
+
+
+# ---------------------------------------------------------------------------
+# Template content helper
+# ---------------------------------------------------------------------------
+
+_JINJA_ENV = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(str(TEMPLATES_DIR)),
+    undefined=jinja2.Undefined,  # silently replaces unknown vars with ""
+    keep_trailing_newline=True,
+)
+
+
+def _load_project_context(project_dir: Path) -> dict:
+    """Load the saved bootstrap context, or return a minimal empty context."""
+    context_path = project_dir / ".companion" / "pairmode_context.json"
+    if context_path.exists():
+        try:
+            return json.loads(context_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    # Fallback: empty context (renders template variables as empty strings)
+    return {
+        "project_name": project_dir.name,
+        "project_description": "",
+        "stack": "",
+        "build_command": "",
+        "test_command": "",
+        "migration_command": "",
+        "domain_model": "",
+        "domain_isolation_rule": "",
+        "checklist_items": [],
+        "protected_paths": [],
+        "non_negotiables": [],
+        "module_structure": [],
+        "layer_rules": [],
+    }
+
+
+def _render_template(template_rel: str, context: dict) -> str:
+    """Render a Jinja2 template with context. Returns empty string on failure."""
+    try:
+        return _JINJA_ENV.get_template(template_rel).render(**context)
+    except (jinja2.TemplateNotFound, jinja2.TemplateError):
+        return ""
+
+
+def _get_template_text(template_rel: str) -> str:
+    """Return raw text content of a template file."""
+    path = TEMPLATES_DIR / template_rel
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    return ""
+
+
+def _dest_to_template(dest_rel: str) -> str | None:
+    """Look up the template path for a given destination relative path."""
+    for d, t in CANONICAL_FILES:
+        if d == dest_rel:
+            return t
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Core sync logic
+# ---------------------------------------------------------------------------
+
+
+def sync_project(project_dir: Path, applies_to: str = "all") -> SyncResult:
+    """
+    Runs audit, then applies MISSING and INCONSISTENT items.
+    Never modifies EXTRA items.
+    Returns SyncResult describing what was changed and what was preserved.
+    """
+    project_dir = Path(project_dir).resolve()
+    result = SyncResult(project_dir=project_dir)
+
+    # Load saved template context for rendering when creating/patching files
+    context = _load_project_context(project_dir)
+
+    # Run audit to get the delta
+    audit = audit_project(project_dir, applies_to=applies_to)
+
+    # Collect lesson IDs from MISSING items
+    for item in audit.missing:
+        if item.lesson_id and item.lesson_id not in result.lessons_applied:
+            result.lessons_applied.append(item.lesson_id)
+
+    # Group MISSING items by file
+    missing_by_file: dict[str, list[AuditItem]] = {}
+    for item in audit.missing:
+        missing_by_file.setdefault(item.file, []).append(item)
+
+    # Group INCONSISTENT items by file
+    inconsistent_by_file: dict[str, list[AuditItem]] = {}
+    for item in audit.inconsistent:
+        inconsistent_by_file.setdefault(item.file, []).append(item)
+
+    # Process files with MISSING items
+    for dest_rel, items in missing_by_file.items():
+        template_rel = _dest_to_template(dest_rel)
+        if template_rel is None:
+            continue
+
+        rendered_text = _render_template(template_rel, context) or _get_template_text(template_rel)
+        project_path = project_dir / dest_rel
+
+        if not project_path.exists():
+            # File is entirely missing — create it with rendered canonical content
+            project_path.parent.mkdir(parents=True, exist_ok=True)
+            project_path.write_text(rendered_text, encoding="utf-8")
+            result.applied.append(f"Created {dest_rel} (file was missing)")
+        else:
+            # File exists but is missing some sections — append them
+            canonical_sections = _split_sections(rendered_text)
+            project_text = project_path.read_text(encoding="utf-8")
+            changed = False
+            for item in items:
+                section_key = item.section
+                if section_key in canonical_sections:
+                    canonical_body = canonical_sections[section_key]
+                    project_text = _append_section_to_file(
+                        project_text, section_key, canonical_body
+                    )
+                    result.applied.append(
+                        f"Appended section '{section_key}' to {dest_rel}"
+                    )
+                    changed = True
+            if changed:
+                project_path.write_text(project_text, encoding="utf-8")
+
+    # Process files with INCONSISTENT items
+    for dest_rel, items in inconsistent_by_file.items():
+        template_rel = _dest_to_template(dest_rel)
+        if template_rel is None:
+            continue
+
+        rendered_text = _render_template(template_rel, context) or _get_template_text(template_rel)
+        canonical_sections = _split_sections(rendered_text)
+        project_path = project_dir / dest_rel
+
+        if not project_path.exists():
+            # Shouldn't happen (inconsistent means file exists), but handle gracefully
+            project_path.parent.mkdir(parents=True, exist_ok=True)
+            project_path.write_text(rendered_text, encoding="utf-8")
+            result.applied.append(f"Created {dest_rel} (file was missing during inconsistent pass)")
+            continue
+
+        project_text = project_path.read_text(encoding="utf-8")
+        changed = False
+        for item in items:
+            section_key = item.section
+            if section_key in canonical_sections:
+                canonical_body = canonical_sections[section_key]
+                project_text = _replace_section_in_file(project_text, section_key, canonical_body)
+                result.applied.append(
+                    f"Updated section '{section_key}' in {dest_rel} to match canonical"
+                )
+                changed = True
+        if changed:
+            project_path.write_text(project_text, encoding="utf-8")
+
+    # Record EXTRA items as preserved
+    for item in audit.extra:
+        result.preserved.append(
+            f"{item.file}: section '{item.section}' (project-specific)"
+        )
+
+    # Update .companion/state.json
+    state_path = project_dir / ".companion" / "state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing_state: dict = {}
+    if state_path.exists():
+        try:
+            existing_state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            existing_state = {}
+
+    # Merge — do not overwrite other fields
+    existing_state["pairmode_version"] = result.pairmode_version
+    existing_state["last_sync"] = result.last_sync
+    existing_state["lessons_applied"] = result.lessons_applied
+
+    state_path.write_text(json.dumps(existing_state, indent=2), encoding="utf-8")
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Output formatting
+# ---------------------------------------------------------------------------
+
+
+def format_sync_output(result: SyncResult) -> str:
+    """Human-readable sync report."""
+    lines: list[str] = []
+    lines.append(f"SYNC COMPLETE — {result.project_dir.name}")
+    lines.append("")
+
+    if result.applied:
+        lines.append("Applied:")
+        for change in result.applied:
+            lines.append(f"  \u2713 {change}")
+        lines.append("")
+
+    if result.preserved:
+        lines.append("Preserved:")
+        for item in result.preserved:
+            lines.append(f"  \u2192 {item}")
+        lines.append("")
+
+    lines.append("State updated: .companion/state.json")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+@click.command()
+@click.option(
+    "--project-dir",
+    required=True,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    help="Path to the project directory to sync.",
+)
+@click.option(
+    "--applies-to",
+    default="all",
+    show_default=True,
+    help="Project type for lesson filtering (e.g. 'python', 'typescript', 'all').",
+)
+def main(project_dir: Path, applies_to: str) -> None:
+    """Sync a project directory against canonical pairmode templates."""
+    result = sync_project(project_dir, applies_to=applies_to)
+    click.echo(format_sync_output(result))
+
+
+if __name__ == "__main__":
+    main()

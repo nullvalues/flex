@@ -134,6 +134,21 @@ Each module has one `spec.json` at `<spec_location>/openspec/specs/<module>/spec
 
 ---
 
+## Companion data files
+
+`.companion/product.json` contains a `config` key pointing to an external config file path.
+That config file contains `spec_location` — the path to the project's openspec directory.
+
+`spec_reader.read_project_spec(companion_dir)` follows this two-hop path automatically:
+1. Read `product.json["config"]` → path to external config file
+2. Read `config["spec_location"]` → openspec root directory
+3. Glob `<spec_location>/openspec/specs/*/spec.json` → all module specs
+
+Returns `None` if `product.json` is missing or has no `config` key. Returns a dict with
+`modules` (list of spec dicts) and `spec_location` (Path) if found.
+
+---
+
 ## Hook architecture
 
 **Non-negotiable: hooks are thin relays.**
@@ -172,6 +187,10 @@ and which projects it applies to. Lessons flow into templates via `/anchor:pairm
 **Template versioning:** Each pairmode-bootstrapped project records the `pairmode_version`
 it was bootstrapped with in `.companion/state.json`. `/anchor:pairmode audit` uses this to
 determine the delta between the project's methodology and the current canonical version.
+Audit compares section headers (structural presence of `##` headings) between project files
+and raw Jinja2 template source — it does not render templates before comparison. Section
+bodies in canonical templates contain Jinja2 variable expressions (`{{ project_name }}`
+etc.); body-level content comparison should not be relied upon for semantic drift detection.
 
 ### Pairmode non-negotiables
 
@@ -180,6 +199,9 @@ determine the delta between the project's methodology and the current canonical 
 - The deny list generator must include an inline comment on each generated rule linking it to
   the non-negotiable that produced it.
 - Pairmode bootstrap must never overwrite existing project files without explicit user confirmation.
+- Pairmode scripts that import sibling modules must either (a) use `sys.path` insertion to add
+  the anchor repo root at import time, or (b) be invoked with `PYTHONPATH` set to the anchor
+  repo root. SKILL.md invocations must document the required `PYTHONPATH` prefix.
 
 ---
 

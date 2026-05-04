@@ -11,6 +11,46 @@ from skills.pairmode.scripts.bootstrap import bootstrap, DEFAULT_DENY, PAIRMODE_
 
 
 # ---------------------------------------------------------------------------
+# Fixture helpers for spec-based scenarios
+# ---------------------------------------------------------------------------
+
+def _make_spec_structure(
+    tmp_path: pathlib.Path,
+    modules: dict[str, dict],
+    module_paths: list[dict] | None = None,
+) -> None:
+    """Write a minimal .companion + spec structure into tmp_path.
+
+    modules: mapping of module_name → spec.json dict
+    module_paths: list of {"name": ..., "paths": [...]} dicts for modules.json
+    """
+    companion_dir = tmp_path / ".companion"
+    companion_dir.mkdir(exist_ok=True)
+
+    config_dir = tmp_path / "_config"
+    config_dir.mkdir(exist_ok=True)
+    config_path = config_dir / "config.json"
+    spec_location = tmp_path / "_spec"
+    config_path.write_text(json.dumps({"spec_location": str(spec_location)}), encoding="utf-8")
+
+    (companion_dir / "product.json").write_text(
+        json.dumps({"project_name": "testproject", "config": str(config_path)}),
+        encoding="utf-8",
+    )
+
+    specs_dir = spec_location / "openspec" / "specs"
+    for module_name, spec_data in modules.items():
+        module_dir = specs_dir / module_name
+        module_dir.mkdir(parents=True, exist_ok=True)
+        (module_dir / "spec.json").write_text(json.dumps(spec_data), encoding="utf-8")
+
+    if module_paths is not None:
+        (companion_dir / "modules.json").write_text(
+            json.dumps(module_paths), encoding="utf-8"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -393,3 +433,243 @@ def test_help_succeeds():
     result = runner.invoke(bootstrap, ["--help"])
     assert result.exit_code == 0
     assert "project-dir" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Spec-derived scenarios
+# ---------------------------------------------------------------------------
+
+class TestSpecDerivedChecklist:
+    """When a spec is present, checklist_items come from the spec derivation."""
+
+    def test_no_spec_checklist_items_is_empty_list(self, tmp_path):
+        """Without a spec, derived_checklist is [] (universal items come from templates)."""
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        # Templates still render — we just verify bootstrap succeeds cleanly
+        assert (tmp_path / "CLAUDE.md").exists()
+
+    def test_spec_derived_checklist_items_passed_to_templates(self, tmp_path):
+        """When a spec has non-negotiables, they appear in the reviewer agent checklist."""
+        _make_spec_structure(
+            tmp_path,
+            modules={
+                "auth": {
+                    "module": "auth",
+                    "non_negotiables": ["Auth must never call billing directly — events only"],
+                    "business_rules": [],
+                }
+            },
+        )
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / ".claude/agents/reviewer.md").read_text()
+        assert "Auth must never call billing directly" in content
+
+    def test_spec_business_rules_appear_in_checklist(self, tmp_path):
+        """Business rules from spec show up in the reviewer agent checklist."""
+        _make_spec_structure(
+            tmp_path,
+            modules={
+                "payments": {
+                    "module": "payments",
+                    "non_negotiables": [],
+                    "business_rules": ["All payments must be idempotent"],
+                }
+            },
+        )
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / ".claude/agents/reviewer.md").read_text()
+        assert "All payments must be idempotent" in content
+
+
+class TestSpecDerivedDenyList:
+    """When a spec is present with matching paths, deny list is spec-derived."""
+
+    def test_spec_derived_deny_entries_in_settings_json(self, tmp_path):
+        """With spec + module paths, settings.json gets spec-derived deny patterns."""
+        _make_spec_structure(
+            tmp_path,
+            modules={
+                "auth-and-security": {
+                    "module": "auth-and-security",
+                    "non_negotiables": ["Auth must never call billing directly — events only"],
+                    "business_rules": [],
+                }
+            },
+            module_paths=[
+                {"name": "auth-and-security", "paths": ["src/services/auth"]}
+            ],
+        )
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        data = json.loads((tmp_path / ".claude/settings.json").read_text())
+        deny = data["permissions"]["deny"]
+        assert "Edit(src/services/auth/**)" in deny
+        assert "Write(src/services/auth/**)" in deny
+
+    def test_spec_derived_deny_replaces_static_defaults(self, tmp_path):
+        """When spec yields deny rules, DEFAULT_DENY static entries are NOT written."""
+        _make_spec_structure(
+            tmp_path,
+            modules={
+                "auth-and-security": {
+                    "module": "auth-and-security",
+                    "non_negotiables": ["Auth must never call billing directly — events only"],
+                    "business_rules": [],
+                }
+            },
+            module_paths=[
+                {"name": "auth-and-security", "paths": ["src/services/auth"]}
+            ],
+        )
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        data = json.loads((tmp_path / ".claude/settings.json").read_text())
+        deny = data["permissions"]["deny"]
+        # Static default entries should NOT be present when spec-derived rules replace them
+        for static_entry in DEFAULT_DENY:
+            assert static_entry not in deny, f"Static entry {static_entry!r} should not be present when spec-derived deny is active"
+
+    def test_no_spec_falls_back_to_default_deny(self, tmp_path):
+        """Without a spec, settings.json gets the DEFAULT_DENY static entries."""
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        data = json.loads((tmp_path / ".claude/settings.json").read_text())
+        deny = data["permissions"]["deny"]
+        for entry in DEFAULT_DENY:
+            assert entry in deny, f"Missing default deny entry: {entry}"
+
+    def test_spec_no_matching_paths_falls_back_to_default_deny(self, tmp_path):
+        """Spec present but no triggered deny rules → fall back to DEFAULT_DENY."""
+        _make_spec_structure(
+            tmp_path,
+            modules={
+                "auth-and-security": {
+                    "module": "auth-and-security",
+                    "non_negotiables": ["Auth must never call billing directly — events only"],
+                    "business_rules": [],
+                }
+            },
+            # no module_paths — modules.json absent
+        )
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        data = json.loads((tmp_path / ".claude/settings.json").read_text())
+        deny = data["permissions"]["deny"]
+        for entry in DEFAULT_DENY:
+            assert entry in deny
+
+
+class TestDenyRationaleJson:
+    """settings.deny-rationale.json is always written alongside settings.json."""
+
+    def test_rationale_file_created(self, tmp_path):
+        run_bootstrap(tmp_path)
+        rationale_path = tmp_path / ".claude" / "settings.deny-rationale.json"
+        assert rationale_path.exists()
+
+    def test_rationale_has_required_keys(self, tmp_path):
+        run_bootstrap(tmp_path)
+        data = json.loads((tmp_path / ".claude/settings.deny-rationale.json").read_text())
+        assert data["generated_by"] == "anchor:pairmode"
+        assert data["pairmode_version"] == PAIRMODE_VERSION
+        assert isinstance(data["rules"], list)
+
+    def test_rationale_rules_empty_without_spec(self, tmp_path):
+        """No spec → rationale rules list is empty (static deny has no rationale)."""
+        run_bootstrap(tmp_path)
+        data = json.loads((tmp_path / ".claude/settings.deny-rationale.json").read_text())
+        assert data["rules"] == []
+
+    def test_rationale_rules_populated_with_spec(self, tmp_path):
+        """With spec-derived deny rules, rationale file lists them with pattern/module/non_negotiable."""
+        _make_spec_structure(
+            tmp_path,
+            modules={
+                "auth-and-security": {
+                    "module": "auth-and-security",
+                    "non_negotiables": ["Auth must never call billing directly — events only"],
+                    "business_rules": [],
+                }
+            },
+            module_paths=[
+                {"name": "auth-and-security", "paths": ["src/services/auth"]}
+            ],
+        )
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        data = json.loads((tmp_path / ".claude/settings.deny-rationale.json").read_text())
+        assert len(data["rules"]) > 0
+        rule = data["rules"][0]
+        assert "pattern" in rule
+        assert "module" in rule
+        assert "non_negotiable" in rule
+        assert rule["module"] == "auth-and-security"
+        assert "Auth must never call billing directly" in rule["non_negotiable"]
+
+    def test_dry_run_does_not_write_rationale_file(self, tmp_path):
+        runner = CliRunner()
+        runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--dry-run",
+            ],
+            catch_exceptions=False,
+        )
+        assert not (tmp_path / ".claude" / "settings.deny-rationale.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# pairmode_context.json tests
+# ---------------------------------------------------------------------------
+
+class TestPairmodeContextJson:
+    """bootstrap writes .companion/pairmode_context.json with the template context."""
+
+    def test_context_file_created(self, tmp_path):
+        run_bootstrap(tmp_path)
+        context_path = tmp_path / ".companion" / "pairmode_context.json"
+        assert context_path.exists(), "pairmode_context.json should be created"
+
+    def test_context_file_has_project_name(self, tmp_path):
+        run_bootstrap(tmp_path)
+        data = json.loads((tmp_path / ".companion" / "pairmode_context.json").read_text())
+        assert data["project_name"] == "testproject"
+
+    def test_context_file_has_stack(self, tmp_path):
+        run_bootstrap(tmp_path)
+        data = json.loads((tmp_path / ".companion" / "pairmode_context.json").read_text())
+        assert data["stack"] == "Python / pytest"
+
+    def test_context_file_has_required_keys(self, tmp_path):
+        run_bootstrap(tmp_path)
+        data = json.loads((tmp_path / ".companion" / "pairmode_context.json").read_text())
+        required_keys = [
+            "project_name", "project_description", "stack", "build_command",
+            "test_command", "migration_command", "domain_model", "domain_isolation_rule",
+            "checklist_items", "protected_paths", "non_negotiables",
+            "module_structure", "layer_rules",
+        ]
+        for key in required_keys:
+            assert key in data, f"pairmode_context.json missing key: {key}"
+
+    def test_dry_run_does_not_write_context_file(self, tmp_path):
+        runner = CliRunner()
+        runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--dry-run",
+            ],
+            catch_exceptions=False,
+        )
+        assert not (tmp_path / ".companion" / "pairmode_context.json").exists()

@@ -1,4 +1,41 @@
 {
   "version": "1.0.0",
-  "lessons": []
+  "lessons": [
+    {
+      "id": "L001",
+      "date": "2026-04-20",
+      "source_project": "anchor",
+      "trigger": "Ran audit against cora \u2014 a project with pairmode scaffold but no pairmode_context.json",
+      "problem": "44 INCONSISTENT findings for every section body because fallback context renders all template variables as empty strings. The output is confusing \u2014 it looks like everything needs repair, when really the project just needs to be bootstrapped with pairmode to generate the context file.",
+      "learning": "When audit detects no pairmode_context.json, it should emit a prominent warning: 'No pairmode_context.json found \u2014 template body comparison will show false INCONSISTENT for all variable-bearing sections. Bootstrap this project with /anchor:pairmode to fix.' MISSING and EXTRA findings remain reliable; INCONSISTENT findings require a context file to be meaningful.",
+      "methodology_change": {
+        "affects": [
+          "audit.py"
+        ],
+        "description": "Add a warning in audit output when pairmode_context.json is missing. Ideally suppress INCONSISTENT findings entirely when no context file exists, or clearly label them as 'body comparison unreliable \u2014 no context file'."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured"
+    },
+    {
+      "id": "L002",
+      "date": "2026-04-20",
+      "source_project": "anchor",
+      "trigger": "Ran audit against radar and forqsite \u2014 projects with pairmode scaffold",
+      "problem": "INCONSISTENT findings include entries with section keys like '---' and '---__0'. These are separator lines (_split_sections treats '---' as a section delimiter and the text after it as the section body). Users see 'Section --- content differs from canonical template' and cannot tell what content is being compared or where to look in the file.",
+      "learning": "The _split_sections output uses '---' as section keys in audit output. These entries are hard to interpret. Either: (a) skip separator-keyed sections from INCONSISTENT comparison since --- separators carry no semantic content, or (b) display the surrounding context (what section comes before/after) when reporting --- inconsistencies.",
+      "methodology_change": {
+        "affects": [
+          "audit.py"
+        ],
+        "description": "In audit.py _split_sections or the INCONSISTENT loop, skip or relabel entries whose section key starts with '---' to reduce noise in audit output."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured"
+    }
+  ]
 }

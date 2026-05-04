@@ -1,0 +1,374 @@
+"""
+audit.py — Pairmode project auditor.
+
+Compares a project directory against canonical pairmode templates, producing
+a structured diff of missing, inconsistent, and extra sections.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import click
+import jinja2
+
+# Insert anchor repo root so sibling imports work when run as CLI
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+from skills.pairmode.scripts import lesson_utils  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+PAIRMODE_VERSION = "0.1.0"
+
+TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+
+# Canonical files to audit (dest path in project → template path relative to TEMPLATES_DIR)
+CANONICAL_FILES: list[tuple[str, str]] = [
+    ("CLAUDE.md", "CLAUDE.md.j2"),
+    ("CLAUDE.build.md", "CLAUDE.build.md.j2"),
+    (".claude/agents/builder.md", "agents/builder.md.j2"),
+    (".claude/agents/reviewer.md", "agents/reviewer.md.j2"),
+    (".claude/agents/loop-breaker.md", "agents/loop-breaker.md.j2"),
+    (".claude/agents/security-auditor.md", "agents/security-auditor.md.j2"),
+    (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
+]
+
+
+# ---------------------------------------------------------------------------
+# Data types
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AuditItem:
+    file: str
+    section: str
+    description: str
+    lesson_id: str | None = None
+
+
+@dataclass
+class AuditResult:
+    project_name: str
+    project_dir: Path
+    missing: list[AuditItem] = field(default_factory=list)
+    inconsistent: list[AuditItem] = field(default_factory=list)
+    extra: list[AuditItem] = field(default_factory=list)
+    pairmode_version: str | None = None
+    canonical_version: str = "0.1.0"
+
+
+# ---------------------------------------------------------------------------
+# Jinja2 environment for rendering templates
+# ---------------------------------------------------------------------------
+
+_JINJA_ENV = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(str(TEMPLATES_DIR)),
+    undefined=jinja2.Undefined,  # silently replaces unknown vars with ""
+    keep_trailing_newline=True,
+)
+
+
+def _load_project_context(project_dir: Path) -> dict:
+    """Load the saved bootstrap context, or return a minimal empty context."""
+    context_path = project_dir / ".companion" / "pairmode_context.json"
+    if context_path.exists():
+        try:
+            return json.loads(context_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    # Fallback: empty context (renders template variables as empty strings)
+    return {
+        "project_name": project_dir.name,
+        "project_description": "",
+        "stack": "",
+        "build_command": "",
+        "test_command": "",
+        "migration_command": "",
+        "domain_model": "",
+        "domain_isolation_rule": "",
+        "checklist_items": [],
+        "protected_paths": [],
+        "non_negotiables": [],
+        "module_structure": [],
+        "layer_rules": [],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Section splitting helpers
+# ---------------------------------------------------------------------------
+
+_SECTION_RE = re.compile(r"^(##+ .+|---)$", re.MULTILINE)
+
+
+def _split_sections(text: str) -> dict[str, str]:
+    """Split a markdown document into sections keyed by header (or index).
+
+    Splits on lines that are ``##`` headers or ``---`` separators.
+    Returns an ordered dict mapping a normalised key to the section body.
+    """
+    parts = _SECTION_RE.split(text)
+    sections: dict[str, str] = {}
+    key_counter = 0
+
+    i = 0
+    while i < len(parts):
+        chunk = parts[i].strip()
+        if not chunk:
+            i += 1
+            continue
+
+        # Check if this chunk is a separator/header (it came from a split match)
+        if _SECTION_RE.fullmatch(chunk.strip()):
+            header = chunk.strip()
+            body = parts[i + 1].strip() if (i + 1) < len(parts) else ""
+            key = _normalise(header)
+            # Avoid key collisions by appending a counter if needed
+            if key in sections:
+                key = f"{key}__{key_counter}"
+                key_counter += 1
+            sections[key] = body
+            i += 2
+        else:
+            # Preamble before first header
+            key = f"__preamble__{key_counter}"
+            key_counter += 1
+            sections[key] = chunk
+            i += 1
+
+    return sections
+
+
+def _normalise(text: str) -> str:
+    """Lowercase and collapse whitespace for fuzzy comparison."""
+    return re.sub(r"\s+", " ", text.lower()).strip()
+
+
+# ---------------------------------------------------------------------------
+# Lessons helpers
+# ---------------------------------------------------------------------------
+
+
+def _load_applicable_lessons(applies_to: str) -> list[dict]:
+    """Load lessons that apply to *applies_to* or to 'all'."""
+    try:
+        data = lesson_utils.load_lessons()
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+    lessons = data.get("lessons", [])
+    result = []
+    for lesson in lessons:
+        lesson_applies = lesson.get("applies_to", [])
+        if "all" in lesson_applies or applies_to in lesson_applies:
+            result.append(lesson)
+    return result
+
+
+def _find_lesson_for_file(lessons: list[dict], file_path: str) -> str | None:
+    """Return the first lesson ID whose methodology_change.affects matches *file_path*."""
+    for lesson in lessons:
+        mc = lesson.get("methodology_change", {})
+        affects = mc.get("affects", [])
+        # affects may be a list (current schema) or legacy string
+        if isinstance(affects, str):
+            affects = [affects]
+        for affect in affects:
+            if affect.lower() in file_path.lower() or file_path.lower() in affect.lower():
+                return lesson.get("id")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Core audit logic
+# ---------------------------------------------------------------------------
+
+
+def _read_template_sections(template_rel_path: str, context: dict | None = None) -> dict[str, str]:
+    """Render a template with context, then split into sections."""
+    if context is None:
+        context = {}
+    try:
+        rendered = _JINJA_ENV.get_template(template_rel_path).render(**context)
+    except (jinja2.TemplateNotFound, jinja2.TemplateError):
+        return {}
+    return _split_sections(rendered)
+
+
+def _read_project_sections(project_dir: Path, rel_path: str) -> dict[str, str] | None:
+    """Read a project file and split into sections. Returns None if file missing."""
+    full_path = project_dir / rel_path
+    if not full_path.exists():
+        return None
+    text = full_path.read_text(encoding="utf-8")
+    return _split_sections(text)
+
+
+def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
+    """
+    Audits the project at project_dir against canonical pairmode templates.
+    applies_to: project type for lesson filtering ("all", "python", "typescript", etc.)
+    """
+    project_dir = Path(project_dir).resolve()
+
+    # Load saved template context (for rendering templates before comparison)
+    context = _load_project_context(project_dir)
+
+    # Read pairmode_version from .companion/state.json
+    pairmode_version: str | None = None
+    state_path = project_dir / ".companion" / "state.json"
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            pairmode_version = state.get("pairmode_version")
+        except (json.JSONDecodeError, OSError):
+            pairmode_version = None
+
+    # Derive project name
+    project_name = project_dir.name
+
+    result = AuditResult(
+        project_name=project_name,
+        project_dir=project_dir,
+        pairmode_version=pairmode_version,
+        canonical_version=PAIRMODE_VERSION,
+    )
+
+    # Load applicable lessons
+    lessons = _load_applicable_lessons(applies_to)
+
+    # Compare each canonical file
+    for dest_rel, template_rel in CANONICAL_FILES:
+        canonical_sections = _read_template_sections(template_rel, context)
+        project_sections = _read_project_sections(project_dir, dest_rel)
+
+        if project_sections is None:
+            # Entire file is missing — all canonical sections → MISSING
+            for section_key, section_body in canonical_sections.items():
+                lesson_id = _find_lesson_for_file(lessons, dest_rel)
+                result.missing.append(
+                    AuditItem(
+                        file=dest_rel,
+                        section=section_key,
+                        description=f"File missing entirely; section '{section_key}' not found",
+                        lesson_id=lesson_id,
+                    )
+                )
+            continue
+
+        # File exists — compare section by section
+        canonical_keys = set(canonical_sections.keys())
+        project_keys = set(project_sections.keys())
+
+        # Sections in canonical but not in project → MISSING
+        for key in canonical_keys - project_keys:
+            lesson_id = _find_lesson_for_file(lessons, dest_rel)
+            result.missing.append(
+                AuditItem(
+                    file=dest_rel,
+                    section=key,
+                    description=f"Section '{key}' present in canonical but not in project",
+                    lesson_id=lesson_id,
+                )
+            )
+
+        # Sections in project but not in canonical → EXTRA
+        for key in project_keys - canonical_keys:
+            result.extra.append(
+                AuditItem(
+                    file=dest_rel,
+                    section=key,
+                    description=f"Section '{key}' is project-specific (not in canonical template)",
+                )
+            )
+
+        # Sections in both → check content
+        for key in canonical_keys & project_keys:
+            canonical_body = _normalise(canonical_sections[key])
+            project_body = _normalise(project_sections[key])
+            if canonical_body != project_body:
+                result.inconsistent.append(
+                    AuditItem(
+                        file=dest_rel,
+                        section=key,
+                        description=f"Section '{key}' content differs from canonical template",
+                    )
+                )
+            # else: consistent — nothing to add
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Output formatting
+# ---------------------------------------------------------------------------
+
+
+def format_audit_output(result: AuditResult) -> str:
+    """Returns the human-readable audit report string."""
+    lines: list[str] = []
+    lines.append(f"AUDIT: {result.project_name} vs pairmode v{result.canonical_version}")
+    lines.append("")
+
+    if result.missing:
+        lines.append("MISSING")
+        for item in result.missing:
+            lesson_tag = f"  ({item.lesson_id})" if item.lesson_id else ""
+            lines.append(f"  \u2717 {item.file}: {item.description}{lesson_tag}")
+        lines.append("")
+
+    if result.inconsistent:
+        lines.append("INCONSISTENT")
+        for item in result.inconsistent:
+            lines.append(f"  ~ {item.file}: {item.description}")
+        lines.append("")
+
+    if result.extra:
+        lines.append("EXTRA (project-specific, keep as-is)")
+        for item in result.extra:
+            lines.append(f"  \u2713 {item.file}: {item.description}")
+        lines.append("")
+
+    lines.append("RECOMMENDATION")
+    lines.append(
+        "  Run /anchor:pairmode sync to apply missing/inconsistent items"
+    )
+    lines.append("  Project-specific items will be preserved")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+@click.command()
+@click.option(
+    "--project-dir",
+    required=True,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    help="Path to the project directory to audit.",
+)
+@click.option(
+    "--applies-to",
+    default="all",
+    show_default=True,
+    help="Project type for lesson filtering (e.g. 'python', 'typescript', 'all').",
+)
+def main(project_dir: Path, applies_to: str) -> None:
+    """Audit a project directory against canonical pairmode templates."""
+    result = audit_project(project_dir, applies_to=applies_to)
+    click.echo(format_audit_output(result))
+
+
+if __name__ == "__main__":
+    main()

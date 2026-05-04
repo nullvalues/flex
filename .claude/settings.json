@@ -14,6 +14,7 @@
     ]
   },
   "permissions": {
+    "defaultMode": "auto", 
     "deny": [
       "Edit(hooks/stop.py)",
       "Write(hooks/stop.py)",
