@@ -230,8 +230,23 @@ deny-rationale reads occur in the hook.
 
 ## Pairmode design
 
-Pairmode is a feature being built in this repo. It establishes a structured builder/reviewer
-workflow on top of any project that uses anchor. See the spec discussion in git history.
+### Pairmode and companion: separation of concerns
+
+Pairmode and companion are two temporal postures on the same concern — keeping intent
+intact across sessions and across builds. Companion is **reactive**: the sidebar observes
+a session as it unfolds and writes decisions, drift, and lineage into `spec.json` after
+the fact. Pairmode is **proactive**: every story is specced in writing before code is
+written, and the builder/reviewer loop gates every commit against that spec.
+
+The two are coupled only through `.companion/state.json`. Companion writes `current_story`
+so the sidebar can surface story context; pairmode reads `pairmode_version` to compute
+audit deltas against the canonical templates. There is no other runtime dependency:
+pairmode functions without the sidebar (the deny list still blocks protected-file writes;
+the reviewer still runs), and companion functions without a pairmode scaffold (the
+sidebar still captures decisions; the spec still grows).
+
+This document describes pairmode's internals: the scaffold it generates, the rails/eras
+model, the schema validators, and the non-negotiables that keep its bootstraps repeatable.
 
 ### Core concepts
 

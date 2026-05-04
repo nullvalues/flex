@@ -2,9 +2,10 @@
 
 Code is cheap to generate. Intent is scarce. Agents drift without it: constraints agreed
 on two sessions ago are invisible today, modules accumulate contradictory assumptions, and
-every new session starts from zero. Anchor makes intent persistent. It captures what you
-are building and why — automatically, as you work — and makes that record the source of
-truth for every agent and every session.
+every new session starts from zero. Anchor makes intent persistent in two ways: by
+recording it as you decide (reactive memory) and by requiring it before you build
+(proactive process). It captures what you are building and why — automatically, as you
+work — and makes that record the source of truth for every agent and every session.
 
 ## Status
 
@@ -31,6 +32,30 @@ an independent agent to produce a competing implementation of the same project f
 ideology alone).
 
 Used together, the memory layer supplies the spec; the process layer enforces it.
+
+### Reactive memory vs proactive process
+
+| Dimension | Companion (`/anchor:seed`, `/anchor:companion`) | Pairmode (`/anchor:pairmode`) |
+|-----------|-------------------------------------------------|--------------------------------|
+| **When it acts** | During the session, reacting to what just happened | Before code is written, and at every commit gate |
+| **Posture** | Reactive — observes decisions and drift live | Proactive — fixes intent in writing first, prevents drift |
+| **Primary artefact** | `spec.json` per module | `docs/stories/<RAIL>/<RAIL>-NNN.md` and `docs/phases/phase-N.md` |
+| **Actor that writes** | Sidebar, after the fact, from the transcript | Developer (story spec) and builder/reviewer subagents |
+| **Failure it prevents** | Decision evaporation across sessions; silent contradiction of an earlier choice | Builder hallucinating scope; reviewer-less commits; phase drift |
+| **Failure it cannot prevent** | A story that was never specced — companion can only record what was discussed | A decision made mid-story that nobody captures into spec.json |
+| **Composition** | Feeds pairmode: spec.json non-negotiables generate the deny list at bootstrap | Feeds companion: `current_story` written into `state.json` so the sidebar surfaces story context |
+| **Use it when** | You want institutional memory across sessions and projects | You want a structured build loop and want to specify intent before code |
+| **Use both when** | You want intent both *captured live* (companion) and *enforced at the build gate* (pairmode) — the default for serious projects |
+
+Use companion when you want institutional memory across sessions and projects — a record
+of what was decided that survives context compaction and agent restarts.
+
+Use pairmode when you want a structured build loop and pre-build intent capture — every
+story specced before code is written, every commit gated by a reviewer.
+
+Use both when you want intent both captured live and enforced at the build gate. This is
+the default for serious projects: companion records the decisions that surface during
+work, and pairmode keeps the build honest against the spec.
 
 ## Installation
 
@@ -86,11 +111,11 @@ checklists reflect your actual project history.
 
 ## The three skills
 
-| Skill | What it does | Key command | Key output |
-|-------|-------------|-------------|-----------|
-| `/anchor:seed` | Mine transcripts, build canonical spec | `/anchor:seed` | `openspec/specs/<module>/spec.json` |
-| `/anchor:companion` | Load spec, capture decisions, detect drift | `/anchor:companion` | Updated `spec.json`, sidebar process |
-| `/anchor:pairmode` | Scaffold and enforce structured build loop | `/anchor:pairmode bootstrap` | CLAUDE.md, agent docs, phase files, deny list |
+| Skill | Posture | What it does | Key command | Key output |
+|-------|---------|-------------|-------------|-----------|
+| `/anchor:seed` | bootstrap-once | Mine transcripts, build canonical spec | `/anchor:seed` | `openspec/specs/<module>/spec.json` |
+| `/anchor:companion` | reactive | Load spec, capture decisions, detect drift | `/anchor:companion` | Updated `spec.json`, sidebar process |
+| `/anchor:pairmode` | proactive | Scaffold and enforce structured build loop | `/anchor:pairmode bootstrap` | CLAUDE.md, agent docs, phase files, deny list |
 
 ## Use case scenarios
 
@@ -131,6 +156,9 @@ in place.
 
 1. Write the story spec in `docs/stories/<RAIL>/<RAIL>-NNN.md` with frontmatter and
    acceptance criterion.
+
+   Pairmode owns this loop. Companion is not required to use it; if companion is running,
+   the sidebar will surface the active story but does not gate the build.
 2. Invoke the builder subagent: "Build story RAIL-NNN." The builder reads the spec,
    implements, and runs tests.
 3. Invoke the reviewer subagent. It runs the review checklist and the test suite.

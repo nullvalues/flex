@@ -21,6 +21,18 @@ built using pairmode from Phase 1 onward.
 
 ---
 
+## Pairmode in relation to companion
+
+Pairmode and companion are two temporal postures on the same concern (intent integrity):
+pairmode operates *before* code is written and at the build gate (proactive), while
+companion operates *during* sessions, recording decisions reactively from the transcript.
+They share `.companion/state.json` — companion writes `current_story` for the sidebar to
+surface, and pairmode reads `pairmode_version` to compute audit deltas — but otherwise
+have no runtime coupling: pairmode functions without the sidebar, and companion functions
+without a pairmode scaffold.
+
+---
+
 ## What pairmode adds to anchor
 
 All additions are new files. No existing anchor files were deleted.
