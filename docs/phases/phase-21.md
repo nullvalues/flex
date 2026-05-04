@@ -1,23 +1,16 @@
-# anchor — Phase 21: Methodology refinement and cost visibility
+# anchor — Phase 21: Methodology refinement and companion/pairmode positioning
 
 ← [Phase 20: PR readiness — documentation, pipe clarity, contribution packaging](phase-20.md)
-→ [Phase 22: Project drift detection and promotion workflow](phase-22.md)
+→ [Phase 22: Effort tracking](phase-22.md)
 
 ## Goal
 
-Phase 21 reflects two classes of methodology improvement that surfaced during cross-project
-dogfooding (cora, radar, forqsite) into the canonical pairmode templates so future bootstraps
-inherit them, and opens a new methodology surface: per-story compute-effort tracking measured
-in tokens. The intent is to land fast and concrete improvements first, while the more
-speculative drift-detection work moves to Phase 22 where it can benefit from the effort data
-this phase starts collecting.
-
-**Why tokens, not dollars:** tokens are the unit of compute effort. Dollars are an ephemeral
-projection of tokens through whatever pricing snapshot is current. We store tokens permanently
-and treat pricing as optional report-time decoration — the user can drop a `pricing.json` next
-to the database for a dollar projection if they want one, but anchor doesn't ship rates,
-maintain rates, or promise rates. This decision collapses pricing-maintenance burden to zero
-and keeps the data layer correct forever even as model rates change.
+Phase 21 reflects the methodology improvements that surfaced during cross-project dogfooding
+(cora, radar, forqsite) into the canonical pairmode templates so future bootstraps inherit
+them, and lands a README/PAIRMODE.md update that makes the companion-vs-pairmode boundary
+explicit. This is a documentation- and template-heavy phase — fast, low-risk, no new
+runtime surfaces. Effort tracking (Phase 22) and drift detection (Phase 23) build on this
+foundation.
 
 Prerequisites: Phase 20 complete and tagged cp20-pr-ready (pr-candidate-v0.1-squashed).
 Branched from era2 onto `era3-methodology` so this work does not compound the
@@ -29,16 +22,69 @@ already-submitted PR (nraychaudhuri/anchor#3).
 
 | ID | Title | Status |
 |----|-------|--------|
+| INFRA-040 | Companion-vs-pairmode positioning in README and PAIRMODE.md | planned |
 | INFRA-026 | Pin reviewer agents to `model: opus` in pairmode templates | planned |
 | INFRA-027 | Default reviewer agents to read-only tools `[Read, Grep, Glob, Bash]` | planned |
+| INFRA-033 | Document model fallback policy in agent templates | planned |
 | LESSON-002 | Capture model upgrade/downgrade pattern as a lesson | planned |
 | LESSON-003 | Capture reviewer-as-read-only-Bash pattern as a lesson | planned |
-| INFRA-028 | Effort tracking — sqlite schema and `record_attempt.py` recorder | planned |
-| INFRA-029 | Effort tracking — `pairmode_effort.py` reporting CLI | planned |
-| INFRA-030 | Effort tracking — wire recording into the build loop (CLAUDE.build.md) | planned |
 
-Project drift detection and promotion (originally drafted as INFRA-031 and INFRA-032) moved to
-[Phase 22](phase-22.md) so this phase ships the cost-tracking foundation first.
+---
+
+### Story INFRA-040 — Companion-vs-pairmode positioning in README and PAIRMODE.md
+
+**Rail:** INFRA (doc story)
+
+**Acceptance criterion:** `README.md` and `docs/pairmode/PAIRMODE.md` make the boundary
+between companion and pairmode explicit using the reactive-vs-proactive framing.
+Specifically:
+
+1. `README.md` line 14 ("Anchor makes intent persistent") is reframed to acknowledge the
+   two layers: "Anchor makes intent persistent in two ways: by recording it as you decide
+   (reactive memory) and by requiring it before you build (proactive process)."
+2. After the existing "What anchor does" section (around line 34), a new H3 section
+   "Reactive memory vs proactive process" is inserted with a comparison table covering:
+   when each acts, posture, primary artefact, who writes it, what it prevents, what it
+   cannot prevent, and how the two compose.
+3. After the table, a "Use companion when / use pairmode when / use both when" guidance
+   block answers the implicit reader question.
+4. `README.md`'s three-skill table gains a "Posture" column distinguishing
+   bootstrap-once vs reactive vs proactive.
+5. The build-loop section adds one line: "Pairmode owns this loop. Companion is not
+   required to use it; if companion is running, the sidebar will surface the active
+   story but does not gate the build."
+6. `docs/pairmode/PAIRMODE.md` gains a one-paragraph "Pairmode in relation to companion"
+   section after "What pairmode is", so an upstream maintainer doesn't conflate the two.
+7. `docs/architecture.md` line ~231 ("Pairmode is a feature being built in this repo")
+   is replaced with a fresh "Pairmode and companion: separation of concerns" preamble in
+   the Pairmode design section.
+
+**Background (CER finding):** README and PAIRMODE.md frame the two skills as "two layers"
+without articulating that they are two *temporal postures* on the same concern (intent
+integrity). A reader cannot answer "when do I run which?" from current docs. The
+reactive-vs-proactive table this story restores was drafted during the CER and is
+reproduced verbatim in the body below for reference.
+
+**Reference table to land in README.md:**
+
+| Dimension | Companion (`/anchor:seed`, `/anchor:companion`) | Pairmode (`/anchor:pairmode`) |
+|-----------|-------------------------------------------------|--------------------------------|
+| **When it acts** | During the session, reacting to what just happened | Before code is written, and at every commit gate |
+| **Posture** | Reactive — observes decisions and drift live | Proactive — fixes intent in writing first, prevents drift |
+| **Primary artefact** | `spec.json` per module | `docs/stories/<RAIL>/<RAIL>-NNN.md` and `docs/phases/phase-N.md` |
+| **Actor that writes** | Sidebar, after the fact, from the transcript | Developer (story spec) and builder/reviewer subagents |
+| **Failure it prevents** | Decision evaporation across sessions; silent contradiction of an earlier choice | Builder hallucinating scope; reviewer-less commits; phase drift |
+| **Failure it cannot prevent** | A story that was never specced — companion can only record what was discussed | A decision made mid-story that nobody captures into spec.json |
+| **Composition** | Feeds pairmode: spec.json non-negotiables generate the deny list at bootstrap | Feeds companion: `current_story` written into `state.json` so the sidebar surfaces story context |
+| **Use it when** | You want institutional memory across sessions and projects | You want a structured build loop and want to specify intent before code |
+| **Use both when** | You want intent both *captured live* (companion) and *enforced at the build gate* (pairmode) — the default for serious projects |
+
+**Tests:** `tests/pairmode/test_docs.py` extended:
+- README.md contains "reactive" and "proactive" both at least once (positioning is
+  present)
+- README.md contains a "Posture" column header in the skills table
+- README.md remains under 400 lines (previous cap)
+- PAIRMODE.md contains "in relation to companion"
 
 ---
 
@@ -83,8 +129,9 @@ Do not modify `builder.md.j2` (already correct at `model: sonnet`) or
 **Acceptance criterion:** All four reviewer-class agent templates restrict tools
 to `[Read, Grep, Glob, Bash]` (security-auditor: `[Read, Grep, Glob]` — no Bash
 since it never runs commands). Reviewer cleanup and revert paths are verified
-to still work via Bash. A doc note in `docs/architecture.md` records the
-two-layer rationale (read-only tools + pre-reviewer commit discipline).
+across **all four** reviewer templates to still work via Bash. A doc note in
+`docs/architecture.md` records the two-layer rationale (read-only tools +
+pre-reviewer commit discipline).
 
 **Background:** Forqsite (only) restricts reviewer tools. The pattern hasn't
 propagated, but the rationale is sound: removing Edit/Write prevents the
@@ -92,14 +139,19 @@ reviewer from "fixing" code instead of reverting (a real failure mode), while
 preserving Bash keeps git revert/checkout/commit available so the
 commit-or-revert contract is unaffected.
 
-**Verification step (must run before commit):**
+**Verification step (must run before commit, expanded per CER finding):**
 
-1. Confirm reviewer's commit path uses Bash only (`git add`, `git commit`).
-2. Confirm reviewer's revert path uses Bash only (`git checkout -- <path>`,
+For each of `reviewer.md.j2`, `intent-reviewer.md.j2`, `loop-breaker.md.j2`,
+and `security-auditor.md.j2`:
+
+1. Confirm any commit path uses Bash only (`git add`, `git commit`).
+2. Confirm any revert path uses Bash only (`git checkout -- <path>`,
    `git reset --hard HEAD`).
-3. Confirm reviewer's test invocation uses Bash only.
-4. Grep all reviewer.md/.j2 prose for any instruction that requires Edit or
-   Write. If any: rewrite to use Bash equivalents or surface to the user.
+3. Confirm any test invocation uses Bash only.
+4. Grep the template prose for any instruction that requires Edit or Write.
+   If any: rewrite to use Bash equivalents or surface to the user.
+5. For intent-reviewer specifically: confirm it produces *recommendations* the
+   orchestrator applies, not edits the agent applies directly.
 
 **Instructions:**
 
@@ -122,6 +174,48 @@ running `git checkout -- lessons/` before the reviewer fires) prevents
 accidental erasure of uncommitted methodology files."
 
 **Tests:** Same `test_templates.py` extended with tools-field assertions.
+
+---
+
+### Story INFRA-033 — Document model fallback policy in agent templates
+
+**Rail:** INFRA
+
+**Acceptance criterion:** Pairmode templates encode a documented fallback policy
+for when the preferred model is rate-limited. The policy lives as inline comments
+in the agent templates and as a section in `docs/architecture.md`. Bootstrap
+renders the policy comments into the project's `.claude/agents/*.md` files so
+they're visible to the developer at runtime.
+
+**Background (CER finding):** During the era2 build, the Sonnet-pinned builder hit
+an org-level rate limit mid-phase. The session's working response was to *strip*
+the model pin from the local agent file (so it would inherit Opus), then continue.
+That was an ad-hoc rescue; it left the project in a state where the methodology
+intent (Sonnet for compute efficiency) was silently undone with no audit trail.
+A documented fallback closes this hole: when Opus is rate-limited, reviewers fall
+back to Sonnet (still better than the pre-pin baseline of inheriting); when
+Sonnet is rate-limited, builder falls back to Haiku. Never below Haiku — the
+reasoning quality cliff is too steep.
+
+**Instructions:**
+
+1. In each agent template, add a YAML comment after the `model:` line:
+   - `builder.md.j2`: `# fallback: haiku  (never below)`
+   - `reviewer.md.j2`, `intent-reviewer.md.j2`, `loop-breaker.md.j2`,
+     `security-auditor.md.j2`: `# fallback: sonnet  (never below)`
+2. In `docs/architecture.md`, add a "Model selection and fallback" subsection in
+   the Pairmode design section. Document:
+   - The role-based pinning rationale (volume → cheap, judgment → opus)
+   - The fallback policy (one tier down, never below Haiku)
+   - **The procedure when rate-limited:** override the agent's model at call time
+     via the Agent tool's `model` parameter rather than editing the template
+     file. The template intent stays clean; the override is per-invocation.
+3. In `CLAUDE.build.md`, add a one-line note in the build-loop section pointing
+   readers at the architecture doc subsection.
+
+**Tests:** Extend `test_templates.py` with assertions that the fallback comment
+is present in each affected template and that the architecture doc contains the
+"Model selection and fallback" subsection heading.
 
 ---
 
@@ -151,10 +245,10 @@ Append a new entry (id auto-assigned by lesson_utils):
   fall back one tier (Opus → Sonnet on reviewers; Sonnet → Haiku on builder),
   never below Haiku.
 - **methodology_change:** Pairmode templates pin model per agent: builder=sonnet,
-  reviewers=opus. INFRA-026 implements this in templates; future bootstraps
-  inherit it. Validation comes from INFRA-029's `pairmode_effort.py models`
-  report — once token-and-PASS-rate data accrues per (model, role), the
-  methodology is data-defensible rather than aesthetic.
+  reviewers=opus, with fallback comments. INFRA-026, INFRA-033 implement this
+  in templates; future bootstraps inherit it. Validation comes from Phase 22's
+  `pairmode_effort.py models` report — once token-and-PASS-rate data accrues
+  per (model, role), the methodology is data-defensible rather than aesthetic.
 - **affects:** `pairmode-builder-reviewer-loop`, applies to any pairmode project.
 
 ---
@@ -188,181 +282,4 @@ restriction methodology and its rationale.
 
 ---
 
-### Story INFRA-028 — Effort tracking — sqlite schema and `record_attempt.py` recorder
-
-**Rail:** INFRA
-
-**Acceptance criterion:** A sqlite database at `.companion/effort.db` (path
-configurable via `.companion/state.json["effort_db_path"]`) records one row per
-agent invocation with story_id, phase, agent_role, model, token counts, tool_uses,
-duration_ms, outcome, and timestamp. A `record_attempt.py` CLI lets the
-orchestrator append a row in one command. **No pricing data is stored.**
-
-**Design rationale:**
-
-- Python stdlib `sqlite3` — no driver dependency.
-- Single file at `.companion/effort.db` — no server, no plumbing.
-- One table: `attempts` (one row per agent call). Pricing is **not** in the
-  schema — see "Pricing as optional decoration" below.
-- Default: opt-in. Set `.companion/state.json["effort_tracking"]: true` to
-  enable. Bootstrap auto-enables for pairmode-bootstrapped projects (since
-  `.companion/pairmode_context.json` is present), opt-out for plain anchor
-  projects.
-- Capture mechanism: the orchestrator parses the `<usage>` block returned by
-  every Agent tool call (`total_tokens`, `tool_uses`, `duration_ms`) and
-  invokes `record_attempt.py` after each spawn. Token-level breakdown
-  (input vs output vs cache) is captured when surfaced by Claude Code; left
-  NULL when not available.
-- **Cost of capture is effectively zero.** The `<usage>` block already exists
-  in every agent response. Recording is a single sqlite INSERT, ~10ms,
-  no LLM call. A single avoided rework (10k–100k tokens) pays for thousands
-  of inserts. The economics aren't close.
-
-**Pricing as optional decoration:**
-
-A user who wants dollar projections drops a `pricing.json` next to the database:
-
-```json
-{
-  "claude-opus-4-7":   {"input": 15.00, "output": 75.00, "cache_read": 1.50, "cache_write": 18.75},
-  "claude-sonnet-4-6": {"input":  3.00, "output": 15.00, "cache_read": 0.30, "cache_write":  3.75},
-  "claude-haiku-4-5":  {"input":  1.00, "output":  5.00, "cache_read": 0.10, "cache_write":  1.25}
-}
-```
-
-Reports project tokens × rates at query time. Anchor neither ships nor
-maintains rates. Stale `pricing.json` produces stale dollar projections; the
-underlying token data stays correct forever.
-
-**Schema:**
-
-```sql
-CREATE TABLE attempts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  story_id TEXT NOT NULL,           -- "INFRA-014"
-  phase TEXT,                        -- "20"
-  rail TEXT,                         -- "INFRA"
-  agent_role TEXT NOT NULL,         -- "builder" | "reviewer" | "intent-reviewer" | ...
-  model TEXT,                        -- "claude-opus-4-7" | "claude-sonnet-4-6" | ...
-  attempt_number INTEGER NOT NULL,  -- 1 for first try, 2 for retry, etc.
-  tokens_total INTEGER,             -- always recorded when available
-  tokens_in INTEGER,                 -- nullable; capture when surfaced
-  tokens_out INTEGER,                -- nullable
-  cache_read_tokens INTEGER,         -- nullable
-  cache_write_tokens INTEGER,        -- nullable
-  tool_uses INTEGER,
-  duration_ms INTEGER,
-  outcome TEXT,                      -- "PASS" | "FAIL" | "PARTIAL" | NULL
-  notes TEXT,
-  ts TEXT NOT NULL                   -- ISO-8601 UTC
-);
-
-CREATE INDEX idx_attempts_story ON attempts(story_id);
-CREATE INDEX idx_attempts_phase ON attempts(phase);
-CREATE INDEX idx_attempts_rail ON attempts(rail);
-```
-
-No `pricing` table. No pricing migration to maintain.
-
-**Instructions:**
-
-1. Create `skills/pairmode/scripts/effort_db.py` — schema initialization and
-   helper functions: `init_db(path)`, `insert_attempt(...)`, `query_*`.
-   Idempotent init.
-2. Create `skills/pairmode/scripts/record_attempt.py` — Click CLI with flags
-   for every column. Resolves DB path from `.companion/state.json` (or
-   `--db-path` override). Calls `effort_db.insert_attempt(...)`. No-op if
-   `effort_tracking` is not enabled in state.json.
-3. Bootstrap (`bootstrap.py`): when invoked in pairmode mode, set
-   `effort_tracking: true` in the generated `.companion/state.json` by
-   default. Plain anchor (non-pairmode) bootstraps leave the flag unset.
-
-**Tests:** `tests/pairmode/test_effort_db.py` — schema init, insert,
-idempotent re-init, query roundtrip; `tests/pairmode/test_record_attempt.py`
-— CLI happy path, no-op when tracking disabled, error on missing required
-fields.
-
----
-
-### Story INFRA-029 — Effort tracking — `pairmode_effort.py` reporting CLI
-
-**Rail:** INFRA
-
-**Acceptance criterion:** A Click CLI at
-`skills/pairmode/scripts/pairmode_effort.py` produces several useful reports
-from `.companion/effort.db`. **Token counts are the primary metric in every
-report.** Dollar projections are an optional `--dollars <pricing.json>` flag.
-
-Reports:
-
-- **Total effort rollup** (`rollup [--phase N | --rail RAIL]`): tokens per
-  phase, per rail, per model. Output ranks rails by total tokens to show
-  where compute effort concentrates.
-- **Rework patterns** (`rework [--threshold N]`): stories with attempt_number > 1.
-  Output: story_id, attempts, total tokens, builder tokens, reviewer tokens,
-  ranked by total tokens. Treats any high-token rework as a spec quality
-  candidate.
-- **Most effort-intensive stories** (`expensive [--top N]`): top N by tokens,
-  with token cost split by agent role (so it's visible whether the cost was
-  builder retries or reviewer iteration).
-- **Sonnet vs Opus comparison** (`models`): tokens and attempts per model,
-  and **outcome rate per model** (PASS rate by role/model pair). This is the
-  data that validates the upgrade/downgrade methodology — if builder-on-Opus
-  has a higher PASS rate and lower retry token cost than builder-on-Sonnet,
-  we want to know.
-
-**Use it for:** identify stories that were built more than once and look for
-spec quality patterns. After a phase, run `pairmode_effort.py rework` and treat
-any story with >1 attempt as a candidate for spec review (was the spec
-ambiguous? was the scope wrong? did the reviewer catch something the spec
-should have called out?).
-
-**Instructions:** Standard Click CLI. Output is plain text columns by default
-(token counts), with `--json` for machine-parseable output and
-`--dollars <pricing.json>` for an optional dollar projection column.
-
-**Tests:** `tests/pairmode/test_pairmode_effort.py` — fixture DB with seeded
-attempts, run each subcommand, assert expected output. Dollar projection test
-uses a fixture pricing.json — confirms the projection is multiplicative and
-the absence of pricing.json doesn't break any report.
-
----
-
-### Story INFRA-030 — Effort tracking — wire recording into the build loop
-
-**Rail:** INFRA
-
-**Acceptance criterion:** `CLAUDE.build.md` orchestrator instructions include
-explicit bash steps that call `record_attempt.py` after each builder and
-reviewer spawn. The recording is conditional on `state["effort_tracking"]`. A
-fresh pairmode project accumulates token rows across a phase by default.
-
-**Instructions:**
-
-In `CLAUDE.build.md`:
-
-- After the builder spawn (Step 1), add a recording step that captures the
-  agent's `<usage>` output and invokes `record_attempt.py --story <id>
-  --agent builder --model <inferred> --attempt <n> --tokens-total <n>
-  --tool-uses <n> --duration-ms <n>`.
-- After the reviewer spawn (Step 2), same with `--agent reviewer --outcome
-  PASS|FAIL`.
-- Document that the orchestrator should look for `<usage>...</usage>` in
-  the agent's final message and parse out `total_tokens`, `tool_uses`,
-  `duration_ms`. If absent, record what's available with NULLs.
-
-Also: add a section in `docs/architecture.md` documenting the effort-tracking
-data model, the tokens-as-primary-metric framing, and how to enable/disable
-it (one-line state.json edit).
-
-**Tests:** Documentation-only test; no runtime behaviour to assert. Verify
-`record_attempt.py` is referenced in CLAUDE.build.md with the right flags.
-
----
-
-(The earlier "DEVELOPER ACTION — Verify cost tracking flag default" gate was
-resolved during the pre-build CER: bootstrap auto-enables effort tracking when
-the project is pairmode-bootstrapped, opt-out for plain anchor projects. INFRA-028
-implements this directly; no separate gate needed.)
-
-Tag: `cp21-methodology-refinement`
+Tag: `cp21-template-methodology`
