@@ -71,6 +71,9 @@ that later stories' scripts will not produce correctly.
 
 **Isolation drift** — Any implementation that could violate: {{ domain_isolation_rule }}
 
+**Cross-rail file touches** — Did the builder modify files outside the story's declared
+rail(s)? If yes and no design pivot note was provided, flag as an undocumented pivot.
+
 **Ideology drift** — Accumulated choices across the phase that trend away from a stated
 conviction or undermine a stated constraint. Individual stories may each be fine; the phase
 as a whole may be drifting. Look for:

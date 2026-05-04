@@ -72,9 +72,18 @@ Run every item on every review invocation.
    `requirements.txt`?
    Violations are MEDIUM.
 
-9. STORY SCOPE
-   Did the builder touch files outside the stated story scope?
-   Unexplained out-of-scope changes are MEDIUM.
+9. RAIL SCOPE
+   Read the story's `primary_files` and `touches` declarations from
+   `docs/stories/<RAIL>/<RAIL>-NNN.md`.
+   - Any file in the diff NOT listed in `primary_files` or `touches`:
+     flag MEDIUM (undeclared file touched — possible scope creep).
+   - Any file in the diff whose path falls under a different rail's primary
+     domain (check `docs/stories/<OTHER_RAIL>/` ownership) AND is not in
+     `touches`: flag HIGH (rail violation — architectural boundary crossed
+     without explicit declaration).
+   - If story file not found (legacy story): fall back to checking that
+     touched files match the story description text. Flag undeclared
+     out-of-scope changes MEDIUM as before.
 
 10. BUILD GATE
     Does `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q` pass?

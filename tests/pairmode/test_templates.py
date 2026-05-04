@@ -541,6 +541,10 @@ class TestReviewerAgentTemplate:
         assert "What you must not do" in self.output
         assert "Do not write" in self.output
 
+    def test_rail_scope_checklist_item_present(self):
+        # Story 16.3: reviewer.md.j2 must contain RAIL SCOPE checklist item
+        assert "RAIL SCOPE" in self.output
+
 
 # ---------------------------------------------------------------------------
 # Loop-breaker agent template tests
@@ -691,6 +695,10 @@ class TestIntentReviewerAgentTemplate:
 
     def test_calibration_section(self):
         assert "Calibration" in self.output
+
+    def test_cross_rail_file_touches_in_pivot_detection(self):
+        # Story 16.3: intent-reviewer.md.j2 must contain Cross-rail pivot detection item
+        assert "Cross-rail" in self.output
 
 
 # ---------------------------------------------------------------------------
@@ -897,6 +905,7 @@ PHASE_ONE_CONTEXT = {
     "next_phase": None,
     "goal": "",
     "stories": [],
+    "era_id": None,
 }
 
 PHASE_BOTH_NAV_CONTEXT = {
@@ -910,6 +919,7 @@ PHASE_BOTH_NAV_CONTEXT = {
         {"id": "2.1", "title": "User auth"},
         {"id": "2.2", "title": "Dashboard"},
     ],
+    "era_id": None,
 }
 
 
@@ -966,17 +976,10 @@ class TestPhaseMdJ2BothNavigation:
         assert "## Goal" in self.output
         assert "Build the core feature set." in self.output
 
-    def test_stories_rendered(self):
-        assert "### Story 2.1" in self.output
-        assert "User auth" in self.output
-        assert "### Story 2.2" in self.output
-        assert "Dashboard" in self.output
-
-    def test_acceptance_criterion_placeholder(self):
-        assert "**Acceptance criterion:**" in self.output
-
-    def test_instructions_placeholder(self):
-        assert "**Instructions:**" in self.output
+    def test_stories_table_present(self):
+        # New manifest format: Stories section is a table
+        assert "| ID | Title | Status |" in self.output
+        assert "|----|-------|--------|" in self.output
 
     def test_cold_eyes_checklist_section(self):
         assert "CP-2 Cold-eyes checklist" in self.output

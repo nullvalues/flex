@@ -7,7 +7,13 @@ import pathlib
 
 from click.testing import CliRunner
 
-from skills.pairmode.scripts.phase_new import phase_new, _read_phase_title, _create_index
+from skills.pairmode.scripts.phase_new import (
+    phase_new,
+    _read_phase_title,
+    _create_index,
+    _detect_active_era,
+    _update_era_phases_table,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -331,3 +337,165 @@ class TestDryRun:
         assert "Would write" in result.output or "Would update" in result.output
         # phase-2.md must not exist
         assert not (tmp_path / "docs" / "phases" / "phase-2.md").exists()
+
+
+# ---------------------------------------------------------------------------
+# Era detection helpers
+# ---------------------------------------------------------------------------
+
+ERA_ACTIVE_CONTENT = """\
+---
+id: 001
+name: Foundation
+status: active
+---
+
+## Strategic intent
+
+Building the foundation.
+
+## Rails
+
+| Rail | Primary domain |
+|------|----------------|
+
+## Phases
+
+| Phase | Title | Status |
+|-------|-------|--------|
+"""
+
+ERA_COMPLETE_CONTENT = """\
+---
+id: 001
+name: Foundation
+status: complete
+---
+
+## Phases
+
+| Phase | Title | Status |
+|-------|-------|--------|
+"""
+
+
+def _write_era(eras_dir: pathlib.Path, filename: str, content: str) -> pathlib.Path:
+    eras_dir.mkdir(parents=True, exist_ok=True)
+    p = eras_dir / filename
+    p.write_text(content, encoding="utf-8")
+    return p
+
+
+class TestDetectActiveEra:
+    """_detect_active_era() helper tests."""
+
+    def test_returns_none_when_no_eras_dir(self, tmp_path: pathlib.Path) -> None:
+        result = _detect_active_era(tmp_path)
+        assert result is None
+
+    def test_returns_none_when_no_active_era(self, tmp_path: pathlib.Path) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        _write_era(eras_dir, "001-foundation.md", ERA_COMPLETE_CONTENT)
+        result = _detect_active_era(tmp_path)
+        assert result is None
+
+    def test_returns_era_id_for_single_active(self, tmp_path: pathlib.Path) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        _write_era(eras_dir, "001-foundation.md", ERA_ACTIVE_CONTENT)
+        result = _detect_active_era(tmp_path)
+        assert result == "001"
+
+    def test_multiple_active_returns_highest(self, tmp_path: pathlib.Path) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        active1 = ERA_ACTIVE_CONTENT
+        active2 = active1.replace("id: 001", "id: 002").replace("name: Foundation", "name: Second")
+        _write_era(eras_dir, "001-foundation.md", active1)
+        _write_era(eras_dir, "002-second.md", active2)
+        result = _detect_active_era(tmp_path)
+        assert result == "002"
+
+
+class TestUpdateErasPhasesTable:
+    """_update_era_phases_table() helper tests."""
+
+    def test_appends_row_to_phases_table(self, tmp_path: pathlib.Path) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        era_file = _write_era(eras_dir, "001-foundation.md", ERA_ACTIVE_CONTENT)
+        _update_era_phases_table(tmp_path, "001", 3, "My Phase")
+        content = era_file.read_text()
+        assert "| 3 | My Phase | planned |" in content
+
+    def test_no_crash_when_era_not_found(self, tmp_path: pathlib.Path) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        _write_era(eras_dir, "001-foundation.md", ERA_ACTIVE_CONTENT)
+        # Trying to update era 002 which doesn't exist — must not raise
+        _update_era_phases_table(tmp_path, "002", 1, "Whatever")
+
+
+class TestEraFrontmatterInPhaseFile:
+    """Phase file gets era frontmatter when active era exists."""
+
+    def test_phase_has_era_frontmatter_when_active_era(self, tmp_path: pathlib.Path) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        _write_era(eras_dir, "001-foundation.md", ERA_ACTIVE_CONTENT)
+
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "First Phase",
+                "--goal", "Do things",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs" / "phases" / "phase-1.md").read_text()
+        assert 'era: "001"' in content
+
+    def test_phase_has_empty_stories_table(self, tmp_path: pathlib.Path) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        _write_era(eras_dir, "001-foundation.md", ERA_ACTIVE_CONTENT)
+
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "First Phase",
+                "--goal", "",
+            ]
+        )
+        content = (tmp_path / "docs" / "phases" / "phase-1.md").read_text()
+        # Stories table header present
+        assert "| ID | Title | Status |" in content
+        # No extra story rows beyond separator
+        assert "|----|-------|--------|" in content
+
+    def test_era_phases_table_updated(self, tmp_path: pathlib.Path) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        era_file = _write_era(eras_dir, "001-foundation.md", ERA_ACTIVE_CONTENT)
+
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "5",
+                "--title", "Fifth Phase",
+                "--goal", "",
+            ]
+        )
+        era_content = era_file.read_text()
+        assert "| 5 | Fifth Phase | planned |" in era_content
+
+    def test_no_era_frontmatter_when_no_active_era(self, tmp_path: pathlib.Path) -> None:
+        # No eras directory at all
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "Solo Phase",
+                "--goal", "",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs" / "phases" / "phase-1.md").read_text()
+        assert "era:" not in content
+        # Frontmatter block should be absent — file must not start with ---
+        assert not content.startswith("---")

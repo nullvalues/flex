@@ -31,6 +31,13 @@ import ideology_parser as _ideology_parser
 
 PAIRMODE_VERSION = "0.1.0"
 
+PAIRMODE_DEFAULT_RAILS = {
+    "generic": ["CORE", "INFRA", "TEST"],
+    "web": ["API", "UI", "DB", "AUTH", "INFRA", "TEST"],
+    "cli": ["CORE", "INFRA", "TEST"],
+    "pairmode": ["BOOTSTRAP", "AUDIT", "RECONSTRUCT", "LESSON", "BUILD", "TEMPLATE", "AGENT", "INFRA"],
+}
+
 TEMPLATES_DIR = pathlib.Path(__file__).parent.parent / "templates"
 
 # Mapping: destination path (relative to project_dir) → template name
@@ -316,6 +323,138 @@ def _ideology_capture_flow() -> dict:
         "constraints": constraints,
         "must_preserve": must_preserve,
     }
+
+
+# ---------------------------------------------------------------------------
+# Rail initialization helpers
+# ---------------------------------------------------------------------------
+
+
+def _infer_project_type(stack: str, project_name: str) -> str:
+    """Infer project type from stack string and project name."""
+    stack_lower = stack.lower()
+    name_lower = project_name.lower()
+
+    if "pairmode" in stack_lower or "pairmode" in name_lower:
+        return "pairmode"
+
+    web_keywords = {"web", "api", "ui", "flask", "django", "fastapi", "react", "vue"}
+    if any(kw in stack_lower for kw in web_keywords):
+        return "web"
+
+    cli_keywords = {"cli", "terminal", "argparse", "click", "typer"}
+    if any(kw in stack_lower for kw in cli_keywords):
+        return "cli"
+
+    return "generic"
+
+
+def _build_era_001_content(project_name: str, rails: list[str]) -> str:
+    """Build the content of docs/eras/001-initial.md."""
+    name = f"{project_name} — Initial development"
+    frontmatter = (
+        "---\n"
+        'id: "001"\n'
+        f"name: {name}\n"
+        "status: active\n"
+        "---\n"
+    )
+    strategic_intent = (
+        "\n"
+        "## Strategic intent\n"
+        "\n"
+        "_(fill in)_\n"
+    )
+    rails_header = (
+        "\n"
+        "## Rails\n"
+        "\n"
+        "| Rail | Primary domain |\n"
+        "|------|----------------|\n"
+    )
+    rails_rows = "".join(f"| {rail} | _(fill in)_ |\n" for rail in rails)
+
+    phases_table = (
+        "\n"
+        "## Phases\n"
+        "\n"
+        "| Phase | Title | Status |\n"
+        "|-------|-------|--------|\n"
+    )
+
+    return frontmatter + strategic_intent + rails_header + rails_rows + phases_table
+
+
+def _initialize_rails(
+    project_dir: pathlib.Path,
+    context: dict,
+    stack: str,
+    dry_run: bool,
+    ideology_skip: bool,
+) -> None:
+    """Initialize rail directories and Era 001 after scaffold write."""
+    project_name = context.get("project_name", "project")
+    project_type = _infer_project_type(stack, project_name)
+    default_rails = PAIRMODE_DEFAULT_RAILS[project_type]
+
+    # Determine confirmed rails
+    skip_prompt = ideology_skip or not sys.stdin.isatty()
+    if skip_prompt:
+        confirmed_rails = list(default_rails)
+    else:
+        click.echo(f"\nRail initialization (project type: {project_type})")
+        click.echo("Suggested rails: " + ", ".join(default_rails))
+        user_input = click.prompt(
+            "Confirm rails (enter to accept, or type comma-separated list to override)",
+            default="",
+            show_default=False,
+        ).strip()
+        if user_input:
+            confirmed_rails = [r.strip().upper() for r in user_input.split(",") if r.strip()]
+        else:
+            confirmed_rails = list(default_rails)
+
+    if dry_run:
+        for rail in confirmed_rails:
+            click.echo(f"  [dry-run] would create: docs/stories/{rail}/")
+        click.echo("  [dry-run] would create: docs/eras/001-initial.md")
+        return
+
+    # Create rail directories (idempotent)
+    stories_dir = project_dir / "docs" / "stories"
+    for rail in confirmed_rails:
+        rail_dir = stories_dir / rail
+        if rail_dir.exists():
+            click.echo(f"  skipped (exists): docs/stories/{rail}/")
+        else:
+            rail_dir.mkdir(parents=True, exist_ok=True)
+            click.echo(f"  created rail dir: docs/stories/{rail}/")
+
+    # Create docs/eras/001-initial.md (idempotent)
+    eras_dir = project_dir / "docs" / "eras"
+    era_path = eras_dir / "001-initial.md"
+    if era_path.exists():
+        click.echo(f"  skipped (exists): docs/eras/001-initial.md")
+    else:
+        eras_dir.mkdir(parents=True, exist_ok=True)
+        era_content = _build_era_001_content(project_name, confirmed_rails)
+        era_path.write_text(era_content, encoding="utf-8")
+        click.echo(f"  created: docs/eras/001-initial.md")
+
+    # Update Phase 1 manifest to set era: "001" frontmatter (if present, no era yet)
+    phases_dir = project_dir / "docs" / "phases"
+    phase1_candidates = list(phases_dir.glob("phase-1.md")) + list(phases_dir.glob("001-*.md"))
+    for phase_file in phase1_candidates:
+        try:
+            content = phase_file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        # Only prepend era frontmatter if no era field exists yet
+        if "era:" not in content:
+            updated = '---\nera: "001"\n---\n\n' + content
+            phase_file.write_text(updated, encoding="utf-8")
+            click.echo(f"  updated: {phase_file.relative_to(project_dir)} — added era: \"001\"")
+        break  # Only update the first found
 
 
 # ---------------------------------------------------------------------------
@@ -644,6 +783,7 @@ def bootstrap(
         "next_phase": None,
         "goal": _resolved_phase_goal,
         "stories": [],
+        "era_id": None,
     }
     for dest_rel, template_name, ctx in [
         ("docs/phases/index.md", "docs/phases/index.md.j2", phase_index_context),
@@ -750,6 +890,12 @@ def bootstrap(
     else:
         click.echo(f"Recording pairmode_version in {state_path}")
         _record_state(state_path, PAIRMODE_VERSION)
+
+    # ------------------------------------------------------------------
+    # 8. Initialize rails and Era 001
+    # ------------------------------------------------------------------
+    click.echo("\nInitializing rails...")
+    _initialize_rails(project_path, context, stack, dry_run=dry_run, ideology_skip=ideology_skip)
 
     click.echo("\nDone." if not dry_run else "\nDry run complete.")
 

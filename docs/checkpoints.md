@@ -140,3 +140,28 @@ and asserts ideology.md output contains real conviction content. 910 tests pass.
 reconstruction-agent.md.j2 agent template created and wired into bootstrap scaffold.
 --brief path containment guard added to score.py (MEDIUM security finding). anchor's own
 .claude/agents/reconstruction-agent.md generated. 929 tests pass.
+
+---
+
+## cp16-build-loop-integration
+
+**Phase:** 16 — Build loop integration and rail-aware review
+**Tag command:** `git tag cp16-build-loop-integration && git push origin cp16-build-loop-integration`
+**Acceptance:** permission_scope.py writes/clears story-scoped allow rules in settings.local.json
+with path containment guard (HIGH security finding fixed in Story 16.5). story_resolver.py
+resolves story IDs and parses phase manifests. CLAUDE.build.md updated with manifest-aware
+orchestrator loop and feat(story-RAIL-NNN) commit format. CLAUDE.md item 9 renamed to RAIL
+SCOPE with MEDIUM/HIGH flag logic. reviewer.md.j2 and intent-reviewer.md.j2 updated with
+rail violation detection. sync.py detects and prompts for missing default rails. 1043 tests pass.
+
+---
+
+## cp15-rails-eras-story-structure
+
+**Phase:** 15 — Rails, eras, and story structure — foundation
+**Tag command:** `git tag cp15-rails-eras-story-structure && git push origin cp15-rails-eras-story-structure`
+**Acceptance:** schema_validator.py validates story/era/phase manifest frontmatter. story_new.py
+creates story files on named rails. era_new.py creates era documents. phase_new.py writes
+manifest format with era reference and empty Stories table. bootstrap.py suggests rails, prompts
+for confirmation, creates rail directories, and initializes docs/eras/001-initial.md. Template
+stubs for docs/stories/ and docs/eras/ added. 997 tests pass.

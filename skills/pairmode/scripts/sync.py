@@ -32,6 +32,11 @@ from skills.pairmode.scripts.audit import (  # noqa: E402
     _enrich_scaffold_context,
     _load_project_context as _audit_load_project_context,
 )
+from skills.pairmode.scripts.bootstrap import (  # noqa: E402
+    PAIRMODE_DEFAULT_RAILS,
+    _infer_project_type,
+)
+from skills.pairmode.scripts.story_new import _add_rail_to_era, _find_era  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -47,6 +52,28 @@ class SyncResult:
     pairmode_version: str = PAIRMODE_VERSION
     last_sync: str = field(default_factory=lambda: date.today().isoformat())
     lessons_applied: list[str] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Rail gap detection
+# ---------------------------------------------------------------------------
+
+
+def _check_rail_gaps(project_dir: Path, stack: str) -> list[str]:
+    """Return list of default rails for this stack not present in docs/stories/.
+
+    If docs/stories/ does not exist, returns empty list (project pre-dates rail
+    structure). This function has no I/O side effects.
+    """
+    stories_dir = project_dir / "docs" / "stories"
+    if not stories_dir.is_dir():
+        return []
+
+    project_type = _infer_project_type(stack, "")
+    default_rails = PAIRMODE_DEFAULT_RAILS.get(project_type, PAIRMODE_DEFAULT_RAILS["generic"])
+
+    present = {p.name.upper() for p in stories_dir.iterdir() if p.is_dir()}
+    return [rail for rail in default_rails if rail.upper() not in present]
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +471,23 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
         result.preserved.append(
             f"{item.file}: section '{item.section}' (project-specific)"
         )
+
+    # Rail gap check: prompt to add default rails missing from docs/stories/
+    stack = context.get("stack", "")
+    missing_rails = _check_rail_gaps(project_dir, stack)
+    for rail in missing_rails:
+        click.echo(f"  \u26a0 Standard rail {rail} not in this project.")
+        if not yes:
+            confirmed = click.confirm(f"Add rail {rail}?", default=False)
+        else:
+            confirmed = True
+        if confirmed:
+            rail_dir = project_dir / "docs" / "stories" / rail
+            rail_dir.mkdir(parents=True, exist_ok=True)
+            era_path = _find_era(project_dir)
+            if era_path is not None:
+                _add_rail_to_era(era_path, rail)
+            result.applied.append(f"Created rail directory docs/stories/{rail}/")
 
     # Update .companion/state.json
     state_path = project_dir / ".companion" / "state.json"

@@ -7,6 +7,7 @@ Running it twice with the same phase ID is idempotent (warns, does not overwrite
 
 from __future__ import annotations
 
+import glob as _glob
 import json
 import re
 import sys
@@ -65,6 +66,132 @@ def _read_phase_title(phase_file: Path, phase_id: int) -> str:
 
     # Fallback
     return f"Phase {phase_id}"
+
+
+_FRONTMATTER_RE = re.compile(r"^\s*---\s*\n(.*?)\n?---\s*(\n|$)", re.DOTALL)
+_YAML_SCALAR_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$')
+
+
+def _parse_frontmatter(text: str) -> dict | None:
+    """Parse YAML frontmatter (stdlib only, shallow key/value)."""
+    m = _FRONTMATTER_RE.match(text)
+    if not m:
+        return None
+    raw = m.group(1)
+    result: dict = {}
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        sm = _YAML_SCALAR_RE.match(line)
+        if sm:
+            key = sm.group(1)
+            value_raw = sm.group(2).strip()
+            if (value_raw.startswith('"') and value_raw.endswith('"')) or (
+                value_raw.startswith("'") and value_raw.endswith("'")
+            ):
+                value_raw = value_raw[1:-1]
+            result[key] = value_raw
+    return result
+
+
+def _detect_active_era(project_dir: Path) -> str | None:
+    """Scan docs/eras/*.md for active era(s). Return era id or None."""
+    eras_dir = project_dir / "docs" / "eras"
+    if not eras_dir.is_dir():
+        return None
+
+    era_files = sorted(_glob.glob(str(eras_dir / "*.md")))
+    active: list[tuple[str, str]] = []  # list of (filename, era_id)
+
+    for era_path_str in era_files:
+        era_path = Path(era_path_str)
+        try:
+            text = era_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fm = _parse_frontmatter(text)
+        if fm is None:
+            continue
+        if fm.get("status") == "active":
+            era_id = fm.get("id", "")
+            active.append((era_path.name, era_id))
+
+    if not active:
+        return None
+    if len(active) == 1:
+        return active[0][1]
+
+    # Multiple active eras: warn, use highest ID (last in sorted order)
+    click.echo(
+        f"Warning: {len(active)} active eras found. Using the most recently created.",
+        err=False,
+    )
+    # sorted by filename which starts with NNN-; last entry has highest ID
+    return active[-1][1]
+
+
+def _update_era_phases_table(project_dir: Path, era_id: str, phase_id: int, phase_title: str) -> None:
+    """Append a row to the Phases table in the era's .md file."""
+    eras_dir = project_dir / "docs" / "eras"
+    if not eras_dir.is_dir():
+        return
+
+    # Find the era file by matching its id frontmatter field
+    era_files = sorted(_glob.glob(str(eras_dir / "*.md")))
+    target_file: Path | None = None
+    for era_path_str in era_files:
+        era_path = Path(era_path_str)
+        try:
+            text = era_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fm = _parse_frontmatter(text)
+        if fm is None:
+            continue
+        if fm.get("id") == era_id:
+            target_file = era_path
+            break
+
+    if target_file is None:
+        return
+
+    content = target_file.read_text(encoding="utf-8")
+    # Find the Phases table and append a row
+    # Table row format: | NNN | Phase title | Status |
+    row = f"| {phase_id} | {phase_title} | planned |"
+    lines = content.splitlines(keepends=True)
+    new_lines: list[str] = []
+    in_phases_section = False
+    in_phases_table = False
+    inserted = False
+
+    for line in lines:
+        new_lines.append(line)
+        stripped = line.strip()
+
+        if stripped == "## Phases":
+            in_phases_section = True
+            continue
+
+        if in_phases_section and not in_phases_table:
+            if stripped.startswith("|"):
+                in_phases_table = True
+            continue
+
+        if in_phases_table and not inserted:
+            if not stripped.startswith("|"):
+                # Left the table — insert before this line
+                new_lines.insert(-1, row + "\n")
+                inserted = True
+
+    if not inserted:
+        # Table runs to end of file or we're still in it
+        if in_phases_table:
+            if new_lines and not new_lines[-1].endswith("\n"):
+                new_lines.append("\n")
+            new_lines.append(row + "\n")
+
+    target_file.write_text("".join(new_lines), encoding="utf-8")
 
 
 def _append_index_row(index_path: Path, phase_id: int, phase_title: str) -> None:
@@ -181,7 +308,10 @@ def phase_new(
     # 4. Load project_name from context
     project_name = _load_project_name(project_path)
 
-    # 5. Determine prev_phase
+    # 5. Detect active era
+    era_id = _detect_active_era(project_path)
+
+    # 6. Determine prev_phase
     prev_phase = None
     if phase_id > 1:
         prev_file = phases_dir / f"phase-{phase_id - 1}.md"
@@ -189,7 +319,7 @@ def phase_new(
             prev_title = _read_phase_title(prev_file, phase_id - 1)
             prev_phase = {"id": phase_id - 1, "title": prev_title}
 
-    # 6. Render phase-N.md
+    # 7. Render phase-N.md
     env = _load_env()
     phase_tmpl = env.get_template("docs/phases/phase.md.j2")
     rendered = phase_tmpl.render(
@@ -200,9 +330,10 @@ def phase_new(
         prev_phase=prev_phase,
         next_phase=None,
         stories=[],
+        era_id=era_id,
     )
 
-    # 7. Write or preview phase-N.md
+    # 8. Write or preview phase-N.md
     if dry_run:
         rel = phase_file.relative_to(project_path)
         click.echo(f"[DRY RUN] Would write: {rel}")
@@ -212,8 +343,11 @@ def phase_new(
     else:
         phase_file.write_text(rendered, encoding="utf-8")
         click.echo(f"Created {phase_file.relative_to(project_path)}")
+        # Update era Phases table if an active era was found
+        if era_id:
+            _update_era_phases_table(project_path, era_id, phase_id, title or f"Phase {phase_id}")
 
-    # 8. Update or create index.md
+    # 9. Update or create index.md
     index_path = phases_dir / "index.md"
     if index_path.exists():
         if dry_run:

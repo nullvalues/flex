@@ -26,14 +26,16 @@ In build mode: follow the build loop below. Do not ask clarifying questions befo
 
 ## Before the first build loop
 
-1. Read `/docs/brief.md` in full (operator intent — what and why).
-2. Read `/docs/architecture.md` in full.
-3. Read `/docs/phase-prompts.md` in full (or `docs/phases/phase-N.md` for per-phase projects).
-4. Run `git log --oneline -20` to identify the most recently completed story.
-5. Identify the next story: the first story in the current phase with no corresponding commit.
-   A commit corresponds to a story if its message contains `story-N.X` in the format below.
-6. Check whether a ⚙️ DEVELOPER ACTION gate appears before that story in the phase doc.
-   If yes: present the gate to the user. Do not proceed until the user confirms it is complete.
+1. Read `docs/brief.md` in full (operator intent — what and why).
+2. Read `docs/architecture.md` in full.
+3. Read the current phase file `docs/phases/NNN-name.md` (or `docs/phases/phase-N.md`).
+4. Run `git log --oneline -20` to identify the last completed story.
+   A story is complete if a commit with `story-<RAIL>-NNN` exists.
+5. Read the phase manifest's `## Stories` table. Identify the first story
+   with status `planned` (or no matching commit).
+6. Resolve that story ID to its full content:
+   `docs/stories/<RAIL>/<RAIL>-NNN.md`
+7. Check for ⚙️ DEVELOPER ACTION gates before that story. Block if present.
 
 ---
 
@@ -41,9 +43,15 @@ In build mode: follow the build loop below. Do not ask clarifying questions befo
 
 ### Step 1 — Spawn the builder
 
+Before spawning the builder:
+1. Run `permission_scope.write_story_permissions(story_path, project_dir)`
+   to write story-scoped allow rules to `.claude/settings.local.json`.
+   This pre-authorizes all edits within the story's declared scope.
+   The builder session will not prompt for edits to declared files.
+
 Spawn the `builder` subagent with:
-- The complete story text (verbatim from phase-prompts.md — do not paraphrase)
-- The story ID (e.g. "Story 1.3")
+- The complete story text (verbatim from the story file — do not paraphrase)
+- The story ID (e.g. `BOOTSTRAP-003`)
 - A summary of the last 5 git commits
 
 The builder will implement the story and stop without committing.
@@ -51,7 +59,7 @@ The builder will implement the story and stop without committing.
 If the builder reports a DEVELOPER ACTION gate mid-story, or cannot resolve an error
 after two attempts: stop the build loop. Report to the user:
 
-  BUILD PAUSED — Story [N.X]
+  BUILD PAUSED — Story [RAIL-NNN]
   Reason: [gate description or error]
   Action required: [what the user needs to do]
   When resolved, say: "Continue building"
@@ -64,7 +72,16 @@ Spawn the `reviewer` subagent with:
 
 The reviewer will diff the working tree, run the checklist, run tests, then either commit or revert.
 
+Story commits use the format: `feat(story-RAIL-NNN)` (e.g., `feat(story-BOOTSTRAP-003)`).
+
 ### Step 3 — Handle the result
+
+After the reviewer commits or reverts:
+1. Run `permission_scope.clear_story_permissions(project_dir)`
+   to remove story-scoped allow rules from `.claude/settings.local.json`.
+2. Update the story file status to `complete` (if committed) or leave
+   as `planned` (if reverted).
+3. Update the phase manifest Stories table status column.
 
 **If reviewer reports PASS (committed):**
 Read `git log --oneline -1` to confirm the commit. Advance to the next story.
@@ -74,13 +91,13 @@ Otherwise, repeat the build loop for the next story.
 **If reviewer reports FAIL (reverted):**
 Stop the build loop immediately. Report to the user:
 
-  STORY [N.X] REVIEW FAILED
+  STORY [RAIL-NNN] REVIEW FAILED
   Findings: [reviewer's findings verbatim]
   Test result: [reviewer's test output verbatim]
   Working tree reverted to HEAD.
 
-  To retry with the same approach:     "Retry story N.X"
-  To retry with guidance:              "Fix story N.X: [your guidance]"
+  To retry with the same approach:     "Retry story RAIL-NNN"
+  To retry with guidance:              "Fix story RAIL-NNN: [your guidance]"
   To investigate yourself first:       read the findings and ask me questions
 
 Do not spawn the builder again until the user responds.

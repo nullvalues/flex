@@ -52,6 +52,18 @@ re-scaffolding a project after a major methodology revision.
   `intent-reviewer.md` — skipped if they already exist unless `--force-agents` is passed.
 - `.claude/agents/reconstruction-agent.md` — skipped if already exists unless `--force-agents` is passed.
 
+**Orchestrator workflow — permission pre-writing:**
+After bootstrapping, the build orchestrator (`CLAUDE.build.md`) manages permissions around
+each story build loop:
+- Before spawning the builder: calls `permission_scope.write_story_permissions(story_path, project_dir)`
+  to write story-scoped allow rules to `.claude/settings.local.json`. This pre-authorizes all
+  edits declared in the story's `primary_files` and `touches` fields so the builder session
+  does not prompt mid-build.
+- After the reviewer commits or reverts: calls `permission_scope.clear_story_permissions(project_dir)`
+  to remove those allow rules, restoring the project's default deny posture.
+
+Story commits use the format: `feat(story-RAIL-NNN)` (e.g., `feat(story-BOOTSTRAP-003)`).
+
 **CLI invocation:**
 ```bash
 PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/bootstrap.py" \
@@ -61,6 +73,26 @@ Note: `--project-dir` is the only required flag. Other values (project name, sta
 
 **Agent file ownership:**
 Agent files in `.claude/agents/` are treated as project-owned after first bootstrap. Bootstrap will not overwrite them on subsequent runs unless `--force-agents` is passed explicitly. This preserves project-specific customisations made to agent definitions after initial scaffolding.
+
+**Rail initialization:**
+After writing scaffold files, bootstrap infers the project type from the stack string and suggests a set of default rails:
+
+| Project type | Inferred when stack or name contains | Default rails |
+|---|---|---|
+| `pairmode` | "pairmode" | BOOTSTRAP, AUDIT, RECONSTRUCT, LESSON, BUILD, TEMPLATE, AGENT, INFRA |
+| `web` | "web", "api", "ui", "flask", "django", "fastapi", "react", "vue" | API, UI, DB, AUTH, INFRA, TEST |
+| `cli` | "cli", "terminal", "argparse", "click", "typer" | CORE, INFRA, TEST |
+| `generic` | (default) | CORE, INFRA, TEST |
+
+In TTY mode (without `--ideology-skip`), bootstrap prompts:
+```
+Confirm rails (enter to accept, or type comma-separated list to override):
+```
+In non-TTY mode or with `--ideology-skip`, rails are created from defaults without prompting.
+
+For each confirmed rail, bootstrap creates `docs/stories/<RAIL>/`. Bootstrap also creates `docs/eras/001-initial.md` with the confirmed rails in its Rails table and sets `status: active`. If `docs/phases/phase-1.md` exists without an `era` frontmatter field, bootstrap prepends `era: "001"` to its frontmatter.
+
+Rail initialization is idempotent: existing rail directories and `docs/eras/001-initial.md` are not overwritten on re-bootstrap.
 
 To overwrite existing agent files:
 ```bash
@@ -482,3 +514,59 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
   which enforces the append-only invariant).
 - `lessons/LESSONS.md` regenerated from the updated lessons store.
 - A review summary printed to stdout.
+
+---
+
+### `/anchor:pairmode story`
+
+> **Note:** `story` is invoked directly via CLI, not through the pairmode skill dispatcher.
+> Correct invocation:
+> ```bash
+> PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/story_new.py" \
+>   --project-dir "$(pwd)" --rail BOOTSTRAP --title "My story title"
+> ```
+
+**When to use:** When starting a new story on a named rail. Creates a structured story file
+with frontmatter and section stubs, and optionally registers the story in a phase manifest.
+
+**Inputs expected:**
+- `--rail RAIL` — rail name (case-insensitive; stored uppercase). E.g. `BOOTSTRAP`, `AUDIT`.
+- `--title TEXT` — story title (required).
+- `--phase NNN` — optional phase number. When provided, appends a story row to the phase manifest.
+- `--project-dir PATH` — target project root (default: current directory).
+
+**What it does:**
+1. Resolves and validates `project_dir` (path traversal guard: rejects paths with fewer than
+   3 components).
+2. Normalizes the rail name to uppercase.
+3. Checks if `<project_dir>/docs/stories/<RAIL>/` exists.
+   - If not: prompts `"Rail <RAIL> does not exist. Create it? [Y/n]"`. Aborts on `n`.
+   - If creating: creates the directory. If a current era exists in `docs/eras/`, adds the
+     rail to the era's Rails table.
+4. Scans existing `<RAIL>-NNN.md` files in the rail directory. Next sequence = max existing + 1,
+   zero-padded to 3 digits (`001`, `002`, …). Starts at `001` if none exist.
+5. Writes `<project_dir>/docs/stories/<RAIL>/<RAIL>-NNN.md` with frontmatter and section stubs.
+6. If `--phase` given: opens `<project_dir>/docs/phases/phase-<NNN>.md` (or glob for
+   `<NNN>-*.md`), finds or creates the `## Stories` table, and appends a row
+   `| <RAIL>-NNN | <title> | draft |`.
+7. Prints: `  Created <RAIL>-NNN: <title>` (and `  Added to Phase <NNN>` if applicable).
+
+**Story file format written:**
+```yaml
+---
+id: RAIL-NNN
+rail: RAIL
+title: Story title
+status: draft
+phase: "NNN"
+primary_files:
+touches:
+---
+```
+Followed by `## Acceptance criterion`, `## Instructions`, and `## Tests` section stubs.
+
+**Flags:**
+- `--rail RAIL` — rail name (required)
+- `--title TEXT` — story title (required)
+- `--phase NNN` — phase number to register this story in (optional)
+- `--project-dir PATH` — target project root (default: current directory)
