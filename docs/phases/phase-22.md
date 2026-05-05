@@ -38,11 +38,138 @@ Prerequisites: Phase 21 complete and tagged cp21-template-methodology.
 
 | ID | Title | Status |
 |----|-------|--------|
+| INFRA-041 | Propagate fallback-policy pointer to `CLAUDE.build.md.j2` template (CER-013) | planned |
+| INFRA-042 | Encode pre-reviewer commit discipline in `CLAUDE.build.md.j2` (CER-014) | planned |
 | INFRA-028 | Effort tracking — sqlite schema and `record_attempt.py` recorder | planned |
 | INFRA-029 | Effort tracking — `pairmode_effort.py` reporting CLI | planned |
 | INFRA-030 | Effort tracking — wire recording into the build loop (CLAUDE.build.md) | planned |
 | INFRA-035 | Effort recording for seed and companion subagent calls | planned |
 | INFRA-034 | Real-time effort guardrail in build loop | planned |
+
+INFRA-041 and INFRA-042 are small cleanup stories carried in from Phase 21's intent
+review and security audit. They land first because they correct prior-phase debt
+that affects future bootstraps, and because they're trivially small compared to the
+effort-tracking work that follows.
+
+---
+
+### Story INFRA-041 — Propagate fallback-policy pointer to `CLAUDE.build.md.j2` template (CER-013)
+
+**Rail:** INFRA
+
+**Acceptance criterion:** `skills/pairmode/templates/CLAUDE.build.md.j2` contains the
+same one-line fallback note that INFRA-033 added to anchor's own `CLAUDE.build.md`.
+Future pairmode bootstraps inherit the orchestrator-level pointer to the fallback
+policy, not just the inline `# fallback:` template comments. A test asserts the
+rendered template contains the fallback line. CER-013 is marked RESOLVED.
+
+**Background (CER-013):** INFRA-033 added the fallback note to the project file
+but missed the canonical template. Anchor's own dogfood is correct; downstream
+projects bootstrapped after Phase 21 would otherwise miss the orchestrator-level
+guidance even though they get the inline template comments and the architecture
+subsection through other paths. The intent-reviewer flagged this as a propagation
+gap; the spec ambiguity ("In `CLAUDE.build.md`" without disambiguating
+template-vs-project-file) is the root cause.
+
+**Instructions:**
+
+1. In `skills/pairmode/templates/CLAUDE.build.md.j2`, locate the build-loop
+   section (likely near Step 1 or the orchestrator instructions block).
+2. Add the same one-line note that exists in anchor's `CLAUDE.build.md`:
+   "If the preferred model for an agent is rate-limited, override at call time
+   via the `model` parameter (Opus → Sonnet on reviewers; Sonnet → Haiku on
+   builder; never below Haiku). See `docs/architecture.md` § Model selection
+   and fallback."
+   Match the surrounding section voice and indentation.
+3. Update `docs/cer/backlog.md` CER-013 row's resolution column to
+   `**RESOLVED** Phase 22 INFRA-041`.
+
+**Tests:** Extend `tests/pairmode/test_templates.py` (add a test method to
+the existing fallback test class or a new class) asserting that the rendered
+`CLAUDE.build.md.j2` output contains both `"Opus → Sonnet"` and
+`"never below Haiku"`. The test should render the template with a representative
+context (mirror what bootstrap.py does) and substring-match the result.
+
+---
+
+### Story INFRA-042 — Encode pre-reviewer commit discipline in `CLAUDE.build.md.j2` (CER-014)
+
+**Rail:** INFRA
+
+**Acceptance criterion:** `skills/pairmode/templates/CLAUDE.build.md.j2` (and
+the propagated copy in anchor's own `CLAUDE.build.md`) contain an explicit
+pre-reviewer step that commits any uncommitted story-file changes and runs
+`git checkout -- lessons/` to drop any uncommitted lesson edits the reviewer
+might overwrite. The `docs/architecture.md` claim about "pre-reviewer commit
+discipline" is now backed by an actual orchestrator instruction. CER-014 is
+marked RESOLVED.
+
+**Background (CER-014):** The Phase 21 security audit and intent review both
+flagged that `docs/architecture.md` line 253 asserts the existence of "the
+orchestrator's pre-reviewer commit discipline (committing story files and
+running `git checkout -- lessons/` before the reviewer fires)" as one of two
+layers protecting the working tree, but neither `CLAUDE.build.md` nor
+`CLAUDE.build.md.j2` actually encodes the discipline. The defense-in-depth
+claim rests on tribal knowledge.
+
+**Decision (recorded here as a story-level choice):** Honor the architecture
+claim by ENCODING the discipline rather than trimming the claim. The user's
+pattern across this project favors layered defense; the orchestrator has in
+practice been performing this cleanup ad-hoc throughout phases 17–21. Making
+it explicit in the template is the cheap correct move.
+
+**Instructions:**
+
+1. In `skills/pairmode/templates/CLAUDE.build.md.j2`, in the build-loop section
+   between "Spawn the builder" (Step 1) and "Spawn the reviewer" (Step 2), add
+   a new step:
+
+   ```
+   ### Step 1.5 — Commit pending methodology files before the reviewer fires
+
+   The reviewer's revert path (`git checkout .` or `git reset --hard HEAD`)
+   protects against builder mistakes by restoring the working tree to its last
+   committed state. That same revert can erase uncommitted methodology files
+   (story-spec edits, lesson notes, phase-doc updates) that the orchestrator
+   created during this session but never committed.
+
+   Before spawning the reviewer:
+
+       # Commit any orchestrator-side methodology file changes
+       git add docs/stories/ docs/phases/ docs/cer/ 2>/dev/null
+       git diff --cached --quiet || git commit -m "chore(orchestrator): pre-reviewer methodology file commit"
+
+       # Drop any uncommitted lesson edits — lessons.json/LESSONS.md should only
+       # be modified through LESSON-* stories' canonical save_lessons path
+       git checkout -- lessons/lessons.json lessons/LESSONS.md 2>/dev/null
+
+   This is the second of two layers protecting the working tree from reviewer
+   reverts. The first layer is the reviewer-class agent tool restriction
+   (read-only tools plus Bash; see docs/architecture.md). Together they ensure
+   the reviewer can revert builder mistakes without erasing methodology.
+   ```
+
+2. Apply the same change to anchor's own `CLAUDE.build.md` so anchor's dogfood
+   matches.
+
+3. Update `docs/cer/backlog.md` CER-014 row's resolution column to
+   `**RESOLVED** Phase 22 INFRA-042`.
+
+4. Verify `docs/architecture.md` line ~253 ("Reviewer-class agent tool
+   restriction (build-loop safety)") now matches the orchestrator's actual
+   behaviour. No edit needed if the claim text already aligns; minor wording
+   tweak otherwise.
+
+**Tests:** Extend `tests/pairmode/test_templates.py` with assertions:
+- Rendered `CLAUDE.build.md.j2` contains the substring `"pre-reviewer methodology file commit"`
+- Rendered `CLAUDE.build.md.j2` contains the substring `"git checkout -- lessons/"`
+- Anchor's own `CLAUDE.build.md` contains both substrings (regression check)
+
+**Why automated and not just a doc note:** the orchestrator is a Claude Code
+session, not a deterministic script. Without explicit text in `CLAUDE.build.md`
+the discipline depends on the orchestrator remembering across context
+compactions. Encoded into the file, it survives compaction and re-loads on
+every "Build Phase N" or "Continue building" invocation.
 
 ---
 
