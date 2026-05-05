@@ -2,7 +2,7 @@
 id: INFRA-028
 rail: INFRA
 title: Effort tracking sqlite schema and record_attempt.py recorder
-status: planned
+status: complete
 phase: "22"
 primary_files:
   - skills/pairmode/scripts/effort_db.py
