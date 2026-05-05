@@ -247,7 +247,14 @@ def _merge_deny_list(settings_path: pathlib.Path, new_entries: list[str]) -> Non
 
 
 def _record_state(state_path: pathlib.Path, version: str) -> None:
-    """Write pairmode_version into .companion/state.json, creating if absent."""
+    """Write pairmode_version into .companion/state.json, creating if absent.
+
+    Pairmode bootstraps also auto-enable ``effort_tracking`` so the
+    orchestrator's per-attempt recorder will start writing rows immediately.
+    Plain anchor (non-pairmode) bootstraps leave the flag unset; only this
+    pairmode-specific bootstrap sets it.  An existing ``effort_tracking``
+    field (e.g. user explicitly set it to ``false``) is preserved.
+    """
     if state_path.exists():
         try:
             data = json.loads(state_path.read_text(encoding="utf-8"))
@@ -257,6 +264,8 @@ def _record_state(state_path: pathlib.Path, version: str) -> None:
         data = {}
 
     data["pairmode_version"] = version
+    if "effort_tracking" not in data:
+        data["effort_tracking"] = True
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
