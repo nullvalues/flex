@@ -38,8 +38,8 @@ Prerequisites: Phase 21 complete and tagged cp21-template-methodology.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-041 | Propagate fallback-policy pointer to `CLAUDE.build.md.j2` template (CER-013) | planned |
-| INFRA-042 | Encode pre-reviewer commit discipline in `CLAUDE.build.md.j2` (CER-014) | planned |
+| INFRA-041 | Propagate fallback-policy pointer to `CLAUDE.build.md.j2` template (CER-013) | complete |
+| INFRA-042 | Encode pre-reviewer commit discipline in `CLAUDE.build.md.j2` (CER-014) | complete |
 | INFRA-028 | Effort tracking — sqlite schema and `record_attempt.py` recorder | planned |
 | INFRA-029 | Effort tracking — `pairmode_effort.py` reporting CLI | planned |
 | INFRA-030 | Effort tracking — wire recording into the build loop (CLAUDE.build.md) | planned |

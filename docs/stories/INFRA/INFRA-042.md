@@ -2,7 +2,7 @@
 id: INFRA-042
 rail: INFRA
 title: Encode pre-reviewer commit discipline in CLAUDE.build.md.j2 (CER-014)
-status: planned
+status: complete
 phase: "22"
 primary_files:
   - skills/pairmode/templates/CLAUDE.build.md.j2

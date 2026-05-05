@@ -32,7 +32,7 @@ Prerequisites: Phase 19 complete and tagged cp19-test-coverage-integration.
 | INFRA-019 | `pairmode_status.py`: print current pairmode state and sidebar attachment | complete |
 | INFRA-020 | Fix `pairmode_status.py` ANCHOR_ROOT computation (CER-012) | complete |
 | INFRA-021 | Remove orphan upstream dev scripts from tests/ (cwd contamination) | complete |
-| INFRA-016 | Final pre-PR audit: full test suite, security pass, open CER review | planned |
+| INFRA-016 | Final pre-PR audit: full test suite, security pass, open CER review | complete |
 | INFRA-017 | Git history review and squash plan — pauses for developer approval | planned |
 
 ---

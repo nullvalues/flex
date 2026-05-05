@@ -2,7 +2,7 @@
 id: INFRA-016
 rail: INFRA
 title: Final pre-PR audit — full test suite, security pass, open CER review
-status: planned
+status: complete
 phase: "20"
 primary_files: []
 touches: []

@@ -2,7 +2,7 @@
 id: INFRA-041
 rail: INFRA
 title: Propagate fallback-policy pointer to CLAUDE.build.md.j2 template (CER-013)
-status: planned
+status: complete
 phase: "22"
 primary_files:
   - skills/pairmode/templates/CLAUDE.build.md.j2
