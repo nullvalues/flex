@@ -391,6 +391,28 @@ class TestClaudeBuildMdNoMigration:
 
 
 # ---------------------------------------------------------------------------
+# Story INFRA-041 — fallback-policy pointer propagated to CLAUDE.build.md.j2
+# ---------------------------------------------------------------------------
+
+class TestClaudeBuildMdFallbackPolicyPointer:
+    """Story INFRA-041: CLAUDE.build.md.j2 contains the same one-line fallback
+    note that INFRA-033 added to anchor's own CLAUDE.build.md, so future
+    pairmode bootstraps inherit the orchestrator-level pointer."""
+
+    def setup_method(self):
+        self.output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
+
+    def test_rendered_template_contains_opus_to_sonnet_fallback(self):
+        assert "Opus → Sonnet" in self.output
+
+    def test_rendered_template_contains_never_below_haiku(self):
+        assert "never below Haiku" in self.output
+
+    def test_rendered_template_points_at_architecture_section(self):
+        assert "Model selection and fallback" in self.output
+
+
+# ---------------------------------------------------------------------------
 # Agent template shared context
 # ---------------------------------------------------------------------------
 
