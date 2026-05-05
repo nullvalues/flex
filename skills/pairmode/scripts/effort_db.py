@@ -16,12 +16,17 @@ Public API
 - ``resolve_effort_db_path(project_dir)`` — resolve the database path from
   ``.companion/state.json["effort_db_path"]``, defaulting to
   ``<project_dir>/.companion/effort.db``.
+- ``check_guardrail(path, ...)`` — informational mid-loop guardrail that
+  compares a just-completed builder attempt's tokens against the rail's
+  recent median.  Returns a dict; never raises on missing data.
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
+import statistics
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -265,3 +270,128 @@ def query_all(path: Path) -> list[dict]:
         return _rows_to_dicts(cur, rows)
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Real-time guardrail (INFRA-034)
+# ---------------------------------------------------------------------------
+
+
+_MIN_SAMPLE_SIZE = 3
+
+
+def check_guardrail(
+    db_path: Path,
+    *,
+    story_id: str,
+    rail: str,
+    latest_tokens: int,
+    multiplier: float = 3.0,
+    lookback_days: int = 30,
+) -> dict:
+    """Compare *latest_tokens* against the rail's recent median PASS-builder cost.
+
+    Queries ``attempts`` for rows with ``agent_role='builder'``, ``rail=<rail>``,
+    ``outcome='PASS'``, and ``ts`` within the last *lookback_days* days.
+    Computes the median of the resulting ``tokens_total`` values (NULL/zero
+    excluded) and compares ``latest_tokens`` against ``multiplier × median``.
+
+    Returns a dict with the following keys:
+
+    - ``fired`` (bool) — True if ``latest_tokens`` exceeded the threshold.
+    - ``rail`` (str) — the rail queried.
+    - ``median`` (int | None) — the median token count, or None if insufficient
+      sample.
+    - ``multiplier`` (float) — the multiplier used.
+    - ``threshold`` (int | None) — ``int(median * multiplier)`` when fired or
+      computable, else None.
+    - ``latest`` (int) — the latest attempt's tokens (echoed back).
+    - ``sample_size`` (int) — number of PASS-builder rows that informed the
+      median.
+    - ``message`` (str | None) — multi-line stderr-ready warning if fired,
+      else None.
+
+    The guardrail is informational only.  Insufficient sample (< 3 PASS-builder
+    rows for the rail in the lookback window) returns early with
+    ``fired=False`` and ``message=None`` — this avoids false positives on new
+    rails.  Missing database also returns the insufficient-sample shape
+    without raising.
+    """
+
+    resolved = _depth_guard(db_path)
+
+    # Build the structured "no fire / no data" shell once; we mutate it as we
+    # learn more.  This keeps every early-exit branch consistent.
+    result: dict = {
+        "fired": False,
+        "rail": rail,
+        "median": None,
+        "multiplier": float(multiplier),
+        "threshold": None,
+        "latest": int(latest_tokens),
+        "sample_size": 0,
+        "message": None,
+    }
+
+    if not resolved.exists():
+        return result
+
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    ).isoformat()
+
+    conn = sqlite3.connect(str(resolved))
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT tokens_total
+              FROM attempts
+             WHERE agent_role = 'builder'
+               AND rail = ?
+               AND outcome = 'PASS'
+               AND ts >= ?
+               AND tokens_total IS NOT NULL
+               AND tokens_total > 0
+            """,
+            (rail, cutoff),
+        )
+        token_values = [int(row[0]) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+    result["sample_size"] = len(token_values)
+
+    if len(token_values) < _MIN_SAMPLE_SIZE:
+        # Insufficient data — do not fire.  Median stays None so callers can
+        # tell the difference between "no signal" and "below threshold".
+        return result
+
+    median_value = statistics.median(token_values)
+    # statistics.median returns float for even-length samples; coerce to int
+    # so the dict shape is stable for downstream consumers.
+    median_int = int(median_value)
+    threshold_int = int(median_value * float(multiplier))
+
+    result["median"] = median_int
+    result["threshold"] = threshold_int
+
+    if int(latest_tokens) > threshold_int:
+        result["fired"] = True
+        ratio = (int(latest_tokens) / median_value) if median_value else 0.0
+        result["message"] = (
+            "[effort guardrail] Builder attempt exceeded "
+            f"{float(multiplier):.1f}x rail median.\n"
+            f"  story:        {story_id}\n"
+            f"  rail:         {rail}\n"
+            f"  latest:       {int(latest_tokens):,} tokens\n"
+            f"  rail median:  {median_int:,} tokens "
+            f"(n={len(token_values)}, last {lookback_days}d)\n"
+            f"  threshold:    {threshold_int:,} tokens "
+            f"({float(multiplier):.1f}x median)\n"
+            f"  ratio:        {ratio:.2f}x median\n"
+            "  suggestion:   pause and consult the user before spawning the "
+            "reviewer; consider splitting the story or verifying scope."
+        )
+
+    return result

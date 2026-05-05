@@ -96,6 +96,46 @@ PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/record_attempt
 `record_attempt.py` no-ops silently when `.companion/state.json["effort_tracking"]`
 is absent or false, so this step is safe to run unconditionally.
 
+After recording the attempt, run the real-time effort guardrail. It compares
+the just-completed builder attempt's tokens against the rail's recent median
+PASS-outcome cost. If the latest attempt exceeds `N × median` (default
+`N=3.0`, configurable via `state["effort_guardrail_multiplier"]`), the
+guardrail prints a structured warning to stderr. The guardrail is
+informational, not blocking — exit code is always 0:
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python -c "
+import json, sys
+from pathlib import Path
+sys.path.insert(0, 'skills/pairmode/scripts')
+from effort_db import check_guardrail, resolve_effort_db_path
+
+state_path = Path('.companion/state.json')
+multiplier = 3.0
+if state_path.exists():
+    try:
+        multiplier = float(json.loads(state_path.read_text()).get(
+            'effort_guardrail_multiplier', 3.0))
+    except Exception:
+        pass
+
+result = check_guardrail(
+    db_path=resolve_effort_db_path(Path('.')),
+    story_id='RAIL-NNN',
+    rail='RAIL',
+    latest_tokens=38000,  # from <usage> total_tokens
+    multiplier=multiplier,
+)
+if result['fired']:
+    print(result['message'], file=sys.stderr)
+"
+```
+
+When the guardrail fires, surface the warning to the user and pause before
+spawning the reviewer — ask whether to continue, retry with tighter scope,
+or split the story. The orchestrator (not the guardrail) decides whether to
+pause; an unfired guardrail is silent and the loop continues normally.
+
 If the preferred model for an agent is rate-limited, override at call time via the `model` parameter (Opus → Sonnet on reviewers; Sonnet → Haiku on builder; never below Haiku). See `docs/architecture.md` § Model selection and fallback.
 
 If the builder reports a DEVELOPER ACTION gate mid-story, or cannot resolve an error

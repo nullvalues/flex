@@ -456,6 +456,19 @@ recorded attempts:
 These are retrospective views. Future phases will add a real-time guardrail
 that surfaces effort overruns mid-loop rather than only after the fact.
 
+**Real-time guardrail.** After each builder attempt, the orchestrator calls
+`effort_db.check_guardrail()` with the rail and the just-completed attempt's
+token count. The function queries the rail's median tokens-per-attempt across
+recent PASS-outcome builder rows and compares the latest attempt against
+`multiplier × median`. If the latest attempt exceeds that threshold, the
+orchestrator surfaces a structured stderr warning before spawning the reviewer.
+The guardrail is informational (exit 0), not blocking — the orchestrator
+decides whether to pause and consult the user based on the warning text. The
+default multiplier is `3.0`, configurable via
+`state["effort_guardrail_multiplier"]`. Insufficient sample (< 3 PASS-outcome
+builder rows for the rail within the lookback window) returns early without
+firing, so new rails do not generate false positives.
+
 ---
 
 ## Layer rules for this codebase
