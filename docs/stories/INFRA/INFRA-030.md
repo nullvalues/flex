@@ -2,7 +2,7 @@
 id: INFRA-030
 rail: INFRA
 title: Wire effort recording into the build loop CLAUDE.build.md
-status: planned
+status: complete
 phase: "22"
 primary_files:
   - CLAUDE.build.md
