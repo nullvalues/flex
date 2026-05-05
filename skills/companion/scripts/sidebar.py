@@ -119,6 +119,12 @@ if str(_ANCHOR_ROOT) not in sys.path:
 
 from skills.pairmode.scripts.spec_exception import record_spec_exception  # noqa: E402
 
+try:
+    from skills.pairmode.scripts.effort_recorder import record_effort  # noqa: E402
+except Exception:  # noqa: BLE001 — never fail sidebar on telemetry import
+    def record_effort(**kwargs):  # type: ignore[no-redef]
+        return None
+
 console = Console()
 lock = threading.Lock()
 
@@ -398,6 +404,29 @@ def call_claude(prompt: str, system: str, model: str = "claude-haiku-4-5-2025100
                 raw = raw[4:]
         return raw.strip()
 
+    def _record_sidebar_effort(outcome: str) -> None:
+        """Append an effort row for this LLM call (no-op if disabled)."""
+        try:
+            story = _current_story or {}
+            sid = story.get("id") if isinstance(story, dict) else None
+            story_id = f"sidebar:{sid}" if sid else "sidebar:no-story"
+            usage_obj = None
+            rmsg = collected.get("result_msg")
+            if rmsg is not None:
+                usage_obj = getattr(rmsg, "usage", None)
+            record_effort(
+                project_dir=Path.cwd(),
+                story_id=story_id,
+                agent_role="sidebar-extractor",
+                model=model,
+                usage=usage_obj,
+                attempt_number=1,
+                outcome=outcome,
+                notes="sidebar pipe-message LLM extraction",
+            )
+        except Exception:
+            pass
+
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -406,9 +435,11 @@ def call_claude(prompt: str, system: str, model: str = "claude-haiku-4-5-2025100
         finally:
             loop.close()
         console.print(f"[dim]  final parts: {len(collected['parts'])}, result_msg: {collected['result_msg'] is not None}[/dim]")
+        _record_sidebar_effort("PASS" if raw else "FAIL")
         return _finalize(raw)
     except asyncio.TimeoutError:
         console.print("[yellow]  timeout — skipping[/yellow]")
+        _record_sidebar_effort("FAIL")
         return None
     except Exception as e:
         # The query may have completed successfully even if cleanup throws.
@@ -417,9 +448,11 @@ def call_claude(prompt: str, system: str, model: str = "claude-haiku-4-5-2025100
             console.print(
                 f"[yellow]  cleanup error ({type(e).__name__}), but got {len(collected['parts'])} parts — using them[/yellow]"
             )
+            _record_sidebar_effort("PASS")
             return _finalize("".join(collected["parts"]))
         console.print(f"[red]  LLM error: {type(e).__name__}: {e!r}[/red]")
         log_error(f"LLM error: {e}")
+        _record_sidebar_effort("FAIL")
         return None
 
 

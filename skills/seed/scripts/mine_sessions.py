@@ -23,6 +23,17 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+# Allow importing the in-process effort recorder from the sibling pairmode skill.
+_ANCHOR_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+if str(_ANCHOR_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ANCHOR_ROOT))
+
+try:
+    from skills.pairmode.scripts.effort_recorder import record_effort
+except Exception:
+    def record_effort(**kwargs):
+        return None
+
 # ── Transcript reading ─────────────────────────────────────────────────────────
 
 
@@ -117,16 +128,21 @@ Return empty arrays for categories with nothing to extract.
 Return has_planning_content: false if this session has no architectural decisions."""
 
 
-def _call_sdk(conversation: str, system: str, model: str) -> str | None:
-    """Single SDK call. Returns raw text or None."""
+def _call_sdk(conversation: str, system: str, model: str, usage_out: dict | None = None) -> str | None:
+    """Single SDK call. Returns raw text or None.
+
+    If *usage_out* is provided, the dict is populated with token-usage fields
+    extracted from the SDK ResultMessage (best-effort; left empty on failure).
+    """
     try:
         from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
     except ImportError:
         os.system("pip3 install claude-agent-sdk anyio --break-system-packages -q")
         from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
 
+    collected = {"parts": [], "usage": None}
+
     async def _run():
-        parts = []
         opts = ClaudeAgentOptions(
             system_prompt=system,
             tools=[],
@@ -139,16 +155,24 @@ def _call_sdk(conversation: str, system: str, model: str) -> str | None:
             if isinstance(msg, AssistantMessage):
                 for block in msg.content:
                     if isinstance(block, TextBlock):
-                        parts.append(block.text)
-        return "".join(parts)
+                        collected["parts"].append(block.text)
+            elif type(msg).__name__ == "ResultMessage":
+                # ResultMessage carries .usage on Anthropic SDKs; capture if present.
+                u = getattr(msg, "usage", None)
+                if u is not None:
+                    collected["usage"] = u
+        return "".join(collected["parts"])
 
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(_run())
+            raw = loop.run_until_complete(_run())
         finally:
             loop.close()
+        if usage_out is not None and collected["usage"] is not None:
+            usage_out["usage"] = collected["usage"]
+        return raw
     except Exception as e:
         print(f"    SDK error ({model}): {e}", file=sys.stderr)
         return None
@@ -197,7 +221,23 @@ def call_claude_extract(conversation: str, session_id: str, session_summary: str
 
     # Try Haiku up to 3 times with exponential backoff
     for attempt in range(3):
-        raw = _call_sdk(conversation, system, "claude-haiku-4-5-20251001")
+        usage_out: dict = {}
+        haiku_model = "claude-haiku-4-5-20251001"
+        raw = _call_sdk(conversation, system, haiku_model, usage_out=usage_out)
+        # Record this LLM call attempt to the effort DB (no-op when disabled).
+        try:
+            record_effort(
+                project_dir=Path.cwd(),
+                story_id=f"seed:{session_id}",
+                agent_role="seed-miner",
+                model=haiku_model,
+                usage=usage_out.get("usage"),
+                attempt_number=attempt + 1,
+                outcome="PASS" if raw else "FAIL",
+                notes="seed mine_sessions Haiku attempt",
+            )
+        except Exception:
+            pass
         result = parse_raw(raw)
         if result is not None:
             return result
@@ -212,7 +252,22 @@ def call_claude_extract(conversation: str, session_id: str, session_summary: str
     # Fall back to Sonnet with 2 attempts
     print(f"    Haiku failed 3x for {session_id[:8]}, trying Sonnet...", file=sys.stderr)
     for attempt in range(2):
-        raw = _call_sdk(conversation, system, "claude-sonnet-4-6")
+        usage_out = {}
+        sonnet_model = "claude-sonnet-4-6"
+        raw = _call_sdk(conversation, system, sonnet_model, usage_out=usage_out)
+        try:
+            record_effort(
+                project_dir=Path.cwd(),
+                story_id=f"seed:{session_id}",
+                agent_role="seed-miner",
+                model=sonnet_model,
+                usage=usage_out.get("usage"),
+                attempt_number=4 + attempt,  # continues numbering after Haiku attempts
+                outcome="PASS" if raw else "FAIL",
+                notes="seed mine_sessions Sonnet fallback",
+            )
+        except Exception:
+            pass
         result = parse_raw(raw)
         if result is not None:
             print(f"    Sonnet fallback succeeded for {session_id[:8]}", file=sys.stderr)

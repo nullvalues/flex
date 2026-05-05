@@ -18,7 +18,22 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# Allow importing the in-process effort recorder from the sibling pairmode skill.
+_ANCHOR_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+if str(_ANCHOR_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ANCHOR_ROOT))
+
+try:
+    from skills.pairmode.scripts.effort_recorder import record_effort
+except Exception:  # noqa: BLE001 — never fail reconcile on telemetry import
+    def record_effort(**kwargs):  # type: ignore[no-redef]
+        return None
+
 # ── LLM call ──────────────────────────────────────────────────────────────────
+
+# Module-level counter so each call gets a distinct attempt_number when
+# recorded to the effort DB.  Lifetime: one reconcile invocation.
+_RECONCILE_ATTEMPT_COUNTER = {"n": 0}
 
 
 def call_claude(prompt: str, system_prompt: str) -> str | None:
@@ -28,8 +43,10 @@ def call_claude(prompt: str, system_prompt: str) -> str | None:
         os.system("pip3 install claude-agent-sdk anyio --break-system-packages -q")
         from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
 
+    collected = {"parts": [], "usage": None}
+    model_name = "claude-sonnet-4-6"
+
     async def _run():
-        parts = []
         opts = ClaudeAgentOptions(
             system_prompt=system_prompt,
             tools=[],
@@ -37,13 +54,17 @@ def call_claude(prompt: str, system_prompt: str) -> str | None:
             permission_mode="bypassPermissions",
             extra_args={"setting-sources": ""},
         )
-        opts.model = "claude-sonnet-4-6"
+        opts.model = model_name
         async for msg in query(prompt=prompt, options=opts):
             if isinstance(msg, AssistantMessage):
                 for block in msg.content:
                     if isinstance(block, TextBlock):
-                        parts.append(block.text)
-        return "".join(parts)
+                        collected["parts"].append(block.text)
+            elif type(msg).__name__ == "ResultMessage":
+                u = getattr(msg, "usage", None)
+                if u is not None:
+                    collected["usage"] = u
+        return "".join(collected["parts"])
 
     try:
         loop = asyncio.new_event_loop()
@@ -52,6 +73,23 @@ def call_claude(prompt: str, system_prompt: str) -> str | None:
             raw = loop.run_until_complete(_run())
         finally:
             loop.close()
+
+        # Record this LLM call attempt (no-op if effort tracking disabled).
+        _RECONCILE_ATTEMPT_COUNTER["n"] += 1
+        try:
+            record_effort(
+                project_dir=Path.cwd(),
+                story_id="seed:reconcile",
+                agent_role="seed-reconcile",
+                model=model_name,
+                usage=collected["usage"],
+                attempt_number=_RECONCILE_ATTEMPT_COUNTER["n"],
+                outcome="PASS" if raw else "FAIL",
+                notes="seed reconcile LLM merge/assign",
+            )
+        except Exception:
+            pass
+
         if not raw:
             return None
         raw = raw.strip()

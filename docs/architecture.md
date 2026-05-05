@@ -432,6 +432,19 @@ spawn the orchestrator initiates during the build loop. Future phases will
 extend the capture surface to seed and companion sessions; the schema and
 toggle are designed to absorb that without migration.
 
+**Cross-skill recording.** Seed and companion record their own LLM-call
+effort via in-process wrappers (not orchestrator tool calls), since both
+skills set `disable-model-invocation: true` and cannot be invoked as
+subagents from the build orchestrator. The wrappers live inside each
+skill's Python code (`mine_sessions.py`, `reconcile.py`, `sidebar.py`) and
+call the same `effort_recorder` helper as `record_attempt.py`. Synthetic
+`story_id` values (`seed:<session-id>`, `seed:reconcile`,
+`sidebar:<story-id-or-no-story>`) distinguish cross-skill rows from
+pairmode loop rows. `agent_role` values used by these wrappers:
+`seed-miner`, `seed-reconcile`, `sidebar-extractor`. `phase` and `rail`
+are left NULL for cross-skill rows because seed and sidebar work happens
+outside the phases/rails model.
+
 **How to use it.** `pairmode_effort.py` provides four read-time views over the
 recorded attempts:
 
