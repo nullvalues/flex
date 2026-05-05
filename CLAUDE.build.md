@@ -65,8 +65,10 @@ Spawn the `builder` subagent with:
 
 The builder will implement the story and stop without committing.
 
-After the builder returns, parse its final message for the `<usage>` block and
-record the attempt. The `<usage>` block format the orchestrator expects is:
+After the builder returns, parse its tool-result for the `<usage>` block and
+record the attempt. **The `<usage>` block is appended automatically by the
+Claude Code runtime to every Agent tool result** — the agent template does not
+need to instruct emission. The format is:
 
 ```
 <usage>total_tokens: N
@@ -77,7 +79,11 @@ duration_ms: K</usage>
 Extract `total_tokens`, `tool_uses`, and `duration_ms` from those three fields,
 then invoke `record_attempt.py` with `--agent-role builder`. The `--model` value
 is inferred from the agent definition (e.g. `claude-sonnet-4-5` for the builder),
-and `--attempt-number` is `1` on the first attempt and incremented on each retry.
+or from any `model` override the orchestrator passed to the Agent tool.
+`--attempt-number` is `1` on the first attempt and incremented on each retry —
+the orchestrator must remember the per-story attempt counter across builder
+spawns. `--phase` and `--rail` are read from the current story file's frontmatter
+(`phase` and `rail` fields in `docs/stories/<RAIL>/<RAIL>-NNN.md`).
 
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/record_attempt.py \

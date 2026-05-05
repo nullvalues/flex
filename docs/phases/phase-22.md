@@ -44,7 +44,7 @@ Prerequisites: Phase 21 complete and tagged cp21-template-methodology.
 | INFRA-029 | Effort tracking — `pairmode_effort.py` reporting CLI | complete |
 | INFRA-030 | Effort tracking — wire recording into the build loop (CLAUDE.build.md) | complete |
 | INFRA-035 | Effort recording for seed and companion subagent calls | complete |
-| INFRA-034 | Real-time effort guardrail in build loop | planned |
+| INFRA-034 | Real-time effort guardrail in build loop | complete |
 
 INFRA-041 and INFRA-042 are small cleanup stories carried in from Phase 21's intent
 review and security audit. They land first because they correct prior-phase debt

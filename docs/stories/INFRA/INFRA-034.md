@@ -2,7 +2,7 @@
 id: INFRA-034
 rail: INFRA
 title: Real-time effort guardrail in build loop
-status: planned
+status: complete
 phase: "22"
 primary_files:
   - skills/pairmode/scripts/effort_db.py
