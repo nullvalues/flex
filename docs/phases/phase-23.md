@@ -30,11 +30,86 @@ accruing in at least one project.
 
 | ID | Title | Status |
 |----|-------|--------|
+| INFRA-043 | Auto-plumb `--phase`, `--rail`, and attempt counter into `record_attempt.py` (CER-015) | planned |
 | INFRA-038 | Story frontmatter `source:` field + anchor-as-project for self-drift | planned |
 | INFRA-039 | `.pairmode-overrides` integration in drift reports | planned |
 | INFRA-031 | Project drift detection — `pairmode_drift_report.py` | planned |
 | INFRA-032 | Drift promotion workflow — extend `/anchor:pairmode review` | planned |
 | INFRA-037 | Token-evidence ranking in drift promotion | planned |
+
+INFRA-043 lands first as cleanup carried in from Phase 22's intent review. INFRA-037
+depends on effort-tracking data being reliable (correct phase/rail per row, correct
+retry counts), so closing the plumbing gap before promotion logic queries the data
+keeps the drift-evidence story honest from day one.
+
+---
+
+### Story INFRA-043 — Auto-plumb `--phase`, `--rail`, and attempt counter into `record_attempt.py` (CER-015)
+
+**Rail:** INFRA
+
+**Acceptance criterion:** `record_attempt.py` accepts a `--story-file <path>` flag
+that auto-extracts `phase` and `rail` from the story file's frontmatter (using
+`schema_validator._parse_frontmatter`). A new `effort_db.next_attempt_number()`
+helper queries the database for the highest existing `attempt_number` for a
+given `(story_id, agent_role)` pair and returns the next value, eliminating the
+orchestrator's need to remember per-story retry counts. CLAUDE.build.md and the
+template are updated to use the new flags. Tests confirm both the helper and
+the auto-extraction. CER-015 marked RESOLVED.
+
+**Background (CER-015):** Phase 22 wired `record_attempt.py` into the build loop
+but the orchestrator currently substitutes `--phase`, `--rail`, and
+`--attempt-number` values by hand. That works as long as the orchestrator
+remembers; one slip and rows land with NULL `phase`/`rail` (breaking rollup
+reports) or `attempt_number=1` for what is really a retry (breaking the rework
+signal — the entire spec-quality use case Phase 22 was built for). A small
+helper closes the gap permanently.
+
+**Instructions:**
+
+1. **`--story-file` auto-extraction in `record_attempt.py`:**
+   - Add a new Click option `--story-file <path>`. When present, parse the
+     frontmatter with the canonical `schema_validator._parse_frontmatter`,
+     read `phase`, `rail`, and `id` (use `id` as `--story-id` if not also
+     given on the command line), populate the corresponding kwargs.
+   - Existing `--phase`, `--rail`, `--story-id` flags still work and override
+     anything pulled from the story file. The story-file path is the cheap
+     default; explicit flags remain the escape hatch.
+   - Error handling: if the story file can't be parsed or required fields
+     are missing, fall back to the explicit-flag path with a stderr warning.
+
+2. **`effort_db.next_attempt_number()` helper:**
+   - Signature: `next_attempt_number(db_path: Path, *, story_id: str,
+     agent_role: str) -> int`
+   - Query: `SELECT MAX(attempt_number) FROM attempts WHERE story_id=? AND agent_role=?`.
+     Return `1` if no rows; `max+1` otherwise.
+   - Add a corresponding `--auto-attempt` flag to `record_attempt.py` that
+     calls this helper and uses the result for `attempt_number`. Mutually
+     exclusive with `--attempt-number`.
+
+3. **Update `CLAUDE.build.md` and `skills/pairmode/templates/CLAUDE.build.md.j2`:**
+   - Replace the hardcoded `--phase N --rail RAIL --attempt-number 1` literals
+     in the example invocations with `--story-file docs/stories/<RAIL>/<RAIL>-NNN.md
+     --auto-attempt`.
+   - Add a one-line note: "The story file's frontmatter supplies phase and rail;
+     `--auto-attempt` queries the effort database for the next retry count.
+     The orchestrator no longer needs to track these by hand."
+
+4. **Update `docs/cer/backlog.md`:**
+   - Mark CER-015 row resolution as `**RESOLVED** Phase 23 INFRA-043`.
+
+**Tests:** Extend `tests/pairmode/test_record_attempt.py`:
+- `--story-file` populates phase, rail, story_id from a fixture story file
+- Explicit `--phase` overrides story-file value
+- Missing/malformed story file: stderr warning, falls back to explicit flags
+- `--auto-attempt` returns 1 when no prior rows exist
+- `--auto-attempt` returns max+1 when prior rows exist for same (story_id, agent_role)
+- `--auto-attempt` and `--attempt-number` together: error (mutually exclusive)
+
+Extend `tests/pairmode/test_effort_db.py`:
+- `next_attempt_number` returns 1 for a fresh `(story_id, agent_role)`
+- Returns max+1 across multiple existing rows
+- Filters correctly by both `story_id` and `agent_role`
 
 ---
 
