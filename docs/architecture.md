@@ -396,6 +396,55 @@ target (e.g. `# fallback: haiku  (never below)` on the builder).
 
 ---
 
+## Effort tracking
+
+Effort tracking is the per-attempt record of how much compute each builder and
+reviewer spawn consumed. It exists to make the cost of the build loop legible
+without coupling that legibility to a specific pricing regime.
+
+**Data model.** A single SQLite database lives at `.companion/effort.db` with
+one `attempts` table. Each row captures one agent spawn: `story_id`, `phase`,
+`rail`, `agent_role` (`builder` or `reviewer`), `model`, `attempt_number`,
+`tokens_total`, `tool_uses`, `duration_ms`, optional `outcome` (`PASS`/`FAIL`
+for reviewer attempts), and a UTC timestamp. Pricing is intentionally absent
+from the schema: dollar projections are computed at read time from a
+user-maintained `pricing.json`, never persisted.
+
+**Tokens as the primary metric.** Tokens are the unit of compute effort the
+build loop actually spends. Dollars are an ephemeral projection through the
+current pricing table; if a model's price changes tomorrow, the historical
+record must not silently revalue past attempts. Recording tokens (and the model
+that consumed them) keeps the historical record stable and lets cost analysis
+re-run against any pricing snapshot the user chooses.
+
+**Enabling and disabling.** A one-line toggle in `.companion/state.json`:
+
+```json
+{ "effort_tracking": true }
+```
+
+Bootstrap auto-enables this for pairmode projects. `record_attempt.py` reads
+the flag on every invocation and silently no-ops when it is absent or false,
+so the orchestrator's recording steps are safe to run unconditionally.
+
+**What it captures (Phase 22 scope).** Every builder spawn and every reviewer
+spawn the orchestrator initiates during the build loop. Future phases will
+extend the capture surface to seed and companion sessions; the schema and
+toggle are designed to absorb that without migration.
+
+**How to use it.** `pairmode_effort.py` provides four read-time views over the
+recorded attempts:
+
+- `pairmode_effort.py rollup` — totals by phase, rail, model
+- `pairmode_effort.py rework` — stories with attempt_number > 1 (what cost us a retry)
+- `pairmode_effort.py expensive` — top N attempts by tokens
+- `pairmode_effort.py models` — breakdown by model
+
+These are retrospective views. Future phases will add a real-time guardrail
+that surfaces effort overruns mid-loop rather than only after the fact.
+
+---
+
 ## Layer rules for this codebase
 
 | Layer | May import from | May not import from |

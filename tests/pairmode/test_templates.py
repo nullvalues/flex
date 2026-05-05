@@ -1923,3 +1923,53 @@ class TestAgentTemplateFallbackComments:
             "docs/architecture.md: expected 'Model selection and fallback' "
             "subsection heading"
         )
+
+
+# ---------------------------------------------------------------------------
+# Story INFRA-030 — record_attempt.py wiring in build-loop instructions
+# ---------------------------------------------------------------------------
+
+
+class TestEffortTrackingWiring:
+    """Story INFRA-030: anchor's CLAUDE.build.md, the rendered
+    CLAUDE.build.md.j2 template, and docs/architecture.md must wire effort
+    recording into the build loop after each builder spawn and each reviewer
+    spawn, and document the data model."""
+
+    def test_anchor_claude_build_md_records_after_builder_and_reviewer(self):
+        anchor_build_md = (REPO_ROOT / "CLAUDE.build.md").read_text(encoding="utf-8")
+        # record_attempt.py must appear at least twice — once after the builder
+        # spawn instruction (Step 1) and once after the reviewer spawn (Step 2).
+        assert anchor_build_md.count("record_attempt.py") >= 2, (
+            "CLAUDE.build.md: expected at least 2 references to record_attempt.py "
+            "(after builder spawn and after reviewer spawn); found "
+            f"{anchor_build_md.count('record_attempt.py')}"
+        )
+        # Both invocations must be properly tagged by --agent-role.
+        assert "--agent-role builder" in anchor_build_md, (
+            "CLAUDE.build.md: expected `--agent-role builder` invocation"
+        )
+        assert "--agent-role reviewer" in anchor_build_md, (
+            "CLAUDE.build.md: expected `--agent-role reviewer` invocation"
+        )
+
+    def test_rendered_template_records_after_builder_and_reviewer(self):
+        rendered = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
+        assert rendered.count("record_attempt.py") >= 2, (
+            "CLAUDE.build.md.j2 (rendered): expected at least 2 references to "
+            "record_attempt.py (after builder spawn and after reviewer spawn); "
+            f"found {rendered.count('record_attempt.py')}"
+        )
+        assert "--agent-role builder" in rendered, (
+            "CLAUDE.build.md.j2 (rendered): expected `--agent-role builder` invocation"
+        )
+        assert "--agent-role reviewer" in rendered, (
+            "CLAUDE.build.md.j2 (rendered): expected `--agent-role reviewer` invocation"
+        )
+
+    def test_architecture_doc_has_effort_tracking_section(self):
+        arch_path = REPO_ROOT / "docs" / "architecture.md"
+        text = arch_path.read_text(encoding="utf-8")
+        assert "## Effort tracking" in text, (
+            "docs/architecture.md: expected '## Effort tracking' section heading"
+        )

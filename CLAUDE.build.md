@@ -65,6 +65,37 @@ Spawn the `builder` subagent with:
 
 The builder will implement the story and stop without committing.
 
+After the builder returns, parse its final message for the `<usage>` block and
+record the attempt. The `<usage>` block format the orchestrator expects is:
+
+```
+<usage>total_tokens: N
+tool_uses: M
+duration_ms: K</usage>
+```
+
+Extract `total_tokens`, `tool_uses`, and `duration_ms` from those three fields,
+then invoke `record_attempt.py` with `--agent-role builder`. The `--model` value
+is inferred from the agent definition (e.g. `claude-sonnet-4-5` for the builder),
+and `--attempt-number` is `1` on the first attempt and incremented on each retry.
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/record_attempt.py \
+  --story-id RAIL-NNN \
+  --phase N \
+  --rail RAIL \
+  --agent-role builder \
+  --model claude-opus-4-7 \
+  --attempt-number 1 \
+  --tokens-total 38000 \
+  --tool-uses 11 \
+  --duration-ms 187000 \
+  --project-dir .
+```
+
+`record_attempt.py` no-ops silently when `.companion/state.json["effort_tracking"]`
+is absent or false, so this step is safe to run unconditionally.
+
 If the preferred model for an agent is rate-limited, override at call time via the `model` parameter (Opus → Sonnet on reviewers; Sonnet → Haiku on builder; never below Haiku). See `docs/architecture.md` § Model selection and fallback.
 
 If the builder reports a DEVELOPER ACTION gate mid-story, or cannot resolve an error
@@ -107,6 +138,27 @@ Spawn the `reviewer` subagent with:
 - The story spec (acceptance criterion + key requirements)
 
 The reviewer will diff the working tree, run the checklist, run tests, then either commit or revert.
+
+After the reviewer returns, parse its final message for the same `<usage>` block
+(`total_tokens`, `tool_uses`, `duration_ms`) and record the attempt with
+`--agent-role reviewer`. Pass `--outcome PASS` if the reviewer committed, or
+`--outcome FAIL` if it reverted. As with the builder step, `record_attempt.py`
+is a silent no-op when effort tracking is disabled, so the call is unconditional.
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/record_attempt.py \
+  --story-id RAIL-NNN \
+  --phase N \
+  --rail RAIL \
+  --agent-role reviewer \
+  --model claude-opus-4-7 \
+  --attempt-number 1 \
+  --tokens-total 22000 \
+  --tool-uses 6 \
+  --duration-ms 95000 \
+  --outcome PASS \
+  --project-dir .
+```
 
 Story commits use the format: `feat(story-RAIL-NNN)` (e.g., `feat(story-BOOTSTRAP-003)`).
 
