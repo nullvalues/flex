@@ -2,7 +2,7 @@
 id: INFRA-029
 rail: INFRA
 title: Effort tracking pairmode_effort.py reporting CLI
-status: planned
+status: complete
 phase: "22"
 primary_files:
   - skills/pairmode/scripts/pairmode_effort.py
