@@ -75,6 +75,31 @@ after two attempts: stop the build loop. Report to the user:
   Action required: [what the user needs to do]
   When resolved, say: "Continue building"
 
+### Step 1.5 — Commit pending methodology files before the reviewer fires
+
+The reviewer's revert path (`git checkout .` or `git reset --hard HEAD`)
+protects against builder mistakes by restoring the working tree to its last
+committed state. That same revert can erase uncommitted methodology files
+(story-spec edits, lesson notes, phase-doc updates) that the orchestrator
+created during this session but never committed.
+
+Before spawning the reviewer:
+
+```bash
+# Commit any orchestrator-side methodology file changes
+git add docs/stories/ docs/phases/ docs/cer/ 2>/dev/null
+git diff --cached --quiet || git commit -m "chore(orchestrator): pre-reviewer methodology file commit"
+
+# Drop any uncommitted lesson edits — lessons.json/LESSONS.md should only
+# be modified through LESSON-* stories' canonical save_lessons path
+git checkout -- lessons/lessons.json lessons/LESSONS.md 2>/dev/null
+```
+
+This is the second of two layers protecting the working tree from reviewer
+reverts. The first layer is the reviewer-class agent tool restriction
+(read-only tools plus Bash; see `docs/architecture.md`). Together they ensure
+the reviewer can revert builder mistakes without erasing methodology.
+
 ### Step 2 — Spawn the reviewer
 
 Spawn the `reviewer` subagent with:

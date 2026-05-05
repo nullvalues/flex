@@ -413,6 +413,39 @@ class TestClaudeBuildMdFallbackPolicyPointer:
 
 
 # ---------------------------------------------------------------------------
+# Story INFRA-042 — pre-reviewer commit discipline encoded in CLAUDE.build.md.j2
+# ---------------------------------------------------------------------------
+
+class TestClaudeBuildMdPreReviewerCommitDiscipline:
+    """Story INFRA-042: CLAUDE.build.md.j2 (and anchor's own CLAUDE.build.md)
+    encode an explicit pre-reviewer step that commits any uncommitted
+    methodology files and runs `git checkout -- lessons/` before the reviewer
+    is spawned. Backs the architecture-doc claim about "pre-reviewer commit
+    discipline" with an actual orchestrator instruction."""
+
+    def setup_method(self):
+        self.output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
+
+    def test_rendered_template_contains_methodology_commit_message(self):
+        assert "pre-reviewer methodology file commit" in self.output
+
+    def test_rendered_template_contains_git_checkout_lessons(self):
+        assert "git checkout -- lessons/" in self.output
+
+    def test_anchor_claude_build_md_contains_methodology_commit_message(self):
+        anchor_build_md = (
+            pathlib.Path(__file__).parent.parent.parent / "CLAUDE.build.md"
+        ).read_text(encoding="utf-8")
+        assert "pre-reviewer methodology file commit" in anchor_build_md
+
+    def test_anchor_claude_build_md_contains_git_checkout_lessons(self):
+        anchor_build_md = (
+            pathlib.Path(__file__).parent.parent.parent / "CLAUDE.build.md"
+        ).read_text(encoding="utf-8")
+        assert "git checkout -- lessons/" in anchor_build_md
+
+
+# ---------------------------------------------------------------------------
 # Agent template shared context
 # ---------------------------------------------------------------------------
 
