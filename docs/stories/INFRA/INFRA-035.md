@@ -2,7 +2,7 @@
 id: INFRA-035
 rail: INFRA
 title: Effort recording for seed and companion subagent calls
-status: planned
+status: complete
 phase: "22"
 primary_files:
   - skills/seed/scripts/mine_sessions.py
