@@ -341,37 +341,63 @@ constant; changing its structure requires updating all callers.
 lists being empty produces zero allow rules with a warning, not a crash or silent
 misconfiguration.
 
-### Model selection and fallback
+### Model selection: sonnet baseline, opus on demand
 
 Pairmode pins each agent to a specific Claude model in its template frontmatter.
 This is deliberate. Inheriting the orchestrator's model is a silent capability
 leak — a phase started with Opus will give every builder Opus, hiding the cost
 and obscuring whether the work actually requires that tier.
 
-**Role-based pinning rationale:**
-- **Builder** is pinned to `sonnet`. The builder does volume work — many small,
-  well-specified edits. Sonnet has the compute efficiency to make this loop
-  affordable without sacrificing correctness on tightly-scoped stories.
-- **Reviewer-class agents** (`reviewer`, `intent-reviewer`, `loop-breaker`,
-  `security-auditor`) are pinned to `opus`. These agents make judgment calls:
-  spotting subtle scope creep, noticing ideology drift across a phase,
-  reasoning about a failing build from first principles, identifying security
-  smells. The reasoning quality difference matters here in a way it does not
-  for the builder's mechanical edits.
+**Default.** Sonnet is the baseline for all reviewer-class agents (`reviewer`,
+`intent-reviewer`, `security-auditor`) and for the `builder`. The
+`loop-breaker` is the one exception: it is opus by default, because by the
+time the loop-breaker fires the case is — by definition — hard, and the
+reasoning premium is justified.
 
-**Fallback policy:** if the preferred model is rate-limited, fall back exactly
-one tier. Reviewers fall Opus → Sonnet. The builder falls Sonnet → Haiku.
-Never fall below Haiku — the reasoning quality cliff below Haiku is too steep
-to preserve loop integrity; better to wait for the rate limit to clear than
-to ship with a model that cannot follow the spec.
+**Upgrade triggers (explicit).** Override the model to `opus` per-invocation
+when one of these conditions holds:
 
-**Operational procedure when rate-limited:** override the agent's `model` at
-*call time* via the Agent tool's `model` parameter rather than editing the
-template file. The template encodes intent (what model the role *should* use);
-the override is per-invocation and leaves the template clean. Example:
-`Agent({..., subagent_type: "builder", model: "haiku"})`. Each agent template
-also carries an inline YAML comment after `model:` documenting the fallback
-target (e.g. `# fallback: haiku  (never below)` on the builder).
+- **Story retry.** Any story on `attempt_number > 1`. The reviewer running at
+  sonnet missed something the first time; the retry reviewer uses opus.
+- **Pre-PR audit.** The final phase before code leaves the repo. All
+  reviewer-class agents (reviewer, intent-reviewer, security-auditor) run on
+  opus across that phase.
+- **Mid-phase spec pivot.** When a story spec changes after the phase has
+  begun, the next intent-reviewer at the next checkpoint uses opus.
+- **Production code touched in phase.** If any Python in `skills/`, `hooks/`,
+  or other production paths changed during the phase, the security-auditor at
+  the next checkpoint uses opus. Doc-only, lesson-only, or template-only
+  phases stay on sonnet.
+
+**Operational mechanism.** Override at *call time* via the Agent tool's
+`model` parameter. The template intent stays clean — it encodes the baseline,
+not the override — and the upgrade is per-invocation. This is the same
+mechanism used for rate-limit fallback. Example:
+`Agent({..., subagent_type: "reviewer", model: "opus"})`. Each affected
+template carries an inline YAML comment after `model:` documenting the upgrade
+triggers (e.g. `# upgrade: opus  (when retry / pre-PR audit / mid-phase pivot)`).
+The pre-existing `# fallback:` comments remain in the templates — fallback
+handles rate-limit substitution downward, upgrade handles edge-case
+substitution upward; both apply concurrently.
+
+**Rationale.** Most reviews catch nothing because most builders produce
+correct work. The per-story reviewer task is mechanical: diff matches spec,
+tests pass, checklist OK, commit. Sonnet handles that fine. Opus is overhead
+for the common case. Reserve it for the explicit edge cases above where the
+judgment edge actually matters — the cost difference compounds across a build
+loop that may run dozens of reviews per phase.
+
+**Fallback policy (rate limits).** If the preferred model is rate-limited,
+fall back exactly one tier. Reviewers fall Opus → Sonnet (or stay at Sonnet
+if already there). The builder falls Sonnet → Haiku. Never fall below Haiku
+— the reasoning quality cliff is too steep to preserve loop integrity; better
+to wait for the rate limit to clear than to ship with a model that cannot
+follow the spec.
+
+**Forward reference.** Phase 24 will refine these triggers into
+data-defensible per-story-class rules once Phase 22's effort tracking has
+produced enough data to validate the rebalance with actual token-and-PASS-rate
+per `(model, role)` numbers.
 
 ### Pairmode non-negotiables
 

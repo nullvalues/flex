@@ -1731,13 +1731,35 @@ REVIEWER_CLASS_TEMPLATES = [
     "agents/security-auditor.md.j2",
 ]
 
+# Story INFRA-044: the three reviewer-class templates flipped from opus to
+# sonnet baseline; loop-breaker stays opus because by the time it fires the
+# case is hard by definition.
+REVIEWER_CLASS_SONNET_BASELINE = [
+    "agents/reviewer.md.j2",
+    "agents/intent-reviewer.md.j2",
+    "agents/security-auditor.md.j2",
+]
 
-class TestReviewerClassAgentsPinnedToOpus:
-    """Story INFRA-026: reviewer-class agent templates carry `model: opus` in
-    YAML frontmatter; builder remains pinned to `sonnet`."""
+# Per-template upgrade-comment text (Story INFRA-044).
+REVIEWER_CLASS_UPGRADE_COMMENTS = {
+    "agents/reviewer.md.j2": "# upgrade: opus  (when retry / pre-PR audit / mid-phase pivot)",
+    "agents/intent-reviewer.md.j2": "# upgrade: opus  (when mid-phase pivot / pre-PR checkpoint)",
+    "agents/security-auditor.md.j2": "# upgrade: opus  (when phase touched production code / pre-PR audit)",
+}
 
-    @pytest.mark.parametrize("template_name", REVIEWER_CLASS_TEMPLATES)
-    def test_reviewer_class_template_has_model_opus(self, template_name):
+
+class TestReviewerClassAgentsSonnetBaseline:
+    """Story INFRA-044: reviewer-class agent templates (reviewer,
+    intent-reviewer, security-auditor) carry `model: sonnet` in YAML
+    frontmatter as the baseline. Loop-breaker remains pinned to `opus`
+    because by the time it fires the case is hard by definition. Builder
+    remains pinned to `sonnet` (regression). Each affected template gains
+    an `# upgrade: opus` comment; the existing INFRA-033 `# fallback:`
+    comments remain (fallback handles rate limits, upgrade handles edge
+    cases — both apply)."""
+
+    @pytest.mark.parametrize("template_name", REVIEWER_CLASS_SONNET_BASELINE)
+    def test_reviewer_class_template_has_model_sonnet(self, template_name):
         rendered = render(template_name, AGENT_CONTEXT)
         fm = _parse_frontmatter(rendered)
         assert fm is not None, (
@@ -1746,13 +1768,13 @@ class TestReviewerClassAgentsPinnedToOpus:
         assert "model" in fm, (
             f"{template_name}: frontmatter missing `model` key — got keys {sorted(fm)}"
         )
-        assert fm["model"] == "opus", (
-            f"{template_name}: expected model=opus, got model={fm['model']!r}"
+        assert fm["model"] == "sonnet", (
+            f"{template_name}: expected model=sonnet, got model={fm['model']!r}"
         )
 
-    @pytest.mark.parametrize("template_name", REVIEWER_CLASS_TEMPLATES)
-    def test_reviewer_class_template_raw_source_has_model_opus(self, template_name):
-        # Also verify the raw template source carries the pin (pre-render),
+    @pytest.mark.parametrize("template_name", REVIEWER_CLASS_SONNET_BASELINE)
+    def test_reviewer_class_template_raw_source_has_model_sonnet(self, template_name):
+        # Verify the raw template source carries the baseline pin (pre-render),
         # so a project bootstrapped from these files inherits the pin even
         # if the consuming Jinja context does not pass any model variable.
         raw = (TEMPLATES_DIR / template_name).read_text(encoding="utf-8")
@@ -1760,8 +1782,50 @@ class TestReviewerClassAgentsPinnedToOpus:
         assert fm is not None, (
             f"{template_name}: raw template has no parseable frontmatter"
         )
+        assert fm.get("model") == "sonnet", (
+            f"{template_name}: raw template expected model=sonnet, got {fm.get('model')!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "template_name",
+        list(REVIEWER_CLASS_UPGRADE_COMMENTS.keys()),
+    )
+    def test_reviewer_class_template_has_upgrade_comment(self, template_name):
+        # Each affected template carries an inline `# upgrade: opus` comment
+        # documenting the call-time upgrade triggers for that role.
+        raw = (TEMPLATES_DIR / template_name).read_text(encoding="utf-8")
+        expected = REVIEWER_CLASS_UPGRADE_COMMENTS[template_name]
+        assert expected in raw, (
+            f"{template_name}: expected upgrade comment {expected!r} in raw template"
+        )
+
+    @pytest.mark.parametrize(
+        "template_name",
+        list(REVIEWER_CLASS_UPGRADE_COMMENTS.keys()),
+    )
+    def test_reviewer_class_rendered_has_upgrade_comment(self, template_name):
+        rendered = render(template_name, AGENT_CONTEXT)
+        expected = REVIEWER_CLASS_UPGRADE_COMMENTS[template_name]
+        assert expected in rendered, (
+            f"{template_name}: expected upgrade comment {expected!r} in rendered output"
+        )
+
+    def test_loop_breaker_remains_pinned_to_opus(self):
+        # Regression: loop-breaker is the one reviewer-class agent that stays
+        # on opus by default, because by the time it fires the case is hard.
+        rendered = render("agents/loop-breaker.md.j2", AGENT_CONTEXT)
+        fm = _parse_frontmatter(rendered)
+        assert fm is not None, "loop-breaker.md.j2 has no parseable frontmatter"
         assert fm.get("model") == "opus", (
-            f"{template_name}: raw template expected model=opus, got {fm.get('model')!r}"
+            f"loop-breaker.md.j2: expected model=opus, got {fm.get('model')!r}"
+        )
+
+    def test_loop_breaker_raw_source_remains_pinned_to_opus(self):
+        raw = (TEMPLATES_DIR / "agents/loop-breaker.md.j2").read_text(encoding="utf-8")
+        fm = _parse_frontmatter(raw)
+        assert fm is not None, "loop-breaker.md.j2 raw template has no parseable frontmatter"
+        assert fm.get("model") == "opus", (
+            f"loop-breaker.md.j2 raw: expected model=opus, got {fm.get('model')!r}"
         )
 
     def test_builder_template_pinned_to_sonnet(self):
@@ -1787,6 +1851,17 @@ class TestReviewerClassAgentsPinnedToOpus:
         assert "name" in fm, f"{template_name}: missing `name` in frontmatter"
         assert "description" in fm, (
             f"{template_name}: missing `description` in frontmatter"
+        )
+
+    def test_architecture_doc_has_sonnet_baseline_subsection(self):
+        # Story INFRA-044: the architecture doc replaces the old "Model
+        # selection and fallback" subsection with the "sonnet baseline,
+        # opus on demand" framing.
+        arch_path = REPO_ROOT / "docs" / "architecture.md"
+        text = arch_path.read_text(encoding="utf-8")
+        assert "sonnet baseline" in text or "opus on demand" in text, (
+            "docs/architecture.md: expected new 'sonnet baseline, opus on demand' "
+            "framing in the model-selection subsection"
         )
 
 
@@ -1917,11 +1992,20 @@ class TestAgentTemplateFallbackComments:
         )
 
     def test_architecture_doc_has_model_selection_subsection(self):
+        # Story INFRA-044: the subsection was renamed from "Model selection
+        # and fallback" to "Model selection: sonnet baseline, opus on demand"
+        # when the reviewer-class baseline flipped from opus to sonnet. The
+        # fallback policy is still documented inside the new subsection
+        # (rate-limit substitution downward), so the underlying contract is
+        # preserved.
         arch_path = REPO_ROOT / "docs" / "architecture.md"
         text = arch_path.read_text(encoding="utf-8")
-        assert "Model selection and fallback" in text, (
-            "docs/architecture.md: expected 'Model selection and fallback' "
-            "subsection heading"
+        assert "Model selection" in text, (
+            "docs/architecture.md: expected a 'Model selection' subsection heading"
+        )
+        assert "sonnet baseline" in text or "opus on demand" in text, (
+            "docs/architecture.md: expected new 'sonnet baseline, opus on demand' "
+            "framing introduced by INFRA-044"
         )
 
 

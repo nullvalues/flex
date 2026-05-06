@@ -1,7 +1,8 @@
 ---
 name: security-auditor
 description: Security-focused reviewer for {{ project_name }}. Invoked at each checkpoint. Scans for key exposure, path traversal, and architecture violations. Never writes code.
-model: opus
+model: sonnet
+# upgrade: opus  (when phase touched production code / pre-PR audit)
 # fallback: sonnet  (never below)
 tools: [Read, Grep, Glob]
 ---

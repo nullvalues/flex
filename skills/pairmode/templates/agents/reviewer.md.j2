@@ -1,7 +1,8 @@
 ---
 name: reviewer
 description: Cold-eyes reviewer for {{ project_name }}. Diffs the working tree against the story spec, runs the full checklist and tests, then commits on PASS or reverts on FAIL. Never writes code.
-model: opus
+model: sonnet
+# upgrade: opus  (when retry / pre-PR audit / mid-phase pivot)
 # fallback: sonnet  (never below)
 tools: [Read, Grep, Glob, Bash]
 ---
