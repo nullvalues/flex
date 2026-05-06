@@ -2,7 +2,7 @@
 id: LESSON-004
 rail: LESSON
 title: Capture sonnet-baseline opus-on-demand rebalance rationale
-status: planned
+status: complete
 phase: "23"
 primary_files:
   - lessons/lessons.json

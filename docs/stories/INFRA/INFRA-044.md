@@ -2,7 +2,7 @@
 id: INFRA-044
 rail: INFRA
 title: Flip reviewer-class templates to sonnet baseline (model rebalance)
-status: planned
+status: complete
 phase: "23"
 primary_files:
   - skills/pairmode/templates/agents/reviewer.md.j2
