@@ -183,6 +183,24 @@
         "all"
       ],
       "status": "captured"
+    },
+    {
+      "id": "L011",
+      "date": "2026-05-05",
+      "source_project": "anchor",
+      "trigger": "User observed total opus:sonnet usage running at roughly 3:2, exceeding the Opus quota relative to the Sonnet quota. Methodology had Phase 21 baseline of \"reviewer-class agents -> opus, builder -> sonnet\" applied uniformly across all reviews.",
+      "problem": "Treating every review as judgment work overcommits opus on routine cases. Most reviewer passes catch nothing (most builders produce correct work). Per-story reviewer work is mechanical (diff matches spec, tests pass, checklist OK, commit) and within Sonnet's capability. Intent-reviewer and security-auditor at routine checkpoints are similarly mechanical. The result: opus consumption disproportionate to the value it adds, leaving Sonnet quota underutilised.",
+      "learning": "Model selection should be sonnet baseline, opus on demand, not the inverse. Reserve opus for explicit upgrade triggers where the judgment edge actually matters: story retries (sonnet missed it the first time), pre-PR audits (last cold-eyes before code leaves the repo), mid-phase spec pivots (the spec itself moved), and production-code phases for security-auditor. Loop-breaker stays opus permanently because by the time it fires the case is by definition hard.",
+      "methodology_change": {
+        "affects": [
+          "pairmode-builder-reviewer-loop"
+        ],
+        "description": "Pairmode templates flip reviewer / intent-reviewer / security-auditor defaults from opus to sonnet, with inline upgrade comments documenting the triggers. INFRA-044 implements this in templates. Phase 24 refines the upgrade triggers into data-defensible per-story-class rules once Phase 22's effort tracking has produced enough data to validate the rebalance with actual token-and-PASS-rate per (model, role) numbers."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured"
     }
   ]
 }

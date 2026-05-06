@@ -52,3 +52,8 @@ or use `/anchor:pairmode lesson` to capture a new lesson.
 **Date:** 2026-05-04
 **Status:** captured
 **Learning:** Reviewer-class agents should be limited to read-only tools plus Bash. Bash preserves the commit-or-revert capability via git; Edit/Write removal closes the "reviewer backdoor" failure mode. This is layered with the orchestrator's pre-reviewer commit discipline (which protects against accidental erasure of uncommitted methodology files) — neither layer alone is sufficient.
+
+## L011 — User observed total opus:sonnet usage running at roughly 3:2, exceeding the Opus quota relative to the Sonnet quota. Methodology had Phase 21 baseline of "reviewer-class agents -> opus, builder -> sonnet" applied uniformly across all reviews.
+**Date:** 2026-05-05
+**Status:** captured
+**Learning:** Model selection should be sonnet baseline, opus on demand, not the inverse. Reserve opus for explicit upgrade triggers where the judgment edge actually matters: story retries (sonnet missed it the first time), pre-PR audits (last cold-eyes before code leaves the repo), mid-phase spec pivots (the spec itself moved), and production-code phases for security-auditor. Loop-breaker stays opus permanently because by the time it fires the case is by definition hard.
