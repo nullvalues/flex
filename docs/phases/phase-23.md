@@ -30,6 +30,8 @@ accruing in at least one project.
 
 | ID | Title | Status |
 |----|-------|--------|
+| INFRA-044 | Flip reviewer-class templates to sonnet baseline (model rebalance — quick win) | planned |
+| LESSON-004 | Capture sonnet-baseline-opus-on-demand rebalance rationale | planned |
 | INFRA-043 | Auto-plumb `--phase`, `--rail`, and attempt counter into `record_attempt.py` (CER-015) | planned |
 | INFRA-038 | Story frontmatter `source:` field + anchor-as-project for self-drift | planned |
 | INFRA-039 | `.pairmode-overrides` integration in drift reports | planned |
@@ -37,10 +39,127 @@ accruing in at least one project.
 | INFRA-032 | Drift promotion workflow — extend `/anchor:pairmode review` | planned |
 | INFRA-037 | Token-evidence ranking in drift promotion | planned |
 
-INFRA-043 lands first as cleanup carried in from Phase 22's intent review. INFRA-037
-depends on effort-tracking data being reliable (correct phase/rail per row, correct
-retry counts), so closing the plumbing gap before promotion logic queries the data
-keeps the drift-evidence story honest from day one.
+INFRA-044 + LESSON-004 land first as a token-budget rebalance, captured as a lesson
+so the methodology survives compaction. They unblock the user's Sonnet-quota usage
+before the rest of Phase 23 builds. Phase 24 (drafted separately) refines this with
+data-defensible per-story-class triggers once Phase 22's effort data accrues. Then
+INFRA-043 fixes the effort-tracking plumbing that INFRA-037 will rely on.
+
+---
+
+### Story INFRA-044 — Flip reviewer-class templates to sonnet baseline (model rebalance)
+
+**Rail:** INFRA
+
+**Acceptance criterion:** `reviewer.md.j2`, `intent-reviewer.md.j2`, and
+`security-auditor.md.j2` carry `model: sonnet` (not `model: opus`). `loop-breaker.md.j2`
+remains `model: opus` (loop-breaker fires only on hard cases by definition; the
+default IS the upgrade for that role). Each affected template gains an
+`# upgrade: opus  (when retry / pre-PR audit / mid-phase pivot)` comment immediately
+after `model: sonnet`. `docs/architecture.md` "Model selection and fallback"
+subsection is replaced with a "sonnet baseline, opus on demand" framing that
+documents the upgrade triggers explicitly. Tests assert the new defaults. Tests pass.
+
+**Background:** Phase 21 codified "judgment work → opus" as if every reviewer pass
+were judgment work. In practice most reviews catch nothing (most builders produce
+correct work) and the per-story reviewer task is mechanical: diff matches spec,
+tests pass, checklist OK, commit. Sonnet handles that fine. Where Opus actually
+earns its cost is the edge cases — a story on its second build attempt, a pre-PR
+audit, a mid-phase spec pivot. Those should be explicit upgrade triggers, not
+the default.
+
+**Decision recorded here:** Flip the methodology to "sonnet baseline, opus on
+demand." Loop-breaker stays opus because by the time it fires the case is already
+hard. Builder stays sonnet (no change). The upgrade triggers documented below
+are the contract; the orchestrator (or future tooling) is responsible for
+enforcing them.
+
+**Upgrade triggers (must be in the architecture doc):**
+
+- **Story retry**: any story on its second or later build attempt — the
+  reviewer missed something at sonnet last time, so use opus this time.
+- **Pre-PR audit**: the final phase before a PR leaves the repo gets opus
+  reviewers across the board (this is the cold-eyes check that costs the
+  least to upgrade).
+- **Mid-phase spec pivot**: when a story spec changes after the phase has
+  begun (rare but real — INFRA-005 in Phase 18 was specced mid-phase to
+  fix a security finding), the next intent-reviewer at the next checkpoint
+  uses opus.
+- **Production code touched in the phase**: if any Python code in `skills/`,
+  `hooks/`, or other production paths changes, security-auditor uses opus.
+  Doc-only / lesson-only / template-only phases use sonnet.
+
+**Instructions:**
+
+1. In each of the three templates, change the `model:` value:
+   - `skills/pairmode/templates/agents/reviewer.md.j2`: `model: sonnet`
+   - `skills/pairmode/templates/agents/intent-reviewer.md.j2`: `model: sonnet`
+   - `skills/pairmode/templates/agents/security-auditor.md.j2`: `model: sonnet`
+2. Add an inline upgrade comment after the model line in each. Format
+   matching the existing fallback comment pattern from INFRA-033:
+   `# upgrade: opus  (when retry / pre-PR audit / mid-phase pivot)`
+   For `security-auditor`: `# upgrade: opus  (when phase touched production code)`
+3. Do NOT modify `loop-breaker.md.j2` (stays opus) or `builder.md.j2`
+   (stays sonnet) or `reconstruction-agent.md.j2` (separate role).
+4. In `docs/architecture.md`, replace the existing "Model selection and
+   fallback" subsection with the new "Model selection: sonnet baseline,
+   opus on demand" framing. Document each upgrade trigger explicitly with
+   the rationale ("most reviews catch nothing; opus is overhead for the
+   common case"). Cross-reference Phase 24 as the proper data-defensible
+   refinement.
+5. In `tests/pairmode/test_templates.py`, update assertions to match the new
+   defaults. The existing `TestReviewerClassAgentsPinnedToOpus` class needs
+   to become `TestReviewerClassAgentsSonnetBaseline` (or similar) with
+   inverted assertions.
+
+**Tests:**
+
+- `reviewer.md.j2` rendered/raw frontmatter has `model: sonnet`
+- Same for `intent-reviewer.md.j2` and `security-auditor.md.j2`
+- `loop-breaker.md.j2` retains `model: opus` (regression check — must not
+  flip this one)
+- `builder.md.j2` retains `model: sonnet`
+- Each affected template contains the `# upgrade: opus` comment
+- `docs/architecture.md` contains a section heading matching the new
+  framing (e.g. "sonnet baseline" or "opus on demand")
+
+---
+
+### Story LESSON-004 — Capture sonnet-baseline-opus-on-demand rebalance rationale
+
+**Rail:** LESSON
+
+**Acceptance criterion:** A new lesson entry (id auto-assigned by lesson_utils)
+captures the model-rebalance methodology so future audits and bootstraps inherit
+the framing.
+
+**Lesson content (all five fields):**
+
+- **trigger**: User observed total opus:sonnet usage running at roughly 3:2,
+  exceeding the Opus quota relative to the Sonnet quota. Methodology had Phase
+  21 baseline of "reviewer-class agents → opus, builder → sonnet" applied
+  uniformly across all reviews.
+- **problem**: Treating every review as judgment work overcommits opus on
+  routine cases. Most reviewer passes catch nothing (most builders produce
+  correct work). Per-story reviewer work is mechanical (diff matches spec,
+  tests pass, checklist OK, commit) and within Sonnet's capability.
+  Intent-reviewer and security-auditor at routine checkpoints are similarly
+  mechanical. The result: opus consumption disproportionate to the value
+  it adds, leaving Sonnet quota underutilised.
+- **learning**: Model selection should be **sonnet baseline, opus on demand**,
+  not the inverse. Reserve opus for explicit upgrade triggers where the
+  judgment edge actually matters: story retries (sonnet missed it the first
+  time), pre-PR audits (last cold-eyes before code leaves the repo),
+  mid-phase spec pivots (the spec itself moved), and production-code phases
+  for security-auditor. Loop-breaker stays opus permanently because by the
+  time it fires the case is by definition hard.
+- **methodology_change**: Pairmode templates flip reviewer / intent-reviewer
+  / security-auditor defaults from opus to sonnet, with inline upgrade
+  comments documenting the triggers. INFRA-044 implements this in templates.
+  Phase 24 refines the upgrade triggers into data-defensible per-story-class
+  rules once Phase 22's effort tracking has produced enough data to validate
+  the rebalance with actual token-and-PASS-rate per (model, role) numbers.
+- **affects**: `pairmode-builder-reviewer-loop`, applies to any pairmode project.
 
 ---
 
