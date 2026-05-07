@@ -2,7 +2,7 @@
 id: INFRA-048
 rail: INFRA
 title: Checkpoint-agent model selection by phase_class
-status: planned
+status: complete
 phase: "24"
 primary_files:
   - skills/pairmode/scripts/model_selector.py
