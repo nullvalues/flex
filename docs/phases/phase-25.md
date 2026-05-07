@@ -27,7 +27,7 @@ project that has already bootstrapped pairmode.
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-051 | `record_attempt.py --story-file` flag — auto-extract phase/rail/story_class from frontmatter | complete |
-| INFRA-052 | `story_new.py --rail` containment validation (CER-010) | planned |
+| INFRA-052 | `story_new.py --rail` containment validation (CER-010) | complete |
 | INFRA-053 | `pairmode sync-agents` subcommand — propagate template model updates to existing projects | planned |
 | LESSON-006 | Capture template-drift-and-sync pattern as a lesson | planned |
 

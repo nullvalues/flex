@@ -2,7 +2,7 @@
 id: INFRA-052
 rail: INFRA
 title: story_new.py --rail containment validation (CER-010)
-status: planned
+status: complete
 phase: "25"
 primary_files:
   - skills/pairmode/scripts/story_new.py
