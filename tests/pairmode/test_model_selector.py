@@ -7,9 +7,14 @@ from pathlib import Path
 import pytest
 
 from skills.pairmode.scripts.model_selector import (
+    MODEL_HAIKU,
     MODEL_OPUS,
     MODEL_SONNET,
+    REASON_AUTO_BASELINE,
+    REASON_AUTO_DOWNGRADE,
+    REASON_PROMPTED_UPGRADE,
     _phase_has_code_story,
+    select_builder_model,
     select_intent_reviewer_model,
     select_reviewer_model,
     select_security_auditor_model,
@@ -324,3 +329,160 @@ class TestSelectSecurityAuditorModel:
 
     def test_empty_string_defaults_to_production_opus(self) -> None:
         assert select_security_auditor_model("") == MODEL_OPUS
+
+
+# ---------------------------------------------------------------------------
+# select_builder_model — decision table coverage
+# ---------------------------------------------------------------------------
+
+_NO_PROTECTED: list[str] = []
+_PROTECTED = ["hooks/stop.py", "hooks/exit_plan_mode.py"]
+
+
+class TestSelectBuilderModel:
+    # --- doc stories ---
+
+    def test_doc_any_files_returns_haiku_auto_downgrade(self) -> None:
+        model, reason = select_builder_model("doc", [], _NO_PROTECTED)
+        assert model == MODEL_HAIKU
+        assert reason == REASON_AUTO_DOWNGRADE
+
+    def test_doc_many_files_still_haiku(self) -> None:
+        files = ["a.md", "b.md", "c.md", "d.md"]
+        model, reason = select_builder_model("doc", files, _NO_PROTECTED)
+        assert model == MODEL_HAIKU
+        assert reason == REASON_AUTO_DOWNGRADE
+
+    def test_doc_with_protected_file_still_haiku(self) -> None:
+        """Protected file signal does NOT override doc class downgrade."""
+        model, reason = select_builder_model(
+            "doc", ["hooks/stop.py"], ["hooks/stop.py"]
+        )
+        assert model == MODEL_HAIKU
+        assert reason == REASON_AUTO_DOWNGRADE
+
+    # --- lesson stories ---
+
+    def test_lesson_returns_haiku_auto_downgrade(self) -> None:
+        model, reason = select_builder_model("lesson", ["lessons/lessons.json"], _NO_PROTECTED)
+        assert model == MODEL_HAIKU
+        assert reason == REASON_AUTO_DOWNGRADE
+
+    def test_lesson_empty_files_returns_haiku(self) -> None:
+        model, reason = select_builder_model("lesson", [], _NO_PROTECTED)
+        assert model == MODEL_HAIKU
+        assert reason == REASON_AUTO_DOWNGRADE
+
+    # --- methodology stories ---
+
+    def test_methodology_returns_sonnet_auto_baseline(self) -> None:
+        model, reason = select_builder_model("methodology", [], _NO_PROTECTED)
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE
+
+    def test_methodology_many_files_still_sonnet(self) -> None:
+        files = ["a.py", "b.py", "c.py", "d.py"]
+        model, reason = select_builder_model("methodology", files, _NO_PROTECTED)
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE
+
+    def test_methodology_with_protected_still_sonnet(self) -> None:
+        model, reason = select_builder_model(
+            "methodology", ["hooks/stop.py"], ["hooks/stop.py"]
+        )
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE
+
+    # --- code stories: auto-baseline (< 3 files, no protected) ---
+
+    def test_code_zero_files_returns_sonnet_auto_baseline(self) -> None:
+        model, reason = select_builder_model("code", [], _NO_PROTECTED)
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE
+
+    def test_code_one_file_no_protected_returns_sonnet(self) -> None:
+        model, reason = select_builder_model("code", ["skills/foo.py"], _NO_PROTECTED)
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE
+
+    def test_code_two_files_no_protected_returns_sonnet(self) -> None:
+        model, reason = select_builder_model(
+            "code", ["skills/a.py", "skills/b.py"], _NO_PROTECTED
+        )
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE
+
+    # --- code stories: prompted-upgrade (≥ 3 files) ---
+
+    def test_code_three_files_no_protected_returns_opus_prompted(self) -> None:
+        files = ["a.py", "b.py", "c.py"]
+        model, reason = select_builder_model("code", files, _NO_PROTECTED)
+        assert model == MODEL_OPUS
+        assert reason == REASON_PROMPTED_UPGRADE
+
+    def test_code_four_files_returns_opus_prompted(self) -> None:
+        files = ["a.py", "b.py", "c.py", "d.py"]
+        model, reason = select_builder_model("code", files, _NO_PROTECTED)
+        assert model == MODEL_OPUS
+        assert reason == REASON_PROMPTED_UPGRADE
+
+    # --- code stories: prompted-upgrade (protected file in primary_files) ---
+
+    def test_code_one_file_protected_returns_opus_prompted(self) -> None:
+        model, reason = select_builder_model(
+            "code", ["hooks/stop.py"], ["hooks/stop.py"]
+        )
+        assert model == MODEL_OPUS
+        assert reason == REASON_PROMPTED_UPGRADE
+
+    def test_code_two_files_one_protected_returns_opus(self) -> None:
+        model, reason = select_builder_model(
+            "code",
+            ["skills/foo.py", "hooks/stop.py"],
+            _PROTECTED,
+        )
+        assert model == MODEL_OPUS
+        assert reason == REASON_PROMPTED_UPGRADE
+
+    def test_code_file_not_in_protected_set_stays_sonnet(self) -> None:
+        """primary_file not in protected_files → no upgrade signal."""
+        model, reason = select_builder_model(
+            "code",
+            ["skills/foo.py"],
+            ["hooks/stop.py"],  # protected list exists but foo.py is not in it
+        )
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE
+
+    # --- unknown / missing story_class defaults to code ---
+
+    def test_unknown_class_two_files_returns_sonnet(self) -> None:
+        model, reason = select_builder_model("unknown", ["a.py", "b.py"], _NO_PROTECTED)
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE
+
+    def test_unknown_class_three_files_returns_opus(self) -> None:
+        model, reason = select_builder_model("unknown", ["a.py", "b.py", "c.py"], _NO_PROTECTED)
+        assert model == MODEL_OPUS
+        assert reason == REASON_PROMPTED_UPGRADE
+
+    def test_empty_class_treated_as_code(self) -> None:
+        model, reason = select_builder_model("", [], _NO_PROTECTED)
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE
+
+    # --- user-override reason is a constant (not returned by helper) ---
+
+    def test_user_override_reason_constant_exists(self) -> None:
+        """REASON_USER_OVERRIDE is exported for orchestrators to record."""
+        from skills.pairmode.scripts.model_selector import REASON_USER_OVERRIDE
+
+        assert REASON_USER_OVERRIDE == "user-override"
+
+    def test_return_type_is_tuple_of_two_strings(self) -> None:
+        result = select_builder_model("code", [], _NO_PROTECTED)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        model, reason = result
+        assert isinstance(model, str)
+        assert isinstance(reason, str)

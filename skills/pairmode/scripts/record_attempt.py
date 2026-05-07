@@ -84,6 +84,19 @@ def _read_state(state_path: Path) -> dict:
 )
 @click.option("--notes", default=None, help="Free-form note.")
 @click.option(
+    "--story-class",
+    default=None,
+    help="Story class (code, doc, lesson, methodology). NULL for pre-INFRA-045 builds.",
+)
+@click.option(
+    "--model-selection-reason",
+    default=None,
+    help=(
+        "Reason for model selection: auto-downgrade, auto-baseline, "
+        "prompted-upgrade, user-override. NULL for pre-INFRA-050 builds."
+    ),
+)
+@click.option(
     "--ts",
     default=None,
     help="ISO-8601 UTC timestamp; auto-filled with current UTC if omitted.",
@@ -117,6 +130,8 @@ def record_attempt(
     duration_ms: int | None,
     outcome: str | None,
     notes: str | None,
+    story_class: str | None,
+    model_selection_reason: str | None,
     ts: str | None,
     project_dir: str,
     db_path: str | None,
@@ -166,6 +181,8 @@ def record_attempt(
         outcome=outcome,
         notes=notes,
         ts=ts,
+        story_class=story_class,
+        model_selection_reason=model_selection_reason,
     )
 
     click.echo(f"recorded attempt for {story_id} (agent={agent_role}, attempt={attempt_number})")

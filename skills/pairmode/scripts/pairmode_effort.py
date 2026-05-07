@@ -1033,6 +1033,12 @@ def _query_decision_quality(
     if not raw:
         return []
 
+    # Return empty when all model_selection_reason values are NULL — this
+    # means the column exists (from the INFRA-050 migration) but no rows have
+    # been recorded with a reason yet (pre-INFRA-050 data).
+    if all(row[0] is None for row in raw):
+        return []
+
     # Group by model_selection_reason.
     from collections import defaultdict
     reason_data: dict[str, list[dict]] = defaultdict(list)

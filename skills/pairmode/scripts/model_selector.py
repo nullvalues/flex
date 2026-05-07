@@ -26,6 +26,30 @@ Public API:
 
   Unknown story_class values default to the "code" rules (conservative).
 
+  select_builder_model(story_class, primary_files, protected_files) -> (str, str)
+
+    Returns a (model, reason) tuple for the builder agent given the story's
+    class, the list of primary file paths, and the list of protected file paths.
+
+    Decision table:
+
+      story_class   complexity signal                           model   reason
+      -----------   -----------------                           -----   ------
+      doc           any                                         haiku   auto-downgrade
+      lesson        any                                         haiku   auto-downgrade
+      methodology   any                                         sonnet  auto-baseline
+      code          <3 primary_files AND no protected file      sonnet  auto-baseline
+      code          >=3 primary_files OR protected file in      opus    prompted-upgrade
+                    touches
+
+    If the caller has already received a user-override decision, it should
+    pass the overridden model back through this function by using the return
+    tuple, but the ``user-override`` reason is a distinct value the orchestrator
+    records after the user has spoken — the function itself never returns
+    ``user-override``.  Callers that receive a ``prompted-upgrade`` result must
+    prompt the user; if the user downgrades, record ``user-override`` reason in
+    the DB.
+
   select_intent_reviewer_model(phase_class) -> str
 
     Returns "sonnet" or "opus" for the intent-reviewer checkpoint agent given
@@ -73,11 +97,24 @@ from schema_validator import DEFAULT_STORY_CLASS  # noqa: E402
 # Constants
 # ---------------------------------------------------------------------------
 
+MODEL_HAIKU = "haiku"
 MODEL_SONNET = "sonnet"
 MODEL_OPUS = "opus"
 
+# Model selection reason values (used by the effort DB schema).
+REASON_AUTO_DOWNGRADE = "auto-downgrade"
+REASON_AUTO_BASELINE = "auto-baseline"
+REASON_PROMPTED_UPGRADE = "prompted-upgrade"
+REASON_USER_OVERRIDE = "user-override"
+
 # story_class values that never upgrade to opus on retry
 _ALWAYS_SONNET_CLASSES = frozenset({"doc", "lesson"})
+
+# story_class values for builder that are auto-downgraded to haiku
+_HAIKU_CLASSES = frozenset({"doc", "lesson"})
+
+# Minimum primary_files count that triggers an upgrade signal for code stories
+_CODE_UPGRADE_FILE_COUNT = 3
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +164,69 @@ def select_reviewer_model(
             return MODEL_OPUS
 
     return MODEL_SONNET
+
+
+# ---------------------------------------------------------------------------
+# Builder model selection (story_class + complexity-signal-driven)
+# ---------------------------------------------------------------------------
+
+
+def select_builder_model(
+    story_class: str,
+    primary_files: list[str],
+    protected_files: list[str],
+) -> tuple[str, str]:
+    """Return ``(model, reason)`` for the builder agent.
+
+    Args:
+        story_class:     The story's class ("code", "doc", "lesson",
+                         "methodology").  Unknown values are treated as
+                         "code" (conservative).
+        primary_files:   List of primary file path strings declared in the
+                         story spec.  An empty list counts as zero files.
+        protected_files: List of file path strings that are protected (from
+                         CLAUDE.md § Protected files and
+                         .claude/settings.json).  If any entry in
+                         ``primary_files`` appears in ``protected_files``
+                         the story is considered high-scope.
+
+    Returns:
+        A ``(model, reason)`` tuple where:
+        - ``model``  is one of ``"haiku"``, ``"sonnet"``, ``"opus"``
+        - ``reason`` is one of ``"auto-downgrade"``, ``"auto-baseline"``,
+          ``"prompted-upgrade"``
+
+    Decision table:
+
+      story_class   complexity signal                         model   reason
+      -----------   -----------------                         -----   ------
+      doc           any                                       haiku   auto-downgrade
+      lesson        any                                       haiku   auto-downgrade
+      methodology   any                                       sonnet  auto-baseline
+      code          <3 primary_files AND no protected file    sonnet  auto-baseline
+      code          >=3 primary_files OR protected file       opus    prompted-upgrade
+    """
+    # Normalise / apply default
+    if not story_class or story_class not in {"code", "doc", "lesson", "methodology"}:
+        story_class = DEFAULT_STORY_CLASS  # "code"
+
+    # doc and lesson → auto-downgrade to haiku
+    if story_class in _HAIKU_CLASSES:
+        return (MODEL_HAIKU, REASON_AUTO_DOWNGRADE)
+
+    # methodology → sonnet baseline, no upgrade signal
+    if story_class == "methodology":
+        return (MODEL_SONNET, REASON_AUTO_BASELINE)
+
+    # story_class == "code" — apply complexity signals
+    protected_set = set(protected_files)
+    touches_protected = any(f in protected_set for f in primary_files)
+    has_broad_scope = len(primary_files) >= _CODE_UPGRADE_FILE_COUNT
+
+    if touches_protected or has_broad_scope:
+        return (MODEL_OPUS, REASON_PROMPTED_UPGRADE)
+
+    return (MODEL_SONNET, REASON_AUTO_BASELINE)
 
 
 # ---------------------------------------------------------------------------

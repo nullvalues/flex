@@ -39,6 +39,88 @@ In build mode: follow the build loop below. Do not ask clarifying questions befo
 
 ---
 
+## Model evaluation
+
+Run this step **once per story**, before spawning the builder.
+
+Read `story_class` and `primary_files` from the story spec frontmatter.
+Call `select_builder_model` to get the model and selection reason:
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python -c "
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path('skills/pairmode/scripts').resolve()))
+from model_selector import select_builder_model
+
+# Replace with values from the story frontmatter:
+story_class = 'code'           # default 'code' if absent
+primary_files = [              # from story frontmatter primary_files list
+    'skills/pairmode/scripts/foo.py',
+]
+protected_files = [            # from CLAUDE.md § Protected files
+    'hooks/stop.py',
+    'hooks/exit_plan_mode.py',
+    'hooks/post_tool_use.py',
+    'hooks/session_end.py',
+    'skills/seed/scripts/',
+    'skills/companion/scripts/sidebar.py',
+    '.claude-plugin/plugin.json',
+    '.claude-plugin/marketplace.json',
+]
+
+model, reason = select_builder_model(story_class, primary_files, protected_files)
+print(f'{model}|{reason}')
+"
+```
+
+**Decision table:**
+
+| story_class | complexity signal | builder model | reason | action |
+|---|---|---|---|---|
+| `doc` | any | haiku | `auto-downgrade` | auto (no prompt) |
+| `lesson` | any | haiku | `auto-downgrade` | auto (no prompt) |
+| `methodology` | any | sonnet | `auto-baseline` | auto |
+| `code` | < 3 primary_files, no protected file | sonnet | `auto-baseline` | auto |
+| `code` | ≥ 3 primary_files OR protected file in touches | opus | `prompted-upgrade` | **prompt user** |
+| *(any)* | user overrides model downward | *(user choice)* | `user-override` | recorded |
+
+**For `prompted-upgrade` results**, display this prompt to the user before spawning the builder:
+
+```
+MODEL SUGGESTION — Story [ID]
+story_class: code
+Signal: [e.g. "touches protected file hooks/stop.py" or "4 primary_files"]
+Suggested builder model: opus (baseline: sonnet)
+Reason: high-scope code story; opus reduces rework risk
+Say "upgrade" to use opus, or "continue" to proceed with sonnet.
+```
+
+- If the user says "upgrade": spawn the builder with `model: opus`, record reason `prompted-upgrade`.
+- If the user says "continue" (or any downward override): spawn the builder with `model: sonnet` (or their choice), record reason `user-override`.
+- For `auto-downgrade` and `auto-baseline`: no prompt — apply the model automatically.
+
+**Pass `--story-class` and `--model-selection-reason` to `record_attempt.py`** on every
+builder invocation so the effort DB can surface decision-quality metrics later:
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/record_attempt.py \
+  --story-id RAIL-NNN \
+  --phase N \
+  --rail RAIL \
+  --agent-role builder \
+  --model claude-sonnet-4-5 \
+  --attempt-number 1 \
+  --tokens-total 38000 \
+  --tool-uses 11 \
+  --duration-ms 187000 \
+  --story-class code \
+  --model-selection-reason auto-baseline \
+  --project-dir .
+```
+
+---
+
 ## Build loop (repeat for each story)
 
 ### Step 1 — Spawn the builder
@@ -96,11 +178,15 @@ PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/record_attempt
   --tokens-total 38000 \
   --tool-uses 11 \
   --duration-ms 187000 \
+  --story-class code \
+  --model-selection-reason auto-baseline \
   --project-dir .
 ```
 
-`record_attempt.py` no-ops silently when `.companion/state.json["effort_tracking"]`
-is absent or false, so this step is safe to run unconditionally.
+Use the `model` and `reason` values from the Model evaluation step above for
+`--model-selection-reason`. `record_attempt.py` no-ops silently when
+`.companion/state.json["effort_tracking"]` is absent or false, so this step is
+safe to run unconditionally.
 
 After recording the attempt, run the real-time effort guardrail. It compares
 the just-completed builder attempt's tokens against the rail's recent median

@@ -432,6 +432,42 @@ if already there). The builder falls Sonnet → Haiku. Never fall below Haiku
 to wait for the rate limit to clear than to ship with a model that cannot
 follow the spec.
 
+**Builder model selection.** The orchestrator calls
+`skills/pairmode/scripts/model_selector.select_builder_model(story_class,
+primary_files, protected_files) -> (model, reason)` before spawning each
+builder. The function returns a `(model, reason)` tuple:
+
+- `model` is one of `"haiku"`, `"sonnet"`, or `"opus"`
+- `reason` is one of `"auto-downgrade"`, `"auto-baseline"`, `"prompted-upgrade"`
+
+| `story_class` | complexity signal | model | reason | action |
+|---|---|---|---|---|
+| `doc` | any | haiku | `auto-downgrade` | auto |
+| `lesson` | any | haiku | `auto-downgrade` | auto |
+| `methodology` | any | sonnet | `auto-baseline` | auto |
+| `code` | < 3 `primary_files`, no protected file | sonnet | `auto-baseline` | auto |
+| `code` | ≥ 3 `primary_files` OR a protected file in touches | opus | `prompted-upgrade` | **prompt user** |
+
+`protected_files` is derived from the deny list in `CLAUDE.md` § Protected
+files and from `.claude/settings.json`. When the function returns
+`prompted-upgrade`, the orchestrator displays the upgrade suggestion to the
+user and waits for confirmation before spawning the builder. If the user
+overrides the suggestion downward, the orchestrator records reason
+`user-override` in the effort DB. The `--story-class` and
+`--model-selection-reason` flags on `record_attempt.py` persist both fields
+so the `validate-rebalance` view can surface decision-quality evidence.
+
+Prompt text for `prompted-upgrade`:
+
+```
+MODEL SUGGESTION — Story [ID]
+story_class: code
+Signal: [e.g. "touches protected file hooks/stop.py" or "4 primary_files"]
+Suggested builder model: opus (baseline: sonnet)
+Reason: high-scope code story; opus reduces rework risk
+Say "upgrade" to use opus, or "continue" to proceed with sonnet.
+```
+
 **Checkpoint-agent model selection.** The helper family is extended with two
 additional selectors driven by the `phase_class` frontmatter field:
 

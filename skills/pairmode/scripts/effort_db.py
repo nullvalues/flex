@@ -52,9 +52,19 @@ CREATE TABLE IF NOT EXISTS attempts (
     duration_ms INTEGER,
     outcome TEXT,
     notes TEXT,
-    ts TEXT NOT NULL
+    ts TEXT NOT NULL,
+    story_class TEXT,
+    model_selection_reason TEXT
 );
 """
+
+# ALTER TABLE statements for columns added after initial schema creation.
+# Each is wrapped in a try/except because SQLite does not support
+# IF NOT EXISTS on ALTER TABLE.
+_MIGRATIONS: tuple[str, ...] = (
+    "ALTER TABLE attempts ADD COLUMN story_class TEXT",
+    "ALTER TABLE attempts ADD COLUMN model_selection_reason TEXT",
+)
 
 _SCHEMA_INDICES = (
     "CREATE INDEX IF NOT EXISTS idx_attempts_story ON attempts(story_id);",
@@ -81,6 +91,8 @@ _INSERT_COLUMNS: tuple[str, ...] = (
     "outcome",
     "notes",
     "ts",
+    "story_class",
+    "model_selection_reason",
 )
 
 _REQUIRED_FIELDS: tuple[str, ...] = (
@@ -148,6 +160,10 @@ def init_db(path: Path) -> None:
     """Create (or upgrade) the schema at *path*.  Idempotent.
 
     Creates the parent directory if it does not exist.
+
+    Also runs any pending column-addition migrations (``_MIGRATIONS``).
+    Each migration is wrapped in a try/except ``OperationalError`` so that
+    running ``init_db`` twice on an existing database is always safe.
     """
 
     resolved = _depth_guard(path)
@@ -159,6 +175,13 @@ def init_db(path: Path) -> None:
         cur.executescript(_SCHEMA_TABLE)
         for stmt in _SCHEMA_INDICES:
             cur.execute(stmt)
+        # Apply additive column migrations idempotently.
+        for migration in _MIGRATIONS:
+            try:
+                cur.execute(migration)
+            except sqlite3.OperationalError:
+                # Column already exists — safe to ignore.
+                pass
         conn.commit()
     finally:
         conn.close()
