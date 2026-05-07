@@ -105,16 +105,13 @@ builder invocation so the effort DB can surface decision-quality metrics later:
 
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/record_attempt.py \
-  --story-id RAIL-NNN \
-  --phase N \
-  --rail RAIL \
+  --story-file docs/stories/RAIL/RAIL-NNN.md \
   --agent-role builder \
   --model claude-sonnet-4-5 \
   --attempt-number 1 \
   --tokens-total 38000 \
   --tool-uses 11 \
   --duration-ms 187000 \
-  --story-class code \
   --model-selection-reason auto-baseline \
   --project-dir .
 ```
@@ -169,16 +166,13 @@ spawns. `--phase` and `--rail` are read from the current story file's frontmatte
 
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/record_attempt.py \
-  --story-id RAIL-NNN \
-  --phase N \
-  --rail RAIL \
+  --story-file docs/stories/RAIL/RAIL-NNN.md \
   --agent-role builder \
   --model claude-opus-4-7 \
   --attempt-number 1 \
   --tokens-total 38000 \
   --tool-uses 11 \
   --duration-ms 187000 \
-  --story-class code \
   --model-selection-reason auto-baseline \
   --project-dir .
 ```
@@ -304,9 +298,7 @@ is a silent no-op when effort tracking is disabled, so the call is unconditional
 
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/record_attempt.py \
-  --story-id RAIL-NNN \
-  --phase N \
-  --rail RAIL \
+  --story-file docs/stories/RAIL/RAIL-NNN.md \
   --agent-role reviewer \
   --model claude-opus-4-7 \
   --attempt-number 1 \

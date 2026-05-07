@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import click
 
+from schema_validator import _parse_frontmatter
 from skills.pairmode.scripts import effort_db as _effort_db
 
 
@@ -53,7 +54,17 @@ def _read_state(state_path: Path) -> dict:
 
 
 @click.command()
-@click.option("--story-id", required=True, help="Story ID, e.g. INFRA-028.")
+@click.option(
+    "--story-file",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help=(
+        "Path to a story file with YAML frontmatter. "
+        "Auto-fills --story-id, --phase, --rail, --story-class from frontmatter fields "
+        "(id, phase, rail, story_class). Explicit flags take precedence."
+    ),
+)
+@click.option("--story-id", default=None, help="Story ID, e.g. INFRA-028.")
 @click.option("--phase", default=None, help="Phase number as string.")
 @click.option("--rail", default=None, help="Rail name (INFRA, BUILD, ...).")
 @click.option(
@@ -115,7 +126,8 @@ def _read_state(state_path: Path) -> dict:
     help="Override the effort DB path. Otherwise resolved from state.json.",
 )
 def record_attempt(
-    story_id: str,
+    story_file: str | None,
+    story_id: str | None,
     phase: str | None,
     rail: str | None,
     agent_role: str,
@@ -137,6 +149,50 @@ def record_attempt(
     db_path: str | None,
 ) -> None:
     """Append one attempt row.  No-op when effort tracking is disabled."""
+
+    # ---------------------------------------------------------------------------
+    # Auto-fill from --story-file frontmatter (explicit flags take precedence)
+    # ---------------------------------------------------------------------------
+    if story_file is not None:
+        story_path = Path(story_file)
+        try:
+            text = story_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            click.echo(f"error: cannot read story file: {exc}", err=True)
+            sys.exit(1)
+
+        fm = _parse_frontmatter(text)
+        if fm is None:
+            click.echo(
+                f"error: no valid YAML frontmatter found in {story_file}",
+                err=True,
+            )
+            sys.exit(1)
+
+        # story_id from frontmatter 'id' field (required when --story-id not given)
+        if story_id is None:
+            fm_id = fm.get("id")
+            if not fm_id:
+                click.echo(
+                    "error: frontmatter missing required 'id' field and --story-id not supplied",
+                    err=True,
+                )
+                sys.exit(1)
+            story_id = str(fm_id)
+
+        # phase, rail, story_class — fill from frontmatter if not set by explicit flag
+        if phase is None and fm.get("phase") is not None:
+            phase = str(fm["phase"])
+        if rail is None and fm.get("rail") is not None:
+            rail = str(fm["rail"])
+        if story_class is None:
+            fm_class = fm.get("story_class")
+            story_class = str(fm_class) if fm_class else "code"
+
+    # story_id must be set by now (either explicit or from story_file)
+    if story_id is None:
+        click.echo("error: --story-id is required when --story-file is not supplied", err=True)
+        sys.exit(1)
 
     project_path = Path(project_dir).resolve()
     state_path = project_path / ".companion" / "state.json"

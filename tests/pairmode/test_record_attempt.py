@@ -257,3 +257,175 @@ class TestSchemaSafety:
             conn.close()
         assert "attempts" in tables
         assert "pricing" not in tables
+
+
+# ---------------------------------------------------------------------------
+# --story-file flag
+# ---------------------------------------------------------------------------
+
+_STORY_FRONTMATTER = """\
+---
+id: INFRA-051
+rail: INFRA
+phase: 25
+story_class: methodology
+title: test story
+status: planned
+primary_files:
+  - skills/pairmode/scripts/record_attempt.py
+touches:
+  - CLAUDE.build.md
+---
+
+Story body here.
+"""
+
+_STORY_FRONTMATTER_NO_CLASS = """\
+---
+id: INFRA-052
+rail: INFRA
+phase: 25
+title: test story no class
+status: planned
+primary_files:
+  - skills/pairmode/scripts/record_attempt.py
+touches: []
+---
+
+Story body here.
+"""
+
+_STORY_FRONTMATTER_NO_ID = """\
+---
+rail: INFRA
+phase: 25
+story_class: code
+title: test story missing id
+status: planned
+primary_files: []
+touches: []
+---
+
+Body.
+"""
+
+
+def _write_story(path: Path, content: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+class TestStoryFile:
+    def test_populates_phase_rail_story_class_story_id(self, tmp_path: Path) -> None:
+        """--story-file auto-fills phase, rail, story_class, story_id from frontmatter."""
+        _enable_tracking(tmp_path)
+        story_path = _write_story(tmp_path / "story.md", _STORY_FRONTMATTER)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            [
+                "--project-dir", str(tmp_path),
+                "--story-file", str(story_path),
+                "--agent-role", "builder",
+                "--attempt-number", "1",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+        db_path = tmp_path / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-051")
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["story_id"] == "INFRA-051"
+        assert row["phase"] == "25"
+        assert row["rail"] == "INFRA"
+        assert row["story_class"] == "methodology"
+
+    def test_explicit_flags_override_frontmatter(self, tmp_path: Path) -> None:
+        """Explicit flags take precedence over auto-filled frontmatter values."""
+        _enable_tracking(tmp_path)
+        story_path = _write_story(tmp_path / "story.md", _STORY_FRONTMATTER)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            [
+                "--project-dir", str(tmp_path),
+                "--story-file", str(story_path),
+                "--story-id", "OVERRIDE-001",
+                "--phase", "99",
+                "--rail", "OVERRIDE",
+                "--story-class", "doc",
+                "--agent-role", "builder",
+                "--attempt-number", "1",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+        db_path = tmp_path / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "OVERRIDE-001")
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["story_id"] == "OVERRIDE-001"
+        assert row["phase"] == "99"
+        assert row["rail"] == "OVERRIDE"
+        assert row["story_class"] == "doc"
+
+    def test_missing_story_file_exits_nonzero(self, tmp_path: Path) -> None:
+        """--story-file pointing to a nonexistent file exits non-zero."""
+        _enable_tracking(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            [
+                "--project-dir", str(tmp_path),
+                "--story-file", str(tmp_path / "does_not_exist.md"),
+                "--agent-role", "builder",
+                "--attempt-number", "1",
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_frontmatter_missing_id_exits_nonzero(self, tmp_path: Path) -> None:
+        """Frontmatter without 'id' field (and no --story-id) exits non-zero."""
+        _enable_tracking(tmp_path)
+        story_path = _write_story(tmp_path / "story_no_id.md", _STORY_FRONTMATTER_NO_ID)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            [
+                "--project-dir", str(tmp_path),
+                "--story-file", str(story_path),
+                "--agent-role", "builder",
+                "--attempt-number", "1",
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_no_story_class_field_defaults_to_code(self, tmp_path: Path) -> None:
+        """When frontmatter has no story_class field, story_class defaults to 'code'."""
+        _enable_tracking(tmp_path)
+        story_path = _write_story(tmp_path / "story_no_class.md", _STORY_FRONTMATTER_NO_CLASS)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            [
+                "--project-dir", str(tmp_path),
+                "--story-file", str(story_path),
+                "--agent-role", "builder",
+                "--attempt-number", "1",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+        db_path = tmp_path / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-052")
+        assert len(rows) == 1
+        assert rows[0]["story_class"] == "code"

@@ -546,6 +546,15 @@ record must not silently revalue past attempts. Recording tokens (and the model
 that consumed them) keeps the historical record stable and lets cost analysis
 re-run against any pricing snapshot the user chooses.
 
+**`record_attempt.py --story-file` (recommended invocation for builder calls).** Pass
+`--story-file docs/stories/RAIL/RAIL-NNN.md` to auto-fill `--story-id`, `--phase`,
+`--rail`, and `--story-class` from the story file's YAML frontmatter. Explicitly-passed
+flags still take precedence over auto-filled values. This eliminates the manual
+transcription of phase/rail/story-class literals from the story file, closing the typo
+surface that CER-015 identified. When `--story-file` is used and the frontmatter has no
+`story_class` field, `story_class` defaults to `"code"` (consistent with the rest of the
+toolchain). A missing or unparseable story file exits non-zero with a clear error.
+
 **Enabling and disabling.** A one-line toggle in `.companion/state.json`:
 
 ```json
