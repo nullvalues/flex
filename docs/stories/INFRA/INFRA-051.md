@@ -2,7 +2,7 @@
 id: INFRA-051
 rail: INFRA
 title: record_attempt.py --story-file flag — auto-extract phase/rail/story_class from frontmatter
-status: planned
+status: complete
 phase: "25"
 primary_files:
   - skills/pairmode/scripts/record_attempt.py
