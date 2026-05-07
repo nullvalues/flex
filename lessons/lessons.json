@@ -201,6 +201,26 @@
         "all"
       ],
       "status": "captured"
+    },
+    {
+      "id": "L012",
+      "date": "2026-05-07",
+      "source_project": "anchor",
+      "trigger": "Phase 23 INFRA-044 / LESSON-004 documented model upgrade triggers in prose. Phase 24 made them structural and data-defensible, adding per-story model evaluation (INFRA-050) and an efficiency-ratio report (INFRA-049) to close the feedback loop.",
+      "problem": "Methodology decisions in prose are unauditable in either direction. \"Most reviews catch nothing\" was either true or false \u2014 no way to know without measurement. Without measurement, the next person to question the methodology has only the same intuitions to argue with. The same applies to cost: \"haiku is fine for doc stories\" is a claim that needs a retry-rate check to validate, not just intuition.",
+      "learning": "A methodology lifecycle worth codifying: (1) Ship the change under intuition. (2) Capture the rationale as a lesson. (3) Instrument the relevant signal. (4) Wait for data to accrue (\u2265 2 phases). (5) Validate the methodology against the data. (6) Formalize, refine, or reverse based on findings. The goal is not minimum cost (that sacrifices quality and causes rework) and not maximum intelligence (that wastes budget on trivial work). It is best outcome per token \u2014 optimising the efficiency ratio: PASS rate / cost. This framing is stable even as model prices and capabilities shift; the thresholds in the decision table are the thing that changes, not the objective.",
+      "value_framing": "Efficiency ratio: (pass_rate / avg_cost) / (baseline_pass_rate / baseline_avg_cost). A ratio > 1.0 means the path delivers more PASS-rate per token than the baseline. The efficiency ratio is the durable metric: as models evolve and prices change, re-run the report; if the ratio for a decision path shifts, update the decision table thresholds in a new story.",
+      "methodology_change": {
+        "affects": [
+          "pairmode-methodology-evolution"
+        ],
+        "description": "Pairmode adopts this lifecycle for any future intuition-driven methodology changes. INFRA-045 through INFRA-050 implement the structural changes and instrumentation. The lesson template gets a new optional `validation_phase` field pointing at the phase that confirms or revises the lesson, enabling traceable methodology evolution."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured",
+      "validation_phase": "24"
     }
   ]
 }

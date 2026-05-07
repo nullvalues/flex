@@ -57,3 +57,8 @@ or use `/anchor:pairmode lesson` to capture a new lesson.
 **Date:** 2026-05-05
 **Status:** captured
 **Learning:** Model selection should be sonnet baseline, opus on demand, not the inverse. Reserve opus for explicit upgrade triggers where the judgment edge actually matters: story retries (sonnet missed it the first time), pre-PR audits (last cold-eyes before code leaves the repo), mid-phase spec pivots (the spec itself moved), and production-code phases for security-auditor. Loop-breaker stays opus permanently because by the time it fires the case is by definition hard.
+
+## L012 — Phase 23 INFRA-044 / LESSON-004 documented model upgrade triggers in prose. Phase 24 made them structural and data-defensible, adding per-story model evaluation (INFRA-050) and an efficiency-ratio report (INFRA-049) to close the feedback loop.
+**Date:** 2026-05-07
+**Status:** captured
+**Learning:** A methodology lifecycle worth codifying: (1) Ship the change under intuition. (2) Capture the rationale as a lesson. (3) Instrument the relevant signal. (4) Wait for data to accrue (≥ 2 phases). (5) Validate the methodology against the data. (6) Formalize, refine, or reverse based on findings. The goal is not minimum cost (that sacrifices quality and causes rework) and not maximum intelligence (that wastes budget on trivial work). It is best outcome per token — optimising the efficiency ratio: PASS rate / cost. This framing is stable even as model prices and capabilities shift; the thresholds in the decision table are the thing that changes, not the objective.
