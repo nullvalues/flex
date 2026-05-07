@@ -179,9 +179,34 @@ the reviewer can revert builder mistakes without erasing methodology.
 
 ### Step 2 — Spawn the reviewer
 
+Before spawning the reviewer, determine the model using the `model_selector`
+helper.  The reviewer model is driven by `(story_class, attempt_number)` — read
+`story_class` from the story's frontmatter (default `"code"` if absent):
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python -c "
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path('skills/pairmode/scripts').resolve()))
+from model_selector import select_reviewer_model
+# Replace values below with the current story's data:
+model = select_reviewer_model(
+    story_class='code',     # from story frontmatter; default 'code' if absent
+    attempt_number=1,       # 1 for first attempt, increment on each retry
+    phase_id='24',          # from story frontmatter 'phase' field
+    project_dir=Path('.'),
+)
+print(model)
+"
+```
+
+Pass the printed value (`sonnet` or `opus`) as the `model` parameter when
+spawning the reviewer Agent tool call.
+
 Spawn the `reviewer` subagent with:
 - The story ID
 - The story spec (acceptance criterion + key requirements)
+- `model`: the value returned by `select_reviewer_model` above
 
 The reviewer will diff the working tree, run the checklist, run tests, then either commit or revert.
 

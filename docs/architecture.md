@@ -388,20 +388,24 @@ and obscuring whether the work actually requires that tier.
 time the loop-breaker fires the case is — by definition — hard, and the
 reasoning premium is justified.
 
-**Upgrade triggers (explicit).** Override the model to `opus` per-invocation
-when one of these conditions holds:
+**Reviewer model selection.** The orchestrator calls
+`skills/pairmode/scripts/model_selector.select_reviewer_model(story_class,
+attempt_number, phase_id=None, project_dir=None)` before spawning each
+reviewer and passes the result as the Agent tool's `model` parameter. The
+helper implements the following selection table:
 
-- **Story retry.** Any story on `attempt_number > 1`. The reviewer running at
-  sonnet missed something the first time; the retry reviewer uses opus.
-- **Pre-PR audit.** The final phase before code leaves the repo. All
-  reviewer-class agents (reviewer, intent-reviewer, security-auditor) run on
-  opus across that phase.
-- **Mid-phase spec pivot.** When a story spec changes after the phase has
-  begun, the next intent-reviewer at the next checkpoint uses opus.
-- **Production code touched in phase.** If any Python in `skills/`, `hooks/`,
-  or other production paths changed during the phase, the security-auditor at
-  the next checkpoint uses opus. Doc-only, lesson-only, or template-only
-  phases stay on sonnet.
+| `story_class` | `attempt_number = 1` | `attempt_number >= 2` |
+|---|---|---|
+| `code` | sonnet | opus |
+| `doc` | sonnet | sonnet |
+| `lesson` | sonnet | sonnet |
+| `methodology` | sonnet | sonnet (opus if a same-phase `code` story exists) |
+
+Stories without a `story_class` field default to `code`. Unknown values also
+default to `code` (conservative). The "same-phase code story" check for
+`methodology` reads the phase manifest via `story_resolver.list_phase_stories`
+and inspects each story file's frontmatter; it returns `sonnet` (fail-safe) if
+the phase manifest or any story file cannot be read.
 
 **Operational mechanism.** Override at *call time* via the Agent tool's
 `model` parameter. The template intent stays clean — it encodes the baseline,
@@ -428,10 +432,10 @@ if already there). The builder falls Sonnet → Haiku. Never fall below Haiku
 to wait for the rate limit to clear than to ship with a model that cannot
 follow the spec.
 
-**Forward reference.** Phase 24 will refine these triggers into
-data-defensible per-story-class rules once Phase 22's effort tracking has
-produced enough data to validate the rebalance with actual token-and-PASS-rate
-per `(model, role)` numbers.
+**Checkpoint-agent model selection** (INFRA-048) will extend the helper family
+with `select_intent_reviewer_model(phase_class)` and
+`select_security_auditor_model(phase_class)`, driving checkpoint upgrades from
+the `phase_class` frontmatter field established in INFRA-046.
 
 ### Pairmode non-negotiables
 
