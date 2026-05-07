@@ -53,6 +53,7 @@ anchor/
         schema_validator.py       ← validate story/era/phase manifest frontmatter
         permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
+        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand)
       templates/                  ← Jinja2 templates for scaffold generation
         CLAUDE.md.j2
         CLAUDE.build.md.j2
@@ -493,6 +494,33 @@ Unknown or absent `phase_class` values default to `"production"` for both
 helpers. The orchestrator reads `phase_class` from the phase manifest frontmatter
 before spawning each checkpoint agent and passes the result as the Agent tool's
 `model` parameter (same override mechanism as the reviewer model selection).
+
+### Pairmode tooling
+
+**`pairmode_sync.py` — `sync-agents` subcommand.**
+Re-renders the frontmatter of each agent file in `<project_dir>/.claude/agents/` from the
+current canonical pairmode templates, preserving the body of each file unchanged.
+
+CLI:
+```bash
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+  sync-agents [--project-dir DIR] [--dry-run] [--yes]
+```
+
+Behaviour:
+- For each `*.md` file in `<project_dir>/.claude/agents/`, finds the matching template by
+  filename stem (e.g. `reviewer.md` → `reviewer.md.j2`) in `skills/pairmode/templates/agents/`.
+- Renders only the frontmatter block of the template with `project_name` substituted from
+  `state.json["project_name"]` (or `project_dir.name` as fallback).
+- Replaces the frontmatter block in the target file; the body (everything after the second
+  `---`) is preserved unchanged.
+- Prints a unified diff (`difflib.unified_diff`) for each changed file before writing.
+- `--dry-run`: exits after printing diffs without writing any files.
+- `--yes`: writes without prompting.
+- Default: prompts once ("Apply these changes? [y/N]") before writing.
+- If no matching template exists for an agent file: warns and skips that file.
+- If no files would change: prints "No changes to apply." and exits 0.
+- Agent files with no frontmatter block (no opening `---`): warns and skips.
 
 ### Pairmode non-negotiables
 

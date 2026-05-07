@@ -588,3 +588,44 @@ Followed by `## Acceptance criterion`, `## Instructions`, and `## Tests` section
 - `--title TEXT` — story title (required)
 - `--phase NNN` — phase number to register this story in (optional)
 - `--project-dir PATH` — target project root (default: current directory)
+
+---
+
+### `/anchor:pairmode sync-agents`
+
+> **Note:** `sync-agents` is invoked directly via CLI, not through the pairmode skill dispatcher.
+> Correct invocation:
+> ```bash
+> PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+>   sync-agents --project-dir "$(pwd)"
+> ```
+
+**When to use:** When the canonical agent templates in the anchor repo have been updated and you
+want to propagate those changes to a project's `.claude/agents/` files without overwriting
+project-specific body content.
+
+**Inputs expected:**
+- `.claude/agents/` directory in the target project — one or more `*.md` agent files.
+- Matching `*.md.j2` templates in `skills/pairmode/templates/agents/` (matched by filename stem).
+- `.companion/state.json` in the target project (optional — used to read `project_name`).
+
+**What it does:**
+1. Walks `.claude/agents/*.md` in the target project.
+2. For each agent file, looks up the matching template by stem (e.g. `reviewer.md` → `reviewer.md.j2`).
+   If no template is found, warns and skips that file.
+3. Renders the template with `project_name` from `state.json["project_name"]` (or `project_dir.name`
+   as fallback) and extracts only the frontmatter block (opening `---` through closing `---`).
+4. Replaces the frontmatter in the target agent file; preserves the body (everything after the
+   second `---`) unchanged.
+5. Prints a unified diff of each changed file before writing.
+6. If no files would change: prints "No changes to apply." and exits 0.
+7. If at least one file would change and `--dry-run` is not set: prompts once
+   "Apply these changes? [y/N]" before writing (suppressed with `--yes`).
+
+**Outputs:**
+- Updated `.claude/agents/*.md` files with re-rendered frontmatter.
+
+**Flags:**
+- `--project-dir PATH` — target project root (default: current directory)
+- `--dry-run` — print diffs without writing any files
+- `--yes` / `-y` — write files without prompting for confirmation
