@@ -100,8 +100,9 @@ Say "upgrade" to use opus, or "continue" to proceed with sonnet.
 - If the user says "continue" (or any downward override): spawn the builder with `model: sonnet` (or their choice), record reason `user-override`.
 - For `auto-downgrade` and `auto-baseline`: no prompt — apply the model automatically.
 
-**Pass `--story-class` and `--model-selection-reason` to `record_attempt.py`** on every
-builder invocation so the effort DB can surface decision-quality metrics later.
+**Pass `--model-selection-reason` to `record_attempt.py`** on every
+builder invocation so the effort DB can surface decision-quality metrics later
+(`--story-class` is auto-filled from `--story-file` frontmatter).
 
 ---
 

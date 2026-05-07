@@ -5,7 +5,7 @@ title: pairmode sync-agents subcommand — propagate template model updates to e
 status: complete
 phase: "25"
 primary_files:
-  - skills/pairmode/scripts/pairmode_status.py
+  - skills/pairmode/scripts/pairmode_sync.py
 touches:
   - docs/architecture.md
   - tests/pairmode/test_sync_agents.py

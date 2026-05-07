@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp25-backlog-remediation-and-agent-sync
+
+**Phase:** 25 — Backlog remediation and cross-project agent sync
+**Tag command:** `git tag cp25-backlog-remediation-and-agent-sync && git push origin cp25-backlog-remediation-and-agent-sync`
+**Acceptance:** CER-015 resolved — `record_attempt.py --story-file` auto-extracts phase/rail/story_class/story_id from frontmatter (INFRA-051). CER-010 resolved and CER-011 partially resolved — `story_new.py` and `era_new.py` gain formal `resolve().relative_to()` containment guards (INFRA-052). `pairmode sync-agents` subcommand added to propagate template frontmatter to existing projects without re-bootstrap (INFRA-053). L013 captures the template-drift-and-sync pattern (LESSON-006). CER-019 added for pairmode_sync.py project_name YAML injection (LOW, Do Later). 1451 tests pass.
+
+---
+
 ## cp24-data-defensible-methodology
 
 **Phase:** 24 — Data-defensible model rebalance refinement
