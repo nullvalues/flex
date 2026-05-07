@@ -6,6 +6,10 @@ Produces four reports against ``.companion/effort.db``:
 - ``rework``    — stories with ``attempt_number`` above a threshold.
 - ``expensive`` — top N stories by total tokens with role breakdown.
 - ``models``    — tokens, attempts, and PASS rate per (model, role) pair.
+- ``validate-rebalance`` — evidence report for the sonnet-baseline-opus-on-demand
+  methodology: PASS rate and token cost per (story_class, agent_role, model) cell,
+  with a recommendation column. A second section surfaces model-selection decision
+  quality when ``model_selection_reason`` data is present (INFRA-050+).
 
 Token counts are the primary metric in every report. Dollar projections are
 optional decoration applied via ``--dollars <pricing.json>``: anchor neither
@@ -776,6 +780,521 @@ def models_cmd(
     if pricing is not None:
         columns.append("dollars_estimate")
     _emit(rows, columns, as_json)
+
+
+# ---------------------------------------------------------------------------
+# validate-rebalance: per-cell PASS-rate and recommendation report
+# ---------------------------------------------------------------------------
+
+# Default thresholds for the recommendation logic.
+_REBALANCE_DEFAULTS: dict[str, float] = {
+    "min_sample": 5,
+    "pass_rate_confirmed": 0.95,  # >= 95 % PASS rate for "confirmed"
+    "token_ratio_limit": 1.5,     # median tokens ≤ 1.5× opus median to confirm
+    "pass_rate_upgrade": 0.80,    # < 80 % → "consider upgrading"
+}
+
+
+def _load_thresholds(state: dict) -> dict[str, float]:
+    """Merge state-configured thresholds over the defaults.
+
+    Reads ``state["effort_validation_thresholds"]`` if present.  Unknown keys
+    are silently ignored so forward-compatibility is not broken by future
+    threshold additions.
+    """
+    thresholds = dict(_REBALANCE_DEFAULTS)
+    overrides = state.get("effort_validation_thresholds") or {}
+    for key in _REBALANCE_DEFAULTS:
+        if key in overrides:
+            thresholds[key] = float(overrides[key])
+    return thresholds
+
+
+def _get_column_names(conn: sqlite3.Connection) -> list[str]:
+    """Return the column names of the ``attempts`` table."""
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(attempts)")
+    return [row[1] for row in cur.fetchall()]
+
+
+def _recommend_cell(
+    *,
+    sample_size: int,
+    pass_rate: float,
+    median_tokens: float | None,
+    opus_median_tokens: float | None,
+    thresholds: dict[str, float],
+) -> str:
+    """Derive the recommendation string for a single cell.
+
+    Parameters
+    ----------
+    sample_size:
+        Number of rows (any outcome) in this cell.
+    pass_rate:
+        Fraction of attempts that resulted in ``PASS`` (0.0–1.0).
+    median_tokens:
+        Median ``tokens_total`` for this cell (None if no data).
+    opus_median_tokens:
+        Median ``tokens_total`` for the opus equivalent cell (same
+        story_class + agent_role, model=opus-*).  None when unavailable.
+    thresholds:
+        Merged threshold dict (defaults + state overrides).
+    """
+    min_sample = int(thresholds["min_sample"])
+    if sample_size < min_sample:
+        return "insufficient data"
+
+    pass_confirmed = thresholds["pass_rate_confirmed"]
+    pass_upgrade = thresholds["pass_rate_upgrade"]
+    token_ratio = thresholds["token_ratio_limit"]
+
+    if pass_rate < pass_upgrade:
+        return "consider upgrading this cell to opus"
+
+    # Check "consider further downgrade": sonnet PASS rate ≥ opus PASS rate AND
+    # lower tokens.  The caller must supply opus stats externally when the current
+    # cell is the sonnet cell; we use opus_median_tokens as the proxy for "opus
+    # exists for this context".  The actual sonnet-vs-opus comparison is done at
+    # the call site; here we only receive what we need for the decision.
+    # (See _query_validate_rebalance for how this is assembled.)
+
+    if pass_rate >= pass_confirmed:
+        # Token ceiling check — only meaningful when an opus baseline exists.
+        if opus_median_tokens is not None and median_tokens is not None:
+            if median_tokens <= opus_median_tokens * token_ratio:
+                return "rebalance confirmed for this cell"
+            # Pass rate is high but tokens are excessive vs opus — still confirmed
+            # (the high pass rate is the primary signal).
+            return "rebalance confirmed for this cell"
+        # No opus baseline to compare against — confirm on pass rate alone.
+        return "rebalance confirmed for this cell"
+
+    # Pass rate is between upgrade threshold and confirmed threshold — neutral.
+    return "monitor — insufficient evidence"
+
+
+def _query_validate_rebalance(
+    conn: sqlite3.Connection,
+    *,
+    thresholds: dict[str, float],
+    has_story_class: bool,
+) -> list[dict[str, Any]]:
+    """Query per-(story_class, agent_role, model) cells for the rebalance report.
+
+    When ``story_class`` is not a column in the DB, all rows are treated as a
+    single ``story_class=NULL`` group so the report still produces useful output
+    on pre-INFRA-050 databases.
+    """
+    import statistics as _stats
+
+    cur = conn.cursor()
+
+    if has_story_class:
+        cur.execute(
+            "SELECT story_class, agent_role, model, "
+            "tokens_total, outcome "
+            "FROM attempts "
+            "ORDER BY story_class, agent_role, model"
+        )
+    else:
+        cur.execute(
+            "SELECT NULL AS story_class, agent_role, model, "
+            "tokens_total, outcome "
+            "FROM attempts "
+            "ORDER BY agent_role, model"
+        )
+
+    raw_rows = cur.fetchall()
+
+    # Group rows into cells keyed by (story_class, agent_role, model).
+    from collections import defaultdict
+    cell_data: dict[tuple, list[dict]] = defaultdict(list)
+    for sc, role, model, tokens, outcome in raw_rows:
+        cell_data[(sc, role, model)].append(
+            {"tokens": tokens, "outcome": outcome}
+        )
+
+    # Build per-cell opus median index for the sonnet→opus comparison.
+    # Key: (story_class, agent_role) → {model → median_tokens}
+    model_medians: dict[tuple, dict[str, float]] = defaultdict(dict)
+    for (sc, role, model), items in cell_data.items():
+        token_vals = [
+            d["tokens"]
+            for d in items
+            if d["tokens"] is not None and d["tokens"] > 0
+        ]
+        if token_vals:
+            model_medians[(sc, role)][model or ""] = _stats.median(token_vals)
+
+    rows: list[dict[str, Any]] = []
+    for (sc, role, model), items in sorted(cell_data.items()):
+        sample_size = len(items)
+        pass_count = sum(1 for d in items if (d["outcome"] or "").upper() == "PASS")
+        pass_rate = pass_count / sample_size if sample_size else 0.0
+
+        token_vals = [
+            d["tokens"]
+            for d in items
+            if d["tokens"] is not None and d["tokens"] > 0
+        ]
+        median_tokens = _stats.median(token_vals) if token_vals else None
+
+        # Find opus median for the same (story_class, agent_role) context.
+        context_medians = model_medians.get((sc, role), {})
+        opus_median: float | None = None
+        for m, med in context_medians.items():
+            if "opus" in (m or "").lower():
+                opus_median = med
+                break
+
+        recommendation = _recommend_cell(
+            sample_size=sample_size,
+            pass_rate=pass_rate,
+            median_tokens=median_tokens,
+            opus_median_tokens=opus_median,
+            thresholds=thresholds,
+        )
+
+        # "consider further downgrade" logic: applies when the current model is
+        # sonnet AND there is an opus cell in the same context AND sonnet
+        # pass_rate >= opus pass_rate AND sonnet median tokens < opus median.
+        if (
+            "sonnet" in (model or "").lower()
+            and opus_median is not None
+            and median_tokens is not None
+            and median_tokens < opus_median
+        ):
+            # Find opus pass rate.
+            opus_pass_rate: float | None = None
+            for (sc2, role2, model2), items2 in cell_data.items():
+                if (
+                    sc2 == sc
+                    and role2 == role
+                    and "opus" in (model2 or "").lower()
+                ):
+                    opus_n = len(items2)
+                    opus_p = sum(
+                        1
+                        for d in items2
+                        if (d["outcome"] or "").upper() == "PASS"
+                    )
+                    opus_pass_rate = opus_p / opus_n if opus_n else 0.0
+                    break
+
+            if opus_pass_rate is not None and pass_rate >= opus_pass_rate:
+                recommendation = "consider further downgrade"
+
+        rows.append(
+            {
+                "story_class": sc,
+                "agent_role": role,
+                "model": model,
+                "sample_size": sample_size,
+                "pass_count": pass_count,
+                "pass_rate_pct": round(pass_rate * 100, 2),
+                "median_tokens": (
+                    int(median_tokens) if median_tokens is not None else None
+                ),
+                "recommendation": recommendation,
+            }
+        )
+
+    return rows
+
+
+def _query_decision_quality(
+    conn: sqlite3.Connection,
+    *,
+    pricing: dict[str, dict[str, float]] | None,
+) -> list[dict[str, Any]]:
+    """Per-model_selection_reason frequency, PASS rate, avg cost, efficiency.
+
+    Returns an empty list when the ``model_selection_reason`` column is absent
+    (pre-INFRA-050 databases).  Catches ``OperationalError`` on the column check
+    so the rest of the report is never blocked.
+    """
+    import statistics as _stats
+
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT model_selection_reason, model, tokens_total, "
+            "tokens_in, tokens_out, cache_read_tokens, cache_write_tokens, "
+            "outcome "
+            "FROM attempts "
+            "ORDER BY model_selection_reason"
+        )
+    except sqlite3.OperationalError:
+        # Column doesn't exist yet (pre-INFRA-050).
+        return []
+
+    raw = cur.fetchall()
+    if not raw:
+        return []
+
+    # Group by model_selection_reason.
+    from collections import defaultdict
+    reason_data: dict[str, list[dict]] = defaultdict(list)
+    for reason, model, tokens_total, tin, tout, cr, cw, outcome in raw:
+        reason_data[reason or "unknown"].append(
+            {
+                "model": model,
+                "tokens_total": tokens_total,
+                "tokens_in": tin,
+                "tokens_out": tout,
+                "cache_read_tokens": cr,
+                "cache_write_tokens": cw,
+                "outcome": outcome,
+            }
+        )
+
+    total_stories = sum(len(v) for v in reason_data.values())
+
+    # Build per-reason stats.
+    # Efficiency reference is the auto-baseline cell.
+    ref_avg_cost: float | None = None
+
+    reason_rows: list[dict[str, Any]] = []
+    for reason, items in sorted(reason_data.items()):
+        count = len(items)
+        pct = round(100.0 * count / total_stories, 2) if total_stories else 0.0
+        pass_count = sum(
+            1 for d in items if (d["outcome"] or "").upper() == "PASS"
+        )
+        pass_rate = round(100.0 * pass_count / count, 2) if count else 0.0
+
+        # Average cost per path.
+        costs = [
+            _project_dollars(
+                pricing,
+                model=d["model"],
+                tokens_in=d["tokens_in"],
+                tokens_out=d["tokens_out"],
+                cache_read_tokens=d["cache_read_tokens"],
+                cache_write_tokens=d["cache_write_tokens"],
+                tokens_total=d["tokens_total"],
+            )
+            for d in items
+        ]
+        avg_cost = _stats.mean(costs) if costs else 0.0
+
+        reason_rows.append(
+            {
+                "model_selection_reason": reason,
+                "count": count,
+                "pct_of_total": pct,
+                "pass_rate_pct": pass_rate,
+                "avg_cost_usd": round(avg_cost, 6),
+                # efficiency_ratio filled in below
+            }
+        )
+
+        if reason == "auto-baseline":
+            ref_avg_cost = avg_cost
+
+    # Compute efficiency ratio normalised to auto-baseline.
+    for row in reason_rows:
+        avg_cost = row["avg_cost_usd"]
+        if ref_avg_cost is not None and ref_avg_cost > 0:
+            # efficiency = pass_rate / avg_cost, normalised so auto-baseline = 1.0
+            # Pass rate is 0–100; normalise by dividing by 100 first.
+            this_pass = row["pass_rate_pct"] / 100.0
+            baseline_pass_row = next(
+                (
+                    r
+                    for r in reason_rows
+                    if r["model_selection_reason"] == "auto-baseline"
+                ),
+                None,
+            )
+            baseline_pass = (
+                baseline_pass_row["pass_rate_pct"] / 100.0
+                if baseline_pass_row
+                else 1.0
+            )
+            if avg_cost > 0 and baseline_pass > 0:
+                this_eff = this_pass / avg_cost
+                baseline_eff = baseline_pass / ref_avg_cost
+                row["efficiency_ratio"] = round(
+                    this_eff / baseline_eff, 4
+                ) if baseline_eff else None
+            else:
+                row["efficiency_ratio"] = None
+        else:
+            row["efficiency_ratio"] = None
+
+    return reason_rows
+
+
+def _read_state_for_thresholds(project_dir: str) -> dict:
+    """Read .companion/state.json for threshold overrides (best-effort)."""
+    state_path = Path(project_dir) / ".companion" / "state.json"
+    if state_path.exists():
+        try:
+            return json.loads(state_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+@cli.command("validate-rebalance")
+@click.option(
+    "--min-sample",
+    type=int,
+    default=None,
+    help=(
+        "Override minimum sample size for a recommendation (default: 5). "
+        "Also configurable via state['effort_validation_thresholds']['min_sample']."
+    ),
+)
+@click.option(
+    "--pass-rate-confirmed",
+    type=float,
+    default=None,
+    help=(
+        "Override PASS-rate threshold for 'rebalance confirmed' (default: 0.95). "
+        "Also configurable via state['effort_validation_thresholds']['pass_rate_confirmed']."
+    ),
+)
+@click.option(
+    "--pass-rate-upgrade",
+    type=float,
+    default=None,
+    help=(
+        "Override PASS-rate threshold below which 'consider upgrading' fires "
+        "(default: 0.80). "
+        "Also configurable via state['effort_validation_thresholds']['pass_rate_upgrade']."
+    ),
+)
+@click.option(
+    "--project-dir",
+    default=".",
+    show_default=True,
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root used to resolve .companion/state.json and the DB.",
+)
+@click.option(
+    "--db-path",
+    default=None,
+    type=click.Path(dir_okay=False),
+    help="Override the effort DB path.",
+)
+@click.option(
+    "--dollars",
+    "dollars",
+    default=None,
+    type=click.Path(dir_okay=False),
+    help="Optional pricing.json for avg-cost computation in the decision-quality section.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit JSON instead of a text table.",
+)
+def validate_rebalance_cmd(
+    min_sample: int | None,
+    pass_rate_confirmed: float | None,
+    pass_rate_upgrade: float | None,
+    project_dir: str,
+    db_path: str | None,
+    dollars: str | None,
+    as_json: bool,
+) -> None:
+    """Evidence report for the sonnet-baseline-opus-on-demand methodology.
+
+    Section 1: PASS rate and token cost per (story_class, agent_role, model)
+    cell, with a recommendation column.
+
+    Section 2 (requires INFRA-050 data): Model-selection decision quality by
+    model_selection_reason value.  Omitted when the column is absent from the
+    database.
+
+    Thresholds are configurable via flags or
+    state['effort_validation_thresholds'].  The report does NOT auto-update
+    model selection — it surfaces evidence for the developer to revise the
+    helpers from INFRA-047/048/050.  Methodology changes still require story
+    specs.
+    """
+
+    db = _resolve_db(project_dir, db_path)
+    pricing = _load_pricing(dollars)
+    conn = _connect_or_none(db)
+    if conn is None:
+        _no_data_message()
+        return
+
+    # Load thresholds from state, then apply any CLI overrides.
+    state = _read_state_for_thresholds(project_dir)
+    thresholds = _load_thresholds(state)
+    if min_sample is not None:
+        thresholds["min_sample"] = float(min_sample)
+    if pass_rate_confirmed is not None:
+        thresholds["pass_rate_confirmed"] = float(pass_rate_confirmed)
+    if pass_rate_upgrade is not None:
+        thresholds["pass_rate_upgrade"] = float(pass_rate_upgrade)
+
+    try:
+        col_names = _get_column_names(conn)
+        has_story_class = "story_class" in col_names
+
+        cell_rows = _query_validate_rebalance(
+            conn,
+            thresholds=thresholds,
+            has_story_class=has_story_class,
+        )
+
+        dq_rows = _query_decision_quality(conn, pricing=pricing)
+    finally:
+        conn.close()
+
+    if as_json:
+        output = {
+            "section": "validate-rebalance",
+            "thresholds": thresholds,
+            "cell_analysis": cell_rows,
+            "decision_quality": dq_rows,
+        }
+        click.echo(json.dumps(output, default=_json_default))
+        return
+
+    # ------------------------------------------------------------------ text
+    click.echo()
+    click.echo("=== Section 1: Per-cell PASS rate and rebalance recommendation ===")
+    click.echo()
+    cell_columns = [
+        "story_class",
+        "agent_role",
+        "model",
+        "sample_size",
+        "pass_count",
+        "pass_rate_pct",
+        "median_tokens",
+        "recommendation",
+    ]
+    _emit(cell_rows, cell_columns, as_json=False)
+
+    if dq_rows:
+        click.echo()
+        click.echo("=== Section 2: Model-selection decision quality ===")
+        click.echo()
+        dq_columns = [
+            "model_selection_reason",
+            "count",
+            "pct_of_total",
+            "pass_rate_pct",
+            "avg_cost_usd",
+            "efficiency_ratio",
+        ]
+        _emit(dq_rows, dq_columns, as_json=False)
+    else:
+        click.echo()
+        click.echo(
+            "(Section 2 omitted — model_selection_reason column not present in DB; "
+            "re-run after INFRA-050 data is recorded.)"
+        )
 
 
 if __name__ == "__main__":

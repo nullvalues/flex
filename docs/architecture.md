@@ -530,16 +530,54 @@ pairmode loop rows. `agent_role` values used by these wrappers:
 are left NULL for cross-skill rows because seed and sidebar work happens
 outside the phases/rails model.
 
-**How to use it.** `pairmode_effort.py` provides four read-time views over the
+**How to use it.** `pairmode_effort.py` provides five read-time views over the
 recorded attempts:
 
 - `pairmode_effort.py rollup` — totals by phase, rail, model
 - `pairmode_effort.py rework` — stories with attempt_number > 1 (what cost us a retry)
 - `pairmode_effort.py expensive` — top N attempts by tokens
 - `pairmode_effort.py models` — breakdown by model
+- `pairmode_effort.py validate-rebalance` — evidence report for the
+  sonnet-baseline-opus-on-demand methodology; see below.
 
 These are retrospective views. Future phases will add a real-time guardrail
 that surfaces effort overruns mid-loop rather than only after the fact.
+
+**`validate-rebalance` recommendation logic.** For each
+`(story_class, agent_role, model)` cell in the DB the report computes:
+sample size, PASS count, PASS rate, and median tokens. It then applies
+this decision table (thresholds configurable via CLI flags or
+`state["effort_validation_thresholds"]`):
+
+| condition | recommendation |
+|-----------|---------------|
+| sample size < 5 | "insufficient data" |
+| PASS rate ≥ 95 % | "rebalance confirmed for this cell" |
+| PASS rate < 80 % | "consider upgrading this cell to opus" |
+| sonnet PASS rate ≥ opus PASS rate AND sonnet median tokens < opus median | "consider further downgrade" |
+| otherwise | "monitor — insufficient evidence" |
+
+Configurable threshold keys under `state["effort_validation_thresholds"]`:
+`min_sample` (int, default 5), `pass_rate_confirmed` (float 0–1, default 0.95),
+`pass_rate_upgrade` (float 0–1, default 0.80), `token_ratio_limit` (float,
+default 1.5).
+
+**Decision-quality section (requires INFRA-050 data).** A second section of the
+`validate-rebalance` report surfaces model-selection decision quality. For each
+`model_selection_reason` value (`auto-downgrade`, `auto-baseline`,
+`prompted-upgrade`, `user-override`) the report shows: frequency count and
+percentage of total stories, PASS-on-first-attempt rate per path, average cost
+per path (tokens × pricing), and an efficiency ratio defined as:
+
+```
+efficiency_ratio = (pass_rate / avg_cost) / (baseline_pass_rate / baseline_avg_cost)
+```
+
+where the `auto-baseline` path is the normalisation reference (ratio = 1.0).
+A ratio > 1.0 means the path delivers more PASS-rate per dollar than the baseline.
+The section is omitted when the `model_selection_reason` column is absent from
+the DB (pre-INFRA-050 builds). The report surfaces evidence only — it does NOT
+auto-update model selection. Methodology changes still require story specs.
 
 **Real-time guardrail.** After each builder attempt, the orchestrator calls
 `effort_db.check_guardrail()` with the rail and the just-completed attempt's
