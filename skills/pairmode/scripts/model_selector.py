@@ -25,6 +25,36 @@ Public API:
     to "code"). If found, returns "opus"; otherwise "sonnet".
 
   Unknown story_class values default to the "code" rules (conservative).
+
+  select_intent_reviewer_model(phase_class) -> str
+
+    Returns "sonnet" or "opus" for the intent-reviewer checkpoint agent given
+    the phase's class.
+
+    Selection table:
+
+      phase_class   model
+      -----------   -----
+      production    sonnet
+      docs-only     sonnet
+      pre-pr        opus
+
+    Unknown/absent phase_class values default to "production" (sonnet).
+
+  select_security_auditor_model(phase_class) -> str
+
+    Returns "sonnet" or "opus" for the security-auditor checkpoint agent given
+    the phase's class.
+
+    Selection table:
+
+      phase_class   model
+      -----------   -----
+      production    opus
+      docs-only     sonnet
+      pre-pr        opus
+
+    Unknown/absent phase_class values default to "production" (opus).
 """
 
 from __future__ import annotations
@@ -97,6 +127,61 @@ def select_reviewer_model(
             return MODEL_OPUS
 
     return MODEL_SONNET
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint-agent model selection (phase_class-driven)
+# ---------------------------------------------------------------------------
+
+# Default phase_class when the field is absent from a phase manifest.
+DEFAULT_PHASE_CLASS = "production"
+
+# phase_class values
+_VALID_PHASE_CLASSES = frozenset({"production", "docs-only", "pre-pr"})
+
+
+def select_intent_reviewer_model(phase_class: str) -> str:
+    """Return "sonnet" or "opus" for the intent-reviewer checkpoint agent.
+
+    Selection table:
+
+      phase_class   model
+      -----------   -----
+      production    sonnet
+      docs-only     sonnet
+      pre-pr        opus
+
+    Unknown/absent values default to "production" (sonnet).
+    """
+    if not phase_class or phase_class not in _VALID_PHASE_CLASSES:
+        phase_class = DEFAULT_PHASE_CLASS
+
+    if phase_class == "pre-pr":
+        return MODEL_OPUS
+    # production and docs-only both use sonnet
+    return MODEL_SONNET
+
+
+def select_security_auditor_model(phase_class: str) -> str:
+    """Return "sonnet" or "opus" for the security-auditor checkpoint agent.
+
+    Selection table:
+
+      phase_class   model
+      -----------   -----
+      production    opus
+      docs-only     sonnet
+      pre-pr        opus
+
+    Unknown/absent values default to "production" (opus).
+    """
+    if not phase_class or phase_class not in _VALID_PHASE_CLASSES:
+        phase_class = DEFAULT_PHASE_CLASS
+
+    if phase_class == "docs-only":
+        return MODEL_SONNET
+    # production and pre-pr both use opus
+    return MODEL_OPUS
 
 
 # ---------------------------------------------------------------------------

@@ -10,7 +10,9 @@ from skills.pairmode.scripts.model_selector import (
     MODEL_OPUS,
     MODEL_SONNET,
     _phase_has_code_story,
+    select_intent_reviewer_model,
     select_reviewer_model,
+    select_security_auditor_model,
 )
 
 # ---------------------------------------------------------------------------
@@ -276,3 +278,49 @@ class TestPhaseHasCodeStory:
         _write_story(tmp_path, "INFRA-002", story_class="code")
         _write_phase(tmp_path, "24", ["INFRA-001", "INFRA-002"])
         assert _phase_has_code_story("24", tmp_path) is True
+
+
+# ---------------------------------------------------------------------------
+# select_intent_reviewer_model
+# ---------------------------------------------------------------------------
+
+
+class TestSelectIntentReviewerModel:
+    def test_production_returns_sonnet(self) -> None:
+        assert select_intent_reviewer_model("production") == MODEL_SONNET
+
+    def test_docs_only_returns_sonnet(self) -> None:
+        assert select_intent_reviewer_model("docs-only") == MODEL_SONNET
+
+    def test_pre_pr_returns_opus(self) -> None:
+        assert select_intent_reviewer_model("pre-pr") == MODEL_OPUS
+
+    def test_unknown_defaults_to_production_sonnet(self) -> None:
+        """Unknown phase_class defaults to 'production' → sonnet."""
+        assert select_intent_reviewer_model("unknown") == MODEL_SONNET
+
+    def test_empty_string_defaults_to_production_sonnet(self) -> None:
+        assert select_intent_reviewer_model("") == MODEL_SONNET
+
+
+# ---------------------------------------------------------------------------
+# select_security_auditor_model
+# ---------------------------------------------------------------------------
+
+
+class TestSelectSecurityAuditorModel:
+    def test_production_returns_opus(self) -> None:
+        assert select_security_auditor_model("production") == MODEL_OPUS
+
+    def test_docs_only_returns_sonnet(self) -> None:
+        assert select_security_auditor_model("docs-only") == MODEL_SONNET
+
+    def test_pre_pr_returns_opus(self) -> None:
+        assert select_security_auditor_model("pre-pr") == MODEL_OPUS
+
+    def test_unknown_defaults_to_production_opus(self) -> None:
+        """Unknown phase_class defaults to 'production' → opus."""
+        assert select_security_auditor_model("unknown") == MODEL_OPUS
+
+    def test_empty_string_defaults_to_production_opus(self) -> None:
+        assert select_security_auditor_model("") == MODEL_OPUS

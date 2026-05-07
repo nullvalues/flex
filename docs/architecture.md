@@ -432,10 +432,31 @@ if already there). The builder falls Sonnet → Haiku. Never fall below Haiku
 to wait for the rate limit to clear than to ship with a model that cannot
 follow the spec.
 
-**Checkpoint-agent model selection** (INFRA-048) will extend the helper family
-with `select_intent_reviewer_model(phase_class)` and
-`select_security_auditor_model(phase_class)`, driving checkpoint upgrades from
-the `phase_class` frontmatter field established in INFRA-046.
+**Checkpoint-agent model selection.** The helper family is extended with two
+additional selectors driven by the `phase_class` frontmatter field:
+
+`select_intent_reviewer_model(phase_class) -> str` — returns the model for the
+intent-reviewer checkpoint agent:
+
+| `phase_class` | model |
+|---|---|
+| `production` | sonnet |
+| `docs-only` | sonnet |
+| `pre-pr` | opus |
+
+`select_security_auditor_model(phase_class) -> str` — returns the model for the
+security-auditor checkpoint agent:
+
+| `phase_class` | model |
+|---|---|
+| `production` | opus |
+| `docs-only` | sonnet |
+| `pre-pr` | opus |
+
+Unknown or absent `phase_class` values default to `"production"` for both
+helpers. The orchestrator reads `phase_class` from the phase manifest frontmatter
+before spawning each checkpoint agent and passes the result as the Agent tool's
+`model` parameter (same override mechanism as the reviewer model selection).
 
 ### Pairmode non-negotiables
 

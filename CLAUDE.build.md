@@ -295,18 +295,50 @@ If any test fails: stop. Report which tests failed and their output. Do not proc
 
 ### 2. Security audit
 
-Spawn the `security-auditor` subagent:
-"Full security audit of skills/pairmode/ — Phase [N] checkpoint."
+Before spawning the security-auditor, determine the model using `model_selector`:
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python -c "
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path('skills/pairmode/scripts').resolve()))
+from model_selector import select_security_auditor_model
+# Replace phase_class with the value from the phase manifest frontmatter;
+# default 'production' if the field is absent.
+model = select_security_auditor_model('production')
+print(model)
+"
+```
+
+Spawn the `security-auditor` subagent with:
+- "Full security audit of skills/pairmode/ — Phase [N] checkpoint."
+- `model`: the value returned by `select_security_auditor_model` above
 
 If the auditor reports any CRITICAL or HIGH finding: stop. Report findings.
 The checkpoint cannot be tagged until all CRITICAL and HIGH findings are resolved.
 
 ### 3. Intent review
 
+Before spawning the intent-reviewer, determine the model using `model_selector`:
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python -c "
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path('skills/pairmode/scripts').resolve()))
+from model_selector import select_intent_reviewer_model
+# Replace phase_class with the value from the phase manifest frontmatter;
+# default 'production' if the field is absent.
+model = select_intent_reviewer_model('production')
+print(model)
+"
+```
+
 Spawn the `intent-reviewer` subagent with:
 - Phase number
 - Prior checkpoint git tag (or "initial commit" for Phase 1)
 - Full phase spec text from phase-prompts.md
+- `model`: the value returned by `select_intent_reviewer_model` above
 
 After the intent-reviewer completes:
 - Apply its recommended changes to `/docs/phase-prompts.md` and `/docs/architecture.md`.
