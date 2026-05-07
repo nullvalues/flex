@@ -2,7 +2,7 @@
 id: INFRA-049
 rail: INFRA
 title: Effort-data validation report — does the rebalance hold?
-status: planned
+status: complete
 phase: "24"
 primary_files:
   - skills/pairmode/scripts/pairmode_effort.py
