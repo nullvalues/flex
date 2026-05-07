@@ -365,8 +365,10 @@ class TestClaudeBuildMdTemplate:
         assert "## Running migrations" in self.output
 
     def test_loop_breaker_section(self):
-        assert "## Loop-breaker" in self.output
+        # Loop-breaker is now embedded in Step 3 escalation, not a standalone section
+        assert "Attempt 2 FAIL" in self.output
         assert "LOOP-BREAKER:" in self.output
+        assert "BUILD PAUSED" in self.output
 
     def test_rules_section(self):
         assert "## Rules" in self.output

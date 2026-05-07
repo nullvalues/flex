@@ -341,22 +341,43 @@ If this was the last story in the phase, go to the Checkpoint Sequence below.
 Otherwise, repeat the build loop for the next story.
 
 **If reviewer reports FAIL (reverted):**
-Stop the build loop immediately. Report to the user:
 
-  STORY [RAIL-NNN] REVIEW FAILED
-  Findings: [reviewer's findings verbatim]
-  Test result: [reviewer's test output verbatim]
+Check the current attempt number for this story.
+
+**Attempt 1 FAIL — auto-retry:**
+Append the reviewer's findings as a `## PREVIOUS ATTEMPT FAILED` section to the
+original story prompt. Re-spawn the builder (attempt 2) immediately — no user pause.
+Increment the per-story attempt counter to 2.
+After the builder returns, record the attempt and run the guardrail as in Step 1,
+then re-spawn the reviewer (Step 2). The reviewer model re-selects based on the
+updated attempt_number (attempt 2 → opus for code stories).
+
+**Attempt 2 FAIL — auto loop-breaker:**
+Spawn the `loop-breaker` subagent immediately — no user pause:
+  LOOP-BREAKER: [reviewer finding verbatim]
+  FILE: [file:line if known, or "unknown"]
+  TRIED: [description of attempt 1 and attempt 2 approaches]
+After the loop-breaker responds, present its proposal to the user:
+
+  LOOP-BREAKER — Story [RAIL-NNN]
+  Two attempts failed. Proposed alternative:
+  [loop-breaker output verbatim]
+  Say "proceed" to attempt a third build with this guidance,
+  or "pause" to investigate manually.
+
+Wait for user response.
+- "proceed": spawn the builder (attempt 3) with original story text PLUS loop-breaker
+  guidance appended as a `## LOOP-BREAKER GUIDANCE` section.
+- "pause": go to BUILD PAUSED below.
+
+**Attempt 3 FAIL or user "pause":**
+
+  BUILD PAUSED — Story [RAIL-NNN]
+  Reason: [last reviewer's top findings]
   Working tree reverted to HEAD.
+  When resolved, say: "Continue building"
 
-  To retry with the same approach:     "Retry story RAIL-NNN"
-  To retry with guidance:              "Fix story RAIL-NNN: [your guidance]"
-  To investigate yourself first:       read the findings and ask me questions
-
-Do not spawn the builder again until the user responds.
-
-**Fix/retry flow:**
-Spawn the builder with the original story text PLUS the reviewer's findings appended
-as a "PREVIOUS ATTEMPT FAILED" section. The reviewer sees the same story spec as before.
+Stop the build loop.
 
 ---
 
@@ -479,21 +500,6 @@ Commit any doc updates from step 3 alongside the tag.
   ═══════════════════════════════════════════════
 
 Stop. Do not begin the next phase until the user says to.
-
----
-
-## Loop-breaker
-
-If the builder fails on the same error twice:
-
-Do not spawn the builder a third time. Spawn the `loop-breaker` subagent with:
-  LOOP-BREAKER: [error message]
-  FILE: [file:line if known, or "unknown"]
-  TRIED: [description of both failed approaches, separated as Attempt 1 and Attempt 2]
-
-The loop-breaker proposes one alternative approach.
-Present that approach to the user and ask whether to proceed.
-Do not implement it yourself — spawn the builder with it as guidance.
 
 ---
 
