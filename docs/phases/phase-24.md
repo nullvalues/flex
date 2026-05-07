@@ -40,7 +40,15 @@ exercises the upgrade path).
 | INFRA-047 | Reviewer model selection by `story_class` (replaces hardcoded triggers) | planned |
 | INFRA-048 | Checkpoint-agent model selection by `phase_class` | planned |
 | INFRA-049 | Effort-data validation report — does the rebalance hold? | planned |
+| INFRA-050 | Pre-story model evaluation step — auto-downgrade and prompted upgrade | planned |
 | LESSON-005 | Capture data-defensible methodology pattern as a lesson | planned |
+| INFRA-045 | story_class frontmatter field — code / doc / lesson / methodology | draft |
+| INFRA-046 | phase_class field — production / docs-only / pre-pr | draft |
+| INFRA-047 | Reviewer model selection by story_class (replaces hardcoded triggers) | draft |
+| INFRA-048 | Checkpoint-agent model selection by phase_class | draft |
+| INFRA-049 | Effort-data validation report — does the rebalance hold? | draft |
+| INFRA-050 | Pre-story model evaluation step — auto-downgrade and prompted upgrade | draft |
+| LESSON-005 | Capture data-defensible methodology pattern as a lesson | draft |
 
 ---
 
@@ -216,17 +224,125 @@ For each (story_class, agent_role, model) cell:
 
 Thresholds configurable via flags or `state["effort_validation_thresholds"]`.
 
+**Decision-quality section (requires INFRA-050 data):**
+
+A second section of the report surfaces model selection decision quality — how
+well the pre-story evaluation is performing over time. For each
+`model_selection_reason` value (`auto-downgrade`, `auto-baseline`,
+`prompted-upgrade`, `user-override`):
+
+- Frequency count and percentage of total stories
+- PASS-on-first-attempt rate per path
+- Average cost per path (tokens × pricing)
+- Efficiency ratio: PASS rate / avg cost (normalised to the `auto-baseline`
+  cell as 1.0)
+
+The efficiency ratio is the core metric for the value proposition: a path with
+ratio > 1.0 is delivering better outcome per token than the baseline. A path
+with ratio < 1.0 is either over-spending (upgrade too aggressive) or
+under-spending (downgrade causing retries). This section is omitted if the
+`model_selection_reason` column is absent from the database (pre-INFRA-050
+builds).
+
 **Instructions:**
 
 1. Add `validate-rebalance` subcommand to `pairmode_effort.py`. Output is
    plain-text columns by default; `--json` for machine-parseable.
-2. Document the recommendation logic in architecture.md.
+2. Document the recommendation logic and efficiency ratio in architecture.md.
 3. The report does NOT auto-update model selection — it surfaces evidence
-   for the developer to revise the helpers from INFRA-047/048. Methodology
+   for the developer to revise the helpers from INFRA-047/048/050. Methodology
    changes still require story specs.
 
 **Tests:** `tests/pairmode/test_validate_rebalance.py` with fixture databases
-covering each recommendation category.
+covering each recommendation category, plus fixture databases that include
+`model_selection_reason` data to exercise the decision-quality section.
+
+---
+
+### Story INFRA-050 — Pre-story model evaluation step
+
+**Rail:** INFRA
+
+**Acceptance criterion:** `CLAUDE.build.md` and its Jinja2 template gain a
+"Model evaluation" step that the orchestrator runs before spawning the builder
+for each story. The step reads `story_class` and `primary_files` from the
+story spec and produces a model selection decision without spawning any agent.
+Downgrades (haiku for doc/lesson stories) are applied automatically. Upgrades
+(opus for code stories touching protected files or with ≥ 3 primary files) are
+presented to the user as a prompt before the builder is spawned. The user can
+accept or override. If the user overrides to a lower model, the decision is
+recorded and the builder is spawned with that model.
+
+**Motivation:** The sonnet rate limit is shared across all projects running
+concurrently. Doc and lesson stories on any project are fully adequate on haiku,
+so routing them there frees sonnet capacity for code stories. Opus builder
+upgrades are high-cost and should require explicit user intent — but when a
+story signals high risk (protected files, broad scope), surfacing the option
+before spawning is better than reacting after a retry.
+
+**Decision table:**
+
+| story_class | complexity signal | builder model | selection reason | action |
+|---|---|---|---|---|
+| `doc` | any | haiku | `auto-downgrade` | auto (no prompt) |
+| `lesson` | any | haiku | `auto-downgrade` | auto (no prompt) |
+| `methodology` | any | sonnet | `auto-baseline` | auto |
+| `code` | < 3 primary_files, no protected file | sonnet | `auto-baseline` | auto |
+| `code` | ≥ 3 primary_files OR protected file in touches | opus | `prompted-upgrade` | **prompt user** |
+| *(any)* | user overrides model downward | *(user choice)* | `user-override` | recorded |
+
+Protected files are those listed in `CLAUDE.md` § Protected files and the
+project-specific deny list in `.claude/settings.json`.
+
+**Schema additions (effort DB):**
+
+INFRA-050 owns the migration that adds two columns to the `attempts` table:
+
+- `story_class TEXT` — copied from story frontmatter at record time; `NULL`
+  for pre-INFRA-045 builds (defaulting to `code` in queries).
+- `model_selection_reason TEXT` — one of `auto-downgrade`, `auto-baseline`,
+  `prompted-upgrade`, `user-override`; `NULL` for pre-INFRA-050 builds.
+
+These columns are the raw material for INFRA-049's decision-quality section.
+Without them, the efficiency ratio cannot be computed.
+
+**Instructions:**
+
+1. Add migration to `effort_db.py`: `ALTER TABLE attempts ADD COLUMN
+   story_class TEXT` and `ALTER TABLE attempts ADD COLUMN
+   model_selection_reason TEXT`. Use `IF NOT EXISTS` guard for idempotency on
+   existing databases.
+2. Update `record_attempt.py` to accept `--story-class` and
+   `--model-selection-reason` flags and write them to the DB.
+3. Add `select_builder_model(story_class, primary_files, protected_files)
+   -> (model: str, reason: str)` helper to `skills/pairmode/scripts/model_selector.py`
+   (alongside the reviewer/checkpoint selectors from INFRA-047/048).
+4. Add a `## Model evaluation` section to `CLAUDE.build.md` between "Before the
+   first build loop" and "Build loop". The section documents the decision table,
+   the prompt text for upgrades, and the instruction to pass `--story-class` and
+   `--model-selection-reason` to `record_attempt.py` on each builder invocation.
+5. Add the same section to `skills/pairmode/templates/CLAUDE.build.md.j2`.
+6. Document the decision table and reason values in `docs/architecture.md` under
+   the "Model selection: sonnet baseline, opus on demand" subsection.
+7. The orchestrator prompt text when an upgrade is suggested:
+   ```
+   MODEL SUGGESTION — Story [ID]
+   story_class: code
+   Signal: [e.g. "touches protected file src/middleware.ts" or "4 primary_files"]
+   Suggested builder model: opus (baseline: sonnet)
+   Reason: high-scope code story; opus reduces rework risk
+   Say "upgrade" to use opus, or "continue" to proceed with sonnet.
+   ```
+
+**Dependencies:** INFRA-045 (`story_class` frontmatter) must be built first so
+the evaluation can read a machine-readable class. Before INFRA-045 is built,
+the orchestrator infers class from story text (presence of `.py`/`.ts` file
+paths in `primary_files` implies `code`; `docs/` paths only implies `doc`).
+
+**Tests:** `tests/pairmode/test_model_selector.py` extended with cases covering
+each row of the decision table, including the `user-override` reason path.
+`tests/pairmode/test_effort_db.py` extended with migration idempotency test and
+round-trip test for the two new columns via `record_attempt.py`.
 
 ---
 
@@ -242,11 +358,21 @@ data either confirms or revises the original intuition.
 **Lesson content:**
 
 - **trigger**: Phase 23 INFRA-044 / LESSON-004 documented model upgrade
-  triggers in prose. Phase 24 made them structural and data-defensible.
+  triggers in prose. Phase 24 made them structural and data-defensible,
+  adding per-story model evaluation (INFRA-050) and an efficiency-ratio
+  report (INFRA-049) to close the feedback loop.
 - **problem**: Methodology decisions in prose are unauditable in either
   direction. "Most reviews catch nothing" was either true or false — no
   way to know without measurement. Without measurement, the next person
   to question the methodology has only the same intuitions to argue with.
+  The same applies to cost: "haiku is fine for doc stories" is a claim
+  that needs a retry-rate check to validate, not just intuition.
+- **value framing**: The goal is not minimum cost (that sacrifices quality
+  and causes rework) and not maximum intelligence (that wastes budget on
+  trivial work). It is best outcome per token — optimising the efficiency
+  ratio: PASS rate / cost. This framing is stable even as model prices and
+  capabilities shift; the thresholds in the decision table are the thing
+  that changes, not the objective.
 - **learning**: A methodology lifecycle worth codifying:
   1. Ship the change under intuition (Phase 23 INFRA-044)
   2. Capture the rationale as a lesson (LESSON-004)
@@ -254,7 +380,10 @@ data either confirms or revises the original intuition.
   4. Wait for data to accrue (≥ 2 phases of post-change builds)
   5. Validate the methodology against the data (Phase 24 INFRA-049)
   6. Formalize, refine, or reverse based on findings (Phase 24
-     INFRA-045-048; future phases revise as data demands)
+     INFRA-045-050; future phases revise as data demands)
+  The efficiency ratio is the durable metric: as models evolve and prices
+  change, re-run the report; if the ratio for a decision path shifts,
+  update the decision table thresholds in a new story.
 - **methodology_change**: Pairmode adopts this lifecycle for any future
   intuition-driven methodology changes. The lesson template gets a new
   optional `validation_phase` field pointing at the phase that confirms or
