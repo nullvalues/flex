@@ -2,7 +2,7 @@
 id: INFRA-046
 rail: INFRA
 title: phase_class field — production / docs-only / pre-pr
-status: planned
+status: complete
 phase: "24"
 primary_files:
   - skills/pairmode/scripts/phase_new.py
@@ -10,6 +10,7 @@ primary_files:
 touches:
   - docs/architecture.md
   - tests/pairmode/test_phase_new.py
+  - skills/pairmode/templates/docs/phases/phase.md.j2
 ---
 
 ## Acceptance criterion
