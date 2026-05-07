@@ -9,6 +9,7 @@ primary_files:
   - CLAUDE.build.md
   - skills/pairmode/templates/CLAUDE.build.md.j2
 touches:
+  - tests/pairmode/test_templates.py
 ---
 
 ## Acceptance criterion
