@@ -265,6 +265,113 @@ class TestValidationIntegration:
         assert result.exit_code == 0
 
 
+class TestStoryClassFlag:
+    """--story-class writes story_class into generated frontmatter."""
+
+    def test_story_class_code_written_to_frontmatter(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "Code story",
+                "--story-class", "code",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        assert "story_class: code" in content
+
+    def test_story_class_doc_written_to_frontmatter(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "Doc story",
+                "--story-class", "doc",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        assert "story_class: doc" in content
+
+    def test_story_class_lesson_written_to_frontmatter(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--rail", "LESSON",
+                "--title", "Lesson story",
+                "--story-class", "lesson",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "LESSON" / "LESSON-001.md"
+        content = story_file.read_text()
+        assert "story_class: lesson" in content
+
+    def test_story_class_methodology_written_to_frontmatter(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "Methodology story",
+                "--story-class", "methodology",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        assert "story_class: methodology" in content
+
+    def test_story_class_omitted_no_field_in_frontmatter(self, tmp_path: pathlib.Path) -> None:
+        """When --story-class is omitted, story_class does not appear in frontmatter."""
+        result = invoke(
+            ["--rail", "INFRA", "--title", "Default story", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        assert "story_class" not in content
+
+    def test_story_class_invalid_value_rejected(self, tmp_path: pathlib.Path) -> None:
+        """An invalid --story-class value causes a non-zero exit (Click validation)."""
+        runner = CliRunner()
+        result = runner.invoke(
+            story_new,
+            [
+                "--rail", "INFRA",
+                "--title", "Bad class",
+                "--story-class", "invalid-class",
+                "--project-dir", str(tmp_path),
+            ],
+            input="Y\n",
+            catch_exceptions=False,
+        )
+        assert result.exit_code != 0, (
+            f"Expected non-zero exit for invalid story_class, got: {result.output}"
+        )
+
+    def test_story_class_in_frontmatter_block_not_body(self, tmp_path: pathlib.Path) -> None:
+        """story_class appears in the YAML frontmatter block, not the Markdown body."""
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "Scoped story",
+                "--story-class", "doc",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        parts = content.split("---")
+        # parts[0] is empty (before opening ---), parts[1] is frontmatter, parts[2] is body
+        assert len(parts) >= 3, "Expected frontmatter delimiters"
+        frontmatter_block = parts[1]
+        assert "story_class: doc" in frontmatter_block
+
+
 class TestPathTraversalGuard:
     """Too-shallow project_dir causes non-zero exit."""
 

@@ -35,20 +35,27 @@ def _next_sequence(rail_dir: Path, rail: str) -> int:
     return (max(nums) + 1) if nums else 1
 
 
-def _story_frontmatter(story_id: str, rail: str, title: str, phase: str | None) -> str:
+def _story_frontmatter(
+    story_id: str,
+    rail: str,
+    title: str,
+    phase: str | None,
+    story_class: str | None = None,
+) -> str:
     """Return YAML frontmatter block for a new story file."""
     phase_val = phase if phase is not None else "backlog"
-    return (
-        "---\n"
-        f"id: {story_id}\n"
-        f"rail: {rail}\n"
-        f"title: {title}\n"
-        f"status: draft\n"
-        f"phase: \"{phase_val}\"\n"
-        "primary_files:\n"
-        "touches:\n"
-        "---\n"
-    )
+    lines = [
+        "---",
+        f"id: {story_id}",
+        f"rail: {rail}",
+        f"title: {title}",
+        f"status: draft",
+        f'phase: "{phase_val}"',
+    ]
+    if story_class is not None:
+        lines.append(f"story_class: {story_class}")
+    lines += ["primary_files:", "touches:", "---"]
+    return "\n".join(lines) + "\n"
 
 
 def _story_body() -> str:
@@ -161,12 +168,18 @@ def _append_to_phase(project_dir: Path, phase: str, story_id: str, title: str) -
 @click.option("--title", required=True, help="Story title.")
 @click.option("--phase", default=None, help="Phase number (NNN) to assign this story to.")
 @click.option(
+    "--story-class",
+    default=None,
+    type=click.Choice(["code", "doc", "lesson", "methodology"], case_sensitive=True),
+    help="Story classification: code, doc, lesson, or methodology. Omit to use default (code).",
+)
+@click.option(
     "--project-dir",
     default=".",
     type=click.Path(exists=True, file_okay=False),
     help="Root directory of the target project.",
 )
-def story_new(rail: str, title: str, phase: str | None, project_dir: str) -> None:
+def story_new(rail: str, title: str, phase: str | None, story_class: str | None, project_dir: str) -> None:
     """Create a new story file on the specified rail."""
 
     resolved = Path(project_dir).resolve()
@@ -208,7 +221,7 @@ def story_new(rail: str, title: str, phase: str | None, project_dir: str) -> Non
 
     # Write story file
     story_path = rail_dir / f"{story_id}.md"
-    content = _story_frontmatter(story_id, rail, title, phase) + _story_body()
+    content = _story_frontmatter(story_id, rail, title, phase, story_class) + _story_body()
     story_path.write_text(content, encoding="utf-8")
 
     click.echo(f"  Created {story_id}: {title}")

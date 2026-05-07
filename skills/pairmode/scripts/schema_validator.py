@@ -91,6 +91,8 @@ def _parse_frontmatter(text: str) -> dict[str, Any] | None:
 
 VALID_STORY_STATUSES = {"draft", "planned", "in-progress", "complete", "backlog"}
 VALID_ERA_STATUSES = {"active", "complete"}
+VALID_STORY_CLASSES = {"code", "doc", "lesson", "methodology"}
+DEFAULT_STORY_CLASS = "code"
 
 REQUIRED_STORY_FIELDS = ("id", "rail", "title", "status", "phase", "primary_files")
 REQUIRED_ERA_FIELDS = ("id", "name", "status")
@@ -122,6 +124,12 @@ def validate_story_file(path: Path) -> list[str]:
         errors.append(
             f"Invalid status '{fm['status']}'; must be one of "
             f"{sorted(VALID_STORY_STATUSES)}"
+        )
+
+    if "story_class" in fm and fm["story_class"] not in VALID_STORY_CLASSES:
+        errors.append(
+            f"Invalid story_class '{fm['story_class']}'; must be one of "
+            f"{sorted(VALID_STORY_CLASSES)}"
         )
 
     if "primary_files" in fm and not isinstance(fm["primary_files"], list):

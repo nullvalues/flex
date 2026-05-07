@@ -1,6 +1,8 @@
 ---
 description: Reconstruction agent for anchor. Works from docs/reconstruction.md to produce a competing implementation and RECONSTRUCTION.md scoring report.
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
+model: sonnet
+# fallback: haiku  (never below)
 ---
 
 # Reconstruction Agent — anchor

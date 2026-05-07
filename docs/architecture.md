@@ -310,6 +310,23 @@ story/era/phase files. Do not re-implement the parser inline. Callers import it 
 `primary_files` list when `status` is `draft` or `backlog`. Non-draft, non-backlog stories
 must have at least one entry in `primary_files`.
 
+### Story classification
+
+Story files accept an optional `story_class` frontmatter field. Allowed values:
+
+- `code` — production code in `skills/`, `hooks/`, etc. Default if field is absent. Reviewer
+  uses sonnet baseline; upgrades to opus on retry.
+- `doc` — documentation only (`README.md`, `docs/`, prose). Reviewer stays sonnet even on
+  retry. Doc reviews do not get harder with retries.
+- `lesson` — append-only lesson entries. Reviewer stays sonnet — lessons are high-structure
+  JSON with a programmatic invariant check.
+- `methodology` — template / scaffold / orchestrator-instruction changes. Reviewer stays
+  sonnet baseline; upgrades if any other story in the same phase touches `code`.
+
+The field is optional and additive — existing stories without it are treated as `code`.
+`schema_validator.py` validates the value when present. `story_new.py` accepts
+`--story-class` to write the field into generated frontmatter.
+
 **`story_update.py` is the canonical tool for updating story status.**
 `update_story_status(story_id, project_dir, status)` updates a story file's frontmatter
 `status` field. `update_phase_story_status(story_id, project_dir, status)` finds all phase

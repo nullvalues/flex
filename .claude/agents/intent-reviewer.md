@@ -1,6 +1,9 @@
 ---
 name: intent-reviewer
 description: Phase-level intent reviewer. Runs at each checkpoint. Compares what was built against what was planned, identifies design pivots, and recommends specific doc edits for the orchestrator to apply.
+model: sonnet
+# upgrade: opus  (when mid-phase pivot / pre-PR checkpoint)
+# fallback: sonnet  (never below)
 ---
 
 You are the intent-reviewer for the anchor project.

@@ -1,6 +1,8 @@
 ---
 name: loop-breaker
 description: Invoked when the builder has failed twice on the same error. Analyzes the failure cold from first principles and proposes exactly one alternative approach.
+model: opus
+# fallback: sonnet  (never below)
 ---
 
 You are the loop-breaker for the anchor project.

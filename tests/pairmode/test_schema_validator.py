@@ -14,6 +14,8 @@ from schema_validator import (
     validate_story_file,
     validate_era_file,
     validate_phase_manifest,
+    VALID_STORY_CLASSES,
+    DEFAULT_STORY_CLASS,
 )
 
 
@@ -131,6 +133,66 @@ def test_story_complete_with_primary_files_no_error(tmp_path):
     p = _write(tmp_path, "story.md", content)
     errors = validate_story_file(p)
     assert errors == [], f"Expected no errors for complete story with files, got: {errors}"
+
+
+# ---------------------------------------------------------------------------
+# story_class field tests
+# ---------------------------------------------------------------------------
+
+def test_story_class_absent_is_valid(tmp_path):
+    """A story without story_class is valid — the field is optional."""
+    p = _write(tmp_path, "story.md", VALID_STORY)
+    errors = validate_story_file(p)
+    assert errors == [], f"Expected no errors when story_class is absent, got: {errors}"
+
+
+def test_story_class_constants():
+    """VALID_STORY_CLASSES contains exactly the four documented values."""
+    assert VALID_STORY_CLASSES == {"code", "doc", "lesson", "methodology"}
+
+
+def test_default_story_class_is_code():
+    """DEFAULT_STORY_CLASS must be 'code'."""
+    assert DEFAULT_STORY_CLASS == "code"
+
+
+@pytest.mark.parametrize("cls", ["code", "doc", "lesson", "methodology"])
+def test_story_class_valid_values(tmp_path, cls):
+    """Each allowed story_class value passes validation."""
+    content = VALID_STORY.replace(
+        '    phase: "001"\n',
+        f'    phase: "001"\n    story_class: {cls}\n',
+    )
+    p = _write(tmp_path, f"story-{cls}.md", content)
+    errors = validate_story_file(p)
+    assert errors == [], f"Expected no errors for story_class={cls!r}, got: {errors}"
+
+
+def test_story_class_invalid_value(tmp_path):
+    """An unrecognised story_class value produces a validation error."""
+    content = VALID_STORY.replace(
+        '    phase: "001"\n',
+        '    phase: "001"\n    story_class: unknown\n',
+    )
+    p = _write(tmp_path, "story.md", content)
+    errors = validate_story_file(p)
+    assert any("story_class" in e for e in errors), (
+        f"Expected story_class error for invalid value, got: {errors}"
+    )
+
+
+def test_story_class_error_message_lists_valid_values(tmp_path):
+    """Error message for invalid story_class lists the allowed values."""
+    content = VALID_STORY.replace(
+        '    phase: "001"\n',
+        '    phase: "001"\n    story_class: bad-value\n',
+    )
+    p = _write(tmp_path, "story.md", content)
+    errors = validate_story_file(p)
+    story_class_errors = [e for e in errors if "story_class" in e]
+    assert story_class_errors, "Expected at least one story_class error"
+    # The error should mention the invalid value
+    assert "bad-value" in story_class_errors[0]
 
 
 # ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ name: builder
 description: Story implementation agent. Receives a story spec, implements it completely, verifies tests pass, and stops without committing.
 tools: [Read, Write, Edit, Glob, Grep, Bash]
 model: sonnet
+# fallback: haiku  (never below)
 ---
 
 You are the builder for the anchor project.
