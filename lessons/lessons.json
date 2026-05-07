@@ -221,6 +221,27 @@
       ],
       "status": "captured",
       "validation_phase": "24"
+    },
+    {
+      "id": "L013",
+      "date": "2026-05-07",
+      "source_project": "anchor",
+      "trigger": "Phase 24 session start revealed that anchor's own `.claude/agents/` files had no `model:` frontmatter, and forqsite/radar still carried pre-INFRA-044 opus reviewer assignments \u2014 despite INFRA-044 having updated the templates.",
+      "problem": "Pairmode templates and bootstrapped project files diverge silently after any template update. There is no mechanism to propagate changes to existing projects short of manual edits or a full re-bootstrap. The drift is invisible until a session starts and the wrong model is used.",
+      "learning": "Two complementary patterns close the gap: (1) a sync command that re-renders template frontmatter into existing agent files on demand; (2) a note in the methodology that any template change affecting agent behaviour should be followed by a `pairmode sync-agents` run on all active projects. The sync command is idempotent \u2014 running it twice produces no further changes.",
+      "value_framing": "Template updates that affect build behaviour (model selection, tool restrictions, upgrade triggers) must propagate to existing projects or the update has only partial effect. The effort spent tuning templates is wasted if projects accumulate stale copies.",
+      "methodology_change": {
+        "affects": [
+          "pairmode-template-propagation",
+          "cross-project consistency"
+        ],
+        "description": "After any pairmode template update that changes agent frontmatter (model assignments, tool lists, upgrade triggers), run `pairmode sync-agents --project-dir <each active project>` before starting the next build session on that project."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured",
+      "validation_phase": "25"
     }
   ]
 }

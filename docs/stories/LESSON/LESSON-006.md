@@ -2,7 +2,7 @@
 id: LESSON-006
 rail: LESSON
 title: Capture template-drift-and-sync pattern as a lesson
-status: planned
+status: complete
 phase: "25"
 primary_files:
   - lessons/lessons.json

@@ -2,7 +2,7 @@
 id: INFRA-053
 rail: INFRA
 title: pairmode sync-agents subcommand — propagate template model updates to existing projects
-status: planned
+status: complete
 phase: "25"
 primary_files:
   - skills/pairmode/scripts/pairmode_status.py
