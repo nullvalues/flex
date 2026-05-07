@@ -5,6 +5,21 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp24-data-defensible-methodology
+
+**Phase:** 24 — Data-defensible model rebalance refinement
+**Tag command:** `git tag cp24-data-defensible-methodology && git push origin cp24-data-defensible-methodology`
+**Acceptance:** `story_class` and `phase_class` frontmatter fields added and validated
+(INFRA-045/046). `model_selector.py` provides `select_reviewer_model`, `select_intent_reviewer_model`,
+`select_security_auditor_model`, and `select_builder_model` helpers — all wired into
+`CLAUDE.build.md` and its Jinja2 template (INFRA-047/048/050). `pairmode_effort.py validate-rebalance`
+reports per-cell PASS rate and decision-quality efficiency ratio (INFRA-049). Effort DB gains
+`story_class` and `model_selection_reason` columns; `record_attempt.py` accepts those flags
+(INFRA-050). L012 captures the data-defensible methodology lifecycle and efficiency-ratio value
+framing (LESSON-005). 1422 tests pass.
+
+---
+
 ## cp1-scaffold-complete
 
 **Phase:** 1 — Pairmode Skill Scaffold

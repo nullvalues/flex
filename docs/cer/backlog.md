@@ -1,6 +1,6 @@
 # anchor — Cold-Eyes Review (CER) Backlog
 
-*Last updated: 2026-05-05*
+*Last updated: 2026-05-07*
 
 This file is the structured triage log for findings from external cold-eyes reviews.
 Each finding is assigned to one quadrant. Findings are not deleted — resolved findings
@@ -44,6 +44,7 @@ Important, not urgent. Quality improvements, architectural refinements.
 | CER-015 | INFRA-030's CLAUDE.build.md examples hardcode `--phase N --rail RAIL` and `--attempt-number 1` placeholder literals; the orchestrator has no plumbed source for phase/rail at record time and no per-story retry counter state. The cp22 cleanup commit clarified that phase and rail are read from the current story file's frontmatter, but a small helper (e.g. `record_attempt.py --story-file <path>` that auto-extracts phase/rail from frontmatter) would close the typo surface. Without it, retry attempts may be miscounted as fresh attempts and rollup reports may see NULL phase/rail rows. MEDIUM severity. CLAUDE.build.md:82-94. | Phase 22 intent review | 2026-05-05 | 22 |
 | CER-016 | effort_db.py `resolve_effort_db_path` accepts an absolute or relative `effort_db_path` from .companion/state.json and applies only `_depth_guard` (rejects paths with fewer than 3 parts after resolution) — it does not assert containment under project_dir. Same shape mirrored in record_attempt.py and pairmode_effort.py. Strictly weaker guard than permission_scope.py's resolve().relative_to() containment check. State.json is treated as project-owned (consistent with existing trust boundary), so this is informational, not exploitable. LOW severity. effort_db.py:115-139. | Phase 22 security audit | 2026-05-05 | 22 |
 | CER-017 | bootstrap.py `_record_state` auto-enables `effort_tracking: true` on every pairmode-bootstrapped project unless the user explicitly sets the key first. No data leaves the host (sqlite is local), but the behaviour is documented in architecture.md only — not surfaced to the user during bootstrap. Consider an interactive prompt or a one-line bootstrap-summary note. LOW severity (transparency, not security). bootstrap.py:267-268. | Phase 22 security audit | 2026-05-05 | 22 |
+| CER-018 | `lesson.py` CLI (`capture_lesson()` and its argparse entry point) does not accept the `value_framing` or `validation_phase` fields introduced by L012 (Phase 24). These fields exist in `lessons/lessons.json` and are documented in `architecture.md`, but can only be written by direct JSON append — not through the canonical CLI writer. Schema drift: data model ahead of the writer. LOW severity (usable via direct edit; append-only policy and lessons integrity check are unaffected). lesson.py: CLI definition. | Phase 24 intent review | 2026-05-07 | 24 |
 
 
 ---

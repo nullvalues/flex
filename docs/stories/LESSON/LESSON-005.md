@@ -2,7 +2,7 @@
 id: LESSON-005
 rail: LESSON
 title: Capture data-defensible methodology pattern as a lesson
-status: planned
+status: complete
 phase: "24"
 primary_files:
   - lessons/lessons.json

@@ -501,6 +501,14 @@ before spawning each checkpoint agent and passes the result as the Agent tool's
   for `ideology.md.j2`. Do not merge these back into a single key.
 
 - Lessons are append-only. Existing lesson entries may only have their `status` field updated.
+- Two optional lesson fields were introduced in Phase 24 (L012) and are not yet supported by
+  the `lesson.py` CLI — write them directly when appending:
+  - `value_framing` (string) — the durable metric framing for efficiency-based lessons (e.g.,
+    the efficiency ratio formula). Captures the objective that remains stable even as model
+    prices and capabilities change.
+  - `validation_phase` (string) — the phase ID that confirmed or revised the lesson. Points
+    forward from the original lesson to its data-backed validation, enabling traceable
+    methodology evolution.
 - Templates must render correctly for projects with no prior Anchor spec (blank-slate bootstrap).
 - The deny list generator must include an inline comment on each generated rule linking it to
   the non-negotiable that produced it.
