@@ -2,7 +2,7 @@
 id: INFRA-045
 rail: INFRA
 title: story_class frontmatter field — code / doc / lesson / methodology
-status: planned
+status: complete
 phase: "24"
 primary_files:
   - skills/pairmode/scripts/schema_validator.py
