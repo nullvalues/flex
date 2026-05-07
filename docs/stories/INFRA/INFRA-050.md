@@ -2,7 +2,7 @@
 id: INFRA-050
 rail: INFRA
 title: Pre-story model evaluation step — auto-downgrade and prompted upgrade
-status: planned
+status: complete
 phase: "24"
 primary_files:
   - skills/pairmode/scripts/model_selector.py
@@ -11,6 +11,10 @@ primary_files:
   - skills/pairmode/scripts/record_attempt.py
 touches:
   - docs/architecture.md
+  - tests/pairmode/test_model_selector.py
+  - tests/pairmode/test_effort_db.py
+  - skills/pairmode/templates/CLAUDE.build.md.j2
+  - skills/pairmode/scripts/pairmode_effort.py
   - tests/pairmode/test_model_selector.py
   - tests/pairmode/test_effort_db.py
   - skills/pairmode/templates/CLAUDE.build.md.j2

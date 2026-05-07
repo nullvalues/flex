@@ -40,14 +40,14 @@ exercises the upgrade path).
 | INFRA-047 | Reviewer model selection by `story_class` (replaces hardcoded triggers) | complete |
 | INFRA-048 | Checkpoint-agent model selection by `phase_class` | complete |
 | INFRA-049 | Effort-data validation report — does the rebalance hold? | complete |
-| INFRA-050 | Pre-story model evaluation step — auto-downgrade and prompted upgrade | planned |
+| INFRA-050 | Pre-story model evaluation step — auto-downgrade and prompted upgrade | complete |
 | LESSON-005 | Capture data-defensible methodology pattern as a lesson | planned |
 | INFRA-045 | story_class frontmatter field — code / doc / lesson / methodology | complete |
 | INFRA-046 | phase_class field — production / docs-only / pre-pr | complete |
 | INFRA-047 | Reviewer model selection by story_class (replaces hardcoded triggers) | complete |
 | INFRA-048 | Checkpoint-agent model selection by phase_class | complete |
 | INFRA-049 | Effort-data validation report — does the rebalance hold? | complete |
-| INFRA-050 | Pre-story model evaluation step — auto-downgrade and prompted upgrade | draft |
+| INFRA-050 | Pre-story model evaluation step — auto-downgrade and prompted upgrade | complete |
 | LESSON-005 | Capture data-defensible methodology pattern as a lesson | draft |
 
 ---
