@@ -197,6 +197,17 @@ def story_new(rail: str, title: str, phase: str | None, story_class: str | None,
 
     rail_dir = resolved / "docs" / "stories" / rail
 
+    # Formal containment check — reject rail values that resolve outside docs/stories/
+    stories_root = (resolved / "docs" / "stories").resolve()
+    try:
+        rail_dir.resolve().relative_to(stories_root)
+    except ValueError:
+        click.echo(
+            "Invalid rail name: resolves outside docs/stories/",
+            err=True,
+        )
+        sys.exit(1)
+
     # Check / create rail directory
     if not rail_dir.is_dir():
         answer = click.prompt(

@@ -210,6 +210,62 @@ class TestValidationIntegration:
         assert result.exit_code == 0
 
 
+class TestEraContainmentGuard:
+    """Era name slug paths that escape docs/eras/ are rejected."""
+
+    def test_normal_era_name_still_works(self, tmp_path: pathlib.Path) -> None:
+        """Normal --name still creates the era file correctly."""
+        result = invoke(["--name", "Foundation", "--project-dir", str(tmp_path)])
+        assert result.exit_code == 0, result.output
+        era_file = tmp_path / "docs" / "eras" / "001-foundation.md"
+        assert era_file.exists()
+
+    def test_era_name_with_separators_slugified_safely(self, tmp_path: pathlib.Path) -> None:
+        """A name with dots and slashes is slugified; the resulting path stays inside eras/."""
+        result = invoke(
+            ["--name", "foo/bar baz.qux", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        # _slugify converts "/" and "." to hyphens — result: "foo-bar-baz-qux"
+        era_file = tmp_path / "docs" / "eras" / "001-foo-bar-baz-qux.md"
+        assert era_file.exists(), f"Expected slugified era file, got: {list((tmp_path / 'docs' / 'eras').iterdir())}"
+
+    def test_containment_guard_fires_for_escaped_path(self, tmp_path: pathlib.Path) -> None:
+        """The containment guard (resolve().relative_to()) fires when the era path escapes eras/.
+
+        _slugify() already prevents traversal through the normal interface, so this test
+        exercises the guard directly by checking that a path constructed outside eras_dir
+        raises ValueError in the containment check — verifying the guard's logic is sound.
+        """
+        eras_dir = tmp_path / "docs" / "eras"
+        eras_dir.mkdir(parents=True)
+
+        # Construct a path that escapes eras_dir (simulating what would happen if slug
+        # contained an unguarded traversal component)
+        escaped_path = eras_dir / ".." / "escape.md"
+
+        eras_root = eras_dir.resolve()
+        try:
+            escaped_path.resolve().relative_to(eras_root)
+            # If we reach here the guard would NOT have fired — fail the test
+            raise AssertionError(
+                f"Expected ValueError: {escaped_path.resolve()} should not be relative to {eras_root}"
+            )
+        except ValueError:
+            pass  # Guard fires correctly
+
+    def test_containment_guard_passes_for_normal_path(self, tmp_path: pathlib.Path) -> None:
+        """The containment guard passes for a normally constructed era path."""
+        eras_dir = tmp_path / "docs" / "eras"
+        eras_dir.mkdir(parents=True)
+
+        normal_path = eras_dir / "001-my-era.md"
+        eras_root = eras_dir.resolve()
+
+        # Should not raise
+        normal_path.resolve().relative_to(eras_root)
+
+
 class TestPathTraversalGuard:
     """Too-shallow project_dir causes non-zero exit."""
 

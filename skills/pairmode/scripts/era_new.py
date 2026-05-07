@@ -115,6 +115,17 @@ def era_new(name: str, goal: str, project_dir: str) -> None:
     filename = f"{era_id}-{slug}.md"
     era_path = eras_dir / filename
 
+    # Formal containment check — reject slugs that resolve outside docs/eras/
+    eras_root = eras_dir.resolve()
+    try:
+        era_path.resolve().relative_to(eras_root)
+    except ValueError:
+        click.echo(
+            "Invalid era name: resolves outside docs/eras/",
+            err=True,
+        )
+        sys.exit(1)
+
     # Write era file
     content = _era_content(era_id, name, goal)
     era_path.write_text(content, encoding="utf-8")

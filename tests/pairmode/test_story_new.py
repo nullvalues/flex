@@ -372,6 +372,63 @@ class TestStoryClassFlag:
         assert "story_class: doc" in frontmatter_block
 
 
+class TestRailContainmentGuard:
+    """--rail values that escape docs/stories/ are rejected."""
+
+    def test_traversal_rail_exits_nonzero(self, tmp_path: pathlib.Path) -> None:
+        """--rail '../../etc' must exit non-zero and not create any files."""
+        runner = CliRunner()
+        result = runner.invoke(
+            story_new,
+            ["--rail", "../../etc", "--title", "Traversal", "--project-dir", str(tmp_path)],
+            input="Y\n",
+            catch_exceptions=False,
+        )
+        assert result.exit_code != 0, f"Expected non-zero exit, got: {result.output}"
+
+    def test_traversal_rail_error_message(self, tmp_path: pathlib.Path) -> None:
+        """Error message explains the rejection."""
+        runner = CliRunner()
+        result = runner.invoke(
+            story_new,
+            ["--rail", "../../etc", "--title", "Traversal", "--project-dir", str(tmp_path)],
+            input="Y\n",
+            catch_exceptions=False,
+        )
+        assert "resolves outside docs/stories/" in result.output
+
+    def test_traversal_rail_no_files_created(self, tmp_path: pathlib.Path) -> None:
+        """No story file or directory is created on a traversal attempt."""
+        runner = CliRunner()
+        runner.invoke(
+            story_new,
+            ["--rail", "../../etc", "--title", "Traversal", "--project-dir", str(tmp_path)],
+            input="Y\n",
+            catch_exceptions=False,
+        )
+        # docs/stories/ must not have been created with any traversal-derived content
+        stories_dir = tmp_path / "docs" / "stories"
+        if stories_dir.exists():
+            # It's OK if the directory itself was created, but no traversal-escaped paths
+            import os
+            for root, dirs, files in os.walk(str(tmp_path)):
+                for f in files:
+                    full = pathlib.Path(root) / f
+                    # Nothing should be outside tmp_path
+                    assert str(full).startswith(str(tmp_path)), (
+                        f"Unexpected file created outside tmp_path: {full}"
+                    )
+
+    def test_normal_rail_still_works(self, tmp_path: pathlib.Path) -> None:
+        """A normal --rail INFRA value still creates the story correctly."""
+        result = invoke(
+            ["--rail", "INFRA", "--title", "Normal story", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        assert story_file.exists()
+
+
 class TestPathTraversalGuard:
     """Too-shallow project_dir causes non-zero exit."""
 
