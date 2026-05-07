@@ -2,7 +2,7 @@
 id: INFRA-047
 rail: INFRA
 title: Reviewer model selection by story_class (replaces hardcoded triggers)
-status: planned
+status: complete
 phase: "24"
 primary_files:
   - skills/pairmode/scripts/model_selector.py
