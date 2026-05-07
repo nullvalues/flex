@@ -93,6 +93,8 @@ VALID_STORY_STATUSES = {"draft", "planned", "in-progress", "complete", "backlog"
 VALID_ERA_STATUSES = {"active", "complete"}
 VALID_STORY_CLASSES = {"code", "doc", "lesson", "methodology"}
 DEFAULT_STORY_CLASS = "code"
+VALID_PHASE_CLASSES = {"production", "docs-only", "pre-pr"}
+DEFAULT_PHASE_CLASS = "production"
 
 REQUIRED_STORY_FIELDS = ("id", "rail", "title", "status", "phase", "primary_files")
 REQUIRED_ERA_FIELDS = ("id", "name", "status")
@@ -185,5 +187,11 @@ def validate_phase_manifest(path: Path) -> list[str]:
 
     if "era" not in fm or fm["era"] in (None, ""):
         errors.append("Missing required field: 'era'")
+
+    if "phase_class" in fm and fm["phase_class"] not in VALID_PHASE_CLASSES:
+        errors.append(
+            f"Invalid phase_class '{fm['phase_class']}'; must be one of "
+            f"{sorted(VALID_PHASE_CLASSES)}"
+        )
 
     return errors

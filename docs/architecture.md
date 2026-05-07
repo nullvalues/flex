@@ -327,6 +327,23 @@ The field is optional and additive — existing stories without it are treated a
 `schema_validator.py` validates the value when present. `story_new.py` accepts
 `--story-class` to write the field into generated frontmatter.
 
+### Phase classification
+
+Phase files accept an optional `phase_class` frontmatter field. Allowed values:
+
+- `production` — at least one story in the phase touches production code (`skills/`, `hooks/`,
+  etc.). Checkpoint security-auditor upgrades to opus. This is the default when the field is
+  absent.
+- `docs-only` — no story in the phase touches production code (documentation, lessons, templates
+  only). Checkpoint security-auditor stays on sonnet.
+- `pre-pr` — the phase is a final-pass audit before code leaves the repo. All checkpoint agents
+  (intent-reviewer, security-auditor) upgrade to opus across every story in the phase.
+
+The field is optional and additive — existing phase files without it default to `production` at
+read time. `schema_validator.py` validates the value when present via `validate_phase_manifest`.
+`phase_new.py` accepts `--phase-class` to write the field into generated frontmatter. The field
+enables deterministic model-upgrade decisions at the checkpoint-agent level (INFRA-048).
+
 **`story_update.py` is the canonical tool for updating story status.**
 `update_story_status(story_id, project_dir, status)` updates a story file's frontmatter
 `status` field. `update_phase_story_status(story_id, project_dir, status)` finds all phase

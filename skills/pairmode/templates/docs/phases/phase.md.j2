@@ -1,6 +1,12 @@
-{% if era_id -%}
+{% set _phase_class = phase_class | default(None) -%}
+{% if era_id or _phase_class -%}
 ---
+{% if era_id -%}
 era: "{{ era_id }}"
+{% endif -%}
+{% if _phase_class -%}
+phase_class: {{ _phase_class }}
+{% endif -%}
 ---
 
 {% endif -%}

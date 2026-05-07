@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import click
 import jinja2
 
-from schema_validator import _parse_frontmatter
+from schema_validator import _parse_frontmatter, VALID_PHASE_CLASSES, DEFAULT_PHASE_CLASS
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -247,6 +247,15 @@ def _create_index(index_path: Path, phase_id: int, phase_title: str, project_nam
     help="Phase goal. Prompted if omitted (blank is acceptable).",
 )
 @click.option(
+    "--phase-class",
+    default=None,
+    type=click.Choice(sorted(VALID_PHASE_CLASSES), case_sensitive=True),
+    help=(
+        "Phase classification: production (default), docs-only, or pre-pr. "
+        "Omit to leave the field absent (defaults to production at read time)."
+    ),
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     default=False,
@@ -257,6 +266,7 @@ def phase_new(
     phase_id: int,
     title: str | None,
     goal: str | None,
+    phase_class: str | None,
     dry_run: bool,
 ) -> None:
     """Create a new phase-N.md scaffold and update docs/phases/index.md."""
@@ -313,6 +323,7 @@ def phase_new(
         next_phase=None,
         stories=[],
         era_id=era_id,
+        phase_class=phase_class,
     )
 
     # 8. Write or preview phase-N.md

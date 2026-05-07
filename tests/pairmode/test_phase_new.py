@@ -14,6 +14,11 @@ from skills.pairmode.scripts.phase_new import (
     _detect_active_era,
     _update_era_phases_table,
 )
+from skills.pairmode.scripts.schema_validator import (
+    validate_phase_manifest,
+    VALID_PHASE_CLASSES,
+    DEFAULT_PHASE_CLASS,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -549,3 +554,177 @@ class TestDepthGuard:
             catch_exceptions=False,
         )
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: phase_class field
+# ---------------------------------------------------------------------------
+
+
+class TestPhaseClass:
+    """phase_class frontmatter field: written when provided, absent when omitted."""
+
+    def test_phase_class_production_written_to_frontmatter(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "Prod Phase",
+                "--goal", "",
+                "--phase-class", "production",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs" / "phases" / "phase-1.md").read_text()
+        assert "phase_class: production" in content
+
+    def test_phase_class_docs_only_written_to_frontmatter(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "Docs Phase",
+                "--goal", "",
+                "--phase-class", "docs-only",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs" / "phases" / "phase-1.md").read_text()
+        assert "phase_class: docs-only" in content
+
+    def test_phase_class_pre_pr_written_to_frontmatter(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "Pre-PR Phase",
+                "--goal", "",
+                "--phase-class", "pre-pr",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs" / "phases" / "phase-1.md").read_text()
+        assert "phase_class: pre-pr" in content
+
+    def test_phase_class_absent_when_omitted(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "Normal Phase",
+                "--goal", "",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs" / "phases" / "phase-1.md").read_text()
+        assert "phase_class" not in content
+
+    def test_phase_class_invalid_value_rejected(self, tmp_path: pathlib.Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            phase_new,
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "Bad Phase",
+                "--goal", "",
+                "--phase-class", "invalid-class",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code != 0
+
+    def test_phase_class_with_era_both_in_frontmatter(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        _write_era(eras_dir, "001-foundation.md", ERA_ACTIVE_CONTENT)
+
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "Mixed Phase",
+                "--goal", "",
+                "--phase-class", "production",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs" / "phases" / "phase-1.md").read_text()
+        assert 'era: "001"' in content
+        assert "phase_class: production" in content
+        # Both should be inside the frontmatter block
+        assert content.startswith("---")
+
+    def test_phase_class_frontmatter_block_present_without_era(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """phase_class alone creates a frontmatter block even when no era exists."""
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "Class Only",
+                "--goal", "",
+                "--phase-class", "docs-only",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs" / "phases" / "phase-1.md").read_text()
+        assert content.startswith("---")
+        assert "phase_class: docs-only" in content
+
+
+class TestPhaseClassValidation:
+    """validate_phase_manifest() accepts and rejects phase_class values."""
+
+    def _write_phase_file(
+        self,
+        path: pathlib.Path,
+        era: str = "001",
+        phase_class: str | None = None,
+    ) -> pathlib.Path:
+        lines = ["---", f'era: "{era}"']
+        if phase_class is not None:
+            lines.append(f"phase_class: {phase_class}")
+        lines += ["---", "", "# Phase content"]
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return path
+
+    def test_valid_production_class_passes(self, tmp_path: pathlib.Path) -> None:
+        f = self._write_phase_file(tmp_path / "phase-1.md", phase_class="production")
+        errors = validate_phase_manifest(f)
+        assert errors == []
+
+    def test_valid_docs_only_class_passes(self, tmp_path: pathlib.Path) -> None:
+        f = self._write_phase_file(tmp_path / "phase-1.md", phase_class="docs-only")
+        errors = validate_phase_manifest(f)
+        assert errors == []
+
+    def test_valid_pre_pr_class_passes(self, tmp_path: pathlib.Path) -> None:
+        f = self._write_phase_file(tmp_path / "phase-1.md", phase_class="pre-pr")
+        errors = validate_phase_manifest(f)
+        assert errors == []
+
+    def test_absent_phase_class_passes(self, tmp_path: pathlib.Path) -> None:
+        f = self._write_phase_file(tmp_path / "phase-1.md")
+        errors = validate_phase_manifest(f)
+        assert errors == []
+
+    def test_invalid_phase_class_returns_error(self, tmp_path: pathlib.Path) -> None:
+        f = self._write_phase_file(tmp_path / "phase-1.md", phase_class="unknown")
+        errors = validate_phase_manifest(f)
+        assert any("phase_class" in e for e in errors)
+        assert any("unknown" in e for e in errors)
+
+    def test_valid_phase_classes_constant(self) -> None:
+        assert VALID_PHASE_CLASSES == {"production", "docs-only", "pre-pr"}
+
+    def test_default_phase_class_constant(self) -> None:
+        assert DEFAULT_PHASE_CLASS == "production"
