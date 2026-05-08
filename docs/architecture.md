@@ -562,10 +562,7 @@ classification question from `~/.claude/policies/auth-coexistence.md`.
 - `auth-abac.md` — ownership and content-level access (user-authored content, shared workspaces)
 - `auth-coexistence.md` — classification question + coexistence patterns (when both apply)
 
-**Build loop integration:** Step 8 of "Before the first build loop" in `CLAUDE.build.md`
-gates any auth-gated story on an answered classification question. The answer (RBAC / ABAC
-/ both) must be recorded in the phase doc or `docs/architecture.md` before the first
-auth-gated story spec is finalized.
+**Build loop integration:** A dedicated per-story auth check section between "Model evaluation" and "Step 1 — Spawn the builder" in `CLAUDE.build.md` gates every auth-gated story on an answered classification question, regardless of where it falls in the phase. The answer (RBAC / ABAC / both) must be recorded in the phase doc or `docs/architecture.md` before building that story.
 
 **Pairmode equivalent of `spec.json non-negotiables`:** The policy files use
 `spec.json non-negotiables` language. In pairmode-based projects (which use story files

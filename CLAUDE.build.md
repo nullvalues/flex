@@ -36,14 +36,6 @@ In build mode: follow the build loop below. Do not ask clarifying questions befo
 6. Resolve that story ID to its full content:
    `docs/stories/<RAIL>/<RAIL>-NNN.md`
 7. Check for ⚙️ DEVELOPER ACTION gates before that story. Block if present.
-8. **Auth check (conditional)** — if this story is auth-gated (touches user
-   authentication, session handling, permission checks, role validation, or
-   access-controlled resources):
-   a. Load `~/.claude/policies/auth-coexistence.md`.
-   b. Surface the classification question to the user: RBAC / ABAC / both?
-   c. Record the answer in the phase doc or `docs/architecture.md` before building.
-      Do not build this story until the classification is recorded.
-   If the story is not auth-gated, skip this step.
 
 ---
 
@@ -124,6 +116,22 @@ PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/record_attempt
   --model-selection-reason auto-baseline \
   --project-dir .
 ```
+
+---
+
+## Auth check (conditional — per story)
+
+Run this check **once per story**, after model evaluation, before spawning the builder.
+
+If this story is auth-gated (touches user authentication, session handling, permission
+checks, role validation, or access-controlled resources):
+
+a. Load `~/.claude/policies/auth-coexistence.md`.
+b. Surface the classification question to the user: RBAC / ABAC / both?
+c. Record the answer in the phase doc or `docs/architecture.md` before building.
+   Do not build this story until the classification is recorded.
+
+If the story is not auth-gated, skip this section.
 
 ---
 
