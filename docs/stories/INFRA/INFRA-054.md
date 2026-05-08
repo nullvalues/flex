@@ -2,7 +2,7 @@
 id: INFRA-054
 rail: INFRA
 title: Build loop reviewer-FAIL auto-retry flow
-status: planned
+status: complete
 phase: "26"
 story_class: methodology
 primary_files:
