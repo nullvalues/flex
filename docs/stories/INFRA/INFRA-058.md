@@ -2,7 +2,7 @@
 id: INFRA-058
 rail: INFRA
 title: CER-016: effort_db.py resolve_effort_db_path containment guard
-status: planned
+status: complete
 phase: "28"
 story_class: code
 primary_files:

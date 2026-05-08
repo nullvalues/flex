@@ -14,7 +14,7 @@ fixes. CER-009 (hooks) touches protected files and uses opus for the builder.
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-057 | CER-019: sanitize project_name in pairmode_sync.py | complete |
-| INFRA-058 | CER-016: effort_db.py resolve_effort_db_path containment guard | planned |
+| INFRA-058 | CER-016: effort_db.py resolve_effort_db_path containment guard | complete |
 | INFRA-059 | CER-018: lesson.py CLI — add value_framing and validation_phase flags | planned |
 | INFRA-060 | CER-004: lesson_review.py — Path.relative_to() containment | planned |
 | INFRA-061 | CER-017: bootstrap.py — surface effort_tracking to user | planned |
