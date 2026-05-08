@@ -199,3 +199,99 @@ class TestCaptureLessonBasic:
         from datetime import date
         parsed = date.fromisoformat(lesson["date"])
         assert parsed is not None
+
+
+class TestCaptureLessonOptionalFields:
+    """Tests for value_framing and validation_phase optional fields (CER-018)."""
+
+    def test_value_framing_written_when_provided(self, patched_lesson):
+        lm, lessons_json, _ = patched_lesson
+        lesson = lm.capture_lesson(
+            trigger="T",
+            problem="P",
+            learning="L",
+            methodology_change_description="C",
+            affects=["all"],
+            applies_to=["all"],
+            value_framing="efficiency_ratio = pass_rate / avg_cost",
+        )
+        assert lesson["value_framing"] == "efficiency_ratio = pass_rate / avg_cost"
+        data = json.loads(lessons_json.read_text())
+        assert data["lessons"][0]["value_framing"] == "efficiency_ratio = pass_rate / avg_cost"
+
+    def test_validation_phase_written_when_provided(self, patched_lesson):
+        lm, lessons_json, _ = patched_lesson
+        lesson = lm.capture_lesson(
+            trigger="T",
+            problem="P",
+            learning="L",
+            methodology_change_description="C",
+            affects=["all"],
+            applies_to=["all"],
+            validation_phase="phase-28",
+        )
+        assert lesson["validation_phase"] == "phase-28"
+        data = json.loads(lessons_json.read_text())
+        assert data["lessons"][0]["validation_phase"] == "phase-28"
+
+    def test_both_optional_fields_written_together(self, patched_lesson):
+        lm, lessons_json, _ = patched_lesson
+        lesson = lm.capture_lesson(
+            trigger="T",
+            problem="P",
+            learning="L",
+            methodology_change_description="C",
+            affects=["all"],
+            applies_to=["all"],
+            value_framing="ratio_formula",
+            validation_phase="phase-24",
+        )
+        assert lesson["value_framing"] == "ratio_formula"
+        assert lesson["validation_phase"] == "phase-24"
+
+    def test_value_framing_absent_when_not_provided(self, patched_lesson):
+        lm, lessons_json, _ = patched_lesson
+        lesson = lm.capture_lesson(
+            trigger="T",
+            problem="P",
+            learning="L",
+            methodology_change_description="C",
+            affects=["all"],
+            applies_to=["all"],
+        )
+        assert "value_framing" not in lesson
+        data = json.loads(lessons_json.read_text())
+        assert "value_framing" not in data["lessons"][0]
+
+    def test_validation_phase_absent_when_not_provided(self, patched_lesson):
+        lm, lessons_json, _ = patched_lesson
+        lesson = lm.capture_lesson(
+            trigger="T",
+            problem="P",
+            learning="L",
+            methodology_change_description="C",
+            affects=["all"],
+            applies_to=["all"],
+        )
+        assert "validation_phase" not in lesson
+        data = json.loads(lessons_json.read_text())
+        assert "validation_phase" not in data["lessons"][0]
+
+    def test_optional_fields_not_null_when_absent(self, patched_lesson):
+        """Fields must be completely absent (not written as null) when not provided."""
+        lm, lessons_json, _ = patched_lesson
+        lm.capture_lesson(
+            trigger="T",
+            problem="P",
+            learning="L",
+            methodology_change_description="C",
+            affects=["all"],
+            applies_to=["all"],
+        )
+        data = json.loads(lessons_json.read_text())
+        lesson = data["lessons"][0]
+        # Must not be present at all, not even as null
+        assert "value_framing" not in lesson
+        assert "validation_phase" not in lesson
+        assert lesson.get("value_framing") is None  # confirms absence, not explicit null
+        assert lesson.get("validation_phase") is None

@@ -38,11 +38,18 @@ def capture_lesson(
     affects: list[str],
     applies_to: list[str],
     source_project: str = "unknown",
+    value_framing: str | None = None,
+    validation_phase: str | None = None,
 ) -> dict:
     """Capture a lesson and persist it.
 
     Writes the lesson to lessons.json (via lesson_utils), regenerates LESSONS.md,
     and returns the lesson dict that was written.
+
+    Optional fields:
+    - value_framing: durable metric framing for efficiency-based lessons.
+    - validation_phase: phase ID that confirmed or revised the lesson.
+    When None, these fields are omitted from the lesson entry entirely.
     """
     data = lesson_utils.load_lessons()
 
@@ -63,6 +70,11 @@ def capture_lesson(
         "applies_to": applies_to,
         "status": "captured",
     }
+
+    if value_framing is not None:
+        lesson["value_framing"] = value_framing
+    if validation_phase is not None:
+        lesson["validation_phase"] = validation_phase
 
     data["lessons"].append(lesson)
     lesson_utils.save_lessons(data)
@@ -109,6 +121,18 @@ def capture_lesson(
     show_default=True,
     help="Name of the project that produced this lesson.",
 )
+@click.option(
+    "--value-framing",
+    "value_framing",
+    default=None,
+    help="Durable metric framing for efficiency-based lessons (optional).",
+)
+@click.option(
+    "--validation-phase",
+    "validation_phase",
+    default=None,
+    help="Phase ID that confirmed or revised this lesson (optional).",
+)
 def cli(
     trigger: str,
     problem: str,
@@ -117,6 +141,8 @@ def cli(
     affects: tuple[str, ...],
     applies_to: tuple[str, ...],
     source_project: str,
+    value_framing: str | None,
+    validation_phase: str | None,
 ) -> None:
     """Capture a methodology lesson and append it to lessons.json."""
     lesson = capture_lesson(
@@ -127,6 +153,8 @@ def cli(
         affects=list(affects),
         applies_to=list(applies_to),
         source_project=source_project,
+        value_framing=value_framing,
+        validation_phase=validation_phase,
     )
     click.echo(f"Lesson captured: {lesson['id']}")
     click.echo(json.dumps(lesson, indent=2))
