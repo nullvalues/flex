@@ -257,6 +257,30 @@ class TestResolvePath:
         resolved = effort_db.resolve_effort_db_path(tmp_path)
         assert resolved == tmp_path / ".companion" / "effort.db"
 
+    def test_path_within_project_dir_is_accepted(self, tmp_path: Path) -> None:
+        """A configured path inside project_dir is returned as-is."""
+        state_path = tmp_path / ".companion" / "state.json"
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps({"effort_db_path": "custom/effort.db"}),
+            encoding="utf-8",
+        )
+        resolved = effort_db.resolve_effort_db_path(tmp_path)
+        assert resolved == (tmp_path / "custom" / "effort.db").resolve()
+        # Must be inside project_dir
+        resolved.relative_to(tmp_path.resolve())  # raises if outside
+
+    def test_path_escaping_project_dir_falls_back_to_default(self, tmp_path: Path) -> None:
+        """A configured path that escapes project_dir falls back to the default."""
+        state_path = tmp_path / ".companion" / "state.json"
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps({"effort_db_path": "../../etc/passwd"}),
+            encoding="utf-8",
+        )
+        resolved = effort_db.resolve_effort_db_path(tmp_path)
+        assert resolved == tmp_path / ".companion" / "effort.db"
+
 
 # ---------------------------------------------------------------------------
 # Migration idempotency (INFRA-050)

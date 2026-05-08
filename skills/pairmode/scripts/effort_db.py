@@ -146,6 +146,15 @@ def resolve_effort_db_path(project_dir: Path) -> Path:
             configured_path = Path(configured)
             if not configured_path.is_absolute():
                 configured_path = project_dir / configured_path
+            try:
+                configured_path = _depth_guard(configured_path)
+            except ValueError:
+                return project_dir / ".companion" / "effort.db"
+            try:
+                configured_path.resolve().relative_to(project_dir.resolve())
+            except ValueError:
+                # Path escapes project_dir — use default
+                return project_dir / ".companion" / "effort.db"
             return configured_path
 
     return project_dir / ".companion" / "effort.db"
