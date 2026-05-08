@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp27-auth-check-per-story-placement
+
+**Phase:** 27 — Auth check per-story placement fix
+**Tag command:** `git tag cp27-auth-check-per-story-placement && git push origin cp27-auth-check-per-story-placement`
+**Acceptance:** Auth check moved from "Before the first build loop" (phase-level, fires once) to a dedicated "## Auth check (conditional — per story)" section between "Model evaluation" and "Step 1" (fires on every story independently). architecture.md Build loop integration bullet updated to match. 1451 tests pass.
+
+---
+
 ## cp26-build-loop-retry-and-auth-canonization
 
 **Phase:** 26 — Build loop retry automation + auth policy canonization

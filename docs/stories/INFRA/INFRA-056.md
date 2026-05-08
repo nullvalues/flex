@@ -2,7 +2,7 @@
 id: INFRA-056
 rail: INFRA
 title: Move auth check from phase pre-flight to per-story pre-flight
-status: planned
+status: complete
 phase: "27"
 story_class: methodology
 primary_files:

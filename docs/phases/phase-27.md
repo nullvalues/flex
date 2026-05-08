@@ -20,7 +20,7 @@ reference accordingly.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-056 | Move auth check from phase pre-flight to per-story pre-flight | planned |
+| INFRA-056 | Move auth check from phase pre-flight to per-story pre-flight | complete |
 
 ---
 
