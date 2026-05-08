@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp26-build-loop-retry-and-auth-canonization
+
+**Phase:** 26 — Build loop retry automation + auth policy canonization
+**Tag command:** `git tag cp26-build-loop-retry-and-auth-canonization && git push origin cp26-build-loop-retry-and-auth-canonization`
+**Acceptance:** Build loop Step 3 FAIL branch replaced with three-tier escalation — attempt 1 auto-retries builder, attempt 2 auto-invokes loop-breaker, only then prompts user; standalone `## Loop-breaker` section removed (INFRA-054). Auth policy Step 8 added to "Before the first build loop" in CLAUDE.build.md and template; `architecture.md` gets "Auth policy integration" subsection mapping spec.json non-negotiables to pairmode's architecture.md equivalent (INFRA-055). 1451 tests pass.
+
+---
+
 ## cp25-backlog-remediation-and-agent-sync
 
 **Phase:** 25 — Backlog remediation and cross-project agent sync

@@ -2,7 +2,7 @@
 id: INFRA-055
 rail: INFRA
 title: Auth policy integration in CLAUDE.build.md and pairmode template
-status: planned
+status: complete
 phase: "26"
 story_class: methodology
 primary_files:

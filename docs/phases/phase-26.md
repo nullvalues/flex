@@ -26,7 +26,7 @@ gaps so the auth pattern propagates correctly to any pairmode-bootstrapped proje
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-054 | Build loop reviewer-FAIL auto-retry flow | complete |
-| INFRA-055 | Auth policy integration in CLAUDE.build.md and pairmode template | planned |
+| INFRA-055 | Auth policy integration in CLAUDE.build.md and pairmode template | complete |
 
 ---
 

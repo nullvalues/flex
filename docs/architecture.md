@@ -555,16 +555,17 @@ Behaviour:
 
 Before any auth-gated story (authentication, session handling, permission checks,
 access-controlled resources) is built, the orchestrator must answer the auth model
-classification question from `~/.claude/policies/auth-coexistence.md`. This is Step 8
-of "Before the first build loop" in `CLAUDE.build.md`.
+classification question from `~/.claude/policies/auth-coexistence.md`.
 
-Three policy files live at `~/.claude/policies/`:
+**Policy files** — three files live at `~/.claude/policies/`:
 - `auth-rbac.md` — role-based system controls (admin panels, org-level content)
 - `auth-abac.md` — ownership and content-level access (user-authored content, shared workspaces)
 - `auth-coexistence.md` — classification question + coexistence patterns (when both apply)
 
-The classification question produces RBAC, ABAC, or both. The answer must be recorded
-before the first auth-gated story spec is finalized.
+**Build loop integration:** Step 8 of "Before the first build loop" in `CLAUDE.build.md`
+gates any auth-gated story on an answered classification question. The answer (RBAC / ABAC
+/ both) must be recorded in the phase doc or `docs/architecture.md` before the first
+auth-gated story spec is finalized.
 
 **Pairmode equivalent of `spec.json non-negotiables`:** The policy files use
 `spec.json non-negotiables` language. In pairmode-based projects (which use story files
