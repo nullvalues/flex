@@ -33,11 +33,11 @@ accruing in at least one project.
 | INFRA-044 | Flip reviewer-class templates to sonnet baseline (model rebalance — quick win) | complete |
 | LESSON-004 | Capture sonnet-baseline-opus-on-demand rebalance rationale | complete |
 | INFRA-043 | Auto-plumb `--phase`, `--rail`, and attempt counter into `record_attempt.py` (CER-015) | complete |
-| INFRA-038 | Story frontmatter `source:` field + anchor-as-project for self-drift | planned |
-| INFRA-039 | `.pairmode-overrides` integration in drift reports | planned |
-| INFRA-031 | Project drift detection — `pairmode_drift_report.py` | planned |
-| INFRA-032 | Drift promotion workflow — extend `/anchor:pairmode review` | planned |
-| INFRA-037 | Token-evidence ranking in drift promotion | planned |
+| INFRA-038 | Story frontmatter `source:` field + anchor-as-project for self-drift | deferred |
+| INFRA-039 | `.pairmode-overrides` integration in drift reports | deferred |
+| INFRA-031 | Project drift detection — `pairmode_drift_report.py` | deferred |
+| INFRA-032 | Drift promotion workflow — extend `/anchor:pairmode review` | deferred |
+| INFRA-037 | Token-evidence ranking in drift promotion | deferred |
 
 INFRA-044 + LESSON-004 land first as a token-budget rebalance, captured as a lesson
 so the methodology survives compaction. They unblock the user's Sonnet-quota usage
@@ -429,5 +429,16 @@ databases across multiple fixture projects, assert the ranking matches the
 seeded data and that absent data degrades gracefully (no crash, neutral score).
 
 ---
+
+## Deferred stories
+
+Stories INFRA-038, INFRA-039, INFRA-031, INFRA-032, and INFRA-037 were deferred
+on 2026-05-08. After INFRA-044 landed the model-rebalance quick win, the immediate
+need to make that rebalance *data-defensible* (backed by effort-tracking evidence)
+outweighed completing the drift detection arc. Phase 24 built the data-defensible
+methodology; Phases 25–28 resolved the CER backlog and infrastructure gaps these
+stories depend on (effort tracking, sync-agents, record_attempt --story-file).
+
+Resumed in [Phase 29](phase-29.md) with new story IDs INFRA-063 through INFRA-067.
 
 Tag: `cp23-drift-detection`

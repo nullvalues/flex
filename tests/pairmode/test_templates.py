@@ -309,9 +309,10 @@ class TestClaudeBuildMdTemplate:
         assert "### 2. Security audit" in self.output
         assert "### 3. Intent review" in self.output
         assert "### 4. Documentation review" in self.output
-        assert "### 5. CER backlog review" in self.output
-        assert "### 6. Tag the checkpoint" in self.output
-        assert "### 7. Report" in self.output
+        assert "### 5. Phase completion check" in self.output
+        assert "### 6. CER backlog review" in self.output
+        assert "### 7. Tag the checkpoint" in self.output
+        assert "### 8. Report" in self.output
 
     def test_brief_md_before_architecture_md_in_before_loop(self):
         # docs/brief.md must appear before docs/architecture.md in the before-the-first-build-loop section
@@ -334,9 +335,10 @@ class TestClaudeBuildMdTemplate:
         assert "### 1. Build gate" in self.output
         assert "### 2. Security audit" in self.output
         assert "### 3. Intent review" in self.output
-        assert "### 5. CER backlog review" in self.output
-        assert "### 6. Tag the checkpoint" in self.output
-        assert "### 7. Report" in self.output
+        assert "### 5. Phase completion check" in self.output
+        assert "### 6. CER backlog review" in self.output
+        assert "### 7. Tag the checkpoint" in self.output
+        assert "### 8. Report" in self.output
         assert "Build gate:" in self.output
         assert "Security audit:" in self.output
         assert "Intent review:" in self.output

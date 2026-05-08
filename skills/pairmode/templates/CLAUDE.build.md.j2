@@ -460,7 +460,22 @@ not a review task). Mark `Doc updates: [list of changes]` in the step 7 report.
 
 If no user-facing changes shipped this phase: mark `Doc updates: none` and proceed.
 
-### 5. CER backlog review
+### 5. Phase completion check
+
+Verify all planned stories in this phase's Stories table are resolved:
+
+- Read the Stories table in the phase doc.
+- Any story still showing `planned` must be either:
+  - **Completed** (build it now if it should ship this phase), or
+  - **Formally deferred:** add a `## Deferred stories` section to the phase doc
+    listing each story and a one-line reason. Update the phase table entry to
+    `deferred`.
+
+A phase cannot be checkpointed with silently abandoned `planned` stories.
+
+If all stories are `complete` or formally deferred: proceed to step 6.
+
+### 6. CER backlog review
 
 Check `docs/cer/backlog.md` for any "Do Now" entries without a resolution.
 
@@ -474,14 +489,14 @@ If open "Do Now" entries exist:
     Options: fix the issue (update backlog.md resolution), or re-triage to a lower
     quadrant with an explicit reason.
 
-If no open "Do Now" entries (or backlog.md does not exist): proceed to step 6.
+If no open "Do Now" entries (or backlog.md does not exist): proceed to step 7.
 
-### 6. Tag the checkpoint
+### 7. Tag the checkpoint
 
 Run the tag command from `/docs/checkpoints.md` for this phase.
 Commit any doc updates from step 3 alongside the tag.
 
-### 7. Report
+### 8. Report
 
   ═══════════════════════════════════════════════
   CHECKPOINT [CP-N] COMPLETE — [tag name]
@@ -492,6 +507,7 @@ Commit any doc updates from step 3 alongside the tag.
   Build gate:       PASS
   Security audit:   PASS / [N findings at LOW/MEDIUM]
   Intent review:    [ALIGNED / N pivots found]
+  Phase completion: [all complete / N stories formally deferred]
   CER backlog:      [N open Do Now / clean]
   Doc updates:      [list of changes, or "none"]
 
