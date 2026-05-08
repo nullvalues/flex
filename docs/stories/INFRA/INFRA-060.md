@@ -2,7 +2,7 @@
 id: INFRA-060
 rail: INFRA
 title: CER-004: lesson_review.py — Path.relative_to() containment
-status: planned
+status: complete
 phase: "28"
 story_class: code
 primary_files:
