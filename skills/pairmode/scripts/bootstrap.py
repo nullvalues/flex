@@ -246,7 +246,7 @@ def _merge_deny_list(settings_path: pathlib.Path, new_entries: list[str]) -> Non
     )
 
 
-def _record_state(state_path: pathlib.Path, version: str) -> None:
+def _record_state(state_path: pathlib.Path, version: str) -> bool:
     """Write pairmode_version into .companion/state.json, creating if absent.
 
     Pairmode bootstraps also auto-enable ``effort_tracking`` so the
@@ -254,6 +254,9 @@ def _record_state(state_path: pathlib.Path, version: str) -> None:
     Plain anchor (non-pairmode) bootstraps leave the flag unset; only this
     pairmode-specific bootstrap sets it.  An existing ``effort_tracking``
     field (e.g. user explicitly set it to ``false``) is preserved.
+
+    Returns ``True`` if ``effort_tracking`` was newly set (was absent before
+    this call), ``False`` if it was already present.
     """
     if state_path.exists():
         try:
@@ -264,10 +267,12 @@ def _record_state(state_path: pathlib.Path, version: str) -> None:
         data = {}
 
     data["pairmode_version"] = version
-    if "effort_tracking" not in data:
+    newly_enabled = "effort_tracking" not in data
+    if newly_enabled:
         data["effort_tracking"] = True
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return newly_enabled
 
 
 def _load_product_json(project_dir: pathlib.Path) -> dict:
@@ -909,7 +914,12 @@ def bootstrap(
         click.echo(f"  [dry-run] would record pairmode_version in: {state_path}")
     else:
         click.echo(f"Recording pairmode_version in {state_path}")
-        _record_state(state_path, PAIRMODE_VERSION)
+        effort_newly_enabled = _record_state(state_path, PAIRMODE_VERSION)
+        if effort_newly_enabled:
+            click.echo(
+                "Effort tracking: enabled"
+                " (records build token costs to .companion/effort.db)"
+            )
 
     # ------------------------------------------------------------------
     # 8. Initialize rails and Era 001

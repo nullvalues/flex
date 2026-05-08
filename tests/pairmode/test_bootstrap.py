@@ -17,6 +17,7 @@ from skills.pairmode.scripts.bootstrap import (
     _glob_prefix,
     _infer_project_type,
     _is_subsumed,
+    _record_state,
 )
 
 
@@ -2728,3 +2729,81 @@ class TestBootstrapYesFlag:
         assert (tmp_path / "CLAUDE.md").exists()
         assert (tmp_path / "docs" / "ideology.md").exists()
         assert (tmp_path / "docs" / "eras" / "001-initial.md").exists()
+
+
+# ---------------------------------------------------------------------------
+# CER-017: _record_state effort_tracking transparency
+# ---------------------------------------------------------------------------
+
+
+class TestRecordStateEffortTracking:
+    """Tests for _record_state returning whether effort_tracking was newly enabled."""
+
+    def test_returns_true_when_effort_tracking_absent(self, tmp_path):
+        """When state.json has no effort_tracking key, _record_state returns True."""
+        state_path = tmp_path / ".companion" / "state.json"
+        newly_enabled = _record_state(state_path, PAIRMODE_VERSION)
+        assert newly_enabled is True
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        assert data["effort_tracking"] is True
+
+    def test_returns_false_when_effort_tracking_already_present(self, tmp_path):
+        """When state.json already has effort_tracking set, _record_state returns False."""
+        state_path = tmp_path / ".companion" / "state.json"
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps({"effort_tracking": True}), encoding="utf-8"
+        )
+        newly_enabled = _record_state(state_path, PAIRMODE_VERSION)
+        assert newly_enabled is False
+
+    def test_returns_false_when_effort_tracking_false(self, tmp_path):
+        """User-set effort_tracking: false is preserved and returns False (not newly set)."""
+        state_path = tmp_path / ".companion" / "state.json"
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps({"effort_tracking": False}), encoding="utf-8"
+        )
+        newly_enabled = _record_state(state_path, PAIRMODE_VERSION)
+        assert newly_enabled is False
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        # User-set value must be preserved
+        assert data["effort_tracking"] is False
+
+
+class TestBootstrapEffortTrackingNote:
+    """Tests that bootstrap output includes the transparency note only when appropriate."""
+
+    def _run_bootstrap(self, tmp_path, extra_state=None):
+        """Run bootstrap with minimal inputs and return the CLI result."""
+        runner = CliRunner()
+        companion_dir = tmp_path / ".companion"
+        companion_dir.mkdir(parents=True, exist_ok=True)
+        if extra_state is not None:
+            state_path = companion_dir / "state.json"
+            state_path.write_text(json.dumps(extra_state), encoding="utf-8")
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproj",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+            ],
+            catch_exceptions=False,
+        )
+        return result
+
+    def test_transparency_note_shown_when_effort_tracking_absent(self, tmp_path):
+        """Bootstrap output contains the transparency note when effort_tracking was not set."""
+        result = self._run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        assert "Effort tracking: enabled" in result.output
+        assert ".companion/effort.db" in result.output
+
+    def test_transparency_note_suppressed_when_effort_tracking_already_set(self, tmp_path):
+        """Bootstrap output does NOT contain the transparency note when effort_tracking was already present."""
+        result = self._run_bootstrap(tmp_path, extra_state={"effort_tracking": True})
+        assert result.exit_code == 0, result.output
+        assert "Effort tracking: enabled" not in result.output
