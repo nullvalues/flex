@@ -16,7 +16,7 @@ sys.path.insert(
     str(pathlib.Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts"),
 )
 
-from pairmode_sync import sync_agents, _split_agent_file, _extract_frontmatter_block  # noqa: E402
+from pairmode_sync import sync_agents, _split_agent_file, _extract_frontmatter_block, _get_project_name  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -391,6 +391,63 @@ def test_project_name_falls_back_to_dir_name(tmp_path: pathlib.Path):
     new_content = agent_file.read_text(encoding="utf-8")
     # Should use directory name (tmp_path name, set by pytest to something unique)
     assert project_dir.name in new_content
+
+
+# ---------------------------------------------------------------------------
+# CER-019: _get_project_name embedded newline sanitization
+# ---------------------------------------------------------------------------
+
+
+def test_get_project_name_strips_embedded_newlines(tmp_path: pathlib.Path):
+    """Embedded newlines in state project_name are stripped (CER-019).
+
+    A project_name of "foo\\nmodel: opus" must return "foomodel: opus",
+    not two lines that could inject extra YAML frontmatter keys.
+    """
+    project_dir = tmp_path
+    state = {"project_name": "foo\nmodel: opus"}
+    result = _get_project_name(project_dir, state)
+    assert result == "foomodel: opus"
+    assert "\n" not in result
+
+
+def test_get_project_name_strips_embedded_carriage_returns(tmp_path: pathlib.Path):
+    """Embedded carriage-returns in state project_name are stripped (CER-019)."""
+    project_dir = tmp_path
+    state = {"project_name": "foo\rmodel: opus"}
+    result = _get_project_name(project_dir, state)
+    assert result == "foomodel: opus"
+    assert "\r" not in result
+
+
+def test_get_project_name_strips_mixed_newlines(tmp_path: pathlib.Path):
+    """Both \\n and \\r embedded in project_name are stripped (CER-019)."""
+    project_dir = tmp_path
+    state = {"project_name": "my\r\nproject"}
+    result = _get_project_name(project_dir, state)
+    assert result == "myproject"
+    assert "\n" not in result
+    assert "\r" not in result
+
+
+def test_get_project_name_plain_name_unaffected(tmp_path: pathlib.Path):
+    """A clean project_name without newlines is returned as-is (minus strip)."""
+    project_dir = tmp_path
+    state = {"project_name": "  myproject  "}
+    result = _get_project_name(project_dir, state)
+    assert result == "myproject"
+
+
+def test_get_project_name_fallback_strips_newlines(tmp_path: pathlib.Path):
+    """Fallback to project_dir.name also applies newline stripping (CER-019 consistency)."""
+    project_dir = tmp_path
+    state = {}
+    result = _get_project_name(project_dir, state)
+    # project_dir.name on Linux cannot contain '\n', but the sanitization
+    # is applied for consistency — verify it produces a clean string.
+    assert "\n" not in result
+    assert "\r" not in result
+    assert result == project_dir.resolve().name
 
 
 def test_no_agents_dir_returns_no_changes(tmp_path: pathlib.Path):

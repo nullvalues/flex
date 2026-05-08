@@ -56,11 +56,14 @@ def _get_project_name(project_dir: Path, state: dict) -> str:
     """Return project_name for template rendering.
 
     Tries state["project_name"] first; falls back to project_dir.name.
+    Strips leading/trailing whitespace and removes embedded newline/carriage-return
+    characters to prevent YAML injection when the value is rendered into agent
+    file frontmatter (CER-019).
     """
     name = state.get("project_name")
     if isinstance(name, str) and name.strip():
-        return name.strip()
-    return project_dir.resolve().name
+        return name.strip().replace("\n", "").replace("\r", "")
+    return project_dir.resolve().name.replace("\n", "").replace("\r", "")
 
 
 def _render_template_frontmatter(template_path: Path, context: dict) -> str:
