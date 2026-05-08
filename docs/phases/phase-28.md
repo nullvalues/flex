@@ -18,7 +18,7 @@ fixes. CER-009 (hooks) touches protected files and uses opus for the builder.
 | INFRA-059 | CER-018: lesson.py CLI — add value_framing and validation_phase flags | complete |
 | INFRA-060 | CER-004: lesson_review.py — Path.relative_to() containment | complete |
 | INFRA-061 | CER-017: bootstrap.py — surface effort_tracking to user | complete |
-| INFRA-062 | CER-009: hooks PIPE_PATH validation against tempdir | planned |
+| INFRA-062 | CER-009: hooks PIPE_PATH validation against tempdir | complete |
 
 ---
 
@@ -108,8 +108,9 @@ omit them). Closes CER-018.
    parameters to `capture_lesson`. When non-None, include them in the lesson dict
    being appended.
 
-3. Add `--value-framing` and `--validation-phase` optional arguments to the argparse
-   definition, feeding into `capture_lesson`.
+3. Add `--value-framing` and `--validation-phase` `@click.option` decorators to the
+   `cli` Click command, feeding into `capture_lesson`. (Note: `lesson.py` uses Click,
+   not argparse.)
 
 4. Mark CER-018 resolved in `docs/cer/backlog.md`.
 

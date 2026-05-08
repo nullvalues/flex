@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp28-cer-backlog-remediation
+
+**Phase:** 28 — CER backlog remediation (LOW items)
+**Tag command:** `git tag cp28-cer-backlog-remediation && git push origin cp28-cer-backlog-remediation`
+**Acceptance:** All six open Do Later CER items closed: CER-019 (pairmode_sync.py project_name YAML injection — INFRA-057), CER-016 (effort_db.py relative_to containment guard — INFRA-058), CER-018 (lesson.py value_framing/validation_phase CLI flags — INFRA-059), CER-004 (lesson_review.py str.startswith() → Path.relative_to() — INFRA-060), CER-017 (bootstrap.py effort_tracking transparency note — INFRA-061), CER-009 (hooks PIPE_PATH tempdir validation — INFRA-062). New CER-020 filed for exit_plan_mode.py unvalidated pipe_path override (pre-existing gap narrowed but not fully closed by INFRA-062). 1487 tests pass.
+
+---
+
 ## cp27-auth-check-per-story-placement
 
 **Phase:** 27 — Auth check per-story placement fix

@@ -2,7 +2,7 @@
 id: INFRA-062
 rail: INFRA
 title: CER-009: hooks PIPE_PATH validation against tempdir
-status: planned
+status: complete
 phase: "28"
 story_class: code
 primary_files:
@@ -11,6 +11,7 @@ primary_files:
   - hooks/session_end.py
 touches:
   - docs/cer/backlog.md
+  - tests/pairmode/test_hooks.py
 ---
 
 ## Acceptance criterion
