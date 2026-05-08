@@ -2,7 +2,7 @@
 id: INFRA-057
 rail: INFRA
 title: CER-019: sanitize project_name in pairmode_sync.py
-status: planned
+status: complete
 phase: "28"
 story_class: code
 primary_files:
