@@ -2,7 +2,7 @@
 id: INFRA-061
 rail: INFRA
 title: CER-017: bootstrap.py — surface effort_tracking to user
-status: planned
+status: complete
 phase: "28"
 story_class: code
 primary_files:
