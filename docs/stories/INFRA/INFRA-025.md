@@ -2,7 +2,7 @@
 id: INFRA-025
 rail: INFRA
 title: Add formal containment check to era_new.py path construction (CER-011)
-status: backlog
+status: complete
 phase: ""
 primary_files:
   - skills/pairmode/scripts/era_new.py

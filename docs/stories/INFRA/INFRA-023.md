@@ -2,7 +2,7 @@
 id: INFRA-023
 rail: INFRA
 title: Constrain hooks PIPE_PATH redirection via state.json validation (CER-009)
-status: backlog
+status: complete
 phase: ""
 primary_files:
   - hooks/stop.py

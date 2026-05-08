@@ -32,7 +32,7 @@ accruing in at least one project.
 |----|-------|--------|
 | INFRA-044 | Flip reviewer-class templates to sonnet baseline (model rebalance — quick win) | complete |
 | LESSON-004 | Capture sonnet-baseline-opus-on-demand rebalance rationale | complete |
-| INFRA-043 | Auto-plumb `--phase`, `--rail`, and attempt counter into `record_attempt.py` (CER-015) | planned |
+| INFRA-043 | Auto-plumb `--phase`, `--rail`, and attempt counter into `record_attempt.py` (CER-015) | complete |
 | INFRA-038 | Story frontmatter `source:` field + anchor-as-project for self-drift | planned |
 | INFRA-039 | `.pairmode-overrides` integration in drift reports | planned |
 | INFRA-031 | Project drift detection — `pairmode_drift_report.py` | planned |

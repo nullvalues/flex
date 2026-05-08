@@ -2,7 +2,7 @@
 id: INFRA-024
 rail: INFRA
 title: Validate story_new.py --rail input against rail-name regex (CER-010)
-status: backlog
+status: complete
 phase: ""
 primary_files:
   - skills/pairmode/scripts/story_new.py

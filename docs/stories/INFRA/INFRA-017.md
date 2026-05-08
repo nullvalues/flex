@@ -2,7 +2,7 @@
 id: INFRA-017
 rail: INFRA
 title: Git history review and squash plan — pauses for developer approval
-status: planned
+status: backlog
 phase: "20"
 primary_files: []
 touches: []

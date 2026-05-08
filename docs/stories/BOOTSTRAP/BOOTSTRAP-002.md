@@ -2,7 +2,7 @@
 id: BOOTSTRAP-002
 rail: BOOTSTRAP
 title: Test bootstrap --yes non-interactive path end to end
-status: planned
+status: complete
 phase: "19"
 primary_files: []
 touches:

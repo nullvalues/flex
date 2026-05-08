@@ -2,7 +2,7 @@
 id: AUDIT-001
 rail: AUDIT
 title: Add .pairmode-overrides to suppress intentional customisation noise in audit/sync
-status: planned
+status: complete
 phase: "18"
 primary_files:
   - skills/pairmode/scripts/audit.py

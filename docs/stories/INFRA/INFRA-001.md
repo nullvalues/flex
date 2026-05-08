@@ -2,7 +2,7 @@
 id: INFRA-001
 rail: INFRA
 title: Add --yes flag to bootstrap for non-interactive callers
-status: backlog
+status: complete
 phase: "backlog"
 primary_files:
 touches:

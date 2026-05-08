@@ -2,7 +2,7 @@
 id: INFRA-005
 rail: INFRA
 title: Security fix — validate story_id format in story_update.py (HIGH path traversal)
-status: planned
+status: complete
 phase: "18"
 primary_files:
   - skills/pairmode/scripts/story_update.py

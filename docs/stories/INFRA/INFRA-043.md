@@ -2,7 +2,7 @@
 id: INFRA-043
 rail: INFRA
 title: Auto-plumb phase rail and attempt counter into record_attempt.py (CER-015)
-status: planned
+status: complete
 phase: "23"
 primary_files:
   - skills/pairmode/scripts/record_attempt.py

@@ -2,7 +2,7 @@
 id: INFRA-003
 rail: INFRA
 title: Replace startswith with relative_to in lesson_review.py
-status: backlog
+status: complete
 phase: "backlog"
 primary_files:
 touches:

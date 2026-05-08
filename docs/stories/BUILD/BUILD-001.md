@@ -2,7 +2,7 @@
 id: BUILD-001
 rail: BUILD
 title: Add story_update.py to update story and phase manifest status
-status: planned
+status: complete
 phase: "18"
 primary_files:
   - skills/pairmode/scripts/story_update.py

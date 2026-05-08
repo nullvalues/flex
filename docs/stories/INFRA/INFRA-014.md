@@ -2,7 +2,7 @@
 id: INFRA-014
 rail: INFRA
 title: Close targeted test gaps — phase_new era edge case, story_resolver link-format, cer.py ID detection
-status: planned
+status: complete
 phase: "19"
 primary_files:
   - skills/pairmode/scripts/story_resolver.py

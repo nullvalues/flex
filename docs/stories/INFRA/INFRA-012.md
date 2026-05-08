@@ -2,7 +2,7 @@
 id: INFRA-012
 rail: INFRA
 title: Test should_question/free_to_change round-trip through --from-reconstruction
-status: planned
+status: complete
 phase: "19"
 primary_files: []
 touches:

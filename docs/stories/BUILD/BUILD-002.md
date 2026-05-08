@@ -2,7 +2,7 @@
 id: BUILD-002
 rail: BUILD
 title: Update CLAUDE.build.md with explicit bash commands for permission_scope and story_update
-status: planned
+status: complete
 phase: "18"
 primary_files:
   - CLAUDE.build.md

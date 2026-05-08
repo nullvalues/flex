@@ -2,7 +2,7 @@
 id: BOOTSTRAP-001
 rail: BOOTSTRAP
 title: Add --yes flag to bootstrap for non-interactive callers
-status: planned
+status: complete
 phase: "18"
 primary_files:
   - skills/pairmode/scripts/bootstrap.py

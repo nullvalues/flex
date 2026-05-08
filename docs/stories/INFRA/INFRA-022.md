@@ -2,7 +2,7 @@
 id: INFRA-022
 rail: INFRA
 title: Replace str.startswith path containment in lesson_review.py with Path.relative_to (CER-004)
-status: backlog
+status: complete
 phase: ""
 primary_files:
   - skills/pairmode/scripts/lesson_review.py

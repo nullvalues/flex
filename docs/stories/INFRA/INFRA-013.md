@@ -2,7 +2,7 @@
 id: INFRA-013
 rail: INFRA
 title: Verify and fix spec_exception → sidebar pipe chain
-status: planned
+status: complete
 phase: "19"
 primary_files:
   - skills/companion/scripts/sidebar.py

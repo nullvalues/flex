@@ -2,7 +2,7 @@
 id: INFRA-011
 rail: INFRA
 title: Integrate schema_validator into story_new.py and era_new.py creation flow
-status: planned
+status: complete
 phase: "18"
 primary_files:
   - skills/pairmode/scripts/story_new.py
