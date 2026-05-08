@@ -507,6 +507,87 @@ class TestAllAffectsMultipleProposals:
 
 
 # ---------------------------------------------------------------------------
+# CER-004: Path.resolve().relative_to() containment guard
+# ---------------------------------------------------------------------------
+
+class TestApplyTemplateChangeContainmentGuard:
+    """Verify that the path containment guard uses Path.resolve().relative_to(),
+    not str.startswith(), so prefix-collision paths are correctly rejected."""
+
+    def test_path_inside_boundary_does_not_raise(self, patched_review_with_templates):
+        """A template path inside the templates directory succeeds without error."""
+        lr, _, _, templates_root = patched_review_with_templates
+        lesson = _make_lesson("L005", affects=["reviewer_checklist"])
+        proposals = lr.propose_template_change(lesson)
+        proposal = proposals[0]
+
+        # Should not raise
+        lr.apply_template_change(proposal, "Valid change", templates_root=templates_root)
+
+        template_path = templates_root / proposal["template_file"]
+        content = template_path.read_text(encoding="utf-8")
+        assert "{# LESSON L005: Valid change #}" in content
+
+    def test_path_outside_boundary_raises_value_error(self, tmp_path, monkeypatch):
+        """A template path that resolves outside the templates directory raises ValueError.
+
+        This specifically tests the prefix-collision fix: a path like
+        'skills/pairmode/templates_extra/evil.j2' would pass a naive str.startswith()
+        check against 'skills/pairmode/templates' but must be rejected by
+        resolve().relative_to().
+        """
+        import skills.pairmode.scripts.lesson_utils as lu
+        import skills.pairmode.scripts.lesson_review as lr
+
+        lessons_json = tmp_path / "lessons.json"
+        lessons_md = tmp_path / "LESSONS.md"
+        lessons_json.write_text(
+            __import__("json").dumps({"version": "1.0.0", "lessons": []}) + "\n"
+        )
+
+        templates_root = tmp_path
+        (templates_root / "skills" / "pairmode" / "templates").mkdir(parents=True)
+        # Create a sibling directory whose name starts with "templates" — this is
+        # the prefix-collision scenario that str.startswith() would incorrectly allow.
+        sibling_dir = templates_root / "skills" / "pairmode" / "templates_extra"
+        sibling_dir.mkdir(parents=True)
+        evil_file = sibling_dir / "evil.j2"
+        evil_file.write_text("evil content", encoding="utf-8")
+
+        monkeypatch.setattr(lu, "LESSONS_FILE", lessons_json)
+        monkeypatch.setattr(lr, "_LESSONS_MD", lessons_md)
+
+        traversal_proposal = {
+            "lesson_id": "L001",
+            "affects": "reviewer_checklist",
+            "template_file": "skills/pairmode/templates_extra/evil.j2",
+            "description": "malicious",
+            "lesson_trigger": "t",
+            "lesson_learning": "l",
+        }
+        with pytest.raises(ValueError, match="outside templates directory"):
+            lr.apply_template_change(
+                traversal_proposal, "evil", templates_root=templates_root
+            )
+
+    def test_dotdot_traversal_raises_value_error(self, patched_review_with_templates):
+        """A proposal with a '../..' traversal raises ValueError."""
+        lr, _, _, templates_root = patched_review_with_templates
+        traversal_proposal = {
+            "lesson_id": "L001",
+            "affects": "reviewer_checklist",
+            "template_file": "../../etc/passwd",
+            "description": "malicious",
+            "lesson_trigger": "t",
+            "lesson_learning": "l",
+        }
+        with pytest.raises(ValueError, match="outside templates directory"):
+            lr.apply_template_change(
+                traversal_proposal, "evil", templates_root=templates_root
+            )
+
+
+# ---------------------------------------------------------------------------
 # CLI output clarity tests
 # ---------------------------------------------------------------------------
 

@@ -146,7 +146,9 @@ def apply_template_change(proposal: dict, change_text: str, templates_root: Path
     root = templates_root if templates_root is not None else _ANCHOR_ROOT
     template_path = (root / proposal["template_file"]).resolve()
     templates_boundary = (root / "skills" / "pairmode" / "templates").resolve()
-    if not str(template_path).startswith(str(templates_boundary)):
+    try:
+        template_path.resolve().relative_to(templates_boundary.resolve())
+    except ValueError:
         raise ValueError(
             f"Template path {template_path} is outside templates directory"
         )
