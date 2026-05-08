@@ -551,6 +551,30 @@ Behaviour:
   intentionally returns the slim schema because the reconstruction brief does not capture
   those fields.
 
+### Auth policy integration
+
+Before any auth-gated story (authentication, session handling, permission checks,
+access-controlled resources) is built, the orchestrator must answer the auth model
+classification question from `~/.claude/policies/auth-coexistence.md`. This is Step 8
+of "Before the first build loop" in `CLAUDE.build.md`.
+
+Three policy files live at `~/.claude/policies/`:
+- `auth-rbac.md` — role-based system controls (admin panels, org-level content)
+- `auth-abac.md` — ownership and content-level access (user-authored content, shared workspaces)
+- `auth-coexistence.md` — classification question + coexistence patterns (when both apply)
+
+The classification question produces RBAC, ABAC, or both. The answer must be recorded
+before the first auth-gated story spec is finalized.
+
+**Pairmode equivalent of `spec.json non-negotiables`:** The policy files use
+`spec.json non-negotiables` language. In pairmode-based projects (which use story files
++ `architecture.md` rather than a `spec.json`), the equivalent is a dedicated
+`## Auth model` or `## Non-negotiables` section in `architecture.md` or the phase doc
+that names: (a) the chosen auth model (RBAC / ABAC / both), (b) the enforcement layer
+module, and (c) which resource types map to which model (for coexistence cases). This
+section serves as the spec contract that reviewers check before accepting any auth-gated
+story.
+
 ---
 
 ## Effort tracking
