@@ -134,6 +134,9 @@ def validate_story_file(path: Path) -> list[str]:
             f"{sorted(VALID_STORY_CLASSES)}"
         )
 
+    if "source" in fm and not (isinstance(fm["source"], str) and fm["source"]):
+        errors.append("Field 'source' must be a non-empty string when present")
+
     if "primary_files" in fm and not isinstance(fm["primary_files"], list):
         errors.append("Field 'primary_files' must be a list")
 

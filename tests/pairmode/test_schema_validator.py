@@ -196,6 +196,41 @@ def test_story_class_error_message_lists_valid_values(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# source field tests
+# ---------------------------------------------------------------------------
+
+def test_source_field_absent_is_valid(tmp_path):
+    """A story without source is valid — the field is optional."""
+    p = _write(tmp_path, "story.md", VALID_STORY)
+    errors = validate_story_file(p)
+    assert errors == [], f"Expected no errors when source is absent, got: {errors}"
+
+
+def test_source_field_present_with_value_is_valid(tmp_path):
+    """A story with a non-empty source value passes validation."""
+    content = VALID_STORY.replace(
+        '    phase: "001"\n',
+        '    phase: "001"\n    source: my-project\n',
+    )
+    p = _write(tmp_path, "story.md", content)
+    errors = validate_story_file(p)
+    assert errors == [], f"Expected no errors for valid source, got: {errors}"
+
+
+def test_source_field_empty_string_is_invalid(tmp_path):
+    """A story with an empty source value produces a validation error."""
+    content = VALID_STORY.replace(
+        '    phase: "001"\n',
+        '    phase: "001"\n    source: \n',
+    )
+    p = _write(tmp_path, "story.md", content)
+    errors = validate_story_file(p)
+    assert any("source" in e for e in errors), (
+        f"Expected source error for empty value, got: {errors}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Era file tests
 # ---------------------------------------------------------------------------
 

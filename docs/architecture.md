@@ -300,6 +300,20 @@ unified intent. Phases and rails belong to an era. Eras are named chronologicall
 `touches` (secondary files the story modifies). Phase docs reference story IDs in a `## Stories`
 table; full story content lives in the individual story file.
 
+Story frontmatter fields summary:
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `id` | yes | Rail + 3-digit sequence (e.g. `INFRA-063`) |
+| `rail` | yes | Rail name, uppercase |
+| `title` | yes | Short description string |
+| `status` | yes | One of `draft`, `planned`, `in-progress`, `complete`, `backlog` |
+| `phase` | yes | Phase number string |
+| `primary_files` | yes | List; may be empty only when `status` is `draft` or `backlog` |
+| `touches` | no | Secondary files the story modifies |
+| `story_class` | no | One of `code`, `doc`, `lesson`, `methodology`; defaults to `code` |
+| `source` | no | Set by drift promotion to record the originating project |
+
 **Era files** live at `docs/eras/NNN-kebab-name.md` with frontmatter: `id`, `name`, `status`.
 
 **`schema_validator.py` is the canonical frontmatter parser.** Its `_parse_frontmatter` function

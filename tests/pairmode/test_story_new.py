@@ -372,6 +372,90 @@ class TestStoryClassFlag:
         assert "story_class: doc" in frontmatter_block
 
 
+class TestSourceFlag:
+    """--source writes source: field after story_class in generated frontmatter."""
+
+    def test_source_flag_written_to_frontmatter(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "Promoted story",
+                "--source", "myproject",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        assert "source: myproject" in content
+
+    def test_source_flag_written_in_frontmatter_block_not_body(self, tmp_path: pathlib.Path) -> None:
+        """source appears in the YAML frontmatter block, not the Markdown body."""
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "Promoted story",
+                "--source", "anchor-self",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        parts = content.split("---")
+        assert len(parts) >= 3, "Expected frontmatter delimiters"
+        frontmatter_block = parts[1]
+        assert "source: anchor-self" in frontmatter_block
+
+    def test_source_omitted_no_field_in_frontmatter(self, tmp_path: pathlib.Path) -> None:
+        """When --source is omitted, source does not appear in frontmatter at all."""
+        result = invoke(
+            ["--rail", "INFRA", "--title", "Native story", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        assert "source:" not in content
+
+    def test_source_written_after_story_class(self, tmp_path: pathlib.Path) -> None:
+        """source: field appears after story_class: in the frontmatter."""
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "Promoted code story",
+                "--story-class", "code",
+                "--source", "other-project",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        # Both fields present
+        assert "story_class: code" in content
+        assert "source: other-project" in content
+        # source appears after story_class in the file
+        sc_pos = content.index("story_class: code")
+        src_pos = content.index("source: other-project")
+        assert src_pos > sc_pos, "Expected source: to appear after story_class:"
+
+    def test_source_without_story_class_still_written(self, tmp_path: pathlib.Path) -> None:
+        """source is written even when --story-class is not provided."""
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "Promoted no-class story",
+                "--source", "external-project",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        assert "source: external-project" in content
+        assert "story_class" not in content
+
+
 class TestRailContainmentGuard:
     """--rail values that escape docs/stories/ are rejected."""
 

@@ -41,6 +41,7 @@ def _story_frontmatter(
     title: str,
     phase: str | None,
     story_class: str | None = None,
+    source: str | None = None,
 ) -> str:
     """Return YAML frontmatter block for a new story file."""
     phase_val = phase if phase is not None else "backlog"
@@ -54,6 +55,8 @@ def _story_frontmatter(
     ]
     if story_class is not None:
         lines.append(f"story_class: {story_class}")
+    if source is not None:
+        lines.append(f"source: {source}")
     lines += ["primary_files:", "touches:", "---"]
     return "\n".join(lines) + "\n"
 
@@ -174,12 +177,17 @@ def _append_to_phase(project_dir: Path, phase: str, story_id: str, title: str) -
     help="Story classification: code, doc, lesson, or methodology. Omit to use default (code).",
 )
 @click.option(
+    "--source",
+    default=None,
+    help="Originating project slug (set by drift promotion). Omit to leave the field absent.",
+)
+@click.option(
     "--project-dir",
     default=".",
     type=click.Path(exists=True, file_okay=False),
     help="Root directory of the target project.",
 )
-def story_new(rail: str, title: str, phase: str | None, story_class: str | None, project_dir: str) -> None:
+def story_new(rail: str, title: str, phase: str | None, story_class: str | None, source: str | None, project_dir: str) -> None:
     """Create a new story file on the specified rail."""
 
     resolved = Path(project_dir).resolve()
@@ -232,7 +240,7 @@ def story_new(rail: str, title: str, phase: str | None, story_class: str | None,
 
     # Write story file
     story_path = rail_dir / f"{story_id}.md"
-    content = _story_frontmatter(story_id, rail, title, phase, story_class) + _story_body()
+    content = _story_frontmatter(story_id, rail, title, phase, story_class, source) + _story_body()
     story_path.write_text(content, encoding="utf-8")
 
     click.echo(f"  Created {story_id}: {title}")
