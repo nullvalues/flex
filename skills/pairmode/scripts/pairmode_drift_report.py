@@ -147,11 +147,8 @@ def _load_overrides(project_dir: Path) -> set[tuple[str, str]]:
 
     Parses ``project_dir / ".pairmode-overrides"``. Blank lines and comment
     lines (``#``) are skipped. Each valid line is split on ``:`` (one split)
-    into ``(file_path, section_key)``.
-
-    NOTE: INTENTIONAL classification using this data is added in INFRA-064.
-    This stub returns the parsed set so INFRA-064 can wire it in without
-    changing the parser signature.
+    into ``(file_path, section_key)``.  The section_key is normalised (lowercased,
+    whitespace collapsed) so it matches the keys produced by ``_split_sections``.
     """
     overrides_path = project_dir / ".pairmode-overrides"
     if not overrides_path.exists():
@@ -170,7 +167,7 @@ def _load_overrides(project_dir: Path) -> set[tuple[str, str]]:
         if ":" not in stripped:
             continue
         file_path, section_key = stripped.split(":", 1)
-        result.add((file_path.strip(), section_key.strip()))
+        result.add((file_path.strip(), _normalise(section_key.strip())))
 
     return result
 
@@ -301,8 +298,8 @@ def _analyse_file(
     """Compare one project file against one canonical template; return drift items.
 
     ``overrides`` is the parsed ``.pairmode-overrides`` set for this project.
-    Sections listed there are left for INFRA-064 to reclassify as INTENTIONAL.
-    For now they are still classified as DRIFT/EXTRA (see note in _load_overrides).
+    Sections listed in overrides that would otherwise be classified as DRIFT or
+    EXTRA are reclassified as INTENTIONAL and excluded from convergence candidates.
     """
     canonical_sections = _render_template_sections(template_rel, context)
     if not canonical_sections:
@@ -341,35 +338,56 @@ def _analyse_file(
             )
         )
 
-    # Sections in project but not in canonical → EXTRA
+    # Sections in project but not in canonical → EXTRA or INTENTIONAL
     for key in project_keys - canonical_keys:
         if _is_separator_key(key):
             continue
-        items.append(
-            DriftItem(
-                file=project_file_rel,
-                section=key,
-                classification="EXTRA",
-                project_body=_normalise(project_sections[key]),
+        if (project_file_rel, key) in overrides:
+            items.append(
+                DriftItem(
+                    file=project_file_rel,
+                    section=key,
+                    classification="INTENTIONAL",
+                    project_body=_normalise(project_sections[key]),
+                )
             )
-        )
+        else:
+            items.append(
+                DriftItem(
+                    file=project_file_rel,
+                    section=key,
+                    classification="EXTRA",
+                    project_body=_normalise(project_sections[key]),
+                )
+            )
 
-    # Sections in both — compare bodies
+    # Sections in both — compare bodies; diverged sections are DRIFT or INTENTIONAL
     for key in canonical_keys & project_keys:
         if _is_separator_key(key):
             continue
         canonical_body = _normalise(canonical_sections[key])
         project_body = _normalise(project_sections[key])
         if canonical_body != project_body:
-            items.append(
-                DriftItem(
-                    file=project_file_rel,
-                    section=key,
-                    classification="DRIFT",
-                    project_body=project_body,
-                    canonical_body=canonical_body,
+            if (project_file_rel, key) in overrides:
+                items.append(
+                    DriftItem(
+                        file=project_file_rel,
+                        section=key,
+                        classification="INTENTIONAL",
+                        project_body=project_body,
+                        canonical_body=canonical_body,
+                    )
                 )
-            )
+            else:
+                items.append(
+                    DriftItem(
+                        file=project_file_rel,
+                        section=key,
+                        classification="DRIFT",
+                        project_body=project_body,
+                        canonical_body=canonical_body,
+                    )
+                )
 
     return items
 

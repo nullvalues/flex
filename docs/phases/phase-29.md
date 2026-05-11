@@ -31,7 +31,7 @@ prevent infinite-recursion and re-prompting on anchor's own promoted stories.
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-063 | Story frontmatter `source:` field — track drift-promoted vs anchor-native stories | complete |
-| INFRA-065 | Project drift detection — `pairmode_drift_report.py` | planned |
+| INFRA-065 | Project drift detection — `pairmode_drift_report.py` | complete |
 | INFRA-064 | `.pairmode-overrides` integration in drift reports | planned |
 | INFRA-066 | Drift promotion workflow — extend `pairmode review` | planned |
 | INFRA-067 | Token-evidence ranking in drift promotion | planned |

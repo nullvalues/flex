@@ -675,6 +675,207 @@ def test_find_convergence_candidates_extra_not_grouped() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Classification: INTENTIONAL (via .pairmode-overrides)
+# ---------------------------------------------------------------------------
+
+
+def test_intentional_drift_section_reclassified(tmp_path: Path) -> None:
+    """A DRIFT section declared in .pairmode-overrides is reclassified as INTENTIONAL."""
+    canonical = _canonical_build_md("testproj")
+
+    # Replace the "## Session modes" section body with custom content → would be DRIFT
+    import re
+    drifted = re.sub(
+        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"\g<1>INTENTIONAL CUSTOM SESSION CONTENT\g<3>",
+        canonical,
+        count=1,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+
+    project_dir = _make_project(tmp_path, "testproj", claude_build_content=drifted)
+
+    # Declare the section as intentional in .pairmode-overrides
+    overrides_file = project_dir / ".pairmode-overrides"
+    overrides_file.write_text(
+        "# Intentional overrides\n"
+        "CLAUDE.build.md: ## Session modes\n",
+        encoding="utf-8",
+    )
+
+    result = drift_report([project_dir])
+    project_data = result["projects"][0]
+
+    # The section must NOT appear in drift
+    drift_sections = {item["section"] for item in project_data["drift"]}
+    assert not any(
+        "session modes" in s for s in drift_sections
+    ), f"Declared override must not appear in drift; drift={project_data['drift']}"
+
+    # The section MUST appear in intentional
+    intentional_sections = {item["section"] for item in project_data["intentional"]}
+    assert any(
+        "session modes" in s for s in intentional_sections
+    ), f"Declared override must appear in intentional; intentional={project_data['intentional']}"
+
+
+def test_intentional_extra_section_reclassified(tmp_path: Path) -> None:
+    """An EXTRA section declared in .pairmode-overrides is reclassified as INTENTIONAL."""
+    canonical = _canonical_build_md("testproj")
+    content_with_extra = canonical + "\n\n## Custom override section\n\nProject-specific content.\n"
+
+    project_dir = _make_project(tmp_path, "testproj", claude_build_content=content_with_extra)
+
+    # Declare the extra section as intentional
+    overrides_file = project_dir / ".pairmode-overrides"
+    overrides_file.write_text(
+        "CLAUDE.build.md: ## Custom override section\n",
+        encoding="utf-8",
+    )
+
+    result = drift_report([project_dir])
+    project_data = result["projects"][0]
+
+    # Must NOT appear in extra
+    extra_sections = {item["section"] for item in project_data["extra"]}
+    assert not any(
+        "custom override section" in s for s in extra_sections
+    ), f"Declared override must not appear in extra; extra={project_data['extra']}"
+
+    # Must appear in intentional
+    intentional_sections = {item["section"] for item in project_data["intentional"]}
+    assert any(
+        "custom override section" in s for s in intentional_sections
+    ), f"Declared override must appear in intentional; intentional={project_data['intentional']}"
+
+
+def test_intentional_excluded_from_convergence_candidates(tmp_path: Path) -> None:
+    """INTENTIONAL items must not appear as convergence candidates."""
+    canonical = _canonical_build_md("testproj")
+
+    # Create identical drift in both projects
+    import re
+    drifted = re.sub(
+        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"\g<1>SHARED INTENTIONAL CONTENT\g<3>",
+        canonical,
+        count=1,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+
+    proj_a = _make_project(tmp_path, "intl_a", claude_build_content=drifted)
+    proj_b = _make_project(tmp_path, "intl_b", claude_build_content=drifted)
+
+    # Declare the drifted section as intentional in both projects
+    override_content = "CLAUDE.build.md: ## Session modes\n"
+    (proj_a / ".pairmode-overrides").write_text(override_content, encoding="utf-8")
+    (proj_b / ".pairmode-overrides").write_text(override_content, encoding="utf-8")
+
+    result = drift_report([proj_a, proj_b], convergent=True)
+
+    # No convergence candidates — the drift was reclassified as intentional in both
+    candidates = result["convergence_candidates"]
+    assert not any(
+        c["file"] == "CLAUDE.build.md" and "session modes" in c["section"]
+        for c in candidates
+    ), f"INTENTIONAL items must not appear as convergence candidates; candidates={candidates}"
+
+
+def test_intentional_count_in_json_output(tmp_path: Path) -> None:
+    """JSON output must include intentional items in the project entry."""
+    canonical = _canonical_build_md("testproj")
+
+    import re
+    drifted = re.sub(
+        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"\g<1>INTENTIONAL DRIFT CONTENT\g<3>",
+        canonical,
+        count=1,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+
+    project_dir = _make_project(tmp_path, "testproj", claude_build_content=drifted)
+    (project_dir / ".pairmode-overrides").write_text(
+        "CLAUDE.build.md: ## Session modes\n",
+        encoding="utf-8",
+    )
+
+    result = drift_report([project_dir], output_format="json")
+    entry = result["projects"][0]
+
+    assert "intentional" in entry
+    assert len(entry["intentional"]) == 1
+    assert any("session modes" in item["section"] for item in entry["intentional"])
+
+
+def test_intentional_shown_in_text_output(tmp_path: Path) -> None:
+    """Text output must include the INTENTIONAL line with count for declared overrides."""
+    from click.testing import CliRunner
+    from skills.pairmode.scripts.pairmode_drift_report import main
+
+    canonical = _canonical_build_md("testproj")
+
+    import re
+    drifted = re.sub(
+        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"\g<1>INTENTIONAL TEXT OUTPUT CONTENT\g<3>",
+        canonical,
+        count=1,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+
+    project_dir = _make_project(tmp_path, "testproj", claude_build_content=drifted)
+    (project_dir / ".pairmode-overrides").write_text(
+        "CLAUDE.build.md: ## Session modes\n",
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    invoke_result = runner.invoke(
+        main, ["--projects", str(project_dir), "--output", "text"]
+    )
+
+    assert invoke_result.exit_code == 0, f"CLI failed: {invoke_result.output}"
+    assert "INTENTIONAL" in invoke_result.output
+    assert ".pairmode-overrides" in invoke_result.output
+
+
+def test_undeclared_drift_not_reclassified(tmp_path: Path) -> None:
+    """A DRIFT section NOT in .pairmode-overrides must remain classified as DRIFT."""
+    canonical = _canonical_build_md("testproj")
+
+    import re
+    drifted = re.sub(
+        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"\g<1>UNDECLARED DRIFT CONTENT\g<3>",
+        canonical,
+        count=1,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+
+    project_dir = _make_project(tmp_path, "testproj", claude_build_content=drifted)
+    # Write an overrides file that does NOT include the drifted section
+    (project_dir / ".pairmode-overrides").write_text(
+        "# No relevant overrides here\n"
+        "CLAUDE.build.md: ## some other section\n",
+        encoding="utf-8",
+    )
+
+    result = drift_report([project_dir])
+    project_data = result["projects"][0]
+
+    drift_sections = {item["section"] for item in project_data["drift"]}
+    assert any(
+        "session modes" in s for s in drift_sections
+    ), f"Undeclared drift must remain DRIFT; drift={project_data['drift']}"
+
+    intentional_sections = {item["section"] for item in project_data["intentional"]}
+    assert not any(
+        "session modes" in s for s in intentional_sections
+    ), f"Undeclared section must not appear in intentional; intentional={project_data['intentional']}"
+
+
+# ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
 

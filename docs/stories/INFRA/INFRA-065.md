@@ -2,7 +2,7 @@
 id: INFRA-065
 rail: INFRA
 title: Project drift detection — pairmode_drift_report.py
-status: planned
+status: complete
 phase: "29"
 story_class: code
 primary_files:
