@@ -2,7 +2,7 @@
 id: INFRA-063
 rail: INFRA
 title: "Story frontmatter source: field — track drift-promoted vs anchor-native stories"
-status: planned
+status: complete
 phase: "29"
 story_class: code
 primary_files:
