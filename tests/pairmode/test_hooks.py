@@ -11,6 +11,7 @@ Covers:
   the system tempdir via the _resolve_pipe_path helper (CER-009).
 """
 import importlib.util
+import os
 import sys
 import tempfile
 import uuid
@@ -93,6 +94,7 @@ HOOKS_WITH_PIPE_VALIDATION = [
     "stop.py",
     "post_tool_use.py",
     "session_end.py",
+    "exit_plan_mode.py",
 ]
 
 
@@ -146,3 +148,69 @@ def test_hook_source_contains_resolve_pipe_path(hook_name):
     assert "tempfile.gettempdir" in source, (
         f"{hook_name} must validate pipe_path against tempfile.gettempdir()"
     )
+
+
+# ── exit_plan_mode.py PIPE_PATH containment (CER-020 / INFRA-068) ────────────
+#
+# These tests exercise the module-level state.json read in exit_plan_mode.py
+# end-to-end: write a crafted .companion/state.json, import the hook, and
+# inspect the resulting PIPE_PATH constant.
+
+
+def _write_state_json(project_dir: Path, pipe_path_value):
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir(parents=True, exist_ok=True)
+    state_file = companion_dir / "state.json"
+    import json as _json
+    state_file.write_text(_json.dumps({"pipe_path": pipe_path_value}))
+    return state_file
+
+
+def test_exit_plan_mode_rejects_pipe_path_outside_tempdir(tmp_path, monkeypatch):
+    """A state.json with pipe_path outside tempdir does NOT override PIPE_PATH."""
+    # cwd switch so the hook's relative open(".companion/state.json") resolves
+    # inside the test's tmp_path.
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    _write_state_json(project_dir, "/etc/evil.pipe")
+
+    monkeypatch.chdir(project_dir)
+    module = _import_hook("exit_plan_mode.py")
+
+    # The legacy fallback under the system tempdir must still be in force.
+    assert module.PIPE_PATH != "/etc/evil.pipe"
+    assert module.PIPE_PATH == os.path.join(tempfile.gettempdir(), "companion.pipe")
+
+
+def test_exit_plan_mode_accepts_pipe_path_inside_tempdir(tmp_path, monkeypatch):
+    """A state.json with pipe_path inside tempdir is accepted and overrides PIPE_PATH."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    # The candidate must live under the real system tempdir so the helper's
+    # is_relative_to(tempfile.gettempdir()) check passes.
+    real_tmp = Path(tempfile.gettempdir()).resolve()
+    candidate = real_tmp / f"companion-test-{uuid.uuid4().hex}.pipe"
+    _write_state_json(project_dir, str(candidate))
+
+    monkeypatch.chdir(project_dir)
+    module = _import_hook("exit_plan_mode.py")
+
+    assert module.PIPE_PATH == str(candidate.resolve())
+
+
+def test_exit_plan_mode_imports_and_runs_main_when_state_absent(tmp_path, monkeypatch):
+    """Module imports and main() executes cleanly when .companion/state.json is absent."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    # No .companion/ directory or state.json at all.
+    monkeypatch.chdir(project_dir)
+    module = _import_hook("exit_plan_mode.py")
+
+    # PIPE_PATH falls back to the system tempdir default.
+    assert module.PIPE_PATH == os.path.join(tempfile.gettempdir(), "companion.pipe")
+
+    # main() reads from stdin; provide invalid JSON so the early `except` path
+    # returns without exercising the pipe write. The function must not raise.
+    import io
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    module.main()
