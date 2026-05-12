@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp30-hook-fix-and-sync-tooling
+
+**Phase:** 30 — Hook security fix and sync tooling gaps
+**Tag command:** `git tag cp30-hook-fix-and-sync-tooling && git push origin cp30-hook-fix-and-sync-tooling`
+**Acceptance:** CER-020 closed — `exit_plan_mode.py` now applies the same `_resolve_pipe_path` containment guard as the other three hooks fixed in Phase 28 (INFRA-068). `pairmode sync-build` added to `pairmode_sync.py` — diffs and optionally applies rendered `CLAUDE.build.md.j2` to a target project, with `--dry-run`, `--apply`, `--yes` (INFRA-069). `pairmode register/unregister/list-projects` added via `pairmode_register.py` — manages the `registered_projects` list in `.companion/state.json` atomically (INFRA-070). `docs/architecture.md` Pairmode tooling section now has prose blocks for both new subcommands. 1598 tests pass.
+
+---
+
 ## cp29-drift-detection-and-promotion
 
 **Phase:** 29 — Project drift detection and promotion workflow
