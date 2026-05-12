@@ -1,7 +1,8 @@
 """Lesson review script for anchor pairmode.
 
 Surfaces captured lessons grouped by affects, proposes template edits,
-and writes approved updates to the templates.
+and writes approved updates to the templates.  After the lesson review
+step, runs drift promotion if registered_projects are present in state.json.
 
 Can be used as a library or as a CLI tool:
     uv run python lesson_review.py --approve L001 --approve L002 --reject L003
@@ -9,6 +10,7 @@ Can be used as a library or as a CLI tool:
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import click
@@ -22,6 +24,9 @@ _PAIRMODE_DIR = _SCRIPTS_DIR.parent
 _TEMPLATES_DIR = _PAIRMODE_DIR / "templates"
 _ANCHOR_ROOT = _PAIRMODE_DIR.parent.parent
 _LESSONS_MD = _ANCHOR_ROOT / "lessons" / "LESSONS.md"
+
+# Insert anchor repo root so sibling imports work when run as CLI
+sys.path.insert(0, str(_ANCHOR_ROOT))
 
 from skills.pairmode.scripts import lesson_utils  # noqa: E402
 
@@ -182,6 +187,194 @@ def regenerate_lessons_md() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Drift promotion
+# ---------------------------------------------------------------------------
+
+_DRIFT_REJECTED_FILENAME = ".pairmode-drift-rejected"
+
+
+def _read_rejected_patterns(project_dir: Path) -> set[str]:
+    """Return the set of rejected pattern identifiers from .pairmode-drift-rejected."""
+    rejected_path = project_dir / _DRIFT_REJECTED_FILENAME
+    if not rejected_path.exists():
+        return set()
+    try:
+        lines = rejected_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return set()
+    return {line.strip() for line in lines if line.strip()}
+
+
+def _append_rejected_pattern(project_dir: Path, pattern_id: str) -> None:
+    """Append *pattern_id* to .pairmode-drift-rejected, creating the file if needed."""
+    rejected_path = project_dir / _DRIFT_REJECTED_FILENAME
+    with open(rejected_path, "a", encoding="utf-8") as f:
+        f.write(pattern_id + "\n")
+
+
+def _candidate_pattern_id(candidate: dict) -> str:
+    """Return a stable string identifier for a convergence candidate."""
+    return f"{candidate['file']}::{candidate['section']}"
+
+
+def _safe_registered_project(raw: str) -> Path | None:
+    """Validate a registered project path with depth guard.
+
+    Returns the resolved Path on success, None on failure.
+    """
+    from skills.pairmode.scripts.pairmode_drift_report import _depth_guard
+
+    try:
+        resolved = _depth_guard(Path(raw))
+    except ValueError as exc:
+        click.echo(f"  warning: registered_projects entry skipped — {exc}", err=True)
+        return None
+    if not resolved.is_dir():
+        click.echo(
+            f"  warning: registered_projects entry not a directory: {resolved} — skipping",
+            err=True,
+        )
+        return None
+    return resolved
+
+
+def run_drift_promotion(
+    project_dirs: list[str | Path],
+    project_dir: Path,
+    *,
+    drift_report_fn=None,
+    create_story_fn=None,
+    input_fn=None,
+) -> None:
+    """Run the drift-promotion step for a list of registered project directories.
+
+    Args:
+        project_dirs: Validated project directories to analyse.
+        project_dir: The anchor project root (where .pairmode-drift-rejected lives).
+        drift_report_fn: Callable matching ``drift_report(project_dirs, convergent, output_format)``.
+            Defaults to the real ``pairmode_drift_report.drift_report``.
+        create_story_fn: Callable matching ``create_story(rail, title, project_dir, ...)``.
+            Defaults to the real ``story_new.create_story``.
+        input_fn: Callable used to read user input (defaults to ``click.prompt``).
+    """
+    if drift_report_fn is None:
+        from skills.pairmode.scripts.pairmode_drift_report import drift_report as _drift_report
+        drift_report_fn = _drift_report
+
+    if create_story_fn is None:
+        from skills.pairmode.scripts.story_new import create_story as _create_story
+        create_story_fn = _create_story
+
+    if input_fn is None:
+        def input_fn(prompt: str) -> str:  # type: ignore[misc]
+            return click.prompt(prompt)
+
+    data = drift_report_fn(
+        project_dirs=project_dirs,
+        convergent=True,
+        output_format="json",
+    )
+
+    candidates = data.get("convergence_candidates", [])
+    if not candidates:
+        click.echo("  No convergence candidates found.")
+        return
+
+    rejected = _read_rejected_patterns(project_dir)
+
+    promoted_count = 0
+    rejected_count = 0
+
+    for candidate in candidates:
+        pattern_id = _candidate_pattern_id(candidate)
+
+        # Skip previously rejected patterns
+        if pattern_id in rejected:
+            continue
+
+        # Surface the candidate
+        file_val = candidate.get("file", "")
+        section_val = candidate.get("section", "")
+        projects_list = candidate.get("projects", [])
+        drift_excerpt = candidate.get("project_body", "")[:200]
+
+        click.echo(f"\nCONVERGENCE CANDIDATE — {file_val}/{section_val}")
+        click.echo(f"Appears in: {', '.join(projects_list)}")
+        click.echo("Drift:")
+        click.echo(f"  {drift_excerpt}")
+        click.echo("Promote to canonical? [y/n/skip]")
+
+        answer = input_fn("Choice").strip().lower()
+
+        if answer == "y":
+            # Derive a title from the section/file name
+            title = f"Promote drift: {section_val} in {file_val}"
+            # Use the first project in the list as origin
+            origin_project = projects_list[0] if projects_list else "unknown"
+
+            # Create the story file
+            story_path = create_story_fn(
+                rail="INFRA",
+                title=title,
+                project_dir=project_dir,
+                story_class="code",
+                source=origin_project,
+            )
+            click.echo(f"  Story created: {story_path}")
+            promoted_count += 1
+        elif answer in ("n", "skip", ""):
+            _append_rejected_pattern(project_dir, pattern_id)
+            rejected_count += 1
+        # Any other value: treat like skip
+        else:
+            _append_rejected_pattern(project_dir, pattern_id)
+            rejected_count += 1
+
+    click.echo(
+        f"\nDRIFT PROMOTION COMPLETE — {promoted_count} promoted, {rejected_count} rejected."
+    )
+
+
+def drift_promotion_step(project_dir: Path, **kwargs) -> None:
+    """Read registered_projects from state.json and run drift promotion.
+
+    If ``registered_projects`` is absent or empty in ``.companion/state.json``,
+    prints a note and returns without error.
+
+    Args:
+        project_dir: The anchor project root.
+        **kwargs: Forwarded to ``run_drift_promotion`` (for testing overrides).
+    """
+    from skills.pairmode.scripts.story_context import read_state
+
+    companion_dir = project_dir / ".companion"
+    if not companion_dir.is_dir():
+        click.echo("  No registered projects — drift detection skipped.")
+        return
+
+    state = read_state(companion_dir)
+    raw_projects = state.get("registered_projects", [])
+
+    if not raw_projects:
+        click.echo("  No registered projects — drift detection skipped.")
+        return
+
+    # Validate each path with the depth guard
+    valid_dirs: list[Path] = []
+    for raw in raw_projects:
+        resolved = _safe_registered_project(str(raw))
+        if resolved is not None:
+            valid_dirs.append(resolved)
+
+    if not valid_dirs:
+        click.echo("  No valid registered project paths — drift detection skipped.")
+        return
+
+    click.echo(f"  Running drift detection across {len(valid_dirs)} registered project(s)...")
+    run_drift_promotion(valid_dirs, project_dir, **kwargs)
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -200,8 +393,28 @@ def regenerate_lessons_md() -> None:
     metavar="LESSON_ID",
     help="Lesson IDs to reject (may be repeated).",
 )
-def cli(approve_ids: tuple[str, ...], reject_ids: tuple[str, ...]) -> None:
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(exists=True, file_okay=False),
+    help="Root directory of the anchor project (used for drift detection).",
+)
+@click.option(
+    "--skip-drift",
+    is_flag=True,
+    default=False,
+    help="Skip the drift promotion step.",
+)
+def cli(
+    approve_ids: tuple[str, ...],
+    reject_ids: tuple[str, ...],
+    project_dir: str,
+    skip_drift: bool,
+) -> None:
     """Process lesson approvals and rejections, then regenerate LESSONS.md.
+
+    After processing lessons, runs drift promotion if registered_projects are
+    present in .companion/state.json (unless --skip-drift is passed).
 
     Approved lessons: apply_template_change() is called with the lesson's
     own description as change_text, then status is set to 'applied'.
@@ -249,6 +462,11 @@ def cli(approve_ids: tuple[str, ...], reject_ids: tuple[str, ...]) -> None:
         f"  {rejected_count} lesson(s) deferred for next review cycle.\n"
         f"LESSONS.md regenerated."
     )
+
+    # Drift promotion step — runs after lesson review
+    if not skip_drift:
+        click.echo("\n--- Drift Promotion ---")
+        drift_promotion_step(Path(project_dir).resolve())
 
 
 if __name__ == "__main__":

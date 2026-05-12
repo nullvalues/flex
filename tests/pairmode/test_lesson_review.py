@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
-import pytest
+import textwrap
 from pathlib import Path
+
+import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -641,3 +643,339 @@ class TestCLIOutputClarity:
         assert "REVIEW COMPLETE" in result.output
         assert "1 lesson(s) annotated" in result.output
         assert "1 lesson(s) deferred" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Drift promotion tests
+# ---------------------------------------------------------------------------
+
+def _make_convergence_candidate(
+    file: str = "CLAUDE.build.md",
+    section: str = "## step 1",
+    projects: list[str] | None = None,
+    project_body: str = "do something different",
+    count: int = 2,
+) -> dict:
+    if projects is None:
+        projects = ["project-a", "project-b"]
+    return {
+        "file": file,
+        "section": section,
+        "project_body": project_body,
+        "projects": projects,
+        "count": count,
+    }
+
+
+def _make_drift_report_response(candidates: list[dict]) -> dict:
+    return {
+        "projects": [],
+        "convergence_candidates": candidates,
+    }
+
+
+class TestDriftPromotionStep:
+    """Tests for drift_promotion_step (reads from state.json)."""
+
+    def test_empty_registered_projects_skips(self, tmp_path, capsys):
+        """When registered_projects is absent, drift detection is skipped."""
+        import skills.pairmode.scripts.lesson_review as lr
+
+        companion_dir = tmp_path / ".companion"
+        companion_dir.mkdir()
+        (companion_dir / "state.json").write_text(
+            json.dumps({"pairmode_version": "1.0"}), encoding="utf-8"
+        )
+
+        lr.drift_promotion_step(tmp_path)
+
+        captured = capsys.readouterr()
+        assert "skipped" in captured.out
+
+    def test_missing_companion_dir_skips(self, tmp_path, capsys):
+        """When .companion/ is absent, drift detection is skipped gracefully."""
+        import skills.pairmode.scripts.lesson_review as lr
+
+        lr.drift_promotion_step(tmp_path)
+
+        captured = capsys.readouterr()
+        assert "skipped" in captured.out
+
+    def test_empty_list_skips(self, tmp_path, capsys):
+        """When registered_projects is an empty list, drift detection is skipped."""
+        import skills.pairmode.scripts.lesson_review as lr
+
+        companion_dir = tmp_path / ".companion"
+        companion_dir.mkdir()
+        (companion_dir / "state.json").write_text(
+            json.dumps({"registered_projects": []}), encoding="utf-8"
+        )
+
+        lr.drift_promotion_step(tmp_path)
+
+        captured = capsys.readouterr()
+        assert "skipped" in captured.out
+
+    def test_invalid_path_skipped_with_warning(self, tmp_path, capsys):
+        """Paths failing depth guard produce a warning and are excluded."""
+        import skills.pairmode.scripts.lesson_review as lr
+
+        companion_dir = tmp_path / ".companion"
+        companion_dir.mkdir()
+        (companion_dir / "state.json").write_text(
+            json.dumps({"registered_projects": ["/tmp"]}), encoding="utf-8"
+        )
+
+        lr.drift_promotion_step(tmp_path)
+
+        captured = capsys.readouterr()
+        # Either "skipped" (no valid dirs) or a warning appeared
+        assert "skipped" in captured.out or "warning" in captured.err
+
+    def test_registered_projects_calls_drift_report(self, tmp_path):
+        """When registered_projects contains valid dirs, drift_report_fn is called."""
+        import skills.pairmode.scripts.lesson_review as lr
+
+        project_a = tmp_path / "proj_a"
+        project_a.mkdir(parents=True)
+
+        companion_dir = tmp_path / ".companion"
+        companion_dir.mkdir()
+        (companion_dir / "state.json").write_text(
+            json.dumps({"registered_projects": [str(project_a)]}),
+            encoding="utf-8",
+        )
+
+        calls = []
+
+        def fake_drift_report(project_dirs, convergent, output_format):
+            calls.append({"project_dirs": list(project_dirs), "convergent": convergent})
+            return _make_drift_report_response([])
+
+        lr.drift_promotion_step(
+            tmp_path,
+            drift_report_fn=fake_drift_report,
+            create_story_fn=None,
+        )
+
+        assert len(calls) == 1
+        assert calls[0]["convergent"] is True
+
+
+class TestRunDriftPromotion:
+    """Tests for run_drift_promotion (the core logic)."""
+
+    def test_no_candidates_prints_message(self, tmp_path, capsys):
+        """When no convergence candidates are found, prints a note."""
+        import skills.pairmode.scripts.lesson_review as lr
+
+        def fake_drift_report(project_dirs, convergent, output_format):
+            return _make_drift_report_response([])
+
+        lr.run_drift_promotion(
+            project_dirs=[tmp_path],
+            project_dir=tmp_path,
+            drift_report_fn=fake_drift_report,
+        )
+
+        captured = capsys.readouterr()
+        assert "No convergence candidates" in captured.out
+
+    def test_promotion_creates_story_with_source(self, tmp_path):
+        """On 'y', create_story_fn is called with source set to origin project."""
+        import skills.pairmode.scripts.lesson_review as lr
+
+        candidate = _make_convergence_candidate(
+            projects=["project-a", "project-b"],
+        )
+
+        def fake_drift_report(project_dirs, convergent, output_format):
+            return _make_drift_report_response([candidate])
+
+        story_calls = []
+
+        def fake_create_story(rail, title, project_dir, story_class=None, source=None, **kwargs):
+            story_calls.append({
+                "rail": rail,
+                "title": title,
+                "story_class": story_class,
+                "source": source,
+            })
+            # Return a fake path
+            story_path = tmp_path / "docs" / "stories" / rail / "FAKE-001.md"
+            story_path.parent.mkdir(parents=True, exist_ok=True)
+            story_path.write_text("# fake\n", encoding="utf-8")
+            return story_path
+
+        # Simulate user typing "y"
+        answers = iter(["y"])
+        def fake_input(prompt):
+            return next(answers)
+
+        lr.run_drift_promotion(
+            project_dirs=[tmp_path],
+            project_dir=tmp_path,
+            drift_report_fn=fake_drift_report,
+            create_story_fn=fake_create_story,
+            input_fn=fake_input,
+        )
+
+        assert len(story_calls) == 1
+        assert story_calls[0]["source"] == "project-a"
+        assert story_calls[0]["story_class"] == "code"
+
+    def test_promotion_creates_real_story_file_with_source(self, tmp_path):
+        """Integration: on 'y', the real create_story function writes a file with source:."""
+        import skills.pairmode.scripts.lesson_review as lr
+        from skills.pairmode.scripts.story_new import create_story
+
+        candidate = _make_convergence_candidate(
+            projects=["my-project", "other-project"],
+        )
+
+        def fake_drift_report(project_dirs, convergent, output_format):
+            return _make_drift_report_response([candidate])
+
+        answers = iter(["y"])
+        def fake_input(prompt):
+            return next(answers)
+
+        # Use tmp_path as the "anchor" project root
+        lr.run_drift_promotion(
+            project_dirs=[tmp_path],
+            project_dir=tmp_path,
+            drift_report_fn=fake_drift_report,
+            create_story_fn=create_story,
+            input_fn=fake_input,
+        )
+
+        # Find the created story file
+        story_files = list((tmp_path / "docs" / "stories").rglob("*.md"))
+        assert len(story_files) == 1, f"Expected 1 story file, got {story_files}"
+        content = story_files[0].read_text(encoding="utf-8")
+        assert "source: my-project" in content
+
+    def test_rejection_writes_to_rejected_file(self, tmp_path):
+        """On 'n', the pattern ID is written to .pairmode-drift-rejected."""
+        import skills.pairmode.scripts.lesson_review as lr
+
+        candidate = _make_convergence_candidate(
+            file="CLAUDE.build.md",
+            section="## some section",
+        )
+
+        def fake_drift_report(project_dirs, convergent, output_format):
+            return _make_drift_report_response([candidate])
+
+        answers = iter(["n"])
+        def fake_input(prompt):
+            return next(answers)
+
+        lr.run_drift_promotion(
+            project_dirs=[tmp_path],
+            project_dir=tmp_path,
+            drift_report_fn=fake_drift_report,
+            input_fn=fake_input,
+        )
+
+        rejected_path = tmp_path / ".pairmode-drift-rejected"
+        assert rejected_path.exists(), ".pairmode-drift-rejected should have been created"
+        lines = rejected_path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 1
+        assert "CLAUDE.build.md" in lines[0]
+        assert "## some section" in lines[0]
+
+    def test_skip_writes_to_rejected_file(self, tmp_path):
+        """On 'skip', the pattern ID is written to .pairmode-drift-rejected."""
+        import skills.pairmode.scripts.lesson_review as lr
+
+        candidate = _make_convergence_candidate()
+
+        def fake_drift_report(project_dirs, convergent, output_format):
+            return _make_drift_report_response([candidate])
+
+        answers = iter(["skip"])
+        def fake_input(prompt):
+            return next(answers)
+
+        lr.run_drift_promotion(
+            project_dirs=[tmp_path],
+            project_dir=tmp_path,
+            drift_report_fn=fake_drift_report,
+            input_fn=fake_input,
+        )
+
+        rejected_path = tmp_path / ".pairmode-drift-rejected"
+        assert rejected_path.exists()
+
+    def test_previously_rejected_pattern_skipped(self, tmp_path, capsys):
+        """Candidates already in .pairmode-drift-rejected are not re-prompted."""
+        import skills.pairmode.scripts.lesson_review as lr
+
+        candidate = _make_convergence_candidate(
+            file="CLAUDE.build.md",
+            section="## some section",
+        )
+        pattern_id = lr._candidate_pattern_id(candidate)
+
+        # Pre-populate the rejected file
+        (tmp_path / ".pairmode-drift-rejected").write_text(
+            pattern_id + "\n", encoding="utf-8"
+        )
+
+        prompted = []
+
+        def fake_drift_report(project_dirs, convergent, output_format):
+            return _make_drift_report_response([candidate])
+
+        def fake_input(prompt):
+            prompted.append(prompt)
+            return "y"
+
+        lr.run_drift_promotion(
+            project_dirs=[tmp_path],
+            project_dir=tmp_path,
+            drift_report_fn=fake_drift_report,
+            input_fn=fake_input,
+        )
+
+        # Should not have been prompted since pattern was pre-rejected
+        assert len(prompted) == 0
+
+    def test_multiple_candidates_one_promoted_one_rejected(self, tmp_path):
+        """Multiple candidates can be independently promoted or rejected."""
+        import skills.pairmode.scripts.lesson_review as lr
+
+        cand1 = _make_convergence_candidate(file="CLAUDE.build.md", section="## section one")
+        cand2 = _make_convergence_candidate(file="CLAUDE.build.md", section="## section two")
+
+        def fake_drift_report(project_dirs, convergent, output_format):
+            return _make_drift_report_response([cand1, cand2])
+
+        story_calls = []
+
+        def fake_create_story(rail, title, project_dir, story_class=None, source=None, **kwargs):
+            story_calls.append(source)
+            story_path = tmp_path / "docs" / "stories" / rail / f"FAKE-{len(story_calls):03d}.md"
+            story_path.parent.mkdir(parents=True, exist_ok=True)
+            story_path.write_text("# fake\n", encoding="utf-8")
+            return story_path
+
+        answers = iter(["y", "n"])
+        def fake_input(prompt):
+            return next(answers)
+
+        lr.run_drift_promotion(
+            project_dirs=[tmp_path],
+            project_dir=tmp_path,
+            drift_report_fn=fake_drift_report,
+            create_story_fn=fake_create_story,
+            input_fn=fake_input,
+        )
+
+        # One promoted, one rejected
+        assert len(story_calls) == 1
+        rejected_path = tmp_path / ".pairmode-drift-rejected"
+        assert rejected_path.exists()
+        content = rejected_path.read_text(encoding="utf-8")
+        assert "## section two" in content

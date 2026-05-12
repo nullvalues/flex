@@ -2,7 +2,7 @@
 id: INFRA-064
 rail: INFRA
 title: .pairmode-overrides integration in drift reports
-status: planned
+status: complete
 phase: "29"
 story_class: code
 primary_files:

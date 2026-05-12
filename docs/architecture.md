@@ -180,7 +180,11 @@ Returns `None` if `product.json` is missing or has no `config` key. Returns a di
     "id": "2.3",
     "title": "optional title",
     "set_at": "2026-04-20T00:00:00+00:00"
-  }
+  },
+  "registered_projects": [
+    "/absolute/path/to/project-a",
+    "/absolute/path/to/project-b"
+  ]
 }
 ```
 
@@ -192,6 +196,12 @@ Fields:
 - `current_story` — **optional**; present only when pairmode is active and the user
   confirmed which story they are working on. Contains `id` (required), optional `title`,
   and `set_at` (UTC ISO-8601 timestamp). Absent when the user skips the prompt.
+- `registered_projects` — **optional**; list of absolute paths to pairmode-scaffolded
+  projects to include in cross-project drift detection. When present and non-empty,
+  `/anchor:pairmode review` runs `pairmode_drift_report --convergent` across all listed
+  projects and surfaces convergence candidates for promotion to canonical templates.
+  Not set by `bootstrap.py` — opt-in only. Each path is validated with `_depth_guard`
+  before use (paths with fewer than 3 components are rejected).
 
 Pairmode is considered active when `.claude/settings.deny-rationale.json` exists in the
 project root. The helper `skills/pairmode/scripts/story_context.py` provides:

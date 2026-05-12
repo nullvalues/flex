@@ -162,6 +162,70 @@ def _append_to_phase(project_dir: Path, phase: str, story_id: str, title: str) -
 
 
 # ---------------------------------------------------------------------------
+# Programmatic API (used by drift promotion and tests)
+# ---------------------------------------------------------------------------
+
+
+def create_story(
+    rail: str,
+    title: str,
+    project_dir: Path | str,
+    phase: str | None = None,
+    story_class: str | None = None,
+    source: str | None = None,
+) -> Path:
+    """Create a new story file programmatically without interactive prompts.
+
+    The rail directory is created automatically if it does not exist (no prompt).
+    Returns the Path of the created story file.
+
+    Raises:
+        ValueError: when *project_dir* is too shallow or *rail* escapes
+                    docs/stories/.
+    """
+    resolved = Path(project_dir).resolve()
+
+    if not resolved.is_dir() or len(resolved.parts) < 3:
+        raise ValueError(
+            f"project_dir resolves to a suspicious path: {resolved}"
+        )
+
+    rail = rail.upper()
+
+    rail_dir = resolved / "docs" / "stories" / rail
+
+    # Formal containment check
+    stories_root = (resolved / "docs" / "stories").resolve()
+    try:
+        rail_dir.resolve().relative_to(stories_root)
+    except ValueError:
+        raise ValueError("Invalid rail name: resolves outside docs/stories/")
+
+    # Create rail directory if needed (no prompt — caller is non-interactive)
+    if not rail_dir.is_dir():
+        rail_dir.mkdir(parents=True, exist_ok=True)
+
+        era_path = _find_era(resolved)
+        if era_path is not None:
+            _add_rail_to_era(era_path, rail)
+
+    seq = _next_sequence(rail_dir, rail)
+    story_id = f"{rail}-{seq:03d}"
+
+    story_path = rail_dir / f"{story_id}.md"
+    content = (
+        _story_frontmatter(story_id, rail, title, phase, story_class, source)
+        + _story_body()
+    )
+    story_path.write_text(content, encoding="utf-8")
+
+    if phase is not None:
+        _append_to_phase(resolved, phase, story_id, title)
+
+    return story_path
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
