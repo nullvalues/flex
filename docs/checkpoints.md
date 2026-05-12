@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp29-drift-detection-and-promotion
+
+**Phase:** 29 — Project drift detection and promotion workflow
+**Tag command:** `git tag cp29-drift-detection-and-promotion && git push origin cp29-drift-detection-and-promotion`
+**Acceptance:** Drift detection and promotion feedback loop complete. Optional `source:` field added to story frontmatter to track drift-promoted stories (INFRA-063). `pairmode_drift_report.py` compares registered projects against canonical templates, classifies MISSING/EXTRA/DRIFT/INTENTIONAL, surfaces convergence candidates with `--convergent` (INFRA-065). `.pairmode-overrides` sections reclassified as INTENTIONAL in drift reports (INFRA-064). `pairmode review` extended with interactive drift promotion — promote/reject/skip convergence candidates, creates story with `source:` set on promotion (INFRA-066). `drift_evidence.py` scores candidates from effort.db with token-efficiency evidence, `(None, "insufficient data")` when fewer than 5 attempts (INFRA-067). Phase continuity policy added to ~/.claude/CLAUDE.md and checkpoint sequence (Step 5: phase completion check). 1563 tests pass.
+
+---
+
 ## cp28-cer-backlog-remediation
 
 **Phase:** 28 — CER backlog remediation (LOW items)
