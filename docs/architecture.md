@@ -53,7 +53,8 @@ anchor/
         schema_validator.py       ← validate story/era/phase manifest frontmatter
         permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
-        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand)
+        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand); also registers register/unregister/list-projects in the top-level CLI group
+        pairmode_register.py      ← manage registered_projects in .companion/state.json (register/unregister/list-projects subcommands)
       templates/                  ← Jinja2 templates for scaffold generation
         CLAUDE.md.j2
         CLAUDE.build.md.j2
@@ -202,6 +203,10 @@ Fields:
   projects and surfaces convergence candidates for promotion to canonical templates.
   Not set by `bootstrap.py` — opt-in only. Each path is validated with `_depth_guard`
   before use (paths with fewer than 3 components are rejected).
+  The canonical management path for this list is the `pairmode register` / `unregister` /
+  `list-projects` subcommands (INFRA-070); hand-editing `state.json` is discouraged.
+  The key is created on first `register` call when absent; it is never written by
+  `bootstrap.py`. Each entry is a resolved absolute path string.
 
 Pairmode is considered active when `.claude/settings.deny-rationale.json` exists in the
 project root. The helper `skills/pairmode/scripts/story_context.py` provides:

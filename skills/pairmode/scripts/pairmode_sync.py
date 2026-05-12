@@ -470,6 +470,13 @@ def pairmode_cli() -> None:
 pairmode_cli.add_command(sync_agents)
 pairmode_cli.add_command(sync_build)
 
+# Register the register/unregister/list-projects commands from pairmode_register.py
+from pairmode_register import register, unregister, list_projects  # noqa: E402
+
+pairmode_cli.add_command(register)
+pairmode_cli.add_command(unregister)
+pairmode_cli.add_command(list_projects)
+
 
 if __name__ == "__main__":
     pairmode_cli()
