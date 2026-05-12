@@ -2,7 +2,7 @@
 id: INFRA-069
 rail: INFRA
 title: "pairmode sync-build — propagate CLAUDE.build.md template changes"
-status: planned
+status: complete
 phase: "30"
 story_class: code
 primary_files:

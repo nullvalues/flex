@@ -20,7 +20,7 @@ any order.
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-068 | CER-020: `exit_plan_mode.py` pipe-path containment guard | complete |
-| INFRA-069 | `pairmode sync-build` — propagate CLAUDE.build.md template changes | planned |
+| INFRA-069 | `pairmode sync-build` — propagate CLAUDE.build.md template changes | complete |
 | INFRA-070 | `pairmode register/unregister` — manage registered_projects in state.json | planned |
 
 ---
