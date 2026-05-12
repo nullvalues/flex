@@ -1209,3 +1209,284 @@ class TestSyncOverrides:
         assert any("override declared" in s for s in result.skipped), (
             f"Expected 'override declared' in result.skipped. Got: {result.skipped}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Story INFRA-069 — pairmode sync-build subcommand
+# ---------------------------------------------------------------------------
+
+
+from skills.pairmode.scripts.pairmode_sync import (
+    pairmode_cli,
+    _build_template_context,
+    _render_build_template,
+)
+
+
+def _make_stale_build_md(project_dir: Path) -> Path:
+    """Write a stale CLAUDE.build.md that is missing the Checkpoint sequence section."""
+    stale_content = (
+        "# CLAUDE.build.md — testproject Build Orchestrator\n\n"
+        "You are the build orchestrator for the testproject project.\n\n"
+        "---\n\n"
+        "## Session modes\n\n"
+        "Some content here.\n\n"
+        "## Before the first build loop\n\n"
+        "Some steps here.\n\n"
+        "## Rules\n\n"
+        "- Do not write code.\n"
+    )
+    build_file = project_dir / "CLAUDE.build.md"
+    build_file.write_text(stale_content, encoding="utf-8")
+    return build_file
+
+
+class TestSyncBuildDryRun:
+    """sync-build --dry-run prints a diff and does not modify the file."""
+
+    def test_dry_run_prints_diff(self, tmp_path: Path) -> None:
+        """--dry-run prints a unified diff."""
+        build_file = _make_stale_build_md(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(
+            pairmode_cli,
+            ["sync-build", "--project-dir", str(tmp_path), "--dry-run"],
+        )
+        assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
+        # Unified diff lines start with --- or +++ or @@ or +/- lines
+        assert "---" in result.output or "+++" in result.output, (
+            f"Expected unified diff output, got: {result.output[:300]}"
+        )
+
+    def test_dry_run_shows_missing_section(self, tmp_path: Path) -> None:
+        """--dry-run diff contains the section that is missing from the stale file."""
+        _make_stale_build_md(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(
+            pairmode_cli,
+            ["sync-build", "--project-dir", str(tmp_path), "--dry-run"],
+        )
+        assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
+        # The Checkpoint sequence section is in the template but missing from the stale file
+        assert "Checkpoint sequence" in result.output, (
+            f"Expected 'Checkpoint sequence' in diff output, got: {result.output[:500]}"
+        )
+
+    def test_dry_run_does_not_modify_file(self, tmp_path: Path) -> None:
+        """--dry-run must not write any changes to CLAUDE.build.md."""
+        build_file = _make_stale_build_md(tmp_path)
+        original_content = build_file.read_text(encoding="utf-8")
+
+        runner = CliRunner()
+        runner.invoke(
+            pairmode_cli,
+            ["sync-build", "--project-dir", str(tmp_path), "--dry-run"],
+        )
+
+        assert build_file.read_text(encoding="utf-8") == original_content, (
+            "CLAUDE.build.md should not be modified by --dry-run"
+        )
+
+    def test_no_apply_also_does_not_modify_file(self, tmp_path: Path) -> None:
+        """Without --apply, the file is not modified even if diff is non-empty."""
+        build_file = _make_stale_build_md(tmp_path)
+        original_content = build_file.read_text(encoding="utf-8")
+
+        runner = CliRunner()
+        runner.invoke(
+            pairmode_cli,
+            ["sync-build", "--project-dir", str(tmp_path)],
+        )
+
+        assert build_file.read_text(encoding="utf-8") == original_content, (
+            "CLAUDE.build.md should not be modified without --apply"
+        )
+
+
+class TestSyncBuildApply:
+    """sync-build --apply --yes writes the rendered template."""
+
+    def test_apply_yes_writes_rendered_template(self, tmp_path: Path) -> None:
+        """--apply --yes overwrites CLAUDE.build.md with the rendered template."""
+        _make_stale_build_md(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(
+            pairmode_cli,
+            ["sync-build", "--project-dir", str(tmp_path), "--apply", "--yes"],
+        )
+        assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
+
+        build_file = tmp_path / "CLAUDE.build.md"
+        content = build_file.read_text(encoding="utf-8")
+        # The rendered template must contain the Checkpoint sequence section
+        assert "Checkpoint sequence" in content, (
+            "Rendered CLAUDE.build.md should contain 'Checkpoint sequence'"
+        )
+
+    def test_apply_yes_produces_updated_message(self, tmp_path: Path) -> None:
+        """--apply --yes prints 'updated: CLAUDE.build.md'."""
+        _make_stale_build_md(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(
+            pairmode_cli,
+            ["sync-build", "--project-dir", str(tmp_path), "--apply", "--yes"],
+        )
+        assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
+        assert "updated" in result.output, (
+            f"Expected 'updated' message in output, got: {result.output}"
+        )
+        assert "CLAUDE.build.md" in result.output, (
+            f"Expected 'CLAUDE.build.md' in output, got: {result.output}"
+        )
+
+    def test_apply_yes_file_no_longer_stale(self, tmp_path: Path) -> None:
+        """After --apply --yes, re-running sync-build finds no changes."""
+        _make_stale_build_md(tmp_path)
+        runner = CliRunner()
+
+        # First apply: writes rendered template
+        runner.invoke(
+            pairmode_cli,
+            ["sync-build", "--project-dir", str(tmp_path), "--apply", "--yes"],
+        )
+
+        # Second run: file now matches template — should report no changes
+        result2 = runner.invoke(
+            pairmode_cli,
+            ["sync-build", "--project-dir", str(tmp_path), "--dry-run"],
+        )
+        assert result2.exit_code == 0, f"Exit {result2.exit_code}: {result2.output}"
+        assert "No changes to apply." in result2.output, (
+            f"Expected 'No changes to apply.' after apply, got: {result2.output[:300]}"
+        )
+
+    def test_apply_without_yes_prompts_and_aborts_on_n(self, tmp_path: Path) -> None:
+        """--apply without --yes prompts; declining aborts without writing."""
+        build_file = _make_stale_build_md(tmp_path)
+        original_content = build_file.read_text(encoding="utf-8")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            pairmode_cli,
+            ["sync-build", "--project-dir", str(tmp_path), "--apply"],
+            input="n\n",
+        )
+
+        assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
+        assert build_file.read_text(encoding="utf-8") == original_content, (
+            "CLAUDE.build.md should not be modified when user declines the prompt"
+        )
+
+    def test_apply_without_yes_prompts_and_writes_on_y(self, tmp_path: Path) -> None:
+        """--apply without --yes prompts; accepting writes the rendered template."""
+        _make_stale_build_md(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(
+            pairmode_cli,
+            ["sync-build", "--project-dir", str(tmp_path), "--apply"],
+            input="y\n",
+        )
+
+        assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
+        content = (tmp_path / "CLAUDE.build.md").read_text(encoding="utf-8")
+        assert "Checkpoint sequence" in content, (
+            "Rendered template should contain 'Checkpoint sequence' after accepting prompt"
+        )
+
+
+class TestSyncBuildContainmentGuard:
+    """sync-build rejects --project-dir that resolves to a suspicious (shallow) path."""
+
+    def test_root_dir_rejected(self) -> None:
+        """/ is rejected by the containment guard."""
+        runner = CliRunner()
+        result = runner.invoke(
+            pairmode_cli,
+            ["sync-build", "--project-dir", "/"],
+        )
+        assert result.exit_code != 0, (
+            f"Expected non-zero exit for '/', got exit {result.exit_code}"
+        )
+
+    def test_shallow_path_rejected(self, tmp_path: Path) -> None:
+        """A path with fewer than 3 components (simulated) is rejected.
+
+        We cannot actually pass '/' or '/etc' to Click's `type=click.Path()`
+        with `exists=True` if they don't exist on this system, so we test the
+        guard function directly for the edge case.
+        """
+        from skills.pairmode.scripts.pairmode_sync import _depth_guard_sync_build
+
+        shallow = Path("/etc")
+        if shallow.is_dir():
+            with pytest.raises(SystemExit) as exc_info:
+                _depth_guard_sync_build(shallow)
+            assert exc_info.value.code != 0
+
+    def test_valid_tmp_path_passes_guard(self, tmp_path: Path) -> None:
+        """A tmp_path (3+ components) passes the containment guard without raising."""
+        from skills.pairmode.scripts.pairmode_sync import _depth_guard_sync_build
+
+        # Should not raise
+        _depth_guard_sync_build(tmp_path)
+
+    def test_containment_guard_rejects_root(self) -> None:
+        """The containment guard directly rejects Path('/') with SystemExit."""
+        from skills.pairmode.scripts.pairmode_sync import _depth_guard_sync_build
+
+        with pytest.raises(SystemExit) as exc_info:
+            _depth_guard_sync_build(Path("/"))
+        assert exc_info.value.code != 0
+
+
+class TestSyncBuildContextLoading:
+    """sync-build uses state.json and pairmode_context.json for template vars."""
+
+    def test_project_name_from_state_json(self, tmp_path: Path) -> None:
+        """project_name is read from state.json when present."""
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        (companion / "state.json").write_text(
+            json.dumps({"project_name": "my-test-project"}), encoding="utf-8"
+        )
+        context = _build_template_context(tmp_path)
+        assert context["project_name"] == "my-test-project"
+
+    def test_project_name_fallback_to_dir_name(self, tmp_path: Path) -> None:
+        """project_name falls back to directory name when state.json is absent."""
+        context = _build_template_context(tmp_path)
+        assert context["project_name"] == tmp_path.name
+
+    def test_build_command_from_pairmode_context(self, tmp_path: Path) -> None:
+        """build_command is read from pairmode_context.json."""
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        (companion / "pairmode_context.json").write_text(
+            json.dumps({"build_command": "uv run pytest", "test_command": "uv run pytest"}),
+            encoding="utf-8",
+        )
+        context = _build_template_context(tmp_path)
+        assert context["build_command"] == "uv run pytest"
+
+    def test_missing_files_produce_empty_strings(self, tmp_path: Path) -> None:
+        """When no config files exist, build/test/migration commands fall back to empty strings."""
+        context = _build_template_context(tmp_path)
+        assert context["build_command"] == ""
+        assert context["test_command"] == ""
+        assert context["migration_command"] == ""
+
+    def test_rendered_template_contains_project_name(self, tmp_path: Path) -> None:
+        """Rendered CLAUDE.build.md contains the project_name from context."""
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        (companion / "state.json").write_text(
+            json.dumps({"project_name": "sprocket"}), encoding="utf-8"
+        )
+        context = _build_template_context(tmp_path)
+        rendered = _render_build_template(context)
+        assert "sprocket" in rendered, (
+            "Rendered template should contain the project name"
+        )
+        assert "{{ project_name }}" not in rendered, (
+            "Rendered template should not contain raw Jinja2 syntax"
+        )

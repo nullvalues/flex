@@ -53,7 +53,7 @@ anchor/
         schema_validator.py       ← validate story/era/phase manifest frontmatter
         permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
-        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand)
+        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand)
       templates/                  ← Jinja2 templates for scaffold generation
         CLAUDE.md.j2
         CLAUDE.build.md.j2

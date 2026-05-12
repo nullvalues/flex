@@ -6,9 +6,16 @@ matching Jinja2 template in ``skills/pairmode/templates/agents/`` for each
 agent file, renders only the frontmatter block, and replaces the frontmatter
 in the target file while preserving the body.
 
+``sync-build`` compares the target project's ``CLAUDE.build.md`` against the
+canonical ``CLAUDE.build.md.j2`` template rendered with the project's
+``state.json``.  With ``--apply``, it writes the rendered template.
+
 Usage:
     uv run python skills/pairmode/scripts/pairmode_sync.py sync-agents \\
         [--project-dir DIR] [--dry-run] [--yes]
+
+    uv run python skills/pairmode/scripts/pairmode_sync.py sync-build \\
+        --project-dir DIR [--dry-run] [--apply] [--yes]
 """
 
 from __future__ import annotations
@@ -29,11 +36,17 @@ import jinja2
 # Constants
 # ---------------------------------------------------------------------------
 
+# Pairmode templates root — parents[1] of this script == skills/pairmode/
+_TEMPLATES_ROOT = Path(__file__).resolve().parent.parent / "templates"
+
 # Path to agent templates directory, relative to this script's location:
 #   skills/pairmode/scripts/pairmode_sync.py
 #   parents[0] = skills/pairmode/scripts/
 #   parents[1] = skills/pairmode/
-TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates" / "agents"
+TEMPLATES_DIR = _TEMPLATES_ROOT / "agents"
+
+# Path to the canonical CLAUDE.build.md Jinja2 template
+BUILD_TEMPLATE_PATH = _TEMPLATES_ROOT / "CLAUDE.build.md.j2"
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +61,17 @@ def _load_state(project_dir: Path) -> dict:
         return {}
     try:
         return json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _load_pairmode_context(project_dir: Path) -> dict:
+    """Read .companion/pairmode_context.json; return empty dict if missing or malformed."""
+    ctx_path = project_dir / ".companion" / "pairmode_context.json"
+    if not ctx_path.exists():
+        return {}
+    try:
+        return json.loads(ctx_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
 
@@ -134,6 +158,67 @@ def _split_agent_file(text: str) -> tuple[str, str] | None:
     frontmatter = "".join(lines[: close_idx + 1])
     body = "".join(lines[close_idx + 1 :])
     return frontmatter, body
+
+
+# ---------------------------------------------------------------------------
+# sync-build helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_template_context(project_dir: Path) -> dict:
+    """Build the Jinja2 context for rendering CLAUDE.build.md.j2.
+
+    Merges state.json and pairmode_context.json, with graceful fallbacks
+    for every key the template uses.
+    """
+    state = _load_state(project_dir)
+    pctx = _load_pairmode_context(project_dir)
+
+    # project_name: prefer state.json, then pairmode_context.json, then dir name
+    project_name = state.get("project_name") or pctx.get("project_name") or ""
+    if not isinstance(project_name, str) or not project_name.strip():
+        project_name = project_dir.resolve().name
+    else:
+        project_name = project_name.strip().replace("\n", "").replace("\r", "")
+
+    return {
+        "project_name": project_name,
+        "build_command": pctx.get("build_command") or state.get("build_command") or "",
+        "test_command": pctx.get("test_command") or state.get("test_command") or "",
+        "migration_command": pctx.get("migration_command") or state.get("migration_command") or "",
+    }
+
+
+def _render_build_template(context: dict) -> str:
+    """Render the canonical CLAUDE.build.md.j2 template with *context*.
+
+    Returns the rendered string.
+    Raises ``ValueError`` if the template cannot be rendered.
+    """
+    loader = jinja2.FileSystemLoader(str(BUILD_TEMPLATE_PATH.parent))
+    env = jinja2.Environment(
+        loader=loader,
+        undefined=jinja2.Undefined,  # silently treat missing vars as empty
+        keep_trailing_newline=True,
+    )
+    try:
+        template = env.get_template(BUILD_TEMPLATE_PATH.name)
+        return template.render(**context)
+    except jinja2.TemplateError as exc:
+        raise ValueError(f"Failed to render {BUILD_TEMPLATE_PATH.name}: {exc}") from exc
+
+
+def _depth_guard_sync_build(project_dir: Path) -> None:
+    """Reject project_dir paths with fewer than 3 components (containment guard).
+
+    Raises SystemExit(1) when the path is too shallow.
+    """
+    if not project_dir.is_dir() or len(project_dir.parts) < 3:
+        click.echo(
+            f"error: project-dir resolves to a suspicious path: {project_dir}",
+            err=True,
+        )
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -279,5 +364,112 @@ def sync_agents(project_dir: str, dry_run: bool, yes: bool) -> None:
         click.echo(f"  updated: {agent_file.name}")
 
 
+@click.command("sync-build")
+@click.option(
+    "--project-dir",
+    required=True,
+    type=click.Path(file_okay=False),
+    help="Project root containing CLAUDE.build.md.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Print the diff and exit without writing.",
+)
+@click.option(
+    "--apply",
+    is_flag=True,
+    default=False,
+    help="Write the rendered template to CLAUDE.build.md.",
+)
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation when --apply is set.",
+)
+def sync_build(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
+    """Compare and optionally update CLAUDE.build.md from the canonical template.
+
+    Renders skills/pairmode/templates/CLAUDE.build.md.j2 with the project's
+    state.json variables and diffs the result against the project's current
+    CLAUDE.build.md.
+
+    With --dry-run: print the diff and exit 0 without writing.
+    With --apply: print the diff, optionally prompt, then write the file.
+    Without --apply: print the diff and exit 0 (same as --dry-run).
+    With --apply --yes: write without prompting.
+    """
+    project_path = Path(project_dir).resolve()
+
+    # Containment guard — consistent with all other pairmode entry points
+    _depth_guard_sync_build(project_path)
+
+    build_file = project_path / "CLAUDE.build.md"
+
+    # Build template context from state.json + pairmode_context.json
+    context = _build_template_context(project_path)
+
+    # Render the canonical template
+    try:
+        rendered = _render_build_template(context)
+    except ValueError as exc:
+        click.echo(f"error: {exc}", err=True)
+        sys.exit(1)
+
+    # Read existing file; treat missing as empty
+    if build_file.exists():
+        existing = build_file.read_text(encoding="utf-8")
+    else:
+        existing = ""
+
+    # Compute the unified diff
+    diff_lines = list(
+        difflib.unified_diff(
+            existing.splitlines(keepends=True),
+            rendered.splitlines(keepends=True),
+            fromfile="CLAUDE.build.md",
+            tofile="CLAUDE.build.md (rendered)",
+        )
+    )
+
+    if not diff_lines:
+        click.echo("No changes to apply.")
+        return
+
+    # Print the diff
+    click.echo("".join(diff_lines), nl=False)
+
+    # --dry-run or no --apply: exit without writing
+    if dry_run or not apply:
+        return
+
+    # --apply path: prompt unless --yes
+    if not yes:
+        confirmed = click.confirm("Apply? [y/N]", default=False, prompt_suffix="")
+        if not confirmed:
+            click.echo("Aborted.")
+            return
+
+    build_file.write_text(rendered, encoding="utf-8")
+    click.echo(f"  updated: {build_file.name}")
+
+
+# ---------------------------------------------------------------------------
+# CLI group
+# ---------------------------------------------------------------------------
+
+
+@click.group("pairmode")
+def pairmode_cli() -> None:
+    """pairmode sync subcommands."""
+
+
+pairmode_cli.add_command(sync_agents)
+pairmode_cli.add_command(sync_build)
+
+
 if __name__ == "__main__":
-    sync_agents()
+    pairmode_cli()
