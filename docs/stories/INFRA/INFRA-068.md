@@ -2,7 +2,7 @@
 id: INFRA-068
 rail: INFRA
 title: "CER-020: exit_plan_mode.py pipe-path containment guard"
-status: planned
+status: complete
 phase: "30"
 story_class: code
 primary_files:
