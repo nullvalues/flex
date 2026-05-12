@@ -117,6 +117,8 @@ checklists reflect your actual project history.
 | `/anchor:companion` | reactive | Load spec, capture decisions, detect drift | `/anchor:companion` | Updated `spec.json`, sidebar process |
 | `/anchor:pairmode` | proactive | Scaffold and enforce structured build loop | `/anchor:pairmode bootstrap` | CLAUDE.md, agent docs, phase files, deny list |
 | `/anchor:pairmode drift-report` | on-demand | Compare registered projects against canonical templates; surface convergent improvements for promotion | `/anchor:pairmode drift-report --projects <path> [--convergent]` | Per-project MISSING/EXTRA/DRIFT report; convergence candidates for promotion |
+| `pairmode sync-build` | on-demand | Diff and optionally apply canonical `CLAUDE.build.md` template to an existing project | `pairmode sync-build --project-dir DIR [--dry-run] [--apply] [--yes]` | Unified diff; updated `CLAUDE.build.md` on `--apply` |
+| `pairmode register` | on-demand | Manage the list of projects used by drift detection | `pairmode register/unregister/list-projects --project-dir DIR` | Updated `registered_projects` in `.companion/state.json` |
 
 ## Use case scenarios
 

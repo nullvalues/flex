@@ -2,7 +2,7 @@
 id: INFRA-070
 rail: INFRA
 title: "pairmode register/unregister — manage registered_projects in state.json"
-status: planned
+status: complete
 phase: "30"
 story_class: code
 primary_files:

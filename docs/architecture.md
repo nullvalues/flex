@@ -551,6 +551,55 @@ Behaviour:
 - If no files would change: prints "No changes to apply." and exits 0.
 - Agent files with no frontmatter block (no opening `---`): warns and skips.
 
+**`pairmode_sync.py` — `sync-build` subcommand.**
+Compares the target project's `CLAUDE.build.md` against the canonical `CLAUDE.build.md.j2`
+template rendered with the project's `state.json` and `pairmode_context.json`. Prints a
+unified diff. With `--apply`, writes the rendered template to the project's `CLAUDE.build.md`
+after confirmation (or immediately with `--apply --yes`). With `--dry-run`, prints the diff
+and exits without writing.
+
+CLI:
+```bash
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+  sync-build --project-dir DIR [--dry-run] [--apply] [--yes]
+```
+
+Behaviour:
+- Renders `CLAUDE.build.md.j2` with `project_name`, `build_command`, `test_command`,
+  `migration_command` sourced from `state.json` and `pairmode_context.json` (graceful
+  fallback when keys are absent).
+- `--dry-run` or no `--apply`: prints diff and exits 0 without writing.
+- `--apply`: prints diff, prompts "Apply? [y/N]", writes on `y`.
+- `--apply --yes`: writes without prompting.
+- If no changes: prints "No changes to apply." and exits 0.
+- Applies a depth guard on `--project-dir` (fewer than 3 path components are rejected).
+
+**`pairmode_register.py` — `register`, `unregister`, `list-projects` subcommands.**
+Manages the `registered_projects` list in anchor's own `.companion/state.json`. All three
+subcommands are registered in the `pairmode` CLI group via `pairmode_sync.py`.
+
+CLI:
+```bash
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+  register --project-dir DIR
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+  unregister --project-dir DIR
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+  list-projects
+```
+
+Behaviour:
+- `register`: resolves `--project-dir` to an absolute path, applies `_depth_guard`
+  (rejects paths with fewer than 3 components), appends to `registered_projects` if not
+  already present; prints "already registered" and exits 0 if duplicate.
+- `unregister`: resolves `--project-dir`, removes from list if present; prints "not
+  registered" and exits 0 if absent.
+- `list-projects`: prints one entry per line; prints "No projects registered." when list
+  is empty or absent.
+- All writes are atomic: temp file in same directory + `os.replace`.
+- Reads and writes anchor's own `.companion/state.json` (cwd-relative), not the target
+  project's state.json.
+
 ### Pairmode non-negotiables
 
 - Template context uses separate keys for brief.md and ideology.md must-preserve content:
