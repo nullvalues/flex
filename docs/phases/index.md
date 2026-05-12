@@ -19,4 +19,14 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 17 | Correctness — fix all known bugs | planned | [phase-17.md](phase-17.md) |
 | 18 | Missing tooling — story lifecycle, overrides, --yes, orchestrator clarity | planned | [phase-18.md](phase-18.md) |
 | 19 | Test coverage and integration verification | planned | [phase-19.md](phase-19.md) |
-| 20 | PR readiness — documentation, changelog, git history | planned | [phase-20.md](phase-20.md) |
+| 20 | PR readiness — documentation, changelog, git history | complete | [phase-20.md](phase-20.md) · cp20 |
+| 21 | Orchestrator hardening and auth-policy integration | complete | [phase-21.md](phase-21.md) · cp21 |
+| 22 | Effort tracking infrastructure | complete | [phase-22.md](phase-22.md) · cp22 |
+| 23 | Drift detection foundations (pivoted — see Phase 29) | complete (partial) | [phase-23.md](phase-23.md) · cp23 |
+| 24 | Data-defensible model rebalance refinement | complete | [phase-24.md](phase-24.md) · cp24-data-defensible-methodology |
+| 25 | Backlog remediation and cross-project agent sync | complete | [phase-25.md](phase-25.md) · cp25-backlog-remediation-and-agent-sync |
+| 26 | Build loop retry automation and auth policy canonization | complete | [phase-26.md](phase-26.md) · cp26-build-loop-retry-and-auth-canonization |
+| 27 | Auth check per-story placement fix | complete | [phase-27.md](phase-27.md) · cp27-auth-check-per-story-placement |
+| 28 | CER backlog remediation (LOW items) | complete | [phase-28.md](phase-28.md) · cp28-cer-backlog-remediation |
+| 29 | Project drift detection and promotion workflow | complete | [phase-29.md](phase-29.md) · cp29-drift-detection-and-promotion |
+| 30 | Hook security fix and sync tooling gaps | planned | [phase-30.md](phase-30.md) |
