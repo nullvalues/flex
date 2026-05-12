@@ -116,6 +116,7 @@ checklists reflect your actual project history.
 | `/anchor:seed` | bootstrap-once | Mine transcripts, build canonical spec | `/anchor:seed` | `openspec/specs/<module>/spec.json` |
 | `/anchor:companion` | reactive | Load spec, capture decisions, detect drift | `/anchor:companion` | Updated `spec.json`, sidebar process |
 | `/anchor:pairmode` | proactive | Scaffold and enforce structured build loop | `/anchor:pairmode bootstrap` | CLAUDE.md, agent docs, phase files, deny list |
+| `/anchor:pairmode drift-report` | on-demand | Compare registered projects against canonical templates; surface convergent improvements for promotion | `/anchor:pairmode drift-report --projects <path> [--convergent]` | Per-project MISSING/EXTRA/DRIFT report; convergence candidates for promotion |
 
 ## Use case scenarios
 
@@ -165,8 +166,9 @@ in place.
 4. On PASS: the reviewer commits with the story tag. On FAIL: the builder fixes and
    the reviewer re-runs.
 5. If the builder is stuck after two attempts: invoke the loop-breaker.
-6. After each phase: run the 5-step checkpoint sequence (test suite, security audit,
-   intent review, documentation update, checkpoint tag).
+6. After each phase: run the 8-step checkpoint sequence (build gate, security audit,
+   intent review, documentation update, phase completion check, CER backlog review,
+   checkpoint tag, report).
 
 ## The canonical spec format
 

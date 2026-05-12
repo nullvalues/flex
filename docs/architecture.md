@@ -821,6 +821,14 @@ but as a required checkpoint step before tagging.
 step before tagging. The reviewer subagent checks that README reflects the phase's shipped
 capabilities. A checkpoint with a stale README is not complete.
 
+**Phase completion gate (CLAUDE.build.md Step 5):** A phase cannot be checkpointed with
+silently abandoned `planned` stories. Before tagging, all `planned` stories in the phase
+manifest must be either `complete` or formally deferred — added to a `## Deferred stories`
+section in the phase doc with a one-line reason and status updated to `deferred`. The
+checkpoint sequence enforces this as Step 5 between Documentation review and CER backlog
+review. A forked phase (one interrupted by a pivot) documents its deferred stories at fork
+time; the resuming phase references the origin in a `**Parent phase:**` header line.
+
 **Scope guidance:** Updates should be proportional. A phase that adds a new CLI flag needs one
 line in README. A phase that adds a new workflow needs a paragraph. A phase that only fixes
 internal bugs needs only a "version/status" line if anything.
