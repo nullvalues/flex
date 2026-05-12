@@ -297,9 +297,16 @@ def run_drift_promotion(
         section_val = candidate.get("section", "")
         projects_list = candidate.get("projects", [])
         drift_excerpt = candidate.get("project_body", "")[:200]
+        score = candidate.get("score")
+        justification = candidate.get("justification", "insufficient data")
 
         click.echo(f"\nCONVERGENCE CANDIDATE — {file_val}/{section_val}")
         click.echo(f"Appears in: {', '.join(projects_list)}")
+        # Show token-evidence score before the diff excerpt (INFRA-067)
+        if score is None:
+            click.echo(f"Token evidence: insufficient data")
+        else:
+            click.echo(f"Token evidence score: {score:.2f} — {justification}")
         click.echo("Drift:")
         click.echo(f"  {drift_excerpt}")
         click.echo("Promote to canonical? [y/n/skip]")

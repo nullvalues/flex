@@ -2,7 +2,7 @@
 id: INFRA-066
 rail: INFRA
 title: Drift promotion workflow — extend pairmode review
-status: planned
+status: complete
 phase: "29"
 story_class: code
 primary_files:

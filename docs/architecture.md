@@ -719,6 +719,46 @@ default multiplier is `3.0`, configurable via
 builder rows for the rail within the lookback window) returns early without
 firing, so new rails do not generate false positives.
 
+### Drift evidence scoring
+
+`skills/pairmode/scripts/drift_evidence.py` provides token-efficiency evidence
+for convergence candidates surfaced by `pairmode_drift_report.py --convergent`.
+
+**Function:** `score_convergence_candidate(project_dirs, pattern_id) -> (score, justification)`
+
+- Queries each project's `effort.db` for all `agent_role='builder'` rows with
+  non-null, non-zero `tokens_total`.
+- Returns `(None, "insufficient data")` when fewer than 5 total builder attempts
+  are found across all projects (sample too small for meaningful comparison).
+- When sufficient data is available, computes a normalised score in `[0.0, 1.0]`:
+  - **score > 0.5** — pattern-associated projects show lower median builder tokens.
+  - **score = 0.5** — no observable difference.
+  - **score < 0.5** — pattern-associated projects show higher median builder tokens.
+- Returns a one-line `justification` string (e.g. "Projects with this pattern show
+  ~12% lower median builder tokens (n=18 attempts across 3 project(s))").
+
+**Scoring methodology:** Pattern-associated projects are identified using `pattern_id`
+as a substring of the project path (coarse proxy). When no projects match this
+heuristic, the function falls back to comparing the lower-token half of projects
+against the upper half. The score is computed as:
+
+```
+score = 1.0 - (pattern_median / (pattern_median + other_median))
+```
+
+**Known limits (document inline — do not treat score as ground truth):**
+- Small samples (5–20 attempts) produce noisy estimates.
+- Confounding factors: story complexity, model choice, and retry count all affect
+  token costs independently of any pattern.
+- The pattern-proxy (substring match on project path) is coarse; a more accurate
+  signal would require explicit tagging of attempts with the candidate pattern.
+- Correlation only — lower tokens for pattern-associated projects may reflect
+  pre-existing simplicity of those projects rather than an effect of the pattern.
+
+The score is surfaced as an annotation above each promotion prompt in
+`lesson_review.py`'s `run_drift_promotion`. It is advisory only — the developer
+makes the final promotion decision.
+
 ---
 
 ## Layer rules for this codebase

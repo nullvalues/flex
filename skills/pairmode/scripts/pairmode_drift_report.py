@@ -593,7 +593,10 @@ def drift_report(
 
     return {
         "projects": [_project_result_to_dict(r) for r in project_results],
-        "convergence_candidates": [_candidate_to_dict(c) for c in candidates],
+        "convergence_candidates": [
+            _candidate_to_dict(c, valid_dirs if convergent else None)
+            for c in candidates
+        ],
         "_results": project_results,  # internal: used by text formatter
         "_candidates": candidates,     # internal: used by text formatter
     }
@@ -622,13 +625,24 @@ def _item_to_dict(item: DriftItem) -> dict:
     return d
 
 
-def _candidate_to_dict(c: ConvergenceCandidate) -> dict:
+def _candidate_to_dict(c: ConvergenceCandidate, project_dirs: list[Path] | None = None) -> dict:
+    score: float | None = None
+    justification: str = "insufficient data"
+    if project_dirs is not None:
+        try:
+            from skills.pairmode.scripts.drift_evidence import score_convergence_candidate
+            pattern_id = f"{c.file}::{c.section}"
+            score, justification = score_convergence_candidate(project_dirs, pattern_id)
+        except Exception:  # noqa: BLE001
+            pass
     return {
         "file": c.file,
         "section": c.section,
         "project_body": c.project_body,
         "projects": c.projects,
         "count": c.count,
+        "score": score,
+        "justification": justification,
     }
 
 
