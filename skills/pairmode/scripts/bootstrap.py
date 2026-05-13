@@ -249,8 +249,12 @@ def _merge_deny_list(settings_path: pathlib.Path, new_entries: list[str]) -> Non
 def _print_next_steps(project_dir: pathlib.Path, anchor_root: pathlib.Path) -> None:
     """Print the recommended follow-on actions after a successful bootstrap."""
     click.echo("\n## Next steps\n")
-    click.echo(f"  1. Set your current story:")
-    click.echo(f"       uv run python skills/pairmode/scripts/story_context.py --set RAIL-001\n")
+    click.echo(f"  1. Create and set your first story:")
+    click.echo(
+        f"       uv run python skills/pairmode/scripts/story_new.py \\\n"
+        f"         --rail RAIL --title \"My first story\" --project-dir {project_dir}\n"
+        f"       # Then tell your AI assistant: \"Set my current story to RAIL-001\"\n"
+    )
     click.echo(f"  2. Register this project with anchor for drift tracking:")
     click.echo(f"       cd {anchor_root}")
     click.echo(

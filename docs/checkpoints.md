@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp31-discoverability-and-status
+
+**Phase:** 31 — Discoverability and status panel
+**Tag command:** `git tag cp31-discoverability-and-status && git push origin cp31-discoverability-and-status`
+**Acceptance:** SKILL.md now documents `drift-report`, `sync-build`, and `register/unregister/list-projects` with full flag lists and a Drift detection workflow narrative section (INFRA-071). `pairmode status` shows `Registered: N project(s)` and a drift-report hint when projects are registered; silent when none (INFRA-072). Bootstrap prints a `## Next steps` block after successful completion — not on `--dry-run` — with story creation, project registration, and audit suggestions (INFRA-073). Broken `story_context.py --set` invocation corrected to `story_new.py` at intent-review time. `docs/phases/index.md` backfilled for phases 30–31. 1606 tests pass.
+
+---
+
 ## cp30-hook-fix-and-sync-tooling
 
 **Phase:** 30 — Hook security fix and sync tooling gaps
