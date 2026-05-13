@@ -2,7 +2,7 @@
 id: INFRA-073
 rail: INFRA
 title: "Bootstrap post-completion next-steps"
-status: planned
+status: complete
 phase: "31"
 story_class: code
 primary_files:

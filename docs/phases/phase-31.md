@@ -27,9 +27,9 @@ These three are independent and can be built in any order.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-071 | SKILL.md currency — document drift-report, sync-build, register/unregister/list-projects | planned |
-| INFRA-072 | `pairmode status` registered-projects panel | planned |
-| INFRA-073 | Bootstrap post-completion next-steps | planned |
+| INFRA-071 | SKILL.md currency — document drift-report, sync-build, register/unregister/list-projects | complete |
+| INFRA-072 | `pairmode status` registered-projects panel | complete |
+| INFRA-073 | Bootstrap post-completion next-steps | complete |
 
 ---
 

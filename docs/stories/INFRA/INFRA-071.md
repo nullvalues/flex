@@ -2,7 +2,7 @@
 id: INFRA-071
 rail: INFRA
 title: "SKILL.md currency — document drift-report, sync-build, register/unregister/list-projects"
-status: planned
+status: complete
 phase: "31"
 story_class: doc
 primary_files:

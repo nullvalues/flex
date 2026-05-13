@@ -29,4 +29,5 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 27 | Auth check per-story placement fix | complete | [phase-27.md](phase-27.md) · cp27-auth-check-per-story-placement |
 | 28 | CER backlog remediation (LOW items) | complete | [phase-28.md](phase-28.md) · cp28-cer-backlog-remediation |
 | 29 | Project drift detection and promotion workflow | complete | [phase-29.md](phase-29.md) · cp29-drift-detection-and-promotion |
-| 30 | Hook security fix and sync tooling gaps | planned | [phase-30.md](phase-30.md) |
+| 30 | Hook security fix and sync tooling gaps | complete | [phase-30.md](phase-30.md) · cp30-hook-fix-and-sync-tooling |
+| 31 | Discoverability and status panel | complete | [phase-31.md](phase-31.md) · cp31-discoverability-and-status |

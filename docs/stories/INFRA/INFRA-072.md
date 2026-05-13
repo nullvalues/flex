@@ -2,7 +2,7 @@
 id: INFRA-072
 rail: INFRA
 title: "pairmode status registered-projects panel"
-status: planned
+status: complete
 phase: "31"
 story_class: code
 primary_files:
