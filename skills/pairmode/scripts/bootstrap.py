@@ -246,6 +246,23 @@ def _merge_deny_list(settings_path: pathlib.Path, new_entries: list[str]) -> Non
     )
 
 
+def _print_next_steps(project_dir: pathlib.Path, anchor_root: pathlib.Path) -> None:
+    """Print the recommended follow-on actions after a successful bootstrap."""
+    click.echo("\n## Next steps\n")
+    click.echo(f"  1. Set your current story:")
+    click.echo(f"       uv run python skills/pairmode/scripts/story_context.py --set RAIL-001\n")
+    click.echo(f"  2. Register this project with anchor for drift tracking:")
+    click.echo(f"       cd {anchor_root}")
+    click.echo(
+        f"       uv run python skills/pairmode/scripts/pairmode_sync.py register \\\n"
+        f"         --project-dir {project_dir}\n"
+    )
+    click.echo(f"  3. Run an audit to verify the scaffold:")
+    click.echo(
+        f"       uv run python skills/pairmode/scripts/audit.py --project-dir {project_dir}"
+    )
+
+
 def _record_state(state_path: pathlib.Path, version: str) -> bool:
     """Write pairmode_version into .companion/state.json, creating if absent.
 
@@ -928,6 +945,10 @@ def bootstrap(
     _initialize_rails(project_path, context, stack, dry_run=dry_run, ideology_skip=ideology_skip, yes=yes)
 
     click.echo("\nDone." if not dry_run else "\nDry run complete.")
+
+    if not dry_run:
+        anchor_root = pathlib.Path(__file__).resolve().parent.parent.parent.parent
+        _print_next_steps(project_path, anchor_root)
 
 
 if __name__ == "__main__":

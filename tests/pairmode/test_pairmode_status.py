@@ -203,3 +203,94 @@ def test_no_pairmode_version_treated_as_non_pairmode(tmp_path: pathlib.Path) -> 
     result = _invoke(tmp_path)
     assert result.exit_code == 0, result.output
     assert "Not a pairmode repo" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Registered projects panel (INFRA-072)
+# ---------------------------------------------------------------------------
+
+
+def test_registered_two_projects_shows_count(tmp_path: pathlib.Path) -> None:
+    """registered_projects with 2 entries → 'Registered: 2 project(s)' in output."""
+    _write_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "registered_projects": ["/home/user/project-a", "/home/user/project-b"],
+        },
+    )
+    result = _invoke(tmp_path)
+    assert result.exit_code == 0, result.output
+    assert "Registered: 2 project(s)" in result.output
+
+
+def test_registered_two_projects_shows_drift_hint_with_paths(tmp_path: pathlib.Path) -> None:
+    """registered_projects with 2 entries → drift hint line contains both paths."""
+    proj_a = "/home/user/project-a"
+    proj_b = "/home/user/project-b"
+    _write_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "registered_projects": [proj_a, proj_b],
+        },
+    )
+    result = _invoke(tmp_path)
+    assert result.exit_code == 0, result.output
+    assert "Drift:" in result.output
+    assert proj_a in result.output
+    assert proj_b in result.output
+    assert "drift-report" in result.output
+
+
+def test_no_registered_projects_key_shows_no_registered_line(tmp_path: pathlib.Path) -> None:
+    """state.json without registered_projects key → no 'Registered' or 'Drift' lines."""
+    _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+    result = _invoke(tmp_path)
+    assert result.exit_code == 0, result.output
+    assert "Registered" not in result.output
+    assert "Drift" not in result.output
+
+
+def test_empty_registered_projects_shows_no_registered_line(tmp_path: pathlib.Path) -> None:
+    """state.json with registered_projects=[] → no 'Registered' or 'Drift' lines."""
+    _write_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "registered_projects": [],
+        },
+    )
+    result = _invoke(tmp_path)
+    assert result.exit_code == 0, result.output
+    assert "Registered" not in result.output
+    assert "Drift" not in result.output
+
+
+def test_more_than_two_registered_projects_truncates_hint(tmp_path: pathlib.Path) -> None:
+    """registered_projects with 3 entries → hint truncates to first 2 with ' ...'."""
+    proj_a = "/home/user/project-a"
+    proj_b = "/home/user/project-b"
+    proj_c = "/home/user/project-c"
+    _write_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "registered_projects": [proj_a, proj_b, proj_c],
+        },
+    )
+    result = _invoke(tmp_path)
+    assert result.exit_code == 0, result.output
+    assert "Registered: 3 project(s)" in result.output
+    # Hint must contain first two paths
+    assert proj_a in result.output
+    assert proj_b in result.output
+    # Third path must NOT appear in the drift hint (it's truncated)
+    # Note: we check it does not appear after the "Drift:" prefix specifically
+    drift_line = ""
+    for line in result.output.splitlines():
+        if "Drift:" in line:
+            drift_line = line
+            break
+    assert proj_c not in drift_line, f"Third project should be truncated from hint: {drift_line}"
+    assert "..." in drift_line, f"Truncation marker ' ...' should appear in hint: {drift_line}"

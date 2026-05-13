@@ -629,3 +629,200 @@ project-specific body content.
 - `--project-dir PATH` — target project root (default: current directory)
 - `--dry-run` — print diffs without writing any files
 - `--yes` / `-y` — write files without prompting for confirmation
+
+---
+
+### `/anchor:pairmode drift-report`
+
+> **Note:** `drift-report` is invoked directly via CLI, not through the pairmode skill dispatcher.
+> Correct invocation:
+> ```bash
+> PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_drift_report.py" \
+>   drift-report --projects /path/to/proj1 [--projects /path/to/proj2] [--convergent] [--output text|json]
+> ```
+
+**When to use:** To detect how pairmode-bootstrapped projects have diverged from the canonical
+methodology templates, or to find drift patterns shared across multiple projects that may warrant
+template improvements.
+
+**Inputs expected:**
+- One or more project directories containing `.claude/agents/` and `CLAUDE.build.md`.
+- Optional: `.pairmode-overrides` file in each project (declares intentional divergences).
+- Optional: `.companion/pairmode_context.json` in each project (used for template rendering context).
+
+**What it does:**
+1. For each project, compares `CLAUDE.build.md` and all files in `.claude/agents/` against the
+   canonical pairmode templates.
+2. Classifies each difference as:
+   - `MISSING` — section in canonical template but absent from project
+   - `EXTRA` — section in project but absent from canonical template
+   - `DRIFT` — section in both but content has diverged
+   - `INTENTIONAL` — section declared in `.pairmode-overrides` (treated as project-owned)
+3. When `--convergent` is set, identifies drift patterns that appear identically across 2+ projects
+   (convergence candidates that may warrant promoting to the canonical template).
+
+**Output format:**
+Default (`text`): Human-readable report with one section per project, listing MISSING, EXTRA,
+DRIFT, and INTENTIONAL findings, followed by convergence candidates (if `--convergent` was used).
+JSON format (with `--output json`): Structured JSON with per-project findings and candidate list.
+
+**CLI invocation:**
+```bash
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_drift_report.py" \
+  drift-report --projects /path/to/proj1 --projects /path/to/proj2
+```
+
+**Flags:**
+- `--projects PATH` — project directory (repeatable; at least one required). Each path is resolved
+  to an absolute path and validated with a depth guard (rejected if fewer than 3 path components).
+- `--convergent` — surface drift patterns shared identically across 2+ projects as convergence
+  candidates; score each candidate using token-efficiency evidence (requires effort.db data; graceful
+  fallback when insufficient data).
+- `--output FORMAT` — output format: `text` (default) or `json`.
+
+---
+
+### `/anchor:pairmode sync-build`
+
+> **Note:** `sync-build` is invoked directly via CLI, not through the pairmode skill dispatcher.
+> Correct invocation:
+> ```bash
+> PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+>   sync-build --project-dir "$(pwd)" [--dry-run] [--apply] [--yes]
+> ```
+
+**When to use:** After a CLAUDE.build.md template update in the anchor repo, to propagate those
+changes to a bootstrapped project's `CLAUDE.build.md` without overwriting project-specific content.
+
+**Inputs expected:**
+- Target project root containing `CLAUDE.build.md` (or missing, in which case the template is created).
+- `.companion/state.json` in the target project (optional — used to read `project_name`, `build_command`,
+  `test_command`, `migration_command`; all have sensible fallbacks).
+- `.companion/pairmode_context.json` in the target project (optional — same keys as state.json with
+  same fallback precedence).
+
+**What it does:**
+1. Renders the canonical `CLAUDE.build.md.j2` template from anchor's templates directory.
+2. Computes a unified diff between the project's current `CLAUDE.build.md` and the rendered output.
+3. If `--dry-run`: prints the diff and exits without writing.
+4. If no `--apply`: prints the diff and exits (same behavior as `--dry-run`).
+5. If `--apply` without `--yes`: prints the diff, prompts "Apply? [y/N]", then writes on `y`.
+6. If `--apply --yes`: writes the rendered template immediately without prompting.
+7. If no changes detected: prints "No changes to apply." and exits 0.
+
+**Output format:**
+Unified diff showing changes to `CLAUDE.build.md`. Confirmation message when file is written.
+
+**CLI invocation:**
+```bash
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+  sync-build --project-dir "$(pwd)" --apply
+```
+
+**Flags:**
+- `--project-dir PATH` — target project root (required). Validated with a depth guard (rejected if
+  fewer than 3 path components).
+- `--dry-run` — print the diff and exit without writing.
+- `--apply` — write the rendered template to `CLAUDE.build.md` (prompts unless `--yes` is set).
+- `--yes` / `-y` — skip confirmation when `--apply` is set.
+
+---
+
+### `/anchor:pairmode register` / `unregister` / `list-projects`
+
+> **Note:** These three commands are grouped together; they are invoked directly via CLI and manage
+> the `registered_projects` list in anchor's own `.companion/state.json`. Correct invocation:
+> ```bash
+> PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+>   register --project-dir /path/to/project
+> PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+>   unregister --project-dir /path/to/project
+> PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+>   list-projects
+> ```
+
+**When to use:** To opt in to cross-project drift detection. Use `register` to add a pairmode
+project to the monitored set, `unregister` to remove it, and `list-projects` to see the current
+registered set.
+
+**Inputs expected:**
+- For `register` / `unregister`: a project directory path.
+- For `list-projects`: no input (reads from anchor's `.companion/state.json`).
+
+**What each command does:**
+
+**`register`:**
+1. Resolves `--project-dir` to an absolute path.
+2. Validates the path with a depth guard (rejects paths with fewer than 3 components).
+3. If the path is already in `registered_projects`: prints "already registered" and exits 0.
+4. Otherwise: appends the path to `registered_projects` in anchor's `.companion/state.json` and prints
+   "registered: <path>".
+5. Writes are atomic (temp file + rename).
+
+**`unregister`:**
+1. Resolves `--project-dir` to an absolute path.
+2. If the path is not in `registered_projects`: prints "not registered" and exits 0.
+3. Otherwise: removes the path from `registered_projects` and prints "unregistered: <path>".
+4. Writes are atomic (temp file + rename).
+
+**`list-projects`:**
+1. Reads `registered_projects` from anchor's `.companion/state.json`.
+2. If the list is empty or the key is absent: prints "No projects registered.".
+3. Otherwise: prints one project path per line.
+
+**Workflow:**
+```bash
+# Register a project for cross-project drift detection
+uv run python skills/pairmode/scripts/pairmode_sync.py register --project-dir /path/to/project-a
+
+# Register another project
+uv run python skills/pairmode/scripts/pairmode_sync.py register --project-dir /path/to/project-b
+
+# View the registered set
+uv run python skills/pairmode/scripts/pairmode_sync.py list-projects
+
+# When you want to stop monitoring a project
+uv run python skills/pairmode/scripts/pairmode_sync.py unregister --project-dir /path/to/project-a
+```
+
+**Flags:**
+- `--project-dir PATH` — target project directory (required for `register` and `unregister`). Resolved
+  to an absolute path before use; paths with fewer than 3 components are rejected.
+
+---
+
+## Drift detection workflow
+
+Once you have bootstrapped a project and want to track it across methodology updates, follow this sequence:
+
+1. **Register the project:**
+   ```bash
+   PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+     register --project-dir /path/to/my-project
+   ```
+
+2. **Run a drift report to identify divergences:**
+   ```bash
+   PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_drift_report.py" \
+     drift-report --projects /path/to/my-project --convergent
+   ```
+
+3. **Review the results.** The `--convergent` flag surfaces patterns shared across multiple registered
+   projects, with token-efficiency scoring to help prioritize which improvements are most impactful.
+
+4. **Promote convergence candidates to the canonical templates** via `/anchor:pairmode review` (which
+   updates pairmode templates in the anchor repo based on lessons learned).
+
+5. **Sync the updated templates back to projects:**
+   ```bash
+   # Sync agent files
+   PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+     sync-agents --project-dir /path/to/my-project --apply
+   
+   # Sync CLAUDE.build.md
+   PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+     sync-build --project-dir /path/to/my-project --apply
+   ```
+
+This workflow closes the loop: projects feed improvements back to the canonical methodology, and those
+improvements propagate back to all registered projects continuously.

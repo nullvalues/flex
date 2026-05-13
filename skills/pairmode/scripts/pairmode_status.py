@@ -178,6 +178,21 @@ def pairmode_status(project_dir: str) -> None:
     # Modules line
     modules_line = f"Modules: {_format_modules(state.get('last_loaded_modules'))}"
 
+    # Registered projects lines (only when list is non-empty)
+    registered: list[str] = state.get("registered_projects") or []
+    registered_lines: list[str] = []
+    if registered:
+        count = len(registered)
+        registered_lines.append(f"Registered: {count} project(s)")
+        # Build truncated path hint — first 2 paths, then " ..." if more
+        hint_paths = registered[:2]
+        paths_str = " ".join(hint_paths)
+        if len(registered) > 2:
+            paths_str += " ..."
+        registered_lines.append(
+            f"  Drift:    run pairmode drift-report --projects {paths_str} to check"
+        )
+
     # Compose the block
     lines: list[str] = [
         f"Pairmode v{pairmode_version}",
@@ -185,8 +200,9 @@ def pairmode_status(project_dir: str) -> None:
         era_line,
         story_line,
         modules_line,
-        DIVIDER,
     ]
+    lines.extend(registered_lines)
+    lines.append(DIVIDER)
     lines.extend(_sidebar_lines(state, project_path))
 
     click.echo("\n".join(lines))

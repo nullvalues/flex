@@ -2807,3 +2807,38 @@ class TestBootstrapEffortTrackingNote:
         result = self._run_bootstrap(tmp_path, extra_state={"effort_tracking": True})
         assert result.exit_code == 0, result.output
         assert "Effort tracking: enabled" not in result.output
+
+
+class TestBootstrapNextSteps:
+    """Tests for the ## Next steps block printed after a successful bootstrap."""
+
+    def _run_bootstrap(self, tmp_path, extra_args=None):
+        runner = CliRunner()
+        args = [
+            "--project-dir", str(tmp_path),
+            "--project-name", "testproj",
+            "--stack", "Python / pytest",
+            "--build-command", "uv run pytest",
+            "--yes",
+        ] + (extra_args or [])
+        result = runner.invoke(bootstrap, args, catch_exceptions=False)
+        return result
+
+    def test_next_steps_present_on_success(self, tmp_path):
+        """Bootstrap success output contains the ## Next steps block."""
+        result = self._run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        assert "## Next steps" in result.output
+
+    def test_next_steps_contains_resolved_project_path(self, tmp_path):
+        """Next steps output contains the actual resolved project path, not a placeholder."""
+        result = self._run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        resolved = str(tmp_path.resolve())
+        assert resolved in result.output
+
+    def test_next_steps_absent_on_dry_run(self, tmp_path):
+        """--dry-run output does NOT contain ## Next steps."""
+        result = self._run_bootstrap(tmp_path, extra_args=["--dry-run"])
+        assert result.exit_code == 0, result.output
+        assert "## Next steps" not in result.output
