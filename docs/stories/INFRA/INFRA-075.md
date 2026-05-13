@@ -2,7 +2,7 @@
 id: INFRA-075
 rail: INFRA
 title: "Reviewer contract verification step"
-status: planned
+status: complete
 phase: "32"
 story_class: methodology
 primary_files:

@@ -2,7 +2,7 @@
 id: INFRA-076
 rail: INFRA
 title: "story_context.py CLI — --set, --get, --clear"
-status: planned
+status: complete
 phase: "32"
 story_class: code
 primary_files:
