@@ -231,6 +231,127 @@ def test_source_field_empty_string_is_invalid(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Body-section contract validation tests
+# ---------------------------------------------------------------------------
+
+VALID_STORY_NEW_FORMAT = """\
+    ---
+    id: FEAT-002
+    rail: FEAT
+    title: New contract format story
+    status: draft
+    phase: "001"
+    primary_files:
+    ---
+
+    ## Requires
+    <!-- preconditions -->
+
+    ## Ensures
+    <!-- assertions -->
+
+    ## Instructions
+
+    ## Tests
+"""
+
+VALID_STORY_BOTH_FORMATS = """\
+    ---
+    id: FEAT-003
+    rail: FEAT
+    title: Transition story
+    status: draft
+    phase: "001"
+    primary_files:
+    ---
+
+    ## Acceptance criterion
+
+    Legacy criterion.
+
+    ## Requires
+    <!-- preconditions -->
+
+    ## Ensures
+    <!-- assertions -->
+
+    ## Instructions
+
+    ## Tests
+"""
+
+INVALID_STORY_NO_CONTRACT = """\
+    ---
+    id: FEAT-004
+    rail: FEAT
+    title: Story missing contract sections
+    status: draft
+    phase: "001"
+    primary_files:
+    ---
+
+    ## Instructions
+
+    Do the thing.
+
+    ## Tests
+
+    Run the tests.
+"""
+
+
+def test_story_new_contract_format_validates(tmp_path):
+    """Story with ## Requires and ## Ensures (new format) is valid."""
+    p = _write(tmp_path, "FEAT-002.md", VALID_STORY_NEW_FORMAT)
+    errors = validate_story_file(p)
+    assert errors == [], f"Expected no errors for new contract format, got: {errors}"
+
+
+def test_story_legacy_format_validates(tmp_path):
+    """Story with ## Acceptance criterion (legacy format) is valid."""
+    p = _write(tmp_path, "FEAT-001.md", VALID_STORY)
+    errors = validate_story_file(p)
+    assert errors == [], f"Expected no errors for legacy format, got: {errors}"
+
+
+def test_story_both_formats_validates(tmp_path):
+    """Story with both ## Acceptance criterion and ## Requires/## Ensures is valid."""
+    p = _write(tmp_path, "FEAT-003.md", VALID_STORY_BOTH_FORMATS)
+    errors = validate_story_file(p)
+    assert errors == [], f"Expected no errors when both formats present, got: {errors}"
+
+
+def test_story_neither_format_is_invalid(tmp_path):
+    """Story with neither ## Acceptance criterion nor ## Requires/## Ensures is invalid."""
+    p = _write(tmp_path, "FEAT-004.md", INVALID_STORY_NO_CONTRACT)
+    errors = validate_story_file(p)
+    assert errors, "Expected at least one error when no contract section is present"
+    assert any("Acceptance criterion" in e or "Requires" in e or "Ensures" in e for e in errors), (
+        f"Expected error mentioning contract sections, got: {errors}"
+    )
+
+
+def test_story_with_only_requires_but_no_ensures_is_invalid(tmp_path):
+    """Story with ## Requires but missing ## Ensures is invalid (both required for new format)."""
+    content = textwrap.dedent(INVALID_STORY_NO_CONTRACT).replace(
+        "## Instructions", "## Requires\n<!-- preconditions -->\n\n## Instructions"
+    )
+    p = _write(tmp_path, "partial.md", content)
+    errors = validate_story_file(p)
+    assert errors, "Expected error when ## Ensures is absent but ## Requires is present"
+
+
+def test_story_with_only_ensures_but_no_requires_is_invalid(tmp_path):
+    """Story with ## Ensures but missing ## Requires is invalid (both required for new format)."""
+    content = textwrap.dedent(INVALID_STORY_NO_CONTRACT).replace(
+        "## Instructions", "## Ensures\n<!-- assertions -->\n\n## Instructions"
+    )
+    p = _write(tmp_path, "partial.md", content)
+    errors = validate_story_file(p)
+    assert errors, "Expected error when ## Requires is absent but ## Ensures is present"
+
+
+# ---------------------------------------------------------------------------
 # Era file tests
 # ---------------------------------------------------------------------------
 

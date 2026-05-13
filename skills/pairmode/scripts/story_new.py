@@ -65,12 +65,14 @@ def _story_body() -> str:
     """Return the default Markdown body for a new story file."""
     return (
         "\n"
-        "## Acceptance criterion\n\n"
-        "_(fill in)_\n\n"
+        "## Requires\n"
+        "<!-- Prior stories, system state, or file conditions that must hold before building. -->\n\n"
+        "## Ensures\n"
+        "<!-- Binary assertions the reviewer checks independently. One per line.\n"
+        "     Each must be verifiable without interpretation: file exists, command output\n"
+        "     contains X, function Y returns Z. -->\n\n"
         "## Instructions\n\n"
-        "_(fill in)_\n\n"
-        "## Tests\n\n"
-        "_(fill in)_\n"
+        "## Tests\n"
     )
 
 

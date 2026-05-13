@@ -146,6 +146,18 @@ def validate_story_file(path: Path) -> list[str]:
             errors.append("primary_files must be non-empty for non-draft stories "
                           "(status is not 'draft' or 'backlog')")
 
+    # Body-section contract validation:
+    # Valid if: has '## Acceptance criterion' (legacy) OR has both '## Requires' AND '## Ensures'
+    # A story with neither is invalid.
+    has_acceptance_criterion = "## Acceptance criterion" in text
+    has_requires = "## Requires" in text
+    has_ensures = "## Ensures" in text
+    if not has_acceptance_criterion and not (has_requires and has_ensures):
+        errors.append(
+            "Story body must contain either '## Acceptance criterion' (legacy) "
+            "or both '## Requires' and '## Ensures' sections"
+        )
+
     return errors
 
 

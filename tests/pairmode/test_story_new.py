@@ -513,6 +513,48 @@ class TestRailContainmentGuard:
         assert story_file.exists()
 
 
+class TestStoryBodyFormat:
+    """New story body uses ## Requires and ## Ensures; ## Acceptance criterion is absent."""
+
+    def test_generated_body_contains_requires_section(self, tmp_path: pathlib.Path) -> None:
+        invoke(["--rail", "INFRA", "--title", "Body format test", "--project-dir", str(tmp_path)])
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        assert "## Requires" in content
+
+    def test_generated_body_contains_ensures_section(self, tmp_path: pathlib.Path) -> None:
+        invoke(["--rail", "INFRA", "--title", "Body format test", "--project-dir", str(tmp_path)])
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        assert "## Ensures" in content
+
+    def test_generated_body_does_not_contain_acceptance_criterion(self, tmp_path: pathlib.Path) -> None:
+        invoke(["--rail", "INFRA", "--title", "Body format test", "--project-dir", str(tmp_path)])
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        assert "## Acceptance criterion" not in content
+
+    def test_generated_body_contains_instructions_section(self, tmp_path: pathlib.Path) -> None:
+        invoke(["--rail", "INFRA", "--title", "Body format test", "--project-dir", str(tmp_path)])
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        assert "## Instructions" in content
+
+    def test_generated_body_contains_tests_section(self, tmp_path: pathlib.Path) -> None:
+        invoke(["--rail", "INFRA", "--title", "Body format test", "--project-dir", str(tmp_path)])
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        assert "## Tests" in content
+
+    def test_requires_precedes_ensures_in_body(self, tmp_path: pathlib.Path) -> None:
+        invoke(["--rail", "INFRA", "--title", "Body order test", "--project-dir", str(tmp_path)])
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        requires_pos = content.index("## Requires")
+        ensures_pos = content.index("## Ensures")
+        assert requires_pos < ensures_pos, "## Requires must appear before ## Ensures"
+
+
 class TestPathTraversalGuard:
     """Too-shallow project_dir causes non-zero exit."""
 
