@@ -2,7 +2,7 @@
 id: INFRA-074
 rail: INFRA
 title: "Story contract sections — ## Requires / ## Ensures"
-status: planned
+status: complete
 phase: "32"
 story_class: code
 primary_files:

@@ -31,7 +31,7 @@ the exact section structure to verify. INFRA-076 and INFRA-077 are independent.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-074 | Story contract sections — `## Requires` / `## Ensures` | planned |
+| INFRA-074 | Story contract sections — `## Requires` / `## Ensures` | complete |
 | INFRA-075 | Reviewer contract verification step | planned |
 | INFRA-076 | `story_context.py` CLI — `--set`, `--get`, `--clear` | planned |
 | INFRA-077 | Pre-build spec review step (L008) | planned |
