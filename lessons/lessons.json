@@ -107,7 +107,7 @@
       "applies_to": [
         "all"
       ],
-      "status": "captured"
+      "status": "applied"
     },
     {
       "id": "L007",
@@ -146,7 +146,7 @@
       "applies_to": [
         "all"
       ],
-      "status": "captured"
+      "status": "applied"
     },
     {
       "id": "L009",
@@ -164,7 +164,7 @@
       "applies_to": [
         "all"
       ],
-      "status": "captured"
+      "status": "applied"
     },
     {
       "id": "L010",
@@ -182,7 +182,7 @@
       "applies_to": [
         "all"
       ],
-      "status": "captured"
+      "status": "applied"
     },
     {
       "id": "L011",
@@ -200,7 +200,7 @@
       "applies_to": [
         "all"
       ],
-      "status": "captured"
+      "status": "applied"
     },
     {
       "id": "L012",
@@ -219,7 +219,7 @@
       "applies_to": [
         "all"
       ],
-      "status": "captured",
+      "status": "applied",
       "validation_phase": "24"
     },
     {
@@ -240,7 +240,7 @@
       "applies_to": [
         "all"
       ],
-      "status": "captured",
+      "status": "applied",
       "validation_phase": "25"
     }
   ]

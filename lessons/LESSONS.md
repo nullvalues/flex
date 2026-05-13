@@ -30,7 +30,7 @@ or use `/anchor:pairmode lesson` to capture a new lesson.
 
 ## L006 — Dogfood audit run on anchor after clean bootstrap
 **Date:** 2026-04-21
-**Status:** captured
+**Status:** applied
 **Learning:** Audit needs a way to mark sections as intentionally overridden. Without that signal, any project that customises its scaffold will permanently live in a noisy INCONSISTENT state, eroding trust in the tool.
 
 ## L007 — Dogfood pairmode on multiple projects simultaneously — anchor + ud running at same time
@@ -40,30 +40,30 @@ or use `/anchor:pairmode lesson` to capture a new lesson.
 
 ## L008 — Phase 21 spec written, CER agent run on spec before build, found 20 issues including compile-blockers
 **Date:** 2026-04-24
-**Status:** captured
+**Status:** applied
 **Learning:** Running a cold-eyes review on the phase spec itself (not just on built code) catches architectural and correctness errors before any builder time is spent. The CER agent reading actual source files alongside the spec finds mismatches the spec author missed. This is more valuable than a post-build reviewer alone.
 
 ## L009 — Cross-project audit (cora, radar, forqsite) of .claude/agents/ configurations
 **Date:** 2026-05-04
-**Status:** captured
+**Status:** applied
 **Learning:** Model selection should be explicit per role, not inherited. Volume work (builder) -> sonnet for compute efficiency. Judgment work (reviewer, intent-reviewer, loop-breaker, security-auditor) -> opus for judgment quality. Inheritance from the orchestrator is a silent capability leak. Add a documented fallback policy: if the preferred model is rate-limited, fall back one tier (Opus -> Sonnet on reviewers; Sonnet -> Haiku on builder), never below Haiku.
 
 ## L010 — Forqsite restricted reviewer tools to [Read, Grep, Glob, Bash]; cora and radar did not. Cross-project audit surfaced the divergence.
 **Date:** 2026-05-04
-**Status:** captured
+**Status:** applied
 **Learning:** Reviewer-class agents should be limited to read-only tools plus Bash. Bash preserves the commit-or-revert capability via git; Edit/Write removal closes the "reviewer backdoor" failure mode. This is layered with the orchestrator's pre-reviewer commit discipline (which protects against accidental erasure of uncommitted methodology files) — neither layer alone is sufficient.
 
 ## L011 — User observed total opus:sonnet usage running at roughly 3:2, exceeding the Opus quota relative to the Sonnet quota. Methodology had Phase 21 baseline of "reviewer-class agents -> opus, builder -> sonnet" applied uniformly across all reviews.
 **Date:** 2026-05-05
-**Status:** captured
+**Status:** applied
 **Learning:** Model selection should be sonnet baseline, opus on demand, not the inverse. Reserve opus for explicit upgrade triggers where the judgment edge actually matters: story retries (sonnet missed it the first time), pre-PR audits (last cold-eyes before code leaves the repo), mid-phase spec pivots (the spec itself moved), and production-code phases for security-auditor. Loop-breaker stays opus permanently because by the time it fires the case is by definition hard.
 
 ## L012 — Phase 23 INFRA-044 / LESSON-004 documented model upgrade triggers in prose. Phase 24 made them structural and data-defensible, adding per-story model evaluation (INFRA-050) and an efficiency-ratio report (INFRA-049) to close the feedback loop.
 **Date:** 2026-05-07
-**Status:** captured
+**Status:** applied
 **Learning:** A methodology lifecycle worth codifying: (1) Ship the change under intuition. (2) Capture the rationale as a lesson. (3) Instrument the relevant signal. (4) Wait for data to accrue (≥ 2 phases). (5) Validate the methodology against the data. (6) Formalize, refine, or reverse based on findings. The goal is not minimum cost (that sacrifices quality and causes rework) and not maximum intelligence (that wastes budget on trivial work). It is best outcome per token — optimising the efficiency ratio: PASS rate / cost. This framing is stable even as model prices and capabilities shift; the thresholds in the decision table are the thing that changes, not the objective.
 
 ## L013 — Phase 24 session start revealed that anchor's own `.claude/agents/` files had no `model:` frontmatter, and forqsite/radar still carried pre-INFRA-044 opus reviewer assignments — despite INFRA-044 having updated the templates.
 **Date:** 2026-05-07
-**Status:** captured
+**Status:** applied
 **Learning:** Two complementary patterns close the gap: (1) a sync command that re-renders template frontmatter into existing agent files on demand; (2) a note in the methodology that any template change affecting agent behaviour should be followed by a `pairmode sync-agents` run on all active projects. The sync command is idempotent — running it twice produces no further changes.

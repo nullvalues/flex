@@ -657,6 +657,8 @@ classification question from `~/.claude/policies/auth-coexistence.md`.
 
 **Build loop integration:** A dedicated per-story auth check section between "Model evaluation" and "Step 1 — Spawn the builder" in `CLAUDE.build.md` gates every auth-gated story on an answered classification question, regardless of where it falls in the phase. The answer (RBAC / ABAC / both) must be recorded in the phase doc or `docs/architecture.md` before building that story.
 
+**Optional spec review step (§ 0):** Before the first story in a phase, `CLAUDE.build.md` includes an optional "Spec review" step that spawns a `general-purpose` subagent to cold-eyes review the full phase spec against the actual codebase (catching mismatched signatures, missing imports, wrong call-site arguments, and references to non-existent symbols) before any builder time is spent. Recommended for phases with 3+ stories; skip for single-story hotfix or documentation-only phases.
+
 **Pairmode equivalent of `spec.json non-negotiables`:** The policy files use
 `spec.json non-negotiables` language. In pairmode-based projects (which use story files
 + `architecture.md` rather than a `spec.json`), the equivalent is a dedicated

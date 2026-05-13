@@ -2061,3 +2061,60 @@ class TestEffortTrackingWiring:
         assert "## Effort tracking" in text, (
             "docs/architecture.md: expected '## Effort tracking' section heading"
         )
+
+
+# ---------------------------------------------------------------------------
+# Story INFRA-077 — optional spec review step in CLAUDE.build.md.j2
+# ---------------------------------------------------------------------------
+
+class TestClaudeBuildMdSpecReviewStep:
+    """Story INFRA-077: CLAUDE.build.md.j2 contains an optional spec-review
+    step (### 0. Spec review) inside ## Before the first build loop, placed
+    after step 7 and before ## Model evaluation."""
+
+    def setup_method(self):
+        self.output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
+        self.raw = (TEMPLATES_DIR / "CLAUDE.build.md.j2").read_text(encoding="utf-8")
+
+    def test_rendered_template_contains_spec_review_heading(self):
+        assert "Spec review" in self.output
+
+    def test_rendered_template_spec_review_in_before_loop_section(self):
+        before_start = self.output.index("## Before the first build loop")
+        model_eval_start = self.output.index("## Model evaluation")
+        before_section = self.output[before_start:model_eval_start]
+        assert "Spec review" in before_section
+
+    def test_rendered_template_spec_review_mentions_general_purpose(self):
+        assert "general-purpose" in self.output
+
+    def test_rendered_template_spec_review_mentions_critical_and_high(self):
+        # The step instructs to report CRITICAL and HIGH findings only
+        before_start = self.output.index("## Before the first build loop")
+        model_eval_start = self.output.index("## Model evaluation")
+        before_section = self.output[before_start:model_eval_start]
+        assert "CRITICAL" in before_section
+        assert "HIGH" in before_section
+
+    def test_rendered_template_spec_review_has_skip_guidance(self):
+        # Skip condition for single-story hotfix phases must be mentioned
+        assert "single-story hotfix" in self.output
+
+    def test_raw_template_contains_spec_review_heading(self):
+        assert "Spec review" in self.raw
+
+    def test_anchor_claude_build_md_contains_spec_review(self):
+        anchor_build_md = (REPO_ROOT / "CLAUDE.build.md").read_text(encoding="utf-8")
+        assert "Spec review" in anchor_build_md
+
+    def test_anchor_claude_build_md_spec_review_in_before_loop_section(self):
+        anchor_build_md = (REPO_ROOT / "CLAUDE.build.md").read_text(encoding="utf-8")
+        before_start = anchor_build_md.index("## Before the first build loop")
+        model_eval_start = anchor_build_md.index("## Model evaluation")
+        before_section = anchor_build_md[before_start:model_eval_start]
+        assert "Spec review" in before_section
+
+    def test_architecture_doc_mentions_spec_review_step(self):
+        arch_path = REPO_ROOT / "docs" / "architecture.md"
+        text = arch_path.read_text(encoding="utf-8")
+        assert "spec review" in text.lower() or "Spec review" in text

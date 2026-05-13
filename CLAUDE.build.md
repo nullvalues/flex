@@ -37,6 +37,22 @@ In build mode: follow the build loop below. Do not ask clarifying questions befo
    `docs/stories/<RAIL>/<RAIL>-NNN.md`
 7. Check for ⚙️ DEVELOPER ACTION gates before that story. Block if present.
 
+### 0. Spec review (optional but recommended for phases with 3+ stories)
+
+Before spending builder time, cold-eyes review the phase spec against the codebase.
+Spawn a `general-purpose` subagent with:
+- The full phase spec text (from the phase file)
+- Instruction: "Review this phase spec against the actual codebase at [project root].
+  Find: mismatched function signatures, missing imports, wrong call-site arguments,
+  references to non-existent files or symbols, type mismatches. Report CRITICAL and
+  HIGH findings only."
+
+Incorporate any CRITICAL or HIGH findings by updating the phase spec before building
+the first story. LOW/MEDIUM findings: note them but proceed.
+
+Skip this step for: single-story hotfix phases, documentation-only phases, or when
+the phase spec was already reviewed in the previous session.
+
 ---
 
 ## Model evaluation
