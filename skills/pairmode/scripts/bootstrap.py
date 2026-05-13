@@ -253,7 +253,8 @@ def _print_next_steps(project_dir: pathlib.Path, anchor_root: pathlib.Path) -> N
     click.echo(
         f"       uv run python skills/pairmode/scripts/story_new.py \\\n"
         f"         --rail RAIL --title \"My first story\" --project-dir {project_dir}\n"
-        f"       # Then tell your AI assistant: \"Set my current story to RAIL-001\"\n"
+        f"       uv run python skills/pairmode/scripts/story_context.py --set RAIL-001 \\\n"
+        f"         --project-dir {project_dir}\n"
     )
     click.echo(f"  2. Register this project with anchor for drift tracking:")
     click.echo(f"       cd {anchor_root}")

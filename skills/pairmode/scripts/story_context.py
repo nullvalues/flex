@@ -4,6 +4,11 @@ Provides helpers for:
 - Detecting whether a project has pairmode active
   (by checking for .claude/settings.deny-rationale.json)
 - Reading and writing the current_story field in .companion/state.json
+
+CLI usage:
+  uv run python skills/pairmode/scripts/story_context.py --set RAIL-NNN
+  uv run python skills/pairmode/scripts/story_context.py --get
+  uv run python skills/pairmode/scripts/story_context.py --clear
 """
 
 from __future__ import annotations
@@ -14,7 +19,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Allow running directly with: uv run python skills/pairmode/scripts/story_context.py
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+_ANCHOR_ROOT = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(_ANCHOR_ROOT))
+sys.path.insert(0, str(Path(__file__).parent))
+
+import click
 
 
 def is_pairmode_active(project_dir: Path) -> bool:
@@ -110,3 +119,91 @@ def match_file_to_module(file_path: str, modules: list[dict]) -> str | None:
             if file_path.startswith(path):
                 return module.get("name")
     return None
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def _resolve_story_file(story_id: str, project_dir: Path) -> Path:
+    """Resolve a story ID like 'INFRA-074' to its file path.
+
+    Returns the Path to docs/stories/<RAIL>/<RAIL>-NNN.md relative to
+    project_dir.  Raises FileNotFoundError if the file does not exist.
+    """
+    parts = story_id.split("-")
+    if len(parts) < 2:
+        raise ValueError(f"Invalid story ID format: {story_id!r} (expected RAIL-NNN)")
+    rail = parts[0].upper()
+    story_path = project_dir / "docs" / "stories" / rail / f"{story_id}.md"
+    if not story_path.exists():
+        raise FileNotFoundError(
+            f"Story file not found: {story_path}"
+        )
+    return story_path
+
+
+def _read_story_frontmatter(story_path: Path) -> dict:
+    """Read YAML frontmatter from a story file using the canonical parser."""
+    from schema_validator import _parse_frontmatter  # noqa: PLC0415
+
+    text = story_path.read_text(encoding="utf-8")
+    fm = _parse_frontmatter(text)
+    return fm or {}
+
+
+@click.command()
+@click.option("--set", "story_id", default=None, help="Story ID to set as current (e.g. INFRA-001).")
+@click.option("--get", "do_get", is_flag=True, default=False, help="Print current story ID.")
+@click.option("--clear", "do_clear", is_flag=True, default=False, help="Remove current story from state.json.")
+@click.option(
+    "--project-dir",
+    "project_dir",
+    default=".",
+    show_default=True,
+    help="Project root directory (used to locate .companion/ and docs/).",
+)
+def cli(story_id: str | None, do_get: bool, do_clear: bool, project_dir: str) -> None:
+    """Manage the current story in .companion/state.json.
+
+    Exactly one of --set, --get, or --clear must be provided.
+    """
+    # Validate mutual exclusivity — exactly one option must be provided
+    provided = sum([story_id is not None, do_get, do_clear])
+    if provided == 0:
+        raise click.UsageError("One of --set, --get, or --clear must be provided.")
+    if provided > 1:
+        raise click.UsageError("Only one of --set, --get, or --clear may be provided at a time.")
+
+    proj = Path(project_dir).resolve()
+    companion_dir = proj / ".companion"
+
+    if story_id is not None:
+        # --set: resolve story file and extract frontmatter
+        try:
+            story_path = _resolve_story_file(story_id, proj)
+        except (FileNotFoundError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
+
+        fm = _read_story_frontmatter(story_path)
+        title = fm.get("title")
+        set_current_story(companion_dir, story_id, title=title)
+        click.echo(f"Story set: {story_id}")
+
+    elif do_get:
+        # --get: print current story ID or "No story set."
+        story = get_current_story(companion_dir)
+        if story and story.get("id"):
+            click.echo(story["id"])
+        else:
+            click.echo("No story set.")
+
+    elif do_clear:
+        # --clear: remove current_story from state.json
+        clear_current_story(companion_dir)
+        click.echo("Story cleared.")
+
+
+if __name__ == "__main__":
+    cli()

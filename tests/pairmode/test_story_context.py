@@ -6,9 +6,11 @@ import json
 import pathlib
 
 import pytest
+from click.testing import CliRunner
 
 from skills.pairmode.scripts.story_context import (
     clear_current_story,
+    cli,
     get_current_story,
     is_pairmode_active,
     match_file_to_module,
@@ -297,3 +299,117 @@ class TestMatchFileToModule:
         state = read_state(companion)
         assert state["last_loaded_modules"] == ["auth", "billing"]
         assert state["current_story"]["id"] == "2.3"
+
+
+# ---------------------------------------------------------------------------
+# CLI tests
+# ---------------------------------------------------------------------------
+
+
+def _make_story_file(project_dir: pathlib.Path, story_id: str, title: str = "Test story", status: str = "planned") -> pathlib.Path:
+    """Create a minimal story file at docs/stories/<RAIL>/<RAIL>-NNN.md."""
+    parts = story_id.split("-")
+    rail = parts[0].upper()
+    story_dir = project_dir / "docs" / "stories" / rail
+    story_dir.mkdir(parents=True, exist_ok=True)
+    story_path = story_dir / f"{story_id}.md"
+    story_path.write_text(
+        f"---\nid: {story_id}\nrail: {rail}\ntitle: {title}\nstatus: {status}\nphase: \"32\"\nprimary_files:\n---\n\n## Ensures\n\n- Done.\n"
+    )
+    return story_path
+
+
+class TestCLI:
+    def test_set_writes_current_story_to_state_json(self, tmp_path):
+        """--set INFRA-001 with a fixture story file writes current_story to state.json."""
+        (tmp_path / ".companion").mkdir()
+        _make_story_file(tmp_path, "INFRA-001", title="Add CLI entry point")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--set", "INFRA-001", "--project-dir", str(tmp_path)])
+
+        assert result.exit_code == 0, result.output
+        assert "Story set: INFRA-001" in result.output
+
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert state["current_story"]["id"] == "INFRA-001"
+        assert state["current_story"]["title"] == "Add CLI entry point"
+
+    def test_get_returns_story_id_when_set(self, tmp_path):
+        """--get returns the current story ID when one is set."""
+        companion = tmp_path / ".companion"
+        companion.mkdir()
+        set_current_story(companion, "INFRA-002", title="Some story")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--get", "--project-dir", str(tmp_path)])
+
+        assert result.exit_code == 0, result.output
+        assert "INFRA-002" in result.output
+
+    def test_get_returns_no_story_set_when_absent(self, tmp_path):
+        """--get returns 'No story set.' when no current story is in state.json."""
+        (tmp_path / ".companion").mkdir()
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--get", "--project-dir", str(tmp_path)])
+
+        assert result.exit_code == 0, result.output
+        assert "No story set." in result.output
+
+    def test_clear_removes_current_story(self, tmp_path):
+        """--clear removes current_story from state.json."""
+        companion = tmp_path / ".companion"
+        companion.mkdir()
+        set_current_story(companion, "INFRA-003", title="Old story")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--clear", "--project-dir", str(tmp_path)])
+
+        assert result.exit_code == 0, result.output
+        assert "Story cleared." in result.output
+
+        state = json.loads((companion / "state.json").read_text())
+        assert "current_story" not in state
+
+    def test_get_after_clear_returns_no_story_set(self, tmp_path):
+        """After --clear, --get returns 'No story set.'."""
+        companion = tmp_path / ".companion"
+        companion.mkdir()
+        set_current_story(companion, "INFRA-004")
+
+        runner = CliRunner()
+        runner.invoke(cli, ["--clear", "--project-dir", str(tmp_path)])
+        result = runner.invoke(cli, ["--get", "--project-dir", str(tmp_path)])
+
+        assert result.exit_code == 0, result.output
+        assert "No story set." in result.output
+
+    def test_set_with_missing_story_file_exits_with_error(self, tmp_path):
+        """--set with a story ID whose file does not exist exits with an error message."""
+        (tmp_path / ".companion").mkdir()
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--set", "INFRA-999", "--project-dir", str(tmp_path)])
+
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower() or "Story file not found" in result.output
+
+    def test_no_option_provided_exits_with_usage_error(self, tmp_path):
+        """Providing none of --set/--get/--clear exits with a usage error."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--project-dir", str(tmp_path)])
+
+        assert result.exit_code != 0
+
+    def test_set_creates_companion_dir_state_when_absent(self, tmp_path):
+        """--set creates state.json in .companion/ even when state.json is absent."""
+        companion = tmp_path / ".companion"
+        companion.mkdir()
+        _make_story_file(tmp_path, "INFRA-005")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--set", "INFRA-005", "--project-dir", str(tmp_path)])
+
+        assert result.exit_code == 0, result.output
+        assert (companion / "state.json").exists()

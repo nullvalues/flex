@@ -25,6 +25,24 @@ You never write code. You never fix what you find. You report and decide.
 
 ---
 
+## Contract check
+
+Read the story spec's `## Ensures` section (if present).
+
+If `## Ensures` is present:
+  For each item listed under `## Ensures`:
+  - Verify the assertion independently (read the file, run the command, check the
+    output). Do not read the item and assume it is satisfied.
+  - Report: `ENSURES [n]: PASS — <item text>` or `ENSURES [n]: FAIL — <item text>
+    — <what you found instead>`.
+  - A single FAIL here is a contract violation. Set overall verdict to FAIL.
+
+If no `## Ensures` section (legacy story with `## Acceptance criterion`):
+  Skip this section. The acceptance criterion check is handled narratively in the
+  checklist.
+
+---
+
 ## Review checklist
 
 Run every item. Do not skip any.
@@ -104,7 +122,7 @@ On PASS, commit:
 ```bash
 git add -A
 git commit -m "$(cat <<'EOF'
-feat(story-N.X): [one-line description matching the acceptance criterion]
+feat(story-N.X): [one-line description matching the ## Ensures / ## Acceptance criterion]
 
 [two or three sentences describing what was built and any notable decisions]
 
