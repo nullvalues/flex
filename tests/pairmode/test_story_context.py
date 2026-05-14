@@ -413,3 +413,26 @@ class TestCLI:
 
         assert result.exit_code == 0, result.output
         assert (companion / "state.json").exists()
+
+    def test_set_rejects_traversal_story_id(self, tmp_path):
+        """--set with a traversal story ID (e.g. ../../../etc-001) exits non-zero.
+
+        The containment guard in _resolve_story_file must catch paths that escape
+        docs/stories/ even if the raw string looks like a valid story ID.
+        """
+        (tmp_path / ".companion").mkdir()
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--set", "../../../etc-001", "--project-dir", str(tmp_path)])
+
+        assert result.exit_code != 0
+        # Should report a file-not-found or similar error
+        assert result.output.strip() != ""
+
+    def test_shallow_project_dir_rejected_by_depth_guard(self, tmp_path):
+        """--project-dir /tmp exits non-zero because the path has fewer than 3 components."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--get", "--project-dir", "/tmp"])
+
+        assert result.exit_code != 0
+        assert "suspiciously shallow" in result.output

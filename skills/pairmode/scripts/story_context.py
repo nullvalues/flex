@@ -130,17 +130,21 @@ def _resolve_story_file(story_id: str, project_dir: Path) -> Path:
     """Resolve a story ID like 'INFRA-074' to its file path.
 
     Returns the Path to docs/stories/<RAIL>/<RAIL>-NNN.md relative to
-    project_dir.  Raises FileNotFoundError if the file does not exist.
+    project_dir.  Raises FileNotFoundError if the file does not exist or
+    if the resolved path escapes the stories root (traversal guard).
     """
     parts = story_id.split("-")
     if len(parts) < 2:
         raise ValueError(f"Invalid story ID format: {story_id!r} (expected RAIL-NNN)")
     rail = parts[0].upper()
-    story_path = project_dir / "docs" / "stories" / rail / f"{story_id}.md"
+    stories_root = (project_dir / "docs" / "stories").resolve()
+    story_path = (project_dir / "docs" / "stories" / rail / f"{story_id}.md").resolve()
+    try:
+        story_path.relative_to(stories_root)
+    except ValueError:
+        raise FileNotFoundError(f"Story file not found: {story_path}")
     if not story_path.exists():
-        raise FileNotFoundError(
-            f"Story file not found: {story_path}"
-        )
+        raise FileNotFoundError(f"Story file not found: {story_path}")
     return story_path
 
 
@@ -177,6 +181,10 @@ def cli(story_id: str | None, do_get: bool, do_clear: bool, project_dir: str) ->
         raise click.UsageError("Only one of --set, --get, or --clear may be provided at a time.")
 
     proj = Path(project_dir).resolve()
+    if len(proj.parts) < 3:
+        raise click.ClickException(
+            f"--project-dir {project_dir!r} resolves to a suspiciously shallow path: {proj}"
+        )
     companion_dir = proj / ".companion"
 
     if story_id is not None:
