@@ -35,7 +35,7 @@ the exact section structure to verify. INFRA-076 and INFRA-077 are independent.
 | INFRA-075 | Reviewer contract verification step | complete |
 | INFRA-076 | `story_context.py` CLI — `--set`, `--get`, `--clear` | complete |
 | INFRA-077 | Pre-build spec review step (L008) | complete |
-| INFRA-078 | CER-021: `story_context.py` path containment guards | planned |
+| INFRA-078 | CER-021: `story_context.py` path containment guards | complete |
 
 ---
 

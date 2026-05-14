@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp32-story-as-contract
+
+**Phase:** 32 — Story-as-contract and story_context CLI
+**Tag command:** `git tag cp32-story-as-contract && git push origin cp32-story-as-contract`
+**Acceptance:** `story_new.py` generates `## Requires`/`## Ensures` stubs; `schema_validator.py` accepts new, legacy, and transition formats (INFRA-074). `reviewer.md.j2` and `.claude/agents/reviewer.md` gain a `## Contract check` section that verifies each `## Ensures` item as a binary assertion before the checklist (INFRA-075). `story_context.py` CLI (`--set`, `--get`, `--clear`, `--project-dir`) is now a working entry point; `bootstrap.py` next-steps step 1 references it (INFRA-076). `CLAUDE.build.md` and template gain an optional `### 0. Spec review` step before the first build loop; L006/L008–L013 marked `applied` (INFRA-077). CER-021 resolved — `_resolve_story_file` adds `relative_to(stories_root)` containment and `cli()` adds `len(parts)<3` depth guard (INFRA-078). 1637 tests pass.
+
+---
+
 ## cp31-discoverability-and-status
 
 **Phase:** 31 — Discoverability and status panel

@@ -2,7 +2,7 @@
 id: INFRA-078
 rail: INFRA
 title: "CER-021: story_context.py path containment guards"
-status: planned
+status: complete
 phase: "32"
 story_class: code
 primary_files:

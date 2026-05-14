@@ -431,7 +431,10 @@ and obscuring whether the work actually requires that tier.
 `intent-reviewer`, `security-auditor`) and for the `builder`. The
 `loop-breaker` is the one exception: it is opus by default, because by the
 time the loop-breaker fires the case is — by definition — hard, and the
-reasoning premium is justified.
+reasoning premium is justified. The `reconstruction-agent` is not subject to
+the build-loop model pinning policy — it is spawned infrequently outside the
+build loop and inherits the orchestrator's model; the reconstruction-agent
+template carries no `model:` field by design.
 
 **Reviewer model selection.** The orchestrator calls
 `skills/pairmode/scripts/model_selector.select_reviewer_model(story_class,
@@ -561,6 +564,11 @@ Behaviour:
 - Prints a unified diff (`difflib.unified_diff`) for each changed file before writing.
 - `--dry-run`: exits after printing diffs without writing any files.
 - `--yes`: writes without prompting.
+
+All `*.md` files in `.claude/agents/` with a matching template are re-rendered, including
+`reconstruction-agent.md` if that template exists. Files without a matching template are
+skipped with a warning. This means any model field or body customization in a live agent
+file that is absent from its template will be stripped on the next `sync-agents` run.
 - Default: prompts once ("Apply these changes? [y/N]") before writing.
 - If no matching template exists for an agent file: warns and skips that file.
 - If no files would change: prints "No changes to apply." and exits 0.
