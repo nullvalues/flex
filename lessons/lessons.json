@@ -242,6 +242,25 @@
       ],
       "status": "applied",
       "validation_phase": "25"
+    },
+    {
+      "id": "L014",
+      "date": "2026-05-13",
+      "source_project": "anchor",
+      "trigger": "INFRA-077 required updating lessons.json status fields and regenerating LESSONS.md. The builder ran lesson_utils.py as a script and assumed it worked because exit code was 0.",
+      "problem": "lesson_utils.py has no __main__ block \u2014 running it as a script exits 0 silently and does nothing. The builder used `echo \"LESSONS.md regenerated\"` after `&&`, which printed the message regardless, masking the no-op. Separately, json.dump with ensure_ascii=False expands \u2014 escape sequences to literal UTF-8 bytes, making the round-tripped JSON appear to mutate non-status content fields \u2014 triggering the lessons integrity guard on reviewer #1.",
+      "learning": "When a utility module has no __main__ block, running it as a script is a no-op. To call generate_lessons_md and write LESSONS.md: import the function directly and write the output in the same Python invocation. Always use json.dumps(..., ensure_ascii=True) when writing lessons.json to preserve existing \\uXXXX escape sequences byte-for-byte. Never confirm success with a shell echo after &&; verify by reading the output file.",
+      "methodology_change": {
+        "affects": [
+          "lesson_utils.py",
+          "CLAUDE.build.md"
+        ],
+        "description": "When build instructions involve updating lessons.json: do not run lesson_utils.py as a script (it has no entry point). Instead: import generate_lessons_md and write LESSONS.md directly in the same Python invocation. Use ensure_ascii=True when serialising lessons.json to avoid spurious diffs from Unicode normalisation."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "applied"
     }
   ]
 }
