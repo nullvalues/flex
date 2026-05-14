@@ -32,3 +32,4 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 30 | Hook security fix and sync tooling gaps | complete | [phase-30.md](phase-30.md) · cp30-hook-fix-and-sync-tooling |
 | 31 | Discoverability and status panel | complete | [phase-31.md](phase-31.md) · cp31-discoverability-and-status |
 | 32 | Story-as-contract and story_context CLI | complete | [phase-32.md](phase-32.md) · cp32-story-as-contract |
+| 33 | Build loop portability and sibling catch-up | planned | [phase-33.md](phase-33.md) |
