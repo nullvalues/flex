@@ -34,7 +34,8 @@ the exact section structure to verify. INFRA-076 and INFRA-077 are independent.
 | INFRA-074 | Story contract sections — `## Requires` / `## Ensures` | complete |
 | INFRA-075 | Reviewer contract verification step | complete |
 | INFRA-076 | `story_context.py` CLI — `--set`, `--get`, `--clear` | complete |
-| INFRA-077 | Pre-build spec review step (L008) | planned |
+| INFRA-077 | Pre-build spec review step (L008) | complete |
+| INFRA-078 | CER-021: `story_context.py` path containment guards | planned |
 
 ---
 
@@ -296,6 +297,61 @@ and handles both the `## Ensures` and legacy `## Acceptance criterion` cases.
 For `lessons/lessons.json` status updates: verify by reading the file after the build
 and confirming all seven lessons show `status: applied`. For `CLAUDE.build.md.j2`:
 `tests/pairmode/test_templates.py` — assert the template contains "Spec review" text.
+
+---
+
+---
+
+### Story INFRA-078 — CER-021: `story_context.py` path containment guards
+
+**Rail:** INFRA | **story_class:** code
+
+## Requires
+- INFRA-076 complete: `story_context.py` CLI exists.
+- CER-021 filed in `docs/cer/backlog.md`.
+
+## Ensures
+- `_resolve_story_file` in `story_context.py` applies `Path.resolve().relative_to(stories_root)` containment before reading the story file, rejecting paths that escape `project_dir/docs/stories/`.
+- The `--project-dir` option in `story_context.py`'s `cli()` applies a depth guard (`len(project_path.parts) < 3`) matching the pattern in `bootstrap.py` and `story_new.py`.
+- `docs/cer/backlog.md` CER-021 is marked **RESOLVED Phase 32 INFRA-078**.
+
+## Instructions
+
+1. In `skills/pairmode/scripts/story_context.py`, update `_resolve_story_file`:
+   ```python
+   def _resolve_story_file(story_id: str, project_dir: Path) -> Path:
+       parts = story_id.split("-")
+       if len(parts) < 2:
+           raise ValueError(f"Invalid story ID format: {story_id!r} (expected RAIL-NNN)")
+       rail = parts[0].upper()
+       stories_root = (project_dir / "docs" / "stories").resolve()
+       story_path = (project_dir / "docs" / "stories" / rail / f"{story_id}.md").resolve()
+       try:
+           story_path.relative_to(stories_root)
+       except ValueError:
+           raise FileNotFoundError(f"Story file not found: {story_path}")
+       if not story_path.exists():
+           raise FileNotFoundError(f"Story file not found: {story_path}")
+       return story_path
+   ```
+
+2. In `cli()`, add a depth guard immediately after `proj = Path(project_dir).resolve()`:
+   ```python
+   proj = Path(project_dir).resolve()
+   if len(proj.parts) < 3:
+       raise click.ClickException(
+           f"--project-dir {project_dir!r} resolves to a suspiciously shallow path: {proj}"
+       )
+   ```
+
+3. In `docs/cer/backlog.md`, append `**RESOLVED Phase 32 INFRA-078**` to the CER-021 row.
+
+**Primary files:** `skills/pairmode/scripts/story_context.py`
+**Touches:** `docs/cer/backlog.md`, `tests/pairmode/test_story_context.py`
+
+**Tests:**
+- `test_story_context.py`: assert `--set ../../../etc-001` exits with an error (containment rejection).
+- `test_story_context.py`: assert `--project-dir /tmp` exits with a depth guard error.
 
 ---
 

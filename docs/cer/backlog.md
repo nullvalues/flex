@@ -14,9 +14,7 @@ Urgent and important. Blocks correctness, security, or the next phase.
 
 | ID | Finding | Source | Date | Phase |
 |----|---------|--------|------|-------|
-
-
-| — | *(none)* | — | — | — |
+| CER-021 | `story_context.py` new CLI (`--set STORY_ID`) constructs a story file path from user-supplied input with no `Path.resolve().relative_to()` containment check before reading the file. A crafted story_id can escape `project_dir/docs/stories/`. Also `--project-dir` has no depth guard, unlike every sibling CLI. Fix: add `relative_to(stories_root)` containment to `_resolve_story_file`; add depth guard to `--project-dir`. HIGH severity. story_context.py:120-135, 173. | Phase 32 security audit | 2026-05-13 | 32 | **RESOLVED Phase 32 INFRA-078**
 
 
 ---

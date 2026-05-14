@@ -2,7 +2,7 @@
 id: INFRA-077
 rail: INFRA
 title: "Pre-build spec review step (L008)"
-status: planned
+status: complete
 phase: "32"
 story_class: methodology
 primary_files:
