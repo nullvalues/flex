@@ -2,7 +2,7 @@
 id: INFRA-080
 rail: INFRA
 title: "pairmode_version bump to 0.2.0 + outdated signal"
-status: planned
+status: complete
 phase: "33"
 story_class: code
 primary_files:
