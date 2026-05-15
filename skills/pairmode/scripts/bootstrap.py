@@ -763,6 +763,7 @@ def bootstrap(
         "build_command": build_command,
         "test_command": test_command,
         "migration_command": "",
+        "pairmode_scripts_dir": str(pathlib.Path(__file__).parent),
         "domain_model": "",
         "checklist_items": derived_checklist,  # spec-derived only; universal items are hardcoded in templates
         "protected_paths": [],

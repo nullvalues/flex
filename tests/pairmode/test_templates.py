@@ -43,6 +43,7 @@ CLAUDE_BUILD_MD_CONTEXT = {
     "build_command": "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q",
     "test_command": "PATH=$HOME/.local/bin:$PATH uv run pytest tests/ -x -q",
     "migration_command": "uv run alembic upgrade head",
+    "pairmode_scripts_dir": "/path/to/anchor/skills/pairmode/scripts",
 }
 
 CLAUDE_BUILD_MD_NO_MIGRATION_CONTEXT = {
@@ -50,6 +51,7 @@ CLAUDE_BUILD_MD_NO_MIGRATION_CONTEXT = {
     "build_command": "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q",
     "test_command": "PATH=$HOME/.local/bin:$PATH uv run pytest tests/ -x -q",
     "migration_command": "",
+    "pairmode_scripts_dir": "/path/to/anchor/skills/pairmode/scripts",
 }
 
 
