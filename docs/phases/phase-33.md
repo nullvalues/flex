@@ -49,9 +49,9 @@ The final story deploys all fixes to cora, radar, aab, and forqsite via
 |----|-------|--------|
 | INFRA-079 | Fix relative script paths in `CLAUDE.build.md.j2` | complete |
 | INFRA-080 | `pairmode_version` bump to `0.2.0` + outdated signal | planned |
-| INFRA-081 | `sync-agents` additive body section propagation | planned |
+| INFRA-081 | `sync-agents` additive body section propagation | complete |
 | INFRA-082 | Bootstrap writes standard Bash allow rules | planned |
-| INFRA-083 | `select_reviewer_model` returns `(model, reason)` tuple | planned |
+| INFRA-083 | `select_reviewer_model` returns `(model, reason)` tuple | complete |
 | INFRA-084 | Sibling deployment catch-up | planned |
 
 ---

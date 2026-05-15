@@ -2,7 +2,7 @@
 id: INFRA-083
 rail: INFRA
 title: "select_reviewer_model returns (model, reason) tuple"
-status: planned
+status: complete
 phase: "33"
 story_class: code
 primary_files:

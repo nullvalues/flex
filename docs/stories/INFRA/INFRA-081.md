@@ -2,7 +2,7 @@
 id: INFRA-081
 rail: INFRA
 title: "sync-agents additive body section propagation"
-status: planned
+status: complete
 phase: "33"
 story_class: code
 primary_files:
