@@ -47,7 +47,7 @@ The final story deploys all fixes to cora, radar, aab, and forqsite via
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-079 | Fix relative script paths in `CLAUDE.build.md.j2` | planned |
+| INFRA-079 | Fix relative script paths in `CLAUDE.build.md.j2` | complete |
 | INFRA-080 | `pairmode_version` bump to `0.2.0` + outdated signal | planned |
 | INFRA-081 | `sync-agents` additive body section propagation | planned |
 | INFRA-082 | Bootstrap writes standard Bash allow rules | planned |

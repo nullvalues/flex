@@ -2,7 +2,7 @@
 id: INFRA-079
 rail: INFRA
 title: "Fix relative script paths in CLAUDE.build.md.j2"
-status: planned
+status: complete
 phase: "33"
 story_class: code
 primary_files:
