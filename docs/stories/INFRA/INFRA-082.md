@@ -2,7 +2,7 @@
 id: INFRA-082
 rail: INFRA
 title: "Bootstrap writes standard Bash allow rules"
-status: planned
+status: complete
 phase: "33"
 story_class: code
 primary_files:
