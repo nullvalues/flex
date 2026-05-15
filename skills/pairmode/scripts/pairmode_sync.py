@@ -160,6 +160,100 @@ def _split_agent_file(text: str) -> tuple[str, str] | None:
     return frontmatter, body
 
 
+def _parse_body_sections(body: str) -> tuple[str, list[tuple[str, str]]]:
+    """Parse a body string into a preamble and a list of (heading_line, content) sections.
+
+    The preamble is all content before the first ``## `` heading.
+    Each section is a tuple of (heading_line, content) where:
+    - ``heading_line`` is the full line starting with ``## `` (including newline)
+    - ``content`` is the text that follows the heading, up to the next ``## `` heading
+
+    Returns (preamble, sections).
+    """
+    lines = body.splitlines(keepends=True)
+    preamble_lines: list[str] = []
+    sections: list[tuple[str, str]] = []
+    current_heading: str | None = None
+    current_content_lines: list[str] = []
+
+    for line in lines:
+        if line.startswith("## "):
+            if current_heading is not None:
+                sections.append((current_heading, "".join(current_content_lines)))
+            elif current_content_lines:
+                preamble_lines.extend(current_content_lines)
+                current_content_lines = []
+            else:
+                # no content yet — flush preamble_lines from before first heading
+                pass
+            current_heading = line
+            current_content_lines = []
+        else:
+            current_content_lines.append(line)
+
+    # Flush the last section or remaining preamble content
+    if current_heading is not None:
+        sections.append((current_heading, "".join(current_content_lines)))
+    else:
+        preamble_lines.extend(current_content_lines)
+
+    return "".join(preamble_lines), sections
+
+
+def _merge_body_sections(template_body: str, target_body: str) -> str:
+    """Merge new H2 sections from *template_body* into *target_body*, additively.
+
+    Sections present in the template but absent from the target are appended to
+    the target.  Sections already present in the target are left untouched.
+    Sections in the target that are absent from the template are preserved
+    (project-specific additions are never removed).
+
+    Returns the merged target body.
+    """
+    _template_preamble, template_sections = _parse_body_sections(template_body)
+    _target_preamble, target_sections = _parse_body_sections(target_body)
+
+    # Build the set of heading lines already present in the target
+    target_headings: set[str] = {heading for heading, _content in target_sections}
+
+    # Collect template sections not present in the target
+    sections_to_add: list[tuple[str, str]] = [
+        (heading, content)
+        for heading, content in template_sections
+        if heading not in target_headings
+    ]
+
+    if not sections_to_add:
+        return target_body
+
+    # Append missing sections to the target body, each preceded by a blank line
+    merged = target_body
+    # Ensure the body ends with a newline before appending
+    if merged and not merged.endswith("\n"):
+        merged += "\n"
+    for heading, content in sections_to_add:
+        merged += "\n" + heading + content
+
+    return merged
+
+
+def _render_full_template(template_path: Path, context: dict) -> str:
+    """Render *template_path* with *context* and return the full rendered output.
+
+    Unlike ``_render_template_frontmatter``, this returns the entire rendered
+    file including both frontmatter and body.
+    Raises ``ValueError`` if the template cannot be rendered.
+    """
+    loader = jinja2.FileSystemLoader(str(template_path.parent))
+    env = jinja2.Environment(
+        loader=loader,
+        undefined=jinja2.StrictUndefined,
+        keep_trailing_newline=True,
+    )
+    template = env.get_template(template_path.name)
+    return template.render(**context)
+
+
 # ---------------------------------------------------------------------------
 # sync-build helpers
 # ---------------------------------------------------------------------------
@@ -276,7 +370,19 @@ def _collect_changes(
             )
             continue
 
-        new_content = new_frontmatter + body
+        # Render the full template and extract its body for section merging
+        try:
+            full_rendered = _render_full_template(template_path, context)
+            template_parts = _split_agent_file(full_rendered)
+            template_body = template_parts[1] if template_parts is not None else ""
+        except (jinja2.TemplateError, ValueError):
+            # If we can't render the full template, fall back to no body merging
+            template_body = ""
+
+        # Merge new H2 sections from the template body into the target body
+        merged_body = _merge_body_sections(template_body, body)
+
+        new_content = new_frontmatter + merged_body
 
         if new_content != old_content:
             changes.append((agent_file, old_content, new_content))

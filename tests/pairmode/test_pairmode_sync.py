@@ -16,7 +16,11 @@ import sys
 _SCRIPTS_DIR = pathlib.Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts"
 sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from pairmode_sync import _build_template_context, _render_build_template  # noqa: E402
+from pairmode_sync import (  # noqa: E402
+    _build_template_context,
+    _merge_body_sections,
+    _render_build_template,
+)
 
 ANCHOR_ROOT = pathlib.Path(__file__).parent.parent.parent
 EXPECTED_SCRIPTS_DIR = str(ANCHOR_ROOT / "skills" / "pairmode" / "scripts")
@@ -81,3 +85,73 @@ class TestRenderBuildTemplate:
         assert expected in rendered, (
             f"Rendered CLAUDE.build.md does not contain the absolute scripts path {expected!r}."
         )
+
+
+class TestMergeBodySections:
+    """Tests for _merge_body_sections()."""
+
+    def test_missing_template_section_is_appended(self) -> None:
+        """Sections present in the template body but absent from the target are appended."""
+        template_body = (
+            "\n"
+            "## Contract check\n"
+            "\n"
+            "Read the story spec's `## Ensures` section.\n"
+        )
+        target_body = (
+            "\n"
+            "You are the reviewer.\n"
+            "\n"
+            "## Review checklist\n"
+            "\n"
+            "Run every item.\n"
+        )
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        # The target's existing section must still be present
+        assert "## Review checklist" in merged
+        # The new section from the template must have been appended
+        assert "## Contract check" in merged
+        assert "Read the story spec" in merged
+
+    def test_project_specific_section_preserved(self) -> None:
+        """Target sections absent from the template are preserved in the merged result."""
+        template_body = (
+            "\n"
+            "## Contract check\n"
+            "\n"
+            "Read the story spec's `## Ensures` section.\n"
+        )
+        target_body = (
+            "\n"
+            "## Contract check\n"
+            "\n"
+            "Read the story spec's `## Ensures` section.\n"
+            "\n"
+            "## Local overrides\n"
+            "\n"
+            "Project-specific instructions here.\n"
+        )
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        # The project-specific section must be preserved
+        assert "## Local overrides" in merged
+        assert "Project-specific instructions here." in merged
+        # The shared section must still be present
+        assert "## Contract check" in merged
+
+    def test_existing_section_not_duplicated(self) -> None:
+        """When the target already has a section matching a template section, it is not duplicated."""
+        contract_check_content = "Read the story spec's `## Ensures` section.\n"
+        template_body = f"\n## Contract check\n\n{contract_check_content}"
+        target_body = f"\n## Contract check\n\nTarget's version of contract check content.\n"
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        # The section should appear exactly once
+        assert merged.count("## Contract check") == 1
+        # The target's version should be preserved (not overwritten by the template version)
+        assert "Target's version of contract check content." in merged
+        assert contract_check_content not in merged

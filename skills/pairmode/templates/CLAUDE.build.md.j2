@@ -288,18 +288,20 @@ from pathlib import Path
 sys.path.insert(0, '{{ pairmode_scripts_dir }}')
 from model_selector import select_reviewer_model
 # Replace values below with the current story's data:
-model = select_reviewer_model(
+model, reason = select_reviewer_model(
     story_class='code',     # from story frontmatter; default 'code' if absent
     attempt_number=1,       # 1 for first attempt, increment on each retry
     phase_id='24',          # from story frontmatter 'phase' field
     project_dir=Path('.'),
 )
 print(model)
+print(reason)
 "
 ```
 
-Pass the printed value (`sonnet` or `opus`) as the `model` parameter when
-spawning the reviewer Agent tool call.
+The first line is the model (`sonnet` or `opus`); the second line is the selection
+reason. Pass the model as the `model` parameter when spawning the reviewer. Pass
+the reason to `record_attempt.py` as `--model-selection-reason`.
 
 Spawn the `reviewer` subagent with:
 - The story ID
@@ -324,6 +326,7 @@ PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/record_atte
   --tool-uses 6 \
   --duration-ms 95000 \
   --outcome PASS \
+  --model-selection-reason auto-baseline \
   --project-dir .
 ```
 
@@ -422,7 +425,7 @@ sys.path.insert(0, '{{ pairmode_scripts_dir }}')
 from model_selector import select_security_auditor_model
 # Replace phase_class with the value from the phase manifest frontmatter;
 # default 'production' if the field is absent.
-model = select_security_auditor_model('production')
+model, _ = select_security_auditor_model('production')
 print(model)
 "
 ```
@@ -446,7 +449,7 @@ sys.path.insert(0, '{{ pairmode_scripts_dir }}')
 from model_selector import select_intent_reviewer_model
 # Replace phase_class with the value from the phase manifest frontmatter;
 # default 'production' if the field is absent.
-model = select_intent_reviewer_model('production')
+model, _ = select_intent_reviewer_model('production')
 print(model)
 "
 ```

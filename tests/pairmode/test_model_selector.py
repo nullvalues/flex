@@ -91,16 +91,24 @@ def _write_phase(
 
 class TestAttemptOne:
     def test_code_attempt1(self) -> None:
-        assert select_reviewer_model("code", 1) == MODEL_SONNET
+        model, reason = select_reviewer_model("code", 1)
+        assert model == MODEL_SONNET
+        assert reason == "auto-baseline"
 
     def test_doc_attempt1(self) -> None:
-        assert select_reviewer_model("doc", 1) == MODEL_SONNET
+        model, reason = select_reviewer_model("doc", 1)
+        assert model == MODEL_SONNET
+        assert reason == "auto-baseline"
 
     def test_lesson_attempt1(self) -> None:
-        assert select_reviewer_model("lesson", 1) == MODEL_SONNET
+        model, reason = select_reviewer_model("lesson", 1)
+        assert model == MODEL_SONNET
+        assert reason == "auto-baseline"
 
     def test_methodology_attempt1(self) -> None:
-        assert select_reviewer_model("methodology", 1) == MODEL_SONNET
+        model, reason = select_reviewer_model("methodology", 1)
+        assert model == MODEL_SONNET
+        assert reason == "auto-baseline"
 
 
 # ---------------------------------------------------------------------------
@@ -110,32 +118,48 @@ class TestAttemptOne:
 
 class TestAttemptTwoPlus:
     def test_code_attempt2_upgrades_to_opus(self) -> None:
-        assert select_reviewer_model("code", 2) == MODEL_OPUS
+        model, reason = select_reviewer_model("code", 2)
+        assert model == MODEL_OPUS
+        assert reason == "retry-upgrade"
 
     def test_code_attempt3_upgrades_to_opus(self) -> None:
-        assert select_reviewer_model("code", 3) == MODEL_OPUS
+        model, reason = select_reviewer_model("code", 3)
+        assert model == MODEL_OPUS
+        assert reason == "retry-upgrade"
 
     def test_doc_attempt2_stays_sonnet(self) -> None:
-        assert select_reviewer_model("doc", 2) == MODEL_SONNET
+        model, reason = select_reviewer_model("doc", 2)
+        assert model == MODEL_SONNET
+        assert reason == "doc-class-baseline"
 
     def test_doc_attempt5_stays_sonnet(self) -> None:
-        assert select_reviewer_model("doc", 5) == MODEL_SONNET
+        model, reason = select_reviewer_model("doc", 5)
+        assert model == MODEL_SONNET
+        assert reason == "doc-class-baseline"
 
     def test_lesson_attempt2_stays_sonnet(self) -> None:
-        assert select_reviewer_model("lesson", 2) == MODEL_SONNET
+        model, reason = select_reviewer_model("lesson", 2)
+        assert model == MODEL_SONNET
+        assert reason == "doc-class-baseline"
 
     def test_lesson_attempt3_stays_sonnet(self) -> None:
-        assert select_reviewer_model("lesson", 3) == MODEL_SONNET
+        model, reason = select_reviewer_model("lesson", 3)
+        assert model == MODEL_SONNET
+        assert reason == "doc-class-baseline"
 
     def test_methodology_attempt2_no_phase_stays_sonnet(self) -> None:
         """Methodology without phase_id always stays sonnet."""
-        assert select_reviewer_model("methodology", 2) == MODEL_SONNET
+        model, reason = select_reviewer_model("methodology", 2)
+        assert model == MODEL_SONNET
+        assert reason == "methodology-baseline"
 
     def test_methodology_attempt2_with_phase_id_but_no_project_dir_stays_sonnet(
         self,
     ) -> None:
         """phase_id alone (no project_dir) cannot resolve stories — stays sonnet."""
-        assert select_reviewer_model("methodology", 2, phase_id="24") == MODEL_SONNET
+        model, reason = select_reviewer_model("methodology", 2, phase_id="24")
+        assert model == MODEL_SONNET
+        assert reason == "methodology-baseline"
 
 
 # ---------------------------------------------------------------------------
@@ -152,10 +176,11 @@ class TestMethodologySamePhaseCodeStory:
         _write_story(tmp_path, "INFRA-002", story_class="methodology")
         _write_phase(tmp_path, "24", ["INFRA-001", "INFRA-002"])
 
-        result = select_reviewer_model(
+        model, reason = select_reviewer_model(
             "methodology", 2, phase_id="24", project_dir=tmp_path
         )
-        assert result == MODEL_OPUS
+        assert model == MODEL_OPUS
+        assert reason == "methodology-upgrade"
 
     def test_upgrades_when_phase_has_story_with_no_class(
         self, tmp_path: Path
@@ -165,10 +190,11 @@ class TestMethodologySamePhaseCodeStory:
         _write_story(tmp_path, "INFRA-002", story_class="methodology")
         _write_phase(tmp_path, "24", ["INFRA-001", "INFRA-002"])
 
-        result = select_reviewer_model(
+        model, reason = select_reviewer_model(
             "methodology", 2, phase_id="24", project_dir=tmp_path
         )
-        assert result == MODEL_OPUS
+        assert model == MODEL_OPUS
+        assert reason == "methodology-upgrade"
 
     def test_stays_sonnet_when_phase_has_only_non_code_stories(
         self, tmp_path: Path
@@ -179,20 +205,22 @@ class TestMethodologySamePhaseCodeStory:
         _write_story(tmp_path, "INFRA-002", story_class="methodology")
         _write_phase(tmp_path, "24", ["INFRA-001", "LESSON-001", "INFRA-002"])
 
-        result = select_reviewer_model(
+        model, reason = select_reviewer_model(
             "methodology", 2, phase_id="24", project_dir=tmp_path
         )
-        assert result == MODEL_SONNET
+        assert model == MODEL_SONNET
+        assert reason == "methodology-baseline"
 
     def test_stays_sonnet_when_phase_file_missing(self, tmp_path: Path) -> None:
         """Missing phase manifest → fail-safe, stay sonnet."""
         # No phase file written; project_dir is empty
         (tmp_path / "docs" / "phases").mkdir(parents=True, exist_ok=True)
 
-        result = select_reviewer_model(
+        model, reason = select_reviewer_model(
             "methodology", 2, phase_id="99", project_dir=tmp_path
         )
-        assert result == MODEL_SONNET
+        assert model == MODEL_SONNET
+        assert reason == "methodology-baseline"
 
     def test_stays_sonnet_when_phase_has_empty_story_table(
         self, tmp_path: Path
@@ -200,10 +228,11 @@ class TestMethodologySamePhaseCodeStory:
         """Empty story list in phase → no code story → stay sonnet."""
         _write_phase(tmp_path, "24", [])
 
-        result = select_reviewer_model(
+        model, reason = select_reviewer_model(
             "methodology", 2, phase_id="24", project_dir=tmp_path
         )
-        assert result == MODEL_SONNET
+        assert model == MODEL_SONNET
+        assert reason == "methodology-baseline"
 
     def test_attempt1_methodology_never_upgrades_even_with_code_story(
         self, tmp_path: Path
@@ -213,10 +242,11 @@ class TestMethodologySamePhaseCodeStory:
         _write_story(tmp_path, "INFRA-002", story_class="methodology")
         _write_phase(tmp_path, "24", ["INFRA-001", "INFRA-002"])
 
-        result = select_reviewer_model(
+        model, reason = select_reviewer_model(
             "methodology", 1, phase_id="24", project_dir=tmp_path
         )
-        assert result == MODEL_SONNET
+        assert model == MODEL_SONNET
+        assert reason == "auto-baseline"
 
 
 # ---------------------------------------------------------------------------
@@ -226,19 +256,27 @@ class TestMethodologySamePhaseCodeStory:
 
 class TestUnknownStoryClass:
     def test_unknown_class_attempt1_returns_sonnet(self) -> None:
-        assert select_reviewer_model("unknown", 1) == MODEL_SONNET
+        model, reason = select_reviewer_model("unknown", 1)
+        assert model == MODEL_SONNET
+        assert reason == "auto-baseline"
 
     def test_unknown_class_attempt2_returns_opus(self) -> None:
         """Unknown defaults to 'code' — upgrades on retry."""
-        assert select_reviewer_model("unknown", 2) == MODEL_OPUS
+        model, reason = select_reviewer_model("unknown", 2)
+        assert model == MODEL_OPUS
+        assert reason == "retry-upgrade"
 
     def test_empty_string_class_attempt2_returns_opus(self) -> None:
-        assert select_reviewer_model("", 2) == MODEL_OPUS
+        model, reason = select_reviewer_model("", 2)
+        assert model == MODEL_OPUS
+        assert reason == "retry-upgrade"
 
     def test_none_like_class_treated_as_code(self) -> None:
         # None would be a type error in typed code but we guard anyway
         # This tests the falsy branch: story_class = ""
-        assert select_reviewer_model("", 1) == MODEL_SONNET
+        model, reason = select_reviewer_model("", 1)
+        assert model == MODEL_SONNET
+        assert reason == "auto-baseline"
 
 
 # ---------------------------------------------------------------------------
@@ -292,20 +330,30 @@ class TestPhaseHasCodeStory:
 
 class TestSelectIntentReviewerModel:
     def test_production_returns_sonnet(self) -> None:
-        assert select_intent_reviewer_model("production") == MODEL_SONNET
+        model, reason = select_intent_reviewer_model("production")
+        assert model == MODEL_SONNET
+        assert reason == "non-production-class"
 
     def test_docs_only_returns_sonnet(self) -> None:
-        assert select_intent_reviewer_model("docs-only") == MODEL_SONNET
+        model, reason = select_intent_reviewer_model("docs-only")
+        assert model == MODEL_SONNET
+        assert reason == "non-production-class"
 
     def test_pre_pr_returns_opus(self) -> None:
-        assert select_intent_reviewer_model("pre-pr") == MODEL_OPUS
+        model, reason = select_intent_reviewer_model("pre-pr")
+        assert model == MODEL_OPUS
+        assert reason == "production-class"
 
     def test_unknown_defaults_to_production_sonnet(self) -> None:
         """Unknown phase_class defaults to 'production' → sonnet."""
-        assert select_intent_reviewer_model("unknown") == MODEL_SONNET
+        model, reason = select_intent_reviewer_model("unknown")
+        assert model == MODEL_SONNET
+        assert reason == "non-production-class"
 
     def test_empty_string_defaults_to_production_sonnet(self) -> None:
-        assert select_intent_reviewer_model("") == MODEL_SONNET
+        model, reason = select_intent_reviewer_model("")
+        assert model == MODEL_SONNET
+        assert reason == "non-production-class"
 
 
 # ---------------------------------------------------------------------------
@@ -315,20 +363,30 @@ class TestSelectIntentReviewerModel:
 
 class TestSelectSecurityAuditorModel:
     def test_production_returns_opus(self) -> None:
-        assert select_security_auditor_model("production") == MODEL_OPUS
+        model, reason = select_security_auditor_model("production")
+        assert model == MODEL_OPUS
+        assert reason == "production-class"
 
     def test_docs_only_returns_sonnet(self) -> None:
-        assert select_security_auditor_model("docs-only") == MODEL_SONNET
+        model, reason = select_security_auditor_model("docs-only")
+        assert model == MODEL_SONNET
+        assert reason == "non-production-class"
 
     def test_pre_pr_returns_opus(self) -> None:
-        assert select_security_auditor_model("pre-pr") == MODEL_OPUS
+        model, reason = select_security_auditor_model("pre-pr")
+        assert model == MODEL_OPUS
+        assert reason == "production-class"
 
     def test_unknown_defaults_to_production_opus(self) -> None:
         """Unknown phase_class defaults to 'production' → opus."""
-        assert select_security_auditor_model("unknown") == MODEL_OPUS
+        model, reason = select_security_auditor_model("unknown")
+        assert model == MODEL_OPUS
+        assert reason == "production-class"
 
     def test_empty_string_defaults_to_production_opus(self) -> None:
-        assert select_security_auditor_model("") == MODEL_OPUS
+        model, reason = select_security_auditor_model("")
+        assert model == MODEL_OPUS
+        assert reason == "production-class"
 
 
 # ---------------------------------------------------------------------------

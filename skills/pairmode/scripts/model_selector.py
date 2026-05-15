@@ -4,10 +4,10 @@ model_selector.py — Deterministic model selection for reviewer-class agents.
 Public API:
 
   select_reviewer_model(story_class, attempt_number, phase_id=None,
-                        project_dir=None) -> str
+                        project_dir=None) -> tuple[str, str]
 
-    Returns "sonnet" or "opus" for the reviewer agent given the story's class
-    and the current attempt number.
+    Returns a (model, reason) tuple for the reviewer agent given the story's
+    class and the current attempt number.
 
     Selection table:
 
@@ -23,6 +23,13 @@ Public API:
     For methodology stories on attempt >= 2: the helper checks the phase
     manifest for any code story (story_class="code", or absent which defaults
     to "code"). If found, returns "opus"; otherwise "sonnet".
+
+    Reason values:
+      "auto-baseline"        — attempt 1 (all classes)
+      "doc-class-baseline"   — doc or lesson class, any attempt >= 2
+      "retry-upgrade"        — code class, attempt >= 2
+      "methodology-upgrade"  — methodology, attempt >= 2, same-phase code story exists
+      "methodology-baseline" — methodology, attempt >= 2, no same-phase code story
 
   Unknown story_class values default to the "code" rules (conservative).
 
@@ -50,35 +57,37 @@ Public API:
     prompt the user; if the user downgrades, record ``user-override`` reason in
     the DB.
 
-  select_intent_reviewer_model(phase_class) -> str
+  select_intent_reviewer_model(phase_class) -> tuple[str, str]
 
-    Returns "sonnet" or "opus" for the intent-reviewer checkpoint agent given
-    the phase's class.
-
-    Selection table:
-
-      phase_class   model
-      -----------   -----
-      production    sonnet
-      docs-only     sonnet
-      pre-pr        opus
-
-    Unknown/absent phase_class values default to "production" (sonnet).
-
-  select_security_auditor_model(phase_class) -> str
-
-    Returns "sonnet" or "opus" for the security-auditor checkpoint agent given
-    the phase's class.
+    Returns a (model, reason) tuple for the intent-reviewer checkpoint agent
+    given the phase's class.
 
     Selection table:
 
-      phase_class   model
-      -----------   -----
-      production    opus
-      docs-only     sonnet
-      pre-pr        opus
+      phase_class   model   reason
+      -----------   -----   ------
+      production    sonnet  non-production-class
+      docs-only     sonnet  non-production-class
+      pre-pr        opus    production-class
 
-    Unknown/absent phase_class values default to "production" (opus).
+    Unknown/absent phase_class values default to "production" (sonnet,
+    non-production-class).
+
+  select_security_auditor_model(phase_class) -> tuple[str, str]
+
+    Returns a (model, reason) tuple for the security-auditor checkpoint agent
+    given the phase's class.
+
+    Selection table:
+
+      phase_class   model   reason
+      -----------   -----   ------
+      production    opus    production-class
+      docs-only     sonnet  non-production-class
+      pre-pr        opus    production-class
+
+    Unknown/absent phase_class values default to "production" (opus,
+    production-class).
 """
 
 from __future__ import annotations
@@ -127,8 +136,8 @@ def select_reviewer_model(
     attempt_number: int,
     phase_id: str | None = None,
     project_dir: Path | str | None = None,
-) -> str:
-    """Return "sonnet" or "opus" for the reviewer agent.
+) -> tuple[str, str]:
+    """Return (model, reason) for the reviewer agent.
 
     Args:
         story_class:    The story's class ("code", "doc", "lesson",
@@ -140,7 +149,9 @@ def select_reviewer_model(
                         phase_id is supplied and story files must be resolved.
 
     Returns:
-        "sonnet" or "opus".
+        A (model, reason) tuple where model is "sonnet" or "opus" and reason
+        is one of "auto-baseline", "doc-class-baseline", "retry-upgrade",
+        "methodology-upgrade", "methodology-baseline".
     """
     # Normalise / apply default
     if not story_class or story_class not in {"code", "doc", "lesson", "methodology"}:
@@ -148,22 +159,22 @@ def select_reviewer_model(
 
     # Attempt 1 is always sonnet regardless of class
     if attempt_number <= 1:
-        return MODEL_SONNET
+        return MODEL_SONNET, "auto-baseline"
 
     # attempt >= 2 — apply per-class rules
     if story_class in _ALWAYS_SONNET_CLASSES:
-        return MODEL_SONNET
+        return MODEL_SONNET, "doc-class-baseline"
 
     if story_class == "code":
-        return MODEL_OPUS
+        return MODEL_OPUS, "retry-upgrade"
 
     # story_class == "methodology"
     # Stays sonnet unless a same-phase code story exists
     if phase_id is not None and project_dir is not None:
         if _phase_has_code_story(phase_id, Path(project_dir)):
-            return MODEL_OPUS
+            return MODEL_OPUS, "methodology-upgrade"
 
-    return MODEL_SONNET
+    return MODEL_SONNET, "methodology-baseline"
 
 
 # ---------------------------------------------------------------------------
@@ -240,48 +251,48 @@ DEFAULT_PHASE_CLASS = "production"
 _VALID_PHASE_CLASSES = frozenset({"production", "docs-only", "pre-pr"})
 
 
-def select_intent_reviewer_model(phase_class: str) -> str:
-    """Return "sonnet" or "opus" for the intent-reviewer checkpoint agent.
+def select_intent_reviewer_model(phase_class: str) -> tuple[str, str]:
+    """Return (model, reason) for the intent-reviewer checkpoint agent.
 
     Selection table:
 
-      phase_class   model
-      -----------   -----
-      production    sonnet
-      docs-only     sonnet
-      pre-pr        opus
+      phase_class   model   reason
+      -----------   -----   ------
+      production    sonnet  non-production-class
+      docs-only     sonnet  non-production-class
+      pre-pr        opus    production-class
 
-    Unknown/absent values default to "production" (sonnet).
+    Unknown/absent values default to "production" (sonnet, non-production-class).
     """
     if not phase_class or phase_class not in _VALID_PHASE_CLASSES:
         phase_class = DEFAULT_PHASE_CLASS
 
     if phase_class == "pre-pr":
-        return MODEL_OPUS
+        return MODEL_OPUS, "production-class"
     # production and docs-only both use sonnet
-    return MODEL_SONNET
+    return MODEL_SONNET, "non-production-class"
 
 
-def select_security_auditor_model(phase_class: str) -> str:
-    """Return "sonnet" or "opus" for the security-auditor checkpoint agent.
+def select_security_auditor_model(phase_class: str) -> tuple[str, str]:
+    """Return (model, reason) for the security-auditor checkpoint agent.
 
     Selection table:
 
-      phase_class   model
-      -----------   -----
-      production    opus
-      docs-only     sonnet
-      pre-pr        opus
+      phase_class   model   reason
+      -----------   -----   ------
+      production    opus    production-class
+      docs-only     sonnet  non-production-class
+      pre-pr        opus    production-class
 
-    Unknown/absent values default to "production" (opus).
+    Unknown/absent values default to "production" (opus, production-class).
     """
     if not phase_class or phase_class not in _VALID_PHASE_CLASSES:
         phase_class = DEFAULT_PHASE_CLASS
 
     if phase_class == "docs-only":
-        return MODEL_SONNET
+        return MODEL_SONNET, "non-production-class"
     # production and pre-pr both use opus
-    return MODEL_OPUS
+    return MODEL_OPUS, "production-class"
 
 
 # ---------------------------------------------------------------------------
