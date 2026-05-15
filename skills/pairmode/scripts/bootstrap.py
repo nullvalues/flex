@@ -90,6 +90,14 @@ DEFAULT_DENY: list[str] = [
     "Write(docs/RECONSTRUCTION.md)",
 ]
 
+# Standard build-tool allow rules written into .claude/settings.local.json
+PAIRMODE_ALLOW: list[str] = [
+    "Bash(uv run *)",
+    "Bash(git *)",
+    "Bash(python3 *)",
+    "Bash(grep *)",
+]
+
 # Universal checklist items always included in templates
 UNIVERSAL_CHECKLIST_ITEMS: list[dict] = [
     {
@@ -240,6 +248,36 @@ def _merge_deny_list(settings_path: pathlib.Path, new_entries: list[str]) -> Non
             deny.append(entry)
 
     permissions["deny"] = deny
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(data, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def _merge_allow_rules(settings_path: pathlib.Path, new_entries: list[str]) -> None:
+    """
+    Merge *new_entries* into the permissions.allow array in settings_path.
+
+    Creates the file if it does not exist.  Existing entries are preserved;
+    duplicates are not added.  No glob-subsumption pruning is applied — allow
+    rules accumulate without removal of existing entries.
+    """
+    if settings_path.exists():
+        try:
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            data = {}
+    else:
+        data = {}
+
+    permissions = data.setdefault("permissions", {})
+    allow: list[str] = permissions.get("allow", [])
+
+    for entry in new_entries:
+        if entry not in allow:
+            allow.append(entry)
+
+    permissions["allow"] = allow
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(
         json.dumps(data, indent=2) + "\n", encoding="utf-8"
@@ -903,6 +941,16 @@ def bootstrap(
     else:
         click.echo(f"\nMerging deny list into {settings_path}")
         _merge_deny_list(settings_path, effective_deny)
+
+    # ------------------------------------------------------------------
+    # 5a. Merge allow rules into .claude/settings.local.json
+    # ------------------------------------------------------------------
+    settings_local_path = project_path / ".claude" / "settings.local.json"
+    if dry_run:
+        click.echo(f"  [dry-run] would merge allow rules into: {settings_local_path}")
+    else:
+        click.echo(f"Merging allow rules into {settings_local_path}")
+        _merge_allow_rules(settings_local_path, PAIRMODE_ALLOW)
 
     # ------------------------------------------------------------------
     # 6. Write deny-rationale sidecar

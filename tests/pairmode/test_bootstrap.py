@@ -11,9 +11,11 @@ from skills.pairmode.scripts.bootstrap import (
     bootstrap,
     AGENT_FILES,
     DEFAULT_DENY,
+    PAIRMODE_ALLOW,
     PAIRMODE_DEFAULT_RAILS,
     PAIRMODE_VERSION,
     _merge_deny_list,
+    _merge_allow_rules,
     _glob_prefix,
     _infer_project_type,
     _is_subsumed,
@@ -2842,3 +2844,89 @@ class TestBootstrapNextSteps:
         result = self._run_bootstrap(tmp_path, extra_args=["--dry-run"])
         assert result.exit_code == 0, result.output
         assert "## Next steps" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# Story INFRA-082: PAIRMODE_ALLOW and _merge_allow_rules tests
+# ---------------------------------------------------------------------------
+
+class TestAllowRules:
+    """Bootstrap writes PAIRMODE_ALLOW entries into .claude/settings.local.json."""
+
+    def test_settings_local_json_created_after_bootstrap(self, tmp_path):
+        """Bootstrap creates .claude/settings.local.json with allow rules."""
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
+        assert settings_local_path.exists(), (
+            ".claude/settings.local.json should be created by bootstrap"
+        )
+
+    def test_settings_local_json_has_permissions_allow(self, tmp_path):
+        """settings.local.json contains a permissions.allow key."""
+        run_bootstrap(tmp_path)
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+        assert "permissions" in data
+        assert "allow" in data["permissions"]
+
+    def test_all_pairmode_allow_entries_present(self, tmp_path):
+        """All four PAIRMODE_ALLOW entries appear in settings.local.json after bootstrap."""
+        run_bootstrap(tmp_path)
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+        allow = data["permissions"]["allow"]
+        for entry in PAIRMODE_ALLOW:
+            assert entry in allow, f"Missing allow entry: {entry}"
+
+    def test_bootstrap_twice_no_duplicates(self, tmp_path):
+        """Running bootstrap twice must not produce duplicate allow entries."""
+        run_bootstrap(tmp_path)
+        run_bootstrap(tmp_path)
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+        allow = data["permissions"]["allow"]
+        for entry in PAIRMODE_ALLOW:
+            assert allow.count(entry) == 1, (
+                f"Duplicate allow entry after double bootstrap: {entry!r}"
+            )
+
+    def test_merge_allow_rules_does_not_remove_existing_entries(self, tmp_path):
+        """_merge_allow_rules preserves existing allow entries."""
+        settings_path = tmp_path / ".claude" / "settings.local.json"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = {"permissions": {"allow": ["Bash(make *)", "Bash(npm *"]}}
+        settings_path.write_text(json.dumps(existing), encoding="utf-8")
+
+        _merge_allow_rules(settings_path, PAIRMODE_ALLOW)
+
+        data = json.loads(settings_path.read_text())
+        allow = data["permissions"]["allow"]
+        assert "Bash(make *)" in allow, "Pre-existing allow entry must be preserved"
+        assert "Bash(npm *" in allow, "Pre-existing allow entry must be preserved"
+        for entry in PAIRMODE_ALLOW:
+            assert entry in allow, f"New allow entry must be added: {entry}"
+
+    def test_merge_allow_rules_creates_file_when_absent(self, tmp_path):
+        """_merge_allow_rules creates settings.local.json when it does not exist."""
+        settings_path = tmp_path / ".claude" / "settings.local.json"
+        assert not settings_path.exists()
+        _merge_allow_rules(settings_path, PAIRMODE_ALLOW)
+        assert settings_path.exists()
+        data = json.loads(settings_path.read_text())
+        allow = data["permissions"]["allow"]
+        for entry in PAIRMODE_ALLOW:
+            assert entry in allow
+
+    def test_pairmode_allow_has_four_entries(self):
+        """PAIRMODE_ALLOW constant contains exactly four entries."""
+        assert len(PAIRMODE_ALLOW) == 4
+
+    def test_pairmode_allow_contains_uv_run(self):
+        assert "Bash(uv run *)" in PAIRMODE_ALLOW
+
+    def test_pairmode_allow_contains_git(self):
+        assert "Bash(git *)" in PAIRMODE_ALLOW
+
+    def test_pairmode_allow_contains_python3(self):
+        assert "Bash(python3 *)" in PAIRMODE_ALLOW
+
+    def test_pairmode_allow_contains_grep(self):
+        assert "Bash(grep *)" in PAIRMODE_ALLOW
