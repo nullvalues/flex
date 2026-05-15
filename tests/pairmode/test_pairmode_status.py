@@ -267,6 +267,29 @@ def test_empty_registered_projects_shows_no_registered_line(tmp_path: pathlib.Pa
     assert "Drift" not in result.output
 
 
+# ---------------------------------------------------------------------------
+# Version update hint (INFRA-080)
+# ---------------------------------------------------------------------------
+
+
+def test_stale_version_shows_update_hint(tmp_path: pathlib.Path) -> None:
+    """state.json with an older pairmode_version → update hint appears in output."""
+    _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+    result = _invoke(tmp_path)
+    assert result.exit_code == 0, result.output
+    assert "Update available" in result.output
+    assert "pairmode sync" in result.output
+
+
+def test_current_version_shows_no_update_hint(tmp_path: pathlib.Path) -> None:
+    """state.json with the current pairmode_version → no update hint in output."""
+    from bootstrap import PAIRMODE_VERSION as _CURRENT
+    _write_state(tmp_path, {"pairmode_version": _CURRENT})
+    result = _invoke(tmp_path)
+    assert result.exit_code == 0, result.output
+    assert "Update available" not in result.output
+
+
 def test_more_than_two_registered_projects_truncates_hint(tmp_path: pathlib.Path) -> None:
     """registered_projects with 3 entries → hint truncates to first 2 with ' ...'."""
     proj_a = "/home/user/project-a"

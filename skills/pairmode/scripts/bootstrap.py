@@ -30,7 +30,7 @@ from schema_validator import _parse_frontmatter
 # Constants
 # ---------------------------------------------------------------------------
 
-PAIRMODE_VERSION = "0.1.0"
+PAIRMODE_VERSION = "0.2.0"
 
 PAIRMODE_DEFAULT_RAILS = {
     "generic": ["CORE", "INFRA", "TEST"],

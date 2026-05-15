@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import click
 
+from bootstrap import PAIRMODE_VERSION as _CURRENT_PAIRMODE_VERSION
 from schema_validator import _parse_frontmatter
 
 # ---------------------------------------------------------------------------
@@ -201,6 +202,8 @@ def pairmode_status(project_dir: str) -> None:
         story_line,
         modules_line,
     ]
+    if pairmode_version != _CURRENT_PAIRMODE_VERSION:
+        lines.append(f"  Update available: run pairmode sync to update to v{_CURRENT_PAIRMODE_VERSION}")
     lines.extend(registered_lines)
     lines.append(DIVIDER)
     lines.extend(_sidebar_lines(state, project_path))
