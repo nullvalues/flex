@@ -61,9 +61,58 @@ Does `{{ test_command }}` pass cleanly?
 A failing build gate blocks story completion regardless of checklist outcome. CRITICAL.
 
 **4. DOCUMENTATION CURRENCY**
-Does README.md reflect user-facing changes introduced in this story?
-New commands, flags, workflows, or changed behaviour not reflected in README is MEDIUM.
-Internal refactors with no user-facing change: exempt.
+
+Documentation reliability across builds is what preserves project context across
+sessions, agent handoffs, and compactions. Stale docs actively mislead any agent
+reading them cold.
+
+**Discover the documentation surface:**
+
+If `docs/documentation-surface.md` exists, treat each path listed inside it as
+a surface doc. Otherwise, use the default surface — discover via:
+
+```bash
+find docs -type f -name '*.md' \
+  -not -path 'docs/phases/*' \
+  -not -path 'docs/stories/*' \
+  -not -path 'docs/cer/*' \
+  -not -path 'docs/eras/*'
+```
+
+Always include `README.md` at the project root in the surface, whether discovered
+by the find above or listed in the manifest.
+
+The excluded paths are append-only history (phase specs, story specs, CER backlog,
+era records) — they describe what happened, not what currently is, so they are
+not subject to currency checks.
+
+**For each file in the surface, check:**
+
+1. Does any code path in `git diff HEAD` (file paths or symbol names) appear in
+   this doc? Grep the doc for changed file paths, changed function/class names,
+   changed configuration keys, or changed numeric/textual claims that the diff
+   alters.
+2. If a match exists AND the diff does not also update this doc: candidate for
+   DOC CURRENCY failure.
+3. Read the matched section. Judge whether the doc's statement is now factually
+   wrong given the diff (a number changed, a function signature changed, a
+   constraint changed, behaviour changed, a referenced file moved).
+4. If the doc references the code area but the statement is still factually
+   correct (the doc is structural, the diff is internal): PASS for that file.
+
+**Result severity:**
+- Any doc statement now factually wrong, not updated by the diff:
+  FAIL — DOC CURRENCY (HIGH)
+- README user-facing change (new commands, flags, workflow) not reflected:
+  FAIL — DOC CURRENCY (MEDIUM)
+- Internal refactor with no doc-described impact: PASS
+
+**Resolution path:**
+
+DOC CURRENCY failures are builder-remediable inline. The builder updates the
+affected doc in the same story commit. Do not require a new phase or follow-on
+story. On retry, the builder should treat the doc update as part of the original
+story's scope.
 
 **5. IDEOLOGY ALIGNMENT**
 
