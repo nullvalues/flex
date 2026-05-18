@@ -280,6 +280,24 @@
       "applies_to": [
         "all"
       ],
+      "status": "applied"
+    },
+    {
+      "id": "L016",
+      "date": "2026-05-18",
+      "source_project": "anchor",
+      "trigger": "Reviewing L005 marker hygiene during forqsite session 2026-05-18. Found that L005's marker in CLAUDE.md.j2 points at the wrong file \u2014 the actual implementation correctly landed in agents/reviewer.md.j2. Also realized L015 was implemented directly (template edits written outside the /anchor:pairmode review flow), leaving its status as 'captured' despite the change being live in the canonical templates.",
+      "problem": "Two related gaps in lesson_review.py: (1) markers are append-only \u2014 they are never removed or transformed when status flips to 'applied', so stale markers accumulate in templates and may trick future maintainers into re-implementing already-applied changes; (2) affects\u2192template file mapping is too coarse \u2014 'reviewer_checklist' maps only to CLAUDE.md.j2, but the actual implementation of review-flow changes often belongs in agents/reviewer.md.j2, so the marker lands in the wrong file. Plus a missing affordance: no flag for 'I implemented this directly, just mark it applied', forcing either redundant markers (via --approve) or manual JSON edits.",
+      "learning": "Markers are 'pending work' signals and must be lifecycle-managed. When a lesson flips to 'applied' the marker should either be removed entirely or transformed into a brief breadcrumb ({# LESSON LNNN APPLIED YYYY-MM-DD in <file> #}). Affects keys should be granular enough that markers land near where the actual change is most likely to happen. And there must be a clean path to declare a lesson applied when the change was implemented directly without going through review's annotation step.",
+      "methodology_change": {
+        "affects": [
+          "tooling"
+        ],
+        "description": "1) Add lesson_review.py --mark-applied LESSON_ID flag that flips status to 'applied' without writing markers, for cases where the change was implemented directly. 2) When --approve flips status to 'applied', extend apply_template_change to handle marker lifecycle \u2014 either remove the marker on a later --mark-applied call, or write the marker in 'APPLIED' form from the start when a date is supplied. 3) Expand the affects\u2192file map: split 'reviewer_checklist' into 'reviewer_checklist' (CLAUDE.md.j2 review-mode section, the brief checklist) and 'reviewer_agent' (agents/reviewer.md.j2, the full review process). Audit builder/orchestrator/checkpoint mappings for similar conflations. 4) Optionally: when --approve is run, prompt for the implementation file path so the marker lands where the change will actually live, rather than always defaulting to the affects-map target."
+      },
+      "applies_to": [
+        "pairmode"
+      ],
       "status": "captured"
     }
   ]

@@ -75,5 +75,10 @@ or use `/anchor:pairmode lesson` to capture a new lesson.
 
 ## L015 — External CER on forqsite 2026-05-18 surfaced multiple doc/code mismatches accumulated over many phases: architecture.md claimed 58 role_permissions rows but actual seed produces 56 (migration 0050 was tightened by 0052 with no doc update); three additional backlog items pointed to docs that no longer matched code. None caught by per-story or checkpoint reviews. Pairmode's existing DOCUMENTATION CURRENCY check in reviewer.md.j2 covers only README.md; checkpoint Documentation review covers only README + brief.
 **Date:** 2026-05-18
-**Status:** captured
+**Status:** applied
 **Learning:** Documentation reliability across builds is what preserves project context across sessions and compactions. The reviewer's doc check should expand from README-only to any non-history doc in docs/ whose content references code the story touched. The fix is builder-remediable inline: the builder updates the relevant doc as part of the same story commit, not a doc-rebuild phase. The check is approximate but cheap — grep the doc surface for references to changed files/symbols, flag candidates, let the reviewer judge. Severity HIGH when the doc statement is now factually wrong, MEDIUM for missing README user-facing change.
+
+## L016 — Reviewing L005 marker hygiene during forqsite session 2026-05-18. Found that L005's marker in CLAUDE.md.j2 points at the wrong file — the actual implementation correctly landed in agents/reviewer.md.j2. Also realized L015 was implemented directly (template edits written outside the /anchor:pairmode review flow), leaving its status as 'captured' despite the change being live in the canonical templates.
+**Date:** 2026-05-18
+**Status:** captured
+**Learning:** Markers are 'pending work' signals and must be lifecycle-managed. When a lesson flips to 'applied' the marker should either be removed entirely or transformed into a brief breadcrumb ({# LESSON LNNN APPLIED YYYY-MM-DD in <file> #}). Affects keys should be granular enough that markers land near where the actual change is most likely to happen. And there must be a clean path to declare a lesson applied when the change was implemented directly without going through review's annotation step.
