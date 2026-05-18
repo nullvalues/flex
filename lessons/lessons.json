@@ -261,6 +261,26 @@
         "all"
       ],
       "status": "applied"
+    },
+    {
+      "id": "L015",
+      "date": "2026-05-18",
+      "source_project": "forqsite",
+      "trigger": "External CER on forqsite 2026-05-18 surfaced multiple doc/code mismatches accumulated over many phases: architecture.md claimed 58 role_permissions rows but actual seed produces 56 (migration 0050 was tightened by 0052 with no doc update); three additional backlog items pointed to docs that no longer matched code. None caught by per-story or checkpoint reviews. Pairmode's existing DOCUMENTATION CURRENCY check in reviewer.md.j2 covers only README.md; checkpoint Documentation review covers only README + brief.",
+      "problem": "The per-story doc check has too narrow a scope. Any documentation that describes a code area \u2014 architecture, configuration runbooks, design docs, operator guides, schema docs, anything in docs/ \u2014 should travel with the code that the story touches. Today those docs decay silently until an external review catches them, by which point original intent is lost and the doc actively misleads any future agent reading it cold.",
+      "learning": "Documentation reliability across builds is what preserves project context across sessions and compactions. The reviewer's doc check should expand from README-only to any non-history doc in docs/ whose content references code the story touched. The fix is builder-remediable inline: the builder updates the relevant doc as part of the same story commit, not a doc-rebuild phase. The check is approximate but cheap \u2014 grep the doc surface for references to changed files/symbols, flag candidates, let the reviewer judge. Severity HIGH when the doc statement is now factually wrong, MEDIUM for missing README user-facing change.",
+      "methodology_change": {
+        "affects": [
+          "reviewer_checklist",
+          "orchestrator",
+          "checkpoint_sequence"
+        ],
+        "description": "Expand the DOCUMENTATION CURRENCY check in agents/reviewer.md.j2 from README-only to the project's documentation surface \u2014 every *.md under docs/ excluding append-only history paths (docs/phases, docs/stories, docs/cer, docs/eras), plus README.md. Reviewer reads each surface doc, identifies references to files in the diff, flags HIGH when a touched code area is described in a doc the diff did not update. Builder remediates inline (no phase rebuild). Mirror the expansion in CLAUDE.build.md.j2 checkpoint Documentation review step. Add a brief mirror to CLAUDE.md.j2 review checklist. Allow projects to override default discovery via optional docs/documentation-surface.md manifest. Standardize the discovery command as a single bash form so projects can pre-authorize it without permission prompts."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured"
     }
   ]
 }

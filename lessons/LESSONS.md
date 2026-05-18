@@ -72,3 +72,8 @@ or use `/anchor:pairmode lesson` to capture a new lesson.
 **Date:** 2026-05-13
 **Status:** applied
 **Learning:** When a utility module has no __main__ block, running it as a script is a no-op. To call generate_lessons_md and write LESSONS.md: import the function directly and write the output in the same Python invocation. Always use json.dumps(..., ensure_ascii=True) when writing lessons.json to preserve existing \uXXXX escape sequences byte-for-byte. Never confirm success with a shell echo after &&; verify by reading the output file.
+
+## L015 — External CER on forqsite 2026-05-18 surfaced multiple doc/code mismatches accumulated over many phases: architecture.md claimed 58 role_permissions rows but actual seed produces 56 (migration 0050 was tightened by 0052 with no doc update); three additional backlog items pointed to docs that no longer matched code. None caught by per-story or checkpoint reviews. Pairmode's existing DOCUMENTATION CURRENCY check in reviewer.md.j2 covers only README.md; checkpoint Documentation review covers only README + brief.
+**Date:** 2026-05-18
+**Status:** captured
+**Learning:** Documentation reliability across builds is what preserves project context across sessions and compactions. The reviewer's doc check should expand from README-only to any non-history doc in docs/ whose content references code the story touched. The fix is builder-remediable inline: the builder updates the relevant doc as part of the same story commit, not a doc-rebuild phase. The check is approximate but cheap — grep the doc surface for references to changed files/symbols, flag candidates, let the reviewer judge. Severity HIGH when the doc statement is now factually wrong, MEDIUM for missing README user-facing change.

@@ -546,7 +546,8 @@ before spawning each checkpoint agent and passes the result as the Agent tool's
 
 **`pairmode_sync.py` — `sync-agents` subcommand.**
 Re-renders the frontmatter of each agent file in `<project_dir>/.claude/agents/` from the
-current canonical pairmode templates, preserving the body of each file unchanged.
+current canonical pairmode templates; also merges new H2 body sections from the rendered
+template into the target file additively (Phase 33+).
 
 CLI:
 ```bash
@@ -559,16 +560,26 @@ Behaviour:
   filename stem (e.g. `reviewer.md` → `reviewer.md.j2`) in `skills/pairmode/templates/agents/`.
 - Renders only the frontmatter block of the template with `project_name` substituted from
   `state.json["project_name"]` (or `project_dir.name` as fallback).
-- Replaces the frontmatter block in the target file; the body (everything after the second
-  `---`) is preserved unchanged.
+- Replaces the frontmatter block in the target file.
+- Attempts to render the full template to extract new H2 body sections (`_merge_body_sections`).
+  Sections present in the template but absent from the target are appended; existing target
+  sections and project-specific sections are preserved. Sections already present are not
+  duplicated.
+- **Body propagation limitation:** Full-template rendering uses `StrictUndefined`. All current
+  agent templates (reviewer, builder, loop-breaker, security-auditor, intent-reviewer) use
+  project-specific variables (e.g. `{{ test_command }}`, `{{ protected_paths }}`,
+  `{{ domain_isolation_rule }}`) that are absent from the minimal `{project_name}` context
+  used during sync-agents. When any variable is undefined, the body-merge step silently
+  no-ops for that agent file. **Body propagation therefore only functions when syncing the
+  anchor repo itself.** For sibling projects, new body sections added to agent templates
+  must be applied manually during deployment stories.
 - Prints a unified diff (`difflib.unified_diff`) for each changed file before writing.
 - `--dry-run`: exits after printing diffs without writing any files.
 - `--yes`: writes without prompting.
 
 All `*.md` files in `.claude/agents/` with a matching template are re-rendered, including
 `reconstruction-agent.md` if that template exists. Files without a matching template are
-skipped with a warning. This means any model field or body customization in a live agent
-file that is absent from its template will be stripped on the next `sync-agents` run.
+skipped with a warning.
 - Default: prompts once ("Apply these changes? [y/N]") before writing.
 - If no matching template exists for an agent file: warns and skips that file.
 - If no files would change: prints "No changes to apply." and exits 0.

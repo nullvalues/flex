@@ -52,7 +52,7 @@ The final story deploys all fixes to cora, radar, aab, and forqsite via
 | INFRA-081 | `sync-agents` additive body section propagation | complete |
 | INFRA-082 | Bootstrap writes standard Bash allow rules | complete |
 | INFRA-083 | `select_reviewer_model` returns `(model, reason)` tuple | complete |
-| INFRA-084 | Sibling deployment catch-up | planned |
+| INFRA-084 | Sibling deployment catch-up | complete |
 
 ---
 

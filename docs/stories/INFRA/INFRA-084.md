@@ -2,7 +2,7 @@
 id: INFRA-084
 rail: INFRA
 title: "Sibling deployment catch-up"
-status: planned
+status: complete
 phase: "33"
 story_class: methodology
 primary_files: []

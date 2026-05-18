@@ -40,6 +40,16 @@ Run every item on every review invocation.
    Does `{{ build_command }}` pass without errors?
    A failing build gate blocks story completion regardless of checklist outcome.
 
+4. DOCUMENTATION CURRENCY
+   Did this story touch code that any project doc describes? If yes, did the
+   story also update that doc? Stale documentation that no longer matches code
+   is HIGH — it actively misleads future agents reading it cold.
+   The project's documentation surface is every `*.md` under `docs/` excluding
+   append-only history paths (`docs/phases/**`, `docs/stories/**`, `docs/cer/**`,
+   `docs/eras/**`), plus `README.md`. Projects may override with an explicit
+   list in `docs/documentation-surface.md`.
+   See `agents/reviewer.md` § 4 for the full discovery and judgement procedure.
+
 ## Review output format
 
 PASS / FAIL — [check name]

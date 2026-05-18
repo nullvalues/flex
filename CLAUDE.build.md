@@ -316,7 +316,12 @@ After the reviewer returns, parse its final message for the same `<usage>` block
 `--outcome FAIL` if it reverted. As with the builder step, `record_attempt.py`
 is a silent no-op when effort tracking is disabled, so the call is unconditional.
 
+Capture the reason printed by `select_reviewer_model` (second output line) into a
+shell variable before spawning the reviewer so you can pass it here:
+
 ```bash
+# After running select_reviewer_model, capture both lines:
+# model=$(first line); reason=$(second line)
 PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/anchor/skills/pairmode/scripts/record_attempt.py \
   --story-file docs/stories/RAIL/RAIL-NNN.md \
   --agent-role reviewer \
@@ -326,7 +331,7 @@ PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/anchor/skills/pairmode/scrip
   --tool-uses 6 \
   --duration-ms 95000 \
   --outcome PASS \
-  --model-selection-reason auto-baseline \
+  --model-selection-reason $reason \
   --project-dir .
 ```
 
