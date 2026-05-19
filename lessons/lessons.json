@@ -299,6 +299,25 @@
         "pairmode"
       ],
       "status": "captured"
+    },
+    {
+      "id": "L017",
+      "date": "2026-05-19",
+      "source_project": "forqsite",
+      "trigger": "External CER on forqsite 2026-05-18: agent declined DL.44 (tenant-scoped page editor) as a 'hypothetical multi-tenant' future concern when in fact it was a documented spec non-negotiable AND the first customer is multi-tenant from day one. Additionally, agent asserted gaps in the codebase (RBAC management UI, tenant-scoped page editing routes) that were already specified and built \u2014 phase-rbac-ui.md / cp-rbac-ui already shipped the matrix UI; tenant editor routes existed at /admin/[orgSlug]/[tenantSlug]/pages/. Operator caught both errors and required a session-long restructure of the CER agreements.",
+      "problem": "External CER triage anchored on the reviewer's market-parity framing without cross-referencing two primary intent sources: (1) product-spec/openspec/specs/*.json non-negotiables that encode what the platform is required to do, and (2) existing phase docs that may already address the concern. Result: items got declined as 'hypothetical' when they were architecturally required, and gaps got asserted that were already filled. Both errors compounded because the agent kept producing comprehensive multi-section responses instead of working items one at a time, making it hard for the operator to catch errors before they cascaded.",
+      "learning": "Two compounding sources of triage error. First: every declined item or asserted gap MUST be cross-referenced against (a) spec non-negotiables in the project's structured spec authority, and (b) existing phase docs that may have already specified or shipped the work. Second: when running a point-by-point agreement protocol, engage tightly \u2014 one question per turn, no multi-section responses, no precooked counter-arguments. Comprehensive responses make the operator do too much reading and miss errors. The CORA-style protocol in docs/agreements/ exists precisely to prevent this; the agent must follow it strictly when invoked.",
+      "methodology_change": {
+        "affects": [
+          "reviewer_checklist",
+          "orchestrator"
+        ],
+        "description": "1) Add to CER triage process: before declining any item or asserting any gap, the agent must (a) grep all spec non-negotiables for terms related to the item, and (b) grep all existing phase docs (legacy and current pairmode) for prior coverage. Findings recorded in the triage doc. 2) When the operator invokes a point-by-point agreement protocol (CORA-style docs/agreements/*.md), enforce one-question-at-a-time discipline. Multi-section responses with sub-decisions, recommendations, and counter-arguments make the operator miss things; engage tightly. 3) Consider extending the reviewer checklist with a 'TRIAGE INTEGRITY' check that flags any new CER-style doc that doesn't reference spec non-negotiables or phase doc history."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured"
     }
   ]
 }
