@@ -809,6 +809,18 @@ default multiplier is `3.0`, configurable via
 builder rows for the rail within the lookback window) returns early without
 firing, so new rails do not generate false positives.
 
+**Context health check.** At checkpoint, the orchestrator calls
+`skills/pairmode/scripts/context_health.check_context_health(db_path, current_phase)`
+to produce a per-phase retry burden signal. The function sums output tokens from
+FAIL-outcome reviewer rows in the current phase, compares against a rolling
+per-phase median (using `COALESCE(tokens_out, CAST(tokens_total * 0.15 AS INTEGER))`
+to handle the NULL `tokens_out` column in current records), and returns one of:
+`normal`, `elevated`, `high`, or `insufficient_data` (when fewer than 3 prior
+phases have been recorded). The signal is informational only — it never blocks the
+checkpoint. The result `message` field is written to the step 8 checkpoint report.
+The module exposes three public functions: `phase_retry_burden`, `rolling_phase_median`,
+`check_context_health`. All three are safe when the DB does not exist.
+
 ### Drift evidence scoring
 
 `skills/pairmode/scripts/drift_evidence.py` provides token-efficiency evidence

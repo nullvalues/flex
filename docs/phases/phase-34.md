@@ -37,7 +37,7 @@ future story adds per-role token breakdown to the usage block.
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-085 | `context_health.py` — phase retry burden query | complete |
-| INFRA-086 | Integrate context health into checkpoint report in `CLAUDE.build.md.j2` | planned |
+| INFRA-086 | Integrate context health into checkpoint report in `CLAUDE.build.md.j2` | complete |
 
 ---
 
@@ -157,10 +157,17 @@ keeps setup concise.
    `tokens_total=1000` → `int(1000 * 0.15)` = `150`.
 5. `test_phase_retry_burden_mixed_null` — one row with `tokens_out=300`, one with
    `tokens_out=None, tokens_total=2000` → `300 + 300` = `600`.
+   *Implementation note: replaced in build with `test_skips_rows_with_no_token_columns`
+   (both columns NULL → excluded). The mixed-COALESCE path is exercised by the SQL
+   but not by a dedicated test; added `test_ignores_builder_rows` instead.*
 6. `test_phase_retry_burden_excludes_other_phases` — FAIL rows for a different phase
    are not counted.
 7. `test_rolling_phase_median_insufficient_zero` — no prior phases → `(None, 0)`.
-8. `test_rolling_phase_median_insufficient_two` — only 2 prior phases → `(None, 2)`.
+8. `test_rolling_phase_median_insufficient_two` — only 2 prior phases → `(None, 0)`.
+   *Implementation note: sample_size is only non-zero when the median is computable
+   (>= 3 phases). The spec said `(None, 2)` but the implementation returns `(None, 0)`
+   for all insufficient-data cases; functional impact is nil as sample_size is not
+   surfaced in insufficient_data messages.*
 9. `test_rolling_phase_median_three_phases` — 3 prior phases with burdens `[0, 200, 400]`
    → `(200.0, 3)`.
 10. `test_rolling_phase_median_includes_zero_retry_phases` — a phase with only PASS rows

@@ -5,6 +5,22 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp34-checkpoint-context-health
+
+**Phase:** 34 — Checkpoint context health report
+**Tag command:** `git tag cp34-checkpoint-context-health && git push origin cp34-checkpoint-context-health`
+**Acceptance:** `context_health.py` with three public functions (`phase_retry_burden`, `rolling_phase_median`, `check_context_health`) queries the effort DB for per-phase retry burden and compares against a rolling median; uses `COALESCE(tokens_out, CAST(tokens_total * 0.15 AS INTEGER))` fallback for the current NULL `tokens_out` column (INFRA-085). Checkpoint sequence gains `### 7.5. Context health check` step and `Context health:` line in step 8 report; `CLAUDE.build.md.j2` and `CLAUDE.build.md` updated (INFRA-086). 1681 tests pass.
+
+---
+
+## cp33-build-loop-portability
+
+**Phase:** 33 — Build loop portability and sibling catch-up
+**Tag command:** `git tag cp33-build-loop-portability && git push origin cp33-build-loop-portability`
+**Acceptance:** `CLAUDE.build.md.j2` uses `{{ pairmode_scripts_dir }}` — all rendered CLAUDE.build.md files now contain absolute anchor script paths so sibling builds record effort data (INFRA-079). `pairmode_version` bumped to `0.2.0` with outdated signal in `pairmode status` (INFRA-080). `sync-agents` additively merges new H2 body sections from templates; body propagation requires full-template rendering and is silently inoperative for sibling projects (INFRA-081). Bootstrap writes four `PAIRMODE_ALLOW` Bash allow rules to `settings.local.json` (INFRA-082). `select_reviewer_model` returns `(model, reason)` tuple; reviewer `record_attempt.py` example updated to use `$reason` (INFRA-083). All four sibling projects (cora, radar, aab, forqsite) synced — absolute paths in `CLAUDE.build.md`, `## Contract check` in `reviewer.md`, `PAIRMODE_ALLOW` in `settings.local.json` (INFRA-084). CER-022 filed (sync-agents missing depth guard — Do Later). 1658 tests pass.
+
+---
+
 ## cp32-story-as-contract
 
 **Phase:** 32 — Story-as-contract and story_context CLI
