@@ -36,7 +36,7 @@ future story adds per-role token breakdown to the usage block.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-085 | `context_health.py` — phase retry burden query | planned |
+| INFRA-085 | `context_health.py` — phase retry burden query | complete |
 | INFRA-086 | Integrate context health into checkpoint report in `CLAUDE.build.md.j2` | planned |
 
 ---

@@ -2,7 +2,7 @@
 id: INFRA-085
 rail: INFRA
 title: "context_health.py — phase retry burden query"
-status: planned
+status: complete
 phase: "34"
 story_class: code
 primary_files:
