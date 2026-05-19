@@ -2,7 +2,7 @@
 id: INFRA-086
 rail: INFRA
 title: "Integrate context health into checkpoint report in CLAUDE.build.md.j2"
-status: planned
+status: complete
 phase: "34"
 story_class: methodology
 primary_files:
