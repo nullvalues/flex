@@ -471,18 +471,55 @@ After the intent-reviewer completes:
 
 ### 4. Documentation review
 
-Before tagging, verify that documentation reflects what was shipped this phase.
+Before tagging, verify that the project's full documentation surface reflects
+what shipped this phase. Documentation reliability across builds is what
+preserves project context across sessions, agent handoffs, and compactions.
 
-Check each of the following:
-- `README.md` — does it reflect all user-facing changes from this phase?
-  Look for: new commands/flags, changed behaviour, new workflow steps, updated status.
-- `docs/brief.md` — still accurate? Update if project goals or constraints changed.
-- Any doc file explicitly referenced in this phase's spec.
+**Discover the documentation surface** (same procedure as `agents/reviewer.md`
+§ 4):
 
-If README is stale: update it inline (do not spawn a subagent — this is a write task,
-not a review task). Mark `Doc updates: [list of changes]` in the step 7 report.
+If `docs/documentation-surface.md` exists, treat each path listed inside it as
+a surface doc. Otherwise, use the default surface — discover via:
 
-If no user-facing changes shipped this phase: mark `Doc updates: none` and proceed.
+```bash
+find docs -type f -name '*.md' \
+  -not -path 'docs/phases/*' \
+  -not -path 'docs/stories/*' \
+  -not -path 'docs/cer/*' \
+  -not -path 'docs/eras/*'
+```
+
+Always include `README.md` at the project root.
+
+**For each file in the surface, check:**
+
+1. Run `git diff <prior-checkpoint-tag>..HEAD -- '<doc-path>'` — was this doc
+   touched during the phase? If yes, skip — already maintained by the per-story
+   reviewer.
+2. If not touched: identify which code files changed this phase
+   (`git diff <prior-checkpoint-tag>..HEAD --name-only`). Grep the doc for those
+   paths, for symbol names from the diffs, and for any numeric or textual claims
+   the diff may have invalidated.
+3. If the doc references code that changed and the doc statement is now
+   factually wrong: update the doc inline. Do not spawn a subagent — this is a
+   write task, not a review task.
+
+**Report each update individually in step 8:**
+
+```
+Doc updates:
+  - README.md: updated CLI flag list
+  - docs/architecture.md: corrected role_permissions row count (56 not 58)
+  - docs/configuration.md: added new env var
+```
+
+If the surface is clean and no updates needed: mark `Doc updates: none` and
+proceed.
+
+**Note:** The per-story reviewer already enforces DOC CURRENCY for each story
+commit via `agents/reviewer.md` § 4. This checkpoint step catches anything that
+fell between stories (cross-story drift) and gives the phase a final clean
+state before tagging.
 
 ### 5. Phase completion check
 
@@ -520,6 +557,38 @@ If no open "Do Now" entries (or backlog.md does not exist): proceed to step 7.
 Run the tag command from `/docs/checkpoints.md` for this phase.
 Commit any doc updates from step 3 alongside the tag.
 
+### 7.5. Context health check
+
+Query the effort DB for this phase's retry burden and compare it against the
+project's rolling per-phase median. This is a read-only step — it never blocks
+the checkpoint.
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python -c "
+import sys, json
+from pathlib import Path
+sys.path.insert(0, '/mnt/work/anchor/skills/pairmode/scripts')
+from context_health import check_context_health
+from effort_db import resolve_effort_db_path
+
+result = check_context_health(
+    db_path=resolve_effort_db_path(Path('.')),
+    current_phase='PHASE_ID_HERE',   # replace with current phase identifier
+)
+print(json.dumps(result))
+"
+```
+
+Capture the JSON. Extract the `message` field for the checkpoint report.
+If `recommendation` is `elevated` or `high`, the report line becomes:
+
+  Context health:   <message>
+    → /clear before "Build Phase N+1" is advised.
+
+If `recommendation` is `normal` or `insufficient_data`:
+
+  Context health:   <message>
+
 ### 8. Report
 
   ═══════════════════════════════════════════════
@@ -534,6 +603,7 @@ Commit any doc updates from step 3 alongside the tag.
   Phase completion: [all complete / N stories formally deferred]
   CER backlog:      [N open Do Now / clean]
   Doc updates:      [list of changes, or "none"]
+  Context health:   [message from step 7.5]
 
   Git tag: [tag name]
 

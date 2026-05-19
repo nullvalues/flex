@@ -557,6 +557,38 @@ If no open "Do Now" entries (or backlog.md does not exist): proceed to step 7.
 Run the tag command from `/docs/checkpoints.md` for this phase.
 Commit any doc updates from step 3 alongside the tag.
 
+### 7.5. Context health check
+
+Query the effort DB for this phase's retry burden and compare it against the
+project's rolling per-phase median. This is a read-only step — it never blocks
+the checkpoint.
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python -c "
+import sys, json
+from pathlib import Path
+sys.path.insert(0, '{{ pairmode_scripts_dir }}')
+from context_health import check_context_health
+from effort_db import resolve_effort_db_path
+
+result = check_context_health(
+    db_path=resolve_effort_db_path(Path('.')),
+    current_phase='PHASE_ID_HERE',   # replace with current phase identifier
+)
+print(json.dumps(result))
+"
+```
+
+Capture the JSON. Extract the `message` field for the checkpoint report.
+If `recommendation` is `elevated` or `high`, the report line becomes:
+
+  Context health:   <message>
+    → /clear before "Build Phase N+1" is advised.
+
+If `recommendation` is `normal` or `insufficient_data`:
+
+  Context health:   <message>
+
 ### 8. Report
 
   ═══════════════════════════════════════════════
@@ -571,6 +603,7 @@ Commit any doc updates from step 3 alongside the tag.
   Phase completion: [all complete / N stories formally deferred]
   CER backlog:      [N open Do Now / clean]
   Doc updates:      [list of changes, or "none"]
+  Context health:   [message from step 7.5]
 
   Git tag: [tag name]
 
