@@ -33,3 +33,5 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 31 | Discoverability and status panel | complete | [phase-31.md](phase-31.md) · cp31-discoverability-and-status |
 | 32 | Story-as-contract and story_context CLI | complete | [phase-32.md](phase-32.md) · cp32-story-as-contract |
 | 33 | Build loop portability and sibling catch-up | planned | [phase-33.md](phase-33.md) |
+| 34 | Checkpoint context health report | complete | [phase-34.md](phase-34.md) · cp34-checkpoint-context-health |
+| 35 | Rename anchor → flex | planned | [phase-35.md](phase-35.md) |
