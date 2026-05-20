@@ -2,7 +2,7 @@
 id: INFRA-087
 rail: INFRA
 title: "Project manifests, ownership, and upstream attribution"
-status: planned
+status: complete
 phase: "35"
 story_class: code
 primary_files:

@@ -50,7 +50,7 @@ INFRA-091 (state + verify) ── depends on all of the above
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-087 | Project manifests, ownership, and upstream attribution | planned |
+| INFRA-087 | Project manifests, ownership, and upstream attribution | complete |
 | INFRA-088 | Hardcoded paths and `_ANCHOR_ROOT` → `_REPO_ROOT` rename | planned |
 | INFRA-089 | Slash command namespace migration (`/anchor:*` → `/flex:*`) | planned |
 | INFRA-090 | Documentation rewrite (forward-looking + historical) | planned |
