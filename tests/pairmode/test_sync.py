@@ -144,7 +144,7 @@ def _write_ideology_md(project_dir: Path) -> None:
         "## Reconstruction guidance\n\n"
         "Start from the spec, not the code. The spec is the source of truth.\n\n"
         "## Comparison basis\n\n"
-        "Compare against the reference implementation in the anchor repo.\n",
+        "Compare against the reference implementation in the repo.\n",
         encoding="utf-8",
     )
 

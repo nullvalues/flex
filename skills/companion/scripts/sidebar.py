@@ -113,9 +113,9 @@ def _check_protected(file_path: str, cwd: str) -> tuple[bool, str, str]:
 
 
 # Allow importing story_context and spec_exception from the pairmode skill
-_ANCHOR_ROOT = Path(__file__).parent.parent.parent.parent
-if str(_ANCHOR_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ANCHOR_ROOT))
+_REPO_ROOT = Path(__file__).parent.parent.parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from skills.pairmode.scripts.spec_exception import record_spec_exception  # noqa: E402
 

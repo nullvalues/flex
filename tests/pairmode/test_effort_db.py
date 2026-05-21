@@ -424,7 +424,7 @@ class TestStoryClassAndReasonRoundtrip:
         )
 
         # Invoke via the same Python interpreter running the tests so that
-        # the anchor repo is on sys.path and the click CLI is importable.
+        # the repo is on sys.path and the click CLI is importable.
         result = subprocess.run(
             [
                 sys.executable,

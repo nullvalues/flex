@@ -1,6 +1,6 @@
 """Pytest configuration for pairmode tests.
 
-Adds the anchor repo root to sys.path so that ``skills.*`` packages are
+Adds the repo root to sys.path so that ``skills.*`` packages are
 importable without installing the package in editable mode.
 """
 

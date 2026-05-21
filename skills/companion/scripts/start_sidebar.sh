@@ -23,7 +23,7 @@ fi
 cd "$PROJECT_DIR"
 
 # write project dir for launch scripts (open doesn't propagate env vars)
-echo "$PROJECT_DIR" > "/tmp/anchor_project_dir_${HASH}"
+echo "$PROJECT_DIR" > "/tmp/flex_project_dir_${HASH}"
 
 # macOS: open new Terminal window (no accessibility permissions needed)
 if command -v open &>/dev/null && [ "$(uname)" = "Darwin" ]; then
@@ -51,8 +51,8 @@ fi
 # Linux: try common terminal emulators
 if [ "$(uname)" = "Linux" ] && { [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; }; then
     LAUNCHER="$SCRIPT_DIR/launch_sidebar.sh"
-    export ANCHOR_PROJECT_DIR="$PROJECT_DIR"
-    export ANCHOR_PROJECT_HASH="$HASH"
+    export FLEX_PROJECT_DIR="$PROJECT_DIR"
+    export FLEX_PROJECT_HASH="$HASH"
     if command -v gnome-terminal &>/dev/null; then
         gnome-terminal -- bash "$LAUNCHER" 2>/dev/null && echo "sidebar started in gnome-terminal" && exit 0
     fi

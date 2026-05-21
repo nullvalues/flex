@@ -17,7 +17,7 @@ import json
 import sys
 from pathlib import Path
 
-# Insert anchor repo root and scripts dir so sibling imports work when run as CLI
+# Insert repo root and scripts dir so sibling imports work when run as CLI
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -34,7 +34,7 @@ from schema_validator import _parse_frontmatter
 #   parents[0] = skills/pairmode/scripts/
 #   parents[1] = skills/pairmode/
 #   parents[2] = skills/
-#   parents[3] = anchor repo root
+#   parents[3] = repo root
 ANCHOR_ROOT = Path(__file__).resolve().parents[3]
 
 DIVIDER = "─────────────────────────────────────"

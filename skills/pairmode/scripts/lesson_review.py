@@ -22,11 +22,11 @@ import click
 _SCRIPTS_DIR = Path(__file__).parent
 _PAIRMODE_DIR = _SCRIPTS_DIR.parent
 _TEMPLATES_DIR = _PAIRMODE_DIR / "templates"
-_ANCHOR_ROOT = _PAIRMODE_DIR.parent.parent
-_LESSONS_MD = _ANCHOR_ROOT / "lessons" / "LESSONS.md"
+_REPO_ROOT = _PAIRMODE_DIR.parent.parent
+_LESSONS_MD = _REPO_ROOT / "lessons" / "LESSONS.md"
 
-# Insert anchor repo root so sibling imports work when run as CLI
-sys.path.insert(0, str(_ANCHOR_ROOT))
+# Insert repo root so sibling imports work when run as CLI
+sys.path.insert(0, str(_REPO_ROOT))
 
 from skills.pairmode.scripts import lesson_utils  # noqa: E402
 
@@ -146,9 +146,9 @@ def apply_template_change(proposal: dict, change_text: str, templates_root: Path
     Args:
         proposal: A proposal dict from propose_template_change().
         change_text: The text describing the change to embed.
-        templates_root: Optional override for the anchor repo root (used in tests).
+        templates_root: Optional override for the repo root (used in tests).
     """
-    root = templates_root if templates_root is not None else _ANCHOR_ROOT
+    root = templates_root if templates_root is not None else _REPO_ROOT
     template_path = (root / proposal["template_file"]).resolve()
     templates_boundary = (root / "skills" / "pairmode" / "templates").resolve()
     try:

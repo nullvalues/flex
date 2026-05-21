@@ -196,7 +196,7 @@ def test_jinja2_undefined_variable_no_exception(tmp_path: pathlib.Path) -> None:
     import jinja2
     import sys
 
-    # Insert anchor repo root so the import works like in the actual script
+    # Insert repo root so the import works like in the actual script
     sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent))
 
     from skills.pairmode.scripts import score as _score_module

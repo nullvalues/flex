@@ -13,7 +13,7 @@ from datetime import date
 from pathlib import Path
 
 # Allow running directly with: uv run python skills/pairmode/scripts/spec_exception.py
-# or with PYTHONPATH=/mnt/work/anchor set
+# or with PYTHONPATH=/mnt/work/flex set
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from skills.pairmode.scripts import spec_reader  # noqa: E402

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-# Ensure the anchor root is on sys.path so sidebar.py's _ANCHOR_ROOT insertion
+# Ensure the anchor root is on sys.path so sidebar.py's _REPO_ROOT insertion
 # (and our own imports from skills/) work correctly.
 ANCHOR_ROOT = Path(__file__).parent.parent.parent
 if str(ANCHOR_ROOT) not in sys.path:

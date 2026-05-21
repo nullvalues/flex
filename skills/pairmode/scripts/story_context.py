@@ -19,8 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Allow running directly with: uv run python skills/pairmode/scripts/story_context.py
-_ANCHOR_ROOT = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(_ANCHOR_ROOT))
+_REPO_ROOT = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).parent))
 
 import click

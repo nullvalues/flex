@@ -13,7 +13,7 @@ if [ -n "$CLAUDE_BIN" ]; then
 fi
 
 # Ensure OAuth token exists
-AUTH_FILE="$HOME/.anchor/auth.json"
+AUTH_FILE="$HOME/.flex/auth.json"
 TOKEN=""
 if [ -f "$AUTH_FILE" ]; then
     TOKEN=$(python3 -c "import json; print(json.load(open('$AUTH_FILE')).get('oauth_token',''))" 2>/dev/null)
@@ -38,7 +38,7 @@ m = re.search(r'sk-ant-oat01-[A-Za-z0-9_\-]+(?:\n[A-Za-z0-9_\-]+)*', text)
 if not m:
     sys.exit(1)
 token = m.group(0).replace('\n', '')
-auth_file = Path.home() / '.anchor' / 'auth.json'
+auth_file = Path.home() / '.flex' / 'auth.json'
 auth_file.parent.mkdir(parents=True, exist_ok=True)
 auth_file.write_text(json.dumps({'oauth_token': token, 'created_at': datetime.now().isoformat()}, indent=2))
 print(token)
@@ -58,12 +58,12 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Resolve project dir: use env var if set by start_sidebar.sh, otherwise read from hashed tmp file
-if [ -n "$ANCHOR_PROJECT_DIR" ]; then
-    PROJECT_DIR="$ANCHOR_PROJECT_DIR"
-elif [ -n "$ANCHOR_PROJECT_HASH" ]; then
-    PROJECT_DIR="$(cat "/tmp/anchor_project_dir_${ANCHOR_PROJECT_HASH}" 2>/dev/null || pwd)"
+if [ -n "$FLEX_PROJECT_DIR" ]; then
+    PROJECT_DIR="$FLEX_PROJECT_DIR"
+elif [ -n "$FLEX_PROJECT_HASH" ]; then
+    PROJECT_DIR="$(cat "/tmp/flex_project_dir_${FLEX_PROJECT_HASH}" 2>/dev/null || pwd)"
 else
-    PROJECT_DIR="$(cat /tmp/anchor_project_dir 2>/dev/null || pwd)"
+    PROJECT_DIR="$(cat /tmp/flex_project_dir 2>/dev/null || pwd)"
 fi
 
 cd "$PROJECT_DIR"

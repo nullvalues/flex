@@ -9,9 +9,9 @@ Usage from a sibling skill:
 
     import sys
     from pathlib import Path
-    _ANCHOR_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-    if str(_ANCHOR_ROOT) not in sys.path:
-        sys.path.insert(0, str(_ANCHOR_ROOT))
+    _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
     from skills.pairmode.scripts.effort_recorder import record_effort
 
     record_effort(
@@ -47,12 +47,12 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
-# Ensure the anchor repo root is importable so ``effort_db`` resolves whether
+# Ensure the repo root is importable so ``effort_db`` resolves whether
 # this module is loaded as ``skills.pairmode.scripts.effort_recorder`` or as a
 # bare module.
-_ANCHOR_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-if str(_ANCHOR_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ANCHOR_ROOT))
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from skills.pairmode.scripts import effort_db as _effort_db  # noqa: E402
 

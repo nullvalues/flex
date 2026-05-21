@@ -62,7 +62,7 @@ class TestRenderBuildTemplate:
     def test_rendered_template_has_no_relative_scripts_path(self, tmp_path: pathlib.Path) -> None:
         """The rendered build template must not contain the bare relative path 'skills/pairmode/scripts'.
 
-        The absolute path (e.g. '/mnt/work/anchor/skills/pairmode/scripts') is expected and
+        The absolute path (e.g. '/mnt/work/flex/skills/pairmode/scripts') is expected and
         acceptable — we only forbid the relative form that would break on non-anchor machines.
         """
         ctx = self._make_context(tmp_path)

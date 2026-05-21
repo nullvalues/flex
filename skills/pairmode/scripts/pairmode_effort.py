@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Insert anchor repo root and scripts dir for sibling imports when run as CLI.
+# Insert repo root and scripts dir for sibling imports when run as CLI.
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 

@@ -24,9 +24,9 @@ from datetime import datetime
 from pathlib import Path
 
 # Allow importing the in-process effort recorder from the sibling pairmode skill.
-_ANCHOR_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-if str(_ANCHOR_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ANCHOR_ROOT))
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 try:
     from skills.pairmode.scripts.effort_recorder import record_effort

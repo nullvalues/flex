@@ -12,7 +12,7 @@ import re
 import sys
 from pathlib import Path
 
-# Insert anchor repo root so sibling imports work when run as CLI
+# Insert repo root so sibling imports work when run as CLI
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 import click

@@ -124,7 +124,7 @@ def test_start_sidebar_path_exists(tmp_path: pathlib.Path) -> None:
     """The printed ``bash <start_sidebar.sh>`` path must resolve to a real file.
 
     Regression guard for CER-012: ``ANCHOR_ROOT`` previously resolved to
-    ``<repo>/skills/`` instead of the anchor repo root, producing a
+    ``<repo>/skills/`` instead of the repo root, producing a
     ``<repo>/skills/skills/companion/scripts/start_sidebar.sh`` instruction
     that pointed at a non-existent file.
     """

@@ -15,11 +15,11 @@ from pathlib import Path
 import pytest
 
 # ---------------------------------------------------------------------------
-# Ensure the anchor repo root is on sys.path so imports resolve.
+# Ensure the repo root is on sys.path so imports resolve.
 # ---------------------------------------------------------------------------
 
-_ANCHOR_ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(_ANCHOR_ROOT))
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
 
 from skills.pairmode.scripts.drift_evidence import (  # noqa: E402
     score_convergence_candidate,

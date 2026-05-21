@@ -46,8 +46,8 @@ def main() -> None:
         lines.append(f"Companion sidebar: active (pipe: {pipe_path})")
     else:
         project_dir = Path(".").resolve()
-        anchor_root = Path(__file__).resolve().parent.parent
-        start_sh = anchor_root / "skills" / "companion" / "scripts" / "start_sidebar.sh"
+        repo_root = Path(__file__).resolve().parent.parent
+        start_sh = repo_root / "skills" / "companion" / "scripts" / "start_sidebar.sh"
         sidebar_log = project_dir / ".companion" / "sidebar.log"
         lines.append("Companion sidebar: not detected")
         lines.append("  To start (macOS / desktop Linux):")

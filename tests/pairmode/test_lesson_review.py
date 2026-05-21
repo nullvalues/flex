@@ -68,7 +68,7 @@ def patched_review(tmp_path, monkeypatch):
 
 @pytest.fixture()
 def patched_review_with_templates(tmp_path, monkeypatch):
-    """Like patched_review but also creates fake template files and patches _ANCHOR_ROOT."""
+    """Like patched_review but also creates fake template files and patches _REPO_ROOT."""
     import skills.pairmode.scripts.lesson_utils as lu
     import skills.pairmode.scripts.lesson_review as lr
 
@@ -96,7 +96,7 @@ def patched_review_with_templates(tmp_path, monkeypatch):
 
     monkeypatch.setattr(lu, "LESSONS_FILE", lessons_json)
     monkeypatch.setattr(lr, "_LESSONS_MD", lessons_md)
-    monkeypatch.setattr(lr, "_ANCHOR_ROOT", templates_root)
+    monkeypatch.setattr(lr, "_REPO_ROOT", templates_root)
 
     return lr, lessons_json, lessons_md, templates_root
 
@@ -604,15 +604,15 @@ class TestCLIOutputClarity:
         data = _make_data(_make_lesson("L001", status="captured", description="Add test gate"))
         lessons_json.write_text(__import__("json").dumps(data) + "\n")
 
-        # Patch _ANCHOR_ROOT so apply_template_change uses the tmp templates
+        # Patch _REPO_ROOT so apply_template_change uses the tmp templates
         import skills.pairmode.scripts.lesson_review as lr_mod
-        original_root = lr_mod._ANCHOR_ROOT
-        lr_mod._ANCHOR_ROOT = templates_root
+        original_root = lr_mod._REPO_ROOT
+        lr_mod._REPO_ROOT = templates_root
         try:
             runner = CliRunner()
             result = runner.invoke(lr_mod.cli, ["--approve", "L001"])
         finally:
-            lr_mod._ANCHOR_ROOT = original_root
+            lr_mod._REPO_ROOT = original_root
 
         assert result.exit_code == 0, result.output
         assert "ACTION REQUIRED" in result.output
@@ -631,13 +631,13 @@ class TestCLIOutputClarity:
         lessons_json.write_text(__import__("json").dumps(data) + "\n")
 
         import skills.pairmode.scripts.lesson_review as lr_mod
-        original_root = lr_mod._ANCHOR_ROOT
-        lr_mod._ANCHOR_ROOT = templates_root
+        original_root = lr_mod._REPO_ROOT
+        lr_mod._REPO_ROOT = templates_root
         try:
             runner = CliRunner()
             result = runner.invoke(lr_mod.cli, ["--approve", "L001", "--reject", "L002"])
         finally:
-            lr_mod._ANCHOR_ROOT = original_root
+            lr_mod._REPO_ROOT = original_root
 
         assert result.exit_code == 0, result.output
         assert "REVIEW COMPLETE" in result.output

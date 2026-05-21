@@ -19,8 +19,8 @@ import click
 
 _SCRIPTS_DIR = Path(__file__).parent
 _PAIRMODE_DIR = _SCRIPTS_DIR.parent
-_ANCHOR_ROOT = _PAIRMODE_DIR.parent.parent
-_LESSONS_MD = _ANCHOR_ROOT / "lessons" / "LESSONS.md"
+_REPO_ROOT = _PAIRMODE_DIR.parent.parent
+_LESSONS_MD = _REPO_ROOT / "lessons" / "LESSONS.md"
 
 # lesson_utils is in the same scripts/ directory
 from skills.pairmode.scripts import lesson_utils  # noqa: E402

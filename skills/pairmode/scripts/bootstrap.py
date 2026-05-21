@@ -284,7 +284,7 @@ def _merge_allow_rules(settings_path: pathlib.Path, new_entries: list[str]) -> N
     )
 
 
-def _print_next_steps(project_dir: pathlib.Path, anchor_root: pathlib.Path) -> None:
+def _print_next_steps(project_dir: pathlib.Path, repo_root: pathlib.Path) -> None:
     """Print the recommended follow-on actions after a successful bootstrap."""
     click.echo("\n## Next steps\n")
     click.echo(f"  1. Create and set your first story:")
@@ -295,7 +295,7 @@ def _print_next_steps(project_dir: pathlib.Path, anchor_root: pathlib.Path) -> N
         f"         --project-dir {project_dir}\n"
     )
     click.echo(f"  2. Register this project with anchor for drift tracking:")
-    click.echo(f"       cd {anchor_root}")
+    click.echo(f"       cd {repo_root}")
     click.echo(
         f"       uv run python skills/pairmode/scripts/pairmode_sync.py register \\\n"
         f"         --project-dir {project_dir}\n"
@@ -1001,8 +1001,8 @@ def bootstrap(
     click.echo("\nDone." if not dry_run else "\nDry run complete.")
 
     if not dry_run:
-        anchor_root = pathlib.Path(__file__).resolve().parent.parent.parent.parent
-        _print_next_steps(project_path, anchor_root)
+        repo_root = pathlib.Path(__file__).resolve().parent.parent.parent.parent
+        _print_next_steps(project_path, repo_root)
 
 
 if __name__ == "__main__":

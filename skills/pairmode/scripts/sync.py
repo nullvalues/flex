@@ -17,7 +17,7 @@ from pathlib import Path
 import click
 import jinja2
 
-# Insert anchor repo root so sibling imports work when run as CLI
+# Insert repo root so sibling imports work when run as CLI
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from skills.pairmode.scripts.audit import audit_project, AuditResult, AuditItem  # noqa: E402
