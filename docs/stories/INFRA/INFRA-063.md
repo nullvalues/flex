@@ -1,7 +1,7 @@
 ---
 id: INFRA-063
 rail: INFRA
-title: "Story frontmatter source: field — track drift-promoted vs anchor-native stories"
+title: "Story frontmatter source: field — track drift-promoted vs flex-native stories"
 status: complete
 phase: "29"
 story_class: code

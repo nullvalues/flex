@@ -2,7 +2,7 @@
 id: INFRA-089
 rail: INFRA
 title: "Slash command namespace and emitted strings (/anchor:* → /flex:*, generated_by, lesson heading)"
-status: planned
+status: complete
 phase: "35"
 story_class: code
 primary_files:

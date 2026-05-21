@@ -14,7 +14,7 @@ touches:
 ## Acceptance criterion
 
 `skills/pairmode/templates/CLAUDE.build.md.j2` contains the same one-line
-fallback note that INFRA-033 added to anchor's own `CLAUDE.build.md`. Future
+fallback note that INFRA-033 added to flex's own `CLAUDE.build.md`. Future
 pairmode bootstraps inherit the orchestrator-level pointer to the fallback
 policy. A test asserts the rendered template contains the fallback line.
 CER-013 is marked RESOLVED.

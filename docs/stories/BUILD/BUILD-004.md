@@ -14,7 +14,7 @@ touches:
 
 `docs/pairmode/PAIRMODE.md` exists as a self-contained document for the upstream
 maintainer reviewing the PR. It covers what pairmode adds, what it changed in
-anchor core, design decisions, known limitations, and how to run the tests. Tests pass.
+flex core, design decisions, known limitations, and how to run the tests. Tests pass.
 
 ## Instructions
 

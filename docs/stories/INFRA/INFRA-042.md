@@ -14,7 +14,7 @@ touches:
 
 ## Acceptance criterion
 
-`skills/pairmode/templates/CLAUDE.build.md.j2` and anchor's own `CLAUDE.build.md`
+`skills/pairmode/templates/CLAUDE.build.md.j2` and flex's own `CLAUDE.build.md`
 contain an explicit pre-reviewer step that commits any uncommitted story-file
 changes and runs `git checkout -- lessons/` before the reviewer is spawned.
 The architecture doc claim about "pre-reviewer commit discipline" is now backed

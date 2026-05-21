@@ -16,7 +16,7 @@ touches:
 ## Acceptance criterion
 
 Four orphan dev scripts at `tests/` root are deleted. `pytest tests/` runs cleanly
-with no collection errors. PAIRMODE.md "What pairmode changed in anchor core"
+with no collection errors. PAIRMODE.md "What pairmode changed in flex core"
 documents the deletion.
 
 ## Instructions

@@ -12,7 +12,7 @@ touches:
 
 ## Acceptance criterion
 
-`README.md` exists at the repo root explaining anchor + pairmode, includes two
+`README.md` exists at the repo root explaining flex + pairmode, includes two
 concrete use case scenarios, CLI examples, alpha-status honesty, under 400 lines,
 no emojis. `tests/pairmode/test_docs.py` asserts the file exists and is under
 400 lines. Tests pass.

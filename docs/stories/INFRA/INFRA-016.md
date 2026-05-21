@@ -12,7 +12,7 @@ touches: []
 
 Gate story — no code changes. All tests pass. No CRITICAL or HIGH security findings.
 All CER Do Later items either resolved or have a corresponding backlog story file.
-Do Now is empty. PAIRMODE.md "What pairmode changed in anchor core" table verified
+Do Now is empty. PAIRMODE.md "What pairmode changed in flex core" table verified
 against actual hook files. On pass: tagged `pr-candidate-v0.1`.
 
 ## Instructions
