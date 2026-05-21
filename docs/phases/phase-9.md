@@ -153,10 +153,10 @@ Add tests to `tests/pairmode/test_pipe_isolation.py` (or a new `tests/pairmode/t
 
 ---
 
-### Story 9.4 — bootstrap.py DEFAULT_DENY and anchor settings: scope docs deny rules
+### Story 9.4 — bootstrap.py DEFAULT_DENY and flex settings: scope docs deny rules
 
 **Acceptance criterion:** `DEFAULT_DENY` in `bootstrap.py` protects `docs/phases/**` and
-`docs/brief.md` (currently unprotected). Anchor's own `.claude/settings.json` replaces blanket
+`docs/brief.md` (currently unprotected). Flex's own `.claude/settings.json` replaces blanket
 `docs/**` rules with the same targeted set. The orchestrator can write to `docs/checkpoints.md`
 and `docs/cer/backlog.md` without hitting a deny rule. Tests pass.
 
@@ -176,8 +176,8 @@ Add to `DEFAULT_DENY`:
 `docs/checkpoints.md` and `docs/cer/backlog.md` are intentionally left unprotected —
 they are operational files updated by the orchestrator and cer CLI respectively.
 
-**Part B — anchor's `.claude/settings.json`:**
-Lines 21–22 of `/mnt/work/anchor/.claude/settings.json` currently read:
+**Part B — flex's `.claude/settings.json`:**
+Lines 21–22 of `/mnt/work/flex/.claude/settings.json` currently read:
 ```json
 "Edit(docs/**)",
 "Write(docs/**)"

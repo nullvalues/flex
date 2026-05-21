@@ -1,4 +1,4 @@
-# anchor — Phase 18: Missing tooling — story lifecycle, overrides, --yes, orchestrator clarity
+# flex — Phase 18: Missing tooling — story lifecycle, overrides, --yes, orchestrator clarity
 
 ← [Phase 17: Correctness — fix all known bugs](phase-17.md)
 
@@ -155,7 +155,7 @@ if the section is in overrides, skip it with a note:
 An empty file with only a comment block explaining the format. Bootstrapped projects
 get this file pre-created so developers know it exists.
 
-**`SKILL.md`:** Add a note under `/anchor:pairmode audit` about `.pairmode-overrides`.
+**`SKILL.md`:** Add a note under `/flex:pairmode audit` about `.pairmode-overrides`.
 
 **Tests — `tests/pairmode/test_audit.py`** (extend existing):
 - INCONSISTENT finding suppressed when section is in `.pairmode-overrides`.
@@ -358,7 +358,7 @@ def _parse_story_id(story_id: str) -> tuple[str, str]:
     return rail, story_id
 ```
 
-This replaces the manual split-and-join logic entirely. The regex already anchors the
+This replaces the manual split-and-join logic entirely. The regex already pins the
 full string and only allows `[A-Z][A-Z0-9]*` segments, preventing any path separator
 or absolute path component from passing.
 

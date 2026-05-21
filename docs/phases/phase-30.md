@@ -1,4 +1,4 @@
-# anchor — Phase 30: Hook security fix and sync tooling gaps
+# flex — Phase 30: Hook security fix and sync tooling gaps
 
 ← [Phase 29: Project drift detection and promotion workflow](phase-29.md)
 
@@ -132,14 +132,14 @@ that resolves outside a safe base path.
 **Acceptance criterion:** Three new subcommands in the `pairmode` CLI:
 
 - `pairmode register --project-dir <path>` — adds the resolved absolute path to
-  `registered_projects` in anchor's `.companion/state.json`. If the path is already
+  `registered_projects` in flex's `.companion/state.json`. If the path is already
   registered, prints "already registered" and exits 0.
 - `pairmode unregister --project-dir <path>` — removes the resolved absolute path from
   `registered_projects`. If not found, prints "not registered" and exits 0.
 - `pairmode list-projects` — prints the current `registered_projects` list (one entry per
   line), or "No projects registered." when empty.
 
-All three commands read and write anchor's own `.companion/state.json` (the file in the
+All three commands read and write flex's own `.companion/state.json` (the file in the
 current working directory, not the target project's). The `registered_projects` key is a
 list of strings; it is created when the first project is registered if absent.
 

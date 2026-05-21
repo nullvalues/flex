@@ -2,7 +2,7 @@
 
 Verifies that:
 - _build_template_context() returns a pairmode_scripts_dir key whose value is the
-  absolute path to anchor's scripts directory.
+  absolute path to flex's scripts directory.
 - The rendered build template contains no literal 'skills/pairmode/scripts' substrings
   and does contain the absolute scripts path.
 """
@@ -63,7 +63,7 @@ class TestRenderBuildTemplate:
         """The rendered build template must not contain the bare relative path 'skills/pairmode/scripts'.
 
         The absolute path (e.g. '/mnt/work/flex/skills/pairmode/scripts') is expected and
-        acceptable — we only forbid the relative form that would break on non-anchor machines.
+        acceptable — we only forbid the relative form that would break on non-/mnt/work/flex machines.
         """
         ctx = self._make_context(tmp_path)
         rendered = _render_build_template(ctx)

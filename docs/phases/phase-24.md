@@ -1,4 +1,4 @@
-# anchor — Phase 24: Data-defensible model rebalance refinement
+# flex — Phase 24: Data-defensible model rebalance refinement
 
 ← [Phase 23: Drift detection and promotion workflow](phase-23.md)
 

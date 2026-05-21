@@ -1,8 +1,8 @@
 # Changelog
 
-All notable changes to anchor are documented here. This project loosely follows
+All notable changes to flex are documented here. This project loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pairmode-specific
-changes are marked `[pairmode]`; modifications to anchor core are marked `[core]`.
+changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
@@ -27,7 +27,7 @@ changes are marked `[pairmode]`; modifications to anchor core are marked `[core]
 - `.claude-plugin/plugin.json`: added `pairmode` skill entry. The marketplace
   manifest is unchanged.
 
-## [pairmode v0.0.x] — Phases 1-16 (anchor era2 branch)
+## [pairmode v0.0.x] — Phases 1-16 (flex era2 branch)
 
 ### Added [pairmode]
 - Phase 1-7: core scaffold, spec-derived deny-list generation, lessons store,
@@ -50,7 +50,7 @@ changes are marked `[pairmode]`; modifications to anchor core are marked `[core]
   detection in the reviewer checklist, sync rail-gap detection.
 
 ### Notes
-- All changes through Phase 16 are additive to anchor core. Hook files were
+- All changes through Phase 16 are additive to flex core. Hook files were
   not modified until the Phase 8 pipe-scoping change (which retained legacy
   fallback behavior).
 - The lessons store (`lessons/lessons.json`) is append-only. Existing entries

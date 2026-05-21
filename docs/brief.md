@@ -1,4 +1,4 @@
-# Brief — anchor
+# Brief — flex
 
 > This is a one-page project brief. It answers **what** and **why**.
 > Design decisions and implementation choices belong in `docs/architecture.md`.
@@ -7,7 +7,7 @@
 
 ## What this project produces
 
-Anchor is a Claude Code plugin with three skills:
+Flex is a Claude Code plugin with three skills:
 
 **`/flex:seed`** — Reads an existing codebase and all historical Claude Code transcripts to
 build a canonical spec from scratch: structured JSON records of decisions, rules, tradeoffs,
@@ -32,7 +32,7 @@ Code is becoming cheap to generate. What's scarce is the spec — the record of 
 decided, why, and what must never be violated. Without it, agents drift. Developers forget.
 Constraints agreed on two sessions ago are invisible today.
 
-Anchor makes intent persistent. It captures decisions as you work, validates new actions
+Flex makes intent persistent. It captures decisions as you work, validates new actions
 against prior ones, and makes the canonical spec the source of truth for every agent and
 every session.
 
@@ -78,14 +78,14 @@ The human provides the intent; the agents compete on implementation.
 
 - Hooks must never make API calls, block, or write to spec files directly.
 - The canonical spec format (`spec.json`) must remain stable — external tools and future
-  agents depend on being able to read it without knowing anchor's internals.
+  agents depend on being able to read it without knowing flex's internals.
 - Bootstrap must never overwrite existing project files without explicit user confirmation.
 
 ---
 
 ## Not in scope
 
-- A hosted or SaaS version of anchor — it is a local Claude Code plugin.
+- A hosted or SaaS version of flex — it is a local Claude Code plugin.
 - Real-time collaboration between multiple developers on the same spec simultaneously.
 - Automatic conflict resolution — conflicts are flagged for developer decision, not resolved
   by the system.

@@ -1,8 +1,8 @@
-# CLAUDE.md — anchor
+# CLAUDE.md — flex
 
 ## Project context
 
-anchor — a Claude Code plugin that gives Claude persistent memory of architectural decisions,
+flex — a Claude Code plugin that gives Claude persistent memory of architectural decisions,
 specs, and constraints across sessions.
 Stack: Python 3.11+ / uv / Rich (TUI) / Anthropic SDK.
 Read `/docs/brief.md` then `/docs/architecture.md` before any task. These are the source of truth.

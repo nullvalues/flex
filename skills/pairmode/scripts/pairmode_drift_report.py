@@ -1,7 +1,7 @@
 """
 pairmode_drift_report.py — Cross-project drift detection for pairmode methodology files.
 
-Compares each project's ``CLAUDE.build.md`` and ``.claude/agents/`` against anchor's
+Compares each project's ``CLAUDE.build.md`` and ``.claude/agents/`` against flex's
 canonical templates and classifies per-project differences as:
 
   MISSING    — section present in canonical template but absent from project

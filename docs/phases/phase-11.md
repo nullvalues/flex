@@ -1,10 +1,10 @@
-# anchor — Phase 11: Brief hygiene and reconstruction workflow
+# flex — Phase 11: Brief hygiene and reconstruction workflow
 
 ← [Phase 10: Ideology Capture Infrastructure](phase-10.md)
 
 ## Goal
 
-Fix must_preserve type collision; populate anchor's brief.md; build the reconstruction
+Fix must_preserve type collision; populate flex's brief.md; build the reconstruction
 document system that turns captured ideology into a handoff prompt for an independent
 implementation agent.
 
@@ -17,9 +17,9 @@ Four stories in dependency order:
 1. Fix `must_preserve` type collision (11.0)
 2. Reconstruction document template (11.1)
 3. Bootstrap integration — write `docs/reconstruction.md` (11.2)
-4. `/anchor:pairmode reconstruct` refresh command (11.3)
+4. `/flex:pairmode reconstruct` refresh command (11.3)
 
-Prerequisites: Phase 10 complete and tagged cp10. `docs/ideology.md` populated for anchor.
+Prerequisites: Phase 10 complete and tagged cp10. `docs/ideology.md` populated for flex.
 
 ---
 
@@ -89,19 +89,19 @@ Replace the Phase 10 must_preserve non-negotiable with the resolved contract:
 
 ---
 
-⚙️  DEVELOPER ACTION — Populate anchor's `docs/brief.md` after Story 11.0
+⚙️  DEVELOPER ACTION — Populate flex's `docs/brief.md` after Story 11.0
 
 After 11.0 passes review:
 
 1. Open `docs/brief.md` and fill in the stale placeholder sections:
-   - `## What this project produces` — anchor's canonical spec + pairmode scaffold output
+   - `## What this project produces` — flex's canonical spec + pairmode scaffold output
    - `## Why it exists` — the agent drift problem; decisions scatter without persistent memory
    - `## Core beliefs` — reference docs/ideology.md core convictions
    - `## Accepted tradeoffs` — hook-pipe-sidebar separation cost; Python-only stack
    - `## What a second implementation must preserve` — spec.json format with rationale;
      hook pipe contract; append-only lessons
 2. Run audit: confirm no STALE PLACEHOLDER findings for `docs/brief.md`.
-3. Commit: `docs: populate anchor docs/brief.md`
+3. Commit: `docs: populate flex docs/brief.md`
 
 ---
 
@@ -242,7 +242,7 @@ _(not yet specified — populate docs/ideology.md Should question)_
 7. When done, produce a `RECONSTRUCTION.md` at your project root scoring your implementation
    against each comparison dimension.
 
-*Generated from `docs/ideology.md` and `docs/brief.md` by `/anchor:pairmode reconstruct`.*
+*Generated from `docs/ideology.md` and `docs/brief.md` by `/flex:pairmode reconstruct`.*
 *Original project: {{ project_name }}*
 *Generated: {{ generated_date | default("_(date not set)_") }}*
 ```
@@ -310,7 +310,7 @@ Add `docs/reconstruction.md` to bootstrap Outputs section.
 
 ---
 
-### Story 11.3 — `/anchor:pairmode reconstruct` command
+### Story 11.3 — `/flex:pairmode reconstruct` command
 
 **Acceptance criterion:** `skills/pairmode/scripts/reconstruct.py` reads `docs/ideology.md`
 and `docs/brief.md` from a target project and writes (or refreshes) `docs/reconstruction.md`
@@ -357,7 +357,7 @@ The section-to-variable mapping for ideology.md:
 
 **Part B — SKILL.md:**
 
-Add `/anchor:pairmode reconstruct` section documenting the command, its inputs, and outputs.
+Add `/flex:pairmode reconstruct` section documenting the command, its inputs, and outputs.
 
 **Tests — `tests/pairmode/test_reconstruct.py`** (new file):
 - Project with populated ideology.md: `docs/reconstruction.md` written; contains conviction text.
@@ -371,12 +371,12 @@ Add `/anchor:pairmode reconstruct` section documenting the command, its inputs, 
 
 ---
 
-⚙️  DEVELOPER ACTION — Run reconstruct on anchor after Story 11.3
+⚙️  DEVELOPER ACTION — Run reconstruct on flex after Story 11.3
 
 After 11.3 passes review:
 
 1. Run: `uv run python skills/pairmode/scripts/reconstruct.py --project-dir .`
 2. Review `docs/reconstruction.md` — verify it reads as a coherent handoff prompt for a
    blank-slate agent.
-3. Commit: `docs: generate anchor reconstruction brief`
+3. Commit: `docs: generate flex reconstruction brief`
 4. Tag: `cp11-reconstruction-workflow`

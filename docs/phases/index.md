@@ -1,4 +1,4 @@
-# anchor — Phase Index
+# flex — Phase Index
 
 This document is the index of all build phases for the project.
 Each phase has a dedicated file in `docs/phases/`. Phases 1–7 are recorded in the
@@ -34,4 +34,4 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 32 | Story-as-contract and story_context CLI | complete | [phase-32.md](phase-32.md) · cp32-story-as-contract |
 | 33 | Build loop portability and sibling catch-up | planned | [phase-33.md](phase-33.md) |
 | 34 | Checkpoint context health report | complete | [phase-34.md](phase-34.md) · cp34-checkpoint-context-health |
-| 35 | Rename anchor → flex | planned | [phase-35.md](phase-35.md) |
+| 35 | Project rename to flex | planned | [phase-35.md](phase-35.md) |

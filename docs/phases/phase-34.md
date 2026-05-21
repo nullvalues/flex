@@ -1,4 +1,4 @@
-# anchor — Phase 34: Checkpoint context health report
+# flex — Phase 34: Checkpoint context health report
 
 ← [Phase 33: Build loop portability and sibling catch-up](phase-33.md)
 
@@ -247,7 +247,7 @@ summary block, after `Doc updates:` and before `Git tag:`:
   Context health:   [message from step 7.5]
 ```
 
-**`CLAUDE.build.md`** (anchor's own) is regenerated:
+**`CLAUDE.build.md`** (flex's own) is regenerated:
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/pairmode_sync.py \
   sync-build --project-dir . --apply --yes

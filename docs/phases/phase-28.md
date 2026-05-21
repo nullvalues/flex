@@ -1,4 +1,4 @@
-# anchor — Phase 28: CER backlog remediation (LOW items)
+# flex — Phase 28: CER backlog remediation (LOW items)
 
 ← [Phase 27: Auth check per-story placement fix](phase-27.md)
 

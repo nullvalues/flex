@@ -1,4 +1,4 @@
-# Reconstruction Brief — anchor
+# Reconstruction Brief — flex
 
 > This document is the sole input for an independent reconstruction agent.
 > The agent must not have access to the original source code.
@@ -9,17 +9,17 @@
 
 ## What you are building
 
-Anchor is a Claude Code plugin with three skills:
+Flex is a Claude Code plugin with three skills:
 
-**`/anchor:seed`** — Reads an existing codebase and all historical Claude Code transcripts to
+**`/flex:seed`** — Reads an existing codebase and all historical Claude Code transcripts to
 build a canonical spec from scratch: structured JSON records of decisions, rules, tradeoffs,
 and lineage for each module. Run once per project.
 
-**`/anchor:companion`** — Loads the canonical spec into agent context at session start, detects
+**`/flex:companion`** — Loads the canonical spec into agent context at session start, detects
 drift between new decisions and established rules, and runs a sidebar that captures decisions
 made during the session into the spec automatically.
 
-**`/anchor:pairmode`** — Bootstraps and manages a structured builder/reviewer methodology on
+**`/flex:pairmode`** — Bootstraps and manages a structured builder/reviewer methodology on
 any project. Produces a full scaffold (CLAUDE.md, agent docs, settings, phase specs, CER
 backlog) and enforces the build loop at every commit. Generates `docs/ideology.md` — a
 conviction and constraint record that survives across implementations — and
@@ -34,7 +34,7 @@ Code is becoming cheap to generate. What's scarce is the spec — the record of 
 decided, why, and what must never be violated. Without it, agents drift. Developers forget.
 Constraints agreed on two sessions ago are invisible today.
 
-Anchor makes intent persistent. It captures decisions as you work, validates new actions
+Flex makes intent persistent. It captures decisions as you work, validates new actions
 against prior ones, and makes the canonical spec the source of truth for every agent and
 every session.
 
@@ -75,7 +75,7 @@ The human provides the intent; the agents compete on implementation.
 
 #### Never silently pass contradictions
 
-**Rule:** anchor must never allow a development action to proceed without validating it against previous decisions recorded in the canonical spec.
+**Rule:** flex must never allow a development action to proceed without validating it against previous decisions recorded in the canonical spec.
 
 **Why this constraint exists:** The value of a persistent memory system is precisely that it catches what humans and agents forget. A system that misses contradictions provides false confidence, which is worse than no system.
 
@@ -84,7 +84,7 @@ The human provides the intent; the agents compete on implementation.
 
 **Rule:** Hook scripts must emit to the pipe and exit. No API calls, no spec writes, no blocking logic in hooks.
 
-**Why this constraint exists:** The sidebar owns all heavy work. The hook-pipe-sidebar separation is the core architectural boundary in anchor. Violating it collapses two roles into one and makes the system unauditable.
+**Why this constraint exists:** The sidebar owns all heavy work. The hook-pipe-sidebar separation is the core architectural boundary in flex. Violating it collapses two roles into one and makes the system unauditable.
 
 
 #### Sidebar owns all state writes
@@ -177,6 +177,6 @@ _(not yet specified — populate docs/ideology.md Comparison basis)_
 7. When done, produce a `RECONSTRUCTION.md` at your project root scoring your implementation
    against each comparison dimension.
 
-*Generated from `docs/ideology.md` and `docs/brief.md` by `/anchor:pairmode reconstruct`.*
-*Original project: anchor*
+*Generated from `docs/ideology.md` and `docs/brief.md` by `/flex:pairmode reconstruct`.*
+*Original project: flex*
 *Generated: 2026-04-24*

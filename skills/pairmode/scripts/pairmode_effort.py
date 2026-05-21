@@ -12,7 +12,7 @@ Produces four reports against ``.companion/effort.db``:
   quality when ``model_selection_reason`` data is present (INFRA-050+).
 
 Token counts are the primary metric in every report. Dollar projections are
-optional decoration applied via ``--dollars <pricing.json>``: anchor neither
+optional decoration applied via ``--dollars <pricing.json>``: flex neither
 ships nor maintains rates, so a missing or stale pricing file never breaks
 the underlying token data.
 

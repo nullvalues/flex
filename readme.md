@@ -10,7 +10,7 @@
 </pre>
 </p>
 
-<h1 align="center">Anchor - The IDE for Intent</h1>
+<h1 align="center">Flex - The IDE for Intent</h1>
 <p align="center">
 Persistent memory of decisions, specs, and architectural constraints across sessions.
 It captures what you're building and why - automatically, as you work - and makes that intent persistent across every agent, every session, every project.
@@ -29,21 +29,21 @@ The problem is that nothing captures what happens in those sessions. Decisions s
 
 **Here's the thing: agents drift. But so do you.** You forget what was decided two weeks ago. You re-propose an approach you already ruled out. The problem isn't just that the agent loses context - it's that the whole development loop loses coherence.
 
-Anchor has already saved me hours. It reminds me of decisions made in other sessions, catches drift, loads sessions with the right context. It gives me confidence to move fast because I know if I forget, Anchor will catch it.
+Flex has already saved me hours. It reminds me of decisions made in other sessions, catches drift, loads sessions with the right context. It gives me confidence to move fast because I know if I forget, Flex will catch it.
 
-### What Anchor does
+### What Flex does
 
 1. **Captures specs as you build** - decisions, rules, tradeoffs, lineage - without you having to write them down
 2. **Validates decisions across sessions** - flags when a new session contradicts something already established
-3. **Verifies implementation** - because Anchor holds the spec, it naturally becomes the verification layer. Not "does this code look right" but "does this code do what we said it should do"
+3. **Verifies implementation** - because Flex holds the spec, it naturally becomes the verification layer. Not "does this code look right" but "does this code do what we said it should do"
 
 ## Who is this for
-Anchor is for builders who are primarily building software using AI agents. If you're spending more time steering agents than writing code. Anchor is built for you.
+Flex is for builders who are primarily building software using AI agents. If you're spending more time steering agents than writing code. Flex is built for you.
 
 
 ## How It Works
 
-Anchor maintains a **canonical spec** for your product — a structured JSON record of what was decided, what must never be violated, and what tradeoffs were accepted. Four roles work together across your sessions:
+Flex maintains a **canonical spec** for your product — a structured JSON record of what was decided, what must never be violated, and what tradeoffs were accepted. Four roles work together across your sessions:
 
 | Role | When | What it does |
 |---|---|---|
@@ -58,17 +58,17 @@ All of this runs in a **companion sidebar** — a separate terminal window that 
 
 ```bash
 # Add the marketplace
-/plugin marketplace add nraychaudhuri/anchor
+/plugin marketplace add nullvalues/flex
 
 # Install the plugin
-/plugin install anchor@nraychaudhuri-anchor
+/plugin install flex@nullvalues-flex
 ```
 
 > **Note:** After installing, restart your Claude Code session. `/reload-plugins` loads hooks but skills require a restart to appear.
 
 For development:
 ```bash
-claude --plugin-dir /path/to/anchor
+claude --plugin-dir /path/to/flex
 ```
 
 ### First-time setup
@@ -81,7 +81,7 @@ claude --plugin-dir /path/to/anchor
 /flex:companion
 ```
 
-The first time the companion sidebar starts, it will run `claude setup-token` interactively in the companion terminal to generate an OAuth token. This uses your existing Claude subscription — no extra API costs. The token is saved to `~/.anchor/auth.json` and reused automatically.
+The first time the companion sidebar starts, it will run `claude setup-token` interactively in the companion terminal to generate an OAuth token. This uses your existing Claude subscription — no extra API costs. The token is saved to `~/.flex/auth.json` and reused automatically.
 
 ## The Three Skills
 
@@ -191,7 +191,7 @@ A persistent terminal window that watches your Claude Code session:
 
 ```
         ◉
-       ━┿━     Anchor v0.1.0
+       ━┿━     Flex v0.1.0
         │      context companion
         │
     ╭╴  │  ╶╮
@@ -214,7 +214,7 @@ A persistent terminal window that watches your Claude Code session:
   • JWT must include company_id scope
   ⚖️ HS256 chosen — cost: shared secret required
 
-╭─────────────── anchor ────────────────╮
+╭─────────────── flex ────────────────╮
 │  auth ● ──→ decision-ledger ●         │
 │                                       │
 │  → jwt_handler.py [auth]              │
@@ -269,7 +269,7 @@ No data loss at any point. Captures are saved to disk immediately — if the ses
 ## Directory Structure
 
 ```
-anchor/
+flex/
   .claude-plugin/
     plugin.json              ← plugin manifest
   skills/
@@ -323,7 +323,7 @@ anchor/
 ### Runtime files (not in plugin, created at runtime)
 
 ```
-~/.anchor/
+~/.flex/
   auth.json                  ← OAuth token (generated on first run)
 
 <project>/.companion/

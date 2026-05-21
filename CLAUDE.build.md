@@ -1,6 +1,6 @@
-# CLAUDE.build.md — anchor Build Orchestrator
+# CLAUDE.build.md — flex Build Orchestrator
 
-You are the build orchestrator for the anchor project.
+You are the build orchestrator for the flex project.
 You do not write code. You do not review code. You do not commit.
 You manage the build loop: identify the next story, spawn the builder, spawn the reviewer,
 handle the result, and run checkpoint sequences when a phase completes.
@@ -66,13 +66,13 @@ Call `select_builder_model` to get the model and selection reason:
 PATH=$HOME/.local/bin:$PATH uv run python -c "
 import sys
 from pathlib import Path
-sys.path.insert(0, '/mnt/work/anchor/skills/pairmode/scripts')
+sys.path.insert(0, '/mnt/work/flex/skills/pairmode/scripts')
 from model_selector import select_builder_model
 
 # Replace with values from the story frontmatter:
 story_class = 'code'           # default 'code' if absent
 primary_files = [              # from story frontmatter primary_files list
-    '/mnt/work/anchor/skills/pairmode/scripts/foo.py',
+    '/mnt/work/flex/skills/pairmode/scripts/foo.py',
 ]
 protected_files = [            # from CLAUDE.md § Protected files and .claude/settings.json
     'hooks/stop.py',
@@ -147,7 +147,7 @@ Before spawning the builder, pre-authorize edits within the story's declared sco
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python -c "
 import sys, pathlib
-sys.path.insert(0, '/mnt/work/anchor/skills/pairmode/scripts')
+sys.path.insert(0, '/mnt/work/flex/skills/pairmode/scripts')
 from permission_scope import write_story_permissions
 from pathlib import Path
 write_story_permissions(Path('docs/stories/RAIL/RAIL-NNN.md'), Path('.'))
@@ -185,7 +185,7 @@ spawns. `--phase` and `--rail` are read from the current story file's frontmatte
 (`phase` and `rail` fields in `docs/stories/<RAIL>/<RAIL>-NNN.md`).
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/anchor/skills/pairmode/scripts/record_attempt.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/record_attempt.py \
   --story-file docs/stories/RAIL/RAIL-NNN.md \
   --agent-role builder \
   --model claude-opus-4-7 \
@@ -211,7 +211,7 @@ informational, not blocking — exit code is always 0:
 PATH=$HOME/.local/bin:$PATH uv run python -c "
 import json, sys
 from pathlib import Path
-sys.path.insert(0, '/mnt/work/anchor/skills/pairmode/scripts')
+sys.path.insert(0, '/mnt/work/flex/skills/pairmode/scripts')
 from effort_db import check_guardrail, resolve_effort_db_path
 
 state_path = Path('.companion/state.json')
@@ -285,7 +285,7 @@ helper.  The reviewer model is driven by `(story_class, attempt_number)` — rea
 PATH=$HOME/.local/bin:$PATH uv run python -c "
 import sys
 from pathlib import Path
-sys.path.insert(0, '/mnt/work/anchor/skills/pairmode/scripts')
+sys.path.insert(0, '/mnt/work/flex/skills/pairmode/scripts')
 from model_selector import select_reviewer_model
 # Replace values below with the current story's data:
 model, reason = select_reviewer_model(
@@ -322,7 +322,7 @@ shell variable before spawning the reviewer so you can pass it here:
 ```bash
 # After running select_reviewer_model, capture both lines:
 # model=$(first line); reason=$(second line)
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/anchor/skills/pairmode/scripts/record_attempt.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/record_attempt.py \
   --story-file docs/stories/RAIL/RAIL-NNN.md \
   --agent-role reviewer \
   --model claude-opus-4-7 \
@@ -345,7 +345,7 @@ After the reviewer commits or reverts:
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python -c "
 import sys, pathlib
-sys.path.insert(0, '/mnt/work/anchor/skills/pairmode/scripts')
+sys.path.insert(0, '/mnt/work/flex/skills/pairmode/scripts')
 from permission_scope import clear_story_permissions
 from pathlib import Path
 clear_story_permissions(Path('.'))
@@ -354,7 +354,7 @@ clear_story_permissions(Path('.'))
 
 2. If the reviewer committed (PASS): update the story status to complete:
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/anchor/skills/pairmode/scripts/story_update.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_update.py \
   --story-id RAIL-NNN --status complete --project-dir .
 ```
 
@@ -426,7 +426,7 @@ Before spawning the security-auditor, determine the model using `model_selector`
 PATH=$HOME/.local/bin:$PATH uv run python -c "
 import sys
 from pathlib import Path
-sys.path.insert(0, '/mnt/work/anchor/skills/pairmode/scripts')
+sys.path.insert(0, '/mnt/work/flex/skills/pairmode/scripts')
 from model_selector import select_security_auditor_model
 # Replace phase_class with the value from the phase manifest frontmatter;
 # default 'production' if the field is absent.
@@ -450,7 +450,7 @@ Before spawning the intent-reviewer, determine the model using `model_selector`:
 PATH=$HOME/.local/bin:$PATH uv run python -c "
 import sys
 from pathlib import Path
-sys.path.insert(0, '/mnt/work/anchor/skills/pairmode/scripts')
+sys.path.insert(0, '/mnt/work/flex/skills/pairmode/scripts')
 from model_selector import select_intent_reviewer_model
 # Replace phase_class with the value from the phase manifest frontmatter;
 # default 'production' if the field is absent.
@@ -567,7 +567,7 @@ the checkpoint.
 PATH=$HOME/.local/bin:$PATH uv run python -c "
 import sys, json
 from pathlib import Path
-sys.path.insert(0, '/mnt/work/anchor/skills/pairmode/scripts')
+sys.path.insert(0, '/mnt/work/flex/skills/pairmode/scripts')
 from context_health import check_context_health
 from effort_db import resolve_effort_db_path
 

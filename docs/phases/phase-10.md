@@ -450,7 +450,7 @@ STALE PLACEHOLDER
 
 **Part C — SKILL.md:**
 
-Add STALE PLACEHOLDER note to the `## /anchor:pairmode audit` section.
+Add STALE PLACEHOLDER note to the `## /flex:pairmode audit` section.
 
 **Tests — `tests/pairmode/test_audit.py`:**
 - `docs/ideology.md` missing: MISSING finding.
@@ -462,12 +462,12 @@ Add STALE PLACEHOLDER note to the `## /anchor:pairmode audit` section.
 
 ---
 
-⚙️  DEVELOPER ACTION — Populate anchor's own ideology.md after Phase 10 bootstrap
+⚙️  DEVELOPER ACTION — Populate flex's own ideology.md after Phase 10 bootstrap
 
 After Story 10.0 passes review:
 
-1. Bootstrap writes `docs/ideology.md` to anchor (or copy template and fill in directly).
-2. Populate `## Core convictions` with anchor's beliefs about AI-assisted development.
+1. Bootstrap writes `docs/ideology.md` to flex (or copy template and fill in directly).
+2. Populate `## Core convictions` with flex's beliefs about AI-assisted development.
 3. Populate `## Accepted constraints` with rationale for each DEFAULT_DENY entry.
 4. Populate `## Reconstruction guidance` with what must survive any re-implementation.
 5. Run audit: confirm no STALE PLACEHOLDER finding.

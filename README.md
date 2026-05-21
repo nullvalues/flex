@@ -1,8 +1,8 @@
-# Anchor — The IDE for Intent
+# Flex — The IDE for Intent
 
 Code is cheap to generate. Intent is scarce. Agents drift without it: constraints agreed
 on two sessions ago are invisible today, modules accumulate contradictory assumptions, and
-every new session starts from zero. Anchor makes intent persistent in two ways: by
+every new session starts from zero. Flex makes intent persistent in two ways: by
 recording it as you decide (reactive memory) and by requiring it before you build
 (proactive process). It captures what you are building and why — automatically, as you
 work — and makes that record the source of truth for every agent and every session.
@@ -12,9 +12,9 @@ work — and makes that record the source of truth for every agent and every ses
 Alpha. Under active development. Core workflows are functional and used in production on
 this repo. The API and scaffold format may change without notice. See Known Limitations.
 
-## What anchor does
+## What flex does
 
-Anchor provides two complementary layers.
+Flex provides two complementary layers.
 
 **Memory layer** (`/flex:seed` + `/flex:companion`): `/flex:seed` reads your
 codebase and historical Claude Code transcripts to build a canonical spec — structured JSON
@@ -61,11 +61,11 @@ work, and pairmode keeps the build honest against the spec.
 
 ```bash
 # Install as a Claude Code plugin from the plugin directory
-claude code plugin install path/to/anchor
+claude code plugin install path/to/flex
 
 # Or clone and install locally
-git clone https://github.com/halfhorse/anchor
-claude code plugin install ./anchor
+git clone https://github.com/halfhorse/flex
+claude code plugin install ./flex
 ```
 
 Requirements: Claude Code, Python 3.11+, uv.
@@ -128,7 +128,7 @@ You are starting a Python API service. The codebase is empty.
 
 1. Run `/flex:pairmode bootstrap`. Answer the prompts: project name `invoicing-api`,
    stack `Python/FastAPI/PostgreSQL`, modules `api`, `billing`, `auth`.
-2. Anchor writes CLAUDE.md, CLAUDE.build.md, initial ideology, and a phase-1 spec file.
+2. Flex writes CLAUDE.md, CLAUDE.build.md, initial ideology, and a phase-1 spec file.
    The deny list in `.claude/settings.json` is generated from your declared non-negotiables:
    "no direct database writes outside the repository layer."
 3. You create story `BILLING-001: Add invoice creation endpoint` via `story_new.py`.

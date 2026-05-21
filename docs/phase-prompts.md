@@ -1,4 +1,4 @@
-# Anchor Pairmode — Phase Prompts
+# Flex Pairmode — Phase Prompts
 
 This file contains the complete build instructions for the pairmode feature.
 The build orchestrator reads this file in full before starting any story.
@@ -9,7 +9,7 @@ The build orchestrator reads this file in full before starting any story.
 
 **Goal:** Create the static scaffold — directory structure, SKILL.md with four commands, Jinja2
 templates, and a bootstrap.py that renders static templates. By end of phase,
-`/anchor:pairmode bootstrap` works but uses static templates with no spec derivation.
+`/flex:pairmode bootstrap` works but uses static templates with no spec derivation.
 
 ---
 
@@ -37,23 +37,23 @@ skills/pairmode/
 `SKILL.md` frontmatter:
 ```yaml
 ---
-name: anchor:pairmode
+name: flex:pairmode
 description: Bootstrap, audit, sync, and manage pairmode methodology for this project.
 allowed-tools: AskUserQuestion, Bash, Read, Write
 ---
 ```
 
 The skill body should define four commands clearly:
-- `/anchor:pairmode bootstrap` — scaffold a new or existing project with pairmode
-- `/anchor:pairmode audit` — compare project against current canonical methodology
-- `/anchor:pairmode sync` — apply delta from audit non-destructively
-- `/anchor:pairmode lesson` — capture a lesson learned from this session
-- `/anchor:pairmode review` — surface accumulated lessons, propose template updates
+- `/flex:pairmode bootstrap` — scaffold a new or existing project with pairmode
+- `/flex:pairmode audit` — compare project against current canonical methodology
+- `/flex:pairmode sync` — apply delta from audit non-destructively
+- `/flex:pairmode lesson` — capture a lesson learned from this session
+- `/flex:pairmode review` — surface accumulated lessons, propose template updates
 
 Each command section should describe: when to use it, inputs it expects, what it does,
 and what it outputs.
 
-For bootstrap: it reads `.companion/product.json` and the project's Anchor spec if available,
+For bootstrap: it reads `.companion/product.json` and the project's Flex spec if available,
 then generates the scaffold. It always confirms before writing files.
 
 For audit: it reads `.companion/state.json` for `pairmode_version`, compares against
@@ -62,7 +62,7 @@ current canonical templates and applicable lessons.
 For sync: it applies the delta from audit, preserving project-specific content.
 
 For lesson: it prompts the user for trigger/problem/learning/methodology_change, writes
-to `anchor/lessons/lessons.json` (in the anchor repo, not the project).
+to `flex/lessons/lessons.json` (in the flex repo, not the project).
 
 For review: it groups captured lessons by `affects` field, proposes specific template
 updates, and writes approved updates to the templates.
@@ -255,7 +255,7 @@ Create `tests/pairmode/test_bootstrap.py` with tests that:
 
 ## Phase 2 — Spec-Derived Generation
 
-**Goal:** bootstrap.py reads the project's Anchor spec and derives the reviewer checklist
+**Goal:** bootstrap.py reads the project's Flex spec and derives the reviewer checklist
 and deny list from it. Protected file comments link back to non-negotiables.
 
 ---
@@ -363,7 +363,7 @@ Create `tests/pairmode/test_denylist_deriver.py`.
 
 ### Story 2.4 — Wire spec derivation into bootstrap.py
 
-**Acceptance criterion:** When a project has an Anchor spec (`.companion/product.json` exists
+**Acceptance criterion:** When a project has an Flex spec (`.companion/product.json` exists
 and spec files are present), bootstrap.py uses derived checklist and deny list instead of
 the static defaults. Without a spec, it falls back to universal items only. Tests pass.
 
@@ -387,7 +387,7 @@ Jinja2. Including them in `checklist_items` will cause duplication in rendered o
 Also write `settings.deny-rationale.json` alongside `settings.json` in `.claude/`:
 ```json
 {
-  "generated_by": "anchor:pairmode",
+  "generated_by": "flex:pairmode",
   "pairmode_version": "0.1.0",
   "rules": [
     {
@@ -421,7 +421,7 @@ No new production code in this story — tests only.
 
 ## Phase 3 — Lessons System
 
-**Goal:** Capture and review methodology lessons. Lessons live in the anchor repo and
+**Goal:** Capture and review methodology lessons. Lessons live in the flex repo and
 inform future bootstraps.
 
 ---
@@ -459,7 +459,7 @@ def next_lesson_id(data: dict) -> str  # returns "L001", "L002", etc.
 
 Create `lessons/LESSONS.md` with:
 ```markdown
-# Anchor Methodology Lessons
+# Flex Methodology Lessons
 
 This file is auto-generated from lessons.json. Edit lessons.json directly.
 
@@ -476,7 +476,7 @@ Create `tests/pairmode/test_lesson_utils.py` covering:
 
 ### Story 3.2 — Lesson capture command
 
-**Acceptance criterion:** `/anchor:pairmode lesson` command is documented in SKILL.md
+**Acceptance criterion:** `/flex:pairmode lesson` command is documented in SKILL.md
 and `lesson.py` captures a lesson interactively and writes it to lessons.json.
 LESSONS.md is regenerated after capture. Tests pass.
 
@@ -523,7 +523,7 @@ Create `tests/pairmode/test_lesson_capture.py`.
 
 ### Story 3.3 — Lesson review command
 
-**Acceptance criterion:** `/anchor:pairmode review` surfaces captured lessons grouped by
+**Acceptance criterion:** `/flex:pairmode review` surfaces captured lessons grouped by
 `affects`, proposes specific template edits, and writes approved updates to the templates.
 Tests pass.
 
@@ -570,7 +570,7 @@ Create `skills/pairmode/scripts/audit.py`.
 Import pattern: audit.py may call `lesson_utils.load_lessons()` directly. Use the same
 relative-import workaround already established in other pairmode scripts (sys.path insertion
 or PYTHONPATH). Do not introduce a new import pattern without aligning with lesson.py and
-bootstrap.py. The pattern is: at the top of the script, insert the anchor repo root into
+bootstrap.py. The pattern is: at the top of the script, insert the flex repo root into
 sys.path before importing sibling modules.
 
 Audit logic:
@@ -611,7 +611,7 @@ EXTRA (project-specific, keep as-is)
   ✓ <description>
 
 RECOMMENDATION
-  Run /anchor:pairmode sync to apply missing/inconsistent items
+  Run /flex:pairmode sync to apply missing/inconsistent items
   Project-specific items will be preserved
 ```
 
@@ -619,7 +619,7 @@ Create `tests/pairmode/test_audit.py`.
 
 ---
 
-### Story 4.2 — /anchor:pairmode audit command
+### Story 4.2 — /flex:pairmode audit command
 
 **Acceptance criterion:** SKILL.md documents the audit command. Running it against a
 project produces the audit output and optionally offers to run sync.
@@ -665,7 +665,7 @@ Create `tests/pairmode/test_sync.py`.
 
 ---
 
-### Story 4.4 — /anchor:pairmode sync command + SKILL.md update
+### Story 4.4 — /flex:pairmode sync command + SKILL.md update
 
 **Acceptance criterion:** SKILL.md documents the sync command. Running it applies the
 delta and confirms what was changed.
@@ -704,14 +704,14 @@ No new production code — tests only.
 
 ⚙️ DEVELOPER ACTION — Run audit against sibling repos
 
-Before Phase 5, run `/anchor:pairmode audit` against:
+Before Phase 5, run `/flex:pairmode audit` against:
 - `/mnt/work/cora`
 - `/mnt/work/radar`
 - `/mnt/work/forqsite`
 
 Document the findings. Use the output to identify any gaps in the audit logic
 (things the audit missed that you can see manually). File those as lessons with
-`/anchor:pairmode lesson` before proceeding.
+`/flex:pairmode lesson` before proceeding.
 
 Confirm this is done before saying "Continue building Phase 5".
 
@@ -934,7 +934,7 @@ Update `skills/pairmode/scripts/audit.py`:
    ```
    WARNING: No pairmode_context.json found — INCONSISTENT comparison disabled.
      Template body comparison requires a context file to be meaningful.
-     Run /anchor:pairmode bootstrap to generate pairmode_context.json, then re-audit.
+     Run /flex:pairmode bootstrap to generate pairmode_context.json, then re-audit.
    ```
    This warning replaces the INCONSISTENT section entirely.
 
@@ -992,7 +992,7 @@ Mark L002 status as `applied` in `lessons/lessons.json` after this story passes 
 **Acceptance criterion:** All CLI invocations in `skills/pairmode/SKILL.md` use
 `PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/..."`.
 `bootstrap.py` has a `sys.path` self-insertion guard matching the pattern in `audit.py` and
-`sync.py`. The broken `PYTHONPATH=/path/to/anchor` placeholder in `skills/companion/SKILL.md`
+`sync.py`. The broken `PYTHONPATH=/path/to/flex` placeholder in `skills/companion/SKILL.md`
 is replaced with a working invocation. Tests pass.
 
 **Instructions:**
@@ -1027,15 +1027,15 @@ Replace the existing CLI invocation blocks:
 **Part D — companion SKILL.md Step 2.5 fix:**
 
 In `skills/companion/SKILL.md`, find the story-write bash block that contains
-`PYTHONPATH=/path/to/anchor`. Remove the broken `PYTHONPATH=` prefix line. The
+`PYTHONPATH=/path/to/flex`. Remove the broken `PYTHONPATH=` prefix line. The
 `sys.path.insert` inside the `-c` script already handles the import path correctly.
 The corrected block should have no leading `PYTHONPATH=...` prefix.
 
 **Part E — audit and sync prerequisite note:**
 
 In `skills/pairmode/SKILL.md`, add one sentence after the "Inputs:" bullet list in both
-the `/anchor:pairmode audit` and `/anchor:pairmode sync` sections:
-> Note: `pairmode_context.json` (created by `/anchor:pairmode bootstrap`) must exist for
+the `/flex:pairmode audit` and `/flex:pairmode sync` sections:
+> Note: `pairmode_context.json` (created by `/flex:pairmode bootstrap`) must exist for
 > INCONSISTENT results to be meaningful. See Story 6.1 for details.
 
 **Tests:**
@@ -1104,7 +1104,7 @@ The test exercises this flow:
 
 ### Story 6.5 — lesson_review output clarity: distinguish annotation from implementation
 
-**Acceptance criterion:** After `/anchor:pairmode review`, the CLI output clearly distinguishes
+**Acceptance criterion:** After `/flex:pairmode review`, the CLI output clearly distinguishes
 "template annotated — action required" from a completed implementation. Tests assert the new
 output format. SKILL.md is updated to describe this distinction.
 
@@ -1130,7 +1130,7 @@ REVIEW COMPLETE
 LESSONS.md regenerated.
 ```
 
-In `skills/pairmode/SKILL.md`, update the `/anchor:pairmode review` section to note:
+In `skills/pairmode/SKILL.md`, update the `/flex:pairmode review` section to note:
 > "Applying" a lesson writes a Jinja2 comment block marking the change location. The developer
 > must open the annotated template to implement the actual change. Lesson status is set to
 > `applied` once the annotation is written, not once the template change is implemented.
@@ -1164,7 +1164,7 @@ Add any missing tests. Do not modify non-test files.
 
 After stories 6.1 and 6.2 pass review, run:
 ```bash
-PYTHONPATH=/mnt/work/anchor uv run python skills/pairmode/scripts/lesson_review.py \
+PYTHONPATH=/mnt/work/flex uv run python skills/pairmode/scripts/lesson_review.py \
   --approve L001 \
   --approve L002
 ```
@@ -1572,10 +1572,10 @@ keys absent from context (`what`, `why` → empty strings; `cer_entries` → emp
 
 **Part C — SKILL.md: new command blocks:**
 
-Add a `/anchor:pairmode phase-new` command block covering: when to use (lazy phase scaffolding),
+Add a `/flex:pairmode phase-new` command block covering: when to use (lazy phase scaffolding),
 inputs (phase-id, optional title/goal), what it does, outputs.
 
-Add a `/anchor:pairmode cer` command block covering: when to use (after a CER session to record
+Add a `/flex:pairmode cer` command block covering: when to use (after a CER session to record
 findings), inputs, what it does, outputs.
 
 Add CLI invocation blocks:
@@ -1607,7 +1607,7 @@ exist before these tests pass. Build stories in order.
 
 ⚙️  DEVELOPER ACTION — Sync managed projects with Phase 7 artifacts
 
-After all Phase 7 stories pass review, run `/anchor:pairmode sync` against each managed
+After all Phase 7 stories pass review, run `/flex:pairmode sync` against each managed
 project to pick up `docs/brief.md`, `docs/phases/`, and `docs/cer/backlog.md`.
 
 For each project's `docs/brief.md`: populate the `what` and `why` fields from that project's

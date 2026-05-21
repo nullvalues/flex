@@ -1,4 +1,4 @@
-# anchor — Phase 16: Build loop integration and rail-aware review
+# flex — Phase 16: Build loop integration and rail-aware review
 
 ← [Phase 15: Rails, eras, and story structure — foundation](phase-15.md)
 
@@ -192,7 +192,7 @@ After the reviewer commits or reverts:
 Also update the commit message format guidance: story commits now use
 `feat(story-RAIL-NNN)` format (e.g., `feat(story-BOOTSTRAP-003)`).
 
-**SKILL.md:** Update `/anchor:pairmode bootstrap` and add a note about the build loop
+**SKILL.md:** Update `/flex:pairmode bootstrap` and add a note about the build loop
 permission pre-writing in the orchestrator workflow section.
 
 No new test file. The doc changes are validated by the build process itself.

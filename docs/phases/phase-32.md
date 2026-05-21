@@ -1,4 +1,4 @@
-# anchor — Phase 32: Story-as-contract and story_context CLI
+# flex — Phase 32: Story-as-contract and story_context CLI
 
 ← [Phase 31: Discoverability and status panel](phase-31.md)
 
@@ -123,7 +123,7 @@ the exact section structure to verify. INFRA-076 and INFRA-077 are independent.
   skipped and the reviewer falls back to the narrative `## Acceptance criterion`
   judgment as before.
 - `skills/pairmode/templates/agents/reviewer.md.j2` template change is also applied
-  to anchor's own `.claude/agents/reviewer.md` (via `pairmode sync-agents` after
+  to flex's own `.claude/agents/reviewer.md` (via `pairmode sync-agents` after
   commit, or directly).
 
 **Instructions:**
@@ -156,7 +156,7 @@ the exact section structure to verify. INFRA-076 and INFRA-077 are independent.
    alongside `## Acceptance criterion` so both formats are acknowledged.
 
 4. Run `pairmode sync-agents --project-dir . --yes` to propagate the updated template
-   to anchor's own `.claude/agents/reviewer.md`.
+   to flex's own `.claude/agents/reviewer.md`.
 
 **Primary files:** `skills/pairmode/templates/agents/reviewer.md.j2`
 **Touches:** `.claude/agents/reviewer.md`, `docs/architecture.md`

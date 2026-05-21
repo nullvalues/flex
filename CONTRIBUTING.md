@@ -1,6 +1,6 @@
-# Contributing to anchor
+# Contributing to flex
 
-This guide covers the day-to-day mechanics of contributing to anchor — running
+This guide covers the day-to-day mechanics of contributing to flex — running
 tests, capturing lessons, proposing methodology changes, and filing CERs.
 For the architectural context behind these workflows, read `docs/architecture.md`
 first; for the pairmode methodology specifically, read `docs/pairmode/PAIRMODE.md`.
@@ -37,7 +37,7 @@ The skill walks you through:
 - the triggering situation (what happened that prompted the lesson),
 - what was learned,
 - what should change in the methodology (templates, checks, conventions),
-- which projects the lesson applies to (this repo, all anchor projects, etc.).
+- which projects the lesson applies to (this repo, all flex projects, etc.).
 
 The lesson is appended to `lessons/lessons.json`. Existing entries are never
 edited except to update the `status` field (`open`, `applied`, `superseded`).
@@ -113,4 +113,4 @@ relevant module spec.
 
 Hooks communicate with the companion sidebar through a project-scoped pipe;
 see `docs/pipe-architecture.md` for the design, the legacy fallback, and the
-files this fork modifies relative to upstream anchor.
+files this fork modifies relative to upstream flex.

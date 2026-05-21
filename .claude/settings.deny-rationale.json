@@ -165,12 +165,12 @@
     {
       "pattern": "Edit(hooks/**)",
       "module": "hooks",
-      "non_negotiable": "The hooks.json registration file must not be modified without an explicit architectural reason, as it is a protected file governing which lifecycle events anchor intercepts."
+      "non_negotiable": "The hooks.json registration file must not be modified without an explicit architectural reason, as it is a protected file governing which lifecycle events flex intercepts."
     },
     {
       "pattern": "Write(hooks/**)",
       "module": "hooks",
-      "non_negotiable": "The hooks.json registration file must not be modified without an explicit architectural reason, as it is a protected file governing which lifecycle events anchor intercepts."
+      "non_negotiable": "The hooks.json registration file must not be modified without an explicit architectural reason, as it is a protected file governing which lifecycle events flex intercepts."
     },
     {
       "pattern": "Edit(lessons/**)",

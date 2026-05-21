@@ -1,6 +1,6 @@
 {
   "module": "docs",
-  "summary": "The docs module is the authoritative source of truth for how the anchor project is built and evolved. It consists of three interlocking documents: architecture.md defines the canonical system design and invariants that all code must satisfy; phase-prompts.md contains the complete ordered build plan, decomposed into stories with acceptance criteria and instructions that drive the builder agent; checkpoints.md defines the phase-boundary gates \u2014 tagged milestones that require the full build gate, security audit, and intent review sequence to pass before the next phase begins. Together these documents act as a persistent contract between the human developer and the AI agents: architecture.md is the what-and-why, phase-prompts.md is the step-by-step how, and checkpoints.md is the when-is-it-done.",
+  "summary": "The docs module is the authoritative source of truth for how the flex project is built and evolved. It consists of three interlocking documents: architecture.md defines the canonical system design and invariants that all code must satisfy; phase-prompts.md contains the complete ordered build plan, decomposed into stories with acceptance criteria and instructions that drive the builder agent; checkpoints.md defines the phase-boundary gates \u2014 tagged milestones that require the full build gate, security audit, and intent review sequence to pass before the next phase begins. Together these documents act as a persistent contract between the human developer and the AI agents: architecture.md is the what-and-why, phase-prompts.md is the step-by-step how, and checkpoints.md is the when-is-it-done.",
   "business_rules": [
     "architecture.md must be read before any build or review task \u2014 it is the first input to every agent session and overrides any agent default behavior.",
     "phase-prompts.md must be read in full by the build orchestrator before starting any story \u2014 no story may begin without the orchestrator having the complete phase context.",
@@ -38,9 +38,9 @@
       "accepted_cost": "There is no single document that gives a quick view of which individual stories are complete within a phase; that requires reading git log."
     },
     {
-      "decision": "anchor's own docs are hand-authored, not generated from the pairmode templates in skills/pairmode/templates/docs/.",
-      "reason": "Anchor's docs describe a unique, evolving system. Generating them from templates would add abstraction with no benefit and risk the canonical docs becoming stale if the template diverges.",
-      "accepted_cost": "anchor's own architecture.md, phase-prompts.md, and checkpoints.md must be manually kept consistent with the Jinja2 templates that generate equivalent files for downstream projects."
+      "decision": "flex's own docs are hand-authored, not generated from the pairmode templates in skills/pairmode/templates/docs/.",
+      "reason": "Flex's docs describe a unique, evolving system. Generating them from templates would add abstraction with no benefit and risk the canonical docs becoming stale if the template diverges.",
+      "accepted_cost": "flex's own architecture.md, phase-prompts.md, and checkpoints.md must be manually kept consistent with the Jinja2 templates that generate equivalent files for downstream projects."
     }
   ],
   "conflicts": [],
@@ -64,10 +64,10 @@
       "summary": "",
       "date": "2026-04-19",
       "resume": "claude --resume a3d48ab2-becb-4fe4-9d9d-75bce40de4d8",
-      "what_changed": "Add Linux support to Anchor plugin, test the implementation, open PR to original repo, and plan integration approach for TypeScript monorepo project.",
+      "what_changed": "Add Linux support to Flex plugin, test the implementation, open PR to original repo, and plan integration approach for TypeScript monorepo project.",
       "key_decisions": [
         "Manual skill execution via SKILL.md reading instead of automatic plugin-driven execution in current session",
-        "Create Linux support for Anchor plugin and contribute changes back via PR to original public repository",
+        "Create Linux support for Flex plugin and contribute changes back via PR to original public repository",
         "Update README to document Linux support",
         "Push changes to private fork and open PR against original public repository",
         "Install GitHub CLI (gh) for command-line PR operations"

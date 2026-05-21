@@ -1,6 +1,6 @@
 {
   "module": "seed-skill",
-  "summary": "The seed-skill is the one-time bootstrap entry point for the anchor companion system. It guides the developer through an interactive setup, discovers the project's module structure, mines all historical Claude Code session transcripts for architectural decisions and constraints, and produces a canonical OpenSpec \u2014 a per-module collection of spec.json files that becomes the persistent source of truth for all subsequent companion roles (Architect, Historian, Validator). It is a write-once initialiser: after seeding, the companion reads from the spec on every session start.",
+  "summary": "The seed-skill is the one-time bootstrap entry point for the flex companion system. It guides the developer through an interactive setup, discovers the project's module structure, mines all historical Claude Code session transcripts for architectural decisions and constraints, and produces a canonical OpenSpec \u2014 a per-module collection of spec.json files that becomes the persistent source of truth for all subsequent companion roles (Architect, Historian, Validator). It is a write-once initialiser: after seeding, the companion reads from the spec on every session start.",
   "business_rules": [
     "The skill must check for an existing .companion/product.json before starting and offer the developer a choice to re-seed, add sessions only, or cancel \u2014 never silently overwrite.",
     "Product configuration (name, associated project hashes, spec location) must be persisted to ~/.companion/products/<slug>/config.json and a local pointer written to <cwd>/.companion/product.json.",
@@ -71,7 +71,7 @@
       "summary": "",
       "date": "2026-04-19",
       "resume": "claude --resume a3d48ab2-becb-4fe4-9d9d-75bce40de4d8",
-      "what_changed": "Add Linux support to Anchor plugin, test the implementation, open PR to original repo, and plan integration approach for TypeScript monorepo project.",
+      "what_changed": "Add Linux support to Flex plugin, test the implementation, open PR to original repo, and plan integration approach for TypeScript monorepo project.",
       "key_decisions": [
         "Seed operation must run once per project to bootstrap spec.json files; subsequent sessions load and monitor existing spe"
       ]

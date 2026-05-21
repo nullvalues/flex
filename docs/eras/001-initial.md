@@ -1,6 +1,6 @@
 ---
 id: "001"
-name: anchor — Initial development
+name: flex — Initial development
 status: active
 ---
 

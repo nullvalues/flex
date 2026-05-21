@@ -24,12 +24,12 @@
     },
     {
       "text": "Plugin loads stateless at session startup via --plugin-dir flag, registering skills and hooks available to all subsequent interactions",
-      "evidence": "claude --plugin-dir /mnt/work/anchor registers skills like /anchor:seed and /anchor:companion; The plugin is stateless at startup",
+      "evidence": "claude --plugin-dir /mnt/work/flex registers skills like /flex:seed and /flex:companion; The plugin is stateless at startup",
       "confidence": "high"
     },
     {
       "text": "Seed operation must run once per project to bootstrap spec.json files; subsequent sessions load and monitor existing specs",
-      "evidence": "Seed it once... it'll ask you a few setup questions... then spin up parallel agents... Each session after that, just run /anchor:companion... That loads the relevant specs into context",
+      "evidence": "Seed it once... it'll ask you a few setup questions... then spin up parallel agents... Each session after that, just run /flex:companion... That loads the relevant specs into context",
       "confidence": "high"
     }
   ],
@@ -51,7 +51,7 @@
   "ruled_out": [],
   "decisions": [
     {
-      "text": "Create Linux support for Anchor plugin and contribute changes back via PR to original public repository",
+      "text": "Create Linux support for Flex plugin and contribute changes back via PR to original public repository",
       "evidence": "Let's see if we can get it working in Linux, and if we do, I'll PR his repo and give it to him.",
       "agreement_type": "explicit",
       "confidence": "high"
@@ -100,15 +100,15 @@
     },
     {
       "text": "Plugin flag can be combined with session resume flag: claude -c --plugin-dir",
-      "evidence": "You can combine the flags: cd /mnt/work/cora && claude -c --plugin-dir /mnt/work/anchor... That resumes your last cora session with Anchor loaded.",
+      "evidence": "You can combine the flags: cd /mnt/work/cora && claude -c --plugin-dir /mnt/work/flex... That resumes your last cora session with Flex loaded.",
       "agreement_type": "explicit",
       "confidence": "high"
     }
   ],
-  "session_purpose": "Add Linux support to Anchor plugin, test the implementation, open PR to original repo, and plan integration approach for TypeScript monorepo project.",
+  "session_purpose": "Add Linux support to Flex plugin, test the implementation, open PR to original repo, and plan integration approach for TypeScript monorepo project.",
   "_session_id": "a3d48ab2-becb-4fe4-9d9d-75bce40de4d8",
   "_session_summary": "",
   "_session_date": "2026-04-19",
-  "_project_path": "/mnt/work-anchor",
+  "_project_path": "/mnt/work-flex",
   "_resume_cmd": "claude --resume a3d48ab2-becb-4fe4-9d9d-75bce40de4d8"
 }

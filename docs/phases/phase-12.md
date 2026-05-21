@@ -1,4 +1,4 @@
-# anchor — Phase 12: Reconstruction seeding and comparison scaffolding
+# flex — Phase 12: Reconstruction seeding and comparison scaffolding
 
 ← [Phase 11: Brief hygiene and reconstruction workflow](phase-11.md)
 
@@ -17,7 +17,7 @@ Four stories:
 3. Audit: detect stale or missing reconstruction.md (12.2)
 4. Bootstrap `--from-reconstruction` flag — seed a new project from a reconstruction brief (12.3)
 
-Prerequisites: Phase 11 complete and tagged cp11. `docs/reconstruction.md` generated for anchor.
+Prerequisites: Phase 11 complete and tagged cp11. `docs/reconstruction.md` generated for flex.
 
 ---
 
@@ -220,7 +220,7 @@ Logic:
 5. At least one real content line → `"OK"`.
 
 Wire into `audit()`:
-- `None` (absent) → MISSING finding with recommendation to run `/anchor:pairmode reconstruct`.
+- `None` (absent) → MISSING finding with recommendation to run `/flex:pairmode reconstruct`.
 - `"STALE"` → STALE PLACEHOLDER finding.
 - `"OK"` → no finding.
 
@@ -228,7 +228,7 @@ Wire into `audit()`:
 
 **Part B — SKILL.md:**
 
-Add reconstruction staleness note to the `/anchor:pairmode audit` section.
+Add reconstruction staleness note to the `/flex:pairmode audit` section.
 
 **Tests — `tests/pairmode/test_audit.py`:**
 - `docs/reconstruction.md` missing: MISSING finding with reconstruct recommendation.
@@ -316,7 +316,7 @@ Document `--from-reconstruction` in the bootstrap section.
 
 ### Story 12.2.1 — Fix RECONSTRUCTION_REQUIRED_SECTIONS to match brief template
 
-**Acceptance criterion:** `_check_reconstruction_staleness` returns `"OK"` for anchor's own
+**Acceptance criterion:** `_check_reconstruction_staleness` returns `"OK"` for flex's own
 `docs/reconstruction.md` (which is a generated brief with real ideology content). Tests pass.
 `audit.py --project-dir .` shows no STALE PLACEHOLDER finding for `docs/reconstruction.md`.
 
@@ -348,7 +348,7 @@ Also update any test fixtures in `test_audit.py` that construct fake reconstruct
 to use these corrected section names (so stale-detection tests still exercise the right paths).
 
 **Tests:** Full suite passes. `_check_reconstruction_staleness(project_dir)` returns `"OK"` for
-anchor's own `docs/reconstruction.md`.
+flex's own `docs/reconstruction.md`.
 
 ---
 

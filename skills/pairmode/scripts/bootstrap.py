@@ -294,7 +294,7 @@ def _print_next_steps(project_dir: pathlib.Path, repo_root: pathlib.Path) -> Non
         f"       uv run python skills/pairmode/scripts/story_context.py --set RAIL-001 \\\n"
         f"         --project-dir {project_dir}\n"
     )
-    click.echo(f"  2. Register this project with anchor for drift tracking:")
+    click.echo(f"  2. Register this project with flex for drift tracking:")
     click.echo(f"       cd {repo_root}")
     click.echo(
         f"       uv run python skills/pairmode/scripts/pairmode_sync.py register \\\n"
@@ -311,7 +311,7 @@ def _record_state(state_path: pathlib.Path, version: str) -> bool:
 
     Pairmode bootstraps also auto-enable ``effort_tracking`` so the
     orchestrator's per-attempt recorder will start writing rows immediately.
-    Plain anchor (non-pairmode) bootstraps leave the flag unset; only this
+    Plain flex (non-pairmode) bootstraps leave the flag unset; only this
     pairmode-specific bootstrap sets it.  An existing ``effort_tracking``
     field (e.g. user explicitly set it to ``false``) is preserved.
 

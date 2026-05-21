@@ -1,22 +1,22 @@
 # Pairmode — Standalone Contribution Guide
 
-This document is written for an upstream anchor maintainer reviewing the era2 pull request.
+This document is written for an upstream flex maintainer reviewing the era2 pull request.
 It is self-contained: no external context is needed to evaluate what pairmode adds, what
-it changed in core anchor files, and whether those changes are safe to accept.
+it changed in core flex files, and whether those changes are safe to accept.
 
 ---
 
 ## What pairmode is
 
-Pairmode is a structured builder/reviewer workflow methodology shipped as a new anchor skill
-(`/anchor:pairmode`). Stories are specced before building — each story lives in a discrete
+Pairmode is a structured builder/reviewer workflow methodology shipped as a new flex skill
+(`/flex:pairmode`). Stories are specced before building — each story lives in a discrete
 file with YAML frontmatter declaring which files it owns (`primary_files`) and which it
 touches (`touches`). Before each story build, permission pre-scoping writes a
 `.claude/story_scope.json` that pre-authorizes declared file edits, eliminating mid-build
 approval prompts without permanently widening permissions. A reviewer subagent runs a
 fixed checklist after each build and either commits or reverts. A five-step checkpoint
 sequence gates each phase: tests, security audit, intent review, documentation currency
-check, and a tagging step. The methodology is self-hosting: the anchor repo itself was
+check, and a tagging step. The methodology is self-hosting: the flex repo itself was
 built using pairmode from Phase 1 onward.
 
 ---
@@ -33,9 +33,9 @@ without a pairmode scaffold.
 
 ---
 
-## What pairmode adds to anchor
+## What pairmode adds to flex
 
-All additions are new files. No existing anchor files were deleted.
+All additions are new files. No existing flex files were deleted.
 
 **New skill — `skills/pairmode/`**
 
@@ -84,26 +84,26 @@ The `pairmode` skill entry was added to register the new skill with Claude Code.
 
 ---
 
-## What pairmode changed in anchor core
+## What pairmode changed in flex core
 
-These are the only existing anchor files that were modified. All other changes are
+These are the only existing flex files that were modified. All other changes are
 new-file additions.
 
 | File | Change | Reason |
 |------|--------|--------|
-| `hooks/stop.py` | Pipe path read from `.companion/state.json["pipe_path"]` at startup; falls back to `/tmp/companion.pipe` when `state.json` is absent | Multi-project concurrency: prevent cross-project pipe contamination when two anchor-enabled projects are open simultaneously |
+| `hooks/stop.py` | Pipe path read from `.companion/state.json["pipe_path"]` at startup; falls back to `/tmp/companion.pipe` when `state.json` is absent | Multi-project concurrency: prevent cross-project pipe contamination when two flex-enabled projects are open simultaneously |
 | `hooks/post_tool_use.py` | Same | Same |
 | `hooks/exit_plan_mode.py` | Same | Same |
 | `hooks/session_end.py` | Same | Same |
 | `hooks/hooks.json` | Added new `SessionStart` entry pointing to `hooks/session_start.py` (additive — no existing entry modified) | INFRA-018: inject pairmode context into Claude's session at startup so the developer doesn't need to ask whether pairmode is active |
-| `.claude-plugin/plugin.json` | Added `pairmode` skill entry | Register the new `/anchor:pairmode` skill |
+| `.claude-plugin/plugin.json` | Added `pairmode` skill entry | Register the new `/flex:pairmode` skill |
 | `skills/companion/SKILL.md` | Added `current_story` state field documentation; updated CLI invocations to use `uv run` consistently | Pairmode tracks the active story in companion state; CLI uniformity for `uv`-based environments |
 | `skills/companion/scripts/sidebar.py` | Multiple additive changes during pairmode work: (a) story-context panel; (b) module-boundary detection; (c) permission-override capture and `spec_exception` handler that writes conflict records to `spec.json` (Story INFRA-013); (d) state.json writes from session_end and exit_plan_mode hooks were rerouted through pipe messages (`mode_change`, state-field events) so the sidebar remains the sole writer to `.companion/state.json`; (e) per-project pipe path indirection mirroring the hook changes | Sidebar must surface live spec context to the developer during planning; preserve the architectural rule that only the sidebar writes spec/state files (hooks are thin relays) |
 | `skills/companion/scripts/start_sidebar.sh`, `launch_sidebar.sh`, `launch_sidebar.command` | Pipe path now derived from `.companion/state.json` (with `/tmp/companion.pipe` legacy fallback) | Same multi-project pipe scoping as the hooks |
-| `tests/test_live_chart.py`, `tests/test_plan_impact.py`, `tests/debug_pipe.py`, `tests/simulate_planning.py` | Deleted (Story INFRA-021) | Four single-author manual diagnostic scripts that pre-dated pairmode, were not pytest tests, and had zero references in the codebase. `test_live_chart.py` called `os.chdir(tmpdir)` at module-import time, contaminating pytest's cwd and causing three unrelated tests to fail; `test_plan_impact.py` `sys.exit(1)`'d on missing `~/.anchor/auth.json` |
+| `tests/test_live_chart.py`, `tests/test_plan_impact.py`, `tests/debug_pipe.py`, `tests/simulate_planning.py` | Deleted (Story INFRA-021) | Four single-author manual diagnostic scripts that pre-dated pairmode, were not pytest tests, and had zero references in the codebase. `test_live_chart.py` called `os.chdir(tmpdir)` at module-import time, contaminating pytest's cwd and causing three unrelated tests to fail; `test_plan_impact.py` `sys.exit(1)`'d on missing `~/.flex/auth.json` |
 
 The hook change is backwards-compatible: when `.companion/state.json` is absent (any
-project that has not run `/anchor:companion` to establish a `state.json`), the hooks fall
+project that has not run `/flex:companion` to establish a `state.json`), the hooks fall
 back to the original `/tmp/companion.pipe` path and behave exactly as before.
 
 See `docs/pipe-architecture.md` for the full rationale, the multi-project contamination
@@ -158,7 +158,7 @@ that avoids touching `state.json` entirely if the upstream maintainer prefers it
 - **Bootstrap does not validate generated deny-list rules against the live spec.** The
   deny list is generated at bootstrap time from the spec's `non_negotiables`; if
   `non_negotiables` change after bootstrap, the deny list does not auto-update. Running
-  `/anchor:pairmode audit` and then `/anchor:pairmode sync` surfaces the drift and applies
+  `/flex:pairmode audit` and then `/flex:pairmode sync` surfaces the drift and applies
   the delta non-destructively.
 
 ---

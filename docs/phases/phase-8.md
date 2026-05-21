@@ -98,8 +98,8 @@ Files to update:
    `docs/phase-prompts.md`. Update to:
    `Current phase file from docs/phases/ (or docs/phase-prompts.md for legacy projects)`.
 
-Do NOT modify any anchor project files directly (CLAUDE.build.md, intent-reviewer.md, etc.) —
-only the `.j2` templates. Anchor's hand-authored files will be updated separately via sync.
+Do NOT modify any flex project files directly (CLAUDE.build.md, intent-reviewer.md, etc.) —
+only the `.j2` templates. Flex's hand-authored files will be updated separately via sync.
 
 Add tests to `tests/pairmode/test_templates.py`:
 - Render `CLAUDE.build.md.j2`; assert `docs/phase-prompts.md` does not appear as a standalone
@@ -416,10 +416,10 @@ Add a new universal checklist item after BUILD GATE:
    Internal refactors with no user-facing change: exempt.
 ```
 
-**Part C — Update anchor's own `CLAUDE.build.md`:**
+**Part C — Update flex's own `CLAUDE.build.md`:**
 
-Apply the same checkpoint step insertion to `/mnt/work/anchor/CLAUDE.build.md` directly
-(since anchor's orchestrator file is hand-authored and not synced from template automatically).
+Apply the same checkpoint step insertion to `/mnt/work/flex/CLAUDE.build.md` directly
+(since flex's orchestrator file is hand-authored and not synced from template automatically).
 Renumber: documentation review = 4, CER backlog = 5, tag = 6, report = 7.
 
 Add tests to `tests/pairmode/test_templates.py`:

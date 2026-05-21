@@ -35,7 +35,7 @@
     {
       "decision": "Captures are written to per-session incremental.json files rather than directly merged into the canonical spec",
       "reason": "The canonical spec is never mutated mid-session by an unreviewed AI extraction",
-      "accepted_cost": "A manual reconciliation step is required at the next session start via /anchor:companion"
+      "accepted_cost": "A manual reconciliation step is required at the next session start via /flex:companion"
     },
     {
       "decision": "The sidebar is a separate OS process (new terminal window) rather than running inside the Claude Code process",
@@ -43,7 +43,7 @@
       "accepted_cost": "Cross-platform terminal-launcher complexity requiring platform detection logic, per-platform launcher scripts (macOS Terminal/iTerm2, Linux gnome-terminal with multi-emulator fallback, nohup last resort), and ongoing maintenance burden as new platforms or emulators emerge"
     },
     {
-      "decision": "OAuth token is fetched via 'claude setup-token' and cached in ~/.anchor/auth.json on first run",
+      "decision": "OAuth token is fetched via 'claude setup-token' and cached in ~/.flex/auth.json on first run",
       "reason": "Subsequent sidebar launches are non-interactive",
       "accepted_cost": "A one-time interactive setup step is required on first use"
     },
@@ -60,7 +60,7 @@
       "summary": "",
       "date": "2026-04-19",
       "resume": "claude --resume a3d48ab2-becb-4fe4-9d9d-75bce40de4d8",
-      "what_changed": "Add Linux support to Anchor plugin, test the implementation, open PR to original repo, and plan integration approach for TypeScript monorepo project.",
+      "what_changed": "Add Linux support to Flex plugin, test the implementation, open PR to original repo, and plan integration approach for TypeScript monorepo project.",
       "key_decisions": [
         "Terminal launcher must detect platform and use appropriate terminal emulator; must include fallback for unknown systems",
         "Platform-specific terminal detection logic with fallback case in start_sidebar.sh",

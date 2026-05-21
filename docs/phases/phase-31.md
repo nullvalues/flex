@@ -1,4 +1,4 @@
-# anchor — Phase 31: Discoverability and status panel
+# flex — Phase 31: Discoverability and status panel
 
 ← [Phase 30: Hook security fix and sync tooling gaps](phase-30.md)
 
@@ -15,7 +15,7 @@ Make the Phase 29/30 tooling actually usable day-to-day. Three gaps:
    projects are registered.
 
 3. **Bootstrap gives no next-steps** — after a successful bootstrap the user is dropped back
-   at a prompt with no guidance on the next actions (register with anchor, set a story,
+   at a prompt with no guidance on the next actions (register with flex, set a story,
    run audit). The dogfooding loop requires knowing to run `pairmode register` after
    bootstrapping; nothing surfaces that today.
 
@@ -40,15 +40,15 @@ These three are independent and can be built in any order.
 **Acceptance criterion:** `skills/pairmode/SKILL.md` has complete command entries for every
 subcommand shipped in Phases 29–30. Specifically:
 
-- A `### /anchor:pairmode drift-report` section documenting when to use it, inputs, what
+- A `### /flex:pairmode drift-report` section documenting when to use it, inputs, what
   it does, output format, and CLI invocation with all flags (`--projects`, `--convergent`,
   `--output`).
-- A `### /anchor:pairmode sync-build` section documenting `--project-dir`, `--dry-run`,
+- A `### /flex:pairmode sync-build` section documenting `--project-dir`, `--dry-run`,
   `--apply`, `--yes`, and the confirmation behavior.
-- A `### /anchor:pairmode register` section documenting `register`, `unregister`, and
+- A `### /flex:pairmode register` section documenting `register`, `unregister`, and
   `list-projects` as a group (they form one workflow).
 - A `## Drift detection workflow` section near the end of SKILL.md that narrates the
-  end-to-end sequence: bootstrap a project → register it with anchor → run `drift-report`
+  end-to-end sequence: bootstrap a project → register it with flex → run `drift-report`
   → run `review` to promote convergence candidates → `sync-build` to apply template
   improvements back to projects.
 
@@ -149,8 +149,8 @@ Example block:
   1. Set your current story:
        uv run python skills/pairmode/scripts/story_context.py --set RAIL-001
 
-  2. Register this project with anchor for drift tracking:
-       cd <anchor-root>
+  2. Register this project with flex for drift tracking:
+       cd <flex-root>
        uv run python skills/pairmode/scripts/pairmode_sync.py register \
          --project-dir <bootstrapped-project-dir>
 
@@ -159,8 +159,8 @@ Example block:
 ```
 
 The `<bootstrapped-project-dir>` placeholder is replaced with the actual resolved project
-path. The `<anchor-root>` placeholder is replaced with `Path(__file__).resolve().parent`
-evaluated up to the anchor repo root (four levels from `bootstrap.py`).
+path. The `<flex-root>` placeholder is replaced with `Path(__file__).resolve().parent`
+evaluated up to the flex repo root (four levels from `bootstrap.py`).
 
 **Instructions:**
 
@@ -169,7 +169,7 @@ evaluated up to the anchor repo root (four levels from `bootstrap.py`).
    end of the main bootstrap flow).
 
 2. After that summary, print the next-steps block. Use `click.echo` with a leading blank
-   line. Substitute the actual `project_dir` resolved path and anchor root into the
+   line. Substitute the actual `project_dir` resolved path and flex root into the
    block text.
 
 3. Guard the block: do not print it when `--dry-run` is active. Print it on all other

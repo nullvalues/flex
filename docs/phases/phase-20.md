@@ -1,10 +1,10 @@
-# anchor — Phase 20: PR readiness — documentation, pipe clarity, contribution packaging
+# flex — Phase 20: PR readiness — documentation, pipe clarity, contribution packaging
 
 ← [Phase 19: Test coverage and integration verification](phase-19.md)
 
 ## Goal
 
-Phase 20 prepares the codebase for a pull request back to the parent anchor repo.
+Phase 20 prepares the codebase for a pull request back to the parent flex repo.
 Eight stories: README.md, pipe architecture documentation, a standalone PAIRMODE.md
 for the upstream maintainer, CHANGELOG.md and CONTRIBUTING.md, a SessionStart hook
 that injects pairmode awareness into every Claude session, a pairmode status CLI
@@ -30,7 +30,7 @@ Prerequisites: Phase 19 complete and tagged cp19-test-coverage-integration.
 | BUILD-005 | Write CHANGELOG.md and CONTRIBUTING.md | complete |
 | INFRA-018 | SessionStart hook: inject pairmode context into Claude's session | complete |
 | INFRA-019 | `pairmode_status.py`: print current pairmode state and sidebar attachment | complete |
-| INFRA-020 | Fix `pairmode_status.py` ANCHOR_ROOT computation (CER-012) | complete |
+| INFRA-020 | Fix `pairmode_status.py` FLEX_ROOT computation (CER-012) | complete |
 | INFRA-021 | Remove orphan upstream dev scripts from tests/ (cwd contamination) | complete |
 | INFRA-016 | Final pre-PR audit: full test suite, security pass, open CER review | complete |
 | INFRA-017 | Git history review and squash plan — pauses for developer approval | planned |
@@ -41,7 +41,7 @@ Prerequisites: Phase 19 complete and tagged cp19-test-coverage-integration.
 
 **Rail:** BUILD
 
-**Acceptance criterion:** `README.md` exists at the repo root. It explains anchor +
+**Acceptance criterion:** `README.md` exists at the repo root. It explains flex +
 pairmode to a developer who has never seen it, includes two concrete use case scenarios,
 shows CLI examples, is honest about alpha status, and is under 400 lines. No emojis.
 Tests pass (doc story; no logic tests needed).
@@ -54,19 +54,19 @@ No marketing language. No emojis. Every section should earn its place.
 **Structure:**
 
 ```markdown
-# Anchor — The IDE for Intent
+# Flex — The IDE for Intent
 
 (one-paragraph problem statement: code is cheap to generate; intent is scarce;
-agents drift without it; anchor makes intent persistent)
+agents drift without it; flex makes intent persistent)
 
 ## Status
 alpha / under active development. Core workflows functional. See Known Limitations.
 
-## What anchor does
+## What flex does
 
 Two complementary layers:
-- Memory layer: /anchor:seed + /anchor:companion
-- Process layer: /anchor:pairmode
+- Memory layer: /flex:seed + /flex:companion
+- Process layer: /flex:pairmode
 
 One paragraph each. End with: "Used together, the memory layer supplies the spec;
 the process layer enforces it."
@@ -82,7 +82,7 @@ Requirements: Claude Code, Python 3.11+, uv.
 Three commands with explanatory comments. Bootstrap → story → build.
 
 ### Existing project with session history
-/anchor:seed → /anchor:companion → /anchor:pairmode bootstrap.
+/flex:seed → /flex:companion → /flex:pairmode bootstrap.
 
 ## The three skills
 
@@ -135,12 +135,12 @@ upstream PR touches in core files. `docs/architecture.md` cross-references it. T
 Create `docs/pipe-architecture.md` with the following sections:
 
 **1. Original design**
-The upstream anchor repo uses a single hardcoded pipe path: `/tmp/companion.pipe`.
+The upstream flex repo uses a single hardcoded pipe path: `/tmp/companion.pipe`.
 All hook scripts write to this path. The companion sidebar reads from it.
-This works correctly when one anchor project is active on a machine at a time.
+This works correctly when one flex project is active on a machine at a time.
 
 **2. The multi-project problem**
-When two Claude Code projects are open simultaneously — both with anchor active — their
+When two Claude Code projects are open simultaneously — both with flex active — their
 hook scripts both write to `/tmp/companion.pipe`. Sidebar A processes messages from both
 projects. Sidebar B also processes both. Decisions from project A get recorded into
 project B's spec, and vice versa. This is a silent data corruption scenario.
@@ -159,10 +159,10 @@ use different pipes; their sidebars never cross-contaminate.
 
 **4. Backwards-compatibility**
 The fallback to `/tmp/companion.pipe` when `state.json` is absent means the change is
-backwards-compatible for any project that has not yet run `/anchor:companion` to
+backwards-compatible for any project that has not yet run `/flex:companion` to
 establish a `state.json`. Such projects behave exactly as before.
 
-**5. Files changed in anchor core (hook layer)**
+**5. Files changed in flex core (hook layer)**
 This is the complete list of core files modified by this fork:
 
 | File | Change |
@@ -178,7 +178,7 @@ No other core files were modified. All pairmode additions are self-contained und
 **6. Alternative approaches and upstream negotiation**
 If the upstream maintainer has a different multi-project strategy in progress, the
 narrowest compatible change is: read pipe path from an env variable
-(e.g., `ANCHOR_PIPE_PATH`) with fallback to `/tmp/companion.pipe`. This would require
+(e.g., `FLEX_PIPE_PATH`) with fallback to `/tmp/companion.pipe`. This would require
 the companion skill to set the env variable at session start, without modifying `state.json`.
 Either approach achieves the same goal; the state.json approach was chosen because the
 companion skill already writes `state.json` at startup and does not require shell
@@ -201,7 +201,7 @@ single-pipe design."
 
 **Acceptance criterion:** `docs/pairmode/PAIRMODE.md` exists as a self-contained document
 for an upstream maintainer reviewing the PR. It covers what pairmode adds, what it changed
-in anchor core, design decisions, known limitations, and how to run the tests. Tests pass.
+in flex core, design decisions, known limitations, and how to run the tests. Tests pass.
 
 **Instructions:**
 
@@ -210,12 +210,12 @@ Create `docs/pairmode/` directory (mkdir if absent) and write `PAIRMODE.md`:
 **Structure:**
 
 **What pairmode is (one paragraph)**
-A structured builder/reviewer workflow methodology shipped as a new anchor skill.
+A structured builder/reviewer workflow methodology shipped as a new flex skill.
 Stories are specced before building. Permission scoping pre-authorizes declared file edits.
 The reviewer subagent enforces a checklist and commits or reverts. A 5-step checkpoint
 sequence gates each phase.
 
-**What pairmode adds to anchor (enumerated)**
+**What pairmode adds to flex (enumerated)**
 New files only. Organized by category:
 - New skill: `skills/pairmode/` (SKILL.md, scripts/, templates/)
 - New tests: `tests/pairmode/`
@@ -223,7 +223,7 @@ New files only. Organized by category:
 - New lessons store: `lessons/lessons.json`, `lessons/LESSONS.md`
 - Updated plugin manifest: `.claude-plugin/plugin.json` (pairmode skill entry added)
 
-**What pairmode changed in anchor core (explicit table)**
+**What pairmode changed in flex core (explicit table)**
 
 | File | Change | Reason |
 |------|--------|--------|
@@ -286,7 +286,7 @@ Use keep-a-changelog format. Two top-level entries:
 ```markdown
 # Changelog
 
-All notable changes to anchor are documented here. Pairmode changes are marked [pairmode].
+All notable changes to flex are documented here. Pairmode changes are marked [pairmode].
 
 ## [Unreleased]
 
@@ -300,7 +300,7 @@ All notable changes to anchor are documented here. Pairmode changes are marked [
   project-scoped via .companion/state.json["pipe_path"] with fallback to
   /tmp/companion.pipe. Backwards-compatible. See docs/pipe-architecture.md.
 
-## [pairmode v0.0.x] — Phases 1–16 (anchor era2 branch)
+## [pairmode v0.0.x] — Phases 1–16 (flex era2 branch)
 
 ### Added [pairmode]
 - Phase 1–7: core scaffold, spec-derived generation, lessons, audit/sync,
@@ -319,7 +319,7 @@ All notable changes to anchor are documented here. Pairmode changes are marked [
 
 Sections:
 - **Running tests**: exact command
-- **Adding a lesson**: `/anchor:pairmode lesson` walkthrough
+- **Adding a lesson**: `/flex:pairmode lesson` walkthrough
 - **Proposing a template change**: lesson → review → template annotation → implement → test
 - **Filing a CER**: `cer.py` command + format
 - **Story and phase conventions**: rail assignment, commit format `feat(story-RAIL-NNN):`, checkpoint sequence
@@ -401,8 +401,8 @@ def main() -> None:
         lines.append(f"Companion sidebar: active (pipe: {pipe_path})")
     else:
         project_dir = Path(".").resolve()
-        anchor_root = Path(__file__).resolve().parent.parent
-        start_sh = anchor_root / "skills" / "companion" / "scripts" / "start_sidebar.sh"
+        flex_root = Path(__file__).resolve().parent.parent
+        start_sh = flex_root / "skills" / "companion" / "scripts" / "start_sidebar.sh"
         sidebar_log = project_dir / ".companion" / "sidebar.log"
         lines.append("Companion sidebar: not detected")
         lines.append(f"  To start (macOS / desktop Linux):")
@@ -474,7 +474,7 @@ def pairmode_status(project_dir):
 1. Read `.companion/state.json`. If absent, print:
    ```
    Not a pairmode repo: .companion/state.json not found.
-   Run /anchor:pairmode bootstrap to initialize.
+   Run /flex:pairmode bootstrap to initialize.
    ```
    Exit 0.
 
@@ -484,7 +484,7 @@ def pairmode_status(project_dir):
    ```
    Pairmode v0.1.0
    ─────────────────────────────────────
-   Era:     001 — anchor Initial development
+   Era:     001 — flex Initial development
    Story:   INFRA-014 — Close targeted test gaps [in-progress]
    Modules: pairmode-skill, docs
    ─────────────────────────────────────
@@ -511,9 +511,9 @@ def pairmode_status(project_dir):
    Sidebar: not detected
    
    To start the companion sidebar:
-     macOS:         bash <anchor_root>/skills/companion/scripts/start_sidebar.sh
-     Linux (KDE):   bash <anchor_root>/skills/companion/scripts/start_sidebar.sh
-     Linux (GNOME): bash <anchor_root>/skills/companion/scripts/start_sidebar.sh
+     macOS:         bash <flex_root>/skills/companion/scripts/start_sidebar.sh
+     Linux (KDE):   bash <flex_root>/skills/companion/scripts/start_sidebar.sh
+     Linux (GNOME): bash <flex_root>/skills/companion/scripts/start_sidebar.sh
    
    If the sidebar is already running as a background process:
      tail -f <project_dir>/.companion/sidebar.log
@@ -522,7 +522,7 @@ def pairmode_status(project_dir):
    (Konsole, GNOME Terminal, Xfce Terminal, macOS Terminal, iTerm2).
    ```
 
-   `anchor_root` is `Path(__file__).resolve().parent.parent.parent` (three levels up
+   `flex_root` is `Path(__file__).resolve().parent.parent.parent` (three levels up
    from scripts/).
 
 **Tests — `tests/pairmode/test_pairmode_status.py`:**
@@ -537,16 +537,16 @@ def pairmode_status(project_dir):
 
 ---
 
-### Story INFRA-020 — Fix `pairmode_status.py` ANCHOR_ROOT computation (CER-012)
+### Story INFRA-020 — Fix `pairmode_status.py` FLEX_ROOT computation (CER-012)
 
 **Rail:** INFRA
 
 **Acceptance criterion:** `skills/pairmode/scripts/pairmode_status.py` correctly resolves
-the anchor repo root. The `start_sidebar.sh` instruction printed for missing-sidebar
+the flex repo root. The `start_sidebar.sh` instruction printed for missing-sidebar
 scenarios points to a real existing file. Tests assert the printed path resolves to
 an existing file. Tests pass.
 
-**Background (CER-012):** INFRA-019 implemented `ANCHOR_ROOT = Path(__file__).resolve().parent.parent.parent`
+**Background (CER-012):** INFRA-019 implemented `FLEX_ROOT = Path(__file__).resolve().parent.parent.parent`
 per the original story spec. From `skills/pairmode/scripts/pairmode_status.py`, three
 `.parent` levels resolve to `<repo>/skills/`, not the repo root. The constructed
 `start_sidebar.sh` path therefore becomes `<repo>/skills/skills/companion/scripts/start_sidebar.sh`,
@@ -554,9 +554,9 @@ which does not exist. Users would receive a broken instruction. Original spec wa
 
 **Instructions:**
 
-1. In `skills/pairmode/scripts/pairmode_status.py`, change `ANCHOR_ROOT` to use four
+1. In `skills/pairmode/scripts/pairmode_status.py`, change `FLEX_ROOT` to use four
    `.parent` levels (or use `Path(__file__).resolve().parents[3]`) so it resolves to
-   the anchor repo root.
+   the flex repo root.
 2. Add an inline assertion (or test) confirming the resolved path actually contains
    `skills/companion/scripts/start_sidebar.sh`.
 3. In `tests/pairmode/test_pairmode_status.py`, add a test
@@ -577,14 +577,14 @@ which does not exist. Users would receive a broken instruction. Original spec wa
 **Acceptance criterion:** Four orphan dev scripts at `tests/` root are removed.
 `PATH=$HOME/.local/bin:$PATH uv run pytest tests/ -q` runs cleanly with no collection
 errors and no cwd-contamination failures. The PAIRMODE.md "What pairmode changed in
-anchor core" section documents the deletion so the upstream maintainer sees it
+flex core" section documents the deletion so the upstream maintainer sees it
 explicitly.
 
 **Background:** The pre-PR audit (INFRA-016) revealed three test failures triggered
 by `tests/test_live_chart.py` doing `os.chdir(tmpdir)` at module-level (no fixture,
 no restoration). When pytest imports the file for collection, the chdir runs and
 subsequent tests see a deleted cwd. `tests/test_plan_impact.py` also breaks pytest
-collection (it `sys.exit(1)`s on missing `~/.anchor/auth.json`). All four scripts
+collection (it `sys.exit(1)`s on missing `~/.flex/auth.json`). All four scripts
 are single-author manual diagnostics: `test_live_chart.py`, `test_plan_impact.py`,
 `debug_pipe.py`, `simulate_planning.py`. None are referenced anywhere in the codebase
 or docs (verified by grep). They predate pairmode and have shebangs + module-level
@@ -598,7 +598,7 @@ imperative code instead of pytest test functions.
    - `tests/debug_pipe.py`
    - `tests/simulate_planning.py`
 
-2. In `docs/pairmode/PAIRMODE.md`, in the "What pairmode changed in anchor core"
+2. In `docs/pairmode/PAIRMODE.md`, in the "What pairmode changed in flex core"
    section, add a new row to the table:
 
    | Removed: 4 orphan dev scripts in `tests/` | Manual diagnostic scripts (`test_live_chart.py`, `test_plan_impact.py`, `debug_pipe.py`, `simulate_planning.py`) — single-author scratchpads, never integrated into the test suite, recoverable from git history if needed | Removed because they break `pytest tests/` collection (one calls `os.chdir` at module level; another `sys.exit(1)`s on a missing dev-machine credential file) |
@@ -617,7 +617,7 @@ imperative code instead of pytest test functions.
 **Acceptance criterion:** All tests pass (pairmode suite + any other tests in the repo).
 No CRITICAL or HIGH security findings. All CER Do Later items either resolved or have
 a corresponding backlog story file. Do Now section is empty. `docs/pairmode/PAIRMODE.md`
-"What pairmode changed in anchor core" table is verified against the actual hook files.
+"What pairmode changed in flex core" table is verified against the actual hook files.
 This is a gate story — no code changes, only verification. On pass: tagged
 `pr-candidate-v0.1`.
 
@@ -638,11 +638,11 @@ This story has no code changes. It is a checkpoint gate.
    appropriate rail. If any Do Later item has no story: create one (via `story_new.py`,
    status `backlog`). Confirm Do Now is empty.
 
-4. Read `docs/pairmode/PAIRMODE.md` table "What pairmode changed in anchor core".
+4. Read `docs/pairmode/PAIRMODE.md` table "What pairmode changed in flex core".
    Read each hook file listed. Verify the description in the table accurately reflects
    what the file actually does. If any discrepancy: update the table (not the hook).
 
-5. Read `docs/pipe-architecture.md` section "Files changed in anchor core". Cross-check
+5. Read `docs/pipe-architecture.md` section "Files changed in flex core". Cross-check
    against `git diff` from the fork point. Confirm no core files were changed that are
    not listed.
 
@@ -745,6 +745,6 @@ After Story INFRA-017 is resolved and the developer has approved the commit stra
    - What pairmode is (one paragraph)
    - The two core changes (pipe scoping, plugin.json)
    - Link to `docs/pipe-architecture.md` for the pipe rationale
-   - "All 1000+ pairmode tests pass. The existing anchor skill tests are unaffected."
+   - "All 1000+ pairmode tests pass. The existing flex skill tests are unaffected."
 
 Tag: `cp20-pr-ready` (applied after developer approves the history plan)

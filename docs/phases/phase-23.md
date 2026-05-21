@@ -1,11 +1,11 @@
-# anchor — Phase 23: Project drift detection and promotion workflow
+# flex — Phase 23: Project drift detection and promotion workflow
 
 ← [Phase 22: Per-story compute-effort tracking](phase-22.md)
 
 ## Goal
 
 Phase 23 builds the feedback loop that closes the dogfooding cycle: pairmode-bootstrapped
-projects report their drift back to anchor; anchor identifies cross-project convergence and
+projects report their drift back to flex; flex identifies cross-project convergence and
 promotes it from project-side improvement to canonical methodology. The unifying observation:
 convergent change across multiple pairmode projects is a methodology signal. Today there is
 no mechanism to surface that signal, so improvements stay trapped in the projects that
@@ -17,7 +17,7 @@ that demonstrably reduces tokens or rework across projects is a stronger signal 
 that's just prettier. INFRA-037 implements that wiring directly so the cost data isn't
 decorative.
 
-Two foundational stories (INFRA-038 frontmatter discipline + anchor-as-self-drift, and
+Two foundational stories (INFRA-038 frontmatter discipline + flex-as-self-drift, and
 INFRA-039 `.pairmode-overrides` integration) land before the main detector and promoter to
 prevent infinite-recursion and re-prompting issues identified by the CER.
 
@@ -33,10 +33,10 @@ accruing in at least one project.
 | INFRA-044 | Flip reviewer-class templates to sonnet baseline (model rebalance — quick win) | complete |
 | LESSON-004 | Capture sonnet-baseline-opus-on-demand rebalance rationale | complete |
 | INFRA-043 | Auto-plumb `--phase`, `--rail`, and attempt counter into `record_attempt.py` (CER-015) | complete |
-| INFRA-038 | Story frontmatter `source:` field + anchor-as-project for self-drift | deferred |
+| INFRA-038 | Story frontmatter `source:` field + flex-as-project for self-drift | deferred |
 | INFRA-039 | `.pairmode-overrides` integration in drift reports | deferred |
 | INFRA-031 | Project drift detection — `pairmode_drift_report.py` | deferred |
-| INFRA-032 | Drift promotion workflow — extend `/anchor:pairmode review` | deferred |
+| INFRA-032 | Drift promotion workflow — extend `/flex:pairmode review` | deferred |
 | INFRA-037 | Token-evidence ranking in drift promotion | deferred |
 
 INFRA-044 + LESSON-004 land first as a token-budget rebalance, captured as a lesson
@@ -232,21 +232,21 @@ Extend `tests/pairmode/test_effort_db.py`:
 
 ---
 
-### Story INFRA-038 — Story frontmatter `source:` field + anchor-as-project for self-drift
+### Story INFRA-038 — Story frontmatter `source:` field + flex-as-project for self-drift
 
 **Rail:** INFRA
 
 **Acceptance criterion:** All story spec frontmatter supports a new optional `source:`
 field that distinguishes human-written stories (default, absent) from drift-promotion
 generated stories (`source: drift-promotion`). `pairmode_drift_report.py` (built in
-INFRA-031) is documented and tested to run from `/mnt/work/anchor` itself, treating
-anchor as a project for drift purposes. Stories tagged `source: drift-promotion` are
+INFRA-031) is documented and tested to run from `/mnt/work/flex` itself, treating
+flex as a project for drift purposes. Stories tagged `source: drift-promotion` are
 suppressed from subsequent drift reports to prevent infinite recursion.
 
-**Background (CER finding):** anchor dogfoods its own pairmode templates — `.claude/agents/`,
-`CLAUDE.build.md`, `docs/architecture.md` are anchor's *own use* of templates the same
+**Background (CER finding):** flex dogfoods its own pairmode templates — `.claude/agents/`,
+`CLAUDE.build.md`, `docs/architecture.md` are flex's *own use* of templates the same
 templates apply to. Without a marker, drift detection generates a story for promotion;
-that story file then becomes part of anchor's diff against templates next time; rinse,
+that story file then becomes part of flex's diff against templates next time; rinse,
 repeat. The fix is one frontmatter field plus a documented suppression rule.
 
 **Instructions:**
@@ -256,16 +256,16 @@ repeat. The fix is one frontmatter field plus a documented suppression rule.
    without the field are valid (default human-authored).
 2. Update `skills/pairmode/scripts/story_resolver.py` and any drift-related script
    to filter out `source: drift-promotion` entries when scanning for divergence.
-3. Document anchor-as-project explicitly in `docs/architecture.md` — running
-   `pairmode_drift_report.py` from `/mnt/work/anchor` is supported and surfaces
+3. Document flex-as-project explicitly in `docs/architecture.md` — running
+   `pairmode_drift_report.py` from `/mnt/work/flex` is supported and surfaces
    the same signal a downstream project would.
-4. Add a verification test that runs the future drift-report against anchor itself
+4. Add a verification test that runs the future drift-report against flex itself
    and confirms the output is meaningful (no infinite recursion, no spurious
    re-flagging of `source: drift-promotion` stories).
 
 **Tests:** `tests/pairmode/test_schema_validator.py` extended with `source:` field
 acceptance; `tests/pairmode/test_drift_self.py` — fixture run against a synthesized
-anchor-shaped tree, assert recursion-suppression works.
+flex-shaped tree, assert recursion-suppression works.
 
 ---
 
@@ -317,7 +317,7 @@ produces a structured report classifying each delta as one of:
 
 Sections declared in `.pairmode-overrides` are filtered out (per INFRA-039). Stories
 with `source: drift-promotion` frontmatter are filtered out (per INFRA-038). The
-report is JSON-serializable so it can be ingested by the anchor-side review flow
+report is JSON-serializable so it can be ingested by the flex-side review flow
 (INFRA-032).
 
 **Differences from existing `audit.py`:** `audit.py` audits drift *into* a
@@ -359,7 +359,7 @@ drift-promotion-suppression.
 
 **Rail:** INFRA
 
-**Acceptance criterion:** `/anchor:pairmode review` is extended to read drift
+**Acceptance criterion:** `/flex:pairmode review` is extended to read drift
 reports from one or more projects, group similar deltas across projects, and
 prompt the user to classify each cluster as one of:
 
@@ -367,22 +367,22 @@ prompt the user to classify each cluster as one of:
   in `.pairmode-overrides` of the affected project (or pointed at) so future
   drift reports suppress it.
 - **POLICY_DRIFT** — project is out of date. Recommend running
-  `/anchor:pairmode sync` in that project.
+  `/flex:pairmode sync` in that project.
 - **METHODOLOGY_CANDIDATE** — convergent improvement across projects. Promotes
-  to a pairmode template change. Generates a story spec in the anchor repo
+  to a pairmode template change. Generates a story spec in the flex repo
   (or appends to an existing phase) tagged with `source: drift-promotion`
   (per INFRA-038), plus a lesson entry.
 
 **Instructions:**
 
-1. Add a `--from-drift-reports <dir>` flag to `/anchor:pairmode review`.
+1. Add a `--from-drift-reports <dir>` flag to `/flex:pairmode review`.
 2. Cluster deltas by `(file, section)` across reports.
 3. If a delta appears in N projects with the same value, surface it as a
    strong candidate for METHODOLOGY_CANDIDATE.
 4. Walk the user through each cluster with AskUserQuestion-style prompts.
 5. For PROJECT_INTENT: append to `.pairmode-overrides` of each affected
    project (or print recommended additions if the project is read-only from
-   the anchor side).
+   the flex side).
 6. For POLICY_DRIFT: print a recommended `pairmode sync` command per project.
 7. For METHODOLOGY_CANDIDATE: draft a story spec in
    `docs/stories/INFRA/INFRA-NNN.md` (assigned by phase_new helpers, with

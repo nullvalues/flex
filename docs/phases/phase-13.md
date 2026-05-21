@@ -1,4 +1,4 @@
-# anchor — Phase 13: CER cleanup and end-to-end reconstruction verification
+# flex — Phase 13: CER cleanup and end-to-end reconstruction verification
 
 ← [Phase 12: Reconstruction seeding and comparison scaffolding](phase-12.md)
 
@@ -12,7 +12,7 @@ Phase 12 shipped `ideology_parser.py` and `--from-reconstruction`. Two loose end
 
 2. No integration test covers the full `--from-reconstruction` path against real content.
    The unit tests mock or stub the parser; we want one test that runs `bootstrap` against
-   anchor's own `docs/reconstruction.md` and asserts that the resulting `docs/ideology.md`
+   flex's own `docs/reconstruction.md` and asserts that the resulting `docs/ideology.md`
    contains recognisable ideology content — proving the round-trip works end-to-end.
 
 Two stories:
@@ -79,7 +79,7 @@ too if they are no longer used elsewhere in `reconstruct.py`).
 
 ### Story 13.1 — End-to-end integration test for `--from-reconstruction`
 
-**Acceptance criterion:** A test runs `bootstrap --from-reconstruction` against anchor's own
+**Acceptance criterion:** A test runs `bootstrap --from-reconstruction` against flex's own
 `docs/reconstruction.md` and asserts the round-trip produces a populated `docs/ideology.md`
 containing real conviction content. Tests pass.
 
@@ -89,13 +89,13 @@ Add a test to `tests/pairmode/test_bootstrap.py` (or a new
 `tests/pairmode/test_e2e_reconstruction.py` if the test file would be large):
 
 ```python
-# integration — reads anchor's own docs/reconstruction.md
-def test_from_reconstruction_e2e_against_anchor_brief():
+# integration — reads flex's own docs/reconstruction.md
+def test_from_reconstruction_e2e_against_flex_brief():
     ...
 ```
 
 The test must:
-1. Locate anchor's own `docs/reconstruction.md`:
+1. Locate flex's own `docs/reconstruction.md`:
    `Path(__file__).parents[2] / "docs" / "reconstruction.md"`.
    Skip with `pytest.skip` if the file does not exist (stripped clone).
 2. Read the file; extract one conviction from the `## Non-negotiable ideology / ### Convictions`

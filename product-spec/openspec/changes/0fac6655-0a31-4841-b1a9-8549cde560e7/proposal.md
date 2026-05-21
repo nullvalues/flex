@@ -4,7 +4,7 @@
 - ID: `0fac6655-0a31-4841-b1a9-8549cde560e7`
 - Summary: ""
 - Date: 2026-04-16
-- Project: /mnt/work-anchor
+- Project: /mnt/work-flex
 - Resume: `claude --resume 0fac6655-0a31-4841-b1a9-8549cde560e7`
 
 ## Purpose

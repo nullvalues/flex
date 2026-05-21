@@ -1,4 +1,4 @@
-# anchor — Phase 15: Rails, eras, and story structure — foundation
+# flex — Phase 15: Rails, eras, and story structure — foundation
 
 ← [Phase 14: Reconstruction agent tooling](phase-14.md)
 
@@ -201,7 +201,7 @@ Logic:
    find the `## Stories` table, and append a row `| <RAIL>-NNN | <title> | draft |`.
 7. Print: `  Created <RAIL>-NNN: <title>` (and `  Added to Phase <phase>` if applicable).
 
-**SKILL.md:** Add `/anchor:pairmode story` section documenting the command.
+**SKILL.md:** Add `/flex:pairmode story` section documenting the command.
 
 **Tests — `tests/pairmode/test_story_new.py`** (new file):
 - Creates story file at correct path with correct ID.
@@ -272,7 +272,7 @@ Update `skills/pairmode/scripts/phase_new.py`:
 era: "NNN"
 ---
 
-# anchor — Phase NNN: <title>
+# flex — Phase NNN: <title>
 
 ← [Phase NNN-1: <prev title>](phase-NNN-1.md)
 
@@ -349,10 +349,10 @@ After writing scaffold files, call `_initialize_rails(project_dir, context, stac
 
 ---
 
-⚙️ DEVELOPER ACTION — Initialize anchor's own rail structure
+⚙️ DEVELOPER ACTION — Initialize flex's own rail structure
 
-After Story 15.4 passes review, run bootstrap in the anchor repo to initialize rails and
-Era 001 for anchor's own pairmode project:
+After Story 15.4 passes review, run bootstrap in the flex repo to initialize rails and
+Era 001 for flex's own pairmode project:
 
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/bootstrap.py \

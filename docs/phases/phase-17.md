@@ -1,4 +1,4 @@
-# anchor — Phase 17: Correctness — fix all known bugs
+# flex — Phase 17: Correctness — fix all known bugs
 
 ← [Phase 16: Build loop integration and rail-aware review](phase-16.md)
 

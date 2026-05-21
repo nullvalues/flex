@@ -1,4 +1,4 @@
-# anchor — Phase 33: Build loop portability and sibling catch-up
+# flex — Phase 33: Build loop portability and sibling catch-up
 
 ← [Phase 32: Story-as-contract and story_context CLI](phase-32.md)
 
@@ -8,7 +8,7 @@ Phase 32 delivered effort tracking and model selection tuning. After comparing
 sibling projects during the Phase 32 post-review, two blocking problems surfaced:
 
 1. **Every script call in `CLAUDE.build.md.j2` uses a relative path**
-   (`skills/pairmode/scripts/`) that only resolves when CWD is the anchor repo.
+   (`skills/pairmode/scripts/`) that only resolves when CWD is the flex repo.
    All four sibling projects (cora, radar, aab, forqsite) have no local `skills/`
    directory, so every `record_attempt.py`, `permission_scope.py`, and
    `story_update.py` call silently fails in sibling builds. Months of build
@@ -66,7 +66,7 @@ The final story deploys all fixes to cora, radar, aab, and forqsite via
 
 ## Ensures
 - `pairmode_sync.py`'s `_build_template_context()` returns a `pairmode_scripts_dir`
-  key whose value is the absolute path to anchor's scripts directory
+  key whose value is the absolute path to flex's scripts directory
   (`str(Path(__file__).parent)`).
 - `bootstrap.py`'s context dict includes the same `pairmode_scripts_dir` key
   (`str(pathlib.Path(__file__).parent)`).
@@ -74,7 +74,7 @@ The final story deploys all fixes to cora, radar, aab, and forqsite via
   `skills/pairmode/scripts` — all 10 actionable occurrences are replaced with
   `{{ pairmode_scripts_dir }}` (the example placeholder on the `primary_files`
   illustration line may also be updated; it is harmless either way).
-- Anchor's own `CLAUDE.build.md` is regenerated via
+- Flex's own `CLAUDE.build.md` is regenerated via
   `pairmode sync-build --apply --yes --project-dir .` so it reflects the new
   absolute paths.
 - `tests/pairmode/test_pairmode_sync.py` has a test asserting that the rendered
@@ -114,7 +114,7 @@ The final story deploys all fixes to cora, radar, aab, and forqsite via
    - `uv run python skills/pairmode/scripts/story_update.py` →
      `uv run python {{ pairmode_scripts_dir }}/story_update.py`
 
-4. Regenerate anchor's own `CLAUDE.build.md`:
+4. Regenerate flex's own `CLAUDE.build.md`:
    ```bash
    PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/pairmode_sync.py \
      sync-build --project-dir . --apply --yes
@@ -336,7 +336,7 @@ The final story deploys all fixes to cora, radar, aab, and forqsite via
 - `CLAUDE.build.md.j2` checkpoint security-auditor and intent-reviewer model
   selection blocks unpack the tuple and use `_` for the reason (not passed to
   `record_attempt.py` for checkpoint agents, as those calls don't exist today).
-- `CLAUDE.build.md` (anchor's own) is regenerated via `sync-build --apply --yes`
+- `CLAUDE.build.md` (flex's own) is regenerated via `sync-build --apply --yes`
   to reflect the updated template.
 - All existing `test_model_selector.py` tests are updated to unpack the returned
   tuples.
@@ -390,7 +390,7 @@ The final story deploys all fixes to cora, radar, aab, and forqsite via
    `--model-selection-reason $reason` (using the shell variable set from the
    printed reason line).
 
-6. Regenerate anchor's `CLAUDE.build.md`:
+6. Regenerate flex's `CLAUDE.build.md`:
    ```bash
    PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/pairmode_sync.py \
      sync-build --project-dir . --apply --yes
@@ -420,7 +420,7 @@ The final story deploys all fixes to cora, radar, aab, and forqsite via
 - INFRA-082 complete: bootstrap writes `PAIRMODE_ALLOW` rules.
 - INFRA-083 complete: reviewer model selection outputs `(model, reason)`.
 - All four sibling projects accessible at `../cora`, `../radar`, `../aab`,
-  `../forqsite` relative to anchor root (`/mnt/work/<sibling>`).
+  `../forqsite` relative to flex root (`/mnt/work/<sibling>`).
 
 ## Ensures
 - Each sibling's `CLAUDE.build.md` is updated to the rendered template (with
@@ -433,7 +433,7 @@ The final story deploys all fixes to cora, radar, aab, and forqsite via
 - A smoke-test `record_attempt.py` call succeeds on at least one sibling (exits 0,
   writes an entry to that sibling's `effort.db`).
 - Changes to each sibling are committed in that sibling's repo with message
-  `chore(pairmode): sync-build and sync-agents from anchor v0.2.0`.
+  `chore(pairmode): sync-build and sync-agents from flex v0.2.0`.
 
 **Instructions:**
 
@@ -478,7 +478,7 @@ Verify the sibling's `.claude/agents/reviewer.md` now contains `## Contract chec
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python -c "
 import sys, pathlib
-sys.path.insert(0, '/mnt/work/anchor/skills/pairmode/scripts')
+sys.path.insert(0, '/mnt/work/flex/skills/pairmode/scripts')
 from bootstrap import PAIRMODE_ALLOW, _merge_allow_rules
 _merge_allow_rules(
     pathlib.Path('/mnt/work/<sibling>/.claude/settings.local.json'),
@@ -511,7 +511,7 @@ Confirm exit 0 and that `.companion/effort.db` in the sibling is updated.
 In each sibling's directory:
 ```bash
 git add CLAUDE.build.md .claude/agents/reviewer.md .claude/settings.local.json
-git commit -m "chore(pairmode): sync-build and sync-agents from anchor v0.2.0"
+git commit -m "chore(pairmode): sync-build and sync-agents from flex v0.2.0"
 ```
 
 **Primary files:** (none — orchestrator-only deployment story)
@@ -529,7 +529,7 @@ git commit -m "chore(pairmode): sync-build and sync-agents from anchor v0.2.0"
 **Tests:** Methodology story — no test file expected. Verify by:
 - Confirming `## Contract check` present in each sibling's `reviewer.md`.
 - Confirming the sibling's `CLAUDE.build.md` contains the absolute path
-  (e.g., `/mnt/work/anchor/skills/pairmode/scripts/record_attempt.py`).
+  (e.g., `/mnt/work/flex/skills/pairmode/scripts/record_attempt.py`).
 - Confirming the smoke-test `record_attempt.py` call exits 0.
 
 ---

@@ -1,4 +1,4 @@
-# Ideology — anchor
+# Ideology — flex
 
 > This document captures the **intent layer** beneath the implementation.
 > It records convictions, tradeoffs, and constraints in a form that survives across
@@ -101,9 +101,9 @@ Format each entry as:
 
 ### Never silently pass contradictions
 
-**Rule:** anchor must never allow a development action to proceed without validating it against previous decisions recorded in the canonical spec.
+**Rule:** flex must never allow a development action to proceed without validating it against previous decisions recorded in the canonical spec.
 
-**Protects:** The core contract of the system. If anchor lets contradictions pass silently, developers lose trust in the spec and stop using it — making the entire system worthless.
+**Protects:** The core contract of the system. If flex lets contradictions pass silently, developers lose trust in the spec and stop using it — making the entire system worthless.
 
 **Rationale:** The value of a persistent memory system is precisely that it catches what humans and agents forget. A system that misses contradictions provides false confidence, which is worse than no system.
 
@@ -116,7 +116,7 @@ Format each entry as:
 
 **Protects:** Session performance and architectural clarity. Hooks that block or write state create race conditions, slow sessions, and violate the layered architecture.
 
-**Rationale:** The sidebar owns all heavy work. The hook-pipe-sidebar separation is the core architectural boundary in anchor. Violating it collapses two roles into one and makes the system unauditable.
+**Rationale:** The sidebar owns all heavy work. The hook-pipe-sidebar separation is the core architectural boundary in flex. Violating it collapses two roles into one and makes the system unauditable.
 
 **Override path:** No override permitted. If a hook needs to do more work, that work belongs in the sidebar, triggered by a pipe message.
 
@@ -274,6 +274,6 @@ the code — not a feature checklist. Examples:
 ---
 
 *This document is a companion to `docs/brief.md` (what and why) and `docs/architecture.md`
-(how). Together they form the complete ideology record for anchor.*
+(how). Together they form the complete ideology record for flex.*
 
 *Last reviewed: 2026-04-24*

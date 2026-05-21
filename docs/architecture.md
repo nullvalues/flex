@@ -1,19 +1,19 @@
-# Anchor — Architecture
+# Flex — Architecture
 
-## What anchor is
+## What flex is
 
-Anchor is a Claude Code plugin. It gives Claude Code a persistent memory of architectural decisions,
+Flex is a Claude Code plugin. It gives Claude Code a persistent memory of architectural decisions,
 specs, and constraints across sessions. It captures what you're building and why — automatically,
 as you work — and makes that intent persistent across every agent, every session, every project.
 
-This document is the source of truth for the anchor codebase itself. Read it before any task.
+This document is the source of truth for the flex codebase itself. Read it before any task.
 
 ---
 
 ## Module structure
 
 ```
-anchor/
+flex/
   hooks/                          ← thin relays to the sidebar (no API calls)
     hooks.json                    ← hook event registration
     stop.py                       ← historian: extract decisions after each response
@@ -22,20 +22,20 @@ anchor/
     session_end.py                ← signal sidebar to summarize and exit
 
   skills/
-    seed/                         ← /anchor:seed — bootstrap canonical spec (run once)
+    seed/                         ← /flex:seed — bootstrap canonical spec (run once)
       SKILL.md
       scripts/
         setup.py                  ← product config writer
         mine_sessions.py          ← transcript decision extractor
         reconcile.py              ← spec merger
-    companion/                    ← /anchor:companion — start each session
+    companion/                    ← /flex:companion — start each session
       SKILL.md
       scripts/
         sidebar.py                ← companion sidebar process (long-running)
         start_sidebar.sh          ← detects OS, opens sidebar in new terminal
         launch_sidebar.command    ← macOS launcher
         launch_sidebar.sh         ← Linux launcher
-    pairmode/                     ← /anchor:pairmode — bootstrap and manage pairmode
+    pairmode/                     ← /flex:pairmode — bootstrap and manage pairmode
       SKILL.md
       scripts/
         bootstrap.py              ← generate pairmode scaffold from spec
@@ -81,7 +81,7 @@ anchor/
             backlog.md.j2
 
   lessons/
-    lessons.json                  ← global methodology lessons (lives in anchor repo)
+    lessons.json                  ← global methodology lessons (lives in flex repo)
     LESSONS.md                    ← human-readable summary, auto-generated
 
   .claude-plugin/
@@ -105,7 +105,7 @@ persist_capture() → .companion/changes/<session-id>/incremental.json
     ↓
 session ends → sidebar shows summary, exits
     ↓
-next /anchor:companion → detects unreconciled sessions → reconcile.py
+next /flex:companion → detects unreconciled sessions → reconcile.py
     ↓
 reconcile.py → merges into <spec_location>/openspec/specs/<module>/spec.json
 ```
@@ -190,8 +190,8 @@ Returns `None` if `product.json` is missing or has no `config` key. Returns a di
 ```
 
 Fields:
-- `pairmode_version` — set by `/anchor:pairmode bootstrap`; the methodology version used
-  to scaffold the project. Read by `/anchor:pairmode audit` to compute the delta.
+- `pairmode_version` — set by `/flex:pairmode bootstrap`; the methodology version used
+  to scaffold the project. Read by `/flex:pairmode audit` to compute the delta.
 - `last_loaded_modules` — updated on every companion session start; lists the module names
   the user chose to load for that session.
 - `current_story` — **optional**; present only when pairmode is active and the user
@@ -199,7 +199,7 @@ Fields:
   and `set_at` (UTC ISO-8601 timestamp). Absent when the user skips the prompt.
 - `registered_projects` — **optional**; list of absolute paths to pairmode-scaffolded
   projects to include in cross-project drift detection. When present and non-empty,
-  `/anchor:pairmode review` runs `pairmode_drift_report --convergent` across all listed
+  `/flex:pairmode review` runs `pairmode_drift_report --convergent` across all listed
   projects and surfaces convergence candidates for promotion to canonical templates.
   Not set by `bootstrap.py` — opt-in only. Each path is validated with `_depth_guard`
   before use (paths with fewer than 3 components are rejected).
@@ -288,12 +288,12 @@ displays an override prompt. If the developer provides a reason, the sidebar wri
 entry to the relevant module's `spec.json` conflicts array. The hook emits only
 `path` and `tool` — deny-rationale reads never occur in hooks.
 
-**Lessons:** Methodology improvements are captured in `anchor/lessons/lessons.json`.
+**Lessons:** Methodology improvements are captured in `flex/lessons/lessons.json`.
 Each lesson records the triggering situation, what was learned, what changed in the methodology,
-and which projects it applies to. Lessons flow into templates via `/anchor:pairmode review`.
+and which projects it applies to. Lessons flow into templates via `/flex:pairmode review`.
 
 **Template versioning:** Each pairmode-bootstrapped project records the `pairmode_version`
-it was bootstrapped with in `.companion/state.json`. `/anchor:pairmode audit` uses this to
+it was bootstrapped with in `.companion/state.json`. `/flex:pairmode audit` uses this to
 determine the delta between the project's methodology and the current canonical version.
 Audit compares section headers (structural presence of `##` headings) between project files
 and raw Jinja2 template source — it does not render templates before comparison. Section
@@ -571,7 +571,7 @@ Behaviour:
   `{{ domain_isolation_rule }}`) that are absent from the minimal `{project_name}` context
   used during sync-agents. When any variable is undefined, the body-merge step silently
   no-ops for that agent file. **Body propagation therefore only functions when syncing the
-  anchor repo itself.** For sibling projects, new body sections added to agent templates
+  flex repo itself.** For sibling projects, new body sections added to agent templates
   must be applied manually during deployment stories.
 - Prints a unified diff (`difflib.unified_diff`) for each changed file before writing.
 - `--dry-run`: exits after printing diffs without writing any files.
@@ -609,7 +609,7 @@ Behaviour:
 - Applies a depth guard on `--project-dir` (fewer than 3 path components are rejected).
 
 **`pairmode_register.py` — `register`, `unregister`, `list-projects` subcommands.**
-Manages the `registered_projects` list in anchor's own `.companion/state.json`. All three
+Manages the `registered_projects` list in flex's own `.companion/state.json`. All three
 subcommands are registered in the `pairmode` CLI group via `pairmode_sync.py`.
 
 CLI:
@@ -631,7 +631,7 @@ Behaviour:
 - `list-projects`: prints one entry per line; prints "No projects registered." when list
   is empty or absent.
 - All writes are atomic: temp file in same directory + `os.replace`.
-- Reads and writes anchor's own `.companion/state.json` (cwd-relative), not the target
+- Reads and writes flex's own `.companion/state.json` (cwd-relative), not the target
   project's state.json.
 
 ### Pairmode non-negotiables
@@ -649,12 +649,12 @@ Behaviour:
   - `validation_phase` (string) — the phase ID that confirmed or revised the lesson. Points
     forward from the original lesson to its data-backed validation, enabling traceable
     methodology evolution.
-- Templates must render correctly for projects with no prior Anchor spec (blank-slate bootstrap).
+- Templates must render correctly for projects with no prior Flex spec (blank-slate bootstrap).
 - The deny list generator must include an inline comment on each generated rule linking it to
   the non-negotiable that produced it.
 - Pairmode bootstrap must never overwrite existing project files without explicit user confirmation.
 - Pairmode scripts that import sibling modules must either (a) use `sys.path` insertion to add
-  the anchor repo root at import time, or (b) be invoked with `PYTHONPATH` set to the anchor
+  the flex repo root at import time, or (b) be invoked with `PYTHONPATH` set to the flex
   repo root. SKILL.md invocations must document the required `PYTHONPATH` prefix.
 - Callers of `parse_reconstruction_brief` that pass constraints to `ideology.md.j2` must
   normalize the `{name, rule}` schema returned by the parser to `{name, rule, protects,
@@ -867,7 +867,7 @@ makes the final promotion decision.
 
 | Layer | May import from | May not import from |
 |-------|----------------|---------------------|
-| hooks/ | stdlib, no anchor modules | skills/, lessons/ |
+| hooks/ | stdlib, no flex modules | skills/, lessons/ |
 | skills/*/scripts/ | stdlib, requirements.txt deps | hooks/ (sibling skills ok for shared utils) |
 | tests/ | anything | — |
 
@@ -887,7 +887,7 @@ for shared utils" rule. It must be preserved when either module is modified.
 Each phase gets its own file: `docs/phases/phase-N.md`.
 
 - New phases are always created as `docs/phases/phase-N.md` using `phase_new.py`.
-- The monolithic `docs/phase-prompts.md` is the legacy format for Phases 1–7 (anchor repo only).
+- The monolithic `docs/phase-prompts.md` is the legacy format for Phases 1–7 (flex repo only).
   It is not extended with new phase content going forward.
 - `docs/phases/index.md` is the canonical list of all phases and their status.
 - Phase files are the source of truth for the builder/reviewer loop. The orchestrator reads

@@ -1,4 +1,4 @@
-# anchor — Phase 22: Per-story compute-effort tracking
+# flex — Phase 22: Per-story compute-effort tracking
 
 ← [Phase 21: Methodology refinement and companion/pairmode positioning](phase-21.md)
 → [Phase 23: Drift detection and promotion workflow](phase-23.md)
@@ -9,9 +9,9 @@ Phase 22 introduces per-story compute-effort tracking so that model selection,
 spec quality, and rework patterns become visible. The unit of measurement is
 **tokens**, not dollars. Tokens are the unit of compute effort; dollars are an
 ephemeral projection of tokens through whatever pricing snapshot is current.
-Anchor stores tokens permanently and treats pricing as optional report-time
+Flex stores tokens permanently and treats pricing as optional report-time
 decoration. The user can drop a `pricing.json` next to the database for a dollar
-projection, but anchor doesn't ship rates, maintain rates, or promise rates.
+projection, but flex doesn't ship rates, maintain rates, or promise rates.
 
 The phase covers three layers: a sqlite recorder (INFRA-028), a reporting CLI
 (INFRA-029), and orchestrator wiring (INFRA-030). It then extends the recorder
@@ -58,13 +58,13 @@ effort-tracking work that follows.
 **Rail:** INFRA
 
 **Acceptance criterion:** `skills/pairmode/templates/CLAUDE.build.md.j2` contains the
-same one-line fallback note that INFRA-033 added to anchor's own `CLAUDE.build.md`.
+same one-line fallback note that INFRA-033 added to flex's own `CLAUDE.build.md`.
 Future pairmode bootstraps inherit the orchestrator-level pointer to the fallback
 policy, not just the inline `# fallback:` template comments. A test asserts the
 rendered template contains the fallback line. CER-013 is marked RESOLVED.
 
 **Background (CER-013):** INFRA-033 added the fallback note to the project file
-but missed the canonical template. Anchor's own dogfood is correct; downstream
+but missed the canonical template. Flex's own dogfood is correct; downstream
 projects bootstrapped after Phase 21 would otherwise miss the orchestrator-level
 guidance even though they get the inline template comments and the architecture
 subsection through other paths. The intent-reviewer flagged this as a propagation
@@ -75,7 +75,7 @@ template-vs-project-file) is the root cause.
 
 1. In `skills/pairmode/templates/CLAUDE.build.md.j2`, locate the build-loop
    section (likely near Step 1 or the orchestrator instructions block).
-2. Add the same one-line note that exists in anchor's `CLAUDE.build.md`:
+2. Add the same one-line note that exists in flex's `CLAUDE.build.md`:
    "If the preferred model for an agent is rate-limited, override at call time
    via the `model` parameter (Opus → Sonnet on reviewers; Sonnet → Haiku on
    builder; never below Haiku). See `docs/architecture.md` § Model selection
@@ -97,7 +97,7 @@ context (mirror what bootstrap.py does) and substring-match the result.
 **Rail:** INFRA
 
 **Acceptance criterion:** `skills/pairmode/templates/CLAUDE.build.md.j2` (and
-the propagated copy in anchor's own `CLAUDE.build.md`) contain an explicit
+the propagated copy in flex's own `CLAUDE.build.md`) contain an explicit
 pre-reviewer step that commits any uncommitted story-file changes and runs
 `git checkout -- lessons/` to drop any uncommitted lesson edits the reviewer
 might overwrite. The `docs/architecture.md` claim about "pre-reviewer commit
@@ -149,7 +149,7 @@ it explicit in the template is the cheap correct move.
    the reviewer can revert builder mistakes without erasing methodology.
    ```
 
-2. Apply the same change to anchor's own `CLAUDE.build.md` so anchor's dogfood
+2. Apply the same change to flex's own `CLAUDE.build.md` so flex's dogfood
    matches.
 
 3. Update `docs/cer/backlog.md` CER-014 row's resolution column to
@@ -163,7 +163,7 @@ it explicit in the template is the cheap correct move.
 **Tests:** Extend `tests/pairmode/test_templates.py` with assertions:
 - Rendered `CLAUDE.build.md.j2` contains the substring `"pre-reviewer methodology file commit"`
 - Rendered `CLAUDE.build.md.j2` contains the substring `"git checkout -- lessons/"`
-- Anchor's own `CLAUDE.build.md` contains both substrings (regression check)
+- Flex's own `CLAUDE.build.md` contains both substrings (regression check)
 
 **Why automated and not just a doc note:** the orchestrator is a Claude Code
 session, not a deterministic script. Without explicit text in `CLAUDE.build.md`
@@ -190,7 +190,7 @@ orchestrator append a row in one command. **No pricing data is stored.**
 - One table: `attempts` (one row per agent call). Pricing is **not** in the
   schema — see "Pricing as optional decoration" below.
 - Default: bootstrap auto-enables for pairmode-bootstrapped projects (since
-  `.companion/pairmode_context.json` is present), opt-out for plain anchor
+  `.companion/pairmode_context.json` is present), opt-out for plain flex
   projects. The `.companion/state.json["effort_tracking"]` flag controls
   recording at runtime.
 - Capture mechanism: the orchestrator parses the `<usage>` block returned by
@@ -211,7 +211,7 @@ A user who wants dollar projections drops a `pricing.json` next to the database:
 }
 ```
 
-Reports project tokens × rates at query time. Anchor neither ships nor
+Reports project tokens × rates at query time. Flex neither ships nor
 maintains rates. Stale `pricing.json` produces stale dollar projections; the
 underlying token data stays correct forever.
 
@@ -259,7 +259,7 @@ No `pricing` table. No pricing migration to maintain.
    `effort_tracking` is not enabled in state.json.
 3. Bootstrap (`bootstrap.py`): when invoked in pairmode mode, set
    `effort_tracking: true` in the generated `.companion/state.json` by
-   default. Plain anchor (non-pairmode) bootstraps leave the flag unset.
+   default. Plain flex (non-pairmode) bootstraps leave the flag unset.
 
 **Tests:** `tests/pairmode/test_effort_db.py` — schema init, insert,
 idempotent re-init, query roundtrip; `tests/pairmode/test_record_attempt.py`

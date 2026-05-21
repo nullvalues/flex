@@ -1,4 +1,4 @@
-# anchor — Phase 14: Reconstruction agent tooling
+# flex — Phase 14: Reconstruction agent tooling
 
 ← [Phase 13: CER cleanup and end-to-end reconstruction verification](phase-13.md)
 
@@ -75,7 +75,7 @@ pattern as `docs/reconstruction.md`):
 "Write(docs/RECONSTRUCTION.md)",
 ```
 
-**SKILL.md:** Add a `/anchor:pairmode score` section documenting the command, inputs, and outputs.
+**SKILL.md:** Add a `/flex:pairmode score` section documenting the command, inputs, and outputs.
 
 **Tests — `tests/pairmode/test_score.py`** (new file):
 - `score` with valid brief: `docs/RECONSTRUCTION.md` is created.
@@ -109,7 +109,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 
 You are a blank-slate reconstruction agent. You have been given:
 - `docs/reconstruction.md` — the ideology brief for {{ project_name }}
-- `docs/RECONSTRUCTION.md` — a partially-filled scoring report (run `/anchor:pairmode score` to generate it)
+- `docs/RECONSTRUCTION.md` — a partially-filled scoring report (run `/flex:pairmode score` to generate it)
 
 Your job is to produce a complete, working implementation of {{ project_name }} that expresses
 the ideology in `docs/reconstruction.md`, then fill in `docs/RECONSTRUCTION.md` with honest
@@ -236,9 +236,9 @@ No other changes.
 
 ---
 
-⚙️ DEVELOPER ACTION — Re-bootstrap anchor after Story 14.3
+⚙️ DEVELOPER ACTION — Re-bootstrap flex after Story 14.3
 
-After 14.3 passes review, re-bootstrap anchor's own pairmode scaffold to generate
+After 14.3 passes review, re-bootstrap flex's own pairmode scaffold to generate
 `.claude/agents/reconstruction-agent.md`:
 
 ```bash

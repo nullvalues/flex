@@ -1,4 +1,4 @@
-# Anchor Pairmode — Checkpoints
+# Flex Pairmode — Checkpoints
 
 Each checkpoint is tagged after all stories in the phase pass the full checkpoint sequence
 (build gate → security audit → intent review).
@@ -17,7 +17,7 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 **Phase:** 33 — Build loop portability and sibling catch-up
 **Tag command:** `git tag cp33-build-loop-portability && git push origin cp33-build-loop-portability`
-**Acceptance:** `CLAUDE.build.md.j2` uses `{{ pairmode_scripts_dir }}` — all rendered CLAUDE.build.md files now contain absolute anchor script paths so sibling builds record effort data (INFRA-079). `pairmode_version` bumped to `0.2.0` with outdated signal in `pairmode status` (INFRA-080). `sync-agents` additively merges new H2 body sections from templates; body propagation requires full-template rendering and is silently inoperative for sibling projects (INFRA-081). Bootstrap writes four `PAIRMODE_ALLOW` Bash allow rules to `settings.local.json` (INFRA-082). `select_reviewer_model` returns `(model, reason)` tuple; reviewer `record_attempt.py` example updated to use `$reason` (INFRA-083). All four sibling projects (cora, radar, aab, forqsite) synced — absolute paths in `CLAUDE.build.md`, `## Contract check` in `reviewer.md`, `PAIRMODE_ALLOW` in `settings.local.json` (INFRA-084). CER-022 filed (sync-agents missing depth guard — Do Later). 1658 tests pass.
+**Acceptance:** `CLAUDE.build.md.j2` uses `{{ pairmode_scripts_dir }}` — all rendered CLAUDE.build.md files now contain absolute flex script paths so sibling builds record effort data (INFRA-079). `pairmode_version` bumped to `0.2.0` with outdated signal in `pairmode status` (INFRA-080). `sync-agents` additively merges new H2 body sections from templates; body propagation requires full-template rendering and is silently inoperative for sibling projects (INFRA-081). Bootstrap writes four `PAIRMODE_ALLOW` Bash allow rules to `settings.local.json` (INFRA-082). `select_reviewer_model` returns `(model, reason)` tuple; reviewer `record_attempt.py` example updated to use `$reason` (INFRA-083). All four sibling projects (cora, radar, aab, forqsite) synced — absolute paths in `CLAUDE.build.md`, `## Contract check` in `reviewer.md`, `PAIRMODE_ALLOW` in `settings.local.json` (INFRA-084). CER-022 filed (sync-agents missing depth guard — Do Later). 1658 tests pass.
 
 ---
 
@@ -113,7 +113,7 @@ correct scaffold files. All Phase 1 tests pass.
 
 **Phase:** 2 — Spec-Derived Generation
 **Tag command:** `git tag cp2-spec-derived-complete && git push origin cp2-spec-derived-complete`
-**Acceptance:** Bootstrap reads an Anchor spec and produces a checklist and deny list
+**Acceptance:** Bootstrap reads an Flex spec and produces a checklist and deny list
 derived from non-negotiables and business rules. All Phase 2 tests pass.
 
 ---
@@ -222,7 +222,7 @@ stale reconstruction.md. ideology_parser.py shared parser extracted. bootstrap.p
 **Tag command:** `git tag cp13-cer-cleanup-e2e && git push origin cp13-cer-cleanup-e2e`
 **Acceptance:** parse_ideology_text(text) added to ideology_parser.py; parse_ideology_file
 delegates to it; tempfile round-trip eliminated from reconstruct.py (CER-001 resolved).
-Integration test runs bootstrap --from-reconstruction against anchor's own reconstruction.md
+Integration test runs bootstrap --from-reconstruction against flex's own reconstruction.md
 and asserts ideology.md output contains real conviction content. 910 tests pass.
 
 ---
@@ -233,7 +233,7 @@ and asserts ideology.md output contains real conviction content. 910 tests pass.
 **Tag command:** `git tag cp14-reconstruction-agent-tooling && git push origin cp14-reconstruction-agent-tooling`
 **Acceptance:** score.py renders pre-populated RECONSTRUCTION.md from a reconstruction brief.
 reconstruction-agent.md.j2 agent template created and wired into bootstrap scaffold.
---brief path containment guard added to score.py (MEDIUM security finding). anchor's own
+--brief path containment guard added to score.py (MEDIUM security finding). flex's own
 .claude/agents/reconstruction-agent.md generated. 929 tests pass.
 
 ---

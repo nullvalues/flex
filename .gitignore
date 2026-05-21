@@ -22,6 +22,6 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Anchor runtime
+# Flex runtime
 .companion/
 .claude/story_scope.json

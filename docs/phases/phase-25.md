@@ -1,4 +1,4 @@
-# anchor — Phase 25: Backlog remediation and cross-project agent sync
+# flex — Phase 25: Backlog remediation and cross-project agent sync
 
 ← [Phase 24: Data-defensible model rebalance refinement](phase-24.md)
 
@@ -15,7 +15,7 @@ competition.
 
 **Template drift** is the gap that caused the Phase 24 session opener: INFRA-044
 updated the agent templates but provided no mechanism for existing projects to
-adopt the new model assignments. The anchor repo's own `.claude/agents/` files
+adopt the new model assignments. The flex repo's own `.claude/agents/` files
 had to be patched manually. Forqsite, radar, cora, lumin, and halfhorse still
 carry stale model assignments. `pairmode sync-agents` closes the gap for any
 project that has already bootstrapped pairmode.
@@ -150,7 +150,7 @@ radar, cora etc. after any template update to bring them current.
 
 1. Add `sync-agents` subcommand to `skills/pairmode/scripts/pairmode_status.py`
    (or a new `pairmode_sync.py` script if the existing file is too crowded).
-   Expose via the `anchor:pairmode` skill entry point.
+   Expose via the `flex:pairmode` skill entry point.
 2. The frontmatter parser must handle both the template's Jinja2 `model: sonnet`
    line and any inline YAML comment (`# upgrade: opus (when ...)`) correctly —
    both lines should be part of the rendered frontmatter.
@@ -179,7 +179,7 @@ the template-drift problem and the sync-on-demand solution.
 
 **Lesson content:**
 
-- **trigger**: Phase 24 session start revealed that anchor's own `.claude/agents/`
+- **trigger**: Phase 24 session start revealed that flex's own `.claude/agents/`
   files had no `model:` frontmatter, and forqsite/radar still carried pre-INFRA-044
   opus reviewer assignments — despite INFRA-044 having updated the templates.
 - **problem**: Pairmode templates and bootstrapped project files diverge silently

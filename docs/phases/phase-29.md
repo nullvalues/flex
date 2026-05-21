@@ -1,4 +1,4 @@
-# anchor — Phase 29: Project drift detection and promotion workflow
+# flex — Phase 29: Project drift detection and promotion workflow
 
 ← [Phase 28: CER backlog remediation (LOW items)](phase-28.md)
 
@@ -7,7 +7,7 @@
 ## Goal
 
 Build the feedback loop that closes the dogfooding cycle: pairmode-bootstrapped
-projects surface convergent improvements back to anchor, which promotes them from
+projects surface convergent improvements back to flex, which promotes them from
 project-side discoveries into canonical methodology. Convergent change across
 multiple projects is a methodology signal — this phase makes that signal actionable.
 
@@ -22,7 +22,7 @@ be trusted, and that work (Phases 24–28) built the foundation these stories de
 
 The original Phase 23 ordering stands: two foundational stories (INFRA-063 `source:`
 field, INFRA-064 overrides integration) land before the main detector and promoter to
-prevent infinite-recursion and re-prompting on anchor's own promoted stories.
+prevent infinite-recursion and re-prompting on flex's own promoted stories.
 
 ---
 
@@ -30,7 +30,7 @@ prevent infinite-recursion and re-prompting on anchor's own promoted stories.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-063 | Story frontmatter `source:` field — track drift-promoted vs anchor-native stories | complete |
+| INFRA-063 | Story frontmatter `source:` field — track drift-promoted vs flex-native stories | complete |
 | INFRA-065 | Project drift detection — `pairmode_drift_report.py` | complete |
 | INFRA-064 | `.pairmode-overrides` integration in drift reports | complete |
 | INFRA-066 | Drift promotion workflow — extend `pairmode review` | complete |
@@ -47,7 +47,7 @@ frontmatter. `schema_validator.py` accepts (but does not require) the field. `st
 accepts an optional `--source` flag; when provided, `source:` is written to frontmatter
 after `story_class`; when absent, the field is omitted entirely. When the drift promotion
 workflow (INFRA-066) creates a story from a project-side discovery, it sets `source:
-<project-slug>` automatically — this lets anchor skip auditing promoted stories as
+<project-slug>` automatically — this lets flex skip auditing promoted stories as
 "canonical drift" against the project they came from.
 
 **Instructions:**
@@ -107,7 +107,7 @@ and does not appear in convergence candidates.
 
 **Acceptance criterion:** `skills/pairmode/scripts/pairmode_drift_report.py` exists as a
 Click CLI. Running `pairmode drift-report --projects <path> [<path>...]` compares each
-project's `CLAUDE.build.md` and `.claude/agents/` against anchor's canonical templates and
+project's `CLAUDE.build.md` and `.claude/agents/` against flex's canonical templates and
 reports per-project: `MISSING` (in template, not in project), `EXTRA` (in project, not in
 template), `DRIFT` (present in both but diverged), `INTENTIONAL` (declared in
 `.pairmode-overrides`). With `--convergent`, it surfaces patterns appearing as the same drift
@@ -180,7 +180,7 @@ pattern so it is not re-prompted in future reviews.
    the section/file name, story_class `code`. Print the story path for the user to complete.
 
 5. On rejection: append the pattern identifier to a `.pairmode-drift-rejected` file at the
-   anchor root so it is excluded from future `--convergent` output.
+   flex root so it is excluded from future `--convergent` output.
 
 **Tests:** `tests/pairmode/test_lesson_review.py` — mock `drift_report` JSON output; assert
 promotion creates a story file with `source:` set; assert rejection writes to

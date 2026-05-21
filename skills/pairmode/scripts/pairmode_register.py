@@ -1,5 +1,5 @@
 """
-pairmode_register.py — Manage registered_projects in anchor's .companion/state.json.
+pairmode_register.py — Manage registered_projects in flex's .companion/state.json.
 
 Provides three CLI subcommands:
 
@@ -16,7 +16,7 @@ Provides three CLI subcommands:
     Prints the current ``registered_projects`` list (one entry per line), or
     "No projects registered." when the list is empty or absent.
 
-All three commands read and write anchor's own ``.companion/state.json`` (the
+All three commands read and write flex's own ``.companion/state.json`` (the
 file in the current working directory).  Writes are atomic: the new content is
 first written to a ``.tmp`` file, then renamed onto the target path.
 """
@@ -39,7 +39,7 @@ import click
 # Constants
 # ---------------------------------------------------------------------------
 
-# The .companion directory is always relative to cwd (anchor's own root).
+# The .companion directory is always relative to cwd (flex's own root).
 _DEFAULT_COMPANION_DIR = Path(".companion")
 
 

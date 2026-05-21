@@ -1,4 +1,4 @@
-# anchor — Phase 21: Methodology refinement and companion/pairmode positioning
+# flex — Phase 21: Methodology refinement and companion/pairmode positioning
 
 ← [Phase 20: PR readiness — documentation, pipe clarity, contribution packaging](phase-20.md)
 → [Phase 22: Effort tracking](phase-22.md)
@@ -14,7 +14,7 @@ foundation.
 
 Prerequisites: Phase 20 complete and tagged cp20-pr-ready (pr-candidate-v0.1-squashed).
 Branched from era2 onto `era3-methodology` so this work does not compound the
-already-submitted PR (nraychaudhuri/anchor#3).
+already-submitted PR (nullvalues/flex#3).
 
 ---
 
@@ -39,10 +39,10 @@ already-submitted PR (nraychaudhuri/anchor#3).
 between companion and pairmode explicit using the reactive-vs-proactive framing.
 Specifically:
 
-1. `README.md` line 14 ("Anchor makes intent persistent") is reframed to acknowledge the
-   two layers: "Anchor makes intent persistent in two ways: by recording it as you decide
+1. `README.md` line 14 ("Flex makes intent persistent") is reframed to acknowledge the
+   two layers: "Flex makes intent persistent in two ways: by recording it as you decide
    (reactive memory) and by requiring it before you build (proactive process)."
-2. After the existing "What anchor does" section (around line 34), a new H3 section
+2. After the existing "What flex does" section (around line 34), a new H3 section
    "Reactive memory vs proactive process" is inserted with a comparison table covering:
    when each acts, posture, primary artefact, who writes it, what it prevents, what it
    cannot prevent, and how the two compose.
@@ -67,7 +67,7 @@ reproduced verbatim in the body below for reference.
 
 **Reference table to land in README.md:**
 
-| Dimension | Companion (`/anchor:seed`, `/anchor:companion`) | Pairmode (`/anchor:pairmode`) |
+| Dimension | Companion (`/flex:seed`, `/flex:companion`) | Pairmode (`/flex:pairmode`) |
 |-----------|-------------------------------------------------|--------------------------------|
 | **When it acts** | During the session, reacting to what just happened | Before code is written, and at every commit gate |
 | **Posture** | Reactive — observes decisions and drift live | Proactive — fixes intent in writing first, prevents drift |
