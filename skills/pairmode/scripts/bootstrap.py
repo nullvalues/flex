@@ -957,7 +957,7 @@ def bootstrap(
     # ------------------------------------------------------------------
     rationale_path = project_path / ".claude" / "settings.deny-rationale.json"
     rationale_data: dict = {
-        "generated_by": "anchor:pairmode",
+        "generated_by": "flex:pairmode",
         "pairmode_version": PAIRMODE_VERSION,
         "rules": [
             {

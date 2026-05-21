@@ -75,17 +75,17 @@ claude --plugin-dir /path/to/anchor
 
 ```bash
 # 1. Bootstrap the canonical spec (run once per product)
-/anchor:seed
+/flex:seed
 
 # 2. Start the companion for each session
-/anchor:companion
+/flex:companion
 ```
 
 The first time the companion sidebar starts, it will run `claude setup-token` interactively in the companion terminal to generate an OAuth token. This uses your existing Claude subscription — no extra API costs. The token is saved to `~/.anchor/auth.json` and reused automatically.
 
 ## The Three Skills
 
-### `/anchor:pairmode` — Structured build methodology (for teams and self-directed builders)
+### `/flex:pairmode` — Structured build methodology (for teams and self-directed builders)
 
 A complete builder/reviewer workflow that any project can adopt. Pairmode turns Claude Code into a disciplined pair — specifications are written first, builders implement against them, and reviewers enforce acceptance criteria at every commit.
 
@@ -94,31 +94,31 @@ A complete builder/reviewer workflow that any project can adopt. Pairmode turns 
 ```bash
 # Bootstrap a new project with the pairmode scaffold
 # (TTY mode guides you through ideology capture interactively)
-/anchor:pairmode bootstrap
+/flex:pairmode bootstrap
 
 # Pass convictions directly without TTY prompts
-/anchor:pairmode bootstrap --conviction "we prefer X over Y because Z" --constraint "never write state from hooks"
+/flex:pairmode bootstrap --conviction "we prefer X over Y because Z" --constraint "never write state from hooks"
 
 # Seed a new pairmode project from an existing reconstruction.md brief (skips TTY ideology capture)
-/anchor:pairmode bootstrap --from-reconstruction path/to/reconstruction.md
+/flex:pairmode bootstrap --from-reconstruction path/to/reconstruction.md
 
 # Audit how far a project has drifted from canonical templates (detects stale ideology.md and reconstruction.md)
-/anchor:pairmode audit
+/flex:pairmode audit
 
 # Apply upstream methodology updates (with per-change confirmation prompts)
-/anchor:pairmode sync
+/flex:pairmode sync
 
 # Capture a methodology insight as a lesson
-/anchor:pairmode lesson
+/flex:pairmode lesson
 
 # Review accumulated lessons and update templates
-/anchor:pairmode review
+/flex:pairmode review
 
 # Refresh docs/reconstruction.md from ideology.md + brief.md (handoff for blank-slate agent)
-/anchor:pairmode reconstruct
+/flex:pairmode reconstruct
 
 # Render a pre-populated RECONSTRUCTION.md scoring report for a reconstruction agent to fill in
-/anchor:pairmode score
+/flex:pairmode score
 ```
 
 The scaffold produces: `CLAUDE.md`, `CLAUDE.build.md`, `docs/` (brief, architecture, ideology, reconstruction, phases, CER backlog), `.claude/agents/` (builder, reviewer, loop-breaker, security-auditor, intent-reviewer), and `.claude/settings.json` with a spec-derived deny list.
@@ -127,7 +127,7 @@ Phases are tracked individually in `docs/phases/phase-N.md`. A CER triage backlo
 
 ---
 
-### `/anchor:seed` — Bootstrap (run once)
+### `/flex:seed` — Bootstrap (run once)
 
 Reads your entire codebase and all historical Claude Code sessions to build the canonical spec from scratch:
 
@@ -137,7 +137,7 @@ Reads your entire codebase and all historical Claude Code sessions to build the 
 4. **Session mining** — Extracts decisions from all past Claude Code transcripts
 5. **Reconcile** — Merges everything into canonical `spec.json` files with full lineage
 
-### `/anchor:companion` — Start session (run every time)
+### `/flex:companion` — Start session (run every time)
 
 1. **Module selection** — Asks what you're working on (with git-based suggestions)
 2. **Recovery check** — Detects unreconciled sessions from previous runs
@@ -261,7 +261,7 @@ Plan file written → sidebar detects it → impact analysis (adds/modifies/conf
     ↓
 Session ends → sidebar shows session summary + exits cleanly
     ↓
-Next /anchor:companion → detects unreconciled sessions → reconciles into spec.json
+Next /flex:companion → detects unreconciled sessions → reconciles into spec.json
 ```
 
 No data loss at any point. Captures are saved to disk immediately — if the session crashes, everything up to the last capture is preserved. Reconcile runs on the next companion startup, not at session end.
@@ -274,7 +274,7 @@ anchor/
     plugin.json              ← plugin manifest
   skills/
     seed/
-      SKILL.md               ← /anchor:seed
+      SKILL.md               ← /flex:seed
       requirements.txt
       references/
         openspec_format.md   ← spec.json format reference
@@ -283,14 +283,14 @@ anchor/
         mine_sessions.py     ← transcript decision extractor
         reconcile.py         ← spec merger
     companion/
-      SKILL.md               ← /anchor:companion
+      SKILL.md               ← /flex:companion
       requirements.txt
       scripts/
         sidebar.py           ← companion sidebar process
         start_sidebar.sh     ← shell launcher
         launch_sidebar.command  ← macOS Terminal launcher + OAuth setup
     pairmode/
-      SKILL.md               ← /anchor:pairmode
+      SKILL.md               ← /flex:pairmode
       requirements.txt
       templates/             ← Jinja2 scaffold templates
         CLAUDE.md.j2

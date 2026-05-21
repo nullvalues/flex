@@ -104,7 +104,7 @@ framing (LESSON-005). 1422 tests pass.
 
 **Phase:** 1 — Pairmode Skill Scaffold
 **Tag command:** `git tag cp1-scaffold-complete && git push origin cp1-scaffold-complete`
-**Acceptance:** `/anchor:pairmode bootstrap` runs against a test project and produces
+**Acceptance:** `/flex:pairmode bootstrap` runs against a test project and produces
 correct scaffold files. All Phase 1 tests pass.
 
 ---
@@ -122,8 +122,8 @@ derived from non-negotiables and business rules. All Phase 2 tests pass.
 
 **Phase:** 3 — Lessons System
 **Tag command:** `git tag cp3-lessons-complete && git push origin cp3-lessons-complete`
-**Acceptance:** `/anchor:pairmode lesson` captures a lesson to lessons.json.
-`/anchor:pairmode review` surfaces lessons and writes template updates. All Phase 3 tests pass.
+**Acceptance:** `/flex:pairmode lesson` captures a lesson to lessons.json.
+`/flex:pairmode review` surfaces lessons and writes template updates. All Phase 3 tests pass.
 
 ---
 
@@ -131,8 +131,8 @@ derived from non-negotiables and business rules. All Phase 2 tests pass.
 
 **Phase:** 4 — Audit and Sync
 **Tag command:** `git tag cp4-audit-sync-complete && git push origin cp4-audit-sync-complete`
-**Acceptance:** `/anchor:pairmode audit` produces correct diff for cora, radar, and forqsite.
-`/anchor:pairmode sync` applies deltas non-destructively. All Phase 4 tests pass.
+**Acceptance:** `/flex:pairmode audit` produces correct diff for cora, radar, and forqsite.
+`/flex:pairmode sync` applies deltas non-destructively. All Phase 4 tests pass.
 Sibling repos audited and findings documented.
 
 ---

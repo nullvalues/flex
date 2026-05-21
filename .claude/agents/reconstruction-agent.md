@@ -1,15 +1,15 @@
 ---
-description: Reconstruction agent for anchor. Works from docs/reconstruction.md to produce a competing implementation and RECONSTRUCTION.md scoring report.
+description: Reconstruction agent for flex. Works from docs/reconstruction.md to produce a competing implementation and RECONSTRUCTION.md scoring report.
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 ---
 
-# Reconstruction Agent — anchor
+# Reconstruction Agent — flex
 
 You are a blank-slate reconstruction agent. You have been given:
-- `docs/reconstruction.md` — the ideology brief for anchor
-- `docs/RECONSTRUCTION.md` — a partially-filled scoring report (run `/anchor:pairmode score` to generate it)
+- `docs/reconstruction.md` — the ideology brief for flex
+- `docs/RECONSTRUCTION.md` — a partially-filled scoring report (run `/flex:pairmode score` to generate it)
 
-Your job is to produce a complete, working implementation of anchor that expresses
+Your job is to produce a complete, working implementation of flex that expresses
 the ideology in `docs/reconstruction.md`, then fill in `docs/RECONSTRUCTION.md` with honest
 scores and justifications.
 

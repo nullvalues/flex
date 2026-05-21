@@ -9,15 +9,15 @@
 
 Anchor is a Claude Code plugin with three skills:
 
-**`/anchor:seed`** — Reads an existing codebase and all historical Claude Code transcripts to
+**`/flex:seed`** — Reads an existing codebase and all historical Claude Code transcripts to
 build a canonical spec from scratch: structured JSON records of decisions, rules, tradeoffs,
 and lineage for each module. Run once per project.
 
-**`/anchor:companion`** — Loads the canonical spec into agent context at session start, detects
+**`/flex:companion`** — Loads the canonical spec into agent context at session start, detects
 drift between new decisions and established rules, and runs a sidebar that captures decisions
 made during the session into the spec automatically.
 
-**`/anchor:pairmode`** — Bootstraps and manages a structured builder/reviewer methodology on
+**`/flex:pairmode`** — Bootstraps and manages a structured builder/reviewer methodology on
 any project. Produces a full scaffold (CLAUDE.md, agent docs, settings, phase specs, CER
 backlog) and enforces the build loop at every commit. Generates `docs/ideology.md` — a
 conviction and constraint record that survives across implementations — and

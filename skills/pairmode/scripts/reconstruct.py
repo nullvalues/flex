@@ -114,7 +114,7 @@ def reconstruct(project_dir: str, force: bool) -> None:
     if not ideology_path.exists():
         click.echo(
             "error: docs/ideology.md not found in project. "
-            "Run /anchor:pairmode bootstrap first, or create docs/ideology.md manually.",
+            "Run /flex:pairmode bootstrap first, or create docs/ideology.md manually.",
             err=True,
         )
         sys.exit(1)

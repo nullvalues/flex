@@ -1772,7 +1772,7 @@ _PLACEHOLDER_RECONSTRUCTION = (
     "---\n\n"
     "## Instructions for the reconstruction agent\n\n"
     "1. Read this document in full before writing any code.\n\n"
-    f"*{_GENERATED_FOOTER} and `docs/brief.md` by `/anchor:pairmode reconstruct`.*\n"
+    f"*{_GENERATED_FOOTER} and `docs/brief.md` by `/flex:pairmode reconstruct`.*\n"
     "*Original project: testproject*\n"
 )
 

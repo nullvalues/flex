@@ -134,7 +134,7 @@ class TestCaptureLessonBasic:
         )
         assert lessons_md.exists()
         md_text = lessons_md.read_text()
-        assert "# Anchor Methodology Lessons" in md_text
+        assert "# Flex Methodology Lessons" in md_text
         assert "Some trigger" in md_text
 
     def test_append_only_no_overwrite(self, patched_lesson):

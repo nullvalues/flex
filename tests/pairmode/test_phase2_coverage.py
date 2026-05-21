@@ -474,7 +474,7 @@ class TestBootstrapIntegration:
         _build_full_companion(tmp_path)
         self._run(tmp_path)
         data = json.loads((tmp_path / ".claude/settings.deny-rationale.json").read_text())
-        assert data["generated_by"] == "anchor:pairmode"
+        assert data["generated_by"] == "flex:pairmode"
         assert data["pairmode_version"] == PAIRMODE_VERSION
         assert len(data["rules"]) > 0
         for rule in data["rules"]:

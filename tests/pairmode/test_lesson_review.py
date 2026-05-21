@@ -446,7 +446,7 @@ class TestRegenerateLessonsMd:
 
         assert lessons_md.exists()
         content = lessons_md.read_text(encoding="utf-8")
-        assert "# Anchor Methodology Lessons" in content
+        assert "# Flex Methodology Lessons" in content
         assert "My trigger" in content
 
     def test_updates_when_status_changes(self, patched_review):

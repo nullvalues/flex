@@ -16,14 +16,14 @@ this repo. The API and scaffold format may change without notice. See Known Limi
 
 Anchor provides two complementary layers.
 
-**Memory layer** (`/anchor:seed` + `/anchor:companion`): `/anchor:seed` reads your
+**Memory layer** (`/flex:seed` + `/flex:companion`): `/flex:seed` reads your
 codebase and historical Claude Code transcripts to build a canonical spec — structured JSON
-records of decisions, rules, tradeoffs, and lineage for each module. `/anchor:companion`
+records of decisions, rules, tradeoffs, and lineage for each module. `/flex:companion`
 loads that spec at session start, detects drift between new decisions and established rules,
 and runs a sidebar process that captures decisions made during the session into the spec
 automatically.
 
-**Process layer** (`/anchor:pairmode`): Bootstraps and manages a structured
+**Process layer** (`/flex:pairmode`): Bootstraps and manages a structured
 builder/reviewer methodology on any project. Produces a full scaffold — CLAUDE.md, agent
 docs, permission settings, phase specs, and a CER backlog — and enforces the build loop at
 every commit. Generates `docs/ideology.md` (a conviction and constraint record that
@@ -35,7 +35,7 @@ Used together, the memory layer supplies the spec; the process layer enforces it
 
 ### Reactive memory vs proactive process
 
-| Dimension | Companion (`/anchor:seed`, `/anchor:companion`) | Pairmode (`/anchor:pairmode`) |
+| Dimension | Companion (`/flex:seed`, `/flex:companion`) | Pairmode (`/flex:pairmode`) |
 |-----------|-------------------------------------------------|--------------------------------|
 | **When it acts** | During the session, reacting to what just happened | Before code is written, and at every commit gate |
 | **Posture** | Reactive — observes decisions and drift live | Proactive — fixes intent in writing first, prevents drift |
@@ -70,8 +70,8 @@ claude code plugin install ./anchor
 
 Requirements: Claude Code, Python 3.11+, uv.
 
-The plugin registers three skills: `/anchor:seed`, `/anchor:companion`,
-and `/anchor:pairmode`. Marketplace installation is available for registered users.
+The plugin registers three skills: `/flex:seed`, `/flex:companion`,
+and `/flex:pairmode`. Marketplace installation is available for registered users.
 
 ## Quick start
 
@@ -79,7 +79,7 @@ and `/anchor:pairmode`. Marketplace installation is available for registered use
 
 ```bash
 # 1. Bootstrap pairmode on your project — generates scaffold from your spec
-/anchor:pairmode bootstrap
+/flex:pairmode bootstrap
 
 # 2. Create your first story on a named rail
 uv run python skills/pairmode/scripts/story_new.py --rail CORE --title "Initial data model"
@@ -96,16 +96,16 @@ is active immediately.
 
 ```bash
 # 1. Mine existing transcripts and build the canonical spec
-/anchor:seed
+/flex:seed
 
 # 2. Start the companion sidebar to begin capturing new decisions
-/anchor:companion
+/flex:companion
 
 # 3. Bootstrap pairmode on top of the populated spec
-/anchor:pairmode bootstrap
+/flex:pairmode bootstrap
 ```
 
-If you have prior Claude Code sessions, `/anchor:seed` extracts decisions from them before
+If you have prior Claude Code sessions, `/flex:seed` extracts decisions from them before
 bootstrap. The spec it produces seeds the pairmode scaffold so that generated rules and
 checklists reflect your actual project history.
 
@@ -113,10 +113,10 @@ checklists reflect your actual project history.
 
 | Skill | Posture | What it does | Key command | Key output |
 |-------|---------|-------------|-------------|-----------|
-| `/anchor:seed` | bootstrap-once | Mine transcripts, build canonical spec | `/anchor:seed` | `openspec/specs/<module>/spec.json` |
-| `/anchor:companion` | reactive | Load spec, capture decisions, detect drift | `/anchor:companion` | Updated `spec.json`, sidebar process |
-| `/anchor:pairmode` | proactive | Scaffold and enforce structured build loop | `/anchor:pairmode bootstrap` | CLAUDE.md, agent docs, phase files, deny list |
-| `/anchor:pairmode drift-report` | on-demand | Compare registered projects against canonical templates; surface convergent improvements for promotion | `/anchor:pairmode drift-report --projects <path> [--convergent]` | Per-project MISSING/EXTRA/DRIFT report; convergence candidates for promotion |
+| `/flex:seed` | bootstrap-once | Mine transcripts, build canonical spec | `/flex:seed` | `openspec/specs/<module>/spec.json` |
+| `/flex:companion` | reactive | Load spec, capture decisions, detect drift | `/flex:companion` | Updated `spec.json`, sidebar process |
+| `/flex:pairmode` | proactive | Scaffold and enforce structured build loop | `/flex:pairmode bootstrap` | CLAUDE.md, agent docs, phase files, deny list |
+| `/flex:pairmode drift-report` | on-demand | Compare registered projects against canonical templates; surface convergent improvements for promotion | `/flex:pairmode drift-report --projects <path> [--convergent]` | Per-project MISSING/EXTRA/DRIFT report; convergence candidates for promotion |
 | `pairmode sync-build` | on-demand | Diff and optionally apply canonical `CLAUDE.build.md` template to an existing project | `pairmode sync-build --project-dir DIR [--dry-run] [--apply] [--yes]` | Unified diff; updated `CLAUDE.build.md` on `--apply` |
 | `pairmode register` | on-demand | Manage the list of projects used by drift detection | `pairmode register/unregister/list-projects --project-dir DIR` | Updated `registered_projects` in `.companion/state.json` |
 
@@ -126,7 +126,7 @@ checklists reflect your actual project history.
 
 You are starting a Python API service. The codebase is empty.
 
-1. Run `/anchor:pairmode bootstrap`. Answer the prompts: project name `invoicing-api`,
+1. Run `/flex:pairmode bootstrap`. Answer the prompts: project name `invoicing-api`,
    stack `Python/FastAPI/PostgreSQL`, modules `api`, `billing`, `auth`.
 2. Anchor writes CLAUDE.md, CLAUDE.build.md, initial ideology, and a phase-1 spec file.
    The deny list in `.claude/settings.json` is generated from your declared non-negotiables:
@@ -145,11 +145,11 @@ You are starting a Python API service. The codebase is empty.
 You have been away from a project for three months. The spec and methodology are already
 in place.
 
-1. Run `/anchor:pairmode audit`. It compares your project scaffold against the current
+1. Run `/flex:pairmode audit`. It compares your project scaffold against the current
    canonical pairmode templates and reports drift: your CLAUDE.build.md is missing the
    permission-scope step added in Phase 16.
-2. Run `/anchor:pairmode sync`. It offers to apply the delta non-destructively. You accept.
-3. Run `/anchor:companion`. The sidebar loads the spec. You see that the last session added
+2. Run `/flex:pairmode sync`. It offers to apply the delta non-destructively. You accept.
+3. Run `/flex:companion`. The sidebar loads the spec. You see that the last session added
    three lineage entries to the `billing` module. The current story was `BILLING-007`.
 4. You check `docs/phases/phase-3.md`. BILLING-007 is complete. The next planned story is
    BILLING-008. You set the story: `story_context.py --set BILLING-008`.

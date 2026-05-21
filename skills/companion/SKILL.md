@@ -1,5 +1,5 @@
 ---
-name: anchor:companion
+name: flex:companion
 description: Start the Context Companion for this session. Use when the developer runs /companion or wants to load project spec context, start the sidebar, or orient themselves at the beginning of a session.
 allowed-tools: AskUserQuestion, Bash, Read, Write
 disable-model-invocation: true
@@ -207,7 +207,7 @@ If the user skips, do not modify state.json — the `current_story` field simply
   the user confirmed which story they are working on. Contains the story `id` (required),
   an optional `title`, and the `set_at` UTC ISO-8601 timestamp when it was recorded.
   When the user skips the prompt this field is absent and state.json is not modified.
-- `pairmode_version` — set by `/anchor:pairmode bootstrap` to record which methodology
+- `pairmode_version` — set by `/flex:pairmode bootstrap` to record which methodology
   version was used to scaffold the project.
 
 The `story_context` helper module (`skills/pairmode/scripts/story_context.py`) provides

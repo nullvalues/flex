@@ -41,7 +41,7 @@ DIVIDER = "───────────────────────
 
 NOT_PAIRMODE_MESSAGE = (
     "Not a pairmode repo: .companion/state.json not found.\n"
-    "Run /anchor:pairmode bootstrap to initialize."
+    "Run /flex:pairmode bootstrap to initialize."
 )
 
 

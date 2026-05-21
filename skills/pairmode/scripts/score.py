@@ -84,7 +84,7 @@ def score(project_dir: str, brief: str | None, force: bool) -> None:
     if not brief_path.exists():
         click.echo(
             f"error: brief not found: {brief_path}\n"
-            "Run /anchor:pairmode reconstruct first, or pass --brief PATH.",
+            "Run /flex:pairmode reconstruct first, or pass --brief PATH.",
             err=True,
         )
         sys.exit(1)

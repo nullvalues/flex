@@ -1,10 +1,10 @@
 ---
-name: anchor:pairmode
+name: flex:pairmode
 description: Bootstrap, audit, sync, and manage pairmode methodology for this project.
 allowed-tools: AskUserQuestion, Bash, Read, Write
 ---
 
-# anchor:pairmode
+# flex:pairmode
 
 Manage the pairmode methodology lifecycle for a project — from initial scaffolding through ongoing
 audit, sync, and lesson capture.
@@ -13,7 +13,7 @@ audit, sync, and lesson capture.
 
 ## Commands
 
-### `/anchor:pairmode bootstrap`
+### `/flex:pairmode bootstrap`
 
 **When to use:** When starting pairmode on a new or existing project for the first time, or when
 re-scaffolding a project after a major methodology revision.
@@ -137,7 +137,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 
 ---
 
-### `/anchor:pairmode audit`
+### `/flex:pairmode audit`
 
 **When to use:** Compare a project's current pairmode scaffold against the canonical methodology
 to see what's drifted, missing, or project-specific.
@@ -146,7 +146,7 @@ to see what's drifted, missing, or project-specific.
 - Current directory (used as project-dir)
 - Optional: project type tag for lesson filtering (defaults to "all")
 
-Note: `pairmode_context.json` (created by `/anchor:pairmode bootstrap`) must exist for INCONSISTENT results to be meaningful.
+Note: `pairmode_context.json` (created by `/flex:pairmode bootstrap`) must exist for INCONSISTENT results to be meaningful.
 
 **What it does:**
 1. Check for `.companion/state.json` in current directory (reads `pairmode_version`).
@@ -175,7 +175,7 @@ EXTRA (project-specific, keep as-is)
   ✓ <file>: <description>
 
 RECOMMENDATION
-  Run /anchor:pairmode sync to apply missing/inconsistent items
+  Run /flex:pairmode sync to apply missing/inconsistent items
   Project-specific items will be preserved
 ```
 
@@ -188,7 +188,7 @@ RECOMMENDATION
 - At least one section has real content → clean (no finding)
 
 **Reconstruction staleness detection:**
-- Detects missing or stale `docs/reconstruction.md` (run `/anchor:pairmode reconstruct` to fix).
+- Detects missing or stale `docs/reconstruction.md` (run `/flex:pairmode reconstruct` to fix).
 - `docs/reconstruction.md` absent → `MISSING` finding
 - File contains the generated-brief footer (`Generated from \`docs/ideology.md\``) and all
   required scoring sections are placeholder-only → `STALE PLACEHOLDER` finding
@@ -217,7 +217,7 @@ the format is documented for the project owner from day one.
 
 ---
 
-### `/anchor:pairmode sync`
+### `/flex:pairmode sync`
 
 **When to use:** Apply missing or inconsistent items from an audit result to bring a project's
 pairmode scaffold up to date with the current canonical methodology.
@@ -226,7 +226,7 @@ pairmode scaffold up to date with the current canonical methodology.
 - Current directory (used as project-dir)
 - Optional: project type tag for lesson filtering (defaults to "all")
 
-Note: `pairmode_context.json` (created by `/anchor:pairmode bootstrap`) must exist for INCONSISTENT results to be meaningful.
+Note: `pairmode_context.json` (created by `/flex:pairmode bootstrap`) must exist for INCONSISTENT results to be meaningful.
 
 **What it does:**
 1. Run audit to get current delta: `PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/audit.py" --project-dir "$(pwd)"`
@@ -256,7 +256,7 @@ State updated: .companion/state.json
 
 ---
 
-### `/anchor:pairmode lesson`
+### `/flex:pairmode lesson`
 
 **When to use:** At the end of a session (or any time) when a meaningful methodology insight has
 emerged — a workflow problem solved, a pattern discovered, a failure mode identified.
@@ -320,7 +320,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 
 ---
 
-### `/anchor:pairmode review`
+### `/flex:pairmode review`
 
 **When to use:** When enough lessons have accumulated to warrant a methodology update cycle —
 typically before a major bootstrap or sync campaign across projects.
@@ -364,7 +364,7 @@ typically before a major bootstrap or sync campaign across projects.
 
 ---
 
-### `/anchor:pairmode reconstruct`
+### `/flex:pairmode reconstruct`
 
 **When to use:** After populating `docs/ideology.md`, or any time the ideology evolves and
 `docs/reconstruction.md` needs refreshing without a full bootstrap.
@@ -396,7 +396,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 
 ---
 
-### `/anchor:pairmode score`
+### `/flex:pairmode score`
 
 **When to use:** After completing a reconstruction implementation, to render a pre-populated
 scoring report ready to fill in.
@@ -419,7 +419,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 
 ---
 
-### `/anchor:pairmode phase-new`
+### `/flex:pairmode phase-new`
 
 > **Note:** `phase-new` is invoked directly via CLI, not through the pairmode skill dispatcher.
 > Correct invocation:
@@ -463,7 +463,7 @@ Optional flags:
 
 ---
 
-### `/anchor:pairmode cer`
+### `/flex:pairmode cer`
 
 > **Note:** `cer` is invoked directly via CLI, not through the pairmode skill dispatcher.
 > Correct invocation:
@@ -535,7 +535,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 
 ---
 
-### `/anchor:pairmode story`
+### `/flex:pairmode story`
 
 > **Note:** `story` is invoked directly via CLI, not through the pairmode skill dispatcher.
 > Correct invocation:
@@ -591,7 +591,7 @@ Followed by `## Acceptance criterion`, `## Instructions`, and `## Tests` section
 
 ---
 
-### `/anchor:pairmode sync-agents`
+### `/flex:pairmode sync-agents`
 
 > **Note:** `sync-agents` is invoked directly via CLI, not through the pairmode skill dispatcher.
 > Correct invocation:
@@ -632,7 +632,7 @@ project-specific body content.
 
 ---
 
-### `/anchor:pairmode drift-report`
+### `/flex:pairmode drift-report`
 
 > **Note:** `drift-report` is invoked directly via CLI, not through the pairmode skill dispatcher.
 > Correct invocation:
@@ -682,7 +682,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 
 ---
 
-### `/anchor:pairmode sync-build`
+### `/flex:pairmode sync-build`
 
 > **Note:** `sync-build` is invoked directly via CLI, not through the pairmode skill dispatcher.
 > Correct invocation:
@@ -728,7 +728,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 
 ---
 
-### `/anchor:pairmode register` / `unregister` / `list-projects`
+### `/flex:pairmode register` / `unregister` / `list-projects`
 
 > **Note:** These three commands are grouped together; they are invoked directly via CLI and manage
 > the `registered_projects` list in anchor's own `.companion/state.json`. Correct invocation:
@@ -810,7 +810,7 @@ Once you have bootstrapped a project and want to track it across methodology upd
 3. **Review the results.** The `--convergent` flag surfaces patterns shared across multiple registered
    projects, with token-efficiency scoring to help prioritize which improvements are most impactful.
 
-4. **Promote convergence candidates to the canonical templates** via `/anchor:pairmode review` (which
+4. **Promote convergence candidates to the canonical templates** via `/flex:pairmode review` (which
    updates pairmode templates in the anchor repo based on lessons learned).
 
 5. **Sync the updated templates back to projects:**

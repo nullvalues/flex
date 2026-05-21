@@ -1212,7 +1212,7 @@ def handle_session_end(event: dict):
     summary_lines.append(f"[dim]session:[/dim] {session_id}")
     summary_lines.append(f"[dim]resume:[/dim]  claude --resume {session_id}")
     summary_lines.append("")
-    summary_lines.append("[dim]saved to incremental.json · will reconcile on next /anchor:companion[/dim]")
+    summary_lines.append("[dim]saved to incremental.json · will reconcile on next /flex:companion[/dim]")
 
     console.print()
     console.print(
@@ -1402,7 +1402,7 @@ def render_startup(state: dict):
             for nn in all_non_negs[:8]:
                 header_lines.append(f"  • {nn}")
     else:
-        header_lines.append("[dim]no spec loaded — run /anchor:companion[/dim]")
+        header_lines.append("[dim]no spec loaded — run /flex:companion[/dim]")
 
     console.print(
         Panel(

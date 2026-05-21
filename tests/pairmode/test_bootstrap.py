@@ -661,7 +661,7 @@ class TestDenyRationaleJson:
     def test_rationale_has_required_keys(self, tmp_path):
         run_bootstrap(tmp_path)
         data = json.loads((tmp_path / ".claude/settings.deny-rationale.json").read_text())
-        assert data["generated_by"] == "anchor:pairmode"
+        assert data["generated_by"] == "flex:pairmode"
         assert data["pairmode_version"] == PAIRMODE_VERSION
         assert isinstance(data["rules"], list)
 

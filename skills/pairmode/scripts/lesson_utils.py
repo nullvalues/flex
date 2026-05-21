@@ -12,7 +12,7 @@ def load_lessons() -> dict:
     if not LESSONS_FILE.exists():
         raise RuntimeError(
             f"lessons.json not found at {LESSONS_FILE}. "
-            "Run '/anchor:pairmode lesson' to capture the first lesson and create it."
+            "Run '/flex:pairmode lesson' to capture the first lesson and create it."
         )
     with open(LESSONS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -58,10 +58,10 @@ def generate_lessons_md(data: dict) -> str:
     """Return a LESSONS.md string generated from *data*.
 
     Format:
-      # Anchor Methodology Lessons
+      # Flex Methodology Lessons
 
       This file is auto-generated from `lessons.json`. Edit `lessons.json` directly
-      or use `/anchor:pairmode lesson` to capture a new lesson.
+      or use `/flex:pairmode lesson` to capture a new lesson.
 
       No lessons captured yet.        ← when lessons list is empty
 
@@ -72,10 +72,10 @@ def generate_lessons_md(data: dict) -> str:
       **Learning:** ...
     """
     lines: list[str] = [
-        "# Anchor Methodology Lessons",
+        "# Flex Methodology Lessons",
         "",
         "This file is auto-generated from `lessons.json`. Edit `lessons.json` directly",
-        "or use `/anchor:pairmode lesson` to capture a new lesson.",
+        "or use `/flex:pairmode lesson` to capture a new lesson.",
         "",
     ]
 

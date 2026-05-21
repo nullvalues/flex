@@ -613,7 +613,7 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
                 file="docs/reconstruction.md",
                 section="__file__",
                 description=(
-                    "docs/reconstruction.md is missing — run /anchor:pairmode reconstruct to generate it"
+                    "docs/reconstruction.md is missing — run /flex:pairmode reconstruct to generate it"
                 ),
             )
         )
@@ -676,7 +676,7 @@ def format_audit_output(result: AuditResult) -> str:
             "  Template body comparison requires a context file to be meaningful."
         )
         lines.append(
-            "  Run /anchor:pairmode bootstrap to generate pairmode_context.json, then re-audit."
+            "  Run /flex:pairmode bootstrap to generate pairmode_context.json, then re-audit."
         )
         lines.append("")
 
@@ -717,7 +717,7 @@ def format_audit_output(result: AuditResult) -> str:
                 "  \u26a0 docs/reconstruction.md: exists but contains only placeholder content"
             )
             lines.append(
-                "    Recommendation: run /anchor:pairmode reconstruct to regenerate it."
+                "    Recommendation: run /flex:pairmode reconstruct to regenerate it."
             )
         lines.append("")
 
@@ -735,7 +735,7 @@ def format_audit_output(result: AuditResult) -> str:
 
     lines.append("RECOMMENDATION")
     lines.append(
-        "  Run /anchor:pairmode sync to apply missing/inconsistent items"
+        "  Run /flex:pairmode sync to apply missing/inconsistent items"
     )
     lines.append("  Project-specific items will be preserved")
 

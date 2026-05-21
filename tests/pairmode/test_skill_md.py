@@ -236,7 +236,7 @@ class TestBootstrapOutputs:
         """docs/phase-prompts.md must not appear in the Bootstrap Outputs list."""
         text = SKILL_MD.read_text(encoding="utf-8")
         # Find the outputs section for bootstrap
-        bootstrap_pos = text.find("### `/anchor:pairmode bootstrap`")
+        bootstrap_pos = text.find("### `/flex:pairmode bootstrap`")
         assert bootstrap_pos != -1
         # Find the next ### section
         next_section = text.find("\n### ", bootstrap_pos + 1)
@@ -249,7 +249,7 @@ class TestBootstrapOutputs:
     def test_actual_output_files_documented(self):
         """Bootstrap Outputs must include the actual files written."""
         text = SKILL_MD.read_text(encoding="utf-8")
-        bootstrap_pos = text.find("### `/anchor:pairmode bootstrap`")
+        bootstrap_pos = text.find("### `/flex:pairmode bootstrap`")
         next_section = text.find("\n### ", bootstrap_pos + 1)
         section = text[bootstrap_pos:next_section] if next_section != -1 else text[bootstrap_pos:]
 
@@ -271,7 +271,7 @@ class TestBootstrapOutputs:
     def test_force_agents_caveat_documented(self):
         """Bootstrap Outputs must note that agent files are skipped unless --force-agents is passed."""
         text = SKILL_MD.read_text(encoding="utf-8")
-        bootstrap_pos = text.find("### `/anchor:pairmode bootstrap`")
+        bootstrap_pos = text.find("### `/flex:pairmode bootstrap`")
         next_section = text.find("\n### ", bootstrap_pos + 1)
         section = text[bootstrap_pos:next_section] if next_section != -1 else text[bootstrap_pos:]
         assert "--force-agents" in section, (
@@ -284,7 +284,7 @@ class TestDispatcherNotes:
 
     def test_phase_new_has_dispatcher_note(self):
         text = SKILL_MD.read_text(encoding="utf-8")
-        phase_new_pos = text.find("### `/anchor:pairmode phase-new`")
+        phase_new_pos = text.find("### `/flex:pairmode phase-new`")
         assert phase_new_pos != -1
         next_section = text.find("\n### ", phase_new_pos + 1)
         section = text[phase_new_pos:next_section] if next_section != -1 else text[phase_new_pos:]
@@ -298,7 +298,7 @@ class TestDispatcherNotes:
 
     def test_cer_has_dispatcher_note(self):
         text = SKILL_MD.read_text(encoding="utf-8")
-        cer_pos = text.find("### `/anchor:pairmode cer`")
+        cer_pos = text.find("### `/flex:pairmode cer`")
         assert cer_pos != -1
         next_section = text.find("\n### ", cer_pos + 1)
         section = text[cer_pos:next_section] if next_section != -1 else text[cer_pos:]

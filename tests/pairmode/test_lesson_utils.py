@@ -146,7 +146,7 @@ class TestGenerateLessonsMd:
     def test_empty_lessons(self):
         from skills.pairmode.scripts.lesson_utils import generate_lessons_md
         md = generate_lessons_md({"version": "1.0.0", "lessons": []})
-        assert "# Anchor Methodology Lessons" in md
+        assert "# Flex Methodology Lessons" in md
         assert "auto-generated" in md
         assert "No lessons captured yet." in md
 

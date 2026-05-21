@@ -1,5 +1,5 @@
 ---
-name: anchor:seed
+name: flex:seed
 description: Bootstrap the Context Companion canonical spec for a product. Use this skill when the developer runs /seed or asks to bootstrap the companion, initialize the spec, seed the project spec, set up the canonical spec, or start the context companion for the first time. Also triggers when developer says things like "build the module registry", "mine my sessions", "bootstrap from existing sessions", or "set up companion for this project". This skill reads the codebase to build a module registry, mines all historical Claude Code sessions for decisions and rules, and produces a canonical OpenSpec that becomes the source of truth for all companion roles.
 argument-hint: [product name]
 allowed-tools: AskUserQuestion, Bash, Read, Write, Task

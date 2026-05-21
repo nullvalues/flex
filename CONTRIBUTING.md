@@ -30,7 +30,7 @@ Lessons capture a methodology improvement: something that surfaced during a
 build, review, or post-mortem and that should change how future work is done.
 
 ```bash
-/anchor:pairmode lesson
+/flex:pairmode lesson
 ```
 
 The skill walks you through:
@@ -49,7 +49,7 @@ Template changes follow a four-step path: lesson, review, annotation,
 implementation.
 
 1. **Capture a lesson** for the underlying motivation (see above).
-2. **Run `/anchor:pairmode review`.** This surfaces open lessons and proposes
+2. **Run `/flex:pairmode review`.** This surfaces open lessons and proposes
    which templates or scripts they imply changes to.
 3. **Annotate the relevant template.** `lesson_review.py` does not edit
    templates directly — it leaves a comment block at the top of the affected
