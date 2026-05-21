@@ -22,6 +22,7 @@ primary_files:
   - skills/pairmode/scripts/cer.py
   - skills/pairmode/scripts/record_attempt.py
   - skills/pairmode/scripts/bootstrap.py
+  - skills/pairmode/scripts/spec_exception.py
   - hooks/session_start.py
   - .claude/agents/security-auditor.md
   - skills/pairmode/templates/agents/security-auditor.md.j2

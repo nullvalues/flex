@@ -315,6 +315,7 @@ PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q
 - `skills/pairmode/scripts/cer.py`
 - `skills/pairmode/scripts/record_attempt.py`
 - `skills/pairmode/scripts/bootstrap.py` (local var `anchor_root` only — broader bootstrap.py changes are in INFRA-089)
+- `skills/pairmode/scripts/spec_exception.py` (one comment with `PYTHONPATH=/mnt/work/anchor` — substitution 3)
 - `hooks/session_start.py` (PROTECTED — reason stated above)
 - `.claude/agents/security-auditor.md` (`$HOME/.anchor/auth.json` reference only)
 - `skills/pairmode/templates/agents/security-auditor.md.j2` (same)
