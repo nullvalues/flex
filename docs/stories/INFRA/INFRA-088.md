@@ -2,7 +2,7 @@
 id: INFRA-088
 rail: INFRA
 title: "Filesystem paths and identifier rename (_ANCHOR_ROOT, ~/.anchor, /tmp/anchor_*, ANCHOR_PROJECT_*)"
-status: planned
+status: complete
 phase: "35"
 story_class: code
 primary_files:

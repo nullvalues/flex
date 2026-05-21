@@ -156,7 +156,7 @@ def load_lessons() -> list[dict]:
     if not LESSONS_FILE.exists():
         raise RuntimeError(
             f"lessons.json not found at {LESSONS_FILE}. "
-            "Run '/anchor:pairmode lesson' to capture the first lesson and create it."
+            "Run '/flex:pairmode lesson' to capture the first lesson and create it."
         )
     # ... rest of existing implementation
 ```
