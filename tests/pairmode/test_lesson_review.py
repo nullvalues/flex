@@ -840,7 +840,7 @@ class TestRunDriftPromotion:
         def fake_input(prompt):
             return next(answers)
 
-        # Use tmp_path as the "anchor" project root
+        # Use tmp_path as the "flex" project root
         lr.run_drift_promotion(
             project_dirs=[tmp_path],
             project_dir=tmp_path,

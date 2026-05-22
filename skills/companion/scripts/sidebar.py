@@ -312,7 +312,7 @@ def build_chart(mini: MiniSession, loaded_modules: list[str]) -> Panel:
         lines.append(f"  [dim yellow]{mini.status}[/dim yellow]")
 
     content = "\n".join(lines) if lines else "[dim]waiting for file changes...[/dim]"
-    return Panel(content, title="[bold]anchor[/bold]", border_style="dim", box=box.ROUNDED)
+    return Panel(content, title="[bold]flex[/bold]", border_style="dim", box=box.ROUNDED)
 
 
 def update_mini_session(mini: MiniSession, event: dict, loaded_modules: list[str]):
@@ -1452,7 +1452,7 @@ def main():
 
     console.print()
     console.print("[#d75f00]        ◉[/#d75f00]")
-    console.print("[#d75f00]       ━┿━[/#d75f00]     [bold #d75f00]Anchor[/bold #d75f00] [dim]v0.1.0[/dim]")
+    console.print("[#d75f00]       ━┿━[/#d75f00]     [bold #d75f00]Flex[/bold #d75f00] [dim]v0.1.0[/dim]")
     console.print("[#d75f00]        │[/#d75f00]      [dim]context companion[/dim]")
     console.print("[#d75f00]        │[/#d75f00]")
     console.print("[#d75f00]    ╭╴  │  ╶╮[/#d75f00]")

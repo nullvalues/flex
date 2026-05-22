@@ -1,4 +1,4 @@
-"""Lesson capture script for anchor pairmode.
+"""Lesson capture script for flex pairmode.
 
 Captures a methodology lesson, appends it to lessons.json, and regenerates LESSONS.md.
 

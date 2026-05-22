@@ -22,8 +22,8 @@ from pairmode_sync import sync_agents, _split_agent_file, _extract_frontmatter_b
 # Helpers
 # ---------------------------------------------------------------------------
 
-ANCHOR_ROOT = pathlib.Path(__file__).parent.parent.parent
-TEMPLATES_DIR = ANCHOR_ROOT / "skills" / "pairmode" / "templates" / "agents"
+_REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
+TEMPLATES_DIR = _REPO_ROOT / "skills" / "pairmode" / "templates" / "agents"
 
 
 def _make_project(tmp_path: pathlib.Path) -> pathlib.Path:

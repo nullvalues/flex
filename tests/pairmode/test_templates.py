@@ -43,7 +43,7 @@ CLAUDE_BUILD_MD_CONTEXT = {
     "build_command": "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q",
     "test_command": "PATH=$HOME/.local/bin:$PATH uv run pytest tests/ -x -q",
     "migration_command": "uv run alembic upgrade head",
-    "pairmode_scripts_dir": "/path/to/anchor/skills/pairmode/scripts",
+    "pairmode_scripts_dir": "/path/to/flex/skills/pairmode/scripts",
 }
 
 CLAUDE_BUILD_MD_NO_MIGRATION_CONTEXT = {
@@ -51,7 +51,7 @@ CLAUDE_BUILD_MD_NO_MIGRATION_CONTEXT = {
     "build_command": "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q",
     "test_command": "PATH=$HOME/.local/bin:$PATH uv run pytest tests/ -x -q",
     "migration_command": "",
-    "pairmode_scripts_dir": "/path/to/anchor/skills/pairmode/scripts",
+    "pairmode_scripts_dir": "/path/to/flex/skills/pairmode/scripts",
 }
 
 
@@ -402,7 +402,7 @@ class TestClaudeBuildMdNoMigration:
 
 class TestClaudeBuildMdFallbackPolicyPointer:
     """Story INFRA-041: CLAUDE.build.md.j2 contains the same one-line fallback
-    note that INFRA-033 added to anchor's own CLAUDE.build.md, so future
+    note that INFRA-033 added to flex's own CLAUDE.build.md, so future
     pairmode bootstraps inherit the orchestrator-level pointer."""
 
     def setup_method(self):
@@ -423,7 +423,7 @@ class TestClaudeBuildMdFallbackPolicyPointer:
 # ---------------------------------------------------------------------------
 
 class TestClaudeBuildMdPreReviewerCommitDiscipline:
-    """Story INFRA-042: CLAUDE.build.md.j2 (and anchor's own CLAUDE.build.md)
+    """Story INFRA-042: CLAUDE.build.md.j2 (and flex's own CLAUDE.build.md)
     encode an explicit pre-reviewer step that commits any uncommitted
     methodology files and runs `git checkout -- lessons/` before the reviewer
     is spawned. Backs the architecture-doc claim about "pre-reviewer commit
@@ -438,17 +438,17 @@ class TestClaudeBuildMdPreReviewerCommitDiscipline:
     def test_rendered_template_contains_git_checkout_lessons(self):
         assert "git checkout -- lessons/" in self.output
 
-    def test_anchor_claude_build_md_contains_methodology_commit_message(self):
-        anchor_build_md = (
+    def test_flex_claude_build_md_contains_methodology_commit_message(self):
+        flex_build_md = (
             pathlib.Path(__file__).parent.parent.parent / "CLAUDE.build.md"
         ).read_text(encoding="utf-8")
-        assert "pre-reviewer methodology file commit" in anchor_build_md
+        assert "pre-reviewer methodology file commit" in flex_build_md
 
-    def test_anchor_claude_build_md_contains_git_checkout_lessons(self):
-        anchor_build_md = (
+    def test_flex_claude_build_md_contains_git_checkout_lessons(self):
+        flex_build_md = (
             pathlib.Path(__file__).parent.parent.parent / "CLAUDE.build.md"
         ).read_text(encoding="utf-8")
-        assert "git checkout -- lessons/" in anchor_build_md
+        assert "git checkout -- lessons/" in flex_build_md
 
 
 # ---------------------------------------------------------------------------
@@ -2021,25 +2021,25 @@ class TestAgentTemplateFallbackComments:
 
 
 class TestEffortTrackingWiring:
-    """Story INFRA-030: anchor's CLAUDE.build.md, the rendered
+    """Story INFRA-030: flex's CLAUDE.build.md, the rendered
     CLAUDE.build.md.j2 template, and docs/architecture.md must wire effort
     recording into the build loop after each builder spawn and each reviewer
     spawn, and document the data model."""
 
-    def test_anchor_claude_build_md_records_after_builder_and_reviewer(self):
-        anchor_build_md = (REPO_ROOT / "CLAUDE.build.md").read_text(encoding="utf-8")
+    def test_flex_claude_build_md_records_after_builder_and_reviewer(self):
+        flex_build_md = (REPO_ROOT / "CLAUDE.build.md").read_text(encoding="utf-8")
         # record_attempt.py must appear at least twice — once after the builder
         # spawn instruction (Step 1) and once after the reviewer spawn (Step 2).
-        assert anchor_build_md.count("record_attempt.py") >= 2, (
+        assert flex_build_md.count("record_attempt.py") >= 2, (
             "CLAUDE.build.md: expected at least 2 references to record_attempt.py "
             "(after builder spawn and after reviewer spawn); found "
-            f"{anchor_build_md.count('record_attempt.py')}"
+            f"{flex_build_md.count('record_attempt.py')}"
         )
         # Both invocations must be properly tagged by --agent-role.
-        assert "--agent-role builder" in anchor_build_md, (
+        assert "--agent-role builder" in flex_build_md, (
             "CLAUDE.build.md: expected `--agent-role builder` invocation"
         )
-        assert "--agent-role reviewer" in anchor_build_md, (
+        assert "--agent-role reviewer" in flex_build_md, (
             "CLAUDE.build.md: expected `--agent-role reviewer` invocation"
         )
 
@@ -2105,15 +2105,15 @@ class TestClaudeBuildMdSpecReviewStep:
     def test_raw_template_contains_spec_review_heading(self):
         assert "Spec review" in self.raw
 
-    def test_anchor_claude_build_md_contains_spec_review(self):
-        anchor_build_md = (REPO_ROOT / "CLAUDE.build.md").read_text(encoding="utf-8")
-        assert "Spec review" in anchor_build_md
+    def test_flex_claude_build_md_contains_spec_review(self):
+        flex_build_md = (REPO_ROOT / "CLAUDE.build.md").read_text(encoding="utf-8")
+        assert "Spec review" in flex_build_md
 
-    def test_anchor_claude_build_md_spec_review_in_before_loop_section(self):
-        anchor_build_md = (REPO_ROOT / "CLAUDE.build.md").read_text(encoding="utf-8")
-        before_start = anchor_build_md.index("## Before the first build loop")
-        model_eval_start = anchor_build_md.index("## Model evaluation")
-        before_section = anchor_build_md[before_start:model_eval_start]
+    def test_flex_claude_build_md_spec_review_in_before_loop_section(self):
+        flex_build_md = (REPO_ROOT / "CLAUDE.build.md").read_text(encoding="utf-8")
+        before_start = flex_build_md.index("## Before the first build loop")
+        model_eval_start = flex_build_md.index("## Model evaluation")
+        before_section = flex_build_md[before_start:model_eval_start]
         assert "Spec review" in before_section
 
     def test_architecture_doc_mentions_spec_review_step(self):

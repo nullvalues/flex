@@ -7,17 +7,17 @@ from pathlib import Path
 
 import pytest
 
-# Ensure the anchor root is on sys.path so sidebar.py's _REPO_ROOT insertion
+# Ensure the repo root is on sys.path so sidebar.py's _REPO_ROOT insertion
 # (and our own imports from skills/) work correctly.
-ANCHOR_ROOT = Path(__file__).parent.parent.parent
-if str(ANCHOR_ROOT) not in sys.path:
-    sys.path.insert(0, str(ANCHOR_ROOT))
+_REPO_ROOT = Path(__file__).parent.parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 # sidebar.py lives in skills/companion/scripts/.  It uses a script-block header
 # that uv run processes but plain import ignores. We import the module directly;
 # the Rich dependency must already be available (it is listed in sidebar.py's
 # inline dependency block and installed in the uv environment).
-SIDEBAR_DIR = ANCHOR_ROOT / "skills" / "companion" / "scripts"
+SIDEBAR_DIR = _REPO_ROOT / "skills" / "companion" / "scripts"
 if str(SIDEBAR_DIR) not in sys.path:
     sys.path.insert(0, str(SIDEBAR_DIR))
 

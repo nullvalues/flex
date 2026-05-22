@@ -1732,8 +1732,8 @@ class TestConvictionFlagRegressionStillWorks:
 # ---------------------------------------------------------------------------
 
 
-def test_from_reconstruction_e2e_against_anchor_brief(tmp_path):
-    """Integration: runs bootstrap --from-reconstruction against anchor's own
+def test_from_reconstruction_e2e_against_flex_brief(tmp_path):
+    """Integration: runs bootstrap --from-reconstruction against flex's own
     docs/reconstruction.md and asserts the round-trip produces a populated
     docs/ideology.md containing real conviction content."""
     import re
@@ -1780,7 +1780,7 @@ def test_from_reconstruction_e2e_against_anchor_brief(tmp_path):
         bootstrap,
         [
             "--project-dir", str(tmp_path),
-            "--project-name", "anchor-reconstruction-test",
+            "--project-name", "flex-reconstruction-test",
             "--stack", "Python / uv",
             "--build-command", "uv run pytest",
             "--from-reconstruction", str(brief_path),

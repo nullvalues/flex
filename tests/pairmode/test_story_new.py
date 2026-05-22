@@ -395,7 +395,7 @@ class TestSourceFlag:
             [
                 "--rail", "INFRA",
                 "--title", "Promoted story",
-                "--source", "anchor-self",
+                "--source", "flex-self",
                 "--project-dir", str(tmp_path),
             ]
         )
@@ -405,7 +405,7 @@ class TestSourceFlag:
         parts = content.split("---")
         assert len(parts) >= 3, "Expected frontmatter delimiters"
         frontmatter_block = parts[1]
-        assert "source: anchor-self" in frontmatter_block
+        assert "source: flex-self" in frontmatter_block
 
     def test_source_omitted_no_field_in_frontmatter(self, tmp_path: pathlib.Path) -> None:
         """When --source is omitted, source does not appear in frontmatter at all."""

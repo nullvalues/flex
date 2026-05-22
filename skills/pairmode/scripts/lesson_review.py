@@ -1,4 +1,4 @@
-"""Lesson review script for anchor pairmode.
+"""Lesson review script for flex pairmode.
 
 Surfaces captured lessons grouped by affects, proposes template edits,
 and writes approved updates to the templates.  After the lesson review
@@ -250,7 +250,7 @@ def run_drift_promotion(
 
     Args:
         project_dirs: Validated project directories to analyse.
-        project_dir: The anchor project root (where .pairmode-drift-rejected lives).
+        project_dir: The flex project root (where .pairmode-drift-rejected lives).
         drift_report_fn: Callable matching ``drift_report(project_dirs, convergent, output_format)``.
             Defaults to the real ``pairmode_drift_report.drift_report``.
         create_story_fn: Callable matching ``create_story(rail, title, project_dir, ...)``.
@@ -349,7 +349,7 @@ def drift_promotion_step(project_dir: Path, **kwargs) -> None:
     prints a note and returns without error.
 
     Args:
-        project_dir: The anchor project root.
+        project_dir: The flex project root.
         **kwargs: Forwarded to ``run_drift_promotion`` (for testing overrides).
     """
     from skills.pairmode.scripts.story_context import read_state
@@ -404,7 +404,7 @@ def drift_promotion_step(project_dir: Path, **kwargs) -> None:
     "--project-dir",
     default=".",
     type=click.Path(exists=True, file_okay=False),
-    help="Root directory of the anchor project (used for drift detection).",
+    help="Root directory of the flex project (used for drift detection).",
 )
 @click.option(
     "--skip-drift",

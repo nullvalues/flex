@@ -4,10 +4,10 @@
     {
       "id": "L001",
       "date": "2026-04-20",
-      "source_project": "anchor",
+      "source_project": "flex",
       "trigger": "Ran audit against cora \u2014 a project with pairmode scaffold but no pairmode_context.json",
       "problem": "44 INCONSISTENT findings for every section body because fallback context renders all template variables as empty strings. The output is confusing \u2014 it looks like everything needs repair, when really the project just needs to be bootstrapped with pairmode to generate the context file.",
-      "learning": "When audit detects no pairmode_context.json, it should emit a prominent warning: 'No pairmode_context.json found \u2014 template body comparison will show false INCONSISTENT for all variable-bearing sections. Bootstrap this project with /anchor:pairmode to fix.' MISSING and EXTRA findings remain reliable; INCONSISTENT findings require a context file to be meaningful.",
+      "learning": "When audit detects no pairmode_context.json, it should emit a prominent warning: 'No pairmode_context.json found \u2014 template body comparison will show false INCONSISTENT for all variable-bearing sections. Bootstrap this project with /flex:pairmode to fix.' MISSING and EXTRA findings remain reliable; INCONSISTENT findings require a context file to be meaningful.",
       "methodology_change": {
         "affects": [
           "audit.py"
@@ -22,7 +22,7 @@
     {
       "id": "L002",
       "date": "2026-04-20",
-      "source_project": "anchor",
+      "source_project": "flex",
       "trigger": "Ran audit against radar and forqsite \u2014 projects with pairmode scaffold",
       "problem": "INCONSISTENT findings include entries with section keys like '---' and '---__0'. These are separator lines (_split_sections treats '---' as a section delimiter and the text after it as the section body). Users see 'Section --- content differs from canonical template' and cannot tell what content is being compared or where to look in the file.",
       "learning": "The _split_sections output uses '---' as section keys in audit output. These entries are hard to interpret. Either: (a) skip separator-keyed sections from INCONSISTENT comparison since --- separators carry no semantic content, or (b) display the surrounding context (what section comes before/after) when reporting --- inconsistencies.",
@@ -40,8 +40,8 @@
     {
       "id": "L003",
       "date": "2026-04-21",
-      "source_project": "anchor",
-      "trigger": "Bootstrap dogfood on anchor \u2014 re-running after bug fixes",
+      "source_project": "flex",
+      "trigger": "Bootstrap dogfood on flex \u2014 re-running after bug fixes",
       "problem": "Bootstrap overwrote hand-authored .claude/agents/ files with template output that was strictly worse: truncated checklist names, empty layer-rule sections, build_command interpolated into prose.",
       "learning": "For mature projects, templates are a starting point, not a replacement. Files that already exist should be skipped by default (same as CLAUDE.md/CLAUDE.build.md), or bootstrap should warn before overwriting hand-authored content.",
       "methodology_change": {
@@ -58,7 +58,7 @@
     {
       "id": "L004",
       "date": "2026-04-21",
-      "source_project": "anchor",
+      "source_project": "flex",
       "trigger": "Bootstrap dogfood \u2014 builder.md Python standards section",
       "problem": "builder.md template uses {{ build_command }} inside the 'All Python execution uses ...' prose, producing 'All Python execution uses PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/'. The build command is not the Python runtime.",
       "learning": "Template variables should be scoped to their semantic slot. build_command belongs in the build-gate section only; the Python standards section should hardcode 'uv run'.",
@@ -76,7 +76,7 @@
     {
       "id": "L005",
       "date": "2026-04-21",
-      "source_project": "anchor",
+      "source_project": "flex",
       "trigger": "Bootstrap dogfood \u2014 reviewer.md checklist from spec non-negotiables",
       "problem": "checklist_deriver produces items whose 'name' field is the first N chars of the non-negotiable text, truncated mid-sentence. reviewer.md became a 595-line wall of truncated constraint prose instead of a human-readable checklist.",
       "learning": "Non-negotiables are constraints, not checklist item names. The reviewer checklist needs human-authored label + short action question, not raw spec text. checklist_deriver should either produce module-scoped labels (e.g. 'companion-skill: spec write isolation') or not populate the reviewer checklist at all \u2014 leaving that to the human.",
@@ -94,8 +94,8 @@
     {
       "id": "L006",
       "date": "2026-04-21",
-      "source_project": "anchor",
-      "trigger": "Dogfood audit run on anchor after clean bootstrap",
+      "source_project": "flex",
+      "trigger": "Dogfood audit run on flex after clean bootstrap",
       "problem": "Audit reports INCONSISTENT for every hand-authored section that is richer than the template. It cannot distinguish 'unintentional drift' from 'intentional override with better content'. Result: a mature project sees constant audit noise it can never resolve without degrading its docs.",
       "learning": "Audit needs a way to mark sections as intentionally overridden. Without that signal, any project that customises its scaffold will permanently live in a noisy INCONSISTENT state, eroding trust in the tool.",
       "methodology_change": {
@@ -112,8 +112,8 @@
     {
       "id": "L007",
       "date": "2026-04-21",
-      "source_project": "anchor",
-      "trigger": "Dogfood pairmode on multiple projects simultaneously \u2014 anchor + ud running at same time",
+      "source_project": "flex",
+      "trigger": "Dogfood pairmode on multiple projects simultaneously \u2014 flex + ud running at same time",
       "problem": "All hook scripts wrote to /tmp/companion.pipe, and pgrep -f sidebar.py checked for any sidebar process. With two projects running, all events from both projects merged into one sidebar window. The wrong project's spec was shown for every event.",
       "learning": "The pipe path must be scoped to the project directory. Each project gets its own pipe derived from an 8-char md5 hash of the project dir. The sidebar reads its own pipe only. Hooks read the pipe_path from .companion/state.json at startup.",
       "methodology_change": {
@@ -122,7 +122,7 @@
           "sidebar",
           "bootstrap"
         ],
-        "description": "Per-project pipe isolation: compute PIPE_PATH = /tmp/companion-<md5hash>.pipe from project dir. Hooks read pipe_path from .companion/state.json (with /tmp/companion.pipe fallback). Sidebar writes pipe_path to state.json at startup. start_sidebar.sh passes --project-dir and uses per-project /tmp/anchor_project_dir_<hash> temp file."
+        "description": "Per-project pipe isolation: compute PIPE_PATH = /tmp/companion-<md5hash>.pipe from project dir. Hooks read pipe_path from .companion/state.json (with /tmp/companion.pipe fallback). Sidebar writes pipe_path to state.json at startup. start_sidebar.sh passes --project-dir and uses per-project /tmp/flex_project_dir_<hash> temp file."
       },
       "applies_to": [
         "all"
@@ -151,7 +151,7 @@
     {
       "id": "L009",
       "date": "2026-05-04",
-      "source_project": "anchor",
+      "source_project": "flex",
       "trigger": "Cross-project audit (cora, radar, forqsite) of .claude/agents/ configurations",
       "problem": "Pairmode templates pinned only the builder to sonnet, leaving reviewer-class agents to inherit the orchestrator's model. If the orchestrator ran on sonnet (efficiency reasons), the entire quality gate ran on sonnet, losing the judgment-quality benefit.",
       "learning": "Model selection should be explicit per role, not inherited. Volume work (builder) -> sonnet for compute efficiency. Judgment work (reviewer, intent-reviewer, loop-breaker, security-auditor) -> opus for judgment quality. Inheritance from the orchestrator is a silent capability leak. Add a documented fallback policy: if the preferred model is rate-limited, fall back one tier (Opus -> Sonnet on reviewers; Sonnet -> Haiku on builder), never below Haiku.",
@@ -169,7 +169,7 @@
     {
       "id": "L010",
       "date": "2026-05-04",
-      "source_project": "anchor",
+      "source_project": "flex",
       "trigger": "Forqsite restricted reviewer tools to [Read, Grep, Glob, Bash]; cora and radar did not. Cross-project audit surfaced the divergence.",
       "problem": "Reviewers with full tool access can \"fix\" failing code (edit a test until it passes, edit production until the test passes) instead of reverting, hiding the real failure. Concrete example: a reviewer faced with a failing assertion can edit the assertion to match the (wrong) actual output and commit, presenting a green test that no longer tests the invariant. This compromises the commit-or-revert contract.",
       "learning": "Reviewer-class agents should be limited to read-only tools plus Bash. Bash preserves the commit-or-revert capability via git; Edit/Write removal closes the \"reviewer backdoor\" failure mode. This is layered with the orchestrator's pre-reviewer commit discipline (which protects against accidental erasure of uncommitted methodology files) \u2014 neither layer alone is sufficient.",
@@ -187,7 +187,7 @@
     {
       "id": "L011",
       "date": "2026-05-05",
-      "source_project": "anchor",
+      "source_project": "flex",
       "trigger": "User observed total opus:sonnet usage running at roughly 3:2, exceeding the Opus quota relative to the Sonnet quota. Methodology had Phase 21 baseline of \"reviewer-class agents -> opus, builder -> sonnet\" applied uniformly across all reviews.",
       "problem": "Treating every review as judgment work overcommits opus on routine cases. Most reviewer passes catch nothing (most builders produce correct work). Per-story reviewer work is mechanical (diff matches spec, tests pass, checklist OK, commit) and within Sonnet's capability. Intent-reviewer and security-auditor at routine checkpoints are similarly mechanical. The result: opus consumption disproportionate to the value it adds, leaving Sonnet quota underutilised.",
       "learning": "Model selection should be sonnet baseline, opus on demand, not the inverse. Reserve opus for explicit upgrade triggers where the judgment edge actually matters: story retries (sonnet missed it the first time), pre-PR audits (last cold-eyes before code leaves the repo), mid-phase spec pivots (the spec itself moved), and production-code phases for security-auditor. Loop-breaker stays opus permanently because by the time it fires the case is by definition hard.",
@@ -205,7 +205,7 @@
     {
       "id": "L012",
       "date": "2026-05-07",
-      "source_project": "anchor",
+      "source_project": "flex",
       "trigger": "Phase 23 INFRA-044 / LESSON-004 documented model upgrade triggers in prose. Phase 24 made them structural and data-defensible, adding per-story model evaluation (INFRA-050) and an efficiency-ratio report (INFRA-049) to close the feedback loop.",
       "problem": "Methodology decisions in prose are unauditable in either direction. \"Most reviews catch nothing\" was either true or false \u2014 no way to know without measurement. Without measurement, the next person to question the methodology has only the same intuitions to argue with. The same applies to cost: \"haiku is fine for doc stories\" is a claim that needs a retry-rate check to validate, not just intuition.",
       "learning": "A methodology lifecycle worth codifying: (1) Ship the change under intuition. (2) Capture the rationale as a lesson. (3) Instrument the relevant signal. (4) Wait for data to accrue (\u2265 2 phases). (5) Validate the methodology against the data. (6) Formalize, refine, or reverse based on findings. The goal is not minimum cost (that sacrifices quality and causes rework) and not maximum intelligence (that wastes budget on trivial work). It is best outcome per token \u2014 optimising the efficiency ratio: PASS rate / cost. This framing is stable even as model prices and capabilities shift; the thresholds in the decision table are the thing that changes, not the objective.",
@@ -225,8 +225,8 @@
     {
       "id": "L013",
       "date": "2026-05-07",
-      "source_project": "anchor",
-      "trigger": "Phase 24 session start revealed that anchor's own `.claude/agents/` files had no `model:` frontmatter, and forqsite/radar still carried pre-INFRA-044 opus reviewer assignments \u2014 despite INFRA-044 having updated the templates.",
+      "source_project": "flex",
+      "trigger": "Phase 24 session start revealed that flex's own `.claude/agents/` files had no `model:` frontmatter, and forqsite/radar still carried pre-INFRA-044 opus reviewer assignments \u2014 despite INFRA-044 having updated the templates.",
       "problem": "Pairmode templates and bootstrapped project files diverge silently after any template update. There is no mechanism to propagate changes to existing projects short of manual edits or a full re-bootstrap. The drift is invisible until a session starts and the wrong model is used.",
       "learning": "Two complementary patterns close the gap: (1) a sync command that re-renders template frontmatter into existing agent files on demand; (2) a note in the methodology that any template change affecting agent behaviour should be followed by a `pairmode sync-agents` run on all active projects. The sync command is idempotent \u2014 running it twice produces no further changes.",
       "value_framing": "Template updates that affect build behaviour (model selection, tool restrictions, upgrade triggers) must propagate to existing projects or the update has only partial effect. The effort spent tuning templates is wasted if projects accumulate stale copies.",
@@ -246,7 +246,7 @@
     {
       "id": "L014",
       "date": "2026-05-13",
-      "source_project": "anchor",
+      "source_project": "flex",
       "trigger": "INFRA-077 required updating lessons.json status fields and regenerating LESSONS.md. The builder ran lesson_utils.py as a script and assumed it worked because exit code was 0.",
       "problem": "lesson_utils.py has no __main__ block \u2014 running it as a script exits 0 silently and does nothing. The builder used `echo \"LESSONS.md regenerated\"` after `&&`, which printed the message regardless, masking the no-op. Separately, json.dump with ensure_ascii=False expands \u2014 escape sequences to literal UTF-8 bytes, making the round-tripped JSON appear to mutate non-status content fields \u2014 triggering the lessons integrity guard on reviewer #1.",
       "learning": "When a utility module has no __main__ block, running it as a script is a no-op. To call generate_lessons_md and write LESSONS.md: import the function directly and write the output in the same Python invocation. Always use json.dumps(..., ensure_ascii=True) when writing lessons.json to preserve existing \\uXXXX escape sequences byte-for-byte. Never confirm success with a shell echo after &&; verify by reading the output file.",
@@ -285,8 +285,8 @@
     {
       "id": "L016",
       "date": "2026-05-18",
-      "source_project": "anchor",
-      "trigger": "Reviewing L005 marker hygiene during forqsite session 2026-05-18. Found that L005's marker in CLAUDE.md.j2 points at the wrong file \u2014 the actual implementation correctly landed in agents/reviewer.md.j2. Also realized L015 was implemented directly (template edits written outside the /anchor:pairmode review flow), leaving its status as 'captured' despite the change being live in the canonical templates.",
+      "source_project": "flex",
+      "trigger": "Reviewing L005 marker hygiene during forqsite session 2026-05-18. Found that L005's marker in CLAUDE.md.j2 points at the wrong file \u2014 the actual implementation correctly landed in agents/reviewer.md.j2. Also realized L015 was implemented directly (template edits written outside the /flex:pairmode review flow), leaving its status as 'captured' despite the change being live in the canonical templates.",
       "problem": "Two related gaps in lesson_review.py: (1) markers are append-only \u2014 they are never removed or transformed when status flips to 'applied', so stale markers accumulate in templates and may trick future maintainers into re-implementing already-applied changes; (2) affects\u2192template file mapping is too coarse \u2014 'reviewer_checklist' maps only to CLAUDE.md.j2, but the actual implementation of review-flow changes often belongs in agents/reviewer.md.j2, so the marker lands in the wrong file. Plus a missing affordance: no flag for 'I implemented this directly, just mark it applied', forcing either redundant markers (via --approve) or manual JSON edits.",
       "learning": "Markers are 'pending work' signals and must be lifecycle-managed. When a lesson flips to 'applied' the marker should either be removed entirely or transformed into a brief breadcrumb ({# LESSON LNNN APPLIED YYYY-MM-DD in <file> #}). Affects keys should be granular enough that markers land near where the actual change is most likely to happen. And there must be a clean path to declare a lesson applied when the change was implemented directly without going through review's annotation step.",
       "methodology_change": {

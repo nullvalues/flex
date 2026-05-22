@@ -21,13 +21,13 @@ re-scaffolding a project after a major methodology revision.
 **Inputs expected:**
 - `.companion/product.json` in the target project — used to populate project-specific values in
   the scaffold (project name, description, tech stack, team conventions).
-- The project's Anchor spec (`openspec/specs/`) if available — used to derive non-negotiables
+- The project's Flex spec (`openspec/specs/`) if available — used to derive non-negotiables
   for the deny list in `.claude/settings.json`.
 - Target project root path (prompted if not provided).
 
 **What it does:**
 1. Reads `.companion/product.json` from the target project.
-2. Reads the project's Anchor spec if available; falls back to blank-slate defaults if not.
+2. Reads the project's Flex spec if available; falls back to blank-slate defaults if not.
 3. Renders all Jinja2 templates in `skills/pairmode/templates/` against the project context.
 4. Generates the deny list in `.claude/settings.json` from spec non-negotiables, each rule
    annotated with a comment linking it to the source non-negotiable.
@@ -272,12 +272,12 @@ emerged — a workflow problem solved, a pattern discovered, a failure mode iden
 - **source_project** — (optional) the project that produced this lesson; defaults to `unknown`.
 
 **What it does:**
-1. Loads the current `anchor/lessons/lessons.json`.
+1. Loads the current `flex/lessons/lessons.json`.
 2. Generates the next sequential lesson ID (L001, L002, …).
 3. Constructs a lesson entry with `id`, `date` (today), `source_project`, `trigger`, `problem`,
    `learning`, `methodology_change` (with `affects` and `description`), `applies_to`, and
    `status: captured`.
-4. Appends the entry to `anchor/lessons/lessons.json` via `lesson_utils.save_lessons()`, which
+4. Appends the entry to `flex/lessons/lessons.json` via `lesson_utils.save_lessons()`, which
    enforces the append-only invariant (existing entries may only have `status` changed).
 5. Calls `lesson_utils.generate_lessons_md()` and writes the result to `lessons/LESSONS.md`.
 6. Returns the captured lesson dict and prints a confirmation with the lesson `id`.
@@ -314,7 +314,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 ```
 
 **Outputs:**
-- New entry appended to `anchor/lessons/lessons.json`.
+- New entry appended to `flex/lessons/lessons.json`.
 - `lessons/LESSONS.md` regenerated from the updated lessons store.
 - Confirmation message with the lesson `id` printed to stdout.
 
@@ -326,14 +326,14 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 typically before a major bootstrap or sync campaign across projects.
 
 **Inputs expected:**
-- `anchor/lessons/lessons.json` — must exist with at least one lesson with `status: captured`
+- `flex/lessons/lessons.json` — must exist with at least one lesson with `status: captured`
   or `status: reviewed`.
 - User approval or rejection for each proposed template change (handled via AskUserQuestion
   in the skill; `lesson_review.py` provides the underlying logic).
 
 **What it does:**
 1. Calls `load_reviewable_lessons()` — loads all lessons with `status: captured` or
-   `status: reviewed` from `anchor/lessons/lessons.json`.
+   `status: reviewed` from `flex/lessons/lessons.json`.
 2. Calls `group_lessons_by_affects()` — groups lessons by the `methodology_change.affects`
    values. A lesson with `affects: ["all"]` appears under every known affects key
    (`reviewer_checklist`, `builder_agent`, `orchestrator`, `checkpoint_sequence`).
@@ -528,7 +528,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 
 **Outputs:**
 - Jinja2 comment blocks appended to affected template files in `skills/pairmode/templates/`.
-- Updated `status` fields in `anchor/lessons/lessons.json` (via `lesson_utils.save_lessons()`,
+- Updated `status` fields in `flex/lessons/lessons.json` (via `lesson_utils.save_lessons()`,
   which enforces the append-only invariant).
 - `lessons/LESSONS.md` regenerated from the updated lessons store.
 - A review summary printed to stdout.
@@ -600,7 +600,7 @@ Followed by `## Acceptance criterion`, `## Instructions`, and `## Tests` section
 >   sync-agents --project-dir "$(pwd)"
 > ```
 
-**When to use:** When the canonical agent templates in the anchor repo have been updated and you
+**When to use:** When the canonical agent templates in the flex repo have been updated and you
 want to propagate those changes to a project's `.claude/agents/` files without overwriting
 project-specific body content.
 
@@ -691,7 +691,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 >   sync-build --project-dir "$(pwd)" [--dry-run] [--apply] [--yes]
 > ```
 
-**When to use:** After a CLAUDE.build.md template update in the anchor repo, to propagate those
+**When to use:** After a CLAUDE.build.md template update in the flex repo, to propagate those
 changes to a bootstrapped project's `CLAUDE.build.md` without overwriting project-specific content.
 
 **Inputs expected:**
@@ -702,7 +702,7 @@ changes to a bootstrapped project's `CLAUDE.build.md` without overwriting projec
   same fallback precedence).
 
 **What it does:**
-1. Renders the canonical `CLAUDE.build.md.j2` template from anchor's templates directory.
+1. Renders the canonical `CLAUDE.build.md.j2` template from flex's templates directory.
 2. Computes a unified diff between the project's current `CLAUDE.build.md` and the rendered output.
 3. If `--dry-run`: prints the diff and exits without writing.
 4. If no `--apply`: prints the diff and exits (same behavior as `--dry-run`).
@@ -731,7 +731,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 ### `/flex:pairmode register` / `unregister` / `list-projects`
 
 > **Note:** These three commands are grouped together; they are invoked directly via CLI and manage
-> the `registered_projects` list in anchor's own `.companion/state.json`. Correct invocation:
+> the `registered_projects` list in flex's own `.companion/state.json`. Correct invocation:
 > ```bash
 > PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
 >   register --project-dir /path/to/project
@@ -747,7 +747,7 @@ registered set.
 
 **Inputs expected:**
 - For `register` / `unregister`: a project directory path.
-- For `list-projects`: no input (reads from anchor's `.companion/state.json`).
+- For `list-projects`: no input (reads from flex's `.companion/state.json`).
 
 **What each command does:**
 
@@ -755,7 +755,7 @@ registered set.
 1. Resolves `--project-dir` to an absolute path.
 2. Validates the path with a depth guard (rejects paths with fewer than 3 components).
 3. If the path is already in `registered_projects`: prints "already registered" and exits 0.
-4. Otherwise: appends the path to `registered_projects` in anchor's `.companion/state.json` and prints
+4. Otherwise: appends the path to `registered_projects` in flex's `.companion/state.json` and prints
    "registered: <path>".
 5. Writes are atomic (temp file + rename).
 
@@ -766,7 +766,7 @@ registered set.
 4. Writes are atomic (temp file + rename).
 
 **`list-projects`:**
-1. Reads `registered_projects` from anchor's `.companion/state.json`.
+1. Reads `registered_projects` from flex's `.companion/state.json`.
 2. If the list is empty or the key is absent: prints "No projects registered.".
 3. Otherwise: prints one project path per line.
 
@@ -811,7 +811,7 @@ Once you have bootstrapped a project and want to track it across methodology upd
    projects, with token-efficiency scoring to help prioritize which improvements are most impactful.
 
 4. **Promote convergence candidates to the canonical templates** via `/flex:pairmode review` (which
-   updates pairmode templates in the anchor repo based on lessons learned).
+   updates pairmode templates in the flex repo based on lessons learned).
 
 5. **Sync the updated templates back to projects:**
    ```bash

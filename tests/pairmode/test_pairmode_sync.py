@@ -22,8 +22,8 @@ from pairmode_sync import (  # noqa: E402
     _render_build_template,
 )
 
-ANCHOR_ROOT = pathlib.Path(__file__).parent.parent.parent
-EXPECTED_SCRIPTS_DIR = str(ANCHOR_ROOT / "skills" / "pairmode" / "scripts")
+_REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
+EXPECTED_SCRIPTS_DIR = str(_REPO_ROOT / "skills" / "pairmode" / "scripts")
 
 
 class TestBuildTemplateContext:

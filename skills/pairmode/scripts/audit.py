@@ -445,7 +445,7 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
     context, context_found = _load_project_context(project_dir)
 
     # Inject runtime-derived keys that are not stored in pairmode_context.json.
-    # pairmode_scripts_dir is computed at anchor runtime (not stored per-project)
+    # pairmode_scripts_dir is computed at flex runtime (not stored per-project)
     # and is required for CLAUDE.build.md.j2 to render correctly (INFRA-079).
     context.setdefault("pairmode_scripts_dir", str(Path(__file__).parent))
 
@@ -649,7 +649,7 @@ def _enrich_scaffold_context(context: dict) -> dict:
         [{"id": 1, "title": "Phase 1", "status": "in progress", "file": "docs/phases/phase-1.md"}],
     )
     enriched.setdefault("last_updated", date.today().isoformat())
-    # pairmode_scripts_dir: absolute path to anchor's scripts directory.
+    # pairmode_scripts_dir: absolute path to flex's scripts directory.
     # Required so the CLAUDE.build.md.j2 template renders correctly during audit
     # comparison (the variable was introduced in INFRA-079 to replace hardcoded
     # relative paths).

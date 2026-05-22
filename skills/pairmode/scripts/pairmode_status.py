@@ -35,7 +35,7 @@ from schema_validator import _parse_frontmatter
 #   parents[1] = skills/pairmode/
 #   parents[2] = skills/
 #   parents[3] = repo root
-ANCHOR_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 DIVIDER = "─────────────────────────────────────"
 
@@ -121,7 +121,7 @@ def _sidebar_lines(state: dict, project_dir: Path) -> list[str]:
             f"  Pipe:  {pipe_path}",
         ]
 
-    start_sh = ANCHOR_ROOT / "skills" / "companion" / "scripts" / "start_sidebar.sh"
+    start_sh = _REPO_ROOT / "skills" / "companion" / "scripts" / "start_sidebar.sh"
     sidebar_log = project_dir / ".companion" / "sidebar.log"
     return [
         "Sidebar: not detected",

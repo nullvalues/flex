@@ -1,19 +1,19 @@
-# Anchor Methodology Lessons
+# Flex Methodology Lessons
 
 This file is auto-generated from `lessons.json`. Edit `lessons.json` directly
-or use `/anchor:pairmode lesson` to capture a new lesson.
+or use `/flex:pairmode lesson` to capture a new lesson.
 
 ## L001 — Ran audit against cora — a project with pairmode scaffold but no pairmode_context.json
 **Date:** 2026-04-20
 **Status:** applied
-**Learning:** When audit detects no pairmode_context.json, it should emit a prominent warning: 'No pairmode_context.json found — template body comparison will show false INCONSISTENT for all variable-bearing sections. Bootstrap this project with /anchor:pairmode to fix.' MISSING and EXTRA findings remain reliable; INCONSISTENT findings require a context file to be meaningful.
+**Learning:** When audit detects no pairmode_context.json, it should emit a prominent warning: 'No pairmode_context.json found — template body comparison will show false INCONSISTENT for all variable-bearing sections. Bootstrap this project with /flex:pairmode to fix.' MISSING and EXTRA findings remain reliable; INCONSISTENT findings require a context file to be meaningful.
 
 ## L002 — Ran audit against radar and forqsite — projects with pairmode scaffold
 **Date:** 2026-04-20
 **Status:** applied
 **Learning:** The _split_sections output uses '---' as section keys in audit output. These entries are hard to interpret. Either: (a) skip separator-keyed sections from INCONSISTENT comparison since --- separators carry no semantic content, or (b) display the surrounding context (what section comes before/after) when reporting --- inconsistencies.
 
-## L003 — Bootstrap dogfood on anchor — re-running after bug fixes
+## L003 — Bootstrap dogfood on flex — re-running after bug fixes
 **Date:** 2026-04-21
 **Status:** applied
 **Learning:** For mature projects, templates are a starting point, not a replacement. Files that already exist should be skipped by default (same as CLAUDE.md/CLAUDE.build.md), or bootstrap should warn before overwriting hand-authored content.
@@ -28,12 +28,12 @@ or use `/anchor:pairmode lesson` to capture a new lesson.
 **Status:** applied
 **Learning:** Non-negotiables are constraints, not checklist item names. The reviewer checklist needs human-authored label + short action question, not raw spec text. checklist_deriver should either produce module-scoped labels (e.g. 'companion-skill: spec write isolation') or not populate the reviewer checklist at all — leaving that to the human.
 
-## L006 — Dogfood audit run on anchor after clean bootstrap
+## L006 — Dogfood audit run on flex after clean bootstrap
 **Date:** 2026-04-21
 **Status:** applied
 **Learning:** Audit needs a way to mark sections as intentionally overridden. Without that signal, any project that customises its scaffold will permanently live in a noisy INCONSISTENT state, eroding trust in the tool.
 
-## L007 — Dogfood pairmode on multiple projects simultaneously — anchor + ud running at same time
+## L007 — Dogfood pairmode on multiple projects simultaneously — flex + ud running at same time
 **Date:** 2026-04-21
 **Status:** applied
 **Learning:** The pipe path must be scoped to the project directory. Each project gets its own pipe derived from an 8-char md5 hash of the project dir. The sidebar reads its own pipe only. Hooks read the pipe_path from .companion/state.json at startup.
@@ -63,7 +63,7 @@ or use `/anchor:pairmode lesson` to capture a new lesson.
 **Status:** applied
 **Learning:** A methodology lifecycle worth codifying: (1) Ship the change under intuition. (2) Capture the rationale as a lesson. (3) Instrument the relevant signal. (4) Wait for data to accrue (≥ 2 phases). (5) Validate the methodology against the data. (6) Formalize, refine, or reverse based on findings. The goal is not minimum cost (that sacrifices quality and causes rework) and not maximum intelligence (that wastes budget on trivial work). It is best outcome per token — optimising the efficiency ratio: PASS rate / cost. This framing is stable even as model prices and capabilities shift; the thresholds in the decision table are the thing that changes, not the objective.
 
-## L013 — Phase 24 session start revealed that anchor's own `.claude/agents/` files had no `model:` frontmatter, and forqsite/radar still carried pre-INFRA-044 opus reviewer assignments — despite INFRA-044 having updated the templates.
+## L013 — Phase 24 session start revealed that flex's own `.claude/agents/` files had no `model:` frontmatter, and forqsite/radar still carried pre-INFRA-044 opus reviewer assignments — despite INFRA-044 having updated the templates.
 **Date:** 2026-05-07
 **Status:** applied
 **Learning:** Two complementary patterns close the gap: (1) a sync command that re-renders template frontmatter into existing agent files on demand; (2) a note in the methodology that any template change affecting agent behaviour should be followed by a `pairmode sync-agents` run on all active projects. The sync command is idempotent — running it twice produces no further changes.
@@ -78,7 +78,7 @@ or use `/anchor:pairmode lesson` to capture a new lesson.
 **Status:** applied
 **Learning:** Documentation reliability across builds is what preserves project context across sessions and compactions. The reviewer's doc check should expand from README-only to any non-history doc in docs/ whose content references code the story touched. The fix is builder-remediable inline: the builder updates the relevant doc as part of the same story commit, not a doc-rebuild phase. The check is approximate but cheap — grep the doc surface for references to changed files/symbols, flag candidates, let the reviewer judge. Severity HIGH when the doc statement is now factually wrong, MEDIUM for missing README user-facing change.
 
-## L016 — Reviewing L005 marker hygiene during forqsite session 2026-05-18. Found that L005's marker in CLAUDE.md.j2 points at the wrong file — the actual implementation correctly landed in agents/reviewer.md.j2. Also realized L015 was implemented directly (template edits written outside the /anchor:pairmode review flow), leaving its status as 'captured' despite the change being live in the canonical templates.
+## L016 — Reviewing L005 marker hygiene during forqsite session 2026-05-18. Found that L005's marker in CLAUDE.md.j2 points at the wrong file — the actual implementation correctly landed in agents/reviewer.md.j2. Also realized L015 was implemented directly (template edits written outside the /flex:pairmode review flow), leaving its status as 'captured' despite the change being live in the canonical templates.
 **Date:** 2026-05-18
 **Status:** captured
 **Learning:** Markers are 'pending work' signals and must be lifecycle-managed. When a lesson flips to 'applied' the marker should either be removed entirely or transformed into a brief breadcrumb ({# LESSON LNNN APPLIED YYYY-MM-DD in <file> #}). Affects keys should be granular enough that markers land near where the actual change is most likely to happen. And there must be a clean path to declare a lesson applied when the change was implemented directly without going through review's annotation step.
