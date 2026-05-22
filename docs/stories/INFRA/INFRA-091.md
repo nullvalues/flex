@@ -2,7 +2,7 @@
 id: INFRA-091
 rail: INFRA
 title: "JSON state migration, re-render derived files, final verification"
-status: planned
+status: complete
 phase: "35"
 story_class: methodology
 primary_files:
