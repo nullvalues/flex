@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp35-rename-anchor-flex
+
+**Phase:** 35 — Project rename to flex (anchor → flex hard fork)
+**Tag command:** `git tag cp35-rename-anchor-flex && git push origin cp35-rename-anchor-flex`
+**Acceptance:** Hard fork of upstream `nraychaudhuri/anchor` renamed to `flex` under `nullvalues/flex` ownership. Five stories: INFRA-087 (manifests + ATTRIBUTION.md crediting upstream author Nilanjan Raychaudhuri); INFRA-088 (filesystem paths and identifiers — `_ANCHOR_ROOT`→`_REPO_ROOT` brand-neutral, `~/.anchor/`→`~/.flex/`, `/tmp/anchor_*`→`/tmp/flex_*`, `ANCHOR_PROJECT_*`→`FLEX_PROJECT_*`); INFRA-089 (slash namespace `/anchor:*`→`/flex:*` plus emitted strings: `"anchor:pairmode"` generated_by, `name: anchor:seed`, `# Anchor Methodology Lessons` heading); INFRA-090 (project-name prose rewrite across docs, agent bodies, openspec, historical phase docs, story files, `.gitignore`); INFRA-091 (one-time append-only bypass on `lessons.json` source_project + free-text fields, `LESSONS.md` regenerated, sync-build/sync-agents re-render, 9-gate final verification). CER-023 filed (hook portability deferred per spec). Security audit clean (0 findings). 1681 tests pass.
+
+---
+
 ## cp34-checkpoint-context-health
 
 **Phase:** 34 — Checkpoint context health report

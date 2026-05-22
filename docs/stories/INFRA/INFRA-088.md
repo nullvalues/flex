@@ -33,6 +33,10 @@ touches:
   - tests/pairmode/test_drift_evidence.py
   - tests/pairmode/test_sync_agents.py
   - tests/pairmode/test_lesson_review.py
+  - skills/pairmode/scripts/era_new.py
+  - skills/pairmode/scripts/story_new.py
+  - skills/pairmode/scripts/story_update.py
+  - skills/pairmode/scripts/sync.py
 ---
 
 ## Requires

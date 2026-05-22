@@ -18,6 +18,7 @@ touches:
   - .claude/agents/intent-reviewer.md
   - .claude/agents/security-auditor.md
   - .claude/agents/reconstruction-agent.md
+  - hooks/session_end.py
 ---
 
 ## Requires

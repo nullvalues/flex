@@ -82,6 +82,14 @@ primary_files:
   - product-spec/openspec/changes/743632e3-5fb0-4fa8-87ce-56ab1da01280/extraction.json
 touches:
   - tests/pairmode/test_pairmode_sync.py
+  - tests/pairmode/conftest.py
+  - tests/pairmode/test_effort_db.py
+  - tests/pairmode/test_lesson_capture.py
+  - tests/pairmode/test_lesson_utils.py
+  - tests/pairmode/test_score.py
+  - tests/pairmode/test_story_new.py
+  - tests/pairmode/test_sync.py
+  - tests/pairmode/test_templates.py
 ---
 
 ## Requires
