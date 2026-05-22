@@ -2,7 +2,7 @@
 id: INFRA-092
 rail: INFRA
 title: "pairmode_migrate.py — substitution engine + per-file rule table + safety flags"
-status: planned
+status: complete
 phase: "36"
 story_class: code
 primary_files:
