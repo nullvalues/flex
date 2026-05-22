@@ -730,13 +730,15 @@ grep -rni "anchor" . --exclude-dir=.git --exclude-dir=__pycache__ \
 # 4. Test suite is green
 PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q
 
-# 8. Lessons file is valid JSON and source_project is consistent
+# 8. Lessons file is valid JSON and no 'anchor' source_project remains.
+#    Non-anchor sources (e.g. 'radar', 'forqsite' from sibling-project lessons)
+#    are legitimate; the migration only rewrites 'anchor' → 'flex'.
 PATH=$HOME/.local/bin:$PATH uv run python -c "
 import json
 data = json.load(open('lessons/lessons.json'))
 sources = {l['source_project'] for l in data['lessons']}
-assert sources == {'flex'} or sources == set(), f'unexpected sources: {sources}'
-print('lessons.json source_project: OK')
+assert 'anchor' not in sources, f'anchor still present in: {sources}'
+print(f'lessons.json source_project: OK ({len(data[\"lessons\"])} lessons; sources={sorted(sources)})')
 "
 
 # 9. LESSONS.md heading is the new one
