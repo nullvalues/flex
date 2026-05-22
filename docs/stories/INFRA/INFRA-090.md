@@ -2,7 +2,7 @@
 id: INFRA-090
 rail: INFRA
 title: "Project-name prose rewrite (docs, agent bodies, code docstrings, JSON state, historical artifacts)"
-status: planned
+status: complete
 phase: "35"
 story_class: methodology
 primary_files:
