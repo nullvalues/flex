@@ -35,3 +35,4 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 33 | Build loop portability and sibling catch-up | planned | [phase-33.md](phase-33.md) |
 | 34 | Checkpoint context health report | complete | [phase-34.md](phase-34.md) · cp34-checkpoint-context-health |
 | 35 | Project rename to flex | complete | [phase-35.md](phase-35.md) · cp35-rename-anchor-flex |
+| 36 | `/flex:pairmode migrate-from-anchor` — sibling project migration tool | planned | [phase-36.md](phase-36.md) |
