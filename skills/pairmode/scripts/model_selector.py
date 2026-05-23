@@ -45,8 +45,8 @@ Public API:
       doc           any                                         haiku   auto-downgrade
       lesson        any                                         haiku   auto-downgrade
       methodology   any                                         sonnet  auto-baseline
-      code          <3 primary_files AND no protected file      sonnet  auto-baseline
-      code          >=3 primary_files OR protected file in      opus    prompted-upgrade
+      code          <5 primary_files AND no protected file      sonnet  auto-baseline
+      code          >=5 primary_files OR protected file in      opus    prompted-upgrade
                     touches
 
     If the caller has already received a user-override decision, it should
@@ -123,7 +123,7 @@ _ALWAYS_SONNET_CLASSES = frozenset({"doc", "lesson"})
 _HAIKU_CLASSES = frozenset({"doc", "lesson"})
 
 # Minimum primary_files count that triggers an upgrade signal for code stories
-_CODE_UPGRADE_FILE_COUNT = 3
+_CODE_UPGRADE_FILE_COUNT = 5
 
 
 # ---------------------------------------------------------------------------
@@ -214,8 +214,8 @@ def select_builder_model(
       doc           any                                       haiku   auto-downgrade
       lesson        any                                       haiku   auto-downgrade
       methodology   any                                       sonnet  auto-baseline
-      code          <3 primary_files AND no protected file    sonnet  auto-baseline
-      code          >=3 primary_files OR protected file       opus    prompted-upgrade
+      code          <5 primary_files AND no protected file    sonnet  auto-baseline
+      code          >=5 primary_files OR protected file       opus    prompted-upgrade
     """
     # Normalise / apply default
     if not story_class or story_class not in {"code", "doc", "lesson", "methodology"}:

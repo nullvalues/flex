@@ -451,7 +451,7 @@ class TestSelectBuilderModel:
         assert model == MODEL_SONNET
         assert reason == REASON_AUTO_BASELINE
 
-    # --- code stories: auto-baseline (< 3 files, no protected) ---
+    # --- code stories: auto-baseline (< 5 files, no protected) ---
 
     def test_code_zero_files_returns_sonnet_auto_baseline(self) -> None:
         model, reason = select_builder_model("code", [], _NO_PROTECTED)
@@ -470,16 +470,28 @@ class TestSelectBuilderModel:
         assert model == MODEL_SONNET
         assert reason == REASON_AUTO_BASELINE
 
-    # --- code stories: prompted-upgrade (≥ 3 files) ---
-
-    def test_code_three_files_no_protected_returns_opus_prompted(self) -> None:
+    def test_code_three_files_no_protected_returns_sonnet(self) -> None:
         files = ["a.py", "b.py", "c.py"]
+        model, reason = select_builder_model("code", files, _NO_PROTECTED)
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE
+
+    def test_code_four_files_no_protected_returns_sonnet(self) -> None:
+        files = ["a.py", "b.py", "c.py", "d.py"]
+        model, reason = select_builder_model("code", files, _NO_PROTECTED)
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE
+
+    # --- code stories: prompted-upgrade (≥ 5 files) ---
+
+    def test_code_five_files_no_protected_returns_opus_prompted(self) -> None:
+        files = ["a.py", "b.py", "c.py", "d.py", "e.py"]
         model, reason = select_builder_model("code", files, _NO_PROTECTED)
         assert model == MODEL_OPUS
         assert reason == REASON_PROMPTED_UPGRADE
 
-    def test_code_four_files_returns_opus_prompted(self) -> None:
-        files = ["a.py", "b.py", "c.py", "d.py"]
+    def test_code_six_files_returns_opus_prompted(self) -> None:
+        files = ["a.py", "b.py", "c.py", "d.py", "e.py", "f.py"]
         model, reason = select_builder_model("code", files, _NO_PROTECTED)
         assert model == MODEL_OPUS
         assert reason == REASON_PROMPTED_UPGRADE
@@ -519,10 +531,10 @@ class TestSelectBuilderModel:
         assert model == MODEL_SONNET
         assert reason == REASON_AUTO_BASELINE
 
-    def test_unknown_class_three_files_returns_opus(self) -> None:
+    def test_unknown_class_three_files_returns_sonnet(self) -> None:
         model, reason = select_builder_model("unknown", ["a.py", "b.py", "c.py"], _NO_PROTECTED)
-        assert model == MODEL_OPUS
-        assert reason == REASON_PROMPTED_UPGRADE
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE
 
     def test_empty_class_treated_as_code(self) -> None:
         model, reason = select_builder_model("", [], _NO_PROTECTED)

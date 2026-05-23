@@ -97,8 +97,8 @@ print(f'{model}|{reason}')
 | `doc` | any | haiku | `auto-downgrade` | auto (no prompt) |
 | `lesson` | any | haiku | `auto-downgrade` | auto (no prompt) |
 | `methodology` | any | sonnet | `auto-baseline` | auto |
-| `code` | < 3 primary_files, no protected file | sonnet | `auto-baseline` | auto |
-| `code` | ≥ 3 primary_files OR protected file in touches | opus | `prompted-upgrade` | **prompt user** |
+| `code` | < 5 primary_files, no protected file | sonnet | `auto-baseline` | auto |
+| `code` | ≥ 5 primary_files OR protected file in touches | opus | `prompted-upgrade` | **prompt user** |
 | *(any)* | user overrides model downward | *(user choice)* | `user-override` | recorded |
 
 **For `prompted-upgrade` results**, display this prompt to the user before spawning the builder:
