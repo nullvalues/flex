@@ -2,7 +2,7 @@
 id: INFRA-096
 rail: INFRA
 title: "Security fix: move _validate_backup_suffix into migrate() (defense-in-depth)"
-status: planned
+status: complete
 phase: "36"
 story_class: code
 primary_files:
