@@ -439,6 +439,7 @@ def sync_agents(project_dir: str, dry_run: bool, yes: bool) -> None:
     prompting. Otherwise, prompts once before writing all changes.
     """
     project_path = Path(project_dir).resolve()
+    _depth_guard_sync_build(project_path)
     agents_dir = project_path / ".claude" / "agents"
 
     state = _load_state(project_path)

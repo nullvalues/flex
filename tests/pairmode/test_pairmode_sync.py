@@ -20,6 +20,7 @@ from pairmode_sync import (  # noqa: E402
     _build_template_context,
     _merge_body_sections,
     _render_build_template,
+    sync_agents,
 )
 
 _REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
@@ -155,3 +156,11 @@ class TestMergeBodySections:
         # The target's version should be preserved (not overwritten by the template version)
         assert "Target's version of contract check content." in merged
         assert contract_check_content not in merged
+
+
+def test_sync_agents_rejects_shallow_path(tmp_path: pathlib.Path) -> None:
+    """sync_agents must exit with code 1 when --project-dir resolves to fewer than 3 path components."""
+    from click.testing import CliRunner
+    runner = CliRunner()
+    result = runner.invoke(sync_agents, ["--project-dir", "/tmp"])
+    assert result.exit_code == 1
