@@ -26,7 +26,7 @@ forqsite's PostgreSQL/Drizzle-specific wording to be stack-agnostic.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-105 | Add pre-story schema gate to `CLAUDE.build.md.j2` | planned |
+| INFRA-105 | Add pre-story schema gate to `CLAUDE.build.md.j2` | complete |
 
 ---
 
@@ -42,7 +42,7 @@ forqsite's PostgreSQL/Drizzle-specific wording to be stack-agnostic.
 
 #### Ensures
 
-`CLAUDE.build.md.j2` contains a `## Pre-story schema gate` section inserted
+`CLAUDE.build.md.j2` contains a `### Pre-story schema gate` section inserted
 immediately before `### Step 1 — Spawn the builder` (inside the build loop,
 after the `## Build loop` heading), so it runs once per story before the
 builder is spawned.
@@ -50,7 +50,7 @@ builder is spawned.
 The section content:
 
 ```
-## Pre-story schema gate
+### Pre-story schema gate
 
 Run this check **once per story**, before pre-authorizing edits or spawning the builder.
 
@@ -108,7 +108,7 @@ and wipe the build gate. Edit `CLAUDE.build.md` directly.
 **`skills/pairmode/templates/CLAUDE.build.md.j2`**
 
 Locate `## Build loop (repeat for each story)` followed by `### Step 1 — Spawn
-the builder`. Insert the full `## Pre-story schema gate` section (text above)
+the builder`. Insert the full `### Pre-story schema gate` section (text above)
 between the `## Build loop` heading and `### Step 1`.
 
 **`CLAUDE.build.md`** (flex's own)
@@ -120,7 +120,7 @@ Apply the identical insertion directly — same position, same text.
 No test file expected for this methodology story.
 
 The reviewer verifies:
-1. `CLAUDE.build.md.j2` contains `## Pre-story schema gate`.
+1. `CLAUDE.build.md.j2` contains `### Pre-story schema gate`.
 2. The section appears inside `## Build loop` before `### Step 1 — Spawn the builder`.
 3. `CLAUDE.build.md` contains the same section at the same position.
 4. The section references the three accepted exceptions (append-only, junction table,
@@ -132,4 +132,4 @@ The reviewer verifies:
 
 ---
 
-Tag: `cp40-pre-story-schema-gate`
+Tag: `cp40-pre-story-schema-gate` ✓
