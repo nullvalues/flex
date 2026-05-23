@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); echo \"$INPUT\" | jq -re '.tool_input.file_path // \"\"' | grep -q '\\.py$' && cd /mnt/work/flex && PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q 2>&1 | tail -20 || true",
+            "command": "INPUT=$(cat); echo \"$INPUT\" | jq -re '.tool_input.file_path // \"\"' | grep -q '\\.py$' && PROJECT_DIR=$(echo \"$INPUT\" | jq -re '.cwd // \".\"') && cd \"$PROJECT_DIR\" && PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q 2>&1 | tail -20 || true",
             "timeout": 60
           }
         ]
