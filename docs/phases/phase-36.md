@@ -67,7 +67,7 @@ INFRA-094 (CLI wiring + SKILL.md)  ── depends on INFRA-092
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-092 | `pairmode_migrate.py` — substitution engine + per-file rule table + safety flags | complete |
-| INFRA-093 | Tests — fixture-based anchor-bootstrapped project + migration assertions | planned |
+| INFRA-093 | Tests — fixture-based anchor-bootstrapped project + migration assertions | complete |
 | INFRA-094 | CLI wiring — pairmode dispatcher + SKILL.md documentation | planned |
 
 ---

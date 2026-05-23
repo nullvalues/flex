@@ -2,7 +2,7 @@
 id: INFRA-093
 rail: INFRA
 title: "Tests — fixture-based anchor-bootstrapped project + migration assertions"
-status: planned
+status: complete
 phase: "36"
 story_class: code
 primary_files:
