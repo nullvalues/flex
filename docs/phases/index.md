@@ -16,9 +16,9 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 14 | Reconstruction agent tooling | complete | [phase-14.md](phase-14.md) · cp14-reconstruction-agent-tooling |
 | 15 | Rails, eras, and story structure — foundation | complete | [phase-15.md](phase-15.md) · cp15-rails-eras-story-structure |
 | 16 | Build loop integration and rail-aware review | complete | [phase-16.md](phase-16.md) · cp16-build-loop-integration |
-| 17 | Correctness — fix all known bugs | planned | [phase-17.md](phase-17.md) |
-| 18 | Missing tooling — story lifecycle, overrides, --yes, orchestrator clarity | planned | [phase-18.md](phase-18.md) |
-| 19 | Test coverage and integration verification | planned | [phase-19.md](phase-19.md) |
+| 17 | Correctness — fix all known bugs | complete | [phase-17.md](phase-17.md) · cp17-correctness-fixes |
+| 18 | Missing tooling — story lifecycle, overrides, --yes, orchestrator clarity | complete | [phase-18.md](phase-18.md) · cp18-missing-tooling |
+| 19 | Test coverage and integration verification | complete | [phase-19.md](phase-19.md) · cp19-test-coverage-integration |
 | 20 | PR readiness — documentation, changelog, git history | complete | [phase-20.md](phase-20.md) · cp20 |
 | 21 | Orchestrator hardening and auth-policy integration | complete | [phase-21.md](phase-21.md) · cp21 |
 | 22 | Effort tracking infrastructure | complete | [phase-22.md](phase-22.md) · cp22 |
@@ -32,8 +32,9 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 30 | Hook security fix and sync tooling gaps | complete | [phase-30.md](phase-30.md) · cp30-hook-fix-and-sync-tooling |
 | 31 | Discoverability and status panel | complete | [phase-31.md](phase-31.md) · cp31-discoverability-and-status |
 | 32 | Story-as-contract and story_context CLI | complete | [phase-32.md](phase-32.md) · cp32-story-as-contract |
-| 33 | Build loop portability and sibling catch-up | planned | [phase-33.md](phase-33.md) |
+| 33 | Build loop portability and sibling catch-up | complete | [phase-33.md](phase-33.md) · cp33-build-loop-portability |
 | 34 | Checkpoint context health report | complete | [phase-34.md](phase-34.md) · cp34-checkpoint-context-health |
 | 35 | Project rename to flex | complete | [phase-35.md](phase-35.md) · cp35-rename-anchor-flex |
 | 36 | `/flex:pairmode migrate-from-anchor` — sibling project migration tool | complete | [phase-36.md](phase-36.md) · cp36-migrate-from-anchor |
 | 37 | Builder model-selection tuning + token-direction recording | complete | [phase-37.md](phase-37.md) · cp37-builder-model-tuning |
+| 38 | Data quality and portability cleanup | planned | [phase-38.md](phase-38.md) |
