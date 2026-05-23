@@ -31,8 +31,8 @@ template references it).
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-103 | Port `context_budget_check.py` to flex pairmode scripts | planned |
-| INFRA-104 | Add context budget check step to `CLAUDE.build.md.j2` | planned |
+| INFRA-103 | Port `context_budget_check.py` to flex pairmode scripts | complete |
+| INFRA-104 | Add context budget check step to `CLAUDE.build.md.j2` | complete |
 
 ---
 
@@ -209,4 +209,4 @@ The reviewer verifies:
 
 ---
 
-Tag: `cp39-context-budget-check`
+Tag: `cp39-context-budget-check` ✓
