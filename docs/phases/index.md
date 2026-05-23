@@ -39,3 +39,4 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 37 | Builder model-selection tuning + token-direction recording | complete | [phase-37.md](phase-37.md) · cp37-builder-model-tuning |
 | 38 | Data quality and portability cleanup | complete | [phase-38.md](phase-38.md) · cp38-data-quality-portability |
 | 39 | Context budget check | complete | [phase-39.md](phase-39.md) · cp39-context-budget-check |
+| 40 | Pre-story schema gate | planned | [phase-40.md](phase-40.md) |

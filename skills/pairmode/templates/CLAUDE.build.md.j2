@@ -140,6 +140,50 @@ If the story is not auth-gated, skip this section.
 
 ## Build loop (repeat for each story)
 
+## Pre-story schema gate
+
+Run this check **once per story**, before pre-authorizing edits or spawning the builder.
+
+Read the story spec and answer:
+
+> Does this story introduce a new persistent schema object — a database table,
+> collection, index, or migration that creates or alters durable storage?
+
+If **no**: skip this section and proceed to Step 1.
+
+If **yes**: scan the remaining stories in the phase. Check whether any story
+provides a management surface for that schema object — a route, page, command,
+or component where a human can read, create, update, or delete the data without
+a database console.
+
+If a management surface story exists (current or remaining in phase): proceed normally.
+
+If no management surface story exists, check the current story's spec for an
+explicit exception note. Accepted exceptions:
+
+- **Append-only audit/log**: the table records immutable events and will be
+  surfaced via a future log viewer or existing audit route.
+- **Junction table**: both parent entities already have full management UIs.
+- **Cron-output cache**: rows are regenerated on a schedule; no human-editable
+  fields exist.
+
+If an accepted exception is documented in the spec: proceed normally.
+
+If no management surface story and no documented exception, stop and report:
+
+```
+PRE-STORY BLOCK — Story [RAIL-NNN] introduces schema object `<name>` with no
+management surface in this phase.
+
+A persistent schema change without an administrative surface is an incomplete feature.
+Options:
+1. Add a management UI story to the phase spec before building.
+2. Note an explicit exception in the story spec (append-only, junction table, or
+   cron-output cache) if one of those categories applies.
+```
+
+Do not spawn the builder until the user has resolved the block.
+
 ### Step 1 — Spawn the builder
 
 Before spawning the builder, pre-authorize edits within the story's declared scope:
