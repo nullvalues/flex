@@ -426,6 +426,54 @@ Stop the build loop.
 
 ---
 
+## Context budget check (between stories)
+
+After every story's PASS or FAIL handling completes — after permission cleanup and status
+update for PASS, or after the revert for FAIL — before advancing to the next story or
+entering the checkpoint sequence, run:
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/context_budget_check.py \
+  --project-dir . \
+  --phase <PHASE_ID>
+```
+
+Replace `<PHASE_ID>` with the phase identifier from the current story's frontmatter
+(e.g. `38`, `39`). The script reads `.companion/effort.db` and
+`.companion/state.json` (for `context_budget_threshold`). Threshold priority:
+`--threshold` arg → `state.json["context_budget_threshold"]` → built-in default `120000`.
+
+The script prints one machine-parseable line to stdout:
+```
+context_budget phase=<phase> tokens=<sum> threshold=<n> status=<ok|over>
+```
+
+- Exit 0 (`status=ok`): build loop continues normally.
+- Exit 1 (`status=over`): **BLOCKING.** Surface the following prompt verbatim and
+  wait for user response before spawning any further builder or reviewer:
+
+```
+CONTEXT BUDGET EXCEEDED — Story [RAIL-NNN] just completed.
+Phase <PHASE_ID> has now accumulated <tokens> tokens of recorded subagent work
+(threshold: <threshold>).
+
+Continuing in the current session risks context compaction mid-story, which can
+cause the builder to lose coherence and repeat work. Options:
+
+1. **Proceed** — continue building in this session; budget breach acknowledged.
+   Say: "Continue building"
+
+2. **Pause for fresh session** — stop here; resume in a new session with a clean
+   context window.
+   Say: "Continue building" in a fresh session to resume from the next planned story.
+```
+
+Wait for user response before spawning the next builder or entering the checkpoint sequence.
+
+- Exit 2 (IO error): report to the user and pause; do not silently continue.
+
+---
+
 ## Checkpoint sequence
 
 Triggered when the last story of a phase is committed.
