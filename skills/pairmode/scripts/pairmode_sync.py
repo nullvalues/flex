@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["click", "jinja2"]
+# ///
 """
 pairmode_sync.py — Re-render agent file frontmatter from canonical templates.
 
