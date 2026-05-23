@@ -2,7 +2,7 @@
 id: INFRA-098
 rail: INFRA
 title: "Add attempt_number to select_builder_model (dynamic builder escalation)"
-status: planned
+status: complete
 phase: "37"
 story_class: code
 primary_files:
