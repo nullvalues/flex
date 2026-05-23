@@ -38,7 +38,7 @@ INFRA-099 (token-direction recording) — depends on INFRA-098 (final CLAUDE.bui
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-097 | Raise `_CODE_UPGRADE_FILE_COUNT` from 3 → 5 | planned |
+| INFRA-097 | Raise `_CODE_UPGRADE_FILE_COUNT` from 3 → 5 | complete |
 | INFRA-098 | Add `attempt_number` to `select_builder_model` (dynamic builder escalation) | planned |
 | INFRA-099 | Extend CLAUDE.build.md token recording to capture per-direction counts | planned |
 

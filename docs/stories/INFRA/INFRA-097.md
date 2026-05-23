@@ -2,7 +2,7 @@
 id: INFRA-097
 rail: INFRA
 title: "Raise _CODE_UPGRADE_FILE_COUNT from 3 → 5"
-status: planned
+status: complete
 phase: "37"
 story_class: code
 primary_files:
