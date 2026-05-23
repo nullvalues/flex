@@ -40,3 +40,4 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 38 | Data quality and portability cleanup | complete | [phase-38.md](phase-38.md) · cp38-data-quality-portability |
 | 39 | Context budget check | complete | [phase-39.md](phase-39.md) · cp39-context-budget-check |
 | 40 | Pre-story schema gate | complete | [phase-40.md](phase-40.md) · cp40-pre-story-schema-gate |
+| 41 | Re-frame docs around pairmode as the lead capability | planned | [phase-41.md](phase-41.md) |
