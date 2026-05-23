@@ -216,6 +216,10 @@ def record_attempt(
     if not ts:
         ts = _utc_now_iso()
 
+    # Normalise outcome to uppercase (prevents 'pass'/'fail' case drift).
+    if outcome is not None:
+        outcome = outcome.upper()
+
     # Ensure schema exists (idempotent).
     _effort_db.init_db(resolved_db)
 

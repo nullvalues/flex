@@ -429,3 +429,108 @@ class TestStoryFile:
         rows = effort_db.query_by_story(db_path, "INFRA-052")
         assert len(rows) == 1
         assert rows[0]["story_class"] == "code"
+
+
+# ---------------------------------------------------------------------------
+# Outcome normalisation
+# ---------------------------------------------------------------------------
+
+
+_STORY_FRONTMATTER_NORM = """\
+---
+id: {story_id}
+phase: '38'
+rail: INFRA
+story_class: code
+title: normalisation test story
+status: planned
+primary_files: []
+touches: []
+---
+
+# Story
+"""
+
+
+def _make_project_norm(tmp_path: Path) -> Path:
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    state = {
+        "effort_tracking": True,
+        "effort_db_path": ".companion/effort.db",
+    }
+    (companion / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    return tmp_path
+
+
+def _make_story_norm(project: Path, story_id: str) -> Path:
+    story_dir = project / "docs" / "stories" / "INFRA"
+    story_dir.mkdir(parents=True, exist_ok=True)
+    story_file = story_dir / f"{story_id}.md"
+    story_file.write_text(
+        _STORY_FRONTMATTER_NORM.format(story_id=story_id),
+        encoding="utf-8",
+    )
+    return story_file
+
+
+def _fetch_outcome_norm(project: Path, story_id: str) -> str | None:
+    db = project / ".companion" / "effort.db"
+    conn = sqlite3.connect(str(db))
+    row = conn.execute(
+        "SELECT outcome FROM attempts WHERE story_id = ?", (story_id,)
+    ).fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+class TestOutcomeNormalisation:
+    def test_lowercase_pass_stored_as_uppercase(self, tmp_path: Path) -> None:
+        project = _make_project_norm(tmp_path)
+        story = _make_story_norm(project, "INFRA-001")
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            [
+                "--story-file", str(story),
+                "--agent-role", "builder",
+                "--outcome", "pass",
+                "--project-dir", str(project),
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert _fetch_outcome_norm(project, "INFRA-001") == "PASS"
+
+    def test_uppercase_fail_unchanged(self, tmp_path: Path) -> None:
+        project = _make_project_norm(tmp_path)
+        story = _make_story_norm(project, "INFRA-002")
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            [
+                "--story-file", str(story),
+                "--agent-role", "reviewer",
+                "--outcome", "FAIL",
+                "--project-dir", str(project),
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert _fetch_outcome_norm(project, "INFRA-002") == "FAIL"
+
+    def test_none_outcome_stored_as_null(self, tmp_path: Path) -> None:
+        project = _make_project_norm(tmp_path)
+        story = _make_story_norm(project, "INFRA-003")
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            [
+                "--story-file", str(story),
+                "--agent-role", "builder",
+                "--project-dir", str(project),
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert _fetch_outcome_norm(project, "INFRA-003") is None
