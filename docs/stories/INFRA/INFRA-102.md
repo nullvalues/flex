@@ -3,7 +3,7 @@ id: INFRA-102
 phase: '38'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/scripts/record_attempt.py
 touches:

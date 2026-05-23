@@ -3,7 +3,7 @@ id: INFRA-101
 phase: '38'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - .claude/settings.json
 touches: []

@@ -32,8 +32,8 @@ Three small cleanup items surfaced from the Phase 37 era: two from the CER backl
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-100 | Fix `sync_agents` depth guard gap (CER-022) | complete |
-| INFRA-101 | Fix PostToolUse hook hardcoded path (CER-023) | planned |
-| INFRA-102 | Normalise outcome case in `record_attempt.py` | planned |
+| INFRA-101 | Fix PostToolUse hook hardcoded path (CER-023) | complete |
+| INFRA-102 | Normalise outcome case in `record_attempt.py` | complete |
 
 ---
 
