@@ -68,7 +68,8 @@ INFRA-094 (CLI wiring + SKILL.md)  ── depends on INFRA-092
 |----|-------|--------|
 | INFRA-092 | `pairmode_migrate.py` — substitution engine + per-file rule table + safety flags | complete |
 | INFRA-093 | Tests — fixture-based anchor-bootstrapped project + migration assertions | complete |
-| INFRA-094 | CLI wiring — pairmode dispatcher + SKILL.md documentation | planned |
+| INFRA-094 | CLI wiring — pairmode dispatcher + SKILL.md documentation | complete |
+| INFRA-095 | Security hardening: backup-suffix path validation + sentinel-file check | planned |
 
 ---
 
@@ -366,6 +367,87 @@ central dispatcher edit needed.)
 - `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q` still
   passes (including `test_skill_md.py` if it has assertions on SKILL.md
   structure).
+
+---
+
+### Story INFRA-095 — Security hardening: backup-suffix path validation + sentinel-file check
+
+**Rail:** INFRA | **story_class:** code
+
+## Requires
+
+- INFRA-092 complete: `pairmode_migrate.py` exists.
+- Security audit finding: Phase 36 checkpoint audit flagged two HIGH issues.
+
+## Ensures
+
+**Fix 1 — backup-suffix path validation** (`pairmode_migrate.py`)
+
+Add a `_validate_backup_suffix(suffix: str) -> None` function that rejects any
+suffix containing a `/` or `..` component. Raise `SystemExit(1)` with a clear
+error message. Call it at CLI entry point before any work begins.
+
+Acceptable suffix: `.pre-flex-migration`, `.bak`, `-backup`  
+Rejected: `/tmp/x`, `../etc/cron.d/x`, `../../foo`
+
+Implementation — call in the CLI entry point after argument parsing:
+
+```python
+def _validate_backup_suffix(suffix: str) -> None:
+    if "/" in suffix or ".." in suffix:
+        click.echo(
+            f"error: --backup-suffix must be a leaf string (no '/' or '..'): {suffix!r}",
+            err=True,
+        )
+        sys.exit(1)
+```
+
+**Fix 2 — sentinel-file check before apply** (`pairmode_migrate.py`)
+
+Before writing any files (i.e., when `apply=True`), verify that the target
+project is plausibly a methodology-managed project by checking that at least
+one sentinel exists:
+- `CLAUDE.build.md`
+- `.companion/` directory
+- `.claude/agents/` directory
+
+If none are present, abort with:
+
+```
+error: --project-dir does not look like a flex/anchor-bootstrapped project
+       (expected at least one of: CLAUDE.build.md, .companion/, .claude/agents/)
+       Re-run without --apply to preview what would change, or verify the path.
+```
+
+Dry-run mode (`apply=False`) does NOT enforce this check — the user may want
+to preview against an arbitrary directory to understand what would be touched.
+
+Add a test `test_migrate_apply_rejects_non_project_dir` to
+`tests/pairmode/test_pairmode_migrate.py` that:
+- Creates a tmp directory with no sentinel files
+- Calls `migrate(..., apply=True, yes=True)` 
+- Asserts `SystemExit` is raised (or appropriate error return)
+
+Also add a test `test_migrate_backup_suffix_validation` that:
+- Calls the CLI (or `migrate()` directly if the validation is called there) with
+  `backup_suffix="/tmp/evil"`
+- Asserts `SystemExit` is raised
+
+**Primary files:**
+- `skills/pairmode/scripts/pairmode_migrate.py`
+
+**Touches:**
+- `tests/pairmode/test_pairmode_migrate.py`
+
+**Tests:**
+- `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q` passes.
+- Both new tests pass.
+
+---
+
+## Stories
+
+Update the stories table to include INFRA-095:
 
 ---
 

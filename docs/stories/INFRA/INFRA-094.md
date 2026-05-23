@@ -2,7 +2,7 @@
 id: INFRA-094
 rail: INFRA
 title: "CLI wiring — pairmode dispatcher + SKILL.md documentation"
-status: planned
+status: complete
 phase: "36"
 story_class: methodology
 primary_files:
