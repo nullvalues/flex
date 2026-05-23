@@ -743,15 +743,21 @@ class TestMigrationRules:
 # ---------------------------------------------------------------------------
 
 
-def test_migrate_backup_suffix_validation() -> None:
+def test_migrate_backup_suffix_validation(tmp_path: Path) -> None:
     """_validate_backup_suffix must reject suffixes with '/' or '..'."""
+    from pairmode_migrate import _validate_backup_suffix, migrate  # noqa: F401
+    # CLI-level validation (existing)
     with pytest.raises(SystemExit):
-        _mod._validate_backup_suffix("/tmp/evil")
+        _validate_backup_suffix("/tmp/evil")
     with pytest.raises(SystemExit):
-        _mod._validate_backup_suffix("../etc/cron")
-    # Valid suffixes must not raise
-    _mod._validate_backup_suffix(".pre-flex-migration")
-    _mod._validate_backup_suffix(".bak")
+        _validate_backup_suffix("../etc/cron")
+    # Valid suffixes must not raise:
+    _validate_backup_suffix(".pre-flex-migration")
+    _validate_backup_suffix(".bak")
+    # Programmatic path — migrate() itself must also reject bad suffix
+    with pytest.raises(SystemExit):
+        migrate(tmp_path, apply=False, yes=False, migrate_lessons=False,
+                backup_suffix="/tmp/evil")
 
 
 # ---------------------------------------------------------------------------

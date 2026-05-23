@@ -658,6 +658,7 @@ def migrate(
     MigrationReport
         Summary of what changed, what was skipped, what was missing, etc.
     """
+    _validate_backup_suffix(backup_suffix)
     _depth_guard(project_dir)
 
     # --- Sentinel-file check (apply mode only) ---
