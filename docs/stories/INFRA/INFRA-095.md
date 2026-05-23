@@ -2,7 +2,7 @@
 id: INFRA-095
 rail: INFRA
 title: "Security hardening: backup-suffix path validation + sentinel-file check"
-status: planned
+status: complete
 phase: "36"
 story_class: code
 primary_files:

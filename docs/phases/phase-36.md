@@ -69,7 +69,8 @@ INFRA-094 (CLI wiring + SKILL.md)  ── depends on INFRA-092
 | INFRA-092 | `pairmode_migrate.py` — substitution engine + per-file rule table + safety flags | complete |
 | INFRA-093 | Tests — fixture-based anchor-bootstrapped project + migration assertions | complete |
 | INFRA-094 | CLI wiring — pairmode dispatcher + SKILL.md documentation | complete |
-| INFRA-095 | Security hardening: backup-suffix path validation + sentinel-file check | planned |
+| INFRA-095 | Security hardening: backup-suffix path validation + sentinel-file check | complete |
+| INFRA-096 | Security fix: move `_validate_backup_suffix` into `migrate()` (defense-in-depth) | planned |
 
 ---
 
@@ -442,6 +443,49 @@ Also add a test `test_migrate_backup_suffix_validation` that:
 **Tests:**
 - `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q` passes.
 - Both new tests pass.
+
+---
+
+### Story INFRA-096 — Security fix: move `_validate_backup_suffix` into `migrate()` (defense-in-depth)
+
+**Rail:** INFRA | **story_class:** code
+
+## Requires
+
+- INFRA-095 complete: `_validate_backup_suffix()` exists.
+
+## Ensures
+
+Add a call to `_validate_backup_suffix(backup_suffix)` at the top of the `migrate()`
+function body, before any other logic, so that validation fires for all callers
+(programmatic, test, future wrappers) — not only CLI-invoked runs.
+
+The CLI call may remain as well (fail-fast at argument parsing) but the `migrate()`
+call is the authoritative trust-boundary check.
+
+**One-line change:**
+
+```python
+def migrate(project_dir: Path, *, apply: bool, yes: bool,
+            migrate_lessons: bool, backup_suffix: str = ".pre-flex-migration"
+           ) -> MigrationReport:
+    _validate_backup_suffix(backup_suffix)   # ← add this line
+    ...
+```
+
+No new tests required (existing `test_migrate_backup_suffix_validation` should be
+updated to call `migrate()` with a bad suffix and assert SystemExit, verifying the
+guard fires through the programmatic path). The existing CLI-level test may remain.
+
+**Primary files:**
+- `skills/pairmode/scripts/pairmode_migrate.py`
+
+**Touches:**
+- `tests/pairmode/test_pairmode_migrate.py`
+
+**Tests:**
+- `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q` passes.
+- `test_migrate_backup_suffix_validation` calls `migrate()` directly with a bad suffix and asserts SystemExit.
 
 ---
 
