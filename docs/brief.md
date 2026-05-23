@@ -9,28 +9,29 @@
 
 Flex is a Claude Code plugin with three skills:
 
-**`/flex:seed`** — Reads an existing codebase and all historical Claude Code transcripts to
-build a canonical spec from scratch: structured JSON records of decisions, rules, tradeoffs,
-and lineage for each module. Run once per project.
+**`/flex:pairmode`** — The primary flex workflow. Bootstraps and manages a structured
+builder/reviewer methodology on any project. Produces a full scaffold (CLAUDE.md, agent docs,
+settings, phase specs, CER backlog) and enforces the build loop at every commit. Generates
+`docs/ideology.md` — a conviction and constraint record that survives across implementations —
+and `docs/reconstruction.md` — a handoff prompt that seeds an independent agent to produce a
+competing implementation of the same project from ideology alone.
 
 **`/flex:companion`** — Loads the canonical spec into agent context at session start, detects
 drift between new decisions and established rules, and runs a sidebar that captures decisions
 made during the session into the spec automatically.
 
-**`/flex:pairmode`** — Bootstraps and manages a structured builder/reviewer methodology on
-any project. Produces a full scaffold (CLAUDE.md, agent docs, settings, phase specs, CER
-backlog) and enforces the build loop at every commit. Generates `docs/ideology.md` — a
-conviction and constraint record that survives across implementations — and
-`docs/reconstruction.md` — a handoff prompt that seeds an independent agent to produce a
-competing implementation of the same project from ideology alone.
+**`/flex:seed`** — Reads an existing codebase and all historical Claude Code transcripts to
+build a canonical spec from scratch: structured JSON records of decisions, rules, tradeoffs,
+and lineage for each module. Run once per project.
 
 ---
 
 ## Why it exists
 
-Code is becoming cheap to generate. What's scarce is the spec — the record of what was
-decided, why, and what must never be violated. Without it, agents drift. Developers forget.
-Constraints agreed on two sessions ago are invisible today.
+Code is becoming cheap to generate. What's scarce is a build loop that holds intent steady
+from spec to commit. Pairmode is that loop: every story specced before code, every commit
+gated by a reviewer. The companion memory layer underneath records the decisions that pairmode
+needs to enforce.
 
 Flex makes intent persistent. It captures decisions as you work, validates new actions
 against prior ones, and makes the canonical spec the source of truth for every agent and
