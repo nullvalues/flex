@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp36-migrate-from-anchor
+
+**Phase:** 36 — `/flex:pairmode migrate-from-anchor` sibling project migration tool
+**Tag command:** `git tag cp36-migrate-from-anchor && git push origin cp36-migrate-from-anchor`
+**Acceptance:** Six stories: INFRA-092 (`pairmode_migrate.py` — 15-rule substitution engine, `MigrationReport` dataclass, 7 verification gates, idempotency check, depth guard, dry-run/apply/backup safety); INFRA-093 (21-test suite with fixture-based anchor-bootstrapped project); INFRA-094 (`skills/pairmode/SKILL.md` documentation for `migrate-from-anchor` command); INFRA-095 (security hardening — `_validate_backup_suffix` at CLI + sentinel-file check before apply); INFRA-096 (defense-in-depth — `_validate_backup_suffix` moved inside `migrate()` for programmatic callers). Key design notes: subprocess invocation for sync-build/sync-agents (Click handlers, not importable); backup file gate-scan side-effect documented; `report.missing` limited to subprocess rules only. Security audit: 2 HIGH findings resolved across INFRA-095/096, clean final audit. 1704 tests pass.
+
+---
+
 ## cp35-rename-anchor-flex
 
 **Phase:** 35 — Project rename to flex (anchor → flex hard fork)
