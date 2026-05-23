@@ -115,6 +115,7 @@ REASON_AUTO_DOWNGRADE = "auto-downgrade"
 REASON_AUTO_BASELINE = "auto-baseline"
 REASON_PROMPTED_UPGRADE = "prompted-upgrade"
 REASON_USER_OVERRIDE = "user-override"
+REASON_RETRY_UPGRADE = "retry-upgrade"
 
 # story_class values that never upgrade to opus on retry
 _ALWAYS_SONNET_CLASSES = frozenset({"doc", "lesson"})
@@ -186,6 +187,7 @@ def select_builder_model(
     story_class: str,
     primary_files: list[str],
     protected_files: list[str],
+    attempt_number: int = 1,
 ) -> tuple[str, str]:
     """Return ``(model, reason)`` for the builder agent.
 
@@ -200,26 +202,34 @@ def select_builder_model(
                          .claude/settings.json).  If any entry in
                          ``primary_files`` appears in ``protected_files``
                          the story is considered high-scope.
+        attempt_number:  1 for the first attempt, >=2 for retries.  Code
+                         stories on attempt >=2 are always escalated to opus.
 
     Returns:
         A ``(model, reason)`` tuple where:
         - ``model``  is one of ``"haiku"``, ``"sonnet"``, ``"opus"``
         - ``reason`` is one of ``"auto-downgrade"``, ``"auto-baseline"``,
-          ``"prompted-upgrade"``
+          ``"prompted-upgrade"``, ``"retry-upgrade"``
 
     Decision table:
 
-      story_class   complexity signal                         model   reason
-      -----------   -----------------                         -----   ------
-      doc           any                                       haiku   auto-downgrade
-      lesson        any                                       haiku   auto-downgrade
-      methodology   any                                       sonnet  auto-baseline
-      code          <5 primary_files AND no protected file    sonnet  auto-baseline
-      code          >=5 primary_files OR protected file       opus    prompted-upgrade
+      story_class   attempt   complexity signal                         model   reason
+      -----------   -------   -----------------                         -----   ------
+      doc           any       any                                       haiku   auto-downgrade
+      lesson        any       any                                       haiku   auto-downgrade
+      methodology   any       any                                       sonnet  auto-baseline
+      code          1         <5 primary_files AND no protected file    sonnet  auto-baseline
+      code          1         >=5 primary_files OR protected file       opus    prompted-upgrade
+      code          >=2       any                                       opus    retry-upgrade
     """
     # Normalise / apply default
     if not story_class or story_class not in {"code", "doc", "lesson", "methodology"}:
         story_class = DEFAULT_STORY_CLASS  # "code"
+
+    # Retry escalation: code stories on attempt >= 2 always use opus.
+    # doc/lesson/methodology classes never escalate (mirrors reviewer behaviour).
+    if attempt_number >= 2 and story_class == "code":
+        return (MODEL_OPUS, REASON_RETRY_UPGRADE)
 
     # doc and lesson → auto-downgrade to haiku
     if story_class in _HAIKU_CLASSES:

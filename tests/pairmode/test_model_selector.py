@@ -13,6 +13,7 @@ from skills.pairmode.scripts.model_selector import (
     REASON_AUTO_BASELINE,
     REASON_AUTO_DOWNGRADE,
     REASON_PROMPTED_UPGRADE,
+    REASON_RETRY_UPGRADE,
     _phase_has_code_story,
     select_builder_model,
     select_intent_reviewer_model,
@@ -556,3 +557,48 @@ class TestSelectBuilderModel:
         model, reason = result
         assert isinstance(model, str)
         assert isinstance(reason, str)
+
+
+# ---------------------------------------------------------------------------
+# select_builder_model — attempt_number escalation (retry path)
+# ---------------------------------------------------------------------------
+
+
+class TestSelectBuilderModelRetry:
+    def test_code_attempt2_escalates_to_opus(self) -> None:
+        model, reason = select_builder_model("code", [], _NO_PROTECTED, attempt_number=2)
+        assert model == MODEL_OPUS
+        assert reason == REASON_RETRY_UPGRADE
+
+    def test_code_attempt3_escalates_to_opus(self) -> None:
+        model, reason = select_builder_model("code", [], _NO_PROTECTED, attempt_number=3)
+        assert model == MODEL_OPUS
+        assert reason == REASON_RETRY_UPGRADE
+
+    def test_code_attempt2_overrides_file_count_signal(self) -> None:
+        # Even a 1-file story escalates on retry — attempt_number beats file count.
+        model, reason = select_builder_model("code", ["a.py"], _NO_PROTECTED, attempt_number=2)
+        assert model == MODEL_OPUS
+        assert reason == REASON_RETRY_UPGRADE
+
+    def test_doc_attempt2_stays_haiku(self) -> None:
+        model, reason = select_builder_model("doc", [], _NO_PROTECTED, attempt_number=2)
+        assert model == MODEL_HAIKU
+        assert reason == REASON_AUTO_DOWNGRADE
+
+    def test_methodology_attempt2_stays_sonnet(self) -> None:
+        model, reason = select_builder_model("methodology", [], _NO_PROTECTED, attempt_number=2)
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE
+
+    def test_unknown_class_attempt2_escalates(self) -> None:
+        # Unknown defaults to code — should escalate.
+        model, reason = select_builder_model("unknown", [], _NO_PROTECTED, attempt_number=2)
+        assert model == MODEL_OPUS
+        assert reason == REASON_RETRY_UPGRADE
+
+    def test_attempt1_default_unchanged(self) -> None:
+        # attempt_number=1 is the default; existing behaviour must not change.
+        model, reason = select_builder_model("code", [], _NO_PROTECTED)
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE

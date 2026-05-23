@@ -85,21 +85,23 @@ protected_files = [            # from CLAUDE.md § Protected files and .claude/s
     '.claude-plugin/marketplace.json',
 ]
 
-model, reason = select_builder_model(story_class, primary_files, protected_files)
+model, reason = select_builder_model(story_class, primary_files, protected_files,
+                                     attempt_number=1)
 print(f'{model}|{reason}')
 "
 ```
 
 **Decision table:**
 
-| story_class | complexity signal | builder model | reason | action |
-|---|---|---|---|---|
-| `doc` | any | haiku | `auto-downgrade` | auto (no prompt) |
-| `lesson` | any | haiku | `auto-downgrade` | auto (no prompt) |
-| `methodology` | any | sonnet | `auto-baseline` | auto |
-| `code` | < 5 primary_files, no protected file | sonnet | `auto-baseline` | auto |
-| `code` | ≥ 5 primary_files OR protected file in touches | opus | `prompted-upgrade` | **prompt user** |
-| *(any)* | user overrides model downward | *(user choice)* | `user-override` | recorded |
+| story_class | complexity signal | attempt | builder model | reason | action |
+|---|---|---|---|---|---|
+| `doc` | any | any | haiku | `auto-downgrade` | auto (no prompt) |
+| `lesson` | any | any | haiku | `auto-downgrade` | auto (no prompt) |
+| `methodology` | any | any | sonnet | `auto-baseline` | auto |
+| `code` | < 5 primary_files, no protected file | 1 | sonnet | `auto-baseline` | auto |
+| `code` | ≥ 5 primary_files OR protected file in touches | 1 | opus | `prompted-upgrade` | **prompt user** |
+| `code` | any | ≥ 2 | opus | `retry-upgrade` | auto (no prompt) |
+| *(any)* | user overrides model downward | any | *(user choice)* | `user-override` | recorded |
 
 **For `prompted-upgrade` results**, display this prompt to the user before spawning the builder:
 
@@ -373,6 +375,12 @@ Check the current attempt number for this story.
 Append the reviewer's findings as a `## PREVIOUS ATTEMPT FAILED` section to the
 original story prompt. Re-spawn the builder (attempt 2) immediately — no user pause.
 Increment the per-story attempt counter to 2.
+
+Before spawning the retry builder, re-call `select_builder_model` with
+`attempt_number=2`.  For `code` stories this returns `opus` / `retry-upgrade`.
+Pass the escalated model to the builder Agent tool and record
+`--model-selection-reason retry-upgrade` in the attempt row.
+
 After the builder returns, record the attempt and run the guardrail as in Step 1,
 then re-spawn the reviewer (Step 2). The reviewer model re-selects based on the
 updated attempt_number (attempt 2 → opus for code stories).
