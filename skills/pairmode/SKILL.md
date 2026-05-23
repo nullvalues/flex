@@ -13,6 +13,10 @@ audit, sync, and lesson capture.
 
 ## Commands
 
+Available subcommands: `bootstrap`, `audit`, `sync`, `lesson`, `review`, `reconstruct`, `score`,
+`phase-new`, `cer`, `story`, `sync-agents`, `drift-report`, `sync-build`, `register`,
+`unregister`, `list-projects`, `migrate-from-anchor`.
+
 ### `/flex:pairmode bootstrap`
 
 **When to use:** When starting pairmode on a new or existing project for the first time, or when
@@ -788,6 +792,121 @@ uv run python skills/pairmode/scripts/pairmode_sync.py unregister --project-dir 
 **Flags:**
 - `--project-dir PATH` — target project directory (required for `register` and `unregister`). Resolved
   to an absolute path before use; paths with fewer than 3 components are rejected.
+
+---
+
+### `/flex:pairmode migrate-from-anchor`
+
+> **Note:** `migrate-from-anchor` is invoked directly via CLI, not through the pairmode skill
+> dispatcher. Correct invocation:
+> ```bash
+> PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_migrate.py" \
+>   --project-dir /path/to/sibling-project
+> ```
+
+**When to use:** When you have an anchor-bootstrapped sibling project and want to migrate it to
+the flex naming scheme. This is a **one-time-per-project operation** — run it once to rename all
+`anchor` project-name references to `flex` across the project files. It is not a recurring sync
+command.
+
+**Inputs expected:**
+- `--project-dir PATH` — the root of the anchor-named project to migrate (required).
+- `--apply` — write changes to disk. Default is dry-run (no files modified).
+- `--yes` / `-y` — skip the `[y/N]` confirmation prompt when `--apply` is set.
+- `--migrate-lessons` — also migrate `lessons/lessons.json` (one-time bypass rename) and
+  regenerate `lessons/LESSONS.md`. Omit if the project has no lessons store.
+- `--backup-suffix SUFFIX` — suffix appended to each file before modification
+  (default: `.pre-flex-migration`). Backups are created only when `--apply` is set.
+
+**What it does:**
+
+Applies a 15-rule substitution table across the project tree. Rules 1–13 run unconditionally;
+rules 14–15 are gated on `--migrate-lessons`.
+
+| Rule | Target | Strategy | Description |
+|------|--------|----------|-------------|
+| 1 | `CLAUDE.build.md` | subprocess | Re-renders via `pairmode_sync sync-build --apply --yes` |
+| 2 | `.claude/agents/*.md` (frontmatter) | subprocess | Re-renders frontmatter via `pairmode_sync sync-agents --yes` |
+| 3 | `.claude/agents/*.md` (body) | regex | Renames `anchor project` → `flex project`, fixes `$HOME/.anchor/`, `/anchor:` refs |
+| 4 | `hooks/*.py` | regex | Renames `ANCHOR_PROJECT_DIR/HASH` env vars, `/tmp/anchor_project_dir`, `anchor_root` |
+| 5 | `skills/companion/scripts/launch_sidebar.{sh,command}` | regex | Same env-var and path renames as Rule 4 |
+| 6 | `skills/companion/scripts/start_sidebar.sh` | regex | Same env-var and path renames as Rule 4 |
+| 7 | `skills/companion/scripts/sidebar.py` | regex | Renames `_ANCHOR_ROOT`, Rich display strings, `/anchor:companion` |
+| 8 | `skills/seed/SKILL.md` | regex | Renames `anchor:seed` → `flex:seed` |
+| 9 | `skills/pairmode/SKILL.md` | regex | Renames `/anchor:pairmode` → `/flex:pairmode` |
+| 10 | `skills/companion/SKILL.md` | regex | Renames `/anchor:companion` → `/flex:companion` |
+| 11 | `skills/pairmode/scripts/*.py` | regex | Renames `_ANCHOR_ROOT`, anchor repo root strings |
+| 12 | `.claude/settings.deny-rationale.json` | regex | Renames `anchor:pairmode` and anchor intercepts refs |
+| 13 | `.companion/state.json` | conditional | Updates `pairmode_version` from `anchor-*` to `0.2.0`; renames `project_name` if `"anchor"` |
+| 14 | `lessons/lessons.json` | bypass | One-time rename of anchor→flex prose in lesson content (requires `--migrate-lessons`) |
+| 15 | `lessons/LESSONS.md` | regenerate | Regenerates from updated `lessons.json` (requires `--migrate-lessons`) |
+
+**Idempotency:** Before applying any rules, the script runs 7 gate checks scanning all project
+text files for remaining anchor-name evidence. If all gates pass (no anchor references found),
+the script exits immediately with "Project is already migrated" and makes no changes.
+
+**Outputs:**
+
+A human-readable migration summary printed to stdout:
+
+```
+=== pairmode_migrate (dry-run) ===
+
+Rule 1: CLAUDE.build.md — sync-build
+  [dry-run] would invoke: pairmode_sync sync-build --apply --yes --project-dir /path/to/project
+Rule 2: .claude/agents/*.md frontmatter — sync-agents
+  ...
+
+--- Migration Summary ---
+Would change: N file(s)
+Skipped (no change): M file(s)
+Missing: K file(s)
+
+Changed files:
+  + /path/to/project/CLAUDE.build.md (subprocess dry-run)
+  ...
+
+Idempotency gate results:
+  [DIRTY] No /anchor: slash refs
+  [CLEAN] No _ANCHOR_ROOT identifiers
+  ...
+```
+
+When `--apply` is set, the summary shows "Applied" instead of "Would change", and lists backup
+files created (e.g. `CLAUDE.build.md.pre-flex-migration`).
+
+**Flags:**
+
+- `--project-dir PATH` — root of the project to migrate (required). Validated with a depth guard
+  (paths with fewer than 3 components are rejected).
+- `--apply` — write changes to disk; default is dry-run (no files written).
+- `--yes` / `-y` — skip the interactive `[y/N]` confirmation when `--apply` is set.
+- `--migrate-lessons` — enable rules 14–15 to migrate `lessons/lessons.json` and regenerate
+  `lessons/LESSONS.md`. Only needed when the project has a lessons store to migrate.
+- `--backup-suffix SUFFIX` — suffix appended to each original file before modification
+  (default: `.pre-flex-migration`). Backups are only written when `--apply` is set.
+
+**Workflow:**
+
+Recommended pattern: dry-run first, review output, then apply.
+
+```bash
+# Step 1 — dry-run: see what would change
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_migrate.py" \
+  --project-dir /path/to/sibling-project
+
+# Step 2 — review the "Would change" summary. When satisfied:
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_migrate.py" \
+  --project-dir /path/to/sibling-project --apply --yes
+
+# Step 3 — if the project has a lessons store:
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_migrate.py" \
+  --project-dir /path/to/sibling-project --apply --yes --migrate-lessons
+```
+
+> **Note:** This is a one-time-per-project operation. Do not run it repeatedly — the idempotency
+> gate will return "already migrated" after the first successful run, but unnecessary re-runs waste
+> time. Run it once, verify the result with a git diff, and commit.
 
 ---
 
