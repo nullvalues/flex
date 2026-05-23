@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp37-builder-model-tuning
+
+**Phase:** 37 — Builder model-selection tuning + token-direction recording
+**Tag command:** `git tag cp37-builder-model-tuning && git push origin cp37-builder-model-tuning`
+**Acceptance:** Three stories: INFRA-097 (raise `_CODE_UPGRADE_FILE_COUNT` from 3 → 5 — file-count trigger now fires at ≥ 5 primary_files, reducing false Opus upgrades for 3–4 file stories); INFRA-098 (add `attempt_number: int = 1` to `select_builder_model` — code stories on attempt ≥ 2 return `(opus, "retry-upgrade")` unconditionally, matching the reviewer's existing retry-upgrade pattern; new `REASON_RETRY_UPGRADE` constant exported); INFRA-099 (extend `CLAUDE.build.md` `<usage>` block extraction to document and pass `--tokens-in`, `--tokens-out`, `--cache-read-tokens`, `--cache-write-tokens` to `record_attempt.py` — directional token fields no longer null for all builder/reviewer rows). Intent review: `architecture.md` updated with new 4-arg `select_builder_model` signature, `retry-upgrade` reason, updated decision table (< 5 threshold), and corrected prompt example. Security audit: 0 findings. 1713 tests pass.
+
+---
+
 ## cp36-migrate-from-anchor
 
 **Phase:** 36 — `/flex:pairmode migrate-from-anchor` sibling project migration tool

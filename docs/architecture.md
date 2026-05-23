@@ -483,19 +483,21 @@ follow the spec.
 
 **Builder model selection.** The orchestrator calls
 `skills/pairmode/scripts/model_selector.select_builder_model(story_class,
-primary_files, protected_files) -> (model, reason)` before spawning each
+primary_files, protected_files, attempt_number=1) -> (model, reason)` before spawning each
 builder. The function returns a `(model, reason)` tuple:
 
 - `model` is one of `"haiku"`, `"sonnet"`, or `"opus"`
-- `reason` is one of `"auto-downgrade"`, `"auto-baseline"`, `"prompted-upgrade"`
+- `reason` is one of `"auto-downgrade"`, `"auto-baseline"`, `"prompted-upgrade"`,
+  `"retry-upgrade"`
 
-| `story_class` | complexity signal | model | reason | action |
-|---|---|---|---|---|
-| `doc` | any | haiku | `auto-downgrade` | auto |
-| `lesson` | any | haiku | `auto-downgrade` | auto |
-| `methodology` | any | sonnet | `auto-baseline` | auto |
-| `code` | < 3 `primary_files`, no protected file | sonnet | `auto-baseline` | auto |
-| `code` | ≥ 3 `primary_files` OR a protected file in touches | opus | `prompted-upgrade` | **prompt user** |
+| `story_class` | complexity signal | attempt | model | reason | action |
+|---|---|---|---|---|---|
+| `doc` | any | any | haiku | `auto-downgrade` | auto |
+| `lesson` | any | any | haiku | `auto-downgrade` | auto |
+| `methodology` | any | any | sonnet | `auto-baseline` | auto |
+| `code` | < 5 `primary_files`, no protected file | 1 | sonnet | `auto-baseline` | auto |
+| `code` | ≥ 5 `primary_files` OR a protected file in touches | 1 | opus | `prompted-upgrade` | **prompt user** |
+| `code` | any | ≥ 2 | opus | `retry-upgrade` | auto (no prompt) |
 
 `protected_files` is derived from the deny list in `CLAUDE.md` § Protected
 files and from `.claude/settings.json`. When the function returns
@@ -511,7 +513,7 @@ Prompt text for `prompted-upgrade`:
 ```
 MODEL SUGGESTION — Story [ID]
 story_class: code
-Signal: [e.g. "touches protected file hooks/stop.py" or "4 primary_files"]
+Signal: [e.g. "touches protected file hooks/stop.py" or "5 primary_files"]
 Suggested builder model: opus (baseline: sonnet)
 Reason: high-scope code story; opus reduces rework risk
 Say "upgrade" to use opus, or "continue" to proceed with sonnet.

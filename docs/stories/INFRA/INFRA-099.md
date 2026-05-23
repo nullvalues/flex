@@ -2,7 +2,7 @@
 id: INFRA-099
 rail: INFRA
 title: "Extend CLAUDE.build.md token recording to capture per-direction counts"
-status: planned
+status: complete
 phase: "37"
 story_class: methodology
 primary_files:

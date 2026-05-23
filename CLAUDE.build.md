@@ -181,8 +181,7 @@ tool_uses: M
 duration_ms: K</usage>
 ```
 
-Extract `total_tokens`, `tool_uses`, and `duration_ms` from the block. If the runtime also emits `input_tokens`, `output_tokens`, `cache_read_tokens`, or `cache_write_tokens`, extract those as well.
-If the runtime provides `input_tokens`, `output_tokens`, `cache_read_tokens`, or `cache_write_tokens` in the `<usage>` block, extract them and pass the corresponding flags to `record_attempt.py`. Omit any flag whose value is absent from the block — the CLI treats missing flags as NULL, which is correct for runtimes that do not yet emit the full breakdown.
+Extract `total_tokens`, `tool_uses`, and `duration_ms` from the block. If the runtime also emits `input_tokens`, `output_tokens`, `cache_read_tokens`, or `cache_write_tokens` in the `<usage>` block, extract them and pass the corresponding flags to `record_attempt.py`. Omit any flag whose value is absent from the block — the CLI treats missing flags as NULL, which is correct for runtimes that do not yet emit the full breakdown.
 Then invoke `record_attempt.py` with `--agent-role builder`. The `--model` value
 is inferred from the agent definition (e.g. `claude-sonnet-4-5` for the builder),
 or from any `model` override the orchestrator passed to the Agent tool.

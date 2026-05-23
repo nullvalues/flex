@@ -36,3 +36,4 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 34 | Checkpoint context health report | complete | [phase-34.md](phase-34.md) · cp34-checkpoint-context-health |
 | 35 | Project rename to flex | complete | [phase-35.md](phase-35.md) · cp35-rename-anchor-flex |
 | 36 | `/flex:pairmode migrate-from-anchor` — sibling project migration tool | complete | [phase-36.md](phase-36.md) · cp36-migrate-from-anchor |
+| 37 | Builder model-selection tuning + token-direction recording | complete | [phase-37.md](phase-37.md) · cp37-builder-model-tuning |
