@@ -311,6 +311,25 @@ def _resolve_targets(rule: MigrationRule, project_dir: Path) -> list[Path]:
 
 
 # ---------------------------------------------------------------------------
+# Backup-suffix validation
+# ---------------------------------------------------------------------------
+
+
+def _validate_backup_suffix(suffix: str) -> None:
+    """Reject backup suffixes containing '/' or '..'.
+
+    Raises SystemExit(1) for suffixes that could cause path traversal when
+    appended to a file path (e.g. "/tmp/evil" or "../etc/cron").
+    """
+    if "/" in suffix or ".." in suffix:
+        click.echo(
+            f"error: --backup-suffix must be a leaf string (no '/' or '..'): {suffix!r}",
+            err=True,
+        )
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # Depth guard
 # ---------------------------------------------------------------------------
 
@@ -641,6 +660,25 @@ def migrate(
     """
     _depth_guard(project_dir)
 
+    # --- Sentinel-file check (apply mode only) ---
+    # Checked before the idempotency gate so that apply on a non-project dir always
+    # fails fast, even when the dir has no anchor refs (which would otherwise trigger
+    # an early "already migrated" return and mask the invalid path).
+    if apply:
+        sentinels = [
+            project_dir / "CLAUDE.build.md",
+            project_dir / ".companion",
+            project_dir / ".claude" / "agents",
+        ]
+        if not any(s.exists() for s in sentinels):
+            click.echo(
+                "error: --project-dir does not look like a flex/anchor-bootstrapped project\n"
+                "       (expected at least one of: CLAUDE.build.md, .companion/, .claude/agents/)\n"
+                "       Re-run without --apply to preview what would change, or verify the path.",
+                err=True,
+            )
+            sys.exit(1)
+
     report = MigrationReport()
 
     # --- Idempotency check ---
@@ -790,6 +828,7 @@ def cli(
 
     Dry-run by default — pass --apply to write changes.
     """
+    _validate_backup_suffix(backup_suffix)
     project_path = Path(project_dir).resolve()
     report = migrate(
         project_path,

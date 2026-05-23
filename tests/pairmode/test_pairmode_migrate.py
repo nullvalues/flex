@@ -736,3 +736,34 @@ class TestMigrationRules:
                 assert rule.lessons_gated is True
             else:
                 assert rule.lessons_gated is False
+
+
+# ---------------------------------------------------------------------------
+# Test 13 — backup-suffix path validation
+# ---------------------------------------------------------------------------
+
+
+def test_migrate_backup_suffix_validation() -> None:
+    """_validate_backup_suffix must reject suffixes with '/' or '..'."""
+    with pytest.raises(SystemExit):
+        _mod._validate_backup_suffix("/tmp/evil")
+    with pytest.raises(SystemExit):
+        _mod._validate_backup_suffix("../etc/cron")
+    # Valid suffixes must not raise
+    _mod._validate_backup_suffix(".pre-flex-migration")
+    _mod._validate_backup_suffix(".bak")
+
+
+# ---------------------------------------------------------------------------
+# Test 14 — apply rejects non-project directories
+# ---------------------------------------------------------------------------
+
+
+def test_migrate_apply_rejects_non_project_dir(tmp_path: Path) -> None:
+    """migrate() with apply=True on a directory with no sentinels must raise SystemExit."""
+    # tmp_path has no CLAUDE.build.md, .companion/, or .claude/agents/
+    # Ensure the path is deep enough to pass the depth guard
+    project = tmp_path / "a" / "b" / "c"
+    project.mkdir(parents=True)
+    with pytest.raises(SystemExit):
+        _mod.migrate(project, apply=True, yes=True, migrate_lessons=False)
