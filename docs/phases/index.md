@@ -42,4 +42,4 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 40 | Pre-story schema gate | complete | [phase-40.md](phase-40.md) · cp40-pre-story-schema-gate |
 | 41 | Re-frame docs around pairmode as the lead capability | complete | [phase-41.md](phase-41.md) · cp41-pairmode-as-lead-capability |
 | 42 | Context budget session-relative token tracking | complete | [phase-42.md](phase-42.md) · cp42-context-budget-session-relative |
-| 43 | Replace DB-based context budget gate with orchestrator context check | planned | [phase-43.md](phase-43.md) |
+| 43 | Replace DB-based context budget gate with orchestrator context check | complete | [phase-43.md](phase-43.md) · cp43-orchestrator-context-check |
