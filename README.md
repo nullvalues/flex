@@ -16,46 +16,48 @@ this repo. The API and scaffold format may change without notice. See Known Limi
 
 Flex provides two complementary layers.
 
-**Memory layer** (`/flex:seed` + `/flex:companion`): `/flex:seed` reads your
-codebase and historical Claude Code transcripts to build a canonical spec — structured JSON
-records of decisions, rules, tradeoffs, and lineage for each module. `/flex:companion`
-loads that spec at session start, detects drift between new decisions and established rules,
-and runs a sidebar process that captures decisions made during the session into the spec
-automatically.
+**Process layer** (`/flex:pairmode`): Pairmode is the primary workflow: a structured
+builder/reviewer loop with effort tracking, per-story schema gates, context budget checks,
+and model selection per attempt. Bootstraps and manages the methodology on any project —
+produces a full scaffold (CLAUDE.md, agent docs, permission settings, phase specs, and a
+CER backlog) and enforces the build loop at every commit. Generates `docs/ideology.md` (a
+conviction and constraint record that survives across implementations) and
+`docs/reconstruction.md` (a handoff prompt that seeds an independent agent to produce a
+competing implementation of the same project from ideology alone).
 
-**Process layer** (`/flex:pairmode`): Bootstraps and manages a structured
-builder/reviewer methodology on any project. Produces a full scaffold — CLAUDE.md, agent
-docs, permission settings, phase specs, and a CER backlog — and enforces the build loop at
-every commit. Generates `docs/ideology.md` (a conviction and constraint record that
-survives across implementations) and `docs/reconstruction.md` (a handoff prompt that seeds
-an independent agent to produce a competing implementation of the same project from
-ideology alone).
+**Memory layer** (`/flex:seed` + `/flex:companion`): The companion memory layer underneath
+pairmode captures decisions live and feeds them back into the build loop. `/flex:seed`
+reads your codebase and historical Claude Code transcripts to build a canonical spec —
+structured JSON records of decisions, rules, tradeoffs, and lineage for each module.
+`/flex:companion` loads that spec at session start, detects drift between new decisions and
+established rules, and runs a sidebar process that captures decisions made during the
+session into the spec automatically.
 
-Used together, the memory layer supplies the spec; the process layer enforces it.
+Pairmode is the build loop. Companion is the memory it draws on.
 
-### Reactive memory vs proactive process
+### Pairmode and companion: posture comparison
 
-| Dimension | Companion (`/flex:seed`, `/flex:companion`) | Pairmode (`/flex:pairmode`) |
-|-----------|-------------------------------------------------|--------------------------------|
-| **When it acts** | During the session, reacting to what just happened | Before code is written, and at every commit gate |
-| **Posture** | Reactive — observes decisions and drift live | Proactive — fixes intent in writing first, prevents drift |
-| **Primary artefact** | `spec.json` per module | `docs/stories/<RAIL>/<RAIL>-NNN.md` and `docs/phases/phase-N.md` |
-| **Actor that writes** | Sidebar, after the fact, from the transcript | Developer (story spec) and builder/reviewer subagents |
-| **Failure it prevents** | Decision evaporation across sessions; silent contradiction of an earlier choice | Builder hallucinating scope; reviewer-less commits; phase drift |
-| **Failure it cannot prevent** | A story that was never specced — companion can only record what was discussed | A decision made mid-story that nobody captures into spec.json |
-| **Composition** | Feeds pairmode: spec.json non-negotiables generate the deny list at bootstrap | Feeds companion: `current_story` written into `state.json` so the sidebar surfaces story context |
-| **Use it when** | You want institutional memory across sessions and projects | You want a structured build loop and want to specify intent before code |
-| **Use both when** | You want intent both *captured live* (companion) and *enforced at the build gate* (pairmode) — the default for serious projects |
-
-Use companion when you want institutional memory across sessions and projects — a record
-of what was decided that survives context compaction and agent restarts.
+| Dimension | Pairmode (`/flex:pairmode`) | Companion (`/flex:seed`, `/flex:companion`) |
+|-----------|--------------------------------|-------------------------------------------------|
+| **When it acts** | Before code is written, and at every commit gate | During the session, reacting to what just happened |
+| **Posture** | Proactive — fixes intent in writing first, prevents drift | Reactive — observes decisions and drift live |
+| **Primary artefact** | `docs/stories/<RAIL>/<RAIL>-NNN.md` and `docs/phases/phase-N.md` | `spec.json` per module |
+| **Actor that writes** | Developer (story spec) and builder/reviewer subagents | Sidebar, after the fact, from the transcript |
+| **Failure it prevents** | Builder hallucinating scope; reviewer-less commits; phase drift | Decision evaporation across sessions; silent contradiction of an earlier choice |
+| **Failure it cannot prevent** | A decision made mid-story that nobody captures into spec.json | A story that was never specced — companion can only record what was discussed |
+| **Composition** | Feeds companion: `current_story` written into `state.json` so the sidebar surfaces story context | Feeds pairmode: spec.json non-negotiables generate the deny list at bootstrap |
+| **Use it when** | You want a structured build loop and want to specify intent before code | You want institutional memory across sessions and projects |
+| **Use both when** | You want intent both *enforced at the build gate* (pairmode) and *captured live* (companion) — the default for serious projects |
 
 Use pairmode when you want a structured build loop and pre-build intent capture — every
 story specced before code is written, every commit gated by a reviewer.
 
-Use both when you want intent both captured live and enforced at the build gate. This is
-the default for serious projects: companion records the decisions that surface during
-work, and pairmode keeps the build honest against the spec.
+Use companion when you want institutional memory across sessions and projects — a record
+of what was decided that survives context compaction and agent restarts.
+
+Use both when you want intent both enforced at the build gate and captured live. This is
+the default for serious projects: pairmode keeps the build honest against the spec, and
+companion records the decisions that surface during work.
 
 ## Installation
 
@@ -113,12 +115,12 @@ checklists reflect your actual project history.
 
 | Skill | Posture | What it does | Key command | Key output |
 |-------|---------|-------------|-------------|-----------|
-| `/flex:seed` | bootstrap-once | Mine transcripts, build canonical spec | `/flex:seed` | `openspec/specs/<module>/spec.json` |
-| `/flex:companion` | reactive | Load spec, capture decisions, detect drift | `/flex:companion` | Updated `spec.json`, sidebar process |
 | `/flex:pairmode` | proactive | Scaffold and enforce structured build loop | `/flex:pairmode bootstrap` | CLAUDE.md, agent docs, phase files, deny list |
 | `/flex:pairmode drift-report` | on-demand | Compare registered projects against canonical templates; surface convergent improvements for promotion | `/flex:pairmode drift-report --projects <path> [--convergent]` | Per-project MISSING/EXTRA/DRIFT report; convergence candidates for promotion |
 | `pairmode sync-build` | on-demand | Diff and optionally apply canonical `CLAUDE.build.md` template to an existing project | `pairmode sync-build --project-dir DIR [--dry-run] [--apply] [--yes]` | Unified diff; updated `CLAUDE.build.md` on `--apply` |
 | `pairmode register` | on-demand | Manage the list of projects used by drift detection | `pairmode register/unregister/list-projects --project-dir DIR` | Updated `registered_projects` in `.companion/state.json` |
+| `/flex:companion` | reactive | Load spec, capture decisions, detect drift | `/flex:companion` | Updated `spec.json`, sidebar process |
+| `/flex:seed` | bootstrap-once | Mine transcripts, build canonical spec | `/flex:seed` | `openspec/specs/<module>/spec.json` |
 
 ## Use case scenarios
 
@@ -149,10 +151,10 @@ in place.
    canonical pairmode templates and reports drift: your CLAUDE.build.md is missing the
    permission-scope step added in Phase 16.
 2. Run `/flex:pairmode sync`. It offers to apply the delta non-destructively. You accept.
-3. Run `/flex:companion`. The sidebar loads the spec. You see that the last session added
-   three lineage entries to the `billing` module. The current story was `BILLING-007`.
-4. You check `docs/phases/phase-3.md`. BILLING-007 is complete. The next planned story is
-   BILLING-008. You set the story: `story_context.py --set BILLING-008`.
+3. Check `docs/phases/phase-3.md`. The last completed story was `BILLING-007`. The next
+   planned story is `BILLING-008`. Set the story: `story_context.py --set BILLING-008`.
+4. Optionally, run `/flex:companion` to load the spec into the sidebar. The sidebar will
+   surface the active story and capture any new decisions made during the session.
 5. You pick up where you left off. The full constraint record is intact. Nothing was lost.
 
 ## The build loop
