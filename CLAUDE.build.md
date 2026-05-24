@@ -142,6 +142,27 @@ If the story is not auth-gated, skip this section.
 
 ## Build loop (repeat for each story)
 
+**Record session start** (once per build session, before the first builder):
+
+Write the current UTC time to `.companion/state.json` under the key
+`context_budget_session_start`. Use ISO-8601 format. This marks the session
+boundary so the context budget check counts only tokens from this session,
+not the full phase lifetime.
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python -c "
+import json, datetime
+from pathlib import Path
+state_path = Path('.companion/state.json')
+state = json.loads(state_path.read_text()) if state_path.exists() else {}
+state['context_budget_session_start'] = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
+state_path.write_text(json.dumps(state, indent=2))
+"
+```
+
+On resume after a `/clear`: run this again before the first "Continue building"
+story. The new timestamp resets the session-relative sum to zero.
+
 ### Pre-story schema gate
 
 Run this check **once per story**, before pre-authorizing edits or spawning the builder.
@@ -489,12 +510,11 @@ Replace `<PHASE_ID>` with the phase identifier from the current story's frontmat
 
 The script prints one machine-parseable line to stdout:
 ```
-context_budget phase=<phase> tokens=<sum> threshold=<n> status=<ok|over>
+context_budget phase=<phase> tokens=<sum> threshold=<n> since=<session_start|lifetime> status=<ok|over>
 ```
 
 - Exit 0 (`status=ok`): build loop continues normally.
-- Exit 1 (`status=over`): **BLOCKING.** Surface the following prompt verbatim and
-  wait for user response before spawning any further builder or reviewer:
+- Exit 1 (`status=over`): **BLOCKING.** Surface the following prompt **verbatim** — do not add editorial commentary, reasoning, or a recommendation. Wait for user response before spawning the next builder or entering the checkpoint sequence.
 
 ```
 CONTEXT BUDGET EXCEEDED — Story [RAIL-NNN] just completed.
