@@ -61,41 +61,15 @@ def _load_threshold_from_state(project_dir: Path) -> int | None:
         return None
 
 
-def _load_session_start_from_state(project_dir: Path) -> str | None:
-    """Return context_budget_session_start from state.json, or None if absent/invalid."""
-    state_path = project_dir / ".companion" / "state.json"
-    if not state_path.exists():
-        return None
-    try:
-        data = json.loads(state_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-    val = data.get("context_budget_session_start")
-    if val:
-        return str(val)
-    return None
-
-
-def _sum_tokens_for_phase(db_path: Path, phase: str, since: str | None = None) -> int:
-    """Sum tokens_total for all attempts in the given phase. NULL tokens count as 0.
-
-    When ``since`` is an ISO-8601 UTC string, only attempts recorded at or after
-    that timestamp are included (session-relative sum).  When None the full
-    phase-lifetime total is returned (existing behaviour, backward compatible).
-    """
+def _sum_tokens_for_phase(db_path: Path, phase: str) -> int:
+    """Sum tokens_total for all attempts in the given phase. NULL tokens count as 0."""
     conn = sqlite3.connect(str(db_path))
     try:
         cur = conn.cursor()
-        if since is not None:
-            cur.execute(
-                "SELECT COALESCE(SUM(COALESCE(tokens_total, 0)), 0) FROM attempts WHERE phase = ? AND ts >= ?",
-                (phase, since),
-            )
-        else:
-            cur.execute(
-                "SELECT COALESCE(SUM(COALESCE(tokens_total, 0)), 0) FROM attempts WHERE phase = ?",
-                (phase,),
-            )
+        cur.execute(
+            "SELECT COALESCE(SUM(COALESCE(tokens_total, 0)), 0) FROM attempts WHERE phase = ?",
+            (phase,),
+        )
         row = cur.fetchone()
         return int(row[0]) if row else 0
     finally:
@@ -126,16 +100,6 @@ def main(argv: list[str] | None = None) -> int:
             "Priority: --threshold > state.json context_budget_threshold > 120000 (default)."
         ),
     )
-    parser.add_argument(
-        "--since",
-        default=None,
-        help=(
-            "ISO-8601 UTC timestamp. When given, only attempts recorded at or after this "
-            "timestamp are summed (session-relative). Overrides state.json "
-            "context_budget_session_start. Omit for lifetime cumulative total."
-        ),
-    )
-
     args = parser.parse_args(argv)
 
     project_dir = Path(args.project_dir).resolve()
@@ -158,15 +122,9 @@ def main(argv: list[str] | None = None) -> int:
         state_threshold = _load_threshold_from_state(project_dir)
         threshold = state_threshold if state_threshold is not None else _DEFAULT_THRESHOLD
 
-    # Resolve session-start: --since arg > state.json > None (cumulative)
-    if args.since is not None:
-        since = args.since
-    else:
-        since = _load_session_start_from_state(project_dir)
-
     # Query the DB
     try:
-        token_sum = _sum_tokens_for_phase(db_path, args.phase, since)
+        token_sum = _sum_tokens_for_phase(db_path, args.phase)
     except sqlite3.Error as exc:
         print(f"ERROR: failed to query effort.db: {exc}", file=sys.stderr)
         return 2
@@ -174,10 +132,9 @@ def main(argv: list[str] | None = None) -> int:
     status = "ok" if token_sum <= threshold else "over"
 
     # Machine-parseable stdout line
-    since_label = since if since is not None else "lifetime"
     print(
         f"context_budget phase={args.phase} tokens={token_sum} "
-        f"threshold={threshold} since={since_label} status={status}"
+        f"threshold={threshold} status={status}"
     )
 
     if status == "over":
