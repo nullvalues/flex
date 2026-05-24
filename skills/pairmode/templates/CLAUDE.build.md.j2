@@ -140,27 +140,6 @@ If the story is not auth-gated, skip this section.
 
 ## Build loop (repeat for each story)
 
-**Record session start** (once per build session, before the first builder):
-
-Write the current UTC time to `.companion/state.json` under the key
-`context_budget_session_start`. Use ISO-8601 format. This marks the session
-boundary so the context budget check counts only tokens from this session,
-not the full phase lifetime.
-
-```bash
-PATH=$HOME/.local/bin:$PATH uv run python -c "
-import json, datetime
-from pathlib import Path
-state_path = Path('.companion/state.json')
-state = json.loads(state_path.read_text()) if state_path.exists() else {}
-state['context_budget_session_start'] = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
-state_path.write_text(json.dumps(state, indent=2))
-"
-```
-
-On resume after a `/clear`: run this again before the first "Continue building"
-story. The new timestamp resets the session-relative sum to zero.
-
 ### Pre-story schema gate
 
 Run this check **once per story**, before pre-authorizing edits or spawning the builder.
@@ -473,48 +452,30 @@ Stop the build loop.
 
 ## Context budget check (between stories)
 
-After every story's PASS or FAIL handling completes — after permission cleanup and status
-update for PASS, or after the revert for FAIL — before advancing to the next story or
-entering the checkpoint sequence, run:
+After every story's PASS or FAIL handling completes — before advancing to the
+next story or entering the checkpoint sequence:
 
-```bash
-PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/context_budget_check.py \
-  --project-dir . \
-  --phase <PHASE_ID>
-```
+1. Read `context_budget_threshold` from `.companion/state.json`
+   (default: 120 000 if absent or unset).
+2. Compare your current context window token count against the threshold.
+   Your context token count is visible in Claude Code via `/context`.
+3. If your context is **at or above** the threshold, surface the following
+   prompt **verbatim** — do not add editorial commentary, reasoning, or a
+   recommendation. Wait for user response before spawning the next builder
+   or entering the checkpoint sequence.
 
-Replace `<PHASE_ID>` with the phase identifier from the current story's frontmatter
-(e.g. `38`, `39`). The script reads `.companion/effort.db` and
-`.companion/state.json` (for `context_budget_threshold`). Threshold priority:
-`--threshold` arg → `state.json["context_budget_threshold"]` → built-in default `120000`.
+   CONTEXT BUDGET — [story RAIL-NNN] just completed.
+   Context is at approximately [N] tokens (threshold: [T]).
 
-The script prints one machine-parseable line to stdout:
-```
-context_budget phase=<phase> tokens=<sum> threshold=<n> since=<session_start|lifetime> status=<ok|over>
-```
+   Continuing risks context compaction mid-story. Options:
 
-- Exit 0 (`status=ok`): build loop continues normally.
-- Exit 1 (`status=over`): **BLOCKING.** Surface the following prompt **verbatim** — do not add editorial commentary, reasoning, or a recommendation. Wait for user response before spawning the next builder or entering the checkpoint sequence.
+   1. **Proceed** — continue building in this session; budget acknowledged.
+      Say: "Continue building"
 
-```
-CONTEXT BUDGET EXCEEDED — Story [RAIL-NNN] just completed.
-Phase <PHASE_ID> has now accumulated <tokens> tokens of recorded subagent work
-(threshold: <threshold>).
+   2. **Clear and resume** — run /clear, then in the fresh session:
+      Say: "Continue building Phase X from story RAIL-NNN"
 
-Continuing in the current session risks context compaction mid-story, which can
-cause the builder to lose coherence and repeat work. Options:
-
-1. **Proceed** — continue building in this session; budget breach acknowledged.
-   Say: "Continue building"
-
-2. **Pause for fresh session** — stop here; resume in a new session with a clean
-   context window.
-   Say: "Continue building" in a fresh session to resume from the next planned story.
-```
-
-Wait for user response before spawning the next builder or entering the checkpoint sequence.
-
-- Exit 2 (IO error): report to the user and pause; do not silently continue.
+4. If below the threshold: proceed normally.
 
 ---
 
