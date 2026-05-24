@@ -2,9 +2,12 @@
 
 ## What flex is
 
-Flex is a Claude Code plugin. It gives Claude Code a persistent memory of architectural decisions,
-specs, and constraints across sessions. It captures what you're building and why — automatically,
-as you work — and makes that intent persistent across every agent, every session, every project.
+Flex is a Claude Code plugin built around two layers. **Pairmode** is the primary workflow: a
+structured builder/reviewer build loop with effort tracking, per-story schema gates, context budget
+checks, and model selection per attempt. **Companion** is the memory layer underneath: a sidebar
+that captures decisions live and a canonical spec format (`spec.json`) that survives across
+sessions. Pairmode enforces intent at the build gate; companion records what was decided along the
+way.
 
 This document is the source of truth for the flex codebase itself. Read it before any task.
 
@@ -22,19 +25,6 @@ flex/
     session_end.py                ← signal sidebar to summarize and exit
 
   skills/
-    seed/                         ← /flex:seed — bootstrap canonical spec (run once)
-      SKILL.md
-      scripts/
-        setup.py                  ← product config writer
-        mine_sessions.py          ← transcript decision extractor
-        reconcile.py              ← spec merger
-    companion/                    ← /flex:companion — start each session
-      SKILL.md
-      scripts/
-        sidebar.py                ← companion sidebar process (long-running)
-        start_sidebar.sh          ← detects OS, opens sidebar in new terminal
-        launch_sidebar.command    ← macOS launcher
-        launch_sidebar.sh         ← Linux launcher
     pairmode/                     ← /flex:pairmode — bootstrap and manage pairmode
       SKILL.md
       scripts/
@@ -80,6 +70,19 @@ flex/
           eras/.gitkeep       ← creates eras root in bootstrapped projects (template stub only)
           cer/
             backlog.md.j2
+    companion/                    ← /flex:companion — start each session
+      SKILL.md
+      scripts/
+        sidebar.py                ← companion sidebar process (long-running)
+        start_sidebar.sh          ← detects OS, opens sidebar in new terminal
+        launch_sidebar.command    ← macOS launcher
+        launch_sidebar.sh         ← Linux launcher
+    seed/                         ← /flex:seed — bootstrap canonical spec (run once)
+      SKILL.md
+      scripts/
+        setup.py                  ← product config writer
+        mine_sessions.py          ← transcript decision extractor
+        reconcile.py              ← spec merger
 
   lessons/
     lessons.json                  ← global methodology lessons (lives in flex repo)
@@ -116,6 +119,47 @@ post_tool_use.py → pipe → sidebar tracks file→module mapping
 exit_plan_mode.py → pipe → sidebar analyzes plan for cross-module impact
 session_end.py → pipe → sidebar graceful shutdown signal
 ```
+
+---
+
+## Pairmode build loop
+
+Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) drives every step:
+
+1. **Story spec** — the phase doc names the story; the story file at
+   `docs/stories/<RAIL>/<RAIL>-NNN.md` defines `## Requires`, `## Ensures`, and
+   `primary_files`/`touches`. Building does not start without a complete story file.
+
+2. **Permission pre-write** — `permission_scope.py` writes story-scoped allow rules to
+   `.claude/settings.local.json` before the builder spawns, so the builder operates only
+   inside the declared file surface.
+
+3. **Builder spawn** — `model_selector.select_builder_model()` picks the model (haiku for
+   doc/lesson, sonnet baseline for code, opus on high-scope signals or retry). The builder
+   subagent implements the story, runs the test suite, and exits.
+
+4. **Tests** — the builder confirms `pytest tests/pairmode/ -x -q` passes before handing off.
+
+5. **Reviewer spawn** — `model_selector.select_reviewer_model()` picks the model (sonnet
+   baseline; opus on retry for `code`-class stories). The reviewer checks the diff against
+   every `## Ensures` assertion and the review checklist, then either commits or reverts.
+
+6. **Commit or revert + retry** — on PASS the reviewer commits and story status is updated to
+   `complete`; on FAIL the reviewer reverts and the builder is respawned with attempt_number
+   incremented.
+
+7. **Effort recording** — `record_attempt.py` writes each builder and reviewer spawn to
+   `.companion/effort.db` (tokens, model, duration, outcome).
+
+8. **Loop-breaker** — if the same story fails twice, the orchestrator invokes the loop-breaker
+   subagent (opus) to diagnose the root cause cold and propose one alternative approach.
+
+9. **Context budget check** — after every story, the orchestrator checks remaining context. When
+   budget is tight, it compacts or pauses before continuing.
+
+10. **Checkpoint** — at phase end, the intent-reviewer and security-auditor run across all stories.
+    Documentation is updated, all planned stories are verified complete or deferred, and the phase
+    is tagged.
 
 ---
 
@@ -159,96 +203,11 @@ Each module has one `spec.json` at `<spec_location>/openspec/specs/<module>/spec
 
 ---
 
-## Companion data files
-
-`.companion/product.json` contains a `config` key pointing to an external config file path.
-That config file contains `spec_location` — the path to the project's openspec directory.
-
-`spec_reader.read_project_spec(companion_dir)` follows this two-hop path automatically:
-1. Read `product.json["config"]` → path to external config file
-2. Read `config["spec_location"]` → openspec root directory
-3. Glob `<spec_location>/openspec/specs/*/spec.json` → all module specs
-
-Returns `None` if `product.json` is missing or has no `config` key. Returns a dict with
-`modules` (list of spec dicts) and `spec_location` (Path) if found.
-
-`.companion/state.json` is written by the companion skill on every session start. Schema:
-
-```json
-{
-  "pairmode_version": "1.0",
-  "last_loaded_modules": ["module-name"],
-  "current_story": {
-    "id": "2.3",
-    "title": "optional title",
-    "set_at": "2026-04-20T00:00:00+00:00"
-  },
-  "registered_projects": [
-    "/absolute/path/to/project-a",
-    "/absolute/path/to/project-b"
-  ]
-}
-```
-
-Fields:
-- `pairmode_version` — set by `/flex:pairmode bootstrap`; the methodology version used
-  to scaffold the project. Read by `/flex:pairmode audit` to compute the delta.
-- `last_loaded_modules` — updated on every companion session start; lists the module names
-  the user chose to load for that session.
-- `current_story` — **optional**; present only when pairmode is active and the user
-  confirmed which story they are working on. Contains `id` (required), optional `title`,
-  and `set_at` (UTC ISO-8601 timestamp). Absent when the user skips the prompt.
-- `registered_projects` — **optional**; list of absolute paths to pairmode-scaffolded
-  projects to include in cross-project drift detection. When present and non-empty,
-  `/flex:pairmode review` runs `pairmode_drift_report --convergent` across all listed
-  projects and surfaces convergence candidates for promotion to canonical templates.
-  Not set by `bootstrap.py` — opt-in only. Each path is validated with `_depth_guard`
-  before use (paths with fewer than 3 components are rejected).
-  The canonical management path for this list is the `pairmode register` / `unregister` /
-  `list-projects` subcommands (INFRA-070); hand-editing `state.json` is discouraged.
-  The key is created on first `register` call when absent; it is never written by
-  `bootstrap.py`. Each entry is a resolved absolute path string.
-
-Pairmode is considered active when `.claude/settings.deny-rationale.json` exists in the
-project root. The helper `skills/pairmode/scripts/story_context.py` provides:
-- `is_pairmode_active(project_dir)` — returns True when the deny-rationale file is present.
-- `set_current_story(companion_dir, story_id, title=None)` — writes the `current_story`
-  entry and returns the updated state dict.
-- `get_current_story(companion_dir)` — returns the `current_story` dict or None.
-- `clear_current_story(companion_dir)` — removes `current_story` from state.json.
-- `read_state(companion_dir)` / `write_state(companion_dir, state)` — low-level helpers.
-
----
-
-## Hook architecture
-
-**Non-negotiable: hooks are thin relays.**
-
-Hooks must:
-- Write a JSON message to `/tmp/companion.pipe`
-- Exit in milliseconds
-- Never make API calls
-- Never write to spec files directly
-
-The sidebar does all heavy work asynchronously. If the sidebar is not running, the pipe write
-silently fails and the session continues normally — no data is lost because the session
-transcript is always available for later mining.
-See `docs/pipe-architecture.md` for the project-scoped pipe design, its backwards-compatibility guarantee, and what changed relative to the original single-pipe design.
-
-**Protected-file classification** belongs in the sidebar, not in the hook.
-The sidebar loads `.claude/settings.deny-rationale.json` lazily on first use (cached
-per `cwd` for the lifetime of the sidebar process) and calls `_check_protected()` when
-processing each `file_changed` event. The hook emits only `path` and `tool` — no
-deny-rationale reads occur in the hook.
-
-`spec_exception` pipe messages are produced by the sidebar's override prompt (when a developer provides a reason for overriding a protected file) and handled by the sidebar's pipe reader to write conflict records to the module's `spec.json`. The pipe message payload fields used by the handler: `type` (`"spec_exception"`), `path` (overridden file path), `non_negotiable` (the rule violated), `override_reason` (developer-supplied justification), `session_id` (Claude Code session identifier).
-
----
-
 ## Pairmode design
 
 ### Pairmode and companion: separation of concerns
 
+Pairmode is flex's primary build workflow; companion is the memory layer it draws on.
 Pairmode and companion are two temporal postures on the same concern — keeping intent
 intact across sessions and across builds. Companion is **reactive**: the sidebar observes
 a session as it unfolds and writes decisions, drift, and lineage into `spec.json` after
@@ -689,6 +648,92 @@ that names: (a) the chosen auth model (RBAC / ABAC / both), (b) the enforcement 
 module, and (c) which resource types map to which model (for coexistence cases). This
 section serves as the spec contract that reviewers check before accepting any auth-gated
 story.
+
+---
+
+## Companion data files
+
+`.companion/product.json` contains a `config` key pointing to an external config file path.
+That config file contains `spec_location` — the path to the project's openspec directory.
+
+`spec_reader.read_project_spec(companion_dir)` follows this two-hop path automatically:
+1. Read `product.json["config"]` → path to external config file
+2. Read `config["spec_location"]` → openspec root directory
+3. Glob `<spec_location>/openspec/specs/*/spec.json` → all module specs
+
+Returns `None` if `product.json` is missing or has no `config` key. Returns a dict with
+`modules` (list of spec dicts) and `spec_location` (Path) if found.
+
+`.companion/state.json` is written by the companion skill on every session start. Schema:
+
+```json
+{
+  "pairmode_version": "1.0",
+  "last_loaded_modules": ["module-name"],
+  "current_story": {
+    "id": "2.3",
+    "title": "optional title",
+    "set_at": "2026-04-20T00:00:00+00:00"
+  },
+  "registered_projects": [
+    "/absolute/path/to/project-a",
+    "/absolute/path/to/project-b"
+  ]
+}
+```
+
+Fields:
+- `pairmode_version` — set by `/flex:pairmode bootstrap`; the methodology version used
+  to scaffold the project. Read by `/flex:pairmode audit` to compute the delta.
+- `last_loaded_modules` — updated on every companion session start; lists the module names
+  the user chose to load for that session.
+- `current_story` — **optional**; present only when pairmode is active and the user
+  confirmed which story they are working on. Contains `id` (required), optional `title`,
+  and `set_at` (UTC ISO-8601 timestamp). Absent when the user skips the prompt.
+- `registered_projects` — **optional**; list of absolute paths to pairmode-scaffolded
+  projects to include in cross-project drift detection. When present and non-empty,
+  `/flex:pairmode review` runs `pairmode_drift_report --convergent` across all listed
+  projects and surfaces convergence candidates for promotion to canonical templates.
+  Not set by `bootstrap.py` — opt-in only. Each path is validated with `_depth_guard`
+  before use (paths with fewer than 3 components are rejected).
+  The canonical management path for this list is the `pairmode register` / `unregister` /
+  `list-projects` subcommands (INFRA-070); hand-editing `state.json` is discouraged.
+  The key is created on first `register` call when absent; it is never written by
+  `bootstrap.py`. Each entry is a resolved absolute path string.
+
+Pairmode is considered active when `.claude/settings.deny-rationale.json` exists in the
+project root. The helper `skills/pairmode/scripts/story_context.py` provides:
+- `is_pairmode_active(project_dir)` — returns True when the deny-rationale file is present.
+- `set_current_story(companion_dir, story_id, title=None)` — writes the `current_story`
+  entry and returns the updated state dict.
+- `get_current_story(companion_dir)` — returns the `current_story` dict or None.
+- `clear_current_story(companion_dir)` — removes `current_story` from state.json.
+- `read_state(companion_dir)` / `write_state(companion_dir, state)` — low-level helpers.
+
+---
+
+## Hook architecture
+
+**Non-negotiable: hooks are thin relays.**
+
+Hooks must:
+- Write a JSON message to `/tmp/companion.pipe`
+- Exit in milliseconds
+- Never make API calls
+- Never write to spec files directly
+
+The sidebar does all heavy work asynchronously. If the sidebar is not running, the pipe write
+silently fails and the session continues normally — no data is lost because the session
+transcript is always available for later mining.
+See `docs/pipe-architecture.md` for the project-scoped pipe design, its backwards-compatibility guarantee, and what changed relative to the original single-pipe design.
+
+**Protected-file classification** belongs in the sidebar, not in the hook.
+The sidebar loads `.claude/settings.deny-rationale.json` lazily on first use (cached
+per `cwd` for the lifetime of the sidebar process) and calls `_check_protected()` when
+processing each `file_changed` event. The hook emits only `path` and `tool` — no
+deny-rationale reads occur in the hook.
+
+`spec_exception` pipe messages are produced by the sidebar's override prompt (when a developer provides a reason for overriding a protected file) and handled by the sidebar's pipe reader to write conflict records to the module's `spec.json`. The pipe message payload fields used by the handler: `type` (`"spec_exception"`), `path` (overridden file path), `non_negotiable` (the rule violated), `override_reason` (developer-supplied justification), `session_id` (Claude Code session identifier).
 
 ---
 
