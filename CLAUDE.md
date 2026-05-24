@@ -2,13 +2,19 @@
 
 ## Project context
 
-flex — a Claude Code plugin that gives Claude persistent memory of architectural decisions,
-specs, and constraints across sessions.
-Stack: Python 3.11+ / uv / Rich (TUI) / Anthropic SDK.
-Read `/docs/brief.md` then `/docs/architecture.md` before any task. These are the source of truth.
+flex — a Claude Code plugin whose primary feature is **pairmode**: a
+structured builder/reviewer workflow with effort tracking, per-story schema
+gates, context budget checks, and model selection per attempt. The companion
+memory layer (sidebar, `spec.json`, lessons) is the supporting infrastructure
+that pairmode sits on top of.
 
-This repo is currently building the `pairmode` feature — a structured builder/reviewer
-workflow that any project can adopt. See `/docs/phase-prompts.md` for the build plan.
+Stack: Python 3.11+ / uv / Rich (TUI) / Anthropic SDK.
+Read `/docs/brief.md` then `/docs/architecture.md` before any task. These are
+the source of truth.
+
+Pairmode is shipped and in continuous use on this repo. Current build activity
+lives in numbered phase files under `/docs/phases/`; see
+`/docs/phases/index.md` for the current phase.
 
 ## Session modes
 
