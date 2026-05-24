@@ -227,3 +227,134 @@ def test_exit_2_when_db_missing(tmp_path):
         "--phase", "1",
     ])
     assert exit_code == 2
+
+
+# ---------------------------------------------------------------------------
+# Test 7: session_start filters out pre-session tokens
+# ---------------------------------------------------------------------------
+
+def test_session_start_excludes_pre_session_tokens(tmp_path, capsys):
+    """Only post-session-start tokens are summed when state.json has context_budget_session_start."""
+    companion_dir = tmp_path / ".companion"
+    companion_dir.mkdir(parents=True)
+
+    # Two attempts: one before session start (should be excluded), one after
+    _create_db(companion_dir, [
+        {
+            "story_id": "X-001",
+            "phase": "X",
+            "tokens_total": 90000,
+            "ts": "2026-01-01T00:00:00+00:00",  # before session_start
+        },
+        {
+            "story_id": "X-002",
+            "phase": "X",
+            "tokens_total": 10000,
+            "ts": "2026-06-01T00:00:00+00:00",  # after session_start
+        },
+    ])
+    _create_state(companion_dir, {
+        "effort_tracking": True,
+        "context_budget_session_start": "2026-03-01T00:00:00+00:00",
+    })
+
+    exit_code = main([
+        "--project-dir", str(tmp_path),
+        "--phase", "X",
+        "--threshold", "50000",
+    ])
+    # Only the 10000 post-session-start token attempt counts → under 50000 → ok
+    assert exit_code == 0
+
+    captured = capsys.readouterr()
+    assert "tokens=10000" in captured.out
+    assert "since=2026-03-01T00:00:00+00:00" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Test 8: --since arg overrides state.json session_start
+# ---------------------------------------------------------------------------
+
+def test_since_arg_overrides_state_session_start(tmp_path, capsys):
+    """--since argument wins over state.json context_budget_session_start."""
+    companion_dir = tmp_path / ".companion"
+    companion_dir.mkdir(parents=True)
+
+    # Three attempts at different timestamps
+    _create_db(companion_dir, [
+        {
+            "story_id": "Y-001",
+            "phase": "Y",
+            "tokens_total": 50000,
+            "ts": "2026-01-01T00:00:00+00:00",  # before state session_start
+        },
+        {
+            "story_id": "Y-002",
+            "phase": "Y",
+            "tokens_total": 30000,
+            "ts": "2026-04-01T00:00:00+00:00",  # after state session_start, before --since
+        },
+        {
+            "story_id": "Y-003",
+            "phase": "Y",
+            "tokens_total": 8000,
+            "ts": "2026-06-01T00:00:00+00:00",  # after --since
+        },
+    ])
+    # state.json session_start is 2026-03-01; without --since, 30000+8000=38000 would count
+    _create_state(companion_dir, {
+        "effort_tracking": True,
+        "context_budget_session_start": "2026-03-01T00:00:00+00:00",
+    })
+
+    # --since is later than state session_start → only 8000 counts
+    exit_code = main([
+        "--project-dir", str(tmp_path),
+        "--phase", "Y",
+        "--since", "2026-05-01T00:00:00+00:00",
+        "--threshold", "20000",
+    ])
+    assert exit_code == 0
+
+    captured = capsys.readouterr()
+    assert "tokens=8000" in captured.out
+    assert "since=2026-05-01T00:00:00+00:00" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Test 9: missing session_start falls back to cumulative total
+# ---------------------------------------------------------------------------
+
+def test_missing_session_start_falls_back_to_cumulative(tmp_path, capsys):
+    """When no session_start and no --since, all phase tokens are summed (cumulative)."""
+    companion_dir = tmp_path / ".companion"
+    companion_dir.mkdir(parents=True)
+
+    _create_db(companion_dir, [
+        {
+            "story_id": "Z-001",
+            "phase": "Z",
+            "tokens_total": 40000,
+            "ts": "2026-01-01T00:00:00+00:00",
+        },
+        {
+            "story_id": "Z-002",
+            "phase": "Z",
+            "tokens_total": 30000,
+            "ts": "2026-06-01T00:00:00+00:00",
+        },
+    ])
+    # No context_budget_session_start key in state.json
+    _create_state(companion_dir, {"effort_tracking": True})
+
+    exit_code = main([
+        "--project-dir", str(tmp_path),
+        "--phase", "Z",
+        "--threshold", "100000",
+    ])
+    # 40000 + 30000 = 70000 < 100000 → ok
+    assert exit_code == 0
+
+    captured = capsys.readouterr()
+    assert "tokens=70000" in captured.out
+    assert "since=lifetime" in captured.out
