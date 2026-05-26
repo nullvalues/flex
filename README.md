@@ -66,7 +66,7 @@ companion records the decisions that surface during work.
 claude code plugin install path/to/flex
 
 # Or clone and install locally
-git clone https://github.com/halfhorse/flex
+git clone https://github.com/nullvalues/flex
 claude code plugin install ./flex
 ```
 
