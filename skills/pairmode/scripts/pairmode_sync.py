@@ -285,6 +285,8 @@ def _build_template_context(project_dir: Path) -> dict:
         "test_command": pctx.get("test_command") or state.get("test_command") or "",
         "migration_command": pctx.get("migration_command") or state.get("migration_command") or "",
         "pairmode_scripts_dir": str(Path(__file__).parent),
+        "domain_isolation_rule": pctx.get("domain_isolation_rule") or state.get("domain_isolation_rule") or "",
+        "protected_paths": pctx.get("protected_paths") or state.get("protected_paths") or [],
     }
 
 
@@ -446,9 +448,7 @@ def sync_agents(project_dir: str, dry_run: bool, yes: bool) -> None:
     _depth_guard_sync_build(project_path)
     agents_dir = project_path / ".claude" / "agents"
 
-    state = _load_state(project_path)
-    project_name = _get_project_name(project_path, state)
-    context = {"project_name": project_name}
+    context = _build_template_context(project_path)
 
     changes = _collect_changes(agents_dir, TEMPLATES_DIR, context)
 

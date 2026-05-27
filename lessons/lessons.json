@@ -299,6 +299,26 @@
         "pairmode"
       ],
       "status": "captured"
+    },
+    {
+      "id": "L017",
+      "date": "2026-05-26",
+      "source_project": "PokusFokus",
+      "trigger": "Reviewer FAIL-revert wiped the operator's uncommitted, git-tracked .claude/settings.json permission change mid-build, re-blocking all subsequent stories.",
+      "problem": "The orchestrator spawned the reviewer while an operator-authorized deny->allow change sat uncommitted in the working tree. The reviewer's revert-on-FAIL (git reset --hard / checkout) restored tracked .claude/settings.json to HEAD, erasing the authorized relaxation. The reviewer also (correctly, blind to intent) flagged the unexplained protected-file unlock as two HIGH/MEDIUM findings unrelated to the builder's actual code, conflating operator permission bookkeeping with builder output.",
+      "learning": "A git-tracked permission-config file is part of the working tree the reviewer reverts. Authorized changes to it must be committed BEFORE the reviewer fires (the same protection Step 1.5 gives methodology files), or they are silently destroyed on any FAIL. Two corollaries: (1) maintain an EXPLICIT allow block for the files in active scope rather than relying on absence-from-deny ('implicit approval'), so authorizations are legible in the diff and reviewable; (2) when the harness self-modification guard bars the agent from editing a permission file, write the proposed valid file to a tmp path for the operator to mv into place instead of abandoning the change.",
+      "methodology_change": {
+        "affects": [
+          "build-loop",
+          "reviewer"
+        ],
+        "description": "Extend CLAUDE.build.md Step 1.5 ('Commit pending methodology files before the reviewer fires') to explicitly add tracked permission config to the pre-reviewer commit set (git add .claude/settings.json) whenever it carries authorized changes. Add reviewer guidance to distinguish operator-made permission-config changes from builder output rather than auto-attributing settings.json deltas to the builder. Recommend an explicit allow block per active story scope, and a tmp-file + operator-mv handoff for permission edits the agent cannot write directly."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured",
+      "validation_phase": "2"
     }
   ]
 }

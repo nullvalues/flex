@@ -9,6 +9,7 @@ Verifies that:
 
 from __future__ import annotations
 
+import json
 import pathlib
 import sys
 
@@ -51,6 +52,32 @@ class TestBuildTemplateContext:
         scripts_dir = ctx["pairmode_scripts_dir"]
         assert scripts_dir.endswith("skills/pairmode/scripts"), (
             f"pairmode_scripts_dir does not end with 'skills/pairmode/scripts': {scripts_dir!r}"
+        )
+
+    def test_domain_isolation_rule_from_pairmode_context(self, tmp_path: pathlib.Path) -> None:
+        """_build_template_context returns domain_isolation_rule from pairmode_context.json."""
+        companion_dir = tmp_path / ".companion"
+        companion_dir.mkdir()
+        pairmode_ctx = {"domain_isolation_rule": "no raw SQL"}
+        (companion_dir / "pairmode_context.json").write_text(
+            json.dumps(pairmode_ctx), encoding="utf-8"
+        )
+        ctx = _build_template_context(tmp_path)
+        assert ctx.get("domain_isolation_rule") == "no raw SQL", (
+            f"Expected domain_isolation_rule='no raw SQL', got {ctx.get('domain_isolation_rule')!r}"
+        )
+
+    def test_protected_paths_from_pairmode_context(self, tmp_path: pathlib.Path) -> None:
+        """_build_template_context returns protected_paths from pairmode_context.json."""
+        companion_dir = tmp_path / ".companion"
+        companion_dir.mkdir()
+        pairmode_ctx = {"protected_paths": ["src/core/"]}
+        (companion_dir / "pairmode_context.json").write_text(
+            json.dumps(pairmode_ctx), encoding="utf-8"
+        )
+        ctx = _build_template_context(tmp_path)
+        assert ctx.get("protected_paths") == ["src/core/"], (
+            f"Expected protected_paths=['src/core/'], got {ctx.get('protected_paths')!r}"
         )
 
 
@@ -164,3 +191,80 @@ def test_sync_agents_rejects_shallow_path(tmp_path: pathlib.Path) -> None:
     runner = CliRunner()
     result = runner.invoke(sync_agents, ["--project-dir", "/tmp"])
     assert result.exit_code == 1
+
+
+def test_sync_agents_renders_with_full_context(tmp_path: pathlib.Path) -> None:
+    """sync-agents detects changes when pairmode_context.json provides full context.
+
+    Ensures the false-negative 'No changes to apply.' is gone when a template
+    uses {{ build_command }} or {{ protected_paths }} and those values are present
+    in pairmode_context.json.
+    """
+    from click.testing import CliRunner
+
+    # Set up .companion/ with pairmode_context.json
+    companion_dir = tmp_path / ".companion"
+    companion_dir.mkdir()
+    pairmode_ctx = {
+        "build_command": "make build",
+        "test_command": "make test",
+        "protected_paths": ["src/core/"],
+    }
+    (companion_dir / "pairmode_context.json").write_text(
+        json.dumps(pairmode_ctx), encoding="utf-8"
+    )
+
+    # Create a synthetic agent file and a matching template in a temp templates dir
+    agents_dir = tmp_path / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+
+    # Write a synthetic existing agent file whose frontmatter differs from what
+    # the template will render (so we get a detected change).
+    agent_content = """\
+---
+name: test-agent
+description: Old description without build_command
+---
+
+## Body section
+
+Some body text.
+"""
+    (agents_dir / "test-agent.md").write_text(agent_content, encoding="utf-8")
+
+    # Create a synthetic template dir and template that uses build_command and protected_paths
+    templates_dir = tmp_path / "templates" / "agents"
+    templates_dir.mkdir(parents=True)
+    template_content = """\
+---
+name: test-agent
+description: Agent for {{ project_name }} — build: {{ build_command }}
+---
+
+## Body section
+
+Protected paths: {% for p in protected_paths %} {{ p }}{% endfor %}
+"""
+    (templates_dir / "test-agent.md.j2").write_text(template_content, encoding="utf-8")
+
+    # We can't inject our custom templates_dir into sync_agents CLI directly,
+    # so test via _collect_changes with a context built from _build_template_context.
+    from pairmode_sync import _collect_changes
+
+    ctx = _build_template_context(tmp_path)
+    changes = _collect_changes(agents_dir, templates_dir, ctx)
+
+    # The change must be detected — rendering succeeds and context is fully populated.
+    # Before this fix, sync-agents used only {"project_name": ...} as context, so templates
+    # using {{ build_command }} would raise StrictUndefined and silently no-op, producing
+    # "No changes to apply." even when changes existed.
+    assert len(changes) == 1, (
+        f"Expected 1 change, got {len(changes)}. "
+        "build_command and protected_paths from pairmode_context.json may not be in context."
+    )
+
+    # The rendered frontmatter must contain the build_command value from pairmode_context.json
+    _agent_file, _old, new_content = changes[0]
+    assert "make build" in new_content, (
+        f"Rendered agent content does not contain 'make build': {new_content!r}"
+    )

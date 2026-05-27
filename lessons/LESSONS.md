@@ -82,3 +82,8 @@ or use `/flex:pairmode lesson` to capture a new lesson.
 **Date:** 2026-05-18
 **Status:** captured
 **Learning:** Markers are 'pending work' signals and must be lifecycle-managed. When a lesson flips to 'applied' the marker should either be removed entirely or transformed into a brief breadcrumb ({# LESSON LNNN APPLIED YYYY-MM-DD in <file> #}). Affects keys should be granular enough that markers land near where the actual change is most likely to happen. And there must be a clean path to declare a lesson applied when the change was implemented directly without going through review's annotation step.
+
+## L017 — Reviewer FAIL-revert wiped the operator's uncommitted, git-tracked .claude/settings.json permission change mid-build, re-blocking all subsequent stories.
+**Date:** 2026-05-26
+**Status:** captured
+**Learning:** A git-tracked permission-config file is part of the working tree the reviewer reverts. Authorized changes to it must be committed BEFORE the reviewer fires (the same protection Step 1.5 gives methodology files), or they are silently destroyed on any FAIL. Two corollaries: (1) maintain an EXPLICIT allow block for the files in active scope rather than relying on absence-from-deny ('implicit approval'), so authorizations are legible in the diff and reviewable; (2) when the harness self-modification guard bars the agent from editing a permission file, write the proposed valid file to a tmp path for the operator to mv into place instead of abandoning the change.
