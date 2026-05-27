@@ -331,15 +331,22 @@ def _collect_changes(
     agents_dir: Path,
     templates_dir: Path,
     context: dict,
-) -> list[tuple[Path, str, str]]:
-    """Return a list of (agent_file, old_content, new_content) for changed files.
+) -> tuple[list[tuple[Path, str, str]], list[tuple[str, str]]]:
+    """Return (changes, render_errors).
 
-    Warnings about skipped files are printed to stderr.
+    ``changes`` is a list of (agent_file, old_content, new_content) for changed files.
+    ``render_errors`` is a list of (filename, reason) pairs for files skipped because
+    the canonical template failed to render (StrictUndefined, syntax error, etc.).
+
+    Warnings about other skip paths (no template found, no frontmatter block) are
+    still printed to stderr here; only rendering failures are surfaced via the
+    returned ``render_errors`` list so the caller can decide how to react.
     """
     if not agents_dir.is_dir():
-        return []
+        return [], []
 
     changes: list[tuple[Path, str, str]] = []
+    render_errors: list[tuple[str, str]] = []
 
     for agent_file in sorted(agents_dir.glob("*.md")):
         stem = agent_file.stem  # e.g. "builder"
@@ -370,10 +377,7 @@ def _collect_changes(
         try:
             new_frontmatter = _render_template_frontmatter(template_path, context)
         except (jinja2.TemplateError, ValueError) as exc:
-            click.echo(
-                f"warning: failed to render template {template_path.name}: {exc} — skipping",
-                err=True,
-            )
+            render_errors.append((agent_file.name, str(exc)))
             continue
 
         # Render the full template and extract its body for section merging
@@ -382,7 +386,10 @@ def _collect_changes(
             template_parts = _split_agent_file(full_rendered)
             template_body = template_parts[1] if template_parts is not None else ""
         except (jinja2.TemplateError, ValueError):
-            # If we can't render the full template, fall back to no body merging
+            # If we can't render the full template, fall back to no body merging.
+            # The frontmatter render above is the gating check; full-body render
+            # failure does not block frontmatter sync (limitation documented in
+            # architecture.md: body propagation only works on the flex repo itself).
             template_body = ""
 
         # Merge new H2 sections from the template body into the target body
@@ -393,7 +400,7 @@ def _collect_changes(
         if new_content != old_content:
             changes.append((agent_file, old_content, new_content))
 
-    return changes
+    return changes, render_errors
 
 
 def _print_diff(agent_file: Path, old_content: str, new_content: str) -> None:
@@ -450,9 +457,20 @@ def sync_agents(project_dir: str, dry_run: bool, yes: bool) -> None:
 
     context = _build_template_context(project_path)
 
-    changes = _collect_changes(agents_dir, TEMPLATES_DIR, context)
+    changes, render_errors = _collect_changes(agents_dir, TEMPLATES_DIR, context)
+
+    # Emit each render error to stderr — these are no longer silently swallowed
+    for filename, reason in render_errors:
+        click.echo(f"error: failed to render {filename}: {reason}", err=True)
 
     if not changes:
+        if render_errors:
+            click.echo(
+                f"sync-agents: {len(render_errors)} file(s) failed to render — "
+                "run with --dry-run to debug",
+                err=True,
+            )
+            sys.exit(1)
         click.echo("No changes to apply.")
         return
 

@@ -252,7 +252,7 @@ Protected paths: {% for p in protected_paths %} {{ p }}{% endfor %}
     from pairmode_sync import _collect_changes
 
     ctx = _build_template_context(tmp_path)
-    changes = _collect_changes(agents_dir, templates_dir, ctx)
+    changes, render_errors = _collect_changes(agents_dir, templates_dir, ctx)
 
     # The change must be detected — rendering succeeds and context is fully populated.
     # Before this fix, sync-agents used only {"project_name": ...} as context, so templates
@@ -262,9 +262,112 @@ Protected paths: {% for p in protected_paths %} {{ p }}{% endfor %}
         f"Expected 1 change, got {len(changes)}. "
         "build_command and protected_paths from pairmode_context.json may not be in context."
     )
+    assert render_errors == [], f"Expected no render errors, got {render_errors!r}"
 
     # The rendered frontmatter must contain the build_command value from pairmode_context.json
     _agent_file, _old, new_content = changes[0]
     assert "make build" in new_content, (
         f"Rendered agent content does not contain 'make build': {new_content!r}"
+    )
+
+
+def test_sync_agents_exits_nonzero_on_render_failure(tmp_path: pathlib.Path) -> None:
+    """sync-agents must exit 1 and surface the render error when a template fails to render.
+
+    Sets up a synthetic agent file plus a synthetic template that references an
+    undefined variable. Invokes the sync_agents CLI via CliRunner, with
+    pairmode_sync.TEMPLATES_DIR patched to point at the synthetic templates dir.
+    Asserts exit code is 1 and stderr/stdout contains "failed to render".
+    """
+    import unittest.mock
+
+    from click.testing import CliRunner
+
+    # Create a 4-component temp path (depth guard rejects fewer than 3 components).
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+
+    # Synthetic agent file with a valid frontmatter block
+    agents_dir = project_dir / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+    (agents_dir / "bad-agent.md").write_text(
+        "---\nmodel: sonnet\n---\nbody\n", encoding="utf-8"
+    )
+
+    # Synthetic templates dir whose template references an undefined variable
+    fake_templates = project_dir / "templates"
+    fake_templates.mkdir()
+    (fake_templates / "bad-agent.md.j2").write_text(
+        "---\nmodel: sonnet\nname: {{ project_name }}\n---\n{{ undefined_variable_xyz }}\n",
+        encoding="utf-8",
+    )
+
+    # Minimal .companion files so _build_template_context succeeds
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    (companion_dir / "state.json").write_text(
+        json.dumps({"project_name": "test"}), encoding="utf-8"
+    )
+    (companion_dir / "pairmode_context.json").write_text("{}", encoding="utf-8")
+
+    runner = CliRunner()
+    with unittest.mock.patch("pairmode_sync.TEMPLATES_DIR", fake_templates):
+        result = runner.invoke(
+            sync_agents,
+            ["--project-dir", str(project_dir), "--yes"],
+        )
+
+    assert result.exit_code == 1, (
+        f"Expected exit code 1, got {result.exit_code}. Output:\n{result.output}"
+    )
+    assert "failed to render" in result.output, (
+        f"Expected 'failed to render' in output, got:\n{result.output}"
+    )
+
+
+def test_no_changes_message_only_when_clean(tmp_path: pathlib.Path) -> None:
+    """sync-agents prints 'No changes to apply.' only when there are no changes and no errors.
+
+    Sets up a project whose agent file matches what the synthetic template would render,
+    so no changes are detected and no errors occur. Asserts exit code 0 and that the
+    "No changes to apply." message is in the CLI output.
+    """
+    import unittest.mock
+
+    from click.testing import CliRunner
+
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+
+    # Synthetic templates dir whose template renders to a deterministic output
+    fake_templates = project_dir / "templates"
+    fake_templates.mkdir()
+    template_text = "---\nmodel: sonnet\nname: clean-agent\n---\n"
+    (fake_templates / "clean-agent.md.j2").write_text(template_text, encoding="utf-8")
+
+    # The agent file must equal the rendered template so _collect_changes finds no diff
+    agents_dir = project_dir / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+    (agents_dir / "clean-agent.md").write_text(template_text, encoding="utf-8")
+
+    # Minimal .companion files so _build_template_context succeeds
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    (companion_dir / "state.json").write_text(
+        json.dumps({"project_name": "test"}), encoding="utf-8"
+    )
+    (companion_dir / "pairmode_context.json").write_text("{}", encoding="utf-8")
+
+    runner = CliRunner()
+    with unittest.mock.patch("pairmode_sync.TEMPLATES_DIR", fake_templates):
+        result = runner.invoke(
+            sync_agents,
+            ["--project-dir", str(project_dir), "--yes"],
+        )
+
+    assert result.exit_code == 0, (
+        f"Expected exit code 0, got {result.exit_code}. Output:\n{result.output}"
+    )
+    assert "No changes to apply." in result.output, (
+        f"Expected 'No changes to apply.' in output, got:\n{result.output}"
     )
