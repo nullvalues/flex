@@ -35,8 +35,8 @@ got the equivalent.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-114 | Fix `sync-agents` to use full template context | planned |
-| INFRA-115 | Surface rendering errors instead of silently skipping in `sync-agents` | planned |
+| INFRA-114 | Fix `sync-agents` to use full template context | complete |
+| INFRA-115 | Surface rendering errors instead of silently skipping in `sync-agents` | complete |
 
 **Story dependencies:** INFRA-115 depends on INFRA-114 (they both touch
 `_collect_changes` and `sync-agents`; build sequentially).

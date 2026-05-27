@@ -521,21 +521,27 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 Behaviour:
 - For each `*.md` file in `<project_dir>/.claude/agents/`, finds the matching template by
   filename stem (e.g. `reviewer.md` → `reviewer.md.j2`) in `skills/pairmode/templates/agents/`.
-- Renders only the frontmatter block of the template with `project_name` substituted from
-  `state.json["project_name"]` (or `project_dir.name` as fallback).
+- Renders only the frontmatter block of the template using the full context from
+  `_build_template_context()` (Phase 44+): `project_name`, `build_command`, `test_command`,
+  `migration_command`, `pairmode_scripts_dir`, `domain_isolation_rule`, and `protected_paths`.
+  Values are sourced from `.companion/pairmode_context.json` with `.companion/state.json` as
+  fallback; missing keys default to `""` or `[]`.
 - Replaces the frontmatter block in the target file.
 - Attempts to render the full template to extract new H2 body sections (`_merge_body_sections`).
   Sections present in the template but absent from the target are appended; existing target
   sections and project-specific sections are preserved. Sections already present are not
   duplicated.
-- **Body propagation limitation:** Full-template rendering uses `StrictUndefined`. All current
-  agent templates (reviewer, builder, loop-breaker, security-auditor, intent-reviewer) use
-  project-specific variables (e.g. `{{ test_command }}`, `{{ protected_paths }}`,
-  `{{ domain_isolation_rule }}`) that are absent from the minimal `{project_name}` context
-  used during sync-agents. When any variable is undefined, the body-merge step silently
-  no-ops for that agent file. **Body propagation therefore only functions when syncing the
-  flex repo itself.** For sibling projects, new body sections added to agent templates
-  must be applied manually during deployment stories.
+- **Body propagation:** Full-template rendering uses `StrictUndefined`. Since Phase 44,
+  the context passed to `sync-agents` includes all variables used by the canonical agent
+  templates (`build_command`, `test_command`, `domain_isolation_rule`, `protected_paths`).
+  For projects whose `pairmode_context.json` and `state.json` supply these values, body
+  propagation now works as intended. For sibling projects that were bootstrapped before
+  those keys were written to `pairmode_context.json`, or that use templates referencing
+  project-specific variables beyond the known set, the full-template render will still fail
+  with `StrictUndefined` and the body-merge step will silently fall back to no-op for that
+  file. In that case, new body sections must be applied manually during deployment stories.
+  When rendering fails, `sync-agents` now surfaces an explicit error to stderr and exits 1
+  rather than silently reporting "No changes to apply."
 - Prints a unified diff (`difflib.unified_diff`) for each changed file before writing.
 - `--dry-run`: exits after printing diffs without writing any files.
 - `--yes`: writes without prompting.
@@ -545,7 +551,11 @@ All `*.md` files in `.claude/agents/` with a matching template are re-rendered, 
 skipped with a warning.
 - Default: prompts once ("Apply these changes? [y/N]") before writing.
 - If no matching template exists for an agent file: warns and skips that file.
-- If no files would change: prints "No changes to apply." and exits 0.
+- If all files rendered cleanly and no diffs were found: prints "No changes to apply." and
+  exits 0. If rendering failed for one or more files: prints `"error: failed to render
+  {filename}: {reason}"` to stderr for each failed file, then exits 1 when no changes were
+  found. Partial success (some files changed, some errored) proceeds with the apply flow and
+  exits 0, with errors already printed to stderr.
 - Agent files with no frontmatter block (no opening `---`): warns and skips.
 
 **`pairmode_sync.py` — `sync-build` subcommand.**

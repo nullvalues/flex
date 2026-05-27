@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp44-sync-agents-context-fix
+
+**Phase:** 44 — Fix `sync-agents` silent rendering failure
+**Tag command:** `git tag cp44-sync-agents-context-fix && git push origin cp44-sync-agents-context-fix`
+**Acceptance:** Two stories: INFRA-114 (`_build_template_context` extended with `domain_isolation_rule` and `protected_paths`; `sync-agents` replaced bare `{"project_name": ...}` dict with full context — fixes silent "No changes to apply." false negative for all current agent templates); INFRA-115 (`_collect_changes` returns `(changes, render_errors)` tuple; `sync-agents` surfaces errors to stderr and exits 1 when all files fail to render; "No changes to apply." only printed when rendering is clean and no diffs exist). `architecture.md` body-propagation-limitation section updated to reflect Phase 44 context expansion and new error-surfacing behaviour. Build gate: 1728 tests pass. Security audit: 0 findings. Intent review: 1 alignment deviation (mixed-errors-with-changes exit code untested; LOW risk — common case correct) and architecture.md updated.
+
+---
+
 ## cp37-builder-model-tuning
 
 **Phase:** 37 — Builder model-selection tuning + token-direction recording
