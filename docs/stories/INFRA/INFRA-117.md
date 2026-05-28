@@ -3,7 +3,7 @@ id: INFRA-117
 phase: '45'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/scripts/model_selector.py
   - tests/pairmode/test_model_selector.py
