@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -81,6 +82,11 @@ def _read_state(state_path: Path) -> dict:
     show_default=True,
     help="1 for first try, 2 for retry, etc.",
 )
+@click.option(
+    "--usage-block",
+    default=None,
+    help="Parse <usage>…</usage> block from file or stdin (- for stdin).",
+)
 @click.option("--tokens-total", type=int, default=None)
 @click.option("--tokens-in", type=int, default=None)
 @click.option("--tokens-out", type=int, default=None)
@@ -133,6 +139,7 @@ def record_attempt(
     agent_role: str,
     model: str | None,
     attempt_number: int,
+    usage_block: str | None,
     tokens_total: int | None,
     tokens_in: int | None,
     tokens_out: int | None,
@@ -149,6 +156,68 @@ def record_attempt(
     db_path: str | None,
 ) -> None:
     """Append one attempt row.  No-op when effort tracking is disabled."""
+
+    # ---------------------------------------------------------------------------
+    # Parse --usage-block and fill in any numeric fields not set explicitly
+    # ---------------------------------------------------------------------------
+    if usage_block is not None:
+        try:
+            if usage_block == "-":
+                raw = sys.stdin.read()
+            else:
+                raw = Path(usage_block).read_text(encoding="utf-8")
+
+            # Extract content between <usage> and </usage>
+            usage_match = re.search(r"<usage>(.*?)</usage>", raw, re.DOTALL)
+            if usage_match is None:
+                click.echo(
+                    "warning: could not parse usage block: no <usage>…</usage> found",
+                    err=True,
+                )
+            else:
+                block_text = usage_match.group(1)
+
+                # Mapping: XML tag name → (local var name, CLI flag name)
+                _TAG_MAP = {
+                    "total_tokens": "tokens_total",
+                    "input_tokens": "tokens_in",
+                    "output_tokens": "tokens_out",
+                    "cache_read_tokens": "cache_read_tokens",
+                    "cache_write_tokens": "cache_write_tokens",
+                    "tool_uses": "tool_uses",
+                    "duration_ms": "duration_ms",
+                }
+
+                parsed: dict[str, int] = {}
+                for tag, _var in _TAG_MAP.items():
+                    m = re.search(
+                        r"<" + tag + r">\s*(\d+)\s*</" + tag + r">",
+                        block_text,
+                    )
+                    if m:
+                        parsed[tag] = int(m.group(1))
+
+                # Apply parsed values only when the explicit flag was not supplied
+                if tokens_total is None and "total_tokens" in parsed:
+                    tokens_total = parsed["total_tokens"]
+                if tokens_in is None and "input_tokens" in parsed:
+                    tokens_in = parsed["input_tokens"]
+                if tokens_out is None and "output_tokens" in parsed:
+                    tokens_out = parsed["output_tokens"]
+                if cache_read_tokens is None and "cache_read_tokens" in parsed:
+                    cache_read_tokens = parsed["cache_read_tokens"]
+                if cache_write_tokens is None and "cache_write_tokens" in parsed:
+                    cache_write_tokens = parsed["cache_write_tokens"]
+                if tool_uses is None and "tool_uses" in parsed:
+                    tool_uses = parsed["tool_uses"]
+                if duration_ms is None and "duration_ms" in parsed:
+                    duration_ms = parsed["duration_ms"]
+
+        except OSError as exc:
+            click.echo(
+                f"warning: could not parse usage block: {exc}",
+                err=True,
+            )
 
     # ---------------------------------------------------------------------------
     # Auto-fill from --story-file frontmatter (explicit flags take precedence)

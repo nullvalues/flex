@@ -534,3 +534,85 @@ class TestOutcomeNormalisation:
         )
         assert result.exit_code == 0, result.output
         assert _fetch_outcome_norm(project, "INFRA-003") is None
+
+
+# ---------------------------------------------------------------------------
+# --usage-block flag
+# ---------------------------------------------------------------------------
+
+_USAGE_BLOCK = """\
+<usage>
+<total_tokens>5000</total_tokens>
+<input_tokens>4000</input_tokens>
+<output_tokens>1000</output_tokens>
+<cache_read_tokens>200</cache_read_tokens>
+<cache_write_tokens>300</cache_write_tokens>
+<tool_uses>5</tool_uses>
+<duration_ms>12000</duration_ms>
+</usage>
+"""
+
+
+class TestUsageBlock:
+    def test_usage_block_from_string(self, tmp_path: Path) -> None:
+        """Tokens written to DB match values parsed from <usage> block in file."""
+        _enable_tracking(tmp_path)
+        usage_file = tmp_path / "usage.xml"
+        usage_file.write_text(_USAGE_BLOCK, encoding="utf-8")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            _required_args(tmp_path) + ["--usage-block", str(usage_file)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+        db_path = tmp_path / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["tokens_total"] == 5000
+        assert row["tokens_in"] == 4000
+        assert row["tokens_out"] == 1000
+        assert row["cache_read_tokens"] == 200
+        assert row["cache_write_tokens"] == 300
+        assert row["tool_uses"] == 5
+        assert row["duration_ms"] == 12000
+
+    def test_explicit_flag_overrides_usage_block(self, tmp_path: Path) -> None:
+        """An explicit --tokens-total flag takes precedence over the parsed block value."""
+        _enable_tracking(tmp_path)
+        usage_file = tmp_path / "usage.xml"
+        usage_file.write_text(_USAGE_BLOCK, encoding="utf-8")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            _required_args(tmp_path) + [
+                "--usage-block", str(usage_file),
+                "--tokens-total", "999",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+        db_path = tmp_path / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert len(rows) == 1
+        # Explicit flag overrides the block value (5000)
+        assert rows[0]["tokens_total"] == 999
+
+    def test_usage_block_missing_graceful(self, tmp_path: Path) -> None:
+        """File with no <usage> tags produces a warning but exits 0."""
+        _enable_tracking(tmp_path)
+        no_usage_file = tmp_path / "no_usage.txt"
+        no_usage_file.write_text("nothing here\n", encoding="utf-8")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            _required_args(tmp_path) + ["--usage-block", str(no_usage_file)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
