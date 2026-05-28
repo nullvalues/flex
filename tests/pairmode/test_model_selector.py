@@ -602,3 +602,80 @@ class TestSelectBuilderModelRetry:
         model, reason = select_builder_model("code", [], _NO_PROTECTED)
         assert model == MODEL_SONNET
         assert reason == REASON_AUTO_BASELINE
+
+
+# ---------------------------------------------------------------------------
+# CLI tests — __main__ entry point (INFRA-117)
+# ---------------------------------------------------------------------------
+
+import subprocess  # noqa: E402
+
+
+# Valid model identifiers returned by model_selector.
+_VALID_MODELS = frozenset({MODEL_HAIKU, MODEL_SONNET, MODEL_OPUS})
+
+
+def _write_cli_story(tmp_path: Path, story_class: str = "code", phase: str = "45") -> Path:
+    """Write a minimal story file for CLI tests."""
+    story_dir = tmp_path / "docs" / "stories" / "INFRA"
+    story_dir.mkdir(parents=True, exist_ok=True)
+    story_path = story_dir / "INFRA-999.md"
+    story_path.write_text(
+        f"---\n"
+        f"id: INFRA-999\n"
+        f"rail: INFRA\n"
+        f"title: CLI test story\n"
+        f"status: planned\n"
+        f"phase: \"{phase}\"\n"
+        f"story_class: {story_class}\n"
+        f"primary_files: []\n"
+        f"---\n\nBody text.\n",
+        encoding="utf-8",
+    )
+    return story_path
+
+
+def _run_cli(story_file: Path, extra_args: list[str] | None = None) -> subprocess.CompletedProcess:
+    """Invoke model_selector.py as a subprocess using uv run."""
+    scripts_dir = Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts"
+    cmd = [
+        "uv",
+        "run",
+        "python",
+        str(scripts_dir / "model_selector.py"),
+        "--story-file",
+        str(story_file),
+    ]
+    if extra_args:
+        cmd.extend(extra_args)
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+class TestCLI:
+    def test_cli_builder_defaults(self, tmp_path: Path) -> None:
+        """Builder role (default) with a code story returns a valid model identifier."""
+        story_path = _write_cli_story(tmp_path, story_class="code", phase="45")
+        result = _run_cli(story_path, ["--project-dir", str(tmp_path)])
+
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        lines = result.stdout.strip().splitlines()
+        assert len(lines) == 2, f"Expected 2 output lines, got: {lines!r}"
+        model = lines[0].strip()
+        assert model in _VALID_MODELS, f"Unknown model: {model!r}"
+
+    def test_cli_reviewer_role(self, tmp_path: Path) -> None:
+        """Reviewer role with a code story returns a valid model string."""
+        story_path = _write_cli_story(tmp_path, story_class="code", phase="45")
+        result = _run_cli(story_path, ["--role", "reviewer", "--project-dir", str(tmp_path)])
+
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        lines = result.stdout.strip().splitlines()
+        assert len(lines) == 2, f"Expected 2 output lines, got: {lines!r}"
+        model = lines[0].strip()
+        assert model in _VALID_MODELS, f"Unknown model: {model!r}"
+
+    def test_cli_missing_story_file_exits_1(self, tmp_path: Path) -> None:
+        """A non-existent story file path must cause exit code 1."""
+        nonexistent = tmp_path / "does_not_exist.md"
+        result = _run_cli(nonexistent, ["--project-dir", str(tmp_path)])
+        assert result.returncode == 1

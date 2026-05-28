@@ -377,3 +377,191 @@ def _find_phase_file(phase_id: str, project_dir: Path) -> Path | None:
         return fallback
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# CLI — __main__ entry point
+# ---------------------------------------------------------------------------
+
+
+def _read_story_frontmatter(story_file: Path) -> dict:
+    """Parse YAML frontmatter from a story file using schema_validator.
+
+    Returns the frontmatter dict, or raises ValueError on parse failure.
+    Raises FileNotFoundError if the file does not exist.
+
+    Uses the canonical `_parse_frontmatter` from schema_validator rather than
+    re-implementing the parser inline (architecture.md non-negotiable).
+    """
+    # schema_validator is a sibling module; _SCRIPTS_DIR is already on sys.path.
+    from schema_validator import _parse_frontmatter  # noqa: PLC0415
+
+    text = story_file.read_text(encoding="utf-8")
+    data = _parse_frontmatter(text)
+
+    if data is None:
+        raise ValueError(f"No YAML frontmatter found in {story_file}")
+
+    return data
+
+
+def _read_protected_files(project_dir: Path) -> list[str]:
+    """Read the deny list from .claude/settings.json in project_dir.
+
+    Returns a list of raw deny patterns (e.g. "Edit(hooks/**)").  When the
+    file is absent or unreadable, returns an empty list (fail-safe).
+    """
+    import json
+    import re
+
+    settings_path = project_dir / ".claude" / "settings.json"
+    if not settings_path.exists():
+        return []
+
+    try:
+        with settings_path.open(encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    deny_rules: list[str] = (
+        data.get("permissions", {}).get("deny", [])
+    )
+
+    # Extract the path portion from patterns like "Edit(hooks/**)" or
+    # "Write(skills/companion/**)" so callers can compare against plain paths.
+    extracted: list[str] = []
+    for rule in deny_rules:
+        m = re.match(r"^\w+\((.+)\)$", rule)
+        if m:
+            extracted.append(m.group(1))
+        else:
+            extracted.append(rule)
+
+    return extracted
+
+
+def _read_phase_class(phase_id: str, project_dir: Path) -> str:
+    """Read the phase_class field from the phase manifest.
+
+    Returns "production" (the default) when the file or field is absent.
+    """
+    phase_path = _find_phase_file(phase_id, project_dir)
+    if phase_path is None:
+        return DEFAULT_PHASE_CLASS
+
+    try:
+        fm = _read_story_frontmatter(phase_path)
+        return str(fm.get("phase_class") or DEFAULT_PHASE_CLASS)
+    except Exception:
+        return DEFAULT_PHASE_CLASS
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys as _sys
+
+    parser = argparse.ArgumentParser(
+        prog="model_selector.py",
+        description=(
+            "Determine the Claude model for a given role by reading a story file."
+        ),
+    )
+    parser.add_argument(
+        "--story-file",
+        required=True,
+        metavar="PATH",
+        help="Path to the story file (YAML frontmatter required).",
+    )
+    parser.add_argument(
+        "--role",
+        default="builder",
+        choices=["builder", "reviewer", "intent-reviewer", "security-auditor"],
+        help="Agent role.  Default: builder.",
+    )
+    parser.add_argument(
+        "--attempt",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Attempt number (1 = first attempt).  Default: 1.",
+    )
+    parser.add_argument(
+        "--project-dir",
+        default=None,
+        metavar="DIR",
+        help=(
+            "Project root directory.  Used to locate .claude/settings.json and "
+            "phase manifests.  Defaults to the directory containing the story file."
+        ),
+    )
+
+    args = parser.parse_args()
+
+    story_path = Path(args.story_file)
+
+    # --- Validate story file exists ---
+    if not story_path.exists():
+        _sys.stderr.write(f"error: story file not found: {story_path}\n")
+        _sys.exit(1)
+
+    # --- Parse frontmatter ---
+    try:
+        fm = _read_story_frontmatter(story_path)
+    except (ValueError, OSError) as exc:
+        _sys.stderr.write(f"error: {exc}\n")
+        _sys.exit(1)
+
+    # --- Extract fields from frontmatter ---
+    story_class: str = fm.get("story_class") or DEFAULT_STORY_CLASS
+    primary_files: list[str] = fm.get("primary_files") or []
+    phase_id: str | None = str(fm["phase"]) if "phase" in fm else None
+
+    # --- Resolve project_dir ---
+    if args.project_dir is not None:
+        project_dir = Path(args.project_dir).resolve()
+    else:
+        # Default: directory containing the story file
+        project_dir = story_path.resolve().parent
+
+    # --- Dispatch to the appropriate selection function ---
+    role = args.role
+    attempt = args.attempt
+
+    if role == "builder":
+        protected = _read_protected_files(project_dir)
+        model, reason = select_builder_model(
+            story_class,
+            primary_files,
+            protected,
+            attempt_number=attempt,
+        )
+
+    elif role == "reviewer":
+        model, reason = select_reviewer_model(
+            story_class,
+            attempt,
+            phase_id=phase_id,
+            project_dir=project_dir,
+        )
+
+    elif role == "intent-reviewer":
+        # intent-reviewer uses phase_class, not story_class.
+        # Read phase_class from the phase manifest when possible; fall back to
+        # "production" (which is also the default inside the selector).
+        phase_class = _read_phase_class(phase_id, project_dir) if phase_id else "production"
+        model, reason = select_intent_reviewer_model(phase_class)
+
+    elif role == "security-auditor":
+        phase_class = _read_phase_class(phase_id, project_dir) if phase_id else "production"
+        model, reason = select_security_auditor_model(phase_class)
+
+    else:
+        # Should never reach here due to argparse choices constraint.
+        _sys.stderr.write(f"error: unknown role: {role}\n")
+        _sys.exit(1)
+
+    # --- Two-line output: model on line 1, reason on line 2 ---
+    print(model)
+    print(reason)
+    _sys.exit(0)
