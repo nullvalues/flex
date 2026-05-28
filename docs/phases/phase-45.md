@@ -19,10 +19,10 @@ rewritten — only CLI doors are added in front of what already works.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-116 | `next_story.py` — find next unbuilt story from phase file | planned |
-| INFRA-117 | `model_selector.py --story-file` CLI mode | planned |
-| INFRA-118 | Guardrail + context-health CLI subcommands | planned |
-| INFRA-119 | `record_attempt.py --usage-block` parsing | planned |
+| INFRA-116 | `next_story.py` — find next unbuilt story from phase file | complete |
+| INFRA-117 | `model_selector.py --story-file` CLI mode | complete |
+| INFRA-118 | Guardrail + context-health CLI subcommands | complete |
+| INFRA-119 | `record_attempt.py --usage-block` parsing | complete |
 
 **Story dependencies:** All four stories are independent and can be built in
 any order. INFRA-117 and INFRA-118 both touch test files that already exist;
@@ -58,8 +58,10 @@ INFRA-116 and INFRA-119 create new test files.
    `git log --oneline` of the project directory. A commit match is authoritative
    over the table's status column (same rule the orchestrator uses today).
 
-4. Returns the **first** story that has no matching commit and whose table status
-   is not `complete`, `deferred`, or `skipped`.
+4. Returns the **first** story that: (a) has no matching git commit, AND (b) whose
+   table status is not `deferred` or `skipped`. If the table says `complete` but no
+   commit exists, the story is returned with `git_verified: true` — git's absence of
+   a commit overrides the table's `complete` status.
 
 5. Default (non-`--json`) output: prints two whitespace-separated tokens to
    stdout:
@@ -73,8 +75,8 @@ INFRA-116 and INFRA-119 create new test files.
    ```json
    {"story_id": "RAIL-NNN", "story_file": "...", "git_verified": false}
    ```
-   `git_verified` is `true` when the story was found by git-commit match (i.e.,
-   a commit exists and overrides `planned` status).
+   `git_verified` is `true` when the table status is `complete` but no matching
+   commit exists (git's absence overrides the table's stated complete status).
 
 7. Exit codes:
    - `0` — a next story was found and printed.
@@ -93,10 +95,10 @@ INFRA-116 and INFRA-119 create new test files.
    and one `planned` story; mock `git log` to return no commits; assert script
    outputs the second story.
 
-10. `test_git_commit_overrides_table_status` — write a phase file with one
-    story in `planned` status; mock `git log` to return a line containing the
-    story ID; assert script exits 1 ("all stories complete") because the commit
-    signals it is done.
+10. `test_git_commit_overrides_table_status` — write a phase file with two
+    stories: first is `planned` with a matching git commit (skip it); second is
+    `complete` with no commit (return it with `git_verified: true`). Assert the
+    second story is returned with exit 0 and `git_verified: true` in JSON mode.
 
 11. `test_all_done_exits_1` — all stories complete; assert exit 1 and output
     `all stories complete`.
@@ -110,9 +112,10 @@ INFRA-116 and INFRA-119 create new test files.
 3. Use `subprocess.run(["git", "log", "--oneline"], capture_output=True, cwd=project_dir)`
    to get commit history; search each story ID with a case-insensitive substring
    match.
-4. Add a `__main__` block with `argparse`: positional `phase_file`, optional
-   `--json`, optional `--project-dir` (defaults to `Path(phase_file).parent.parent.parent`
-   — the repo root relative to `docs/phases/`).
+4. Add a `__main__` block with `click` (consistent with the rest of the pairmode script
+   family): positional `phase_file`, optional `--json` flag, optional `--project-dir`
+   (defaults to `Path(phase_file).parent.parent.parent` — the repo root relative to
+   `docs/phases/`).
 5. Create `tests/pairmode/test_next_story.py` with the tests above. Use
    `unittest.mock.patch` on `subprocess.run` to control `git log` output.
 

@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp45-deterministic-orchestrator-offload
+
+**Phase:** 45 — Deterministic orchestrator offload
+**Tag command:** `git tag cp45-deterministic-orchestrator-offload && git push origin cp45-deterministic-orchestrator-offload`
+**Acceptance:** Four stories: INFRA-116 (`next_story.py` — CLI to find first unbuilt story from a phase file, using git-commit authoritative check, exit codes 0/1/2, JSON mode); INFRA-117 (`model_selector.py --story-file` CLI — reads frontmatter, dispatches to the four selection functions, two-line output model+reason); INFRA-118 (`effort_db.py guardrail-check` and `context_health.py check` CLI subcommands, wrapping existing functions behind thin argparse entry points); INFRA-119 (`record_attempt.py --usage-block` — parses the `<usage>` XML block from file or stdin, eliminates manual transcription of seven token/timing fields). Build gate: 1745 tests pass. Security audit: 0 findings. Intent review: 2 LOW deviations (INFRA-116 uses click not argparse; complete-with-no-commit treated as returnable), architecture.md corrected for `select_intent_reviewer_model`/`select_security_auditor_model` return type (was `-> str`, now `-> tuple[str, str]`), `next_story.py` added to module listing.
+
+---
+
 ## cp44-sync-agents-context-fix
 
 **Phase:** 44 — Fix `sync-agents` silent rendering failure

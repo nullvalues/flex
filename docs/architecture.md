@@ -43,6 +43,7 @@ flex/
         schema_validator.py       ← validate story/era/phase manifest frontmatter
         permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
+        next_story.py             ← find next unbuilt story from a phase file; CLI: uv run next_story.py <phase-file> [--json] [--project-dir DIR]
         pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand); also registers register/unregister/list-projects in the top-level CLI group
         pairmode_register.py      ← manage registered_projects in .companion/state.json (register/unregister/list-projects subcommands)
         pairmode_migrate.py       ← one-shot migration of an anchor-bootstrapped sibling project to flex naming (migrate-from-anchor subcommand)
@@ -482,8 +483,8 @@ Say "upgrade" to use opus, or "continue" to proceed with sonnet.
 **Checkpoint-agent model selection.** The helper family is extended with two
 additional selectors driven by the `phase_class` frontmatter field:
 
-`select_intent_reviewer_model(phase_class) -> str` — returns the model for the
-intent-reviewer checkpoint agent:
+`select_intent_reviewer_model(phase_class) -> tuple[str, str]` — returns `(model, reason)` for the
+intent-reviewer checkpoint agent. The `reason` string is emitted on the second line of `model_selector.py` CLI output.
 
 | `phase_class` | model |
 |---|---|
@@ -491,8 +492,8 @@ intent-reviewer checkpoint agent:
 | `docs-only` | sonnet |
 | `pre-pr` | opus |
 
-`select_security_auditor_model(phase_class) -> str` — returns the model for the
-security-auditor checkpoint agent:
+`select_security_auditor_model(phase_class) -> tuple[str, str]` — returns `(model, reason)` for the
+security-auditor checkpoint agent. The `reason` string is emitted on the second line of `model_selector.py` CLI output.
 
 | `phase_class` | model |
 |---|---|
