@@ -225,3 +225,60 @@ def check_context_health(
         "sample_size": sample_size,
         "message": message,
     }
+
+
+def _cli_main(argv: list[str] | None = None) -> int:
+    """CLI entry point; returns the exit code.
+
+    Separated from the ``if __name__ == "__main__"`` block so that tests can
+    call it directly (with mocked dependencies) without spawning a subprocess.
+    """
+    import argparse
+    import sys
+    from pathlib import Path as _Path
+
+    # Allow imports of sibling scripts (effort_db) when invoked directly.
+    import os as _os
+    _scripts_dir = _os.path.dirname(_os.path.abspath(__file__))
+    _repo_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_scripts_dir)))
+    if _repo_root not in sys.path:
+        sys.path.insert(0, _repo_root)
+
+    from skills.pairmode.scripts.effort_db import resolve_effort_db_path  # noqa: E402
+
+    parser = argparse.ArgumentParser(
+        description="context_health CLI — phase retry-burden health check"
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    check_parser = subparsers.add_parser(
+        "check",
+        help="Check context health for a phase and print the result message.",
+    )
+    check_parser.add_argument(
+        "--phase", required=True, help="Phase ID to evaluate (e.g. '45')"
+    )
+    check_parser.add_argument(
+        "--project-dir",
+        default=".",
+        help="Project root directory (default: current directory)",
+    )
+
+    args = parser.parse_args(argv)
+
+    if args.command == "check":
+        db_path = resolve_effort_db_path(_Path(args.project_dir))
+        result = check_context_health(db_path=db_path, current_phase=args.phase)
+        print(result["message"])
+        if result["recommendation"] in ("elevated", "high"):
+            return 1
+        return 0
+    else:
+        parser.print_help()
+        return 1
+
+
+# exit 0 = healthy, 1 = unhealthy
+if __name__ == "__main__":
+    import sys
+    sys.exit(_cli_main())

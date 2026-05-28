@@ -427,3 +427,59 @@ def check_guardrail(
         )
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+def _cli_main(argv: list[str] | None = None) -> int:
+    """CLI entry point; returns the exit code.
+
+    Separated from the ``if __name__ == "__main__"`` block so that tests can
+    call it directly (with mocked dependencies) without spawning a subprocess.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="effort_db CLI — pairmode effort tracking helpers"
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    gc_parser = subparsers.add_parser(
+        "guardrail-check",
+        help="Compare a builder attempt's token count against the rail median.",
+    )
+    gc_parser.add_argument("--story-id", required=True, help="Story ID (e.g. INFRA-118)")
+    gc_parser.add_argument("--rail", required=True, help="Rail name (e.g. INFRA)")
+    gc_parser.add_argument(
+        "--tokens", required=True, type=int, help="Token count for the latest attempt"
+    )
+    gc_parser.add_argument(
+        "--project-dir",
+        default=".",
+        help="Project root directory (default: current directory)",
+    )
+
+    args = parser.parse_args(argv)
+
+    if args.command == "guardrail-check":
+        db_path = resolve_effort_db_path(Path(args.project_dir))
+        result = check_guardrail(
+            db_path,
+            story_id=args.story_id,
+            rail=args.rail,
+            latest_tokens=args.tokens,
+        )
+        if result["fired"]:
+            print(result["message"])
+        return 0
+    else:
+        parser.print_help()
+        return 1
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(_cli_main())

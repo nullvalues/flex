@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -237,3 +238,49 @@ class TestCheckContextHealth:
         assert result["ratio"] is None
         assert result["recommendation"] == "insufficient_data"
         # Must not raise — we already got here, so that condition is met
+
+
+# ---------------------------------------------------------------------------
+# CLI: context_health check subcommand (INFRA-118)
+# ---------------------------------------------------------------------------
+
+
+def _run_context_health_cli(argv: list[str], mock_result: dict) -> tuple[int, str]:
+    """Invoke context_health._cli_main() in-process with a mocked check_context_health.
+
+    Returns (exit_code, stdout_text).
+    """
+    import io
+
+    captured_stdout = io.StringIO()
+
+    with patch(
+        "skills.pairmode.scripts.context_health.check_context_health",
+        return_value=mock_result,
+    ), patch("sys.stdout", captured_stdout):
+        exit_code = context_health._cli_main(argv)
+
+    return exit_code, captured_stdout.getvalue()
+
+
+class TestContextHealthCLI:
+    def test_context_health_cli_healthy(self, tmp_path: Path) -> None:
+        """Exit 0 and message printed when recommendation is 'normal'."""
+        exit_code, stdout = _run_context_health_cli(
+            ["check", "--phase", "45", "--project-dir", str(tmp_path)],
+            mock_result={"recommendation": "normal", "message": "context health: normal"},
+        )
+        assert exit_code == 0
+        assert "context health: normal" in stdout
+
+    def test_context_health_cli_unhealthy(self, tmp_path: Path) -> None:
+        """Exit 1 and message printed when recommendation is 'elevated'."""
+        exit_code, stdout = _run_context_health_cli(
+            ["check", "--phase", "45", "--project-dir", str(tmp_path)],
+            mock_result={
+                "recommendation": "elevated",
+                "message": "context health: elevated retry burden",
+            },
+        )
+        assert exit_code == 1
+        assert "context health: elevated retry burden" in stdout

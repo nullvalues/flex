@@ -7,6 +7,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -457,3 +458,59 @@ class TestStoryClassAndReasonRoundtrip:
         assert len(rows) == 1
         assert rows[0]["story_class"] == "code"
         assert rows[0]["model_selection_reason"] == "prompted-upgrade"
+
+
+# ---------------------------------------------------------------------------
+# CLI: guardrail-check subcommand (INFRA-118)
+# ---------------------------------------------------------------------------
+
+
+def _run_effort_db_cli(argv: list[str], mock_result: dict) -> tuple[int, str]:
+    """Invoke effort_db._cli_main() in-process with a mocked check_guardrail.
+
+    Returns (exit_code, stdout_text).
+    """
+    import io
+
+    captured_stdout = io.StringIO()
+
+    with patch(
+        "skills.pairmode.scripts.effort_db.check_guardrail",
+        return_value=mock_result,
+    ), patch("sys.stdout", captured_stdout):
+        exit_code = effort_db._cli_main(argv)
+
+    return exit_code, captured_stdout.getvalue()
+
+
+class TestGuardrailCheckCLI:
+    def test_guardrail_check_cli_no_warning(self, tmp_path: Path) -> None:
+        """No output and exit 0 when guardrail has not fired."""
+        exit_code, stdout = _run_effort_db_cli(
+            [
+                "guardrail-check",
+                "--story-id", "INFRA-118",
+                "--rail", "INFRA",
+                "--tokens", "5000",
+                "--project-dir", str(tmp_path),
+            ],
+            mock_result={"fired": False, "message": ""},
+        )
+        assert exit_code == 0
+        assert stdout == ""
+
+    def test_guardrail_check_cli_with_warning(self, tmp_path: Path) -> None:
+        """Warning message is printed and exit 0 when guardrail has fired."""
+        warning_message = "effort guardrail: story exceeded 3x median"
+        exit_code, stdout = _run_effort_db_cli(
+            [
+                "guardrail-check",
+                "--story-id", "INFRA-118",
+                "--rail", "INFRA",
+                "--tokens", "99999",
+                "--project-dir", str(tmp_path),
+            ],
+            mock_result={"fired": True, "message": warning_message},
+        )
+        assert exit_code == 0
+        assert warning_message in stdout
