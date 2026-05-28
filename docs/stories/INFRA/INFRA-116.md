@@ -3,7 +3,7 @@ id: INFRA-116
 phase: '45'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/scripts/next_story.py
   - tests/pairmode/test_next_story.py
