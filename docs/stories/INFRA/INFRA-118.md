@@ -3,7 +3,7 @@ id: INFRA-118
 phase: '45'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/scripts/effort_db.py
   - skills/pairmode/scripts/context_health.py
