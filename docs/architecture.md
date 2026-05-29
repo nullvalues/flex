@@ -104,7 +104,7 @@ Claude Code session
 stop.py hook → writes to /tmp/companion-<hash>.pipe (relay only, no API calls)
     (pipe path is project-scoped; hash is first 8 chars of md5 of project dir)
     ↓
-sidebar.py reads pipe → calls Claude API → extracts decisions
+sidebar.py reads pipe → calls model backend (claude_agent_sdk by default; Ollama when FLEX_MODEL_BACKEND=ollama) → extracts decisions
     ↓
 persist_capture() → .companion/changes/<session-id>/incremental.json
     ↓
@@ -759,7 +759,9 @@ without coupling that legibility to a specific pricing regime.
 one `attempts` table. Each row captures one agent spawn: `story_id`, `phase`,
 `rail`, `agent_role` (`builder` or `reviewer`), `model`, `attempt_number`,
 `tokens_total`, `tool_uses`, `duration_ms`, optional `outcome` (`PASS`/`FAIL`
-for reviewer attempts), and a UTC timestamp. Pricing is intentionally absent
+for reviewer attempts), optional `backend` (`"anthropic"` or `"ollama"` —
+populated by sidebar cross-skill recording; NULL for pairmode loop rows from
+older builds), and a UTC timestamp. Pricing is intentionally absent
 from the schema: dollar projections are computed at read time from a
 user-maintained `pricing.json`, never persisted.
 
@@ -805,7 +807,8 @@ call the same `effort_recorder` helper as `record_attempt.py`. Synthetic
 pairmode loop rows. `agent_role` values used by these wrappers:
 `seed-miner`, `seed-reconcile`, `sidebar-extractor`. `phase` and `rail`
 are left NULL for cross-skill rows because seed and sidebar work happens
-outside the phases/rails model.
+outside the phases/rails model. The `backend` column (`"anthropic"` or
+`"ollama"`) distinguishes the call path on sidebar rows.
 
 **How to use it.** `pairmode_effort.py` provides five read-time views over the
 recorded attempts:

@@ -30,10 +30,10 @@ is added as an additive new path via `FLEX_MODEL_BACKEND=ollama`.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-120 | `call_model.py` — Ollama HTTP client | planned |
-| INFRA-121 | Wire `sidebar.py` to Ollama backend | planned |
-| INFRA-122 | Fallback for extraction / conflict / spec call sites + plan-impact hardening | planned |
-| INFRA-123 | `backend` column in effort DB | planned |
+| INFRA-120 | `call_model.py` — Ollama HTTP client | complete |
+| INFRA-121 | Wire `sidebar.py` to Ollama backend | complete |
+| INFRA-122 | Fallback for extraction / conflict / spec call sites + plan-impact hardening | complete |
+| INFRA-123 | `backend` column in effort DB | complete |
 
 **Story dependencies:** INFRA-121 depends on INFRA-120. INFRA-122 depends on
 INFRA-121. INFRA-123 is independent (touches `effort_db.py` and

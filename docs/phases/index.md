@@ -45,4 +45,4 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 43 | Replace DB-based context budget gate with orchestrator context check | complete | [phase-43.md](phase-43.md) · cp43-orchestrator-context-check |
 | 44 | Fix `sync-agents` silent rendering failure | complete | [phase-44.md](phase-44.md) · cp44-sync-agents-context-fix |
 | 45 | Deterministic orchestrator offload | complete | [phase-45.md](phase-45.md) · cp45-deterministic-orchestrator-offload |
-| 46 | Local model infrastructure | planned | [phase-46.md](phase-46.md) · cp46-local-model-infrastructure |
+| 46 | Local model infrastructure | complete | [phase-46.md](phase-46.md) · cp46-local-model-infrastructure |

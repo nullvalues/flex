@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp46-local-model-infrastructure
+
+**Phase:** 46 — Local model infrastructure
+**Tag command:** `git tag cp46-local-model-infrastructure && git push origin cp46-local-model-infrastructure`
+**Acceptance:** Four stories: INFRA-120 (`call_model.py` — `call_ollama` HTTP client for Ollama's `/api/chat` endpoint, returns `None` on connection error or non-200, no anthropic SDK); INFRA-121 (`sidebar.py` wired to pluggable backend — existing `call_claude` renamed to `_call_anthropic` with all claude_agent_sdk internals preserved, new public `call_claude` dispatcher reads `FLEX_MODEL_BACKEND`/`FLEX_OLLAMA_BASE_URL`/`FLEX_OLLAMA_MODEL` env vars, startup health-check when `ollama` backend is active); INFRA-122 (fallback for `extract_incremental`, `check_conflicts`, and `check_file_against_spec` — on local-model parse failure, retries once with `_call_anthropic`; plan-impact at both call sites hardcoded to `_call_anthropic` unconditionally); INFRA-123 (`backend TEXT` column added to effort DB `attempts` table with migration, threaded through `effort_recorder.record_effort`, `_record_sidebar_effort` passes `"anthropic"`, Ollama dispatcher records `"ollama"`). Build gate: 1760 tests pass. Security audit: 0 findings. Intent review: 3 architecture.md edits applied (`backend` column in data model, sidebar data-flow line updated, cross-skill recording note added). Medium gap noted: `check_conflicts`/`check_file_against_spec` fallback paths are untested (spec only required extraction tests); tracked as follow-on.
+
+---
+
 ## cp45-deterministic-orchestrator-offload
 
 **Phase:** 45 — Deterministic orchestrator offload
