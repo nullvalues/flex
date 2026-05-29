@@ -135,6 +135,7 @@ def record_effort(
     notes: str | None = None,
     phase: str | None = None,
     rail: str | None = None,
+    backend: str | None = None,
     log_fn: Callable[[str], None] | None = None,
 ) -> int | None:
     """Record one LLM-call attempt row, or silently no-op.
@@ -180,6 +181,7 @@ def record_effort(
             outcome=outcome,
             notes=notes,
             ts=ts,
+            backend=backend,
         )
     except Exception as exc:  # noqa: BLE001 — best-effort observability
         if log_fn is not None:

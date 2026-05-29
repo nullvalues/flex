@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS attempts (
     notes TEXT,
     ts TEXT NOT NULL,
     story_class TEXT,
-    model_selection_reason TEXT
+    model_selection_reason TEXT,
+    backend TEXT
 );
 """
 
@@ -64,6 +65,7 @@ CREATE TABLE IF NOT EXISTS attempts (
 _MIGRATIONS: tuple[str, ...] = (
     "ALTER TABLE attempts ADD COLUMN story_class TEXT",
     "ALTER TABLE attempts ADD COLUMN model_selection_reason TEXT",
+    "ALTER TABLE attempts ADD COLUMN backend TEXT",
 )
 
 _SCHEMA_INDICES = (
@@ -93,6 +95,7 @@ _INSERT_COLUMNS: tuple[str, ...] = (
     "ts",
     "story_class",
     "model_selection_reason",
+    "backend",
 )
 
 _REQUIRED_FIELDS: tuple[str, ...] = (

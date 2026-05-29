@@ -431,6 +431,7 @@ def _call_anthropic(prompt: str, system: str, model: str = "claude-haiku-4-5-202
                 usage=usage_obj,
                 attempt_number=1,
                 outcome=outcome,
+                backend="anthropic",
                 notes="sidebar pipe-message LLM extraction",
             )
         except Exception:
@@ -472,8 +473,26 @@ def call_claude(
     timeout: int = 60,
 ) -> str | None:
     if _MODEL_BACKEND == "ollama" and _call_ollama is not None:
-        return _call_ollama(prompt, system, _OLLAMA_MODEL,
-                            base_url=_OLLAMA_BASE_URL, timeout=10)
+        result = _call_ollama(prompt, system, _OLLAMA_MODEL,
+                              base_url=_OLLAMA_BASE_URL, timeout=10)
+        try:
+            story = _current_story or {}
+            sid = story.get("id") if isinstance(story, dict) else None
+            story_id = f"sidebar:{sid}" if sid else "sidebar:no-story"
+            record_effort(
+                project_dir=Path.cwd(),
+                story_id=story_id,
+                agent_role="sidebar-extractor",
+                model=_OLLAMA_MODEL,
+                usage=None,
+                attempt_number=1,
+                outcome="PASS" if result else "FAIL",
+                backend="ollama",
+                notes="sidebar pipe-message LLM extraction (ollama)",
+            )
+        except Exception:
+            pass
+        return result
     return _call_anthropic(prompt, system, model, timeout)
 
 

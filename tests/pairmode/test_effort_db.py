@@ -461,6 +461,32 @@ class TestStoryClassAndReasonRoundtrip:
 
 
 # ---------------------------------------------------------------------------
+# Backend column tests (INFRA-123)
+# ---------------------------------------------------------------------------
+
+
+class TestBackendColumn:
+    def test_backend_column_stored(self, db_path: Path) -> None:
+        """Insert a row with backend='ollama'; assert it is stored and readable."""
+        effort_db.init_db(db_path)
+        effort_db.insert_attempt(
+            db_path,
+            **_required_fields(backend="ollama"),
+        )
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert len(rows) == 1
+        assert rows[0]["backend"] == "ollama"
+
+    def test_backend_column_nullable(self, db_path: Path) -> None:
+        """Insert a row without backend; assert no error and row is stored."""
+        effort_db.init_db(db_path)
+        effort_db.insert_attempt(db_path, **_required_fields())
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert len(rows) == 1
+        assert rows[0]["backend"] is None
+
+
+# ---------------------------------------------------------------------------
 # CLI: guardrail-check subcommand (INFRA-118)
 # ---------------------------------------------------------------------------
 
