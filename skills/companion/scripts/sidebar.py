@@ -617,6 +617,17 @@ def extract_incremental(transcript_path: str, loaded_modules: list[str]) -> list
     try:
         return json.loads(raw)
     except Exception:
+        if _MODEL_BACKEND != "anthropic":
+            raw = _call_anthropic(
+                f"Recent conversation:\n{conversation}\n\n"
+                f"Already captured (do NOT re-extract):\n{existing_text}\n\n"
+                f"Already raised as conflicts (do NOT re-raise):\n{existing_conflicts}",
+                EXTRACTION_SYSTEM,
+            )
+            try:
+                return json.loads(raw) if raw else []
+            except Exception:
+                pass
         return []
 
 
@@ -667,6 +678,12 @@ Existing spec rules:
     try:
         return json.loads(raw)
     except Exception:
+        if _MODEL_BACKEND != "anthropic":
+            raw = _call_anthropic(prompt, system)
+            try:
+                return json.loads(raw) if raw else []
+            except Exception:
+                pass
         return []
 
 
@@ -731,8 +748,20 @@ Return ONLY valid JSON. Return null if no violations.
                     f"Non-negotiables:\n{json.dumps(non_negs)}\n\nFile content:\n{file_content}"
                 )
                 raw = call_claude(prompt, system)
+                if not raw and _MODEL_BACKEND != "anthropic":
+                    raw = _call_anthropic(prompt, system)
                 if raw and raw != "null":
-                    result = json.loads(raw)
+                    try:
+                        result = json.loads(raw)
+                    except Exception:
+                        if _MODEL_BACKEND != "anthropic":
+                            raw = _call_anthropic(prompt, system)
+                            try:
+                                result = json.loads(raw) if raw and raw != "null" else None
+                            except Exception:
+                                result = None
+                        else:
+                            result = None
                     if result:
                         result["file"] = file_path
                         result["module"] = owning_module
@@ -1175,7 +1204,7 @@ def handle_exit_plan_mode(event: dict):
         "Classify each architectural decision in the plan against the spec."
     )
 
-    raw = call_claude(prompt, PLAN_IMPACT_SYSTEM)
+    raw = _call_anthropic(prompt, PLAN_IMPACT_SYSTEM)
     try:
         items = json.loads(raw) if raw else []
     except Exception:
@@ -1569,7 +1598,7 @@ def main():
                                         }
                                     spec_ctx = json.dumps(compact, indent=2) if compact else "{}"
                                     prompt = f"Canonical spec:\n{spec_ctx}\n\nPlan:\n{content}\n\nClassify each architectural decision."
-                                    raw = call_claude(prompt, PLAN_IMPACT_SYSTEM, timeout=300)
+                                    raw = _call_anthropic(prompt, PLAN_IMPACT_SYSTEM, timeout=300)
                                     parsed = json.loads(raw) if raw else {}
                                     if isinstance(parsed, dict):
                                         mini.impact = parsed.get("items", [])
