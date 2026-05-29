@@ -3,7 +3,7 @@ id: INFRA-121
 phase: '46'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/companion/scripts/sidebar.py
   - tests/pairmode/test_sidebar_call_model.py
