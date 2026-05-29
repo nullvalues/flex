@@ -7,8 +7,10 @@ status: planned
 primary_files:
   - skills/pairmode/scripts/call_model.py
   - tests/pairmode/test_call_model.py
+touches:
+  - skills/companion/requirements.txt
 ---
 
-# INFRA-120 — `call_model.py`: pluggable model client module
+# INFRA-120 — `call_model.py`: Ollama HTTP client
 
 See phase spec: `docs/phases/phase-46.md` § Story INFRA-120.

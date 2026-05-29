@@ -4,53 +4,57 @@
 
 ## Goal
 
-The companion sidebar calls the Anthropic API after every assistant response to
-extract decisions from the live transcript. This is the highest-frequency paid
-API call in the system and the task — structured JSON extraction from a short
-transcript window against a fixed schema — is narrow enough for a local 7B
-model to handle. The seed transcript miner (`mine_sessions.py`) has the same
-extraction task in batch/offline form.
+The companion sidebar makes LLM calls after every assistant response to extract
+decisions from the live transcript, check conflicts against the spec, and validate
+file writes against non-negotiables. These narrow, repetitive tasks — structured
+JSON extraction against a fixed schema — are candidates for local model routing via
+Ollama, reducing per-session API cost when an operator opts in.
 
-This phase builds the plumbing to route these calls to a local model running
-via Ollama, with Anthropic as fallback. No behavior changes on the default path:
-Anthropic remains the default and the existing extraction quality is preserved
-unless the operator explicitly opts in to the local backend.
+**Architecture clarification:** The existing `call_claude` in `sidebar.py` uses
+`claude_agent_sdk` (OAuth / Claude CLI subprocess) — not `anthropic.Anthropic()`.
+There is no `ANTHROPIC_API_KEY` in this system. The "anthropic" backend is the
+`claude_agent_sdk` path; it remains the default and is preserved exactly. Ollama
+is added as an additive new path via `FLEX_MODEL_BACKEND=ollama`.
 
 **Design constraints:**
-- `sidebar.py` is a protected file. The change is declared here as the stated
-  reason required by CLAUDE.md: reduce per-session API cost for the highest-
-  frequency sidebar call (decision extraction) by enabling an optional local
-  model backend.
-- Local model routing must be opt-in via environment variable. The default
-  backend is `anthropic` and nothing changes for users who do not set it.
-- Tests must not require Ollama to be running. The Ollama HTTP client is
-  injectable/mockable at the module boundary.
+- `sidebar.py` is a protected file. Modifications are declared in each story that
+  touches it.
+- Local model routing must be opt-in via environment variable. The default backend
+  is `anthropic` (claude_agent_sdk path) and nothing changes for users who do not
+  set `FLEX_MODEL_BACKEND`.
+- Plan-impact analysis is complex and high-stakes; it is hardcoded to the
+  `_call_anthropic` path regardless of `FLEX_MODEL_BACKEND`.
+- Tests must not require Ollama to be running.
 
-**Three stories:**
+**Four stories:**
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-120 | `call_model.py` — pluggable model client module | planned |
-| INFRA-121 | Wire `sidebar.py` `call_claude` to pluggable backend | planned |
-| INFRA-122 | Route decision extraction to local model with fallback | planned |
+| INFRA-120 | `call_model.py` — Ollama HTTP client | planned |
+| INFRA-121 | Wire `sidebar.py` to Ollama backend | planned |
+| INFRA-122 | Fallback for extraction / conflict / spec call sites + plan-impact hardening | planned |
+| INFRA-123 | `backend` column in effort DB | planned |
 
 **Story dependencies:** INFRA-121 depends on INFRA-120. INFRA-122 depends on
-INFRA-121. Build in order.
+INFRA-121. INFRA-123 is independent (touches `effort_db.py` and
+`effort_recorder.py`, not `sidebar.py`) and can be built in any order relative
+to the others.
 
 ---
 
 ## Stories
 
-### Story INFRA-120 — `call_model.py`: pluggable model client module
+### Story INFRA-120 — `call_model.py`: Ollama HTTP client
 
 **Rail:** INFRA | **story_class:** code
 
 #### Requires
 
-- No local model infrastructure exists in the codebase (confirmed: no Ollama,
-  embedding, or vector references anywhere).
-- `skills/companion/scripts/sidebar.py:364` contains `call_claude(prompt, system,
-  model, timeout)` which calls the Anthropic SDK directly.
+- No local model infrastructure exists in the codebase.
+- `sidebar.py:364` contains `call_claude(...)` which uses `claude_agent_sdk`
+  (OAuth / Claude CLI subprocess). There is no `anthropic.Anthropic()` call
+  anywhere in `sidebar.py`; the "anthropic" backend IS `claude_agent_sdk`.
+- No `call_model.py` exists.
 
 #### Ensures
 
@@ -58,70 +62,63 @@ INFRA-121. Build in order.
 
 1. Defines a single public function:
    ```python
-   def call_model(
+   def call_ollama(
        prompt: str,
        system: str,
        model: str,
-       backend: str = "anthropic",
-       timeout: int = 60,
-       base_url: str | None = None,
+       *,
+       base_url: str = "http://localhost:11434",
+       timeout: int = 10,
    ) -> str | None:
    ```
-   Returns the response text, or `None` on failure (matching `call_claude`'s
-   contract).
+   Returns the response text, or `None` on failure.
 
-2. When `backend == "anthropic"`: calls the Anthropic SDK
-   (`anthropic.Anthropic().messages.create(...)`) with the same parameters and
-   error handling as the current `call_claude` in `sidebar.py`. The Anthropic
-   client is instantiated lazily (import inside the function body) so the
-   module can be imported without `ANTHROPIC_API_KEY` set.
-
-3. When `backend == "ollama"`: sends an HTTP POST to
-   `{base_url}/api/chat` (default `base_url`: `http://localhost:11434`).
-   Request body:
+2. POSTs to `{base_url}/api/chat` with body:
    ```json
    {
      "model": "<model>",
-     "messages": [{"role": "system", "content": "<system>"}, {"role": "user", "content": "<prompt>"}],
+     "messages": [
+       {"role": "system", "content": "<system>"},
+       {"role": "user", "content": "<prompt>"}
+     ],
      "stream": false
    }
    ```
-   Parses `response.json()["message"]["content"]` as the return value.
-   Uses `requests` with the given `timeout`. Returns `None` on `requests`
-   exception or non-200 status (logs a warning to stderr).
 
-4. Raises `ValueError` for unknown `backend` values.
+3. Parses and returns `response.json()["message"]["content"]` on HTTP 200.
 
-5. No side effects, no global state, no file I/O.
+4. Returns `None` and prints a warning to stderr on:
+   - `requests.RequestException` (connection refused, timeout, etc.)
+   - Non-200 HTTP status code
 
-**`requirements.txt`** (companion or pairmode — whichever owns `sidebar.py`'s deps)
+5. No side effects, no global state, no file I/O. No anthropic SDK.
 
-6. `requests` is added if not already present (check before adding).
+**`requirements.txt`** (companion skill — `skills/companion/requirements.txt`)
+
+6. `requests` is added if not already present. Check before adding.
 
 **`tests/pairmode/test_call_model.py`** (new file)
 
-7. `test_anthropic_backend_calls_sdk` — mock the Anthropic client; assert
-   `call_model(..., backend="anthropic")` calls `messages.create` with the
-   correct model/messages and returns the message text.
+7. `test_ollama_posts_correct_json_body` — mock `requests.post`; call
+   `call_ollama("hello", "sys", "llama3.1:8b")`; assert POST body has
+   `model`, `messages` (system + user), and `stream=false`.
 
-8. `test_ollama_backend_posts_to_endpoint` — mock `requests.post`; assert
-   `call_model(..., backend="ollama")` POSTs to `http://localhost:11434/api/chat`
-   with the correct JSON body and returns `response.json()["message"]["content"]`.
+8. `test_ollama_returns_message_content` — mock `requests.post` returning
+   `{"message": {"content": "ok"}}`; assert return value is `"ok"`.
 
-9. `test_ollama_backend_custom_base_url` — mock `requests.post` and pass
-   `base_url="http://gpu-box:11434"`; assert the POST URL uses the custom base.
+9. `test_ollama_custom_base_url` — pass `base_url="http://gpu-box:11434"`;
+   assert the POST URL uses the custom base.
 
-10. `test_ollama_returns_none_on_http_error` — mock `requests.post` to raise
-    `requests.exceptions.ConnectionError`; assert return value is `None`.
+10. `test_ollama_returns_none_on_connection_error` — mock `requests.post` to
+    raise `requests.exceptions.ConnectionError`; assert return value is `None`.
 
-11. `test_unknown_backend_raises` — assert `ValueError` raised for
-    `backend="unknown"`.
+11. `test_ollama_returns_none_on_non_200` — mock `requests.post` returning
+    status 503; assert return value is `None`.
 
 #### Instructions
 
-1. Create `skills/pairmode/scripts/call_model.py` with the function above.
-2. Use `requests` for the Ollama HTTP call; check `requirements.txt` for the
-   companion skill and add `requests` if absent.
+1. Create `skills/pairmode/scripts/call_model.py` with `call_ollama` above.
+2. Check `skills/companion/requirements.txt` for `requests`; add if absent.
 3. Create `tests/pairmode/test_call_model.py` with tests 7–11 using
    `unittest.mock.patch`.
 
@@ -136,81 +133,109 @@ All new tests must pass. Full suite must pass.
 
 ---
 
-### Story INFRA-121 — Wire `sidebar.py` `call_claude` to pluggable backend
+### Story INFRA-121 — Wire `sidebar.py` to Ollama backend
 
 **Rail:** INFRA | **story_class:** code
 
-**Protected file justification:** `sidebar.py` is modified to delegate its
-`call_claude` function to the new `call_model` module. The change is
-backward-compatible (Anthropic remains the default backend), enables per-session
-cost reduction for users who opt into a local backend, and introduces no new
-external dependencies into `sidebar.py` beyond the import of `call_model`.
+**Protected file justification:** `sidebar.py` is modified to add an optional
+Ollama routing layer. The existing `call_claude` function (which uses
+`claude_agent_sdk` via OAuth) is renamed to `_call_anthropic` and preserved
+exactly — all internals, closures, and error handling are unchanged. A new
+public `call_claude` dispatches to either `_call_anthropic` (default) or
+`call_ollama` (opt-in). This reduces per-session API cost when
+`FLEX_MODEL_BACKEND=ollama` is set; default behavior is identical for all
+users who do not set it.
 
 #### Requires
 
 - INFRA-120 complete: `skills/pairmode/scripts/call_model.py` exists with
-  `call_model(prompt, system, model, backend, timeout, base_url)`.
-- `skills/companion/scripts/sidebar.py:364` has `call_claude(prompt, system,
-  model, timeout)` that calls the Anthropic SDK inline.
-- `sidebar.py` is a protected file (CLAUDE.md §7).
+  `call_ollama(prompt, system, model, *, base_url, timeout)`.
+- `sidebar.py:364` has `call_claude(prompt, system, model, timeout)` using
+  `claude_agent_sdk.query()` with `ClaudeAgentOptions`.
+- `sidebar.py:117–123` adds `_REPO_ROOT` to `sys.path` and imports from
+  `skills.pairmode.scripts.*`.
+- `sidebar.py:1472` has startup diagnostics checking `CLAUDE_CODE_OAUTH_TOKEN`
+  and `shutil.which("claude")`.
 
 #### Ensures
 
 **`skills/companion/scripts/sidebar.py`**
 
-1. At module load, reads two environment variables:
-   - `FLEX_MODEL_BACKEND` — `"anthropic"` (default) or `"ollama"`.
-   - `FLEX_OLLAMA_BASE_URL` — base URL for Ollama (default `"http://localhost:11434"`).
-   Stored as module-level constants `_MODEL_BACKEND` and `_OLLAMA_BASE_URL`.
-
-2. `call_claude(prompt, system, model, timeout)` is rewritten to delegate to
-   `call_model` imported from `call_model.py`:
+1. Three new module-level constants, placed after the existing import block:
    ```python
-   from skills.pairmode.scripts.call_model import call_model as _call_model
-   # or relative import depending on how sidebar.py resolves its imports
+   _MODEL_BACKEND = os.environ.get("FLEX_MODEL_BACKEND", "anthropic")
+   _OLLAMA_BASE_URL = os.environ.get("FLEX_OLLAMA_BASE_URL", "http://localhost:11434")
+   _OLLAMA_MODEL = os.environ.get("FLEX_OLLAMA_MODEL", "llama3.1:8b")
    ```
-   The function signature and return type (`str | None`) are unchanged.
-   All existing call sites within `sidebar.py` continue to work without
-   modification.
 
-3. When `_MODEL_BACKEND == "anthropic"`: behavior is identical to the current
-   implementation (same model, same timeout, same error handling).
+2. `call_ollama` is imported from `skills.pairmode.scripts.call_model` using
+   the same `sys.path` pattern already in use for `effort_recorder`:
+   ```python
+   try:
+       from skills.pairmode.scripts.call_model import call_ollama as _call_ollama
+   except ImportError:
+       _call_ollama = None
+   ```
+   (guarded import — if pairmode scripts are absent, Ollama routing silently
+   degrades to anthropic)
 
-4. When `_MODEL_BACKEND == "ollama"`: `call_model` is called with
-   `backend="ollama"` and `base_url=_OLLAMA_BASE_URL`.
+3. The existing `call_claude` function is renamed to `_call_anthropic`. **All
+   internals are preserved exactly:** the `claude_agent_sdk` import, the
+   `collected` dict, the `_run` coroutine, the `_finalize` helper, the
+   `_record_sidebar_effort` closure, the asyncio event loop, and all
+   error-handling branches.
 
-5. The previous inline Anthropic SDK code inside `call_claude` is removed and
-   replaced with the delegation. The Anthropic import at the top of `sidebar.py`
-   (if any) is retained only if used elsewhere in the file; otherwise it can be
-   removed.
+4. A new public function replaces `call_claude`:
+   ```python
+   def call_claude(
+       prompt: str,
+       system: str,
+       model: str = "claude-haiku-4-5-20251001",
+       timeout: int = 60,
+   ) -> str | None:
+       if _MODEL_BACKEND == "ollama" and _call_ollama is not None:
+           return _call_ollama(prompt, system, _OLLAMA_MODEL,
+                               base_url=_OLLAMA_BASE_URL, timeout=10)
+       return _call_anthropic(prompt, system, model, timeout)
+   ```
+   The signature and return type are unchanged. All existing call sites within
+   `sidebar.py` continue to work without modification.
 
-**No other changes to `sidebar.py`.** Extraction prompts, conflict checks,
-plan-impact logic, rendering functions, and event handlers are untouched.
+5. Startup diagnostics (near line 1472): when `_MODEL_BACKEND == "ollama"`,
+   attempt a `requests.get(f"{_OLLAMA_BASE_URL}/api/tags", timeout=2)`. If it
+   raises or returns non-200, print a yellow warning:
+   `"[yellow]  Ollama not reachable at {_OLLAMA_BASE_URL} — calls will fail[/yellow]"`.
+   If it succeeds, print a dim confirmation:
+   `"[dim]  Ollama backend: {_OLLAMA_BASE_URL} model={_OLLAMA_MODEL}[/dim]"`.
+   If `_MODEL_BACKEND != "ollama"`, no health check is performed.
 
-**`tests/pairmode/test_sidebar_call_model.py`** (new file — tests only the
-`call_claude` delegation; do not attempt to unit-test the full sidebar)
+**`tests/pairmode/test_sidebar_call_model.py`** (new file)
 
-6. `test_call_claude_delegates_to_anthropic_by_default` — mock `call_model`
-   in the sidebar module; assert that invoking `call_claude(...)` with no
-   `FLEX_MODEL_BACKEND` env var calls `call_model` with `backend="anthropic"`.
+6. `test_call_claude_defaults_to_anthropic` — with no `FLEX_MODEL_BACKEND`
+   env var set, mock `_call_anthropic`; call `call_claude(...)` and assert
+   `_call_anthropic` was called.
 
-7. `test_call_claude_delegates_to_ollama_when_env_set` — set
-   `FLEX_MODEL_BACKEND=ollama` in the environment; mock `call_model`; assert
-   `call_claude` calls `call_model` with `backend="ollama"`.
+7. `test_call_claude_routes_to_ollama` — set `FLEX_MODEL_BACKEND=ollama`
+   in the environment; mock `_call_ollama`; call `call_claude(...)` and assert
+   `_call_ollama` was called with `model=_OLLAMA_MODEL` and `timeout=10`.
 
-8. `test_call_claude_returns_none_on_backend_failure` — mock `call_model` to
-   return `None`; assert `call_claude` also returns `None` without raising.
+8. `test_call_claude_returns_none_on_backend_failure` — mock `_call_ollama`
+   to return `None`; assert `call_claude` also returns `None` without raising.
 
 #### Instructions
 
-1. In `sidebar.py`, add the two `os.environ.get(...)` reads near the top of
-   the file (after existing imports).
-2. Rewrite `call_claude` to call `_call_model` from `call_model.py`. Resolve
-   the import path by checking how `sidebar.py` currently imports other
-   pairmode scripts — use the same pattern.
-3. Create `tests/pairmode/test_sidebar_call_model.py` with tests 6–8. Use
-   `importlib.reload` or `monkeypatch` (if using pytest fixtures) to control
-   the env var at test time without polluting other tests.
+1. Add the three `_MODEL_BACKEND`, `_OLLAMA_BASE_URL`, `_OLLAMA_MODEL`
+   constants after the existing imports in `sidebar.py`.
+2. Add the guarded import of `_call_ollama`.
+3. Rename `call_claude` → `_call_anthropic` (find/replace the `def` line only;
+   internal `call_claude` self-references if any should be preserved — check
+   there are none).
+4. Add the new `call_claude` dispatcher immediately after `_call_anthropic`.
+5. Add the Ollama health-check block in the startup diagnostics section.
+6. Create `tests/pairmode/test_sidebar_call_model.py` with tests 6–8. Use
+   `unittest.mock.patch` to control module-level references; use
+   `monkeypatch.setenv` or `unittest.mock.patch.dict(os.environ, ...)` to
+   control the env var without polluting other tests.
 
 #### Tests
 
@@ -223,68 +248,189 @@ All new tests must pass. Full suite must pass.
 
 ---
 
-### Story INFRA-122 — Route decision extraction to local model with fallback
+### Story INFRA-122 — Fallback for extraction / conflict / spec call sites + plan-impact hardening
 
 **Rail:** INFRA | **story_class:** code
 
+**Protected file justification:** `sidebar.py` is modified to add JSON-shape
+fallback for the three call sites that route LLM calls to the local model. An
+explicit Anthropic retry is added when the local model returns unparseable
+output. Plan-impact analysis is hardcoded to `_call_anthropic` because it
+performs complex multi-item classification that requires full model capability.
+The change is additive; no existing logic is removed.
+
 #### Requires
 
-- INFRA-121 complete: `sidebar.py` `call_claude` delegates to `call_model` and
-  reads `FLEX_MODEL_BACKEND` from the environment.
-- `sidebar.py:578` has `extract_incremental(transcript_path, loaded_modules)`
-  which calls `call_claude(prompt, EXTRACTION_SYSTEM, model="claude-haiku-...")`.
-- `sidebar.py:605` has `check_conflicts(new_items, specs)` which calls
-  `call_claude(prompt, system)`.
+- INFRA-121 complete: `_call_anthropic` and `_MODEL_BACKEND` exist in
+  `sidebar.py`.
+- `sidebar.py:578` `extract_incremental` calls `call_claude(...)`, parses
+  result as a JSON array, returns `[]` on failure.
+- `sidebar.py:605` `check_conflicts` calls `call_claude(...)`, parses result
+  as a JSON array, returns `[]` on failure.
+- `sidebar.py:655` `check_file_against_spec` calls `call_claude(...)`, parses
+  result as a JSON object, returns `None` on failure.
+- `sidebar.py:1157` and `sidebar.py:1541` plan-impact blocks call
+  `call_claude(...)`.
 
 #### Ensures
 
 **`skills/companion/scripts/sidebar.py`**
 
-1. `extract_incremental` gains JSON-parse validation after `call_claude` returns:
-   - If the response is `None` or cannot be parsed as a JSON array, and
-     `_MODEL_BACKEND != "anthropic"`, retry the call once with `backend`
-     explicitly forced to `"anthropic"` (Anthropic fallback).
-   - If the Anthropic retry also fails or returns unparseable JSON, log a
-     warning to stderr and return an empty list (existing silent-failure
-     behavior is preserved, but the fallback is now explicit).
-   - If `_MODEL_BACKEND == "anthropic"` and parsing fails, behavior is
-     unchanged from today (return empty list, no retry).
+1. **Plan-impact hardening:** At both plan-impact call sites (approximately
+   lines 1157 and 1541), replace `call_claude(prompt, ...)` with
+   `_call_anthropic(prompt, ...)`. These calls bypass the `FLEX_MODEL_BACKEND`
+   dispatch unconditionally. No other changes to the plan-impact logic.
 
-2. The fallback path is the only change to `extract_incremental`. The prompt,
-   system, and parsing logic are untouched.
+2. **`extract_incremental` fallback:** Wrap the `call_claude(...)` call and
+   subsequent `json.loads(raw)` in a helper pattern:
+   - Call `call_claude(prompt, EXTRACTION_SYSTEM)` as today.
+   - If `raw` is `None` or `json.loads(raw)` raises, AND `_MODEL_BACKEND !=
+     "anthropic"`: retry once by calling `_call_anthropic(prompt,
+     EXTRACTION_SYSTEM)` directly.
+   - Parse the retry result; on failure, return `[]`.
+   - If `_MODEL_BACKEND == "anthropic"` and parsing fails: return `[]` (same
+     as today — no retry).
 
-3. `check_conflicts` does **not** get a fallback in this story — its lower
-   frequency means it can be addressed in a follow-on phase once extraction
-   is proven stable.
+3. **`check_conflicts` fallback:** Same fallback pattern as `extract_incremental`.
+   If local result is `None` or unparseable and `_MODEL_BACKEND != "anthropic"`:
+   retry once with `_call_anthropic(...)`; on retry failure, return `[]`.
+
+4. **`check_file_against_spec` fallback:** The `call_claude(prompt, system)`
+   call inside the non-negotiables check block gets the same fallback. If local
+   result is `None` or `json.loads(raw)` raises and `_MODEL_BACKEND !=
+   "anthropic"`: retry once with `_call_anthropic(prompt, system)`; on retry
+   failure, return `None` (existing behavior on failure).
+
+5. Prompts, system strings, and all other parsing logic are untouched.
 
 **`tests/pairmode/test_sidebar_call_model.py`** (extend)
 
-4. `test_extraction_falls_back_to_anthropic_on_bad_json` — mock `call_model`
-   to return `"not json"` on the first call and a valid JSON array on the
-   second call; set `FLEX_MODEL_BACKEND=ollama`; invoke `extract_incremental`;
-   assert the second call used `backend="anthropic"` and the result is the
-   parsed array from the second call.
+6. `test_extraction_falls_back_to_anthropic_on_bad_json` — mock `call_claude`
+   to return `"not json"`; mock `_call_anthropic` to return a valid JSON array
+   string; set `FLEX_MODEL_BACKEND=ollama`; call `extract_incremental(...)`;
+   assert `_call_anthropic` was called and the result is the parsed array.
 
-5. `test_extraction_returns_empty_on_double_failure` — mock `call_model` to
-   return `None` both times; assert `extract_incremental` returns `[]` without
-   raising.
+7. `test_extraction_returns_empty_on_double_failure` — mock both `call_claude`
+   and `_call_anthropic` to return `None`; set `FLEX_MODEL_BACKEND=ollama`;
+   assert `extract_incremental` returns `[]` without raising.
 
-6. `test_extraction_no_fallback_when_anthropic_backend` — set
-   `FLEX_MODEL_BACKEND=anthropic`; mock `call_model` to return bad JSON once;
-   assert `call_model` is called exactly once (no retry).
+8. `test_extraction_no_fallback_when_anthropic_backend` — set
+   `FLEX_MODEL_BACKEND=anthropic`; mock `call_claude` to return bad JSON; assert
+   `_call_anthropic` is never called (exactly 0 calls) and result is `[]`.
 
 #### Instructions
 
-1. In `extract_incremental`, wrap the `json.loads` call in a try/except;
-   implement the retry logic from Ensures 1.
-2. Pass `backend="anthropic"` explicitly on the retry call — do not use
-   `_MODEL_BACKEND` for the fallback call.
-3. Extend `tests/pairmode/test_sidebar_call_model.py` with tests 4–6.
+1. In `sidebar.py`, replace the two plan-impact `call_claude(...)` calls with
+   `_call_anthropic(...)`.
+2. In `extract_incremental`, after the existing `if not raw: return []` block,
+   wrap `json.loads(raw)` in try/except; add the retry branch guarded by
+   `_MODEL_BACKEND != "anthropic"`.
+3. Apply the same pattern to `check_conflicts` and the non-negotiables block in
+   `check_file_against_spec`.
+4. Extend `tests/pairmode/test_sidebar_call_model.py` with tests 6–8.
 
 #### Tests
 
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/test_sidebar_call_model.py -x -q
+PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q
+```
+
+All new tests must pass. Full suite must pass.
+
+---
+
+### Story INFRA-123 — `backend` column in effort DB
+
+**Rail:** INFRA | **story_class:** code
+
+#### Requires
+
+- `skills/pairmode/scripts/effort_db.py` has:
+  - `_SCHEMA_TABLE` (CREATE TABLE string)
+  - `_MIGRATIONS` tuple of ALTER TABLE strings
+  - `_INSERT_COLUMNS` tuple of column names used by `insert_attempt`
+- `skills/pairmode/scripts/effort_recorder.py` has `record_effort(*, ...)` at
+  line ~125. It calls `_effort_db.insert_attempt(db_path, ...)`.
+- `sidebar.py:_record_sidebar_effort` (nested in `_call_anthropic` after
+  INFRA-121) calls `record_effort(...)` for the anthropic path.
+- No `backend` column exists in the `attempts` table.
+
+#### Ensures
+
+**`skills/pairmode/scripts/effort_db.py`**
+
+1. `_SCHEMA_TABLE`: add `backend TEXT` as a column in the `CREATE TABLE IF NOT
+   EXISTS attempts (...)` statement.
+
+2. `_MIGRATIONS`: append:
+   ```python
+   "ALTER TABLE attempts ADD COLUMN backend TEXT",
+   ```
+
+3. `_INSERT_COLUMNS`: add `"backend"` to the tuple.
+
+**`skills/pairmode/scripts/effort_recorder.py`**
+
+4. `record_effort(...)` gains `backend: str | None = None` keyword argument.
+
+5. Passes `backend=backend` to `_effort_db.insert_attempt(db_path, ...)`.
+
+**`skills/companion/scripts/sidebar.py`** (protected — justification: adding
+`backend="anthropic"` to effort recording for the existing anthropic call path,
+and adding effort recording for the new Ollama call path)
+
+6. `_record_sidebar_effort(outcome)` inside `_call_anthropic`: add
+   `backend="anthropic"` to the `record_effort(...)` call.
+
+7. The public `call_claude` dispatcher (from INFRA-121): when the Ollama path
+   is taken (i.e., `_MODEL_BACKEND == "ollama" and _call_ollama is not None`),
+   after `_call_ollama` returns, call:
+   ```python
+   try:
+       story = _current_story or {}
+       sid = story.get("id") if isinstance(story, dict) else None
+       story_id = f"sidebar:{sid}" if sid else "sidebar:no-story"
+       record_effort(
+           project_dir=Path.cwd(),
+           story_id=story_id,
+           agent_role="sidebar-extractor",
+           model=_OLLAMA_MODEL,
+           usage=None,
+           attempt_number=1,
+           outcome="PASS" if result else "FAIL",
+           backend="ollama",
+           notes="sidebar pipe-message LLM extraction (ollama)",
+       )
+   except Exception:
+       pass
+   ```
+
+**`tests/pairmode/test_effort_db.py`** (extend)
+
+8. `test_backend_column_stored` — insert an attempt row with `backend="ollama"`;
+   query the row from the DB; assert `backend == "ollama"`.
+
+9. `test_backend_column_nullable` — insert an attempt row with no `backend`
+   argument (or `backend=None`); assert no error and the row is stored.
+
+#### Instructions
+
+1. Edit `_SCHEMA_TABLE` in `effort_db.py` to include `backend TEXT`.
+2. Append the migration string to `_MIGRATIONS`.
+3. Add `"backend"` to `_INSERT_COLUMNS`.
+4. Add `backend: str | None = None` to `record_effort`'s signature and pass it
+   through to `insert_attempt`.
+5. In `sidebar.py`, add `backend="anthropic"` to the `record_effort(...)` call
+   inside `_record_sidebar_effort`.
+6. In `sidebar.py`, add the Ollama effort-recording block to the `call_claude`
+   dispatcher (see Ensures 7).
+7. Add tests 8–9 to `tests/pairmode/test_effort_db.py`.
+
+#### Tests
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/test_effort_db.py -x -q
 PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q
 ```
 
@@ -294,11 +440,12 @@ All new tests must pass. Full suite must pass.
 
 ## Follow-on scope (not in this phase)
 
-- Routing `check_conflicts` and `check_file_against_spec` to local model (2.2 from audit).
-- Routing plan-impact analysis to local model (2.3 from audit).
-- Batch seed transcript mining with local model — `mine_sessions.py` (2.4 from audit).
-- RAG corpus for few-shot grounding of extraction prompts.
-- Model selection per call type (e.g. use a larger local model for conflict
-  checking than for extraction).
+- Per-call-type model env vars (e.g. `FLEX_OLLAMA_EXTRACTION_MODEL`,
+  `FLEX_OLLAMA_CONFLICT_MODEL`) for finer-grained local routing.
+- Batch seed transcript mining with local model — `mine_sessions.py`.
+- RAG corpus for few-shot grounding of extraction prompts using the existing
+  `extraction.json` corpus.
+- Routing `check_conflicts` and `check_file_against_spec` to separate, smaller
+  local models once extraction is proven stable.
 
 Tag: `cp46-local-model-infrastructure`
