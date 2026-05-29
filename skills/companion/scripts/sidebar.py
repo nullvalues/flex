@@ -125,6 +125,15 @@ except Exception:  # noqa: BLE001 — never fail sidebar on telemetry import
     def record_effort(**kwargs):  # type: ignore[no-redef]
         return None
 
+try:
+    from skills.pairmode.scripts.call_model import call_ollama as _call_ollama  # noqa: E402
+except ImportError:
+    _call_ollama = None  # type: ignore[assignment]
+
+_MODEL_BACKEND = os.environ.get("FLEX_MODEL_BACKEND", "anthropic")
+_OLLAMA_BASE_URL = os.environ.get("FLEX_OLLAMA_BASE_URL", "http://localhost:11434")
+_OLLAMA_MODEL = os.environ.get("FLEX_OLLAMA_MODEL", "llama3.1:8b")
+
 console = Console()
 lock = threading.Lock()
 
@@ -361,7 +370,7 @@ def update_mini_session(mini: MiniSession, event: dict, loaded_modules: list[str
 # ── LLM calls ─────────────────────────────────────────────────────────────────
 
 
-def call_claude(prompt: str, system: str, model: str = "claude-haiku-4-5-20251001", timeout: int = 60) -> str | None:
+def _call_anthropic(prompt: str, system: str, model: str = "claude-haiku-4-5-20251001", timeout: int = 60) -> str | None:
     try:
         from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
     except ImportError as e:
@@ -454,6 +463,18 @@ def call_claude(prompt: str, system: str, model: str = "claude-haiku-4-5-2025100
         log_error(f"LLM error: {e}")
         _record_sidebar_effort("FAIL")
         return None
+
+
+def call_claude(
+    prompt: str,
+    system: str,
+    model: str = "claude-haiku-4-5-20251001",
+    timeout: int = 60,
+) -> str | None:
+    if _MODEL_BACKEND == "ollama" and _call_ollama is not None:
+        return _call_ollama(prompt, system, _OLLAMA_MODEL,
+                            base_url=_OLLAMA_BASE_URL, timeout=10)
+    return _call_anthropic(prompt, system, model, timeout)
 
 
 # ── Transcript reading ─────────────────────────────────────────────────────────
@@ -1474,6 +1495,16 @@ def main():
         f"[dim]token: {'set (' + str(len(token)) + ' chars)' if token else 'NOT SET'} | "
         f"claude: {shutil.which('claude') or 'NOT FOUND'}[/dim]"
     )
+    if _MODEL_BACKEND == "ollama":
+        try:
+            import requests as _req
+            resp = _req.get(f"{_OLLAMA_BASE_URL}/api/tags", timeout=2)
+            if resp.status_code == 200:
+                console.print(f"[dim]  Ollama backend: {_OLLAMA_BASE_URL} model={_OLLAMA_MODEL}[/dim]")
+            else:
+                console.print(f"[yellow]  Ollama not reachable at {_OLLAMA_BASE_URL} — calls will fail[/yellow]")
+        except Exception:
+            console.print(f"[yellow]  Ollama not reachable at {_OLLAMA_BASE_URL} — calls will fail[/yellow]")
 
     # start conflict input listener
     t = threading.Thread(target=conflict_input_listener, daemon=True)
