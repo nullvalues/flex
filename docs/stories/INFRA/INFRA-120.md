@@ -3,7 +3,7 @@ id: INFRA-120
 phase: '46'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/scripts/call_model.py
   - tests/pairmode/test_call_model.py
