@@ -317,6 +317,26 @@ def _print_next_steps(project_dir: pathlib.Path, repo_root: pathlib.Path) -> Non
     )
 
 
+_EFFORT_BASELINE_SEED = (
+    pathlib.Path(__file__).resolve().parent.parent / "seed" / "effort_baseline.json"
+)
+
+_DEFAULT_EXPECTED_STEP_TOKENS = 53000
+
+
+def _load_seed_expected_step_tokens() -> int:
+    """Return the builder median from the effort baseline seed file.
+
+    Falls back to the hard-coded ~flex builder median if the seed file is
+    missing or malformed. Side-effect-free.
+    """
+    try:
+        raw = json.loads(_EFFORT_BASELINE_SEED.read_text(encoding="utf-8"))
+        return int(raw["by_role"]["builder"]["median"])
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return _DEFAULT_EXPECTED_STEP_TOKENS
+
+
 def _record_state(state_path: pathlib.Path, version: str) -> bool:
     """Write pairmode_version into .companion/state.json, creating if absent.
 
@@ -326,9 +346,17 @@ def _record_state(state_path: pathlib.Path, version: str) -> bool:
     pairmode-specific bootstrap sets it.  An existing ``effort_tracking``
     field (e.g. user explicitly set it to ``false``) is preserved.
 
+    For NEW state.json files (file did not exist before this call), the
+    context-budget defaults from INFRA-127 are also seeded:
+    ``context_budget_threshold``, ``context_budget_overrun_pct``,
+    ``expected_step_tokens`` (from the effort baseline seed), and
+    ``context_budget_reprompt_margin``. Existing state.json files are NOT
+    modified — these defaults are only added for fresh projects.
+
     Returns ``True`` if ``effort_tracking`` was newly set (was absent before
     this call), ``False`` if it was already present.
     """
+    is_new_state = not state_path.exists()
     if state_path.exists():
         try:
             data = json.loads(state_path.read_text(encoding="utf-8"))
@@ -341,6 +369,15 @@ def _record_state(state_path: pathlib.Path, version: str) -> bool:
     newly_enabled = "effort_tracking" not in data
     if newly_enabled:
         data["effort_tracking"] = True
+
+    # INFRA-127: seed context-budget defaults only for NEW state.json files.
+    # Existing state.json files are left untouched per spec.
+    if is_new_state:
+        data.setdefault("context_budget_threshold", 120000)
+        data.setdefault("context_budget_overrun_pct", 0.10)
+        data.setdefault("expected_step_tokens", _load_seed_expected_step_tokens())
+        data.setdefault("context_budget_reprompt_margin", 10000)
+
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return newly_enabled

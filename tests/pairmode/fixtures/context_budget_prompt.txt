@@ -1,0 +1,10 @@
+CONTEXT BUDGET — [story RAIL-NNN] just completed.
+Context is at approximately [N] tokens (threshold: [T], overrun: [O]).
+
+Continuing risks context compaction mid-story. Options:
+
+1. **Proceed** — continue building in this session; budget acknowledged.
+   Say: "Continue building"
+
+2. **Clear and resume** — run /clear, then in the fresh session:
+   Say: "Continue building Phase X from story RAIL-NNN"

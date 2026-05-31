@@ -1,0 +1,8 @@
+{
+  "generated_at": "2026-05-29T00:00:00Z",
+  "source_projects": [],
+  "by_role": {
+    "builder": {"n": 261, "median": 53416, "p75": 77498, "p90": 111434},
+    "reviewer": {"n": 263, "median": 49499, "p75": 58308, "p90": 75349}
+  }
+}
