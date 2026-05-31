@@ -3,7 +3,7 @@ id: BOOTSTRAP-003
 phase: '47'
 rail: BOOTSTRAP
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/scripts/bootstrap.py
   - skills/pairmode/scripts/sync.py
