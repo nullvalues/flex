@@ -3,7 +3,7 @@ id: INFRA-128
 phase: '47'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - hooks/pre_tool_use.py
   - hooks/hooks.json
