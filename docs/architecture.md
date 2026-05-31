@@ -155,9 +155,17 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
 8. **Loop-breaker** — if the same story fails twice, the orchestrator invokes the loop-breaker
    subagent (opus) to diagnose the root cause cold and propose one alternative approach.
 
-9. **Context budget check** — after every story, the orchestrator compares its current Claude
-   Code `/context` token count against `state["context_budget_threshold"]` (default 120 000).
-   When at or above threshold, it surfaces a proceed-vs-clear prompt before the next story.
+9. **Context budget check** — `hooks/pre_tool_use.py` fires on every
+   Task spawn and delegates to
+   `skills/pairmode/scripts/context_budget.py`. The module reads the
+   transcript's last assistant `usage` block, estimates the next
+   step's tokens (median of recent effort.db attempts for the
+   current phase, or `state["expected_step_tokens"]` as a seeded
+   fallback), and blocks the spawn when the projected total would
+   exceed `threshold * (1 + overrun_pct)`. The block reason carries
+   a verbatim prompt; the operator picks Proceed (acknowledged) or
+   `/clear` and resume. CER-027 documents the failure mode this
+   replaces.
 
 10. **Checkpoint** — at phase end, the intent-reviewer and security-auditor run across all stories.
     Documentation is updated, all planned stories are verified complete or deferred, and the phase

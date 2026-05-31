@@ -2191,3 +2191,76 @@ class TestClaudeBuildMdSpecReviewStep:
         arch_path = REPO_ROOT / "docs" / "architecture.md"
         text = arch_path.read_text(encoding="utf-8")
         assert "spec review" in text.lower() or "Spec review" in text
+
+
+# ---------------------------------------------------------------------------
+# Story INFRA-129 — Context budget check section replaced with mechanical-
+# enforcement pointer in CLAUDE.build.md.j2, flex CLAUDE.md HOOK PERFORMANCE
+# carve-out, and docs/architecture.md step 9 rewrite.
+# ---------------------------------------------------------------------------
+
+class TestInfra129ContextBudgetMechanicalEnforcementDocs:
+    """Story INFRA-129: the prose describing the context budget check must
+    point at the mechanical enforcement (hooks/pre_tool_use.py +
+    skills/pairmode/scripts/context_budget.py), name all four state.json
+    tunables, and drop the old four-step LLM ritual phrases. The flex-local
+    CLAUDE.md grows a HOOK PERFORMANCE carve-out documenting the thin-
+    delegation exception for pre_tool_use.py."""
+
+    def setup_method(self):
+        self.rendered_build_md = render(
+            "CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT
+        )
+
+    def test_rendered_build_md_contains_enforced_mechanically(self):
+        assert "Enforced mechanically" in self.rendered_build_md
+
+    def test_rendered_build_md_names_hook_and_module(self):
+        assert "hooks/pre_tool_use.py" in self.rendered_build_md
+        assert (
+            "skills/pairmode/scripts/context_budget.py"
+            in self.rendered_build_md
+        )
+
+    def test_rendered_build_md_lists_all_four_tunables(self):
+        assert "context_budget_threshold" in self.rendered_build_md
+        assert "context_budget_overrun_pct" in self.rendered_build_md
+        assert "expected_step_tokens" in self.rendered_build_md
+        assert "context_budget_reprompt_margin" in self.rendered_build_md
+
+    def test_rendered_build_md_drops_old_ritual_phrases(self):
+        # None of the old four-step LLM ritual phrases may appear in the
+        # rendered template — that ritual has been replaced wholesale by
+        # the mechanical-enforcement pointer.
+        assert (
+            "Read `context_budget_threshold` from"
+            not in self.rendered_build_md
+        )
+        assert (
+            "Compare your current context window"
+            not in self.rendered_build_md
+        )
+        assert (
+            "Your context token count is visible"
+            not in self.rendered_build_md
+        )
+
+    def test_flex_claude_md_contains_thin_delegation_exception(self):
+        flex_claude_md = (
+            REPO_ROOT / "CLAUDE.md"
+        ).read_text(encoding="utf-8")
+        assert "Documented thin-delegation exception:" in flex_claude_md
+        assert "hooks/pre_tool_use.py" in flex_claude_md
+        assert (
+            "skills/pairmode/scripts/context_budget.py" in flex_claude_md
+        )
+        assert "remains CRITICAL" in flex_claude_md
+
+    def test_architecture_md_step_9_names_hook_and_module(self):
+        arch_path = REPO_ROOT / "docs" / "architecture.md"
+        text = arch_path.read_text(encoding="utf-8")
+        # Locate the rewritten step 9 region and assert both names appear
+        # near it (the section header is "## The pairmode build loop" and
+        # step 9 is "**Context budget check**").
+        assert "hooks/pre_tool_use.py" in text
+        assert "skills/pairmode/scripts/context_budget.py" in text

@@ -452,30 +452,47 @@ Stop the build loop.
 
 ## Context budget check (between stories)
 
-After every story's PASS or FAIL handling completes — before advancing to the
-next story or entering the checkpoint sequence:
+Enforced mechanically by `hooks/pre_tool_use.py` (matcher `Task`),
+which delegates to `{{ pairmode_scripts_dir }}/context_budget.py`.
+On every subagent spawn, the hook checks whether the projected
+next-step total would exceed
+`state["context_budget_threshold"] * (1 + state["context_budget_overrun_pct"])`
+(defaults: 120 000 × 1.10 = 132 000). When it would, the spawn is
+blocked and the verbatim prompt below is fed back as the block
+reason. The orchestrator surfaces it to the user **verbatim** — no
+commentary, no recommendation — and waits for a response.
 
-1. Read `context_budget_threshold` from `.companion/state.json`
-   (default: 120 000 if absent or unset).
-2. Compare your current context window token count against the threshold.
-   Your context token count is visible in Claude Code via `/context`.
-3. If your context is **at or above** the threshold, surface the following
-   prompt **verbatim** — do not add editorial commentary, reasoning, or a
-   recommendation. Wait for user response before spawning the next builder
-   or entering the checkpoint sequence.
+Canonical prompt body (source of truth:
+`tests/pairmode/fixtures/context_budget_prompt.txt`, reproduced
+here for in-doc readability):
 
-   CONTEXT BUDGET — [story RAIL-NNN] just completed.
-   Context is at approximately [N] tokens (threshold: [T]).
+````
+CONTEXT BUDGET — [story RAIL-NNN] just completed.
+Context is at approximately [N] tokens (threshold: [T], overrun: [O]).
 
-   Continuing risks context compaction mid-story. Options:
+Continuing risks context compaction mid-story. Options:
 
-   1. **Proceed** — continue building in this session; budget acknowledged.
-      Say: "Continue building"
+1. **Proceed** — continue building in this session; budget acknowledged.
+   Say: "Continue building"
 
-   2. **Clear and resume** — run /clear, then in the fresh session:
-      Say: "Continue building Phase X from story RAIL-NNN"
+2. **Clear and resume** — run /clear, then in the fresh session:
+   Say: "Continue building Phase X from story RAIL-NNN"
+````
 
-4. If below the threshold: proceed normally.
+Response handling:
+- "Continue building" → `context_budget.decide()` has already
+  written `state["context_budget_acknowledged_at"]`. Re-prompt is
+  suppressed until tokens cross
+  `acknowledged_at + state["context_budget_reprompt_margin"]`
+  (default 10 000).
+- "Clear and resume" → user types `/clear`; the fresh session
+  starts with empty transcript and the hook passes through.
+
+Tunables (all in `.companion/state.json`):
+`context_budget_threshold`, `context_budget_overrun_pct`,
+`expected_step_tokens` (seeded prior; replaced by the per-phase
+effort.db median once ≥5 attempts accumulate),
+`context_budget_reprompt_margin`.
 
 ---
 
