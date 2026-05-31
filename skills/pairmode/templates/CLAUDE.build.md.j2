@@ -129,9 +129,22 @@ Run this check **once per story**, after model evaluation, before spawning the b
 If this story is auth-gated (touches user authentication, session handling, permission
 checks, role validation, or access-controlled resources):
 
+**Step 1 — Check for a recorded classification.**
+Read `docs/architecture.md` and search for a line beginning with `**Classification:**`
+(present in `## Auth model` or `## Auth model classification` sections when the project's
+auth model has been classified by the operator).
+
+If a recorded classification is found:
+- The check is **auto-satisfied**. Note it briefly ("Auth: [classification] per
+  architecture.md") and proceed to the build loop.
+- Re-classify only if this story **changes the auth model itself** (e.g., introduces
+  ABAC to a previously RBAC-only system). If so, update `docs/architecture.md` before
+  building.
+
+If no recorded classification is found:
 a. Load `~/.claude/policies/auth-coexistence.md`.
 b. Surface the classification question to the user: RBAC / ABAC / both?
-c. Record the answer in the phase doc or `docs/architecture.md` before building.
+c. Record the answer in `docs/architecture.md` before building.
    Do not build this story until the classification is recorded.
 
 If the story is not auth-gated, skip this section.

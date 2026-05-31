@@ -2264,3 +2264,53 @@ class TestInfra129ContextBudgetMechanicalEnforcementDocs:
         # step 9 is "**Context budget check**").
         assert "hooks/pre_tool_use.py" in text
         assert "skills/pairmode/scripts/context_budget.py" in text
+
+
+# ---------------------------------------------------------------------------
+# Story INFRA-130 — Auth check generalization: reads recorded classification
+# from docs/architecture.md before prompting the user
+# ---------------------------------------------------------------------------
+
+class TestInfra130AuthCheckGeneralization:
+    """Story INFRA-130: the auth check section in CLAUDE.build.md.j2 gains a
+    detection step that reads a recorded **Classification:** line from
+    docs/architecture.md and auto-satisfies the check when one is found.
+    The fallback path (load auth-coexistence.md and prompt) is preserved but
+    is no longer the unconditional first step."""
+
+    def setup_method(self):
+        self.output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
+
+    def test_rendered_contains_classification_detection_marker(self):
+        """The rendered template must contain the bold **Classification:** marker
+        used to detect a recorded classification in docs/architecture.md."""
+        assert "**Classification:**" in self.output
+
+    def test_rendered_contains_auto_satisfied(self):
+        """The auto-satisfy branch must be present in the rendered template."""
+        assert "auto-satisfied" in self.output
+
+    def test_rendered_contains_auth_coexistence_md_fallback(self):
+        """The fallback prompt path must still reference auth-coexistence.md."""
+        assert "auth-coexistence.md" in self.output
+
+    def test_rendered_contains_docs_architecture_md_in_auth_check(self):
+        """docs/architecture.md must be referenced inside the auth check section."""
+        auth_start = self.output.index("## Auth check")
+        # Find the next top-level section after auth check
+        next_section = self.output.find("\n## ", auth_start + 1)
+        auth_section = self.output[auth_start:next_section] if next_section != -1 else self.output[auth_start:]
+        assert "docs/architecture.md" in auth_section
+
+    def test_auth_coexistence_md_not_unconditional_first_step(self):
+        """auth-coexistence.md must appear AFTER 'If no recorded classification',
+        not as the unconditional first instruction in the auth check section."""
+        auth_start = self.output.index("## Auth check")
+        next_section = self.output.find("\n## ", auth_start + 1)
+        auth_section = self.output[auth_start:next_section] if next_section != -1 else self.output[auth_start:]
+        no_recorded_pos = auth_section.index("If no recorded classification")
+        coexistence_pos = auth_section.index("auth-coexistence.md")
+        assert coexistence_pos > no_recorded_pos, (
+            "auth-coexistence.md must appear after 'If no recorded classification', "
+            "not as an unconditional first step in the auth check section"
+        )
