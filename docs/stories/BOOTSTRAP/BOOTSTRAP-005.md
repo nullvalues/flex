@@ -3,7 +3,7 @@ id: BOOTSTRAP-005
 phase: '47'
 rail: BOOTSTRAP
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/templates/docs/phases/index.md.j2
   - tests/pairmode/test_templates.py
