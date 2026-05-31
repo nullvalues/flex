@@ -565,6 +565,7 @@ INFRA-129.
 | INFRA-128 | New thin `hooks/pre_tool_use.py` delegate + `hooks.json` `Task` wire-up | complete |
 | INFRA-129 | Replace `CLAUDE.build.md.j2` § "Context budget check" prose; amend flex `CLAUDE.md` HOOK PERFORMANCE carve-out; update `docs/architecture.md` step 9 | complete |
 | INFRA-130 | Generalize auth check to read recorded classification from `docs/architecture.md` | complete |
+| BOOTSTRAP-004 | Add `## Schema delivery` section to `phase.md.j2` | planned |
 
 ### Story INFRA-124 — Use `{{ test_command }}` variable in CLAUDE.md.j2 Story test verification block
 
@@ -1797,3 +1798,96 @@ in `docs/architecture.md` will auto-satisfy the auth check after this sync pass.
    which will fall through to the original prompt behavior until a classification is
    recorded in their `docs/architecture.md`. No action needed — the template degrades
    correctly.
+
+---
+
+## T2 recon (recorded 2026-05-30)
+
+Findings from inspecting `skills/pairmode/templates/docs/phases/phase.md.j2`,
+`skills/pairmode/scripts/bootstrap.py:161-189` (`_write_file`),
+`bootstrap.py:907-938` (phase scaffold logic),
+and five downstream `docs/phases/phase-1.md` files (forqsite, radar, asp, aab, cora).
+
+- **Current `phase.md.j2`** renders a bare phase doc: title, nav links, `## Goal`,
+  `## Stories` table, and a `CP-N Cold-eyes checklist` sentinel. No schema tracking
+  section exists.
+
+- **Bootstrap already conditionally scaffolds `phase-1.md`.** `_write_file` (line 178)
+  prompts before overwriting any existing file, defaulting to "No". On a fresh project
+  (no `docs/phases/phase-1.md` yet), the file is written. On an existing project with
+  phases, the prompt is presented and the operator declines. This is the "only when no
+  phase doc exists" behavior the decision describes — no new code needed.
+
+- **No downstream project has a `## Schema delivery` section.** None of the five
+  downstream `docs/phases/phase-1.md` files contain the section (they bootstrapped
+  before T2). The new section is a going-forward scaffold only.
+
+- **Scope: one template change + tests.** Add `## Schema delivery` to `phase.md.j2`
+  between `## Stories` and the `CP-N Cold-eyes checklist`. No `bootstrap.py` changes.
+  No downstream phase doc edits (this is a new-project forward pattern only).
+
+- **Section content.** The section is a lightweight tracking table for schema objects
+  and their management surfaces. It prompts the spec author to document every new
+  table as they write stories. The pre-story schema gate in `CLAUDE.build.md` enforces
+  the rule at build time; the `## Schema delivery` section is where the spec author
+  tracks the answer in the living spec doc. One or two header lines + a blank table
+  row. Zero-overhead for phases with no new tables (leave the table empty).
+
+---
+
+### Story BOOTSTRAP-004 — Add `## Schema delivery` section to `phase.md.j2`
+
+**Rail:** BOOTSTRAP | **story_class:** code
+
+#### Requires
+
+- `skills/pairmode/templates/docs/phases/phase.md.j2` renders a phase doc with:
+  `## Goal`, `## Stories`, then `CP-N Cold-eyes checklist`. No schema tracking
+  section exists.
+- The pre-story schema gate in `CLAUDE.build.md.j2` enforces "every new table must
+  have a management surface" at build time. The `## Schema delivery` section is the
+  living-spec companion: spec authors fill it in as they write stories, so the schema
+  gate at build time has documented context to check against.
+- Bootstrap's `_write_file` already prompts before overwriting existing files
+  (default: No), so `phase-1.md` is only created for new projects.
+  No `bootstrap.py` logic change needed.
+
+#### Ensures
+
+- **`skills/pairmode/templates/docs/phases/phase.md.j2`** — insert a
+  `## Schema delivery` section after the `## Stories` table and before the
+  `CP-N Cold-eyes checklist`. Content:
+  ```markdown
+  ## Schema delivery
+
+  For each new persistent schema object (table, collection, migration) introduced in
+  this phase, record the management surface before the phase is checkpointed.
+
+  | Object | Management surface | Exception |
+  |---|---|---|
+  ```
+  Two-line prose intro + one header row + one (empty) data row. Spec authors add one
+  row per new table; leave the table empty if the phase introduces no schema objects.
+  Exception values: `append-only log`, `junction table`, `cron-output cache`, or blank.
+
+- **`tests/pairmode/test_templates.py`** — a new test class `TestBootstrap004SchemaDelivery`
+  with two tests:
+  1. Render `docs/phases/phase.md.j2` against a minimal context (at minimum:
+     `project_name`, `phase_id`, `phase_title`) and assert the rendered output contains
+     `## Schema delivery`.
+  2. Render and assert the output contains `Management surface` (the table header —
+     confirms the full section is present, not just the heading).
+
+- **No changes to** `bootstrap.py`, `sync.py`, any downstream phase doc, or any
+  other template.
+
+#### Out of scope
+
+- Adding `## Schema delivery` to existing downstream phase docs. New-project forward
+  pattern only; existing phases are untouched.
+- Making the section mandatory or gating checkpoint on its presence. The pre-story
+  schema gate at build time is the enforcement mechanism; the section is a scaffold
+  prompt, not a parse target.
+- Backfilling the section into `index.md.j2` or `CLAUDE.build.md.j2`. Those files
+  already carry the schema-surface enforcement prose; this section is for phase specs
+  only.
