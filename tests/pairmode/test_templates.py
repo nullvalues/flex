@@ -128,7 +128,7 @@ class TestClaudeMdTemplate:
 
     def test_story_test_verification_section(self):
         assert "## Story test verification" in self.output
-        assert "uv run pytest tests/pairmode/" in self.output
+        assert "uv run pytest tests/ -x -q 2>&1 | tail -30" in self.output
 
     def test_brief_md_appears_before_architecture_md(self):
         brief_pos = self.output.index("docs/brief.md")
@@ -137,6 +137,45 @@ class TestClaudeMdTemplate:
 
     def test_portability_statement_present(self):
         assert "cold-start" in self.output
+
+
+# ---------------------------------------------------------------------------
+# Story INFRA-124 — {{ test_command }} variable in CLAUDE.md.j2 Story test
+# verification block
+# ---------------------------------------------------------------------------
+
+class TestClaudeMdTestCommandVariable:
+    """Story INFRA-124: the Story test verification fenced bash block uses
+    {{ test_command | default(..., true) }} so that:
+      1. A Python-stack context renders the full pytest command.
+      2. A Node-stack context renders the pnpm command and not pytest.
+      3. An empty test_command renders the self-flagging NOT CONFIGURED placeholder.
+    """
+
+    def _render(self, test_command: str) -> str:
+        ctx = {**CLAUDE_MD_CONTEXT, "test_command": test_command}
+        return render("CLAUDE.md.j2", ctx)
+
+    def test_python_stack_command_on_own_line_followed_by_tail(self):
+        cmd = "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q"
+        output = self._render(cmd)
+        expected_line = f"{cmd} 2>&1 | tail -30"
+        assert expected_line in output
+
+    def test_node_stack_command_rendered_and_pytest_absent_in_verification_block(self):
+        output = self._render("pnpm test")
+        assert "pnpm test 2>&1 | tail -30" in output
+        # The Story test verification fenced block must not contain pytest
+        # (only the node command should appear there).
+        section_start = output.index("## Story test verification")
+        section_end = output.index("\n## ", section_start + 1)
+        verification_section = output[section_start:section_end]
+        assert "pytest" not in verification_section
+
+    def test_empty_test_command_renders_not_configured_placeholder(self):
+        output = self._render("")
+        assert "TEST COMMAND NOT CONFIGURED" in output
+        assert "exit 1" in output
 
 
 # ---------------------------------------------------------------------------

@@ -67,7 +67,7 @@ LOW      = style or minor concern. Fix when convenient.
 After the checklist, run the tests for the story:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q 2>&1 | tail -30
+{{ test_command | default('echo "TEST COMMAND NOT CONFIGURED — run flex bootstrap"; exit 1', true) }} 2>&1 | tail -30
 ```
 
 Report the result as part of your review output. A story with failing tests is not complete.
