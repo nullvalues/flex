@@ -3,7 +3,7 @@ id: INFRA-127
 phase: '47'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/scripts/context_budget.py
   - skills/pairmode/scripts/refresh_effort_baseline.py
