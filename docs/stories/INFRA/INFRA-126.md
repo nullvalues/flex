@@ -3,7 +3,7 @@ id: INFRA-126
 phase: '47'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/templates/CLAUDE.md.j2
   - tests/pairmode/test_template_render.py
