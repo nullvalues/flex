@@ -6,9 +6,15 @@
 # Format: one entry per line — <relative-file-path>:<normalised-section-key>
 # Lines starting with # are comments. Blank lines are ignored.
 #
-# The section key is the lowercased, stripped header text.
+# The section key is the full header line — `##` markers included — lowercased and
+# whitespace-collapsed. Examples below match this format.
 # Examples:
-#   CLAUDE.md:review checklist
-#   .claude/agents/reviewer.md:checklist
+#   CLAUDE.md:## review checklist
+#   .claude/agents/reviewer.md:### checklist
+#
+# Note: `.pairmode-overrides` is honored by `pairmode sync` (scaffold sync) and
+# `audit`, but NOT by `pairmode sync-build`. `sync-build --apply` rewrites
+# CLAUDE.build.md wholesale and ignores these declarations. Maintain CLAUDE.build.md
+# via surgical merge, never via `sync-build --apply`.
 #
 # Add entries below this line:
