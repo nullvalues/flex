@@ -3,7 +3,7 @@ id: INFRA-129
 phase: '47'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/templates/CLAUDE.build.md.j2
   - CLAUDE.build.md

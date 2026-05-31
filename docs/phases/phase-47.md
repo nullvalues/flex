@@ -563,7 +563,7 @@ INFRA-129.
 | INFRA-126 | Fix `CLAUDE.md.j2` DOC CURRENCY pointer to use shipped path `.claude/agents/reviewer.md` | complete |
 | INFRA-127 | New `skills/pairmode/scripts/context_budget.py` module + `refresh_effort_baseline.py` seed CLI + bootstrap seeding | complete |
 | INFRA-128 | New thin `hooks/pre_tool_use.py` delegate + `hooks.json` `Task` wire-up | complete |
-| INFRA-129 | Replace `CLAUDE.build.md.j2` § "Context budget check" prose; amend flex `CLAUDE.md` HOOK PERFORMANCE carve-out; update `docs/architecture.md` step 9 | planned |
+| INFRA-129 | Replace `CLAUDE.build.md.j2` § "Context budget check" prose; amend flex `CLAUDE.md` HOOK PERFORMANCE carve-out; update `docs/architecture.md` step 9 | complete |
 
 ### Story INFRA-124 — Use `{{ test_command }}` variable in CLAUDE.md.j2 Story test verification block
 
