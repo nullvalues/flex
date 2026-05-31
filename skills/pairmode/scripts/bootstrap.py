@@ -136,6 +136,17 @@ def _infer_build_command(project_dir: pathlib.Path) -> str | None:
     return None
 
 
+def _validate_test_command(test_command: str, stack: str) -> list[str]:
+    """Return a list of warning strings; empty list means no concerns."""
+    warnings: list[str] = []
+    if ("pytest" in test_command or "uv run" in test_command) and "python" not in stack.lower():
+        warnings.append(
+            f"test_command looks like a Python toolchain ({test_command!r}) but stack does not"
+            f" mention Python ({stack!r}) — likely a bootstrap default that should be overridden."
+        )
+    return warnings
+
+
 def _render_template(template_name: str, context: dict) -> str:
     loader = jinja2.FileSystemLoader(str(TEMPLATES_DIR))
     env = jinja2.Environment(
@@ -784,7 +795,13 @@ def bootstrap(
     )
 
     # ------------------------------------------------------------------
-    # 3. Build template context
+    # 3. Validate derived values before committing them to context
+    # ------------------------------------------------------------------
+    for _warn in _validate_test_command(test_command, stack):
+        click.echo(f"warning: {_warn}", err=True)
+
+    # ------------------------------------------------------------------
+    # 4. Build template context
     # ------------------------------------------------------------------
     context: dict = {
         "project_name": project_name,
@@ -834,7 +851,7 @@ def bootstrap(
     context["must_preserve_str"] = "\n".join(f"- {item}" for item in mp_list) if mp_list else ""
 
     # ------------------------------------------------------------------
-    # 4. Render and write scaffold files
+    # 5. Render and write scaffold files
     # ------------------------------------------------------------------
     if dry_run:
         click.echo("Dry run — no files will be written.\n")

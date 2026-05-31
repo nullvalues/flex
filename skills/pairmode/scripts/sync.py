@@ -36,6 +36,7 @@ from skills.pairmode.scripts.audit import (  # noqa: E402
 from skills.pairmode.scripts.bootstrap import (  # noqa: E402
     PAIRMODE_DEFAULT_RAILS,
     _infer_project_type,
+    _validate_test_command,
 )
 from skills.pairmode.scripts.story_new import _add_rail_to_era, _find_era  # noqa: E402
 
@@ -271,6 +272,12 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
 
     # Load saved template context for rendering when creating/patching files
     context = _load_project_context(project_dir)
+
+    # Warn if test_command disagrees with stack (advisory; does not block sync)
+    _test_cmd = context.get("test_command", "")
+    _stack = context.get("stack", "")
+    for _warn in _validate_test_command(_test_cmd, _stack):
+        click.echo(f"warning: {_warn}", err=True)
 
     # Load overrides: sections intentionally diverged from canonical templates
     overrides = _load_overrides(project_dir)
