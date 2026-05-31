@@ -565,7 +565,7 @@ INFRA-129.
 | INFRA-128 | New thin `hooks/pre_tool_use.py` delegate + `hooks.json` `Task` wire-up | complete |
 | INFRA-129 | Replace `CLAUDE.build.md.j2` § "Context budget check" prose; amend flex `CLAUDE.md` HOOK PERFORMANCE carve-out; update `docs/architecture.md` step 9 | complete |
 | INFRA-130 | Generalize auth check to read recorded classification from `docs/architecture.md` | complete |
-| BOOTSTRAP-004 | Add `## Schema delivery` section to `phase.md.j2` | planned |
+| BOOTSTRAP-004 | Add `## Schema delivery` section to `phase.md.j2` | complete |
 
 ### Story INFRA-124 — Use `{{ test_command }}` variable in CLAUDE.md.j2 Story test verification block
 
