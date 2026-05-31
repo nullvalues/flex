@@ -564,6 +564,7 @@ INFRA-129.
 | INFRA-127 | New `skills/pairmode/scripts/context_budget.py` module + `refresh_effort_baseline.py` seed CLI + bootstrap seeding | complete |
 | INFRA-128 | New thin `hooks/pre_tool_use.py` delegate + `hooks.json` `Task` wire-up | complete |
 | INFRA-129 | Replace `CLAUDE.build.md.j2` § "Context budget check" prose; amend flex `CLAUDE.md` HOOK PERFORMANCE carve-out; update `docs/architecture.md` step 9 | complete |
+| INFRA-130 | Generalize auth check to read recorded classification from `docs/architecture.md` | planned |
 
 ### Story INFRA-124 — Use `{{ test_command }}` variable in CLAUDE.md.j2 Story test verification block
 
@@ -1596,3 +1597,203 @@ re-render + optional state.json field opt-in + seed file refresh.
    directory; the template re-render in step 2 is the only
    per-project file change. Downstream commit only if the re-render
    produced project-specific diffs worth recording.
+
+---
+
+## T6 recon (recorded 2026-05-30)
+
+Findings from inspecting `skills/pairmode/templates/CLAUDE.build.md.j2:125-137`,
+`forqsite/CLAUDE.build.md:142-154`, `radar/docs/architecture.md:1282-1310`,
+`forqsite/docs/architecture.md:504-519`, `asp/docs/architecture.md`,
+`cora/docs/architecture.md`, and `aab/docs/architecture.md`.
+
+- **Current canonical** (`CLAUDE.build.md.j2:125-137`) is the per-story prompt: if
+  auth-gated, load `auth-coexistence.md`, surface RBAC/ABAC/both question, record
+  before building. No detection step for a pre-existing recorded classification.
+
+- **Forqsite has a hand-crafted auto-satisfy override** (`CLAUDE.build.md:142-154`).
+  Operator manually authored: "forqsite is RBAC-only (confirmed by operator; recorded
+  in `docs/architecture.md § Auth model`). Auto-satisfied — no per-story prompt
+  needed." Functionally correct; the canonical generalization should produce the same
+  behavior for any project whose architecture.md has a recorded classification.
+
+- **Classification recording formats across downstream projects:**
+  - forqsite: `## Auth model` section at line 504 with `**Classification: RBAC only.**`
+    embedded as a leading bold line.
+  - radar: `## Auth model classification (Phase 85)` section at line 1282 with
+    `**Classification:** RBAC only — ...` as a leading bold line.
+  - asp: No recorded classification (auth work in progress; phases still building auth layer).
+  - cora: No recorded classification.
+  - aab: Partial — ADR-style classification note in architecture.md but no formal
+    `**Classification:**` marker line.
+
+- **Detection pattern.** Both forqsite and radar use `**Classification:**` as a
+  bold-markdown line marker. The canonical detection instruction can be: read
+  `docs/architecture.md` and search for a line beginning with `**Classification:**`.
+  This covers both existing recording formats without requiring a section-header
+  pattern (which varies: `## Auth model` vs `## Auth model classification (Phase 85)`).
+
+- **The generalization is prose-only.** No Python code, no Jinja2 variables, no
+  `pairmode_context.json` schema change. The orchestrator-instruction reads
+  `docs/architecture.md` at build-loop execution time, not at sync/render time.
+  This keeps architecture.md as the single source of truth (working principle 8) and
+  requires no bootstrap change.
+
+- **Radar's CLAUDE.build.md is the main beneficiary.** radar has the classification
+  on record (`**Classification:** RBAC only`) but its `CLAUDE.build.md` still has
+  the generic per-story prompt. After T6 lands, `pairmode_sync sync-build --apply`
+  will render the generalized version; radar's build sessions will auto-satisfy the
+  auth check without an operator prompt.
+
+- **Forqsite's CLAUDE.build.md should not be overwritten by sync-build.** Forqsite's
+  hand-crafted version is already correct and functionally equivalent to the
+  generalized template. The operator should verify the behavior is preserved, not
+  blindly re-render. The `.pairmode-overrides` sync-build caveat (shipped in INFRA-125)
+  covers this: "Maintain CLAUDE.build.md via surgical merge, never via
+  `sync-build --apply`."
+
+- **Story is template + rendered copy + tests only.** No auth policy files change.
+  No architecture.md changes (classification recording is pre-existing in forqsite
+  and radar). The INFRA-129 runbook's sync-build pass can carry this fix as well — one
+  downstream sync covers CER-027 pointer + T6 auth check in a single pass.
+
+---
+
+### Story INFRA-130 — Generalize auth check to read recorded classification from `docs/architecture.md`
+
+**Rail:** INFRA | **story_class:** code
+
+#### Requires
+
+- `skills/pairmode/templates/CLAUDE.build.md.j2:125-137` contains the per-story
+  classification prompt with no detection step. Full text:
+  ```
+  ## Auth check (conditional — per story)
+
+  Run this check **once per story**, after model evaluation, before spawning the builder.
+
+  If this story is auth-gated (touches user authentication, session handling, permission
+  checks, role validation, or access-controlled resources):
+
+  a. Load `~/.claude/policies/auth-coexistence.md`.
+  b. Surface the classification question to the user: RBAC / ABAC / both?
+  c. Record the answer in the phase doc or `docs/architecture.md` before building.
+     Do not build this story until the classification is recorded.
+
+  If the story is not auth-gated, skip this section.
+  ```
+- forqsite's `CLAUDE.build.md:142-154` is the de-facto reference for the
+  auto-satisfy behavior. The canonical must produce the same behavior for any project
+  whose `docs/architecture.md` carries `**Classification:**`.
+- The detection pattern (`**Classification:**` as a bold-markdown line) works for both
+  forqsite (`**Classification: RBAC only.**`) and radar (`**Classification:** RBAC only — ...`).
+  The search is a substring / line-start match — no section-header parsing required.
+- `/mnt/work/flex/CLAUDE.build.md` is hand-maintained (flex does not bootstrap itself).
+  Same substitution must be applied to the rendered flex local copy, as in INFRA-129.
+
+#### Ensures
+
+- **`skills/pairmode/templates/CLAUDE.build.md.j2`** — replace lines 125-137 with:
+  ```markdown
+  ## Auth check (conditional — per story)
+
+  Run this check **once per story**, after model evaluation, before spawning the builder.
+
+  If this story is auth-gated (touches user authentication, session handling, permission
+  checks, role validation, or access-controlled resources):
+
+  **Step 1 — Check for a recorded classification.**
+  Read `docs/architecture.md` and search for a line beginning with `**Classification:**`
+  (present in `## Auth model` or `## Auth model classification` sections when the project's
+  auth model has been classified by the operator).
+
+  If a recorded classification is found:
+  - The check is **auto-satisfied**. Note it briefly ("Auth: [classification] per
+    architecture.md") and proceed to the build loop.
+  - Re-classify only if this story **changes the auth model itself** (e.g., introduces
+    ABAC to a previously RBAC-only system). If so, update `docs/architecture.md` before
+    building.
+
+  If no recorded classification is found:
+  a. Load `~/.claude/policies/auth-coexistence.md`.
+  b. Surface the classification question to the user: RBAC / ABAC / both?
+  c. Record the answer in `docs/architecture.md` before building.
+     Do not build this story until the classification is recorded.
+
+  If the story is not auth-gated, skip this section.
+  ```
+  Total length: 22 lines (was 12). The added lines are the detection step and the
+  auto-satisfy branch; the fallback path is unchanged.
+
+- **`/mnt/work/flex/CLAUDE.build.md`** — same substitution applied to the rendered
+  flex local copy (find the `## Auth check (conditional — per story)` section and
+  replace it with the above). Line numbers shift if INFRA-129 changed the file; use
+  the section header as the anchor, not a hardcoded line number.
+
+- **Tests appended to `tests/pairmode/test_templates.py`** — a new test class
+  `TestInfra130AuthCheckGeneralization` with five tests:
+  1. Render `CLAUDE.build.md.j2` against `CLAUDE_BUILD_MD_CONTEXT` and assert the
+     rendered text contains the string `**Classification:**` (the detection marker
+     the orchestrator searches for in architecture.md).
+  2. Render and assert the rendered text contains `auto-satisfied` (the auto-satisfy
+     path is present).
+  3. Render and assert the rendered text contains `auth-coexistence.md` (the fallback
+     prompt path is preserved).
+  4. Render and assert the rendered text contains `docs/architecture.md` within the
+     `## Auth check` section context (the template instructs reading the correct file).
+  5. Render and assert the rendered text does NOT contain the old primary-path text
+     `Load \`~/.claude/policies/auth-coexistence.md\`.` as an unconditional first step
+     (it is now in the fallback branch, preceded by "If no recorded classification is
+     found:"). Implementation: split on `## Auth check`, take the auth check section,
+     assert `auth-coexistence.md` appears only AFTER `If no recorded classification`.
+
+- **No changes to** any Python scripts, `pairmode_context.json` schema, `bootstrap.py`,
+  `sync.py`, `hooks/`, or any auth policy files. This story is template + rendered copy
+  + tests only.
+
+#### Out of scope
+
+- Changing the downstream `CLAUDE.build.md` files directly. Covered by the downstream
+  propagation runbook below (operator runs `pairmode_sync sync-build --apply`).
+- Recording classifications in asp/cora/aab architecture docs. The projects haven't
+  built their auth layers yet (or have partial classification notes). This story only
+  makes the canonical template capable of consuming a recorded classification — it
+  does not create those records.
+- Making the detection smarter (e.g., extracting the classification text for display,
+  detecting "RBAC + ABAC" vs "RBAC only" semantically). One `**Classification:**`
+  substring match is sufficient for the auto-satisfy decision.
+- Modifying forqsite's hand-crafted `CLAUDE.build.md`. The operator should verify the
+  behavior is preserved after the canonical change; no mechanical re-render needed.
+
+---
+
+## Downstream propagation runbook (T6)
+
+Operator-executed after INFRA-130 is merged. Projects with a recorded classification
+in `docs/architecture.md` will auto-satisfy the auth check after this sync pass.
+
+1. **Re-render `CLAUDE.build.md` in each downstream project** that does not have a
+   hand-crafted auth check override:
+   ```bash
+   for p in radar asp aab cora; do
+     uv run python skills/pairmode/scripts/pairmode_sync.py sync-build \
+       --apply --yes --project-dir /mnt/work/$p
+   done
+   ```
+
+2. **Leave forqsite alone.** Its hand-crafted version is already correct and
+   functionally equivalent to the generalized template.
+
+3. **Verify radar's new auth check behavior.** radar has a recorded classification
+   (`**Classification:** RBAC only` in `docs/architecture.md:1284`). After sync-build:
+   ```bash
+   grep -A 20 "Auth check (conditional" /mnt/work/radar/CLAUDE.build.md | head -25
+   ```
+   Should see the detection step and `auto-satisfied` path (not the old unconditional
+   `Load ~/.claude/policies/auth-coexistence.md` as first instruction).
+
+4. **Note for asp/aab/cora.** These projects don't have recorded classifications yet.
+   Their synced `CLAUDE.build.md` will have the new template (with the detection step),
+   which will fall through to the original prompt behavior until a classification is
+   recorded in their `docs/architecture.md`. No action needed — the template degrades
+   correctly.
