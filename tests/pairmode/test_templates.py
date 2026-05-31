@@ -1083,6 +1083,30 @@ class TestIndexMdJ2Template:
         assert "Link" in self.output
 
 
+class TestBootstrap005IndexQueueSemantics:
+    """Tests for BOOTSTRAP-005 queue-semantic additions to docs/phases/index.md.j2"""
+
+    def setup_method(self):
+        self.output = render("docs/phases/index.md.j2", INDEX_PHASE_CONTEXT)
+
+    def test_next_to_build_present(self):
+        assert "**Next to build:**" in self.output
+
+    def test_next_to_build_file_link_present(self):
+        assert "phase-1.md" in self.output
+        assert "**Next to build:**" in self.output
+        # Both must appear together in the rendered output
+        idx_ntb = self.output.index("**Next to build:**")
+        idx_link = self.output.index("phase-1.md")
+        assert idx_link > idx_ntb
+
+    def test_deferred_from_column_in_header(self):
+        assert "Deferred from" in self.output
+
+    def test_backlog_promotions_section_present(self):
+        assert "## Backlog promotions" in self.output
+
+
 class TestPhaseMdJ2BothNavigation:
     """Tests for docs/phases/phase.md.j2 with both prev and next phase."""
 

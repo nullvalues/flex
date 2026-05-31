@@ -3,8 +3,14 @@
 This document is the index of all build phases for the project.
 Each phase has a dedicated file in `docs/phases/`.
 
-| Phase | Title | Status | Link |
-|-------|-------|--------|------|
+**Next to build:** [Phase {{ phases[0].id }}: {{ phases[0].title }}]({{ phases[0].file }})
+
+| Phase | Title | Status | Deferred from | Link |
+|-------|-------|--------|---------------|------|
 {% for phase in phases -%}
-| {{ phase.id }} | {{ phase.title }} | {{ phase.status }} | [{{ phase.file }}]({{ phase.file }}) |
+| {{ phase.id }} | {{ phase.title }} | {{ phase.status }} | {{ phase.deferred_from | default('—') }} | [{{ phase.file }}]({{ phase.file }}) |
 {% endfor %}
+
+## Backlog promotions
+
+_(List items promoted from the Do-Later / Do-Much-Later backlog into active phases here, with a one-line reason and the target phase.)_

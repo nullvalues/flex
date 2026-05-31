@@ -83,9 +83,12 @@ def _copy_canonical_files(project_dir: Path) -> None:
             "# testproject — Phase Index\n\n"
             "This document is the index of all build phases for the project.\n"
             "Each phase has a dedicated file in `docs/phases/`.\n\n"
-            "| Phase | Title | Status | Link |\n"
-            "|-------|-------|--------|------|\n"
-            "| 1 | Phase 1 | in progress | [docs/phases/phase-1.md](docs/phases/phase-1.md) |\n",
+            "**Next to build:** [Phase 1: Phase 1](docs/phases/phase-1.md)\n\n"
+            "| Phase | Title | Status | Deferred from | Link |\n"
+            "|-------|-------|--------|---------------|------|\n"
+            "| 1 | Phase 1 | in progress | — | [docs/phases/phase-1.md](docs/phases/phase-1.md) |\n\n\n"
+            "## Backlog promotions\n\n"
+            "_(List items promoted from the Do-Later / Do-Much-Later backlog into active phases here, with a one-line reason and the target phase.)_\n",
             encoding="utf-8",
         )
 
