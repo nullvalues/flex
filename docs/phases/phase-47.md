@@ -557,7 +557,7 @@ INFRA-129.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-124 | Use `{{ test_command }}` variable in CLAUDE.md.j2 Story test verification block | planned |
+| INFRA-124 | Use `{{ test_command }}` variable in CLAUDE.md.j2 Story test verification block | complete |
 | BOOTSTRAP-003 | Validator: warn when test_command/stack disagree on toolchain | planned |
 | INFRA-125 | Fix `.pairmode-overrides.j2` boilerplate to use parser-correct section-key format | planned |
 | INFRA-126 | Fix `CLAUDE.md.j2` DOC CURRENCY pointer to use shipped path `.claude/agents/reviewer.md` | planned |
