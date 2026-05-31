@@ -140,6 +140,38 @@ class TestClaudeMdTemplate:
 
 
 # ---------------------------------------------------------------------------
+# Story INFRA-126 — DOC CURRENCY pointer uses shipped path .claude/agents/reviewer.md
+# ---------------------------------------------------------------------------
+
+class TestClaudeMdDocCurrencyPointer:
+    """Story INFRA-126: the DOCUMENTATION CURRENCY pointer in CLAUDE.md.j2 must
+    reference the shipped path `.claude/agents/reviewer.md`, not the bare
+    `agents/reviewer.md` (which does not exist in a bootstrapped project)."""
+
+    def setup_method(self):
+        self.output = render("CLAUDE.md.j2", CLAUDE_MD_CONTEXT)
+
+    def test_rendered_contains_dotclaude_agents_reviewer_md(self):
+        assert ".claude/agents/reviewer.md" in self.output
+
+    def test_doc_currency_pointer_line_starts_with_dotclaude(self):
+        # Find the line containing the DOC CURRENCY pointer reference.
+        pointer_line = None
+        for line in self.output.splitlines():
+            if "agents/reviewer.md" in line and "§ 4" in line:
+                pointer_line = line
+                break
+        assert pointer_line is not None, (
+            "Could not find the DOC CURRENCY pointer line "
+            "(expected a line containing 'agents/reviewer.md' and '§ 4')"
+        )
+        stripped = pointer_line.lstrip()
+        assert stripped.startswith("See `.claude/agents/reviewer.md`"), (
+            f"DOC CURRENCY pointer line does not start with the .claude/ prefix: {pointer_line!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Story INFRA-124 — {{ test_command }} variable in CLAUDE.md.j2 Story test
 # verification block
 # ---------------------------------------------------------------------------
