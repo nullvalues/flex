@@ -3,7 +3,7 @@ id: INFRA-125
 phase: '47'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/templates/.pairmode-overrides.j2
   - tests/pairmode/test_overrides_boilerplate.py
