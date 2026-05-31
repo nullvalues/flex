@@ -566,6 +566,7 @@ INFRA-129.
 | INFRA-129 | Replace `CLAUDE.build.md.j2` § "Context budget check" prose; amend flex `CLAUDE.md` HOOK PERFORMANCE carve-out; update `docs/architecture.md` step 9 | complete |
 | INFRA-130 | Generalize auth check to read recorded classification from `docs/architecture.md` | complete |
 | BOOTSTRAP-004 | Add `## Schema delivery` section to `phase.md.j2` | complete |
+| BOOTSTRAP-005 | Enrich `index.md.j2` with queue semantics: next-to-build pointer, deferred-from column, backlog-promotion section | planned |
 
 ### Story INFRA-124 — Use `{{ test_command }}` variable in CLAUDE.md.j2 Story test verification block
 
@@ -1891,3 +1892,109 @@ and five downstream `docs/phases/phase-1.md` files (forqsite, radar, asp, aab, c
 - Backfilling the section into `index.md.j2` or `CLAUDE.build.md.j2`. Those files
   already carry the schema-surface enforcement prose; this section is for phase specs
   only.
+
+---
+
+## T5 recon (recorded 2026-05-30)
+
+Findings from inspecting `skills/pairmode/templates/docs/phases/index.md.j2`,
+`tests/pairmode/test_templates.py:1025-1083` (`INDEX_PHASE_CONTEXT` +
+`TestIndexMdJ2Template`), and downstream `docs/phases/index.md` files (forqsite,
+radar, aab).
+
+- **Current `index.md.j2`** is 10 lines: project title, one-line prose, and a Jinja2
+  `{% for phase %}` table with columns `Phase | Title | Status | Link`. No queue
+  semantics. The `phases` context variable is a list of `{id, title, status, file}`
+  dicts.
+
+- **forqsite's `index.md`** is richer (naming convention note, backlog source pointer)
+  but was hand-evolved, not templated. The `build-queue.md` invention referenced in
+  the T5 decision is gone from forqsite's current `docs/phases/` directory — either
+  never committed or since merged. The evaluation's "too-thin index" diagnosis is
+  confirmed: downstream projects independently improvise index content that the
+  canonical template doesn't scaffold.
+
+- **Queue semantic gaps in downstream indexes:**
+  - No "next to build" pointer — operators scan the table to find the first `planned` row
+  - No deferred-story lineage — there's no record of which stories were deferred and where
+  - No backlog-promotion log — promotions from Do-Later / Do-Much-Later are invisible
+
+- **Three targeted additions to `index.md.j2`:**
+  1. **Next-to-build pointer** — a bold line seeded from `phases[0]` at bootstrap
+     time (`**Next to build:** [Phase 1: {{ phases[0].title }}]({{ phases[0].file }})`)
+     and updated manually by the operator as phases complete. Simple; the template only
+     seeds it once.
+  2. **Deferred-from column** — add `Deferred from` as a 5th column in the phases
+     table. Uses `{{ phase.deferred_from | default('—') }}` so existing phase dicts
+     (without the field) render `—` and backward compatibility is preserved.
+  3. **Backlog-promotion section** — a `## Backlog promotions` section at the bottom
+     with a one-line scaffold prompt. No Jinja2 logic; pure markdown structure.
+
+- **No Python changes.** The `deferred_from` field is optional in the existing
+  phases-list data model (Jinja2 `default()` filter handles absent keys). Bootstrap
+  does not need to prompt for or set `deferred_from` — that field is added by the
+  operator to the rendered `index.md` when a phase defers stories.
+
+- **Existing `INDEX_PHASE_CONTEXT` is backward compatible.** The `phases[0]` dict
+  (`{"id": 1, "title": "— fill in —", "status": "planned", "file": "phase-1.md"}`)
+  has no `deferred_from` key. The Jinja2 `default('—')` filter handles the absent
+  key; no test context changes required for existing tests.
+
+- **Existing `TestIndexMdJ2Template` tests** verify `Phase / Title / Status / Link`
+  in the header. The new `Deferred from` column is additive; existing tests remain
+  valid. New tests verify the three new features.
+
+---
+
+### Story BOOTSTRAP-005 — Enrich `index.md.j2` with queue semantics
+
+**Rail:** BOOTSTRAP | **story_class:** code
+
+#### Requires
+
+- `skills/pairmode/templates/docs/phases/index.md.j2` renders a 4-column phase
+  table (`Phase | Title | Status | Link`) with no queue semantics.
+- The existing `phases` context variable is a list of dicts with keys
+  `{id, title, status, file}`. The `deferred_from` key is absent from all current
+  usages; the template must handle its absence with a `default()` filter.
+- `tests/pairmode/test_templates.py:1025-1030` defines `INDEX_PHASE_CONTEXT` with
+  one phase entry (`{"id": 1, "title": "— fill in —", "status": "planned",
+  "file": "phase-1.md"}`). Existing context has no `deferred_from` key.
+
+#### Ensures
+
+- **`skills/pairmode/templates/docs/phases/index.md.j2`** — three additions:
+  1. Insert a `**Next to build:**` line immediately before the phase table, seeded
+     from `phases[0]`:
+     ```jinja2
+     **Next to build:** [Phase {{ phases[0].id }}: {{ phases[0].title }}]({{ phases[0].file }})
+     ```
+  2. Add `Deferred from` as the 4th column (before `Link`). Header becomes:
+     `| Phase | Title | Status | Deferred from | Link |`
+     Each row: `| {{ phase.deferred_from | default('—') }} |` in the 4th slot.
+  3. Append a `## Backlog promotions` section after the table:
+     ```markdown
+     ## Backlog promotions
+
+     _(List items promoted from the Do-Later / Do-Much-Later backlog into active
+     phases here, with a one-line reason and the target phase.)_
+     ```
+- **`tests/pairmode/test_templates.py`** — new test class
+  `TestBootstrap005IndexQueueSemantics` with four tests:
+  1. Render `docs/phases/index.md.j2` against `INDEX_PHASE_CONTEXT` and assert
+     `**Next to build:**` is present.
+  2. Render and assert the phase-1 file link appears in the `**Next to build:**` line
+     (e.g., check `"Next to build:**" + rendered text contains "phase-1.md"`).
+  3. Render and assert `Deferred from` is in the table header.
+  4. Render and assert `## Backlog promotions` is present.
+- All existing `TestIndexMdJ2Template` tests must continue to pass without
+  modification (the new column is additive).
+
+#### Out of scope
+
+- Adding `deferred_from` to bootstrap's phase context or prompting for it.
+- Backfilling downstream `index.md` files. The enriched template is for new projects.
+- Making "next to build" dynamic (auto-detecting from status). Operator-maintained is
+  sufficient; the template seeds it, the operator updates it.
+- A `next_to_build` Jinja2 variable in the bootstrap context. `phases[0]` is always
+  the seed for a new project; the rendered line is then operator-maintained.
