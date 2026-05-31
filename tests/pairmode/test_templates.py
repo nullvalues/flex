@@ -2314,3 +2314,36 @@ class TestInfra130AuthCheckGeneralization:
             "auth-coexistence.md must appear after 'If no recorded classification', "
             "not as an unconditional first step in the auth check section"
         )
+
+
+# ---------------------------------------------------------------------------
+# Story BOOTSTRAP-004 — Schema delivery section in phase.md.j2
+# ---------------------------------------------------------------------------
+
+PHASE_SCHEMA_DELIVERY_CONTEXT = {
+    "project_name": "myapp",
+    "phase_id": 3,
+    "phase_title": "Data Layer",
+    "prev_phase": None,
+    "next_phase": None,
+    "goal": "",
+    "stories": [],
+    "era_id": None,
+}
+
+
+class TestBootstrap004SchemaDelivery:
+    """Story BOOTSTRAP-004: docs/phases/phase.md.j2 contains a ## Schema delivery
+    section after ## Stories and before the CP-N Cold-eyes checklist."""
+
+    def setup_method(self):
+        self.output = render("docs/phases/phase.md.j2", PHASE_SCHEMA_DELIVERY_CONTEXT)
+
+    def test_rendered_output_contains_schema_delivery_heading(self):
+        assert "## Schema delivery" in self.output
+
+    def test_rendered_output_contains_management_surface_table_header(self):
+        assert "Management surface" in self.output
+
+    def test_rendered_output_contains_schema_delivery_empty_placeholder_row(self):
+        assert "| | | |" in self.output
