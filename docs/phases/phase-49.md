@@ -91,21 +91,32 @@ the state.json investment loses its forcing function.
 
 ## Stories
 
-None yet. Plan-mode session will produce a story inventory; stories will
-land here at that time. All future stories `planned` until then.
+| ID | Rail | Title | Status |
+|----|------|-------|--------|
+| INFRA-133 | INFRA | Wire context budget hook registration into bootstrap and sync | planned |
+
+SPA stories: none yet. Plan-mode session will produce the SPA story inventory
+after INFRA-133 ships. All future SPA stories `planned` until then.
 
 ## Resume marker
 
-When Phase 47 checkpoints and Phase 48 either lands or is renumbered out
-of the way, the next operator action is:
+**Current state (2026-06-01):** INFRA-133 is the active story. Build it first.
+After INFRA-133 ships and the operator runs the post-ship bootstrap step on
+flex and downstream projects, context budget enforcement will be live.
 
-1. Open plan mode against this doc with intent "design the observability
-   SPA."
-2. Walk the Open Questions list above; resolve each before any story
-   spec is drafted.
+**After INFRA-133 is complete:**
+
+1. Open plan mode against this doc with intent "design the observability SPA."
+2. Walk the Open Questions list above; resolve each before any SPA story spec
+   is drafted.
 3. Re-recon `skills/companion/scripts/sidebar.py` for current feature
    inventory.
-4. Draft stories under the standard rail convention (likely a new
-   `UI` rail; `INFRA` for state.json read-API if needed).
+4. Draft SPA stories under the standard rail convention (likely a new `UI`
+   rail; `INFRA` for any state.json read-API if needed).
+
+**Unrelated open work (do not lose):** The open-patterns pattern doc review
+is in progress at `docs/open-patterns-review.md`. Issue PR1 (PR #3 comment
+text) is ACTIVE; issues X1 through C1 are OPEN. Return to that doc after
+INFRA-133 is built and the post-ship operator steps are done.
 
 Tag (on ship): `cp49-observability-spa`
