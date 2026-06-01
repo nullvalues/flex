@@ -568,6 +568,7 @@ INFRA-129.
 | BOOTSTRAP-004 | Add `## Schema delivery` section to `phase.md.j2` | complete |
 | BOOTSTRAP-005 | Enrich `index.md.j2` with queue semantics: next-to-build pointer, deferred-from column, backlog-promotion section | complete |
 | INFRA-131 | New `skills/pairmode/scripts/flex_build.py` CLI — collapse 8 inline `python -c` blocks in `CLAUDE.build.md.j2` into one-liner CLI calls | complete |
+| INFRA-132 | Add `--drift-only` flag to `lesson_review.py` CLI + fix SKILL.md drift detection workflow documentation | planned |
 
 ### Story INFRA-124 — Use `{{ test_command }}` variable in CLAUDE.md.j2 Story test verification block
 
@@ -1999,6 +2000,150 @@ radar, aab).
   sufficient; the template seeds it, the operator updates it.
 - A `next_to_build` Jinja2 variable in the bootstrap context. `phases[0]` is always
   the seed for a new project; the rendered line is then operator-maintained.
+
+---
+
+## T7 recon (recorded 2026-05-31)
+
+Findings from inspecting `skills/pairmode/scripts/lesson_review.py`,
+`tests/pairmode/test_lesson_review.py:678-968`,
+`skills/pairmode/SKILL.md` § "Drift detection workflow",
+and `docs/architecture.md` § `registered_projects` / "Drift evidence scoring".
+
+- **`run_drift_promotion` and `drift_promotion_step` already exist and are tested.**
+  `lesson_review.py:241-381` implements the full drift-promotion step: reads
+  registered projects from state.json, runs `drift_report --convergent`, surfaces
+  each convergence candidate interactively with its token-evidence score, and for
+  each "y" response creates an INFRA story via `story_new.create_story`. Tests in
+  `test_lesson_review.py:678-968` cover both functions comprehensively. This is
+  T7's core mechanism — already shipped in an earlier phase.
+
+- **The gap: no standalone invocation path.** The drift-promotion step only runs
+  AFTER `/flex:pairmode review` (lesson_review.py CLI) processes lesson approvals.
+  The guard at `lesson_review.py:431-434` is:
+  ```python
+  if not approve_ids and not reject_ids:
+      click.echo("No lessons specified. Use --approve or --reject.")
+      return
+  ```
+  This exits before reaching the drift-promotion step. An operator with no pending
+  lessons — which is the common state when running drift promotion as a periodic
+  sync-back maintenance step — cannot trigger drift promotion without fabricating
+  a lesson approval first. The standalone invocation path is missing.
+
+- **SKILL.md step 4 is technically correct but misleading.** Step 4 reads:
+  "Promote convergence candidates to the canonical templates via /flex:pairmode
+  review (which updates pairmode templates in the flex repo based on lessons
+  learned)." In reality, `/flex:pairmode review` calls `drift_promotion_step`
+  which creates INFRA **stories** (not direct template annotations). The stories
+  then go through the pairmode build loop to produce actual template changes.
+  The phrase "updates pairmode templates" implies a direct template write;
+  the actual behavior is story creation + build-loop execution. The workflow
+  needs a step between 4 and 5 that makes this explicit.
+
+- **Architecture.md is accurate.** The `registered_projects` field (arch line 713-722)
+  and drift evidence scoring section (arch line 895-933) both correctly document
+  the mechanism. No changes needed there.
+
+- **T7 scope: `--drift-only` flag + SKILL.md clarification.** Adding a `--drift-only`
+  flag to `lesson_review.py` bypasses the "no lessons specified" guard and runs
+  only `drift_promotion_step`. This is the missing standalone path. SKILL.md step 4
+  needs one sentence explaining that drift promotion creates INFRA stories (not
+  template annotations), and step 5 must follow story creation with a build step.
+
+---
+
+### Story INFRA-132 — Add `--drift-only` flag to `lesson_review.py` + fix SKILL.md drift detection workflow
+
+**Rail:** INFRA | **story_class:** code
+
+#### Requires
+
+- `lesson_review.py:415-476` — the CLI function (`cli`) has a guard at lines
+  431-434 that exits when `approve_ids` and `reject_ids` are both empty. The
+  `drift_promotion_step` call at line 476 is unreachable in this case.
+- `drift_promotion_step(project_dir)` at `lesson_review.py:345` — the function
+  that reads `registered_projects` from state.json and runs `run_drift_promotion`.
+  It is fully implemented and tested.
+- `skills/pairmode/SKILL.md:912-947` — the Drift detection workflow section.
+  Step 4 (line 932-933) says "via /flex:pairmode review (which updates pairmode
+  templates in the flex repo based on lessons learned)" — misleading because drift
+  promotion creates stories, not template annotations.
+- `tests/pairmode/test_lesson_review.py` — existing test file already covering
+  `run_drift_promotion` and `drift_promotion_step` comprehensively.
+  No test currently covers the CLI `--drift-only` flag.
+
+#### Ensures
+
+- **`skills/pairmode/scripts/lesson_review.py`** — add `--drift-only` flag to
+  the `cli` click command:
+  ```python
+  @click.option(
+      "--drift-only",
+      is_flag=True,
+      default=False,
+      help="Skip lesson processing and run only drift promotion.",
+  )
+  ```
+  Update `cli` signature to accept `drift_only: bool`. Update the guard at lines
+  431-434 to bypass when `drift_only` is True:
+  ```python
+  if not approve_ids and not reject_ids and not drift_only:
+      click.echo("No lessons specified. Use --approve or --reject.")
+      return
+  ```
+  When `--drift-only` is set: skip all lesson processing (the `for lesson_id in
+  approve_ids` and `for lesson_id in reject_ids` loops), skip `regenerate_lessons_md()`,
+  skip the "REVIEW COMPLETE" echo, and jump directly to the drift promotion step
+  (if `--skip-drift` is not also set). When `--drift-only` and `--skip-drift` are
+  both set: exit with a click.UsageError ("--drift-only and --skip-drift are
+  mutually exclusive").
+
+- **`skills/pairmode/SKILL.md`** — rewrite the "Drift detection workflow" section
+  (lines 912-947). Updated text replaces the 5-step list with a 6-step list that:
+  - Keeps steps 1-3 unchanged (register, drift report, review results).
+  - Rewrites step 4 to read: "Run drift promotion to create INFRA stories from
+    convergence candidates:" followed by the bash block:
+    ```bash
+    PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python \
+      "${CLAUDE_SKILL_DIR}/scripts/lesson_review.py" \
+      --drift-only --project-dir "$(pwd)"
+    ```
+    And a note: "Each approved candidate is recorded as an INFRA story in
+    `docs/stories/INFRA/`. Previously rejected candidates are skipped (recorded
+    in `.pairmode-drift-rejected`)."
+  - Adds new step 5: "Build the created INFRA stories via the pairmode build loop.
+    Each story implements the actual template change. The build loop commits the
+    changes and the reviewer verifies them."
+  - Renumbers the old step 5 (sync) to step 6.
+  - Keeps the closing "This workflow closes the loop" sentence.
+
+- **`tests/pairmode/test_lesson_review.py`** — append two tests to the
+  existing `TestDriftPromotionStep` class (or a new class `TestDriftOnlyFlag`):
+  1. `test_drift_only_triggers_drift_promotion` — Invoke `lesson_review.cli` via
+     `CliRunner` with `["--drift-only", "--project-dir", str(tmp_path)]` where
+     `tmp_path` has no `.companion/state.json`. Assert exit code 0 and output
+     contains "drift detection skipped" (the message from `drift_promotion_step`
+     when no registered_projects are found).
+  2. `test_drift_only_and_skip_drift_mutually_exclusive` — Invoke with both
+     `["--drift-only", "--skip-drift", "--project-dir", str(tmp_path)]`. Assert
+     exit code != 0 and error output contains "mutually exclusive".
+
+- **No changes to** `run_drift_promotion`, `drift_promotion_step`, `lesson_utils`,
+  any template files, `pairmode_drift_report.py`, architecture.md,
+  or any other hook/script.
+
+#### Out of scope
+
+- Changing how drift promotion creates stories (it creates INFRA stories — that
+  behavior stays unchanged).
+- Adding drift promotion to `pairmode_drift_report.py` as a separate subcommand.
+  The `--drift-only` flag on `lesson_review.py` is sufficient.
+- Auto-registering projects. The `register` / `unregister` workflow in `pairmode_sync.py`
+  remains the canonical path.
+- Making the `--drift-only` flag work without registered projects. If no projects
+  are registered, `drift_promotion_step` already prints "No registered projects —
+  drift detection skipped" and exits 0. That behavior is correct and unchanged.
 
 ---
 
