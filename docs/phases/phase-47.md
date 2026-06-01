@@ -567,7 +567,7 @@ INFRA-129.
 | INFRA-130 | Generalize auth check to read recorded classification from `docs/architecture.md` | complete |
 | BOOTSTRAP-004 | Add `## Schema delivery` section to `phase.md.j2` | complete |
 | BOOTSTRAP-005 | Enrich `index.md.j2` with queue semantics: next-to-build pointer, deferred-from column, backlog-promotion section | complete |
-| INFRA-131 | New `skills/pairmode/scripts/flex_build.py` CLI — collapse 8 inline `python -c` blocks in `CLAUDE.build.md.j2` into one-liner CLI calls | planned |
+| INFRA-131 | New `skills/pairmode/scripts/flex_build.py` CLI — collapse 8 inline `python -c` blocks in `CLAUDE.build.md.j2` into one-liner CLI calls | complete |
 
 ### Story INFRA-124 — Use `{{ test_command }}` variable in CLAUDE.md.j2 Story test verification block
 

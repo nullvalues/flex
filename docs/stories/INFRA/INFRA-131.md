@@ -3,7 +3,7 @@ id: INFRA-131
 phase: '47'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/scripts/flex_build.py
   - skills/pairmode/templates/CLAUDE.build.md.j2
