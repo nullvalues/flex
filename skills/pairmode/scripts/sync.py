@@ -273,6 +273,9 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
 
     # Load saved template context for rendering when creating/patching files
     context = _load_project_context(project_dir)
+    # audit_project() injects this at runtime but _load_project_context does not;
+    # sync's rendering path must inject it here so CLAUDE.build.md.j2 renders correctly.
+    context.setdefault("pairmode_scripts_dir", str(Path(__file__).resolve().parent))
 
     # Warn if test_command disagrees with stack (advisory; does not block sync)
     _test_cmd = context.get("test_command", "")
