@@ -412,11 +412,18 @@ def drift_promotion_step(project_dir: Path, **kwargs) -> None:
     default=False,
     help="Skip the drift promotion step.",
 )
+@click.option(
+    "--drift-only",
+    is_flag=True,
+    default=False,
+    help="Skip lesson processing and run only drift promotion.",
+)
 def cli(
     approve_ids: tuple[str, ...],
     reject_ids: tuple[str, ...],
     project_dir: str,
     skip_drift: bool,
+    drift_only: bool,
 ) -> None:
     """Process lesson approvals and rejections, then regenerate LESSONS.md.
 
@@ -428,49 +435,53 @@ def cli(
 
     Rejected lessons: status is set to 'reviewed'.
     """
-    if not approve_ids and not reject_ids:
+    if drift_only and skip_drift:
+        raise click.UsageError("--drift-only and --skip-drift are mutually exclusive")
+
+    if not approve_ids and not reject_ids and not drift_only:
         click.echo("No lessons specified. Use --approve or --reject.")
         return
 
-    all_lessons = load_reviewable_lessons()
-    lessons_by_id = {l["id"]: l for l in all_lessons}
+    if not drift_only:
+        all_lessons = load_reviewable_lessons()
+        lessons_by_id = {l["id"]: l for l in all_lessons}
 
-    approved_count = 0
-    rejected_count = 0
+        approved_count = 0
+        rejected_count = 0
 
-    for lesson_id in approve_ids:
-        lesson = lessons_by_id.get(lesson_id)
-        if lesson is None:
-            click.echo(f"WARNING: lesson {lesson_id} not found or not reviewable — skipping.")
-            continue
-        proposals = propose_template_change(lesson)
-        for proposal in proposals:
-            description = proposal["description"]
-            apply_template_change(proposal, description)
-            click.echo(
-                f"  Annotated {proposal['template_file']} with lesson {lesson_id}.\n"
-                f"  ACTION REQUIRED: Open the template and implement the change:\n"
-                f"    {{# LESSON {lesson_id}: {proposal['description']} #}}"
-            )
-        mark_lesson_status(lesson_id, "applied")
-        approved_count += 1
+        for lesson_id in approve_ids:
+            lesson = lessons_by_id.get(lesson_id)
+            if lesson is None:
+                click.echo(f"WARNING: lesson {lesson_id} not found or not reviewable — skipping.")
+                continue
+            proposals = propose_template_change(lesson)
+            for proposal in proposals:
+                description = proposal["description"]
+                apply_template_change(proposal, description)
+                click.echo(
+                    f"  Annotated {proposal['template_file']} with lesson {lesson_id}.\n"
+                    f"  ACTION REQUIRED: Open the template and implement the change:\n"
+                    f"    {{# LESSON {lesson_id}: {proposal['description']} #}}"
+                )
+            mark_lesson_status(lesson_id, "applied")
+            approved_count += 1
 
-    for lesson_id in reject_ids:
-        if lesson_id not in lessons_by_id:
-            click.echo(f"WARNING: lesson {lesson_id} not found or not reviewable — skipping.")
-            continue
-        mark_lesson_status(lesson_id, "reviewed")
-        rejected_count += 1
+        for lesson_id in reject_ids:
+            if lesson_id not in lessons_by_id:
+                click.echo(f"WARNING: lesson {lesson_id} not found or not reviewable — skipping.")
+                continue
+            mark_lesson_status(lesson_id, "reviewed")
+            rejected_count += 1
 
-    regenerate_lessons_md()
-    click.echo(
-        f"REVIEW COMPLETE\n"
-        f"  {approved_count} lesson(s) annotated — open affected templates to implement the changes.\n"
-        f"  {rejected_count} lesson(s) deferred for next review cycle.\n"
-        f"LESSONS.md regenerated."
-    )
+        regenerate_lessons_md()
+        click.echo(
+            f"REVIEW COMPLETE\n"
+            f"  {approved_count} lesson(s) annotated — open affected templates to implement the changes.\n"
+            f"  {rejected_count} lesson(s) deferred for next review cycle.\n"
+            f"LESSONS.md regenerated."
+        )
 
-    # Drift promotion step — runs after lesson review
+    # Drift promotion step — runs after lesson review (or immediately if --drift-only)
     if not skip_drift:
         click.echo("\n--- Drift Promotion ---")
         drift_promotion_step(Path(project_dir).resolve())

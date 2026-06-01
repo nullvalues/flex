@@ -929,10 +929,19 @@ Once you have bootstrapped a project and want to track it across methodology upd
 3. **Review the results.** The `--convergent` flag surfaces patterns shared across multiple registered
    projects, with token-efficiency scoring to help prioritize which improvements are most impactful.
 
-4. **Promote convergence candidates to the canonical templates** via `/flex:pairmode review` (which
-   updates pairmode templates in the flex repo based on lessons learned).
+4. **Run drift promotion to create INFRA stories from convergence candidates:**
+   ```bash
+   PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python \
+     "${CLAUDE_SKILL_DIR}/scripts/lesson_review.py" \
+     --drift-only --project-dir "$(pwd)"
+   ```
+   Each approved candidate is recorded as an INFRA story in `docs/stories/INFRA/`. Previously
+   rejected candidates are skipped (recorded in `.pairmode-drift-rejected`).
 
-5. **Sync the updated templates back to projects:**
+5. **Build the created INFRA stories via the pairmode build loop.** Each story implements the
+   actual template change. The build loop commits the changes and the reviewer verifies them.
+
+6. **Sync the updated templates back to projects:**
    ```bash
    # Sync agent files
    PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \

@@ -979,3 +979,31 @@ class TestRunDriftPromotion:
         assert rejected_path.exists()
         content = rejected_path.read_text(encoding="utf-8")
         assert "## section two" in content
+
+
+# ---------------------------------------------------------------------------
+# --drift-only flag tests
+# ---------------------------------------------------------------------------
+
+class TestDriftOnlyFlag:
+    def test_drift_only_triggers_drift_promotion(self, tmp_path):
+        """--drift-only skips lesson processing and runs drift_promotion_step directly."""
+        from click.testing import CliRunner
+        from skills.pairmode.scripts.lesson_review import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--drift-only", "--project-dir", str(tmp_path)])
+
+        assert result.exit_code == 0, result.output
+        assert "skipped" in result.output
+
+    def test_drift_only_and_skip_drift_mutually_exclusive(self, tmp_path):
+        """--drift-only and --skip-drift together must exit with a UsageError."""
+        from click.testing import CliRunner
+        from skills.pairmode.scripts.lesson_review import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--drift-only", "--skip-drift", "--project-dir", str(tmp_path)])
+
+        assert result.exit_code != 0
+        assert "mutually exclusive" in (result.output + (result.exception.__str__() if result.exception else ""))
