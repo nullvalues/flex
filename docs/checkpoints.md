@@ -316,3 +316,15 @@ creates story files on named rails. era_new.py creates era documents. phase_new.
 manifest format with era reference and empty Stories table. bootstrap.py suggests rails, prompts
 for confirmation, creates rail directories, and initializes docs/eras/001-initial.md. Template
 stubs for docs/stories/ and docs/eras/ added. 997 tests pass.
+
+---
+
+## cp48-open-patterns-publication
+
+**Phase:** 48 — Open-patterns publication initiative
+**Tag command:** `git tag cp48-open-patterns-publication && git push origin cp48-open-patterns-publication`
+**Acceptance:** Six catalog-template-compliant pattern docs drafted in `docs/patterns/` covering
+5 novel agentic methodology patterns (NP-1 through NP-6). PR #4 opened at
+cloudnirvana/open-patterns with 5 patterns (NP-6 held pending PR #3 resolution; tracked as
+CER-031). All docs follow the catalog template verbatim with real "What Broke" incidents and
+"Security Implications" filled. 1835 tests pass (documentation-only phase; no Python changed).

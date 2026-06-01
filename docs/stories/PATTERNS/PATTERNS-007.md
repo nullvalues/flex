@@ -3,7 +3,7 @@ id: PATTERNS-007
 phase: '48'
 rail: PATTERNS
 story_class: methodology
-status: planned
+status: complete
 primary_files: []
 touches:
   - docs/patterns/agentic-architecture/builder-reviewer-sub-agent-loop.md
@@ -11,7 +11,6 @@ touches:
   - docs/patterns/operations-orchestration/phase-spec-pause-resume.md
   - docs/patterns/operations-orchestration/cer-backlog-living-phases.md
   - docs/patterns/cost-operations/per-phase-effort-seeded-prior.md
-  - docs/patterns/production-readiness/conceptual-rebuild-completeness.md
   - docs/patterns/production-readiness/conceptual-rebuild-completeness.md
 ---
 

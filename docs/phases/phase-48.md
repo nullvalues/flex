@@ -2,11 +2,9 @@
 
 ← [Phase 47: Pair-mode methodology consolidation](phase-47.md)
 
-**Status:** scaffolded 2026-05-29 — **NOT scheduled, NOT in build queue.** This
-phase is a parking lot to preserve scope while Phase 47 builds. Do not pick up
-before Phase 47 checkpoints. Phase number is provisional; if a more urgent phase
-preempts, this one renumbers without ceremony. All stories are `planned` (never
-worked), not `deferred` (worked in another phase).
+**Status:** complete — all 7 stories shipped 2026-06-01; PR #4 open at
+[cloudnirvana/open-patterns](https://github.com/cloudnirvana/open-patterns/pull/4);
+NP-6 held pending open PR #3 resolution. Tag: `cp48-open-patterns-publication`.
 
 **Parent phase:** Phase 47 (no deferred stories from 47 land here — this is net-new
 scope surfaced during the 2026-05-29 review of
@@ -51,7 +49,7 @@ Pattern docs in the catalog follow a consistent structure (verified against
 - Related Patterns
 - Metadata + Revision History
 
-All five flex pattern drafts must adopt this template.
+All six flex pattern drafts must adopt this template.
 
 ## Novel patterns inventory
 
@@ -163,7 +161,7 @@ pattern, fold into NP-4, or skip (catalog author may publish it).
 | PATTERNS-004 | Draft Per-Phase Effort.db with Seeded Prior pattern doc | complete | NP-4; depends on Phase 47 INFRA-127 shipping (the seed file is built there) |
 | PATTERNS-005 | Draft Conceptual Rebuild Completeness pattern doc | complete | NP-5; cite the global CLAUDE.md "Conceptual rebuild completeness" section |
 | PATTERNS-006 | Decide on NP-6 ("Source of Truth over Recall") — own pattern, fold, or skip | complete | Coin-flip at build time; check whether catalog has published it by then — Decision: A — catalog has no equivalent pattern; CLM doc explicitly flags this sub-pattern as worth standalone treatment (line 266); flex has 3 distinct production incidents with "what broke" stories not covered by NP-1 or NP-4 |
-| PATTERNS-007 | Submission package: PR against cloudnirvana/open-patterns | planned | Follow catalog's `CONTRIBUTING.md`; update `patterns.yaml`; assign IDs |
+| PATTERNS-007 | Submission package: PR against cloudnirvana/open-patterns | complete | Follow catalog's `CONTRIBUTING.md`; update `patterns.yaml`; assign IDs |
 
 **Dependency:** PATTERNS-004 depends on Phase 47 INFRA-127 being checkpointed
 (the seed file `effort_baseline.json` and the dynamic-median behavior are the
@@ -191,16 +189,13 @@ Phase 47 ships; PATTERNS-006 before PATTERNS-007; PATTERNS-007 last.
 
 ## Open questions (resolve at build time, not now)
 
-- **Which pattern to submit first?** Catalog maintainers may prefer one PR per
-  pattern (easier review) vs. one PR with the bundle (clearer story). Check
-  `CONTRIBUTING.md` and recent PR history at build time.
-- **Do we need a flex-side "Cloud Nirvana attribution" sign-off?** The catalog's
-  metadata table lists Cloud Nirvana contributors; flex is a separate project.
-  Confirm attribution model with the catalog maintainer before drafting.
-- **Should NP-1 (Builder/Reviewer Loop) propose a new category** ("Spec-Driven
-  Agent Loops") or fit under Agentic Architecture? Re-check at draft time —
-  category churn slows PR review; prefer fitting existing categories.
-- **Sub-pattern NP-6 disposition.** See PATTERNS-006.
+- **Which pattern to submit first?** → Resolved: bundled PR (#4) with all 5 patterns.
+- **Do we need a flex-side "Cloud Nirvana attribution" sign-off?** → Resolved: CC BY 4.0,
+  attributed to David Hague / flex project (david@halfhorse.com). No separate sign-off required.
+- **Should NP-1 (Builder/Reviewer Loop) propose a new category?** → Resolved: Agentic
+  Architecture (no new category proposed — consistent with catalog convention).
+- **Sub-pattern NP-6 disposition.** → Resolved: see PATTERNS-006 (Decision A) and
+  `## Submission` section for hold rationale (pending open PR #3 resolution).
 
 ## Follow-on scope (not in this phase)
 
