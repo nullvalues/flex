@@ -1383,17 +1383,21 @@ import re
 
 
 class TestClaudeBuildMdPermissionScopeCommands:
-    """Story BUILD-002: CLAUDE.build.md.j2 must contain explicit bash commands for
-    write_story_permissions, clear_story_permissions, and story_update."""
+    """Story BUILD-002 / INFRA-131: CLAUDE.build.md.j2 must contain explicit
+    bash commands that exercise the story-scoped permission lifecycle and the
+    story-status update.  After INFRA-131 collapsed the inline ``python -c``
+    blocks into ``flex_build.py`` subcommands, the assertions reference the
+    new CLI surface (``write-permissions`` / ``clear-permissions``) while
+    ``story_update.py`` continues to be invoked directly."""
 
     def setup_method(self):
         self.output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
 
     def test_write_story_permissions_present(self):
-        assert "write_story_permissions" in self.output
+        assert "flex_build.py write-permissions" in self.output
 
     def test_clear_story_permissions_present(self):
-        assert "clear_story_permissions" in self.output
+        assert "flex_build.py clear-permissions" in self.output
 
     def test_story_update_py_present(self):
         assert "story_update.py" in self.output
@@ -2371,3 +2375,24 @@ class TestBootstrap004SchemaDelivery:
 
     def test_rendered_output_contains_schema_delivery_empty_placeholder_row(self):
         assert "| | | |" in self.output
+
+
+# ---------------------------------------------------------------------------
+# Story INFRA-131 — flex_build.py CLI replaces inline python -c blocks in
+# CLAUDE.build.md.j2
+# ---------------------------------------------------------------------------
+
+
+class TestInfra131FlexBuildTemplate:
+    """Story INFRA-131: CLAUDE.build.md.j2 collapses the 8 inline
+    ``uv run python -c "..."`` heredocs into one-liner calls to
+    ``flex_build.py`` subcommands."""
+
+    def setup_method(self):
+        self.output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
+
+    def test_rendered_template_calls_flex_build_select_builder_model(self):
+        assert "flex_build.py select-builder-model" in self.output
+
+    def test_rendered_template_has_no_inline_sys_path_boilerplate(self):
+        assert "sys.path.insert(0, " not in self.output

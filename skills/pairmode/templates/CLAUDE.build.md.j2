@@ -63,31 +63,8 @@ Read `story_class` and `primary_files` from the story spec frontmatter.
 Call `select_builder_model` to get the model and selection reason:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python -c "
-import sys
-from pathlib import Path
-sys.path.insert(0, '{{ pairmode_scripts_dir }}')
-from model_selector import select_builder_model
-
-# Replace with values from the story frontmatter:
-story_class = 'code'           # default 'code' if absent
-primary_files = [              # from story frontmatter primary_files list
-    '{{ pairmode_scripts_dir }}/foo.py',
-]
-protected_files = [            # from CLAUDE.md § Protected files and .claude/settings.json
-    'hooks/stop.py',
-    'hooks/exit_plan_mode.py',
-    'hooks/post_tool_use.py',
-    'hooks/session_end.py',
-    'skills/seed/scripts/',
-    'skills/companion/scripts/sidebar.py',
-    '.claude-plugin/plugin.json',
-    '.claude-plugin/marketplace.json',
-]
-
-model, reason = select_builder_model(story_class, primary_files, protected_files)
-print(f'{model}|{reason}')
-"
+PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py select-builder-model \
+  --story-id RAIL-NNN --project-dir .
 ```
 
 **Decision table:**
@@ -202,13 +179,8 @@ Do not spawn the builder until the user has resolved the block.
 Before spawning the builder, pre-authorize edits within the story's declared scope:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python -c "
-import sys, pathlib
-sys.path.insert(0, '{{ pairmode_scripts_dir }}')
-from permission_scope import write_story_permissions
-from pathlib import Path
-write_story_permissions(Path('docs/stories/RAIL/RAIL-NNN.md'), Path('.'))
-"
+PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py write-permissions \
+  --story-id RAIL-NNN --project-dir .
 ```
 
 Replace RAIL/RAIL-NNN with the current story's ID. After this runs, the builder
@@ -265,31 +237,8 @@ guardrail prints a structured warning to stderr. The guardrail is
 informational, not blocking — exit code is always 0:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python -c "
-import json, sys
-from pathlib import Path
-sys.path.insert(0, '{{ pairmode_scripts_dir }}')
-from effort_db import check_guardrail, resolve_effort_db_path
-
-state_path = Path('.companion/state.json')
-multiplier = 3.0
-if state_path.exists():
-    try:
-        multiplier = float(json.loads(state_path.read_text()).get(
-            'effort_guardrail_multiplier', 3.0))
-    except Exception:
-        pass
-
-result = check_guardrail(
-    db_path=resolve_effort_db_path(Path('.')),
-    story_id='RAIL-NNN',
-    rail='RAIL',
-    latest_tokens=38000,  # from <usage> total_tokens
-    multiplier=multiplier,
-)
-if result['fired']:
-    print(result['message'], file=sys.stderr)
-"
+PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py check-guardrail \
+  --story-id RAIL-NNN --tokens 38000 --project-dir .
 ```
 
 When the guardrail fires, surface the warning to the user and pause before
@@ -339,21 +288,8 @@ helper.  The reviewer model is driven by `(story_class, attempt_number)` — rea
 `story_class` from the story's frontmatter (default `"code"` if absent):
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python -c "
-import sys
-from pathlib import Path
-sys.path.insert(0, '{{ pairmode_scripts_dir }}')
-from model_selector import select_reviewer_model
-# Replace values below with the current story's data:
-model, reason = select_reviewer_model(
-    story_class='code',     # from story frontmatter; default 'code' if absent
-    attempt_number=1,       # 1 for first attempt, increment on each retry
-    phase_id='24',          # from story frontmatter 'phase' field
-    project_dir=Path('.'),
-)
-print(model)
-print(reason)
-"
+PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py select-reviewer-model \
+  --story-id RAIL-NNN --attempt 1 --project-dir .
 ```
 
 The first line is the model (`sonnet` or `opus`); the second line is the selection
@@ -400,13 +336,7 @@ After the reviewer commits or reverts:
 
 1. Clean up story-scoped allow rules:
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python -c "
-import sys, pathlib
-sys.path.insert(0, '{{ pairmode_scripts_dir }}')
-from permission_scope import clear_story_permissions
-from pathlib import Path
-clear_story_permissions(Path('.'))
-"
+PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py clear-permissions --project-dir .
 ```
 
 2. If the reviewer committed (PASS): update the story status to complete:
@@ -526,16 +456,8 @@ If any test fails: stop. Report which tests failed and their output. Do not proc
 Before spawning the security-auditor, determine the model using `model_selector`:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python -c "
-import sys
-from pathlib import Path
-sys.path.insert(0, '{{ pairmode_scripts_dir }}')
-from model_selector import select_security_auditor_model
-# Replace phase_class with the value from the phase manifest frontmatter;
-# default 'production' if the field is absent.
-model, _ = select_security_auditor_model('production')
-print(model)
-"
+PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py select-security-auditor-model \
+  --phase-class production
 ```
 
 Spawn the `security-auditor` subagent with:
@@ -550,16 +472,8 @@ The checkpoint cannot be tagged until all CRITICAL and HIGH findings are resolve
 Before spawning the intent-reviewer, determine the model using `model_selector`:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python -c "
-import sys
-from pathlib import Path
-sys.path.insert(0, '{{ pairmode_scripts_dir }}')
-from model_selector import select_intent_reviewer_model
-# Replace phase_class with the value from the phase manifest frontmatter;
-# default 'production' if the field is absent.
-model, _ = select_intent_reviewer_model('production')
-print(model)
-"
+PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py select-intent-reviewer-model \
+  --phase-class production
 ```
 
 Spawn the `intent-reviewer` subagent with:
@@ -667,19 +581,8 @@ project's rolling per-phase median. This is a read-only step — it never blocks
 the checkpoint.
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python -c "
-import sys, json
-from pathlib import Path
-sys.path.insert(0, '{{ pairmode_scripts_dir }}')
-from context_health import check_context_health
-from effort_db import resolve_effort_db_path
-
-result = check_context_health(
-    db_path=resolve_effort_db_path(Path('.')),
-    current_phase='PHASE_ID_HERE',   # replace with current phase identifier
-)
-print(json.dumps(result))
-"
+PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py context-health \
+  --phase PHASE_ID_HERE --project-dir .
 ```
 
 Capture the JSON. Extract the `message` field for the checkpoint report.
