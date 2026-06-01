@@ -65,7 +65,11 @@ The human provides the intent; the agents compete on implementation.
 - **Hook-pipe-sidebar separation** — hooks are deliberately thin relays; all heavy work
   runs in the sidebar. This means the sidebar must be running to extract decisions in real
   time. The cost: a separate terminal process the developer must manage. The benefit:
-  hooks exit in milliseconds and can never corrupt state.
+  hooks exit in milliseconds and can never corrupt state. Exception (CER-027): `pre_tool_use.py`
+  is a thin delegate to a skill module (`context_budget.py`) rather than the sidebar — the
+  documented pattern for hooks that enforce build-loop invariants rather than relay events.
+  Any additional hook following this delegate pattern must be explicitly documented in
+  `CLAUDE.md HOOK PERFORMANCE`.
 - **Python-only stack** — consistency and uv's fast bootstrap were preferred over polyglot
   flexibility. The cost: contributors must use Python. The benefit: one language, one test
   runner, one dependency manager across all skills.

@@ -17,12 +17,13 @@ This document is the source of truth for the flex codebase itself. Read it befor
 
 ```
 flex/
-  hooks/                          ← thin relays to the sidebar (no API calls)
+  hooks/                          ← thin relays (no API calls); see § Hook architecture
     hooks.json                    ← hook event registration
     stop.py                       ← historian: extract decisions after each response
     exit_plan_mode.py             ← relay plan content for impact analysis
     post_tool_use.py              ← pair partner: relay file changes
     session_end.py                ← signal sidebar to summarize and exit
+    pre_tool_use.py               ← context budget enforcement (CER-027); thin delegate to skills/pairmode/scripts/context_budget.py
 
   skills/
     pairmode/                     ← /flex:pairmode — bootstrap and manage pairmode
@@ -32,7 +33,10 @@ flex/
         audit.py                  ← diff project against canonical templates
         sync.py                   ← apply delta from audit non-destructively
         lesson.py                 ← capture a lesson learned
-        lesson_review.py          ← surface lessons, propose template updates
+        lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
+        context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
+        flex_build.py             ← CLI wrapping 8 pairmode helper functions; replaces inline python -c blocks in CLAUDE.build.md.j2
+        refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
         reconstruct.py            ← refresh docs/reconstruction.md from ideology.md and brief.md
@@ -47,6 +51,8 @@ flex/
         pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand); also registers register/unregister/list-projects in the top-level CLI group
         pairmode_register.py      ← manage registered_projects in .companion/state.json (register/unregister/list-projects subcommands)
         pairmode_migrate.py       ← one-shot migration of an anchor-bootstrapped sibling project to flex naming (migrate-from-anchor subcommand)
+      seed/
+        effort_baseline.json      ← seeded token-cost baseline for bootstrap (refreshed by refresh_effort_baseline.py)
       templates/                  ← Jinja2 templates for scaffold generation
         CLAUDE.md.j2
         CLAUDE.build.md.j2
@@ -737,10 +743,18 @@ project root. The helper `skills/pairmode/scripts/story_context.py` provides:
 **Non-negotiable: hooks are thin relays.**
 
 Hooks must:
-- Write a JSON message to `/tmp/companion.pipe`
+- Write a JSON message to `/tmp/companion.pipe` (or the project-scoped pipe path from `state.json["pipe_path"]`)
 - Exit in milliseconds
 - Never make API calls
 - Never write to spec files directly
+
+**Documented exception — `hooks/pre_tool_use.py` (CER-027 enforcement):**
+This hook emits a Claude Code hook decision JSON to stdout (not to the pipe) and writes
+`context_budget_acknowledged_at` to `.companion/state.json`. It does not write to the pipe.
+All decision logic lives in `skills/pairmode/scripts/context_budget.py`; the hook itself is a
+six-line delegate. See `CLAUDE.md` HOOK PERFORMANCE check #1 for the full carve-out language.
+Any additional hook that emits a `decision: block` response or writes to state.json outside
+this documented exception remains CRITICAL.
 
 The sidebar does all heavy work asynchronously. If the sidebar is not running, the pipe write
 silently fails and the session continues normally — no data is lost because the session

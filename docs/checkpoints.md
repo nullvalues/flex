@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp47-pairmode-methodology-consolidation
+
+**Phase:** 47 — Pair-mode methodology consolidation
+**Tag command:** `git tag cp47-pairmode-methodology-consolidation && git push origin cp47-pairmode-methodology-consolidation`
+**Acceptance:** Twelve stories across 7 tracks + CER-027 sub-track. T8 (INFRA-124, BOOTSTRAP-003): `{{ test_command }}` variable in CLAUDE.md.j2; toolchain-mismatch validator in bootstrap/sync. T3 (INFRA-125): .pairmode-overrides.j2 boilerplate corrected to `##`-marker format. T4 (INFRA-126): DOC CURRENCY pointer fixed to `.claude/agents/reviewer.md`. CER-027 sub-track (INFRA-127, INFRA-128, INFRA-129): `context_budget.py` module with transcript tail-read + effort.db median estimate; `refresh_effort_baseline.py` seed CLI; `hooks/pre_tool_use.py` PreToolUse-on-Task mechanical enforcement; CLAUDE.build.md.j2 ritual prose replaced with mechanical-enforcement pointer; HOOK PERFORMANCE carve-out added to flex CLAUDE.md; architecture.md step 9 rewritten. T6 (INFRA-130): auth check generalized to detect `**Classification:**` marker in architecture.md and auto-satisfy. T2 (BOOTSTRAP-004): `## Schema delivery` section added to phase.md.j2. T5 (BOOTSTRAP-005): index.md.j2 enriched with next-to-build pointer, Deferred-from column, Backlog-promotions section. T1 (INFRA-131): `flex_build.py` CLI with 8 subcommands replaces 8 inline `python -c` blocks in CLAUDE.build.md.j2. T7 (INFRA-132): `--drift-only` flag added to `lesson_review.py`; SKILL.md drift workflow updated to 6 steps with story-creation clarification. Build gate: 1835 tests pass. Security audit: 0 CRITICAL/HIGH (3 LOW/MEDIUM). Intent review: 4 doc corrections applied (phase-47.md status + INFRA-128 Note; architecture.md module tree + Hook architecture exception). CER-027 resolved; CER-028 re-triaged to Do Later.
+
+---
+
 ## cp46-local-model-infrastructure
 
 **Phase:** 46 — Local model infrastructure

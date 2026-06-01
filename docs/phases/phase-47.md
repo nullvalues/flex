@@ -2,11 +2,9 @@
 
 ← [Phase 46: Local model infrastructure](phase-46.md)
 
-**Status:** drafting — three of seven tracks specced (T8, T3, T4) plus the
-**CER-027 enforcement sub-track** specced 2026-05-29 (post-clear) as
-INFRA-127, INFRA-128, INFRA-129. Context cleared mid-phase on
-2026-05-29 at message-token 155k (above the 120k pairmode threshold,
-instance of CER-027). Resume marker below; post-clear resume note follows.
+**Status:** complete — all 12 stories shipped; awaiting checkpoint tag cp-47.
+*(Build notes: context cleared mid-phase 2026-05-29 at 155k tokens — instance
+of CER-027; resumed per marker below.)*
 
 ## Resume marker (2026-05-29 — written before context clear)
 
@@ -1139,11 +1137,11 @@ INFRA-129.
   shape to the existing `PostToolUse` entry: matcher `"Task"`,
   command `python3 ${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use.py`,
   timeout 5. No change to any other hook entry.
-- **Note on acknowledged_at write location.** The state.json write
-  that records `context_budget_acknowledged_at` lives inside
-  `context_budget.decide()` (INFRA-127), NOT inside the hook. The
-  hook is a pure delegate. This keeps the carve-out exception narrow:
-  the hook does *not* write to state.json itself.
+- **Note on acknowledged_at write location.** Per D11, the hook
+  (`hooks/pre_tool_use.py`) performs the one write of
+  `context_budget_acknowledged_at` to `state.json` — not `context_budget.decide()`.
+  `decide()` is read-only. This keeps the write surface to one code path on the
+  block edge, serializing access to the plain-JSON state file.
 - **Tests `tests/pairmode/test_pre_tool_use_hook.py`** (new file):
   1. `tool_name != "Task"` → exit 0, empty stdout. (Run via
      `subprocess.run` with stdin JSON; check returncode + stdout.)
