@@ -223,3 +223,10 @@ When Phase 47 is checkpointed and the operator is ready to pick this up:
 4. Build stories in the sequence above.
 
 Tag (on ship): `cp48-open-patterns-publication`
+
+## Submission
+
+**PR:** https://github.com/cloudnirvana/open-patterns/pull/4 — "Add 5 flex methodology patterns for spec-driven agentic development"
+**Submitted:** 2026-06-01
+**Patterns submitted:** NP-1 (builder-reviewer-sub-agent-loop), NP-2 (phase-spec-pause-resume), NP-3 (cer-backlog-living-phases), NP-4 (per-phase-effort-seeded-prior), NP-5 (conceptual-rebuild-completeness)
+**Held:** NP-6 (source-of-truth-over-recall) — pending resolution of PR #3 in cloudnirvana/open-patterns ("Canonical Source Over Recall" by nsmedia-io, RAG/Knowledge domain). Submit NP-6 as a follow-on PR after PR #3 merges or closes.

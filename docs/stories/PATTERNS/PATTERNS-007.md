@@ -7,9 +7,11 @@ status: planned
 primary_files: []
 touches:
   - docs/patterns/agentic-architecture/builder-reviewer-sub-agent-loop.md
+  - docs/patterns/agentic-architecture/source-of-truth-over-recall.md
   - docs/patterns/operations-orchestration/phase-spec-pause-resume.md
   - docs/patterns/operations-orchestration/cer-backlog-living-phases.md
   - docs/patterns/cost-operations/per-phase-effort-seeded-prior.md
+  - docs/patterns/production-readiness/conceptual-rebuild-completeness.md
   - docs/patterns/production-readiness/conceptual-rebuild-completeness.md
 ---
 

@@ -3,7 +3,7 @@ id: PATTERNS-006
 phase: '48'
 rail: PATTERNS
 story_class: methodology
-status: planned
+status: complete
 primary_files:
   - docs/patterns/agentic-architecture/source-of-truth-over-recall.md
 touches:
