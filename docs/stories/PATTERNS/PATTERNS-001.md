@@ -3,7 +3,7 @@ id: PATTERNS-001
 phase: '48'
 rail: PATTERNS
 story_class: methodology
-status: planned
+status: complete
 primary_files:
   - docs/patterns/agentic-architecture/builder-reviewer-sub-agent-loop.md
 touches: []
