@@ -3,7 +3,7 @@ id: PATTERNS-004
 phase: '48'
 rail: PATTERNS
 story_class: methodology
-status: planned
+status: complete
 primary_files:
   - docs/patterns/cost-operations/per-phase-effort-seeded-prior.md
 touches: []
