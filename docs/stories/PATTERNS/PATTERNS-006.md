@@ -4,7 +4,8 @@ phase: '48'
 rail: PATTERNS
 story_class: methodology
 status: planned
-primary_files: []
+primary_files:
+  - docs/patterns/agentic-architecture/source-of-truth-over-recall.md
 touches:
   - docs/phases/phase-48.md
   - docs/patterns/agentic-architecture/source-of-truth-over-recall.md

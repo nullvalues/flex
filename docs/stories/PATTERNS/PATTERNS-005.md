@@ -3,7 +3,7 @@ id: PATTERNS-005
 phase: '48'
 rail: PATTERNS
 story_class: methodology
-status: planned
+status: complete
 primary_files:
   - docs/patterns/production-readiness/conceptual-rebuild-completeness.md
 touches: []
