@@ -158,7 +158,7 @@ pattern, fold into NP-4, or skip (catalog author may publish it).
 | ID | Title | Status | Notes |
 |----|-------|--------|-------|
 | PATTERNS-001 | Draft Builder/Reviewer Sub-Agent Loop pattern doc | complete | NP-1; uses catalog template; include the BUILD GATE failure mode CER-028 surfaced as a "what broke" case |
-| PATTERNS-002 | Draft Phase Spec with Formal Pause/Resume pattern doc | planned | NP-2; cite flex's global CLAUDE.md "Phase continuity" section as the canonical rule statement |
+| PATTERNS-002 | Draft Phase Spec with Formal Pause/Resume pattern doc | complete | NP-2; cite flex's global CLAUDE.md "Phase continuity" section as the canonical rule statement |
 | PATTERNS-003 | Draft CER Backlog + Living Backlog Phases pattern doc | planned | NP-3; reference real CER entries 001-028 as the production data |
 | PATTERNS-004 | Draft Per-Phase Effort.db with Seeded Prior pattern doc | planned | NP-4; depends on Phase 47 INFRA-127 shipping (the seed file is built there) |
 | PATTERNS-005 | Draft Conceptual Rebuild Completeness pattern doc | planned | NP-5; cite the global CLAUDE.md "Conceptual rebuild completeness" section |
