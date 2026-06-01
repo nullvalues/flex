@@ -3,7 +3,7 @@ id: INFRA-132
 phase: '47'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/scripts/lesson_review.py
   - skills/pairmode/SKILL.md
