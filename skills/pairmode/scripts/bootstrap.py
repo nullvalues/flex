@@ -265,6 +265,55 @@ def _merge_deny_list(settings_path: pathlib.Path, new_entries: list[str]) -> Non
     )
 
 
+def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> None:
+    """Merge a PreToolUse → Task hook entry into .claude/settings.json.
+
+    Uses the absolute resolved path of pre_tool_use.py (computed from plugin_root,
+    never from ${CLAUDE_PLUGIN_ROOT}). The merge is idempotent: if an entry with
+    the same command already exists it is not duplicated.
+
+    Creates the file if it does not exist.
+    """
+    pre_tool_use_path = plugin_root / "hooks" / "pre_tool_use.py"
+    command = f"uv run python {pre_tool_use_path}"
+
+    if settings_path.exists():
+        try:
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            data = {}
+    else:
+        data = {}
+
+    hooks_top = data.setdefault("hooks", {})
+    pre_tool_use_list: list[dict] = hooks_top.setdefault("PreToolUse", [])
+
+    # Find or create the Task matcher block
+    task_block: dict | None = None
+    for block in pre_tool_use_list:
+        if block.get("matcher") == "Task":
+            task_block = block
+            break
+
+    if task_block is None:
+        task_block = {"matcher": "Task", "hooks": []}
+        pre_tool_use_list.append(task_block)
+
+    inner_hooks: list[dict] = task_block.setdefault("hooks", [])
+
+    # Idempotency: only add if no entry with this command already exists
+    already_registered = any(
+        h.get("command") == command for h in inner_hooks
+    )
+    if not already_registered:
+        inner_hooks.append({"type": "command", "command": command})
+
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(data, indent=2) + "\n", encoding="utf-8"
+    )
+
+
 def _merge_allow_rules(settings_path: pathlib.Path, new_entries: list[str]) -> None:
     """
     Merge *new_entries* into the permissions.allow array in settings_path.
@@ -995,6 +1044,15 @@ def bootstrap(
     else:
         click.echo(f"\nMerging deny list into {settings_path}")
         _merge_deny_list(settings_path, effective_deny)
+
+    # ------------------------------------------------------------------
+    # 5b. Register PreToolUse hook into .claude/settings.json
+    # ------------------------------------------------------------------
+    plugin_root = pathlib.Path(__file__).resolve().parent.parent.parent.parent
+    if dry_run:
+        click.echo(f"  [dry-run] would register PreToolUse hook in: {settings_path}")
+    else:
+        _register_pretooluse_hook(settings_path, plugin_root)
 
     # ------------------------------------------------------------------
     # 5a. Merge allow rules into .claude/settings.local.json

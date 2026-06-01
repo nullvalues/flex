@@ -37,6 +37,7 @@ from skills.pairmode.scripts.bootstrap import (  # noqa: E402
     PAIRMODE_DEFAULT_RAILS,
     _infer_project_type,
     _validate_test_command,
+    _register_pretooluse_hook,
 )
 from skills.pairmode.scripts.story_new import _add_rail_to_era, _find_era  # noqa: E402
 
@@ -524,6 +525,11 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
                 _add_rail_to_era(era_path, rail)
             result.applied.append(f"Created rail directory docs/stories/{rail}/")
 
+    # Register PreToolUse hook in .claude/settings.json
+    settings_path = project_dir / ".claude" / "settings.json"
+    plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+    _register_pretooluse_hook(settings_path, plugin_root)
+
     # Update .companion/state.json
     state_path = project_dir / ".companion" / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -539,6 +545,15 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
     existing_state["pairmode_version"] = result.pairmode_version
     existing_state["last_sync"] = result.last_sync
     existing_state["lessons_applied"] = result.lessons_applied
+
+    # Seed context budget defaults when absent (INFRA-133)
+    for key, default in [
+        ("context_budget_threshold", 120000),
+        ("context_budget_overrun_pct", 0.10),
+        ("expected_step_tokens", 53000),
+        ("context_budget_reprompt_margin", 10000),
+    ]:
+        existing_state.setdefault(key, default)
 
     state_path.write_text(json.dumps(existing_state, indent=2), encoding="utf-8")
 

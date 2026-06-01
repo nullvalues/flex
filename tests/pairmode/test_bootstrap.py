@@ -2930,3 +2930,115 @@ class TestAllowRules:
 
     def test_pairmode_allow_contains_grep(self):
         assert "Bash(grep *)" in PAIRMODE_ALLOW
+
+
+# ---------------------------------------------------------------------------
+# INFRA-133: _register_pretooluse_hook tests
+# ---------------------------------------------------------------------------
+
+from skills.pairmode.scripts.bootstrap import _register_pretooluse_hook
+import pathlib as _pathlib
+
+
+class TestRegisterPreToolUseHook:
+    """Tests for _register_pretooluse_hook in bootstrap.py."""
+
+    def _plugin_root(self) -> _pathlib.Path:
+        """Return the flex repo root (plugin root) for tests."""
+        return _pathlib.Path(__file__).resolve().parent.parent.parent
+
+    def test_register_pretooluse_hook_writes_entry(self, tmp_path):
+        """Calling _register_pretooluse_hook on a tmp settings path writes the hook entry."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_pretooluse_hook(settings_path, plugin_root)
+
+        assert settings_path.exists(), "settings.json should be created"
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        hooks = data.get("hooks", {})
+        pre_tool_use_list = hooks.get("PreToolUse", [])
+        assert len(pre_tool_use_list) > 0, "PreToolUse list should be non-empty"
+
+        task_block = next(
+            (b for b in pre_tool_use_list if b.get("matcher") == "Task"), None
+        )
+        assert task_block is not None, "Should have a Task matcher block"
+
+        inner_hooks = task_block.get("hooks", [])
+        assert len(inner_hooks) > 0, "Task block should have inner hooks"
+
+        pre_tool_use_py = str(plugin_root / "hooks" / "pre_tool_use.py")
+        expected_command = f"uv run python {pre_tool_use_py}"
+        commands = [h.get("command") for h in inner_hooks]
+        assert expected_command in commands, (
+            f"Expected command {expected_command!r} not found in hook commands: {commands}"
+        )
+
+    def test_register_pretooluse_hook_idempotent(self, tmp_path):
+        """Calling _register_pretooluse_hook twice results in only one hook entry."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_pretooluse_hook(settings_path, plugin_root)
+        _register_pretooluse_hook(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        pre_tool_use_list = data["hooks"]["PreToolUse"]
+        task_block = next(
+            (b for b in pre_tool_use_list if b.get("matcher") == "Task"), None
+        )
+        assert task_block is not None
+
+        pre_tool_use_py = str(plugin_root / "hooks" / "pre_tool_use.py")
+        expected_command = f"uv run python {pre_tool_use_py}"
+        inner_hooks = task_block.get("hooks", [])
+        matching = [h for h in inner_hooks if h.get("command") == expected_command]
+        assert len(matching) == 1, (
+            f"Expected exactly one hook entry after two calls, got {len(matching)}"
+        )
+
+    def test_register_pretooluse_hook_preserves_other_hooks(self, tmp_path):
+        """Existing hook entries with different commands are preserved alongside the new entry."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        # Pre-populate with a different PreToolUse/Task hook
+        existing_data = {
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "Task",
+                        "hooks": [
+                            {"type": "command", "command": "uv run python /some/other/hook.py"}
+                        ],
+                    }
+                ]
+            }
+        }
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+
+        _register_pretooluse_hook(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        pre_tool_use_list = data["hooks"]["PreToolUse"]
+        task_block = next(
+            (b for b in pre_tool_use_list if b.get("matcher") == "Task"), None
+        )
+        assert task_block is not None
+
+        inner_hooks = task_block.get("hooks", [])
+        commands = [h.get("command") for h in inner_hooks]
+
+        # The existing command should still be present
+        assert "uv run python /some/other/hook.py" in commands, (
+            f"Existing hook command should be preserved, commands: {commands}"
+        )
+
+        # The new command should also be present
+        pre_tool_use_py = str(plugin_root / "hooks" / "pre_tool_use.py")
+        expected_command = f"uv run python {pre_tool_use_py}"
+        assert expected_command in commands, (
+            f"New hook command should be added, commands: {commands}"
+        )

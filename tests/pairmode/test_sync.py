@@ -1493,3 +1493,98 @@ class TestSyncBuildContextLoading:
         assert "{{ project_name }}" not in rendered, (
             "Rendered template should not contain raw Jinja2 syntax"
         )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-133: PreToolUse hook registration in sync + context budget seeding
+# ---------------------------------------------------------------------------
+
+
+def _plugin_root() -> Path:
+    """Return the flex repo root (plugin root) for tests."""
+    return Path(__file__).resolve().parent.parent.parent
+
+
+class TestSyncRegistersPreToolUseHook:
+    """sync_project registers the PreToolUse hook in .claude/settings.json."""
+
+    def test_sync_registers_pretooluse_hook(self, tmp_path: Path) -> None:
+        """After sync, .claude/settings.json contains a PreToolUse → Task hook entry."""
+        _copy_canonical_files(tmp_path)
+
+        sync_project(tmp_path, yes=True)
+
+        settings_path = tmp_path / ".claude" / "settings.json"
+        assert settings_path.exists(), ".claude/settings.json should exist after sync"
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        hooks = data.get("hooks", {})
+        pre_tool_use_list = hooks.get("PreToolUse", [])
+        assert len(pre_tool_use_list) > 0, "PreToolUse list should be non-empty after sync"
+
+        task_block = next(
+            (b for b in pre_tool_use_list if b.get("matcher") == "Task"), None
+        )
+        assert task_block is not None, "Should have a Task matcher block"
+
+        inner_hooks = task_block.get("hooks", [])
+        pre_tool_use_py = str(_plugin_root() / "hooks" / "pre_tool_use.py")
+        expected_command = f"uv run python {pre_tool_use_py}"
+        commands = [h.get("command") for h in inner_hooks]
+        assert expected_command in commands, (
+            f"Expected command {expected_command!r} in hook commands: {commands}"
+        )
+
+
+class TestSyncSeedsContextBudgetDefaults:
+    """sync_project seeds context budget defaults when absent from state.json."""
+
+    def test_sync_seeds_context_budget_defaults(self, tmp_path: Path) -> None:
+        """After sync on a project with no state.json, state.json contains 4 budget keys."""
+        _copy_canonical_files(tmp_path)
+        # Ensure no state.json
+        state_path = tmp_path / ".companion" / "state.json"
+        if state_path.exists():
+            state_path.unlink()
+
+        sync_project(tmp_path, yes=True)
+
+        assert state_path.exists(), ".companion/state.json should be created by sync"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+
+        assert "context_budget_threshold" in state, (
+            "context_budget_threshold should be seeded by sync"
+        )
+        assert "context_budget_overrun_pct" in state, (
+            "context_budget_overrun_pct should be seeded by sync"
+        )
+        assert "expected_step_tokens" in state, (
+            "expected_step_tokens should be seeded by sync"
+        )
+        assert "context_budget_reprompt_margin" in state, (
+            "context_budget_reprompt_margin should be seeded by sync"
+        )
+
+        # Check default values
+        assert state["context_budget_threshold"] == 120000
+        assert state["context_budget_overrun_pct"] == 0.10
+        assert state["expected_step_tokens"] == 53000
+        assert state["context_budget_reprompt_margin"] == 10000
+
+    def test_sync_does_not_overwrite_existing_budget_values(self, tmp_path: Path) -> None:
+        """When state.json already has a custom context_budget_threshold, sync must not overwrite it."""
+        _copy_canonical_files(tmp_path)
+
+        # Pre-populate state.json with a custom threshold
+        state_path = tmp_path / ".companion" / "state.json"
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps({"context_budget_threshold": 99999}), encoding="utf-8"
+        )
+
+        sync_project(tmp_path, yes=True)
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert state["context_budget_threshold"] == 99999, (
+            "Existing context_budget_threshold must not be overwritten by sync"
+        )
