@@ -298,7 +298,7 @@ The `rail` field groups stories by architectural domain (e.g., `INFRA`, `PATTERN
 
 | Property | Value |
 |----------|-------|
-| **Contributor** | David Hague, flex project (david@halfhorse.com) |
+| **Contributor** | David Jacobsen, flex project (david@halfhorse.com) |
 | **Production Environment** | macOS/Linux, Claude Code CLI, Anthropic Claude (Sonnet/Opus), Python/uv, SQLite |
 | **First Published** | 2026-06-01 |
 | **Last Updated** | 2026-06-01 |
@@ -311,4 +311,4 @@ The `rail` field groups stories by architectural domain (e.g., `INFRA`, `PATTERN
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2026-06-01 | Initial publication | David Hague / flex project |
+| 2026-06-01 | Initial publication | David Jacobsen / flex project |

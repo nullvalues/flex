@@ -258,7 +258,7 @@ _Every pattern has security considerations. This section is mandatory._
 
 | Property | Value |
 |----------|-------|
-| **Contributor** | David Hague, flex project (david@halfhorse.com) |
+| **Contributor** | David Jacobsen, flex project (david@halfhorse.com) |
 | **Production Environment** | macOS/Linux, Python/uv, SQLite, Claude Code CLI |
 | **First Published** | 2026-05-31 |
 | **Last Updated** | 2026-05-31 |
@@ -271,4 +271,4 @@ _Every pattern has security considerations. This section is mandatory._
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2026-05-31 | Initial publication | David Hague |
+| 2026-05-31 | Initial publication | David Jacobsen |

@@ -240,7 +240,7 @@ To apply this pattern to an existing agent loop:
 
 | Property | Value |
 |----------|-------|
-| **Contributor** | David Hague, flex project (david@halfhorse.com) |
+| **Contributor** | David Jacobsen, flex project (david@halfhorse.com) |
 | **Production Environment** | macOS/Linux, Claude Code CLI, Anthropic Claude (Sonnet/Opus), Python/uv, SQLite |
 | **First Published** | 2026-06-01 |
 | **Last Updated** | 2026-06-01 |
@@ -253,4 +253,4 @@ To apply this pattern to an existing agent loop:
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2026-06-01 | Initial publication | David Hague / flex project |
+| 2026-06-01 | Initial publication | David Jacobsen / flex project |

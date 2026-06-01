@@ -263,7 +263,7 @@ This story satisfies the gate for any story in the same phase that introduces th
 
 | Property | Value |
 |----------|-------|
-| **Contributor** | David Hague, flex project (david@halfhorse.com) |
+| **Contributor** | David Jacobsen, flex project (david@halfhorse.com) |
 | **Production Environment** | Local agentic development, Claude Code plugin, Python/Anthropic SDK |
 | **First Published** | 2026-05-31 |
 | **Last Updated** | 2026-05-31 |
@@ -276,4 +276,4 @@ This story satisfies the gate for any story in the same phase that introduces th
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2026-05-31 | Initial publication | David Hague |
+| 2026-05-31 | Initial publication | David Jacobsen |

@@ -287,7 +287,7 @@ A forked phase doc opens with:
 
 | Property | Value |
 |----------|-------|
-| **Contributor** | David Hague, flex project (david@halfhorse.com) |
+| **Contributor** | David Jacobsen, flex project (david@halfhorse.com) |
 | **Production Environment** | Local agentic development, Claude Code plugin, Python/Anthropic SDK |
 | **First Published** | 2026-05-31 |
 | **Last Updated** | 2026-05-31 |
@@ -300,4 +300,4 @@ A forked phase doc opens with:
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2026-05-31 | Initial publication | David Hague |
+| 2026-05-31 | Initial publication | David Jacobsen |
