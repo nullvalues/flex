@@ -567,6 +567,7 @@ INFRA-129.
 | INFRA-130 | Generalize auth check to read recorded classification from `docs/architecture.md` | complete |
 | BOOTSTRAP-004 | Add `## Schema delivery` section to `phase.md.j2` | complete |
 | BOOTSTRAP-005 | Enrich `index.md.j2` with queue semantics: next-to-build pointer, deferred-from column, backlog-promotion section | complete |
+| INFRA-131 | New `skills/pairmode/scripts/flex_build.py` CLI — collapse 8 inline `python -c` blocks in `CLAUDE.build.md.j2` into one-liner CLI calls | planned |
 
 ### Story INFRA-124 — Use `{{ test_command }}` variable in CLAUDE.md.j2 Story test verification block
 
@@ -1998,3 +1999,312 @@ radar, aab).
   sufficient; the template seeds it, the operator updates it.
 - A `next_to_build` Jinja2 variable in the bootstrap context. `phases[0]` is always
   the seed for a new project; the rendered line is then operator-maintained.
+
+---
+
+## T1 recon (recorded 2026-05-30)
+
+Findings from inspecting all 8 inline `uv run python -c "..."` blocks in
+`skills/pairmode/templates/CLAUDE.build.md.j2` at lines 66, 205, 268, 342,
+403, 529, 553, 670, plus the public APIs of the called modules
+(`model_selector.py`, `permission_scope.py`, `effort_db.py`, `context_health.py`)
+and existing CLI scripts (`story_update.py`, `record_attempt.py`) for style
+reference.
+
+- **Eight blocks, 120 total Python-body lines.** Each follows the same
+  boilerplate: `sys.path.insert(0, '{{ pairmode_scripts_dir }}')`, one or two
+  imports, one function call, print output. The `pairmode_scripts_dir` Jinja2
+  variable is already available in the template context.
+
+- **Block inventory:**
+
+  | # | Line | Function called | Module | Lines | Output |
+  |---|------|-----------------|--------|-------|--------|
+  | 1 | 66 | `select_builder_model(story_class, primary_files, protected_files)` | `model_selector` | 26 | `{model}\|{reason}` single line |
+  | 2 | 205 | `write_story_permissions(story_path, project_dir)` | `permission_scope` | 8 | none |
+  | 3 | 268 | `check_guardrail(db_path, story_id, rail, latest_tokens, multiplier)` | `effort_db` | 26 | warning to stderr if fired |
+  | 4 | 342 | `select_reviewer_model(story_class, attempt_number, phase_id, project_dir)` | `model_selector` | 16 | model (line 1), reason (line 2) |
+  | 5 | 403 | `clear_story_permissions(project_dir)` | `permission_scope` | 8 | none |
+  | 6 | 529 | `select_security_auditor_model(phase_class)` | `model_selector` | 11 | model only |
+  | 7 | 553 | `select_intent_reviewer_model(phase_class)` | `model_selector` | 11 | model only |
+  | 8 | 670 | `check_context_health(db_path, current_phase)` | `context_health` | 14 | JSON |
+
+- **CLI design: one dispatch script, 8 subcommands.** Existing scripts
+  (`story_update.py`, `record_attempt.py`) all use `click` with subcommands.
+  `flex_build.py` follows the same pattern.
+
+- **Story-spec resolution as a first-class pattern.** Blocks 1–4 all need data
+  from the current story: `story_class`, `primary_files`, `phase`. Rather than
+  requiring the orchestrator to inline those values in the command, the CLI
+  accepts `--story-id RAIL-NNN` and reads the story spec from
+  `docs/stories/{RAIL}/{STORY_ID}.md` using `schema_validator._parse_frontmatter`.
+  This brings the one-liners to a true one-line form (no inlining).
+
+- **Block 1 protected_files: accept as optional repeatable flag, default empty.**
+  The current template hardcodes the flex-specific protected files list inline.
+  In downstream projects the list differs. The CLI accepts zero-or-more
+  `--protected-file FILE` flags and defaults to an empty list, which preserves
+  all behavior (the `select_builder_model` overlap check only fires when there
+  is an intersection — empty protected list means no intersection). The
+  template one-liner omits `--protected-file` for most stories; stories that
+  genuinely touch protected files add the flags.
+
+- **Block 3 rail derivation.** `check_guardrail` needs a `rail` parameter. The
+  rail is the prefix of the story ID before the first `-` (e.g., `INFRA-131`
+  → `INFRA`). The CLI derives it from `--story-id` rather than requiring a
+  separate `--rail` flag.
+
+- **Block 3 multiplier auto-read.** The current inline block reads
+  `effort_guardrail_multiplier` from `.companion/state.json` in 8 lines of
+  error-handling Python. The CLI reads it internally (same logic, one fewer
+  runtime concern for the orchestrator).
+
+- **Blocks 6 and 7 symmetry.** Both are identical in shape: `--phase-class CLASS`
+  → one model string on stdout. Each is its own subcommand for naming clarity.
+
+- **`pairmode_scripts_dir` in the template.** The one-liners use
+  `{{ pairmode_scripts_dir }}/flex_build.py` as the script path, preserving the
+  existing Jinja2 variable usage.
+
+- **The rendered `CLAUDE.build.md` also needs updating.** flex does not bootstrap
+  itself, so its local copy is hand-maintained (as in INFRA-129). The builder
+  must apply the same substitutions to `/mnt/work/flex/CLAUDE.build.md`.
+
+- **Line-count impact.** Template goes from 745 to approximately 615 lines (~130
+  line reduction from collapsing the 8 blocks; fences and surrounding comment
+  lines remain). The cognitive load reduction is larger than the line count
+  suggests: the orchestrator no longer needs to construct inline Python with
+  correct variable values.
+
+---
+
+### Story INFRA-131 — New `skills/pairmode/scripts/flex_build.py` CLI
+
+**Rail:** INFRA | **story_class:** code
+
+#### Requires
+
+- All 8 inline `uv run python -c "..."` blocks in
+  `skills/pairmode/templates/CLAUDE.build.md.j2` at lines 66, 205, 268, 342,
+  403, 529, 553, 670 (verified in T1 recon above).
+- Called functions and their signatures (all confirmed stable):
+  - `model_selector.select_builder_model(story_class, primary_files, protected_files)` → `(str, str)`
+  - `permission_scope.write_story_permissions(story_path, project_dir)` → `None`
+  - `effort_db.check_guardrail(db_path, *, story_id, rail, latest_tokens, multiplier)` → `dict`
+  - `effort_db.resolve_effort_db_path(project_dir)` → `Path`
+  - `model_selector.select_reviewer_model(story_class, attempt_number, phase_id, project_dir)` → `(str, str)`
+  - `permission_scope.clear_story_permissions(project_dir)` → `None`
+  - `model_selector.select_security_auditor_model(phase_class)` → `(str, str)`
+  - `model_selector.select_intent_reviewer_model(phase_class)` → `(str, str)`
+  - `context_health.check_context_health(db_path, current_phase)` → `dict`
+- Story spec frontmatter fields: `id`, `rail`, `phase`, `story_class` (default
+  `"code"` when absent), `primary_files` (list, default empty when absent).
+  Parsed via `schema_validator._parse_frontmatter(text)`.
+- Story spec path convention: `docs/stories/{RAIL}/{STORY_ID}.md`
+  (e.g., `docs/stories/INFRA/INFRA-131.md`). Rail is the prefix before the
+  first `-` in the story ID.
+- `click` is available and used by all existing CLI scripts in the directory.
+- `{{ pairmode_scripts_dir }}` is the existing Jinja2 variable for the
+  pairmode scripts directory path.
+- `state.json` field `effort_guardrail_multiplier` (float, default 3.0) lives
+  at `.companion/state.json` relative to `project_dir`.
+
+#### Ensures
+
+- **New file `skills/pairmode/scripts/flex_build.py`** — a `click` CLI with
+  8 subcommands. All subcommands accept `--project-dir DIR` (default `.`).
+  The script adds `str(Path(__file__).parent)` to `sys.path` so sibling
+  modules import without a path prefix.
+
+  **Subcommand signatures and behavior:**
+
+  ```
+  flex_build.py select-builder-model
+      --story-id RAIL-NNN
+      [--protected-file FILE...]   (zero or more, default [])
+      [--project-dir DIR]
+
+      Reads story_class and primary_files from story spec.
+      Calls select_builder_model(story_class, primary_files, protected_files).
+      Output: "{model}|{reason}" on stdout (single line, pipe separator).
+  ```
+
+  ```
+  flex_build.py write-permissions
+      --story-id RAIL-NNN
+      [--project-dir DIR]
+
+      Calls write_story_permissions(story_path, project_dir).
+      No stdout output.
+  ```
+
+  ```
+  flex_build.py check-guardrail
+      --story-id RAIL-NNN
+      --tokens N
+      [--project-dir DIR]
+
+      Derives rail from story_id prefix.
+      Reads effort_guardrail_multiplier from .companion/state.json (default 3.0).
+      Calls check_guardrail(db_path, story_id, rail, latest_tokens, multiplier).
+      If result["fired"]: print result["message"] to stderr.
+      Exit code always 0.
+  ```
+
+  ```
+  flex_build.py select-reviewer-model
+      --story-id RAIL-NNN
+      --attempt N
+      [--project-dir DIR]
+
+      Reads story_class and phase from story spec.
+      Calls select_reviewer_model(story_class, attempt_number, phase_id, project_dir).
+      Output: "{model}" on line 1, "{reason}" on line 2.
+  ```
+
+  ```
+  flex_build.py clear-permissions
+      [--project-dir DIR]
+
+      Calls clear_story_permissions(project_dir).
+      No stdout output.
+  ```
+
+  ```
+  flex_build.py select-security-auditor-model
+      --phase-class CLASS
+
+      Calls select_security_auditor_model(phase_class).
+      Output: "{model}" on stdout.
+  ```
+
+  ```
+  flex_build.py select-intent-reviewer-model
+      --phase-class CLASS
+
+      Calls select_intent_reviewer_model(phase_class).
+      Output: "{model}" on stdout.
+  ```
+
+  ```
+  flex_build.py context-health
+      --phase PHASE_ID
+      [--project-dir DIR]
+
+      Calls check_context_health(db_path, current_phase).
+      Output: JSON object on stdout (json.dumps(result)).
+  ```
+
+- **`skills/pairmode/templates/CLAUDE.build.md.j2`** — all 8 inline blocks
+  replaced with one-liner calls:
+
+  Block 1 (lines 66-91 → 2 lines):
+  ```bash
+  PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py select-builder-model \
+    --story-id RAIL-NNN --project-dir .
+  ```
+
+  Block 2 (lines 205-212 → 2 lines):
+  ```bash
+  PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py write-permissions \
+    --story-id RAIL-NNN --project-dir .
+  ```
+
+  Block 3 (lines 268-293 → 2 lines):
+  ```bash
+  PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py check-guardrail \
+    --story-id RAIL-NNN --tokens 38000 --project-dir .
+  ```
+
+  Block 4 (lines 342-357 → 2 lines):
+  ```bash
+  PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py select-reviewer-model \
+    --story-id RAIL-NNN --attempt 1 --project-dir .
+  ```
+
+  Block 5 (lines 403-410 → 1 line):
+  ```bash
+  PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py clear-permissions --project-dir .
+  ```
+
+  Block 6 (lines 529-539 → 2 lines):
+  ```bash
+  PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py select-security-auditor-model \
+    --phase-class production
+  ```
+
+  Block 7 (lines 553-563 → 2 lines):
+  ```bash
+  PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py select-intent-reviewer-model \
+    --phase-class production
+  ```
+
+  Block 8 (lines 670-683 → 2 lines):
+  ```bash
+  PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py context-health \
+    --phase PHASE_ID_HERE --project-dir .
+  ```
+
+  No other content changes to `CLAUDE.build.md.j2`. Decision tables, surrounding
+  prose, and all other bash blocks are untouched.
+
+- **`/mnt/work/flex/CLAUDE.build.md`** — same 8 substitutions applied to the
+  rendered flex local copy. The rendered paths use the resolved value of
+  `{{ pairmode_scripts_dir }}` in flex's own context. The builder finds the
+  current value by checking the pairmode_scripts_dir variable in the template
+  context or inspecting how `pairmode_scripts_dir` resolves in flex's local
+  `CLAUDE.build.md` (look for the existing `{{ pairmode_scripts_dir }}` usage
+  there to find the resolved path, then use that same path in the one-liners).
+
+- **`tests/pairmode/test_flex_build.py`** (new file) — 12 test cases:
+
+  1. `select-builder-model` with minimal story spec (story_class=code,
+     1 primary_file, no protected files) → output contains `|` separator,
+     starts with `sonnet`.
+  2. `select-builder-model` with story spec having 5 primary files →
+     output contains `opus|prompted-upgrade`.
+  3. `write-permissions` with a minimal story spec containing one
+     primary_file → exits 0, no stdout, creates `.claude/story_scope.json`
+     in project tempdir.
+  4. `check-guardrail` with empty effort.db (no historical data) →
+     exits 0, no stderr output (insufficient sample, guardrail silent).
+  5. `check-guardrail` with seeded effort.db where latest_tokens exceeds
+     3× median → exits 0, stderr contains guardrail warning.
+  6. `select-reviewer-model --attempt 1` with code story → stdout line 1
+     is `sonnet`.
+  7. `select-reviewer-model --attempt 2` with code story → stdout line 1
+     is `opus` (retry upgrade).
+  8. `clear-permissions` on a tempdir with an existing `story_scope.json` →
+     exits 0, `story_scope.json` removed.
+  9. `select-security-auditor-model --phase-class production` → stdout is
+     one of the valid model names.
+  10. `select-intent-reviewer-model --phase-class production` → stdout is
+      one of the valid model names.
+  11. `context-health --phase 47` with empty effort.db → exits 0, stdout
+      is valid JSON with `recommendation` field.
+  12. `context-health --phase 47` output JSON contains `message` field with
+      a non-empty string.
+
+- **Template rendering test** — append two tests to
+  `tests/pairmode/test_templates.py` in a new class
+  `TestInfra131FlexBuildTemplate`:
+  1. Render `CLAUDE.build.md.j2` against `CLAUDE_BUILD_MD_CONTEXT` and
+     assert the rendered text contains `flex_build.py select-builder-model`.
+  2. Render and assert the rendered text does NOT contain
+     `sys.path.insert(0, ` (the old inline boilerplate is gone).
+
+#### Out of scope
+
+- Removing the `pairmode_scripts_dir` variable from the Jinja2 context.
+  It is still used in the one-liner paths.
+- Adding new functionality to the 8 delegated functions. This story is
+  CLI wrapper + template substitution only.
+- Downstream propagation of `CLAUDE.build.md`. The pattern is the same
+  as T6/CER-027: operator runs `pairmode_sync sync-build --apply` after
+  INFRA-131 merges. A runbook is not required here since the CER-027
+  downstream propagation runbook already covers the sync-build pass.
+- Handling `story_class` absent from story frontmatter in the CLI. The
+  CLI uses `"code"` as the default (matching `schema_validator`'s
+  `DEFAULT_STORY_CLASS`).
+- Error reporting when the story file is not found. The CLI exits non-zero
+  with a click error; the orchestrator is expected to pass valid story IDs.
