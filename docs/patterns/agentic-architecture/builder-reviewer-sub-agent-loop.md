@@ -117,7 +117,7 @@ The orchestrator is the only participant that persists across the full loop. The
 | Reviewer sub-agent | Reads the story spec, diffs the working tree, runs the review checklist against the spec (not opinion), runs the test suite (BUILD GATE), and commits or reverts. | A `claude-sonnet-4-6` subagent spawned after the builder; enforces the checklist in `CLAUDE.md` against CER-028's acceptance criteria |
 | BUILD GATE | The test suite invocation that the reviewer runs before committing. A story is not complete until the BUILD GATE passes. The gate command is declared in the project's build instructions and is the same command for every story. | `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q` — flex's BUILD GATE |
 | Loop-breaker | A third sub-agent invoked only after two consecutive FAIL outcomes on the same story. Its sole job is cold-eyes diagnosis: ignore both previous approaches, analyse the error from first principles, and propose one alternative. It does not implement. | Invoked with `LOOP-BREAKER: [reviewer finding] | FILE: [file:line] | TRIED: [what failed]` |
-| Effort DB | A SQLite database (`effort.db`) tracking token cost, duration, model, outcome, and story metadata for every builder and reviewer invocation. Used by the context budget hook to project whether the next sub-agent spawn will fit within the session context window. | `/mnt/work/flex/.companion/effort.db` — queried by `context_budget.py` before each Task spawn |
+| Effort DB | A SQLite database (`effort.db`) tracking token cost, duration, model, outcome, and story metadata for every builder and reviewer invocation. Used by the context budget hook to project whether the next sub-agent spawn will fit within the session context window. | `.companion/effort.db` — queried by `context_budget.py` before each Task spawn |
 
 ---
 
@@ -291,6 +291,7 @@ The `rail` field groups stories by architectural domain (e.g., `INFRA`, `PATTERN
 | `hub-and-spoke-orchestration` | The orchestrator in this pattern is the hub; the builder and reviewer are spokes. `hub-and-spoke-orchestration` describes the routing architecture; this pattern describes the spec-gated QA discipline running on top of it. They are composable. |
 | `quality-gate-checkpoint` | Superficially similar name, different scope. `quality-gate-checkpoint` addresses a single agent self-reviewing a draft artifact (e.g., an email) before human approval — the agent checks its own work against structural rules before presenting. This pattern addresses two *separate* sub-agents running a closed software development loop where the spec is the sole authority — the reviewer is independent of the builder, and the loop exits only when the reviewer commits. The distinction matters: self-review can still reflect the builder's taste; this pattern's independence guarantee cannot. |
 | `runbook-driven-agent-cadence` | Both patterns separate the spec (what to do) from the execution (doing it). In `runbook-driven-agent-cadence`, the spec is an operational runbook describing recurring actions. In this pattern, the spec is a story file describing a one-time software change with binary acceptance criteria. The loop mechanics (spawn builder, spawn reviewer) are specific to this pattern; runbook-driven cadence does not require a reviewer. |
+| `canonical-source-over-recall` | Sub-agent pass-by-reference is a direct instantiation of this pattern: the orchestrator passes a file path rather than a copied value so the sub-agent reads the canonical file at spawn time rather than inheriting the orchestrator's potentially stale context. |
 
 ---
 
@@ -302,7 +303,7 @@ The `rail` field groups stories by architectural domain (e.g., `INFRA`, `PATTERN
 | **Production Environment** | macOS/Linux, Claude Code CLI, Anthropic Claude (Sonnet/Opus), Python/uv, SQLite |
 | **First Published** | 2026-06-01 |
 | **Last Updated** | 2026-06-01 |
-| **Cloud Nirvana Event** | N/A |
+| **Cloud Nirvana Event** | — |
 | **License** | CC BY 4.0 |
 
 ---

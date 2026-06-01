@@ -113,7 +113,7 @@ _The fork ceremony is not optional. A phase doc with silently abandoned `planned
 
 ## How It Works
 
-The following rule is the canonical enforcement authority for this pattern. It lives in the global `CLAUDE.md` under `## Phase continuity` and applies to every project and every session:
+The rule governing this pattern:
 
 ---
 
@@ -224,7 +224,7 @@ A forked phase doc opens with:
 
 ### Variations
 
-- **Resume marker variant:** For context-clear scenarios, the orchestrator writes a `## Resume marker` block in the phase doc before the context is cleared. This block captures the full in-flight state — decisions made, tracks completed, open questions, recommended next step — in prose form. The resume marker is a superset of the Stories table; it preserves intent that doesn't fit in a state field. See Phase 47 lines 9–58 for a production example.
+- **Resume marker variant:** For context-clear scenarios, the orchestrator writes a `## Resume marker` block in the phase doc before the context is cleared. This block captures the full in-flight state — decisions made, tracks completed, open questions, recommended next step — in prose form. The resume marker is a superset of the Stories table; it preserves intent that doesn't fit in a state field. In the flex project's Phase 47, a context clear occurred mid-phase at 155k tokens — itself an instance of the CER-027 failure mode being addressed in that same phase. The resume marker recorded the state of all seven active work tracks, the CER backlog entries, two branching paths forward with a recommendation, and which artifacts were on disk vs. recoverable. The fresh session resumed without re-deriving any context and resolved the CER-027 track first as recommended.
 
 - **Rail-partitioned Stories table:** In phases with many stories across multiple rails, the Stories table can be partitioned by rail with sub-headers. Each rail maintains its own story number sequence (INFRA-NNN, PATTERNS-NNN). Rail partitioning makes it easy to see at a glance which architectural domain has open work.
 

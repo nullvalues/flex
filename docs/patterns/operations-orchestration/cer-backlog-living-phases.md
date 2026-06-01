@@ -120,7 +120,7 @@ graph TD
 
 ## How It Works
 
-The following policies are the canonical enforcement authorities for this pattern. They live in the global `CLAUDE.md` under `## Living backlog phases` and `## Backlog grooming on every cold-eyes review` and apply to every project and every session:
+The rule governing this pattern:
 
 ---
 

@@ -86,7 +86,7 @@ _An exception is not a loophole — it is an audited decision. The spec must nam
 |------------|------|---------|
 | **Story spec** | The detailed spec for a single story (phase (a scoped unit of work), story, acceptance criteria, primary files). The schema gate reads this to determine whether a new schema object is introduced and whether an exception is documented. | `docs/stories/INFRA/INFRA-127.md` |
 | **Phase doc** | The living manifest listing all stories in a phase with their states (`planned`, `in_progress`, `complete`, `deferred`). The gate scans remaining stories in the phase doc to find any management surface story. | `docs/phases/phase-47.md` |
-| **Pre-story schema gate** | The mechanical enforcement layer in `CLAUDE.build.md` (lines 134–176). Runs once per story before the builder sub-agent is spawned. The orchestrator follows the gate logic and blocks or proceeds based on the result. | `CLAUDE.build.md` — "Pre-story schema gate" section |
+| **Pre-story schema gate** | The orchestrator's build instructions, under the 'Pre-story schema gate' section. Runs once per story before the builder sub-agent is spawned. The orchestrator follows the gate logic and blocks or proceeds based on the result. | `CLAUDE.build.md` — "Pre-story schema gate" section |
 | **Management surface story** | A story within the same phase that provides a route, page, CLI command, or UI component where a human can read, create, update, or delete the data without a database console. CRUD (Create, Read, Update, Delete) is the standard. | An `AdminRecommendationsTable` page story in the same phase as the `recommendations` table migration |
 | **Exception acknowledgment** | An explicit note in the story spec naming which of the three accepted exception categories applies and justifying the absence of a UI story. Absence without acknowledgment is not acceptable. | A spec note: "Exception: append-only audit log. No human-editable fields. Observable via existing audit route." |
 | **Checkpoint gate** | The final gate before a phase is tagged as complete. Verifies that every planned story is either `complete` or formally deferred, and that no schema-without-UI slipped through without an acknowledged exception. Enforced by the checkpoint sequence in `CLAUDE.build.md`. | `cp47-pairmode-methodology-consolidation` — the Phase 47 checkpoint tag |
@@ -96,7 +96,7 @@ _An exception is not a loophole — it is an audited decision. The spec must nam
 
 ## How It Works
 
-The following rule is the canonical authority for this pattern. It lives in the global `CLAUDE.md` under `## Conceptual rebuild completeness` and applies to every project and every session:
+The rule governing this pattern:
 
 ---
 
@@ -123,7 +123,7 @@ The following rule is the canonical authority for this pattern. It lives in the 
 
 ---
 
-The mechanical enforcement of this rule lives in `CLAUDE.build.md` under the "Pre-story schema gate" section (lines 134–176). That gate is the operational implementation: the orchestrator runs it once per story before spawning the builder sub-agent. It encodes the three accepted exception categories verbatim, and its block message (`PRE-STORY BLOCK`) names the schema object and the two resolution options (add a UI story or document an exception). The gate is not a reminder — it is a hard stop.
+The mechanical enforcement of this rule lives in the orchestrator's build instructions under the "Pre-story schema gate" section. That gate is the operational implementation: the orchestrator runs it once per story before spawning the builder sub-agent. It encodes the three accepted exception categories verbatim, and its block message (`PRE-STORY BLOCK`) names the schema object and the two resolution options (add a UI story or document an exception). The gate is not a reminder — it is a hard stop.
 
 Operationally, the orchestrator follows these numbered steps:
 

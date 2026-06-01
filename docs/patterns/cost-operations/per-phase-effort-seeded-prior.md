@@ -1,6 +1,6 @@
 # Per-Phase Effort.db with Seeded Prior
 
-> **One-line intent:** A per-phase SQLite database of token-cost observations bootstraps from a cross-project seed file (524 attempts: 261 builder, 263 reviewer; builder median 53,416 tokens; reviewer median 49,499 tokens), then switches to the per-phase median once ≥5 attempts accumulate — so every new phase has a defensible cost estimate from day one, and the estimate improves automatically as the phase builds.
+> **One-line intent:** A per-phase SQLite database of token-cost observations bootstraps from a cross-project seed file (calibrated for a single-developer agile project; replaceable with any corpus), then switches to the per-phase median once ≥5 attempts accumulate — so every new phase has a defensible cost estimate from day one, and the estimate improves automatically as the phase builds.
 
 ## Pattern in 60 Seconds
 
@@ -34,8 +34,6 @@ _The entire pattern distilled into something anyone can read in under a minute. 
 
 ## Motivation
 
-_A concrete scenario that illustrates the problem. Tell a short story. Make the reader say "I've been there."_
-
 A team adopts the pairmode methodology for a new project. They set the context budget threshold to 120,000 tokens — "because that's what we used on the last project." The previous project used Sonnet for all sub-agents. This project uses Opus. Opus burns roughly three times the tokens per story. By story 7 of the first phase (12 stories planned), the context window has hit 140,000 tokens. The Claude Code CLI compacts mid-phase, silently dropping the orchestrator's in-flight knowledge of which stories are complete and which are in progress. The team spends two hours reconstructing state from git log.
 
 The root cause is that the threshold was calibrated to the wrong project. The team had no mechanism to import knowledge from previous work, and no feedback loop to improve the estimate as the phase progressed.
@@ -63,15 +61,13 @@ Do NOT use this pattern when:
 
 ## Structure
 
-_Visual representation of the pattern using Mermaid diagrams._
-
 ```mermaid
 graph TD
     A[New phase starts] --> B[Load effort.db for current phase]
     B --> C{N attempts with\nnon-null tokens_total?}
     C -- "N < 5" --> D[Use seed prior\nfrom effort_baseline.json]
     C -- "N >= 5" --> E[Compute per-phase median\nof all recorded attempts]
-    D --> F[Compute context_budget_threshold\n= threshold × 1 + overrun_pct]
+    D --> F[Compute context_budget_threshold\n= threshold × (1 + overrun_pct)]
     E --> F
     F --> G{Pre-spawn check:\ncurrent + expected > ceiling?}
     G -- No --> H[Spawn builder or reviewer sub-agent]
@@ -190,8 +186,6 @@ The seed file carries role-stratified statistics. `source_projects` is an empty 
 ---
 
 ## Implementation Notes
-
-_Practical guidance for teams adopting this pattern._
 
 ### Variations
 
