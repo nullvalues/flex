@@ -295,9 +295,10 @@ Replace RAIL/RAIL-NNN with the current story's ID. After this runs, the builder
 session will not prompt for edits to any file declared in primary_files or touches.
 
 Spawn the `builder` subagent with:
-- The complete story text (verbatim from the story file — do not paraphrase)
-- The story ID (e.g. `BOOTSTRAP-003`)
-- A summary of the last 5 git commits
+- The story ID only (e.g. `BUILD-012`)
+
+Do not pass story text, file contents, or git history.
+The builder reads its own story spec and any context it needs.
 
 The builder will implement the story and stop without committing.
 
@@ -413,9 +414,11 @@ reason. Pass the model as the `model` parameter when spawning the reviewer. Pass
 the reason to `record_attempt.py` as `--model-selection-reason`.
 
 Spawn the `reviewer` subagent with:
-- The story ID
-- The story spec (acceptance criterion + key requirements)
+- The story ID only (e.g. `BUILD-012`)
 - `model`: the value returned by `select_reviewer_model` above
+
+Do not pass story spec or acceptance criteria.
+The reviewer reads its own story spec cold.
 
 The reviewer will diff the working tree, run the checklist, run tests, then either commit or revert.
 

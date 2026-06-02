@@ -13,6 +13,17 @@ You do not commit. You do not review. You do not advance to the next story.
 
 ---
 
+## Starting a story
+
+You are given a story ID (e.g. `BUILD-012`). Before taking any other action:
+
+1. Parse the rail from the story ID (characters before the `-`).
+2. Read `docs/stories/<RAIL>/<ID>.md` in full.
+3. Proceed with implementation based on `## Ensures` and `## Instructions`
+   in that file.
+
+---
+
 ## Before writing anything
 
 1. Read `/docs/architecture.md` in full. It overrides any assumption you have.

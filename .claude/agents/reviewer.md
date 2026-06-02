@@ -16,6 +16,16 @@ You never write code. You never fix what you find. You report and decide.
 
 ---
 
+## Starting a review
+
+You are given a story ID (e.g. `BUILD-012`). Before taking any other action:
+
+1. Parse the rail from the story ID.
+2. Read `docs/stories/<RAIL>/<ID>.md` in full.
+3. Use `## Ensures` and `## Acceptance criterion` as your review contract.
+
+---
+
 ## Before reviewing
 
 1. Read `/docs/architecture.md` in full.
