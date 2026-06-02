@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp53-phase52-fixes-story-cost-estimate
+
+**Phase:** 53 — Phase 52 cold-eyes fixes + story cost estimation
+**Tag command:** `git tag cp53-phase52-fixes-story-cost-estimate && git push origin cp53-phase52-fixes-story-cost-estimate`
+**Acceptance:** Seven stories. `phase_new.py` invocation fixed to pass `--phase-id`, `--title`, `--goal`; Stories-table column corrected to `ID | Title | Status` (BUILD-018). Verbose `BUILT`/`REVIEW PASS|FAIL` output blocks removed from builder/reviewer templates; commit convention aligned to `feat(story-RAIL-NNN):` (BUILD-019). Reviewer-class agents (`reviewer`, `loop-breaker`, `security-auditor`, `intent-reviewer`) gain `tools: [Read, Bash, Glob, Grep]` frontmatter in both live files and `.j2` templates; PASS-branch `git add` scoped to story's `primary_files`/`touches` (BUILD-020). Pre-reviewer commit excludes `docs/stories/` so reviewer can diff builder-edited story files (BUILD-021). `flex_build.py` gains `write-attempt-count`, `read-attempt-count`, `clear-attempt-count` subcommands; orchestrator wired to restore/persist/clear counter across `/clear` boundaries (BUILD-022). `flex_build.py story-cost-estimate` subcommand queries effort.db for median PASS-outcome tokens and surfaces it at the context gate; pipeline integrity audit adds `test_record_attempt_usage_parsing.py` (INFRA-135). Proposed-phase naming convention (`phase-proposed-<kebab-name>-YYYYMMDD-NNN.md`) canonized in `CLAUDE.build.md` and `index.md.j2` (BUILD-023). 1891 tests pass.
+
+---
+
 ## cp52-lean-orchestrator-spec-workflow
 
 **Phase:** 52 — Lean orchestrator and spec workflow

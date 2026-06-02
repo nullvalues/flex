@@ -23,7 +23,7 @@ Phase 52 shipped the lean orchestrator and spec workflow, but cold-eyes review s
 | BUILD-021 | Pre-reviewer commit scope: stop pre-staging `docs/stories/` | complete |
 | BUILD-022 | Durable per-story attempt counter via `flex_build.py` + orchestrator instructions | complete |
 | INFRA-135 | Effort-tracking integrity audit + `flex_build.py story-cost-estimate` subcommand | complete |
-| BUILD-023 | Proposed-phase naming convention — canon and syncable policy | planned |
+| BUILD-023 | Proposed-phase naming convention — canon and syncable policy | complete |
 
 ## Schema delivery
 

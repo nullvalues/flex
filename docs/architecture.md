@@ -35,7 +35,7 @@ flex/
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
-        flex_build.py             ← CLI wrapping 11 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, check-guardrail, context-health, check-stubs, current-phase, transition-era); replaces inline python -c blocks in CLAUDE.build.md.j2
+        flex_build.py             ← CLI wrapping 15 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, check-guardrail, context-health, check-stubs, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate); replaces inline python -c blocks in CLAUDE.build.md.j2
         refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
@@ -244,8 +244,9 @@ sidebar still captures decisions; the spec still grows).
 
 **Reviewer-class agent tool restriction (build-loop safety).** Reviewer-class agents
 (`reviewer`, `intent-reviewer`, `loop-breaker`, `security-auditor`) are restricted to
-read-only tools plus `Bash` (`security-auditor` has no `Bash` since it never runs
-commands). This is one of two layers protecting the working tree: tool restriction
+read-only tools plus `Bash` (all four reviewer-class agents declare
+`tools: [Read, Bash, Glob, Grep]`; Bash is needed for test runs and git operations in
+the reviewer and loop-breaker; security-auditor includes it for consistency). This is one of two layers protecting the working tree: tool restriction
 prevents the reviewer from backdooring a fix into the code instead of reverting it; the
 orchestrator's pre-reviewer commit discipline (committing story files and running
 `git checkout -- lessons/` before the reviewer fires) prevents accidental erasure of
@@ -732,6 +733,13 @@ Fields:
   The key is created on first `register` call when absent; it is never written by
   `bootstrap.py`. Each entry is a resolved absolute path string.
 
+`.companion/attempt_counter.json` is an ephemeral single-record file written by
+`flex_build.py write-attempt-count` and read by `flex_build.py read-attempt-count`.
+Schema: `{"story_id": "RAIL-NNN", "attempt_count": N}`. It stores the current attempt
+number for the active story so a `/clear` mid-phase does not reset the counter. Cleared
+by `flex_build.py clear-attempt-count` on reviewer PASS. Covered by the `.companion/`
+`.gitignore` rule — never committed.
+
 Pairmode is considered active when `.claude/settings.deny-rationale.json` exists in the
 project root. The helper `skills/pairmode/scripts/story_context.py` provides:
 - `is_pairmode_active(project_dir)` — returns True when the deny-rationale file is present.
@@ -975,6 +983,14 @@ for shared utils" rule. It must be preserved when either module is modified.
 ## Phase documentation policy
 
 Each phase gets its own file: `docs/phases/phase-N.md`.
+
+**Proposed phases** — A phase conceived before it is literally the next build target uses
+a proposed filename: `docs/phases/phase-proposed-<kebab-name>-YYYYMMDD-NNN.md`. Proposed
+phases do not appear in the main phase table in `docs/phases/index.md`; they appear under
+a `## Proposed phases (not yet sequenced)` section. When sequenced, stories are absorbed
+into the next available sequential phase, the proposed file is deleted via `git rm`, and
+the row is removed from the index. See `CLAUDE.build.md` § Proposed phases for the full
+sequencing workflow.
 
 - New phases are always created as `docs/phases/phase-N.md` using `phase_new.py`.
 - The monolithic `docs/phase-prompts.md` is the legacy format for Phases 1–7 (flex repo only).
