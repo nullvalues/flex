@@ -301,8 +301,9 @@ The builder reads its own story spec and any context it needs.
 
 The builder will implement the story and stop without committing.
 
-After the builder returns, parse its tool-result for the `<usage>` block and
-record the attempt. **The `<usage>` block is appended automatically by the
+After the builder returns, parse `BUILD-RESULT`, `SUMMARY`, and the `<usage>`
+block from the builder's return. Discard all other builder output.
+**The `<usage>` block is appended automatically by the
 Claude Code runtime to every Agent tool result** — the agent template does not
 need to instruct emission. The format is:
 
@@ -312,7 +313,7 @@ tool_uses: M
 duration_ms: K</usage>
 ```
 
-Extract `total_tokens`, `tool_uses`, and `duration_ms` from those three fields,
+Extract `total_tokens`, `tool_uses`, and `duration_ms` from the `<usage>` block,
 then invoke `record_attempt.py` with `--agent-role builder`. The `--model` value
 is inferred from the agent definition (e.g. `claude-sonnet-4-5` for the builder),
 or from any `model` override the orchestrator passed to the Agent tool.
@@ -413,11 +414,14 @@ The reviewer reads its own story spec cold.
 
 The reviewer will diff the working tree, run the checklist, run tests, then either commit or revert.
 
-After the reviewer returns, parse its final message for the same `<usage>` block
-(`total_tokens`, `tool_uses`, `duration_ms`) and record the attempt with
-`--agent-role reviewer`. Pass `--outcome PASS` if the reviewer committed, or
-`--outcome FAIL` if it reverted. As with the builder step, `record_attempt.py`
-is a silent no-op when effort tracking is disabled, so the call is unconditional.
+After the reviewer returns, parse `REVIEW-RESULT`, `SUMMARY`, and the `<usage>`
+block from the reviewer's return. `REVIEW-RESULT: PASS` means committed;
+`REVIEW-RESULT: FAIL` means reverted. Discard all other reviewer output.
+Extract `total_tokens`, `tool_uses`, and `duration_ms` from the `<usage>` block
+and record the attempt with `--agent-role reviewer`. Pass `--outcome PASS` if
+`REVIEW-RESULT: PASS`, or `--outcome FAIL` if `REVIEW-RESULT: FAIL`. As with the
+builder step, `record_attempt.py` is a silent no-op when effort tracking is
+disabled, so the call is unconditional.
 
 Capture the reason printed by `select_reviewer_model` (second output line) into a
 shell variable before spawning the reviewer so you can pass it here:

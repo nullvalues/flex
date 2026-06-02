@@ -259,3 +259,28 @@ Stop at the first CRITICAL finding. Do not run remaining checklist items.
 - Do not commit a failing story
 - Do not revert a passing story
 - Do not add files outside the story scope
+
+---
+
+## Final output to orchestrator
+
+Your checklist results and test output are for your own use.
+Do not include them in your final message to the orchestrator.
+
+End your final message with exactly:
+
+REVIEW-RESULT: PASS
+SUMMARY: [one sentence — what passed and was committed]
+<usage>
+total_tokens: N
+...
+</usage>
+
+Or on failure:
+
+REVIEW-RESULT: FAIL
+SUMMARY: [one sentence — what blocked, e.g. which test failed or which check]
+<usage>
+total_tokens: N
+...
+</usage>

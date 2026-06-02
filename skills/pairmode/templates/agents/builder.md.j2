@@ -99,4 +99,20 @@ If you encounter an error you cannot resolve after two attempts:
 
 Then stop. The orchestrator will invoke the loop-breaker.
 
+---
+
+## Final output to orchestrator
+
+Your checklist, implementation notes, and test output are for your own use.
+Do not include them in your final message to the orchestrator.
+
+End your final message with exactly:
+
+BUILD-RESULT: DONE
+SUMMARY: [one sentence describing what was implemented]
+<usage>
+total_tokens: N
+...
+</usage>
+
 {# LESSON L004: Fix builder.md.j2: replace '{{ build_command }}' in the Python standards prose with the literal string 'uv run'. Use build_command only in the build-gate verification block. #}
