@@ -2,7 +2,7 @@
 id: BUILD-023
 rail: BUILD
 title: "Proposed-phase naming convention — canon and syncable policy"
-status: planned
+status: complete
 phase: "53"
 story_class: methodology
 primary_files:
