@@ -2,7 +2,7 @@
 id: BUILD-019
 rail: BUILD
 title: "Remove verbose return blocks and align commit-message convention in builder/reviewer templates"
-status: planned
+status: complete
 phase: "53"
 story_class: methodology
 primary_files:
