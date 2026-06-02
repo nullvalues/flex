@@ -434,5 +434,39 @@ def cmd_check_stubs(project_dir: str) -> None:
     sys.exit(1 if stub_count > 0 else 0)
 
 
+@flex_build.command("transition-era")
+@click.option("--name", default=None, help="New era name (required in --yes mode).")
+@click.option("--intent", default="", help="Strategic intent for the new era.")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+@click.option(
+    "--yes",
+    is_flag=True,
+    default=False,
+    help="Skip interactive prompts; --name must be provided.",
+)
+def cmd_transition_era(
+    name: str | None,
+    intent: str,
+    project_dir: str,
+    yes: bool,
+) -> None:
+    """Formally close the current active era and open the next one."""
+    from era_transition import era_transition_cli  # noqa: PLC0415
+
+    sys.exit(
+        era_transition_cli(
+            project_dir=project_dir,
+            name=name,
+            intent=intent,
+            yes=yes,
+        )
+    )
+
+
 if __name__ == "__main__":
     flex_build()
