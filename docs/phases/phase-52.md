@@ -31,7 +31,7 @@ Exit criteria:
 
 | ID | Title | Status |
 |----|-------|--------|
-| BUILD-011 | Upfront context elimination | planned |
+| BUILD-011 | Upfront context elimination | complete |
 | BUILD-012 | Story-ID-only spawn protocol | planned |
 | BUILD-013 | Minimal agent return surface | planned |
 | BUILD-014 | /context inline gate | planned |

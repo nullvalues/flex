@@ -2,7 +2,7 @@
 id: BUILD-011
 rail: BUILD
 title: Upfront context elimination
-status: planned
+status: complete
 phase: "52"
 story_class: methodology
 primary_files:
