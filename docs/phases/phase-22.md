@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 22: Per-story compute-effort tracking
 
 ← [Phase 21: Methodology refinement and companion/pairmode positioning](phase-21.md)

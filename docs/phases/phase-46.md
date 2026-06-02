@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 46: Local model infrastructure
 
 ← [Phase 45: Deterministic orchestrator offload](phase-45.md)

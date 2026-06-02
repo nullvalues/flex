@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 33: Build loop portability and sibling catch-up
 
 ← [Phase 32: Story-as-contract and story_context CLI](phase-32.md)

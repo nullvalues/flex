@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 16: Build loop integration and rail-aware review
 
 ← [Phase 15: Rails, eras, and story structure — foundation](phase-15.md)

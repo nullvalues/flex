@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 11: Brief hygiene and reconstruction workflow
 
 ← [Phase 10: Ideology Capture Infrastructure](phase-10.md)

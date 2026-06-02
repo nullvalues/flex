@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 ## Phase 10 — Ideology Capture Infrastructure
 
 Pairmode's highest-value use is as an ideology capture system: a way to preserve the intent of

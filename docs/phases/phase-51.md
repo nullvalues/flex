@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 51: Stub gate and phase-doc scan enforcement
 
 ← [Phase 50: Phase/story spec boundary policy](phase-50.md)

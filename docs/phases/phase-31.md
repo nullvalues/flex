@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 31: Discoverability and status panel
 
 ← [Phase 30: Hook security fix and sync tooling gaps](phase-30.md)

@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 38: Data quality and portability cleanup
 
 ← [Phase 37: Builder model-selection tuning + token-direction recording](phase-37.md)

@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 35: Rename anchor → flex
 
 ← [Phase 34: Checkpoint context health report](phase-34.md)

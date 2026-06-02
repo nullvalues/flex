@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 14: Reconstruction agent tooling
 
 ← [Phase 13: CER cleanup and end-to-end reconstruction verification](phase-13.md)

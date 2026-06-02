@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 30: Hook security fix and sync tooling gaps
 
 ← [Phase 29: Project drift detection and promotion workflow](phase-29.md)

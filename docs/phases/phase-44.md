@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 44: Fix `sync-agents` silent rendering failure
 
 ← [Phase 43: Replace DB-based context budget gate with orchestrator context check](phase-43.md)

@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 39: Context budget check
 
 ← [Phase 38: Data quality and portability cleanup](phase-38.md)

@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 12: Reconstruction seeding and comparison scaffolding
 
 ← [Phase 11: Brief hygiene and reconstruction workflow](phase-11.md)

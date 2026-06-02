@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 50: Phase/story spec boundary policy
 
 ← [Phase 49: Observability SPA](phase-49.md)

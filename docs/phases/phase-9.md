@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 ## Phase 9 — Bug fixes and architectural cleanup
 
 Five targeted fixes identified at the Phase 8 checkpoint: one dead-code removal, two cer.py

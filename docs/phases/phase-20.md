@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 20: PR readiness — documentation, pipe clarity, contribution packaging
 
 ← [Phase 19: Test coverage and integration verification](phase-19.md)

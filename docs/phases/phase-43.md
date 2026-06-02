@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 43: Replace DB-based context budget gate with orchestrator context check
 
 ← [Phase 42: Context budget session-relative token tracking](phase-42.md)

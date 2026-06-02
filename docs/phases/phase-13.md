@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 13: CER cleanup and end-to-end reconstruction verification
 
 ← [Phase 12: Reconstruction seeding and comparison scaffolding](phase-12.md)

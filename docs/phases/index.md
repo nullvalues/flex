@@ -48,8 +48,20 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 46 | Local model infrastructure | complete | [phase-46.md](phase-46.md) · cp46-local-model-infrastructure |
 | 47 | Pair-mode methodology consolidation | complete | [phase-47.md](phase-47.md) · cp47-pairmode-methodology-consolidation |
 | 48 | Open-patterns publication initiative | complete | [phase-48.md](phase-48.md) · cp48-open-patterns-publication |
-| 49 | Observability SPA (sidebar replacement) | anchor | [phase-49.md](phase-49.md) |
 | 50 | Phase/story spec boundary policy | complete | [phase-50.md](phase-50.md) · cp50-phase-story-boundary-policy |
 | 51 | Stub gate and phase-doc scan enforcement | complete | [phase-51.md](phase-51.md) · cp51-stub-gate-enforcement |
 | 52 | Lean orchestrator and spec workflow | complete | [phase-52.md](phase-52.md) · cp52-lean-orchestrator-spec-workflow |
 | 53 | Phase 52 cold-eyes fixes + story cost estimation | planned | [phase-53.md](phase-53.md) |
+
+---
+
+## Proposed phases (not yet sequenced)
+
+Phases conceived before they enter the build queue are stored as
+`phase-proposed-<name>-YYYYMMDD-NNN.md`. They carry no sequential number
+until sequenced. When sequenced, their stories are absorbed into the next
+available phase and the proposed file is deleted (git history records the transit).
+
+| Proposed file | Title | Era |
+|---------------|-------|-----|
+| [phase-proposed-observability-spa-20260602-001.md](phase-proposed-observability-spa-20260602-001.md) | Observability SPA (sidebar replacement) | 002 |

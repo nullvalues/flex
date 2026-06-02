@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 25: Backlog remediation and cross-project agent sync
 
 ← [Phase 24: Data-defensible model rebalance refinement](phase-24.md)

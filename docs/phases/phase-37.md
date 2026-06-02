@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 37: Builder model-selection tuning + token-direction recording
 
 ← [Phase 36: `/flex:pairmode migrate-from-anchor`](phase-36.md)

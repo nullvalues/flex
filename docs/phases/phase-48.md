@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 48: Open-patterns publication initiative
 
 ← [Phase 47: Pair-mode methodology consolidation](phase-47.md)

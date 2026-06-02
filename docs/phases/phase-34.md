@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 34: Checkpoint context health report
 
 ← [Phase 33: Build loop portability and sibling catch-up](phase-33.md)

@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 47: Pair-mode methodology consolidation
 
 ← [Phase 46: Local model infrastructure](phase-46.md)

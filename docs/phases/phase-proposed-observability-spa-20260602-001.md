@@ -1,12 +1,16 @@
-# flex — Phase 49: Observability SPA (sidebar replacement)
+---
+era: "002"
+---
 
-← [Phase 48: Open-patterns publication initiative](phase-48.md)
+# flex — Proposed: Observability SPA (sidebar replacement)
+
+**Proposed:** 2026-06-02. Era 002 scope. Not yet sequenced into the build queue.
+When sequenced, stories will be absorbed into the next available sequential
+phase and this file will be deleted (git history preserves the transit).
 
 **Status:** anchor only, scaffolded 2026-05-29. **No stories, no scope decisions
 yet.** Flesh out in plan mode before any spec lands. Do not pick up before
-Phase 47 checkpoints; depends on Phase 47 INFRA-127 state.json fields. Phase
-number is provisional — both Phase 48 and this phase may renumber if more
-urgent work preempts.
+Phase 47 checkpoints; depends on Phase 47 INFRA-127 state.json fields.
 
 **Parent phase:** Phase 47 (no deferred stories; this is the planned
 follow-on to the sidebar-deprecation context recorded in Phase 47 CER-027

@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 42: Context budget session-relative token tracking
 
 ← [Phase 41: Re-frame docs around pairmode as the lead capability](phase-41.md)

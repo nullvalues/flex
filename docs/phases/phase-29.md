@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 29: Project drift detection and promotion workflow
 
 ← [Phase 28: CER backlog remediation (LOW items)](phase-28.md)

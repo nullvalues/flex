@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 32: Story-as-contract and story_context CLI
 
 ← [Phase 31: Discoverability and status panel](phase-31.md)

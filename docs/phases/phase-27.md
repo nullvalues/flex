@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 27: Auth check per-story placement fix
 
 ← [Phase 26: Build loop retry automation + auth policy canonization](phase-26.md)

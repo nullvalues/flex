@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 40: Pre-story schema gate
 
 ← [Phase 39: Context budget check](phase-39.md)

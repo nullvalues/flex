@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 18: Missing tooling — story lifecycle, overrides, --yes, orchestrator clarity
 
 ← [Phase 17: Correctness — fix all known bugs](phase-17.md)

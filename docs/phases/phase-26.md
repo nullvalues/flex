@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 26: Build loop retry automation + auth policy canonization
 
 ← [Phase 25: Backlog remediation and cross-project agent sync](phase-25.md)

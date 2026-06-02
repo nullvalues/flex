@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 52: Lean orchestrator and spec workflow
 
 ← [Phase 51: Stub gate and phase-doc scan enforcement](phase-51.md)
@@ -37,6 +41,6 @@ Exit criteria:
 | BUILD-014 | /context inline gate | complete |
 | BUILD-015 | `spec next phase` orchestrated workflow | complete |
 | BUILD-016 | Bootstrap era strategic intent prompt | complete |
-| BUILD-017 | Formal era transition command | planned |
+| BUILD-017 | Formal era transition command | complete |
 
 Tag (on ship): `cp52-lean-orchestrator-spec-workflow`

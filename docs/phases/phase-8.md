@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 ## Phase 8 — Sync confirmation, template coherence, and tooling bug fixes
 
 Cold-eyes review after Phase 7 dogfooding identified four categories of defect: (1) sync.py

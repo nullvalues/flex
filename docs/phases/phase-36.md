@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 36: `/flex:pairmode migrate-from-anchor`
 
 ← [Phase 35: Project rename to flex](phase-35.md)

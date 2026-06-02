@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 41: Re-frame docs around pairmode as the lead capability
 
 ← [Phase 40: Pre-story schema gate](phase-40.md)

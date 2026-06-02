@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 23: Project drift detection and promotion workflow
 
 ← [Phase 22: Per-story compute-effort tracking](phase-22.md)

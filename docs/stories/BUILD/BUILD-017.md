@@ -2,7 +2,7 @@
 id: BUILD-017
 rail: BUILD
 title: Formal era transition command
-status: planned
+status: complete
 phase: "52"
 story_class: code
 primary_files:

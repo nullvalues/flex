@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 19: Test coverage and integration verification
 
 ← [Phase 18: Missing tooling](phase-18.md)

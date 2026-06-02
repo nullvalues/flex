@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 45: Deterministic orchestrator offload
 
 ← [Phase 44: Fix `sync-agents` silent rendering failure](phase-44.md)

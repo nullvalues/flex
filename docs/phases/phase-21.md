@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 21: Methodology refinement and companion/pairmode positioning
 
 ← [Phase 20: PR readiness — documentation, pipe clarity, contribution packaging](phase-20.md)

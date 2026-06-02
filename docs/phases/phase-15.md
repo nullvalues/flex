@@ -1,3 +1,7 @@
+---
+era: "001"
+---
+
 # flex — Phase 15: Rails, eras, and story structure — foundation
 
 ← [Phase 14: Reconstruction agent tooling](phase-14.md)
