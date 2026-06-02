@@ -21,8 +21,11 @@ Exit criteria:
   `<usage>` block
 - `/context` check fires inline before each story spawn; over threshold stops
   and prompts user to `/clear` and resume
-- `"spec next phase [intent]"` trigger produces committed phase + story spec
-  files and reports ready for the build loop
+- `"spec next phase [intent]"` trigger shows a confirm gate, then produces
+  committed phase + story spec files using active era context
+- `bootstrap.py` prompts for era strategic intent; era-001 is never blank
+- `flex_build.py transition-era` formally closes the current era and opens
+  the next; no silent multi-active-era state
 
 ## Stories
 
@@ -33,5 +36,7 @@ Exit criteria:
 | BUILD-013 | Minimal agent return surface | planned |
 | BUILD-014 | /context inline gate | planned |
 | BUILD-015 | `spec next phase` orchestrated workflow | planned |
+| BUILD-016 | Bootstrap era strategic intent prompt | planned |
+| BUILD-017 | Formal era transition command | planned |
 
 Tag (on ship): `cp52-lean-orchestrator-spec-workflow`
