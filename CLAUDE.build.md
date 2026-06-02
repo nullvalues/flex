@@ -397,6 +397,17 @@ If neither condition is present: proceed to Step 1.
 
 ### Step 1 — Spawn the builder
 
+**Restore attempt counter.** Read any persisted attempt count before
+spawning the builder:
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+  read-attempt-count --story-id RAIL-NNN --project-dir .
+```
+
+Use the printed integer as the starting attempt number. If it prints `0`,
+this is a fresh story and the attempt number is `1`.
+
 Before spawning the builder, pre-authorize edits within the story's declared scope:
 
 ```bash
@@ -476,6 +487,14 @@ When the guardrail fires, surface the warning to the user and pause before
 spawning the reviewer — ask whether to continue, retry with tighter scope,
 or split the story. The orchestrator (not the guardrail) decides whether to
 pause; an unfired guardrail is silent and the loop continues normally.
+
+**Persist attempt counter.** Write the current attempt number to disk so
+a `/clear` mid-phase preserves it:
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+  write-attempt-count --story-id RAIL-NNN --count [current attempt] --project-dir .
+```
 
 If the preferred model for an agent is rate-limited, override at call time via the `model` parameter (Opus → Sonnet on reviewers; Sonnet → Haiku on builder; never below Haiku). See `docs/architecture.md` § Model selection and fallback.
 
@@ -594,6 +613,12 @@ PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts
   --story-id RAIL-NNN --status complete --project-dir .
 ```
 
+   Then clear the attempt counter:
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+  clear-attempt-count --project-dir .
+```
+
 3. If the reviewer reverted (FAIL): leave the story status as `planned`.
 
 **If reviewer reports PASS (committed):**
@@ -610,6 +635,11 @@ Append the reviewer's findings as a `## PREVIOUS ATTEMPT FAILED` section to the
 original story prompt. Re-spawn the builder (attempt 2) immediately — no user pause.
 Increment the per-story attempt counter to 2.
 
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+  write-attempt-count --story-id RAIL-NNN --count 2 --project-dir .
+```
+
 Before spawning the retry builder, re-call `select_builder_model` with
 `attempt_number=2`.  For `code` stories this returns `opus` / `retry-upgrade`.
 Pass the escalated model to the builder Agent tool and record
@@ -620,6 +650,12 @@ then re-spawn the reviewer (Step 2). The reviewer model re-selects based on the
 updated attempt_number (attempt 2 → opus for code stories).
 
 **Attempt 2 FAIL — auto loop-breaker:**
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+  write-attempt-count --story-id RAIL-NNN --count 3 --project-dir .
+```
+
 Spawn the `loop-breaker` subagent immediately — no user pause:
   LOOP-BREAKER: [reviewer finding verbatim]
   FILE: [file:line if known, or "unknown"]

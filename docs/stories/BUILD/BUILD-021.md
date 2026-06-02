@@ -2,7 +2,7 @@
 id: BUILD-021
 rail: BUILD
 title: "Pre-reviewer commit scope: stop pre-staging `docs/stories/`"
-status: planned
+status: complete
 phase: "53"
 story_class: methodology
 primary_files:

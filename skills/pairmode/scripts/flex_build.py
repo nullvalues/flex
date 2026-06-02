@@ -434,6 +434,82 @@ def cmd_check_stubs(project_dir: str) -> None:
     sys.exit(1 if stub_count > 0 else 0)
 
 
+# ---------------------------------------------------------------------------
+# Per-story attempt counter (BUILD-022)
+# ---------------------------------------------------------------------------
+
+
+def _attempt_counter_path(project_dir: Path) -> Path:
+    return project_dir / ".companion" / "attempt_counter.json"
+
+
+@flex_build.command("write-attempt-count")
+@click.option("--story-id", required=True, help="Story ID (e.g. BUILD-022).")
+@click.option("--count", required=True, type=int, help="Attempt count (>=1).")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_write_attempt_count(story_id: str, count: int, project_dir: str) -> None:
+    """Persist the per-story attempt counter to .companion/attempt_counter.json."""
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    path = _attempt_counter_path(project_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"story_id": story_id, "attempt_count": count}),
+        encoding="utf-8",
+    )
+
+
+@flex_build.command("read-attempt-count")
+@click.option("--story-id", required=True, help="Story ID (e.g. BUILD-022).")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_read_attempt_count(story_id: str, project_dir: str) -> None:
+    """Print the persisted attempt count for *story_id* (0 if absent/mismatched)."""
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    path = _attempt_counter_path(project_path)
+    if not path.exists():
+        click.echo("0")
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        click.echo("0")
+        return
+    if data.get("story_id") != story_id:
+        click.echo("0")
+        return
+    try:
+        click.echo(str(int(data.get("attempt_count", 0))))
+    except (TypeError, ValueError):
+        click.echo("0")
+
+
+@flex_build.command("clear-attempt-count")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_clear_attempt_count(project_dir: str) -> None:
+    """Delete .companion/attempt_counter.json if present."""
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    path = _attempt_counter_path(project_path)
+    if path.exists():
+        path.unlink()
+
+
 @flex_build.command("transition-era")
 @click.option("--name", default=None, help="New era name (required in --yes mode).")
 @click.option("--intent", default="", help="Strategic intent for the new era.")
