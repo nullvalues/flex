@@ -22,6 +22,9 @@ phase_class: {{ _phase_class }}
 {%- endif %}
 
 {% endif -%}
+<!-- Phase doc = planning surface only. Story-level detail (acceptance criteria,
+     file paths, implementation guidance, test instructions, codebase recon)
+     belongs in docs/stories/<RAIL>/<ID>.md — not here. -->
 ## Goal
 
 {{ goal if goal else "— fill in the phase goal —" }}

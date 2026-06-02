@@ -37,6 +37,40 @@ In build mode: follow the build loop below. Do not ask clarifying questions befo
    `docs/stories/<RAIL>/<RAIL>-NNN.md`
 7. Check for ⚙️ DEVELOPER ACTION gates before that story. Block if present.
 
+### 3.5 Phase doc boundary scan
+
+Scan the phase doc for embedded story sections — implementation detail that
+belongs in story files, not the phase doc. This step runs once per build session
+initiation.
+
+Signals to look for inside any heading that names a story ID (e.g. `RAIL-NNN`,
+`N.X`) or story title:
+- Sub-headings `#### Instructions`, `#### Tests`, `#### Changes required`,
+  `#### Changes`, `#### Acceptance criteria`, `#### Acceptance criterion`,
+  `#### Design`, `#### Context`
+- Fenced code blocks with language tags (`` ```ts ``, `` ```py ``, `` ```sql ``,
+  etc.) appearing under a named story section
+
+If no signals found: proceed to step 4.
+
+If signals found, stop and report:
+
+```
+PHASE DOC BOUNDARY VIOLATION — Phase [N]
+The following story sections contain implementation detail that belongs
+in story files, not the phase doc:
+  [list each: story ID or heading — signal found — approximate line]
+
+Action required before building:
+For each listed story:
+1. Read the embedded section in the phase doc.
+2. Copy the implementation detail into docs/stories/<RAIL>/<ID>.md
+   (## Ensures, ## Instructions, ## Design, ## Tests as appropriate).
+3. Replace the embedded section in the phase doc with a single-line
+   summary row in the ## Stories table.
+When resolved, say: "Continue building Phase [N]"
+```
+
 ### 0. Spec review (optional but recommended for phases with 3+ stories)
 
 Before spending builder time, cold-eyes review the phase spec against the codebase.
@@ -52,6 +86,27 @@ the first story. LOW/MEDIUM findings: note them but proceed.
 
 Skip this step for: single-story hotfix phases, documentation-only phases, or when
 the phase spec was already reviewed in the previous session.
+
+---
+
+## Spec surface discipline
+
+Phase doc = planning surface: Goal, Stories table, phase-exit criteria, optional
+Resume marker. Nothing else.
+
+Story spec = implementation surface: acceptance criterion, primary_files/touches,
+background/context, implementation guidance, tests.
+
+Before starting the build loop, check the phase doc for boundary violations:
+
+- Story rows with embedded implementation sub-sections (`#### Instructions`,
+  `#### Tests`, `#### Changes` written directly under a story heading in the
+  phase file) — extract them to the story file before building that story.
+- Codebase recon prose in the phase doc — move it to the relevant story spec
+  or discard; the builder re-derives it from the live codebase.
+
+Never write implementation detail into the phase doc while planning. The stale
+recon that accumulates there creates confusion when the builder reads it later.
 
 ---
 
@@ -174,6 +229,45 @@ Options:
 ```
 
 Do not spawn the builder until the user has resolved the block.
+
+### Pre-story stub gate
+
+Run this check **once per story**, after the schema gate, before spawning the builder.
+
+Read `docs/stories/<RAIL>/<RAIL>-NNN.md` and check for:
+
+**Delegation language** — any of these appearing in the story body:
+- "See phase doc"
+- "See docs/phases/"
+- "See phase-"
+
+**Missing acceptance surface** — none of these sections present:
+- `## Ensures`
+- `## Acceptance criterion`
+- `## Acceptance criteria`
+
+If delegation language found OR acceptance surface missing, stop and report:
+
+```
+PRE-STORY BLOCK — Story [RAIL-NNN] is a stub.
+
+[If delegation language found:]
+The story file delegates the implementation spec to the phase doc.
+The phase doc is not the builder's contract — the story file must be.
+
+[If no acceptance surface:]
+The story file has no ## Ensures or ## Acceptance criterion section.
+The builder has no spec to build against.
+
+Action required:
+1. Find the relevant section in the phase doc for this story.
+2. Write the full acceptance criterion and implementation detail into
+   docs/stories/<RAIL>/<RAIL>-NNN.md.
+3. Remove or summarise the embedded section in the phase doc.
+When resolved, say: "Continue building"
+```
+
+If neither condition is present: proceed to Step 1.
 
 ### Step 1 — Spawn the builder
 

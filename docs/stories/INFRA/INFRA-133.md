@@ -3,7 +3,7 @@ id: INFRA-133
 phase: '49'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/scripts/bootstrap.py
   - skills/pairmode/scripts/sync.py

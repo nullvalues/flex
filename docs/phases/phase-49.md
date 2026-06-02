@@ -93,7 +93,7 @@ the state.json investment loses its forcing function.
 
 | ID | Rail | Title | Status |
 |----|------|-------|--------|
-| INFRA-133 | INFRA | Wire context budget hook registration into bootstrap and sync | planned |
+| INFRA-133 | INFRA | complete | planned |
 
 SPA stories: none yet. Plan-mode session will produce the SPA story inventory
 after INFRA-133 ships. All future SPA stories `planned` until then.
