@@ -36,7 +36,7 @@ Exit criteria:
 | BUILD-013 | Minimal agent return surface | complete |
 | BUILD-014 | /context inline gate | complete |
 | BUILD-015 | `spec next phase` orchestrated workflow | complete |
-| BUILD-016 | Bootstrap era strategic intent prompt | planned |
+| BUILD-016 | Bootstrap era strategic intent prompt | complete |
 | BUILD-017 | Formal era transition command | planned |
 
 Tag (on ship): `cp52-lean-orchestrator-spec-workflow`
