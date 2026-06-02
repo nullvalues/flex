@@ -13,6 +13,7 @@ Story: INFRA-131.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -228,6 +229,76 @@ def cmd_context_health(phase: str, project_dir: str) -> None:
     db_path = resolve_effort_db_path(project_path)
     result = check_context_health(db_path=db_path, current_phase=phase)
     click.echo(json.dumps(result))
+
+
+_DELEGATION_RE = re.compile(
+    r"see phase doc|see docs/phases/|see phase-",
+    re.IGNORECASE,
+)
+_ACCEPTANCE_RE = re.compile(
+    r"^##\s+(?:ensures|acceptance criterion|acceptance criteria)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+@flex_build.command("check-stubs")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_check_stubs(project_dir: str) -> None:
+    """Audit all story files for stubs (delegation or missing acceptance surface)."""
+    project_path = Path(project_dir).resolve()
+    stories_dir = project_path / "docs" / "stories"
+
+    click.echo(f"Scanning docs/stories/ in {project_path}...")
+    click.echo("")
+
+    if not stories_dir.exists():
+        click.echo("Summary: 0 stubs / 0 total stories")
+        sys.exit(0)
+
+    story_files = sorted(stories_dir.rglob("*.md"))
+
+    rows: list[tuple[str, str, str, str]] = []
+    for story_file in story_files:
+        story_id = story_file.stem
+        text = story_file.read_text(encoding="utf-8")
+
+        m = _DELEGATION_RE.search(text)
+        if m:
+            line_start = text.rfind("\n", 0, m.start()) + 1
+            line_end = text.find("\n", m.end())
+            matched_line = text[line_start : line_end if line_end != -1 else len(text)].strip()
+            if len(matched_line) > 70:
+                matched_line = matched_line[:70] + "..."
+            rows.append(("STUB", story_id, "delegation", f'"{matched_line}"'))
+        elif not _ACCEPTANCE_RE.search(text):
+            rows.append(("STUB", story_id, "no-acceptance", "(no ## Ensures or ## Acceptance criterion)"))
+        else:
+            rows.append(("OK", story_id, "self-contained", ""))
+
+    for status, story_id, reason, detail in rows:
+        if status == "STUB":
+            click.echo(f"STUB  {story_id:<12}  {reason:<14}  {detail}")
+        else:
+            click.echo(f"OK    {story_id:<12}  self-contained")
+
+    stub_rows = [(s, sid, r, d) for s, sid, r, d in rows if s == "STUB"]
+    stub_count = len(stub_rows)
+    total = len(rows)
+    delegation_count = sum(1 for _, _, r, _ in stub_rows if r == "delegation")
+    no_acceptance_count = sum(1 for _, _, r, _ in stub_rows if r == "no-acceptance")
+    pct = int(stub_count / total * 100) if total > 0 else 0
+
+    click.echo("")
+    click.echo(f"Summary: {stub_count} stubs / {total} total stories ({pct}%)")
+    click.echo(f"  delegation:    {delegation_count}")
+    click.echo(f"  no-acceptance: {no_acceptance_count}")
+
+    sys.exit(1 if stub_count > 0 else 0)
 
 
 if __name__ == "__main__":

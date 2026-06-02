@@ -294,3 +294,91 @@ def test_context_health_output_has_message_field(tmp_path: Path) -> None:
     assert "message" in payload
     assert isinstance(payload["message"], str)
     assert payload["message"] != ""
+
+
+# ---------------------------------------------------------------------------
+# check-stubs
+# ---------------------------------------------------------------------------
+
+
+def _write_stub_story(
+    project_dir: Path,
+    story_id: str,
+    body: str,
+) -> Path:
+    """Write a story file with the given body under docs/stories/<RAIL>/."""
+    rail = story_id.split("-", 1)[0]
+    story_dir = project_dir / "docs" / "stories" / rail
+    story_dir.mkdir(parents=True, exist_ok=True)
+    story_path = story_dir / f"{story_id}.md"
+    story_path.write_text(
+        f"---\nid: {story_id}\nrail: {rail}\n---\n\n{body}",
+        encoding="utf-8",
+    )
+    return story_path
+
+
+def test_check_stubs_delegation_detected(tmp_path: Path) -> None:
+    _write_stub_story(
+        tmp_path,
+        "RBAC-001",
+        "See phase doc `docs/phases/phase-PM004-main.md` for the full spec.\n",
+    )
+    result = _run("check-stubs", "--project-dir", str(tmp_path))
+    assert result.returncode == 1
+    assert "STUB" in result.stdout
+    assert "RBAC-001" in result.stdout
+    assert "delegation" in result.stdout
+
+
+def test_check_stubs_no_acceptance_detected(tmp_path: Path) -> None:
+    _write_stub_story(
+        tmp_path,
+        "MEDIA-001",
+        "## Background\n\nSome context here.\n\n## Out of scope\n\nNothing.\n",
+    )
+    result = _run("check-stubs", "--project-dir", str(tmp_path))
+    assert result.returncode == 1
+    assert "STUB" in result.stdout
+    assert "MEDIA-001" in result.stdout
+    assert "no-acceptance" in result.stdout
+
+
+def test_check_stubs_self_contained_not_flagged(tmp_path: Path) -> None:
+    _write_stub_story(
+        tmp_path,
+        "RBAC-010",
+        "## Acceptance criterion\n\nThe widget must turn blue.\n",
+    )
+    result = _run("check-stubs", "--project-dir", str(tmp_path))
+    assert result.returncode == 0
+    assert "OK" in result.stdout
+    assert "RBAC-010" in result.stdout
+    assert "STUB" not in result.stdout
+
+
+def test_check_stubs_missing_stories_dir_returns_clean(tmp_path: Path) -> None:
+    result = _run("check-stubs", "--project-dir", str(tmp_path))
+    assert result.returncode == 0
+    assert "0 stubs" in result.stdout
+    assert "0 total" in result.stdout
+
+
+def test_check_stubs_exit_code_zero_when_no_stubs(tmp_path: Path) -> None:
+    _write_stub_story(
+        tmp_path,
+        "AEO-001",
+        "## Acceptance criteria\n\n- It works.\n",
+    )
+    result = _run("check-stubs", "--project-dir", str(tmp_path))
+    assert result.returncode == 0
+
+
+def test_check_stubs_exit_code_one_when_stubs_present(tmp_path: Path) -> None:
+    _write_stub_story(
+        tmp_path,
+        "AEO-002",
+        "See docs/phases/phase-42.md for details.\n",
+    )
+    result = _run("check-stubs", "--project-dir", str(tmp_path))
+    assert result.returncode == 1
