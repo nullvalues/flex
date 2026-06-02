@@ -199,6 +199,29 @@ If the story is not auth-gated, skip this section.
 
 ## Build loop (repeat for each story)
 
+### Context gate
+
+Before any other action for this story, call `/context` and read the
+current token count.
+
+The threshold is the value of `context_budget_threshold` in `.companion/state.json`
+(default: 120,000 if the key is absent or the file does not exist).
+
+If the token count is **below** the threshold:
+  Output: `CONTEXT: [N] / [threshold] tokens — proceeding`
+  Continue to the pre-story schema gate.
+
+If the token count is **at or above** the threshold:
+  Output:
+    CONTEXT: [N] / [threshold] tokens — THRESHOLD REACHED
+    Build paused. Please /clear then resume:
+      "Continue building from story [RAIL-NNN]"
+  Stop. Do not spawn any agent.
+
+Note: the `pre_tool_use.py` hook provides a secondary transcript-based check
+as a fallback. The inline `/context` call above is the primary gate and should
+be treated as authoritative.
+
 ### Pre-story schema gate
 
 Run this check **once per story**, before pre-authorizing edits or spawning the builder.
@@ -528,8 +551,13 @@ Stop the build loop.
 
 ## Context budget check (between stories)
 
-Enforced mechanically by `hooks/pre_tool_use.py` (matcher `Task`),
-which delegates to `/mnt/work/flex/skills/pairmode/scripts/context_budget.py`.
+**Primary gate:** The inline `/context` call at the start of each story loop
+iteration (see `### Context gate` above) is the authoritative check. It reads
+directly from the Claude Code runtime and is evaluated before any agent spawns.
+
+**Secondary fallback:** Enforced mechanically by `hooks/pre_tool_use.py` (matcher `Task`)
+as a belt-and-suspenders transcript-based check. It delegates to
+`/mnt/work/flex/skills/pairmode/scripts/context_budget.py`.
 On every subagent spawn, the hook checks whether the projected
 next-step total would exceed
 `state["context_budget_threshold"] * (1 + state["context_budget_overrun_pct"])`
