@@ -2,7 +2,7 @@
 id: BUILD-014
 rail: BUILD
 title: /context inline gate
-status: planned
+status: complete
 phase: "52"
 story_class: methodology
 primary_files:
