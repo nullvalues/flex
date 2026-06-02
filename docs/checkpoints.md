@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp52-lean-orchestrator-spec-workflow
+
+**Phase:** 52 — Lean orchestrator and spec workflow
+**Tag command:** `git tag cp52-lean-orchestrator-spec-workflow && git push origin cp52-lean-orchestrator-spec-workflow`
+**Acceptance:** Seven stories. CLAUDE.md blanket brief/architecture read instruction removed; `flex_build.py current-phase` CLI subcommand replaces manual orientation steps (BUILD-011). Builder and reviewer now receive story ID only; each agent reads its own spec cold (BUILD-012). Structured `BUILD-RESULT`/`REVIEW-RESULT` blocks added to both agents; orchestrator parses result and summary only (BUILD-013). `/context` inline gate inserted as first step of each story loop iteration (BUILD-014). Spec mode workflow added: `"spec next phase [intent]"` triggers a Plan subagent confirm-gate-commit flow (BUILD-015). `bootstrap.py` prompts for era strategic intent; `_build_era_001_content` updated with `strategic_intent` parameter (BUILD-016). `era_transition.py` created with `flex_build.py transition-era` subcommand: formally closes the active era and opens the next (BUILD-017). 1868 tests pass.
+
+---
+
 ## cp51-stub-gate-enforcement
 
 **Phase:** 51 — Stub gate and phase-doc scan enforcement

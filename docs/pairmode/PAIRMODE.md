@@ -52,6 +52,7 @@ All additions are new files. No existing flex files were deleted.
 - `scripts/score.py` — render pre-populated `RECONSTRUCTION.md` scoring report
 - `scripts/story_new.py` — create story files on named rails
 - `scripts/era_new.py` — create era documents
+- `scripts/era_transition.py` — formally close the current active era and open the next
 - `scripts/schema_validator.py` — validate story/era/phase manifest frontmatter
 - `scripts/permission_scope.py` — story-scoped allow rules for `.claude/settings.local.json`
 - `scripts/story_resolver.py` — resolve story IDs to story file content; parse phase manifests

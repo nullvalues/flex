@@ -35,7 +35,7 @@ flex/
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
-        flex_build.py             ← CLI wrapping 9 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, check-guardrail, context-health, check-stubs); replaces inline python -c blocks in CLAUDE.build.md.j2
+        flex_build.py             ← CLI wrapping 11 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, check-guardrail, context-health, check-stubs, current-phase, transition-era); replaces inline python -c blocks in CLAUDE.build.md.j2
         refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
@@ -44,6 +44,7 @@ flex/
         score.py                  ← render pre-populated RECONSTRUCTION.md scoring report from reconstruction brief
         story_new.py              ← create story files on named rails
         era_new.py                ← create era documents
+        era_transition.py         ← formally close the current active era and open the next; CLI: uv run era_transition.py --project-dir DIR [--name NAME] [--intent INTENT] [--yes]; also registered as flex_build.py transition-era
         schema_validator.py       ← validate story/era/phase manifest frontmatter
         permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables

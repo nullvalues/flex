@@ -51,4 +51,4 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 49 | Observability SPA (sidebar replacement) | anchor | [phase-49.md](phase-49.md) |
 | 50 | Phase/story spec boundary policy | complete | [phase-50.md](phase-50.md) · cp50-phase-story-boundary-policy |
 | 51 | Stub gate and phase-doc scan enforcement | complete | [phase-51.md](phase-51.md) · cp51-stub-gate-enforcement |
-| 52 | Lean orchestrator and spec workflow | planned | [phase-52.md](phase-52.md) |
+| 52 | Lean orchestrator and spec workflow | complete | [phase-52.md](phase-52.md) · cp52-lean-orchestrator-spec-workflow |
