@@ -2,7 +2,7 @@
 id: BUILD-012
 rail: BUILD
 title: Story-ID-only spawn protocol
-status: planned
+status: complete
 phase: "52"
 story_class: methodology
 primary_files:
