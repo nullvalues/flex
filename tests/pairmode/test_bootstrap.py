@@ -3042,3 +3042,163 @@ class TestRegisterPreToolUseHook:
         assert expected_command in commands, (
             f"New hook command should be added, commands: {commands}"
         )
+
+
+# ---------------------------------------------------------------------------
+# BUILD-016: era strategic intent prompt
+# ---------------------------------------------------------------------------
+
+class TestEraStrategicIntent:
+    """Bootstrap captures the era's strategic intent and writes it into
+    docs/eras/001-initial.md (or preserves the placeholder when blank)."""
+
+    def test_era_strategic_intent_written(self) -> None:
+        """A non-empty strategic_intent appears verbatim under ## Strategic intent."""
+        from skills.pairmode.scripts.bootstrap import _build_era_001_content
+
+        intent = "Establish a reproducible build loop before adding new features."
+        content = _build_era_001_content(
+            project_name="testproject",
+            rails=["CORE", "INFRA"],
+            strategic_intent=intent,
+        )
+
+        assert "## Strategic intent\n\n" + intent + "\n" in content, (
+            f"Strategic intent body not found verbatim. Output:\n{content}"
+        )
+        assert "_(fill in)_" not in content.split("## Rails")[0], (
+            "Placeholder should not appear when strategic intent is provided."
+        )
+
+    def test_era_strategic_intent_empty_gives_placeholder(self) -> None:
+        """Empty strategic_intent yields the legacy _(fill in)_ placeholder."""
+        from skills.pairmode.scripts.bootstrap import _build_era_001_content
+
+        content = _build_era_001_content(
+            project_name="testproject",
+            rails=["CORE", "INFRA"],
+            strategic_intent="",
+        )
+
+        # The strategic intent section must contain the placeholder.
+        intent_section = content.split("## Strategic intent")[1].split("## Rails")[0]
+        assert "_(fill in)_" in intent_section, (
+            f"Placeholder missing from strategic intent section: {intent_section!r}"
+        )
+
+    def test_era_strategic_intent_whitespace_only_gives_placeholder(self) -> None:
+        """Whitespace-only strategic_intent collapses to the placeholder."""
+        from skills.pairmode.scripts.bootstrap import _build_era_001_content
+
+        content = _build_era_001_content(
+            project_name="testproject",
+            rails=["CORE"],
+            strategic_intent="   \n  ",
+        )
+
+        intent_section = content.split("## Strategic intent")[1].split("## Rails")[0]
+        assert "_(fill in)_" in intent_section, (
+            f"Whitespace-only intent should collapse to placeholder. Got: {intent_section!r}"
+        )
+
+    def test_initialize_rails_writes_provided_intent(self, tmp_path: pathlib.Path) -> None:
+        """_initialize_rails reads context['era_intent'] and writes it into the era file."""
+        from skills.pairmode.scripts.bootstrap import _initialize_rails
+
+        intent = "Ship a working pairmode loop end-to-end."
+        context = {"project_name": "testproject", "era_intent": intent}
+        _initialize_rails(
+            project_dir=tmp_path,
+            context=context,
+            stack="Python / pytest",
+            dry_run=False,
+            ideology_skip=True,
+            yes=True,
+        )
+
+        era_path = tmp_path / "docs" / "eras" / "001-initial.md"
+        assert era_path.exists(), "Era file was not written."
+        era_content = era_path.read_text(encoding="utf-8")
+        assert intent in era_content, (
+            f"Provided era_intent not found in era file. Content:\n{era_content}"
+        )
+        assert "_(fill in)_" not in era_content.split("## Rails")[0], (
+            "Placeholder should not appear in the Strategic intent section."
+        )
+
+    def test_bootstrap_yes_mode_leaves_placeholder(self, tmp_path: pathlib.Path) -> None:
+        """When yes=True, _initialize_rails without era_intent keeps the placeholder."""
+        from skills.pairmode.scripts.bootstrap import _initialize_rails
+
+        # No era_intent in context — simulates the --yes/non-interactive path.
+        context = {"project_name": "testproject"}
+        _initialize_rails(
+            project_dir=tmp_path,
+            context=context,
+            stack="Python / pytest",
+            dry_run=False,
+            ideology_skip=True,
+            yes=True,
+        )
+
+        era_path = tmp_path / "docs" / "eras" / "001-initial.md"
+        assert era_path.exists(), "Era file was not written."
+        era_content = era_path.read_text(encoding="utf-8")
+        intent_section = era_content.split("## Strategic intent")[1].split("## Rails")[0]
+        assert "_(fill in)_" in intent_section, (
+            f"Yes-mode should preserve the placeholder. Got: {intent_section!r}"
+        )
+
+    def test_bootstrap_prompt_text_matches_ensures_contract(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """The first argument to the era click.prompt call matches the Ensures contract verbatim."""
+        from unittest.mock import patch
+        from skills.pairmode.scripts import bootstrap as bootstrap_module
+
+        captured_prompts: list[str] = []
+
+        def _capturing_prompt(message, *args, **kwargs):
+            captured_prompts.append(message)
+            # Returning the kwarg default allows bootstrap to continue past each prompt.
+            return kwargs.get("default", "")
+
+        class _FakeStdin:
+            def isatty(self) -> bool:
+                return True
+
+        # Invoke the bootstrap callback directly, bypassing CliRunner (which replaces
+        # sys.stdin and therefore breaks isatty() patching).
+        with patch.object(bootstrap_module.sys, "stdin", _FakeStdin()), \
+             patch.object(bootstrap_module.click, "prompt", side_effect=_capturing_prompt), \
+             patch.object(bootstrap_module.click, "confirm", return_value=True):
+            try:
+                bootstrap_module.bootstrap.callback(
+                    project_dir=str(tmp_path),
+                    project_name="testproject",
+                    stack="Python / pytest",
+                    what="x",
+                    why="y",
+                    build_command="uv run pytest",
+                    phase_title="",
+                    phase_goal="",
+                    dry_run=False,
+                    force_agents=False,
+                    ideology_skip=True,
+                    conviction=(),
+                    constraint=(),
+                    from_reconstruction=None,
+                    yes=False,
+                )
+            except SystemExit:
+                pass
+
+        expected = (
+            "Era strategic intent — what is this project's initial era "
+            "trying to accomplish?\n"
+            "Enter a sentence or two, or press Enter to fill in later"
+        )
+        assert expected in captured_prompts, (
+            f"Era strategic intent prompt text does not match the Ensures contract.\n"
+            f"Captured prompts: {captured_prompts!r}"
+        )

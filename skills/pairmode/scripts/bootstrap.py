@@ -523,7 +523,11 @@ def _infer_project_type(stack: str, project_name: str) -> str:
     return "generic"
 
 
-def _build_era_001_content(project_name: str, rails: list[str]) -> str:
+def _build_era_001_content(
+    project_name: str,
+    rails: list[str],
+    strategic_intent: str = "",
+) -> str:
     """Build the content of docs/eras/001-initial.md."""
     name = f"{project_name} — Initial development"
     frontmatter = (
@@ -533,12 +537,8 @@ def _build_era_001_content(project_name: str, rails: list[str]) -> str:
         "status: active\n"
         "---\n"
     )
-    strategic_intent = (
-        "\n"
-        "## Strategic intent\n"
-        "\n"
-        "_(fill in)_\n"
-    )
+    intent_body = strategic_intent.strip() if strategic_intent.strip() else "_(fill in)_"
+    strategic_intent_section = f"\n## Strategic intent\n\n{intent_body}\n"
     rails_header = (
         "\n"
         "## Rails\n"
@@ -556,7 +556,7 @@ def _build_era_001_content(project_name: str, rails: list[str]) -> str:
         "|-------|-------|--------|\n"
     )
 
-    return frontmatter + strategic_intent + rails_header + rails_rows + phases_table
+    return frontmatter + strategic_intent_section + rails_header + rails_rows + phases_table
 
 
 def _initialize_rails(
@@ -612,7 +612,8 @@ def _initialize_rails(
         click.echo(f"  skipped (exists): docs/eras/001-initial.md")
     else:
         eras_dir.mkdir(parents=True, exist_ok=True)
-        era_content = _build_era_001_content(project_name, confirmed_rails)
+        era_intent = context.get("era_intent", "")
+        era_content = _build_era_001_content(project_name, confirmed_rails, era_intent)
         era_path.write_text(era_content, encoding="utf-8")
         click.echo(f"  created: docs/eras/001-initial.md")
 
@@ -795,6 +796,19 @@ def bootstrap(
     test_command = build_command
 
     # ------------------------------------------------------------------
+    # 1a. Era strategic intent (BUILD-016)
+    # ------------------------------------------------------------------
+    if yes or not sys.stdin.isatty():
+        era_intent = ""
+    else:
+        era_intent = click.prompt(
+            "Era strategic intent — what is this project's initial era trying to accomplish?\n"
+            "Enter a sentence or two, or press Enter to fill in later",
+            default="",
+            show_default=False,
+        ).strip()
+
+    # ------------------------------------------------------------------
     # 1b. Ideology context: --from-reconstruction → CLI flags → TTY prompt → non-TTY placeholder
     # ------------------------------------------------------------------
     if from_reconstruction is not None:
@@ -929,6 +943,8 @@ def bootstrap(
         "reconstruction_what": what or "",
         "reconstruction_why": why or "",
         "generated_date": datetime.date.today().isoformat(),
+        # BUILD-016: era strategic intent — threaded through to _build_era_001_content
+        "era_intent": era_intent,
     }
     # Merge ideology_context must_preserve into context.
     # must_preserve (list) → ideology.md.j2; must_preserve_str (string) → brief.md.j2.
