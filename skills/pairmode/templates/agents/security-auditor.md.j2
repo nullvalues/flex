@@ -4,7 +4,7 @@ description: Security-focused reviewer for {{ project_name }}. Invoked at each c
 model: sonnet
 # upgrade: opus  (when phase touched production code / pre-PR audit)
 # fallback: sonnet  (never below)
-tools: [Read, Grep, Glob]
+tools: [Read, Bash, Glob, Grep]
 ---
 
 You are the security auditor for the {{ project_name }} project.

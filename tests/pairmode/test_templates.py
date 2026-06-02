@@ -2007,8 +2007,8 @@ class TestReviewerClassAgentsToolRestriction:
         )
         # The minimal frontmatter parser stores flow-style YAML lists as the
         # raw scalar string. Compare against the canonical literal.
-        assert fm["tools"] == "[Read, Grep, Glob, Bash]", (
-            f"{template_name}: expected tools=[Read, Grep, Glob, Bash], "
+        assert fm["tools"] == "[Read, Bash, Glob, Grep]", (
+            f"{template_name}: expected tools=[Read, Bash, Glob, Grep], "
             f"got tools={fm['tools']!r}"
         )
 
@@ -2022,30 +2022,30 @@ class TestReviewerClassAgentsToolRestriction:
         assert fm is not None, (
             f"{template_name}: raw template has no parseable frontmatter"
         )
-        assert fm.get("tools") == "[Read, Grep, Glob, Bash]", (
-            f"{template_name}: raw template expected tools=[Read, Grep, Glob, Bash], "
+        assert fm.get("tools") == "[Read, Bash, Glob, Grep]", (
+            f"{template_name}: raw template expected tools=[Read, Bash, Glob, Grep], "
             f"got {fm.get('tools')!r}"
         )
 
-    def test_security_auditor_tools_field_omits_bash(self):
+    def test_security_auditor_tools_field_includes_bash(self):
         rendered = render("agents/security-auditor.md.j2", AGENT_CONTEXT)
         fm = _parse_frontmatter(rendered)
         assert fm is not None, (
             "agents/security-auditor.md.j2: rendered output has no parseable frontmatter"
         )
-        assert fm.get("tools") == "[Read, Grep, Glob]", (
-            f"security-auditor: expected tools=[Read, Grep, Glob] (no Bash), "
+        assert fm.get("tools") == "[Read, Bash, Glob, Grep]", (
+            f"security-auditor: expected tools=[Read, Bash, Glob, Grep] (with Bash), "
             f"got tools={fm.get('tools')!r}"
         )
 
-    def test_security_auditor_raw_source_tools_field_omits_bash(self):
+    def test_security_auditor_raw_source_tools_field_includes_bash(self):
         raw = (TEMPLATES_DIR / "agents/security-auditor.md.j2").read_text(encoding="utf-8")
         fm = _parse_frontmatter(raw)
         assert fm is not None, (
             "security-auditor.md.j2 raw template has no parseable frontmatter"
         )
-        assert fm.get("tools") == "[Read, Grep, Glob]", (
-            f"security-auditor raw: expected tools=[Read, Grep, Glob] (no Bash), "
+        assert fm.get("tools") == "[Read, Bash, Glob, Grep]", (
+            f"security-auditor raw: expected tools=[Read, Bash, Glob, Grep] (with Bash), "
             f"got {fm.get('tools')!r}"
         )
 

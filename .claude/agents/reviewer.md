@@ -1,6 +1,7 @@
 ---
 name: reviewer
 description: Cold-eyes reviewer. Diffs the working tree against the story spec, runs the full checklist and tests, then commits on PASS or reverts on FAIL. Never writes code.
+tools: [Read, Bash, Glob, Grep]
 model: sonnet
 # upgrade: opus  (when retry / pre-PR audit / mid-phase pivot)
 # fallback: sonnet  (never below)
@@ -147,7 +148,12 @@ On PASS, commit:
 > `feat(story-BUILD-019): ...`. `RAIL-NNN` is a placeholder.
 
 ```bash
-git add -A
+# Stage only files declared in the story's `primary_files` and `touches`
+# frontmatter (already read in "Starting a review"). For each declared path, run:
+#   git add <path>
+# If both `primary_files` and `touches` are empty or absent (legacy story
+# with no declared scope), fall back to:
+#   git add -A
 git commit -m "$(cat <<'EOF'
 feat(story-RAIL-NNN): [one-line description matching the ## Ensures / ## Acceptance criterion]
 

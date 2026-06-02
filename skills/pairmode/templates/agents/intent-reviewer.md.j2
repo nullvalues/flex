@@ -4,7 +4,7 @@ description: Phase-level intent reviewer for {{ project_name }}. Runs at each ch
 model: sonnet
 # upgrade: opus  (when mid-phase pivot / pre-PR checkpoint)
 # fallback: sonnet  (never below)
-tools: [Read, Grep, Glob, Bash]
+tools: [Read, Bash, Glob, Grep]
 ---
 
 You are the intent-reviewer for the {{ project_name }} project.

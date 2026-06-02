@@ -1,6 +1,7 @@
 ---
 name: loop-breaker
 description: Invoked when the builder has failed twice on the same error. Analyzes the failure cold from first principles and proposes exactly one alternative approach.
+tools: [Read, Bash, Glob, Grep]
 model: opus
 # fallback: sonnet  (never below)
 ---
