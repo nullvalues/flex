@@ -488,9 +488,18 @@ created during this session but never committed.
 
 Before spawning the reviewer:
 
+`docs/stories/` is intentionally excluded from the blanket stage: the
+reviewer's "Before reviewing" step diffs `HEAD` to identify what the
+builder changed, including builder edits to story files. Pre-committing
+them would hide the diff.
+
 ```bash
 # Commit any orchestrator-side methodology file changes
-git add docs/stories/ docs/phases/ docs/cer/ 2>/dev/null
+# Note: docs/stories/ is intentionally NOT staged here. The reviewer must
+# see builder-edited story files in `git diff HEAD`. If the orchestrator
+# must commit an individual story file it edited during session setup,
+# stage only that file with `git add docs/stories/<RAIL>/<ID>.md`.
+git add docs/phases/ docs/cer/ 2>/dev/null
 git diff --cached --quiet || git commit -m "chore(orchestrator): pre-reviewer methodology file commit"
 
 # Drop any uncommitted lesson edits — lessons.json/LESSONS.md should only

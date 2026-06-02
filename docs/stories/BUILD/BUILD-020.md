@@ -2,7 +2,7 @@
 id: BUILD-020
 rail: BUILD
 title: "Reviewer-class `tools:` frontmatter and scoped `git add` for story commits"
-status: planned
+status: complete
 phase: "53"
 story_class: methodology
 primary_files:
