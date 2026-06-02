@@ -134,22 +134,54 @@ def _replace_section_in_file(project_text: str, section_key: str, canonical_body
 
     section_key is the normalised form produced by _normalise(header_line).
     canonical_body is the raw body text from the canonical template.
+    Handles both H2 top-level sections and H3+ nested sections.
     If the section is not found (shouldn't happen for INCONSISTENT), the text is returned unchanged.
     """
+    import re as _re
+
+    # First try H2 split (fast path for top-level sections)
     parts = _split_by_h2(project_text)
     new_parts: list[tuple[str, str]] = []
     replaced = False
 
     for header, body in parts:
         if not replaced and _normalise(header) == section_key:
-            # Ensure canonical_body ends with a newline for clean reconstruction
             new_body = canonical_body if canonical_body.endswith("\n") else canonical_body + "\n"
             new_parts.append((header, new_body))
             replaced = True
         else:
             new_parts.append((header, body))
 
-    return _reconstruct_from_parts(new_parts)
+    if replaced:
+        return _reconstruct_from_parts(new_parts)
+
+    # Fallback: find H3+ section by scanning lines for a matching header
+    heading_hashes = len(section_key) - len(section_key.lstrip("#"))
+    lines = project_text.splitlines(keepends=True)
+    header_idx: int | None = None
+    for i, line in enumerate(lines):
+        stripped = line.rstrip("\n").rstrip("\r")
+        if stripped.startswith("#") and _normalise(stripped) == section_key:
+            header_idx = i
+            break
+
+    if header_idx is None:
+        return project_text  # not found
+
+    # Find end of section: next header at same or shallower depth
+    end_idx = len(lines)
+    for i in range(header_idx + 1, len(lines)):
+        stripped = lines[i].rstrip("\n").rstrip("\r")
+        if stripped.startswith("#"):
+            level = len(stripped) - len(stripped.lstrip("#"))
+            if level <= heading_hashes:
+                end_idx = i
+                break
+
+    # Preserve the original header line; replace the body (lines after it)
+    new_body = canonical_body if canonical_body.endswith("\n") else canonical_body + "\n"
+    result_lines = lines[: header_idx + 1] + ["\n", new_body] + lines[end_idx:]
+    return "".join(result_lines)
 
 
 def _append_section_to_file(project_text: str, header_key: str, canonical_body: str) -> str:
