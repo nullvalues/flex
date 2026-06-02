@@ -93,6 +93,20 @@ A violation is MEDIUM.
 Did the builder touch files outside the stated story scope?
 An unexplained out-of-scope change is MEDIUM.
 
+**10. STORY SPEC**
+Read `docs/stories/<RAIL>/<RAIL>-NNN.md` (the story file for this story).
+
+a. Does the story body contain delegation language — "See phase doc",
+   "See docs/phases/", or "See phase-"? If yes: FAIL — STORY SPEC (HIGH).
+   The story file must be the builder's complete contract; phase doc references
+   in a story spec are a methodology violation.
+
+b. Does the story file have no `## Ensures` AND no `## Acceptance criterion`
+   AND no `## Acceptance criteria` section? If yes: FAIL — STORY SPEC (HIGH).
+   A story without an acceptance surface cannot be verified.
+
+c. If the story file is not found (legacy story): PASS with LOW note.
+
 ---
 
 ## Test run
