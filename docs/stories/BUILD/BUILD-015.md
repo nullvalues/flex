@@ -2,7 +2,7 @@
 id: BUILD-015
 rail: BUILD
 title: "`spec next phase` orchestrated workflow"
-status: planned
+status: complete
 phase: "52"
 story_class: methodology
 primary_files:
