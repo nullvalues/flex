@@ -2,7 +2,7 @@
 id: BUILD-018
 rail: BUILD
 title: "Spec-mode `phase_new.py` invocation + Stories-table column alignment"
-status: planned
+status: complete
 phase: "53"
 story_class: methodology
 primary_files:

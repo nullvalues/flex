@@ -17,7 +17,7 @@ Phase 52 shipped the lean orchestrator and spec workflow, but cold-eyes review s
 
 | ID | Title | Status |
 |----|-------|--------|
-| BUILD-018 | Spec-mode `phase_new.py` invocation + Stories-table column alignment | planned |
+| BUILD-018 | Spec-mode `phase_new.py` invocation + Stories-table column alignment | complete |
 | BUILD-019 | Remove verbose return blocks and align commit-message convention in builder/reviewer templates | planned |
 | BUILD-020 | Reviewer-class `tools:` frontmatter and scoped `git add` for story commits | planned |
 | BUILD-021 | Pre-reviewer commit scope: stop pre-staging `docs/stories/` | planned |
