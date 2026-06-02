@@ -35,7 +35,7 @@ flex/
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
-        flex_build.py             ← CLI wrapping 8 pairmode helper functions; replaces inline python -c blocks in CLAUDE.build.md.j2
+        flex_build.py             ← CLI wrapping 9 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, check-guardrail, context-health, check-stubs); replaces inline python -c blocks in CLAUDE.build.md.j2
         refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
@@ -135,7 +135,11 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
 
 1. **Story spec** — the phase doc names the story; the story file at
    `docs/stories/<RAIL>/<RAIL>-NNN.md` defines `## Requires`, `## Ensures`, and
-   `primary_files`/`touches`. Building does not start without a complete story file.
+   `primary_files`/`touches`. Before the builder spawns, two pre-story gates run:
+   (a) the **schema gate** checks whether the story introduces a new persistent schema
+   object without a management surface; (b) the **stub gate** checks whether the story
+   file contains delegation language ("See phase doc") or is missing an acceptance
+   surface. A story that fails either gate is blocked until the operator resolves it.
 
 2. **Permission pre-write** — `permission_scope.py` writes story-scoped allow rules to
    `.claude/settings.local.json` before the builder spawns, so the builder operates only

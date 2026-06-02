@@ -46,3 +46,8 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 44 | Fix `sync-agents` silent rendering failure | complete | [phase-44.md](phase-44.md) · cp44-sync-agents-context-fix |
 | 45 | Deterministic orchestrator offload | complete | [phase-45.md](phase-45.md) · cp45-deterministic-orchestrator-offload |
 | 46 | Local model infrastructure | complete | [phase-46.md](phase-46.md) · cp46-local-model-infrastructure |
+| 47 | Pair-mode methodology consolidation | complete | [phase-47.md](phase-47.md) · cp47-pairmode-methodology-consolidation |
+| 48 | Open-patterns publication initiative | complete | [phase-48.md](phase-48.md) · cp48-open-patterns-publication |
+| 49 | Observability SPA (sidebar replacement) | anchor | [phase-49.md](phase-49.md) |
+| 50 | Phase/story spec boundary policy | complete | [phase-50.md](phase-50.md) · cp50-phase-story-boundary-policy |
+| 51 | Stub gate and phase-doc scan enforcement | complete | [phase-51.md](phase-51.md) · cp51-stub-gate-enforcement |

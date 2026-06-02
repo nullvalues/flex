@@ -5,6 +5,29 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp51-stub-gate-enforcement
+
+**Phase:** 51 — Stub gate and phase-doc scan enforcement
+**Tag command:** `git tag cp51-stub-gate-enforcement && git push origin cp51-stub-gate-enforcement`
+**Acceptance:** CLAUDE.build.md.j2 gains a phase-doc boundary scan (step 3.5) and a pre-story
+stub gate that blocks delegation stubs and stories missing an acceptance surface. reviewer.md.j2
+gains STORY SPEC check (2.5) catching the same patterns post-build. flex_build.py gains a
+`check-stubs` CLI subcommand for pre-build audits: scans docs/stories/**/*.md, reports
+STUB/OK per story, exits 1 when any stubs found. Also ships phase 50 boundary-collapse
+policy (BUILD-006/007/008) and phase 49 H3+ sync fix. 1847 tests pass.
+
+---
+
+## cp50-phase-story-boundary-policy
+
+**Phase:** 50 — Phase/story spec boundary policy
+**Tag command:** `git tag cp50-phase-story-boundary-policy && git push origin cp50-phase-story-boundary-policy`
+**Acceptance:** CER-030 updated with boundary-collapse root-cause framing. CLAUDE.build.md.j2
+gains "Phase doc boundary scan" gate and "Spec surface discipline" section. phase.md.j2 gains
+boundary reminder comment. Shipped as part of cp51 commit bundle. 1847 tests pass.
+
+---
+
 ## cp47-pairmode-methodology-consolidation
 
 **Phase:** 47 — Pair-mode methodology consolidation
