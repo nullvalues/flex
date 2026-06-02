@@ -603,10 +603,11 @@ class TestBuilderAgentTemplate:
         assert "BUILDER PAUSED" in self.output
 
     def test_completion_report_format(self):
-        assert "BUILT: Story" in self.output
-        assert "Files changed:" in self.output
-        assert "Tests:" in self.output
-        assert "Build gate: PASS" in self.output
+        # Verbose block removed in BUILD-019; minimal block remains
+        assert "BUILD-RESULT: DONE" in self.output
+        assert "SUMMARY:" in self.output
+        assert "BUILT: Story" not in self.output
+        assert "Build gate: PASS" not in self.output
 
     def test_builder_stuck_format(self):
         assert "BUILDER STUCK" in self.output
@@ -663,11 +664,15 @@ class TestReviewerAgentTemplate:
     def test_commit_format_on_pass(self):
         assert "git add -A" in self.output
         assert "git commit" in self.output
-        assert "REVIEW PASS" in self.output
+        # Verbose REVIEW PASS block removed in BUILD-019; minimal block remains
+        assert "feat(story-RAIL-NNN):" in self.output
+        assert "REVIEW PASS" not in self.output
 
     def test_fail_conditions(self):
         assert "FAIL conditions" in self.output
-        assert "REVIEW FAIL" in self.output
+        # Verbose REVIEW FAIL block removed in BUILD-019
+        assert "REVIEW FAIL" not in self.output
+        assert "git checkout ." in self.output
 
     def test_revert_on_fail(self):
         assert "git checkout ." in self.output

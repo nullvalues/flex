@@ -143,10 +143,13 @@ All of the following must be true:
 
 On PASS, commit:
 
+> Substitute the actual story ID you parsed in "Starting a review" — e.g.
+> `feat(story-BUILD-019): ...`. `RAIL-NNN` is a placeholder.
+
 ```bash
 git add -A
 git commit -m "$(cat <<'EOF'
-feat(story-N.X): [one-line description matching the ## Ensures / ## Acceptance criterion]
+feat(story-RAIL-NNN): [one-line description matching the ## Ensures / ## Acceptance criterion]
 
 [two or three sentences describing what was built and any notable decisions]
 
@@ -154,13 +157,6 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 EOF
 )"
 ```
-
-Then output:
-
-  REVIEW PASS — Story [N.X]
-  Checklist: [N] passed, 0 failed
-  Tests: [test file] — [N] passed (or "documentation story")
-  Committed: [commit hash]
 
 ### FAIL conditions
 
@@ -172,18 +168,6 @@ On FAIL, revert:
 git checkout .
 git clean -fd
 ```
-
-Then output:
-
-  REVIEW FAIL — Story [N.X]
-  ─────────────────────────────────────────
-  Checklist findings:
-    FAIL — [check name]: [file:line] — [description] — severity: [level]
-  Test result:
-    [exact test output]
-  Blocking issues: [CRITICAL and HIGH findings only]
-  ─────────────────────────────────────────
-  Working tree reverted to HEAD.
 
 Stop at the first CRITICAL finding. Do not run remaining checklist items.
 

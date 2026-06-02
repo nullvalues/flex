@@ -80,13 +80,6 @@ Verify:
 2. No hardcoded absolute paths introduced
 3. No hook scripts modified to make API calls
 
-Then output exactly:
-
-  BUILT: Story [N.X] — [one-line description]
-  Files changed: [list of files created or modified]
-  Tests: [test file path and pass count, or "documentation story — no test file"]
-  Build gate: PASS
-
 Then stop. Do not commit. Do not proceed to the next story.
 
 ---
