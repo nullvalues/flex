@@ -26,16 +26,29 @@ In build mode: follow the build loop below. Do not ask clarifying questions befo
 
 ## Before the first build loop
 
-1. Read `docs/brief.md` in full (operator intent — what and why).
-2. Read `docs/architecture.md` in full.
-3. Read the current phase file `docs/phases/NNN-name.md` (or `docs/phases/phase-N.md` for legacy projects that have not migrated to named phase files).
-4. Run `git log --oneline -20` to identify the last completed story.
-   A story is complete if a commit with `story-<RAIL>-NNN` exists.
-5. Read the phase manifest's `## Stories` table. Identify the first story
-   with status `planned` (or no matching commit).
-6. Resolve that story ID to its full content:
-   `docs/stories/<RAIL>/<RAIL>-NNN.md`
-7. Check for ⚙️ DEVELOPER ACTION gates before that story. Block if present.
+1. Identify the active phase and next story:
+
+   ```bash
+   PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py \
+     current-phase --project-dir .
+   ```
+
+   This prints the path to the active phase file (e.g. `docs/phases/phase-52.md`).
+   If exit code 1: all stories complete — report to user and stop.
+
+2. Find the next unbuilt story:
+
+   ```bash
+   PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/next_story.py \
+     <phase-file> --project-dir .
+   ```
+
+   Replace `<phase-file>` with the path printed in step 1.
+   This prints the story ID and file path.
+   Exit 1 means the phase is complete — run the checkpoint sequence.
+   Exit 2 means an error — report and stop.
+
+3. Proceed to the build loop with the story ID from step 2.
 
 ### 3.5 Phase doc boundary scan
 

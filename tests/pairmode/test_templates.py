@@ -387,15 +387,19 @@ class TestClaudeBuildMdTemplate:
         assert "### 7. Tag the checkpoint" in self.output
         assert "### 8. Report" in self.output
 
-    def test_brief_md_before_architecture_md_in_before_loop(self):
-        # docs/brief.md must appear before docs/architecture.md in the before-the-first-build-loop section
+    def test_before_loop_uses_current_phase_cli(self):
+        # BUILD-011: "Before the first build loop" uses current-phase + next_story.py
+        # instead of reading docs/brief.md and docs/architecture.md upfront.
+        # Only look at the numbered steps block (up to the first ### subsection).
         section_start = self.output.index("## Before the first build loop")
-        # Find the next major section after the before-loop section
-        build_loop_start = self.output.index("## Build loop")
-        before_loop_section = self.output[section_start:build_loop_start]
-        brief_pos = before_loop_section.index("docs/brief.md")
-        arch_pos = before_loop_section.index("docs/architecture.md")
-        assert brief_pos < arch_pos
+        # The numbered steps end when the first sub-heading appears.
+        first_sub_heading = self.output.index("### ", section_start)
+        before_loop_steps = self.output[section_start:first_sub_heading]
+        assert "current-phase" in before_loop_steps
+        assert "next_story.py" in before_loop_steps
+        # The blanket brief.md / architecture.md reads must not be in the steps.
+        assert "docs/brief.md" not in before_loop_steps
+        assert "docs/architecture.md" not in before_loop_steps
 
     def test_cer_backlog_review_heading_present(self):
         assert "CER backlog review" in self.output

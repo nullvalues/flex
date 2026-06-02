@@ -9,8 +9,6 @@ memory layer (sidebar, `spec.json`, lessons) is the supporting infrastructure
 that pairmode sits on top of.
 
 Stack: Python 3.11+ / uv / Rich (TUI) / Anthropic SDK.
-Read `/docs/brief.md` then `/docs/architecture.md` before any task. These are
-the source of truth.
 
 Pairmode is shipped and in continuous use on this repo. Current build activity
 lives in numbered phase files under `/docs/phases/`; see

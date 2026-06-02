@@ -20,6 +20,10 @@ from pathlib import Path
 # Make sibling modules importable when invoked as a script.
 sys.path.insert(0, str(Path(__file__).parent))
 
+# next_story is imported lazily inside cmd_current_phase to avoid circular
+# import issues when the module is loaded in test environments.
+
+
 import click
 
 from schema_validator import _parse_frontmatter  # noqa: E402
@@ -229,6 +233,135 @@ def cmd_context_health(phase: str, project_dir: str) -> None:
     db_path = resolve_effort_db_path(project_path)
     result = check_context_health(db_path=db_path, current_phase=phase)
     click.echo(json.dumps(result))
+
+
+def _depth_guard(project_dir: Path) -> None:
+    """Reject paths that are too shallow (fewer than 3 components)."""
+    if len(project_dir.resolve().parts) < 3:
+        click.echo(
+            f"error: --project-dir '{project_dir}' is too shallow (depth guard).",
+            err=True,
+        )
+        sys.exit(1)
+
+
+def _parse_index_phases(index_text: str) -> list[tuple[str, str]]:
+    """Parse ``docs/phases/index.md`` and return ``[(phase_ref, status)]``.
+
+    ``phase_ref`` is the raw first-column value (e.g. ``52`` or ``1–7``).
+    ``status`` is the third column, lowercased.
+
+    Rows with multi-phase entries like ``1–7`` are skipped because they
+    describe legacy aggregated phases that have no individual phase file.
+    """
+    rows: list[tuple[str, str]] = []
+    in_table = False
+    header_seen = False
+    separator_seen = False
+
+    for line in index_text.splitlines():
+        stripped = line.strip()
+
+        if not stripped.startswith("|"):
+            if in_table and stripped:
+                break
+            continue
+
+        in_table = True
+        parts = [p.strip() for p in stripped.split("|")]
+        if len(parts) < 4:
+            continue
+
+        if not header_seen:
+            header_seen = True
+            continue
+
+        if not separator_seen:
+            separator_seen = True
+            continue
+
+        phase_ref = parts[1].strip()
+        # Skip aggregate rows (e.g. "1–7", "1-7")
+        if "–" in phase_ref or ("-" in phase_ref and not phase_ref.isdigit()):
+            try:
+                int(phase_ref)
+            except ValueError:
+                continue
+
+        # Status is the third data column (index 3 after leading empty at 0).
+        status = parts[3].strip().lower() if len(parts) > 3 else ""
+        rows.append((phase_ref, status))
+
+    return rows
+
+
+@flex_build.command("current-phase")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_current_phase(project_dir: str) -> None:
+    """Print the active phase file path; exit 1 if all stories are complete."""
+    # Import lazily to avoid issues in environments where next_story isn't on
+    # sys.path at module load time.
+    from next_story import find_next_story  # noqa: E402  # type: ignore[import]
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+
+    index_path = project_path / "docs" / "phases" / "index.md"
+
+    if index_path.exists():
+        index_text = index_path.read_text(encoding="utf-8")
+        phase_rows = _parse_index_phases(index_text)
+
+        # Walk rows in order and keep track of the last phase that is not
+        # 'complete'. The last such row wins (most recent active phase).
+        active_phase_ref: str | None = None
+        for phase_ref, status in phase_rows:
+            if status != "complete":
+                active_phase_ref = phase_ref
+
+        if active_phase_ref is not None:
+            candidate = project_path / "docs" / "phases" / f"phase-{active_phase_ref}.md"
+            if candidate.exists():
+                click.echo(str(candidate.relative_to(project_path)))
+                sys.exit(0)
+
+        # Index exists but all phases are complete (or the active phase file is
+        # missing) — authoritative signal that no active phase remains.
+        click.echo("No active phase found — all stories complete.", err=True)
+        sys.exit(1)
+
+    # No index file — fallback: scan phase files directly for one with an
+    # unbuilt story.
+    phases_dir = project_path / "docs" / "phases"
+    if not phases_dir.exists():
+        click.echo("No active phase found — all stories complete.", err=True)
+        sys.exit(1)
+
+    # Collect all phase-N.md files and sort descending by N.
+    phase_files = sorted(
+        phases_dir.glob("phase-*.md"),
+        key=lambda p: int(re.search(r"phase-(\d+)\.md", p.name).group(1))  # type: ignore[union-attr]
+        if re.search(r"phase-(\d+)\.md", p.name)
+        else 0,
+        reverse=True,
+    )
+
+    for phase_file in phase_files:
+        try:
+            result = find_next_story(phase_file, project_path)
+        except Exception:  # noqa: BLE001
+            continue
+        if result is not None:
+            click.echo(str(phase_file.relative_to(project_path)))
+            sys.exit(0)
+
+    click.echo("No active phase found — all stories complete.", err=True)
+    sys.exit(1)
 
 
 _DELEGATION_RE = re.compile(
