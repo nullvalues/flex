@@ -510,6 +510,77 @@ def cmd_clear_attempt_count(project_dir: str) -> None:
         path.unlink()
 
 
+# ---------------------------------------------------------------------------
+# Story cost estimate (INFRA-135)
+# ---------------------------------------------------------------------------
+
+
+_COST_MIN_SAMPLE = 3
+
+
+def _query_story_cost_samples(
+    db_path: Path, rail: str, story_class: str
+) -> list[int]:
+    """Return tokens_total values for PASS rows matching (rail, story_class)."""
+    import sqlite3
+
+    if not db_path.exists():
+        return []
+    conn = sqlite3.connect(str(db_path))
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT tokens_total
+              FROM attempts
+             WHERE rail = ?
+               AND story_class = ?
+               AND outcome = 'PASS'
+               AND tokens_total IS NOT NULL
+               AND tokens_total > 0
+            """,
+            (rail, story_class),
+        )
+        return [int(row[0]) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+@flex_build.command("story-cost-estimate")
+@click.option("--story-id", required=True, help="Story ID (e.g. INFRA-135).")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_story_cost_estimate(story_id: str, project_dir: str) -> None:
+    """Print a one-line median PASS-token estimate for (rail, story_class)."""
+    import statistics
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    story_path = _story_path(story_id, project_path)
+    fm = _read_story_frontmatter(story_path) if story_path.exists() else {}
+    rail = (fm.get("rail") or story_id.split("-", 1)[0]).strip()
+    story_class = (fm.get("story_class") or "code").strip()
+
+    db_path = resolve_effort_db_path(project_path)
+    samples = _query_story_cost_samples(db_path, rail, story_class)
+    n = len(samples)
+
+    if n < _COST_MIN_SAMPLE:
+        click.echo(
+            f"estimate: insufficient data ({n} PASS attempts on {rail}/{story_class})"
+        )
+        return
+
+    median = int(statistics.median(samples))
+    click.echo(
+        f"estimate: {median} tokens (median of {n} PASS attempts on {rail}/{story_class})"
+    )
+
+
 @flex_build.command("transition-era")
 @click.option("--name", default=None, help="New era name (required in --yes mode).")
 @click.option("--intent", default="", help="Strategic intent for the new era.")

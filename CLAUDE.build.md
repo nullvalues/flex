@@ -299,7 +299,21 @@ The threshold is the value of `context_budget_threshold` in `.companion/state.js
 
 If the token count is **below** the threshold:
   Output: `CONTEXT: [N] / [threshold] tokens — proceeding`
-  Continue to the pre-story schema gate.
+
+  Then call:
+    PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+      story-cost-estimate --story-id RAIL-NNN --project-dir .
+
+  Display its output verbatim as the next line of the gate report.
+
+  If the printed estimate is a numeric token count (not "insufficient data")
+  and `[threshold] - [N]` is less than that estimate, append:
+
+    Estimated story cost exceeds remaining headroom; consider /clear before
+    proceeding.
+
+  The estimate is informational — it does not block. Continue to the
+  pre-story schema gate.
 
 If the token count is **at or above** the threshold:
   Output:
