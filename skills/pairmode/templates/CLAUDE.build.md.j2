@@ -24,6 +24,85 @@ In build mode: follow the build loop below. Do not ask clarifying questions befo
 
 ---
 
+## Spec mode
+
+Triggered by:
+- `"spec next phase [intent]"` — intent describes what the phase should accomplish
+- `"spec phase N: [intent]"` — specifies the phase number explicitly
+
+In spec mode: follow the spec workflow below. Do not enter the build loop.
+
+### Spec workflow
+
+1. **Determine phase number.**
+   Call `flex_build.py current-phase --project-dir .` and add 1.
+   If trigger specified a phase number, use it directly.
+
+2. **Read the active era.**
+   Scan `docs/eras/*.md` for the file with `status: active`. Read it in full.
+   If no active era exists, stop and report: "No active era found. Run
+   `flex_build.py transition-era` or create an era before speccing a phase."
+
+3. **Spawn Plan subagent** (model: opus) with:
+   - Content of `CLAUDE.md`
+   - Content of the active era doc
+   - Content of one recent `story_class: code` story from `docs/stories/`
+     as format exemplar
+   - Content of `skills/pairmode/templates/docs/phases/phase.md.j2`
+   - The user's intent string
+   - Instruction: "Draft a phase spec for Phase [N]: [intent]. Return ONLY:
+     (a) a one-paragraph Goal, and (b) a proposed Stories table with columns
+     ID | Title | story_class. Do not write files. Do not include
+     implementation detail. Propose IDs continuing from the last used ID
+     in each rail."
+
+4. **Confirm gate.**
+   Present the draft to the user:
+   ```
+   SPEC DRAFT — Phase N
+   Goal: [paragraph from Plan subagent]
+
+   Stories:
+     [RAIL-NNN]  [Title]  [story_class]
+     ...
+
+   Say "commit spec" to write and commit these files.
+   Or give feedback to revise (max 2 rounds).
+   ```
+   Wait for user response.
+
+5. **On "commit spec":**
+   a. Scaffold the phase file:
+      ```bash
+      PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/phase_new.py \
+        --phase N --project-dir .
+      ```
+   b. Spawn a second Plan subagent (same inputs + confirmed Stories table)
+      with instruction: "Write the full story files for this phase. For each
+      story in the confirmed table, produce `docs/stories/<RAIL>/<ID>.md`
+      with frontmatter + Background + Ensures + Out of scope + Instructions +
+      Tests. Also update `docs/phases/phase-N.md` with the Goal and Stories
+      table. Phase doc = planning surface only."
+   c. Commit:
+      ```bash
+      git add docs/phases/phase-N.md docs/stories/
+      git commit -m "spec(phase-N): scaffold phase and story specs [spec-mode]"
+      ```
+   d. Report:
+      ```
+      Phase N spec committed (M stories).
+      Stories: [list IDs]
+      Say "build phase N" to start the build loop.
+      ```
+
+6. **On feedback (not "commit spec"):**
+   Re-spawn the Plan subagent with the original inputs plus the user's feedback
+   appended. Return to step 4. After two revision rounds without "commit spec",
+   stop and report: "Spec revision limit reached. Edit the files manually or
+   restart spec mode with a refined intent."
+
+---
+
 ## Before the first build loop
 
 1. Identify the active phase and next story:
