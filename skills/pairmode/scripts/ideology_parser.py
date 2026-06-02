@@ -61,18 +61,32 @@ def _extract_subsections(text: str) -> dict[str, str]:
 
 
 def _bullet_lines(body: str) -> list[str]:
-    """Extract bullet lines from body, skipping placeholders and empty lines."""
+    """Extract bullet lines from body, joining continuation lines into each bullet."""
     lines = []
+    current: str | None = None
     for line in body.splitlines():
         stripped = line.strip()
         if not stripped:
+            if current is not None:
+                lines.append(current)
+                current = None
             continue
         if stripped.startswith(IDEOLOGY_PLACEHOLDER_MARKER):
             continue
         if stripped.startswith("- "):
-            lines.append(stripped[2:])
+            if current is not None:
+                lines.append(current)
+            current = stripped[2:]
         elif stripped.startswith("-"):
-            lines.append(stripped[1:].strip())
+            if current is not None:
+                lines.append(current)
+            current = stripped[1:].strip()
+        else:
+            # Continuation line — append to current bullet
+            if current is not None:
+                current = current + " " + stripped
+    if current is not None:
+        lines.append(current)
     return lines
 
 
@@ -130,12 +144,24 @@ def parse_ideology_text(text: str) -> dict:
             continue
         rule = ""
         rationale = ""
+        current_field: str | None = None
         for line in sub_body.splitlines():
             stripped = line.strip()
+            if not stripped:
+                current_field = None
+                continue
             if stripped.startswith("**Rule:**"):
+                current_field = "rule"
                 rule = stripped[len("**Rule:**"):].strip()
             elif stripped.startswith("**Rationale:**"):
+                current_field = "rationale"
                 rationale = stripped[len("**Rationale:**"):].strip()
+            elif stripped.startswith("**"):
+                current_field = None
+            elif current_field == "rule":
+                rule = rule + " " + stripped
+            elif current_field == "rationale":
+                rationale = rationale + " " + stripped
         constraints.append({"name": name, "rule": rule, "rationale": rationale})
 
     # --- Reconstruction guidance ---
@@ -154,17 +180,27 @@ def parse_ideology_text(text: str) -> dict:
     # --- Comparison basis ---
     comparison_body = _find_section(top_sections, "comparison basis")
     comparison_dimensions = []
+    current_dim: dict | None = None
     for line in comparison_body.splitlines():
         stripped = line.strip()
         if not stripped:
+            if current_dim is not None:
+                comparison_dimensions.append(current_dim)
+                current_dim = None
             continue
         if stripped.startswith(IDEOLOGY_PLACEHOLDER_MARKER):
             continue
         # Match both: "- **Name:** desc" (colon inside bold) and "- **Name**: desc" (colon outside)
         m = re.match(r"^-\s+\*\*(.+?):?\*\*:?\s*(.+)$", stripped)
         if m:
+            if current_dim is not None:
+                comparison_dimensions.append(current_dim)
             name = m.group(1).rstrip(":")
-            comparison_dimensions.append({"name": name, "description": m.group(2)})
+            current_dim = {"name": name, "description": m.group(2)}
+        elif current_dim is not None:
+            current_dim["description"] = current_dim["description"] + " " + stripped
+    if current_dim is not None:
+        comparison_dimensions.append(current_dim)
 
     return {
         "project_name": project_name,
