@@ -33,7 +33,7 @@ Exit criteria:
 |----|-------|--------|
 | BUILD-011 | Upfront context elimination | complete |
 | BUILD-012 | Story-ID-only spawn protocol | complete |
-| BUILD-013 | Minimal agent return surface | planned |
+| BUILD-013 | Minimal agent return surface | complete |
 | BUILD-014 | /context inline gate | planned |
 | BUILD-015 | `spec next phase` orchestrated workflow | planned |
 | BUILD-016 | Bootstrap era strategic intent prompt | planned |

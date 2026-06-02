@@ -2,7 +2,7 @@
 id: BUILD-013
 rail: BUILD
 title: Minimal agent return surface
-status: planned
+status: complete
 phase: "52"
 story_class: methodology
 primary_files:
