@@ -88,7 +88,15 @@ def _copy_canonical_files(project_dir: Path) -> None:
             "|-------|-------|--------|---------------|------|\n"
             "| 1 | Phase 1 | in progress | — | [docs/phases/phase-1.md](docs/phases/phase-1.md) |\n\n\n"
             "## Backlog promotions\n\n"
-            "_(List items promoted from the Do-Later / Do-Much-Later backlog into active phases here, with a one-line reason and the target phase.)_\n",
+            "_(List items promoted from the Do-Later / Do-Much-Later backlog into active phases here, with a one-line reason and the target phase.)_\n\n"
+            "---\n\n"
+            "## Proposed phases (not yet sequenced)\n\n"
+            "Phases conceived before they enter the build queue use the filename convention\n"
+            "`phase-proposed-<kebab-name>-YYYYMMDD-NNN.md`. No sequential number until\n"
+            "sequenced. When sequenced, stories are absorbed into the next available phase\n"
+            "and this file is deleted (git history records the transit).\n\n"
+            "| Proposed file | Title | Era |\n"
+            "|---------------|-------|-----|\n",
             encoding="utf-8",
         )
 

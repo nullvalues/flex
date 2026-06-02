@@ -211,6 +211,28 @@ Before starting the build loop, check the phase doc for boundary violations:
 Never write implementation detail into the phase doc while planning. The stale
 recon that accumulates there creates confusion when the builder reads it later.
 
+### Proposed phases
+
+A phase conceived before it is literally the next build target gets a
+**proposed filename** instead of a sequential number:
+
+```
+docs/phases/phase-proposed-<kebab-name>-YYYYMMDD-NNN.md
+```
+
+- `<kebab-name>` — short kebab-cased description
+- `YYYYMMDD` — proposal date (ISO, no separators)
+- `NNN` — same-day sequence counter (001, 002, …)
+
+Proposed phases do not appear in the main phase table in `docs/phases/index.md`.
+They appear under a `## Proposed phases (not yet sequenced)` section.
+
+**Sequencing a proposed phase:**
+1. Move its stories into the next available sequential phase.
+2. `git rm` the proposed file.
+3. Remove its row from the `## Proposed phases` section of `index.md`.
+Git history records the transit.
+
 ---
 
 ## Model evaluation
