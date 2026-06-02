@@ -52,9 +52,10 @@ In spec mode: follow the spec workflow below. Do not enter the build loop.
    - The user's intent string
    - Instruction: "Draft a phase spec for Phase [N]: [intent]. Return ONLY:
      (a) a one-paragraph Goal, and (b) a proposed Stories table with columns
-     ID | Title | story_class. Do not write files. Do not include
-     implementation detail. Propose IDs continuing from the last used ID
-     in each rail."
+     ID | Title | Status (all rows `planned`). Do not include a `story_class`
+     column — that field lives in each story file's frontmatter, not the phase
+     doc. Do not write files. Do not include implementation detail. Propose IDs
+     continuing from the last used ID in each rail."
 
 4. **Confirm gate.**
    Present the draft to the user:
@@ -63,8 +64,11 @@ In spec mode: follow the spec workflow below. Do not enter the build loop.
    Goal: [paragraph from Plan subagent]
 
    Stories:
-     [RAIL-NNN]  [Title]  [story_class]
+     [RAIL-NNN]  [Title]  planned
      ...
+
+   Each story's `story_class` will be recorded in its own file's frontmatter,
+   not the phase Stories table.
 
    Say "commit spec" to write and commit these files.
    Or give feedback to revise (max 2 rounds).
@@ -73,9 +77,16 @@ In spec mode: follow the spec workflow below. Do not enter the build loop.
 
 5. **On "commit spec":**
    a. Scaffold the phase file:
+      Substitute the confirmed title and goal from the Plan subagent's draft
+      (already accepted by the user at the confirm gate). `phase_new.py` falls
+      back to interactive prompts when either flag is absent, so both must be
+      passed explicitly.
       ```bash
       PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/phase_new.py \
-        --phase N --project-dir .
+        --phase-id N \
+        --title "[title from confirmed draft]" \
+        --goal "[goal paragraph from confirmed draft]" \
+        --project-dir .
       ```
    b. Spawn a second Plan subagent (same inputs + confirmed Stories table)
       with instruction: "Write the full story files for this phase. For each
