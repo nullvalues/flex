@@ -98,3 +98,4 @@ effort-DB analytics, and surfacing the data era 001 accumulated.
 | 52 | Lean orchestrator and spec workflow | complete |
 | 53 | Phase 52 cold-eyes fixes + story cost estimation | planned |
 | 54 | sync-all wrapper command | planned |
+| 56 | Phase naming suffix convention | planned |

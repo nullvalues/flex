@@ -107,7 +107,7 @@ def _detect_active_era(project_dir: Path) -> str | None:
     return active[-1][1]
 
 
-def _update_era_phases_table(project_dir: Path, era_id: str, phase_id: int, phase_title: str) -> None:
+def _update_era_phases_table(project_dir: Path, era_id: str, phase_key: str, phase_title: str) -> None:
     """Append a row to the Phases table in the era's .md file."""
     eras_dir = project_dir / "docs" / "eras"
     if not eras_dir.is_dir():
@@ -134,8 +134,8 @@ def _update_era_phases_table(project_dir: Path, era_id: str, phase_id: int, phas
 
     content = target_file.read_text(encoding="utf-8")
     # Find the Phases table and append a row
-    # Table row format: | NNN | Phase title | Status |
-    row = f"| {phase_id} | {phase_title} | planned |"
+    # Table row format: | phase_key | Phase title | Status |
+    row = f"| {phase_key} | {phase_title} | planned |"
     lines = content.splitlines(keepends=True)
     new_lines: list[str] = []
     in_phases_section = False
@@ -171,10 +171,10 @@ def _update_era_phases_table(project_dir: Path, era_id: str, phase_id: int, phas
     target_file.write_text("".join(new_lines), encoding="utf-8")
 
 
-def _append_index_row(index_path: Path, phase_id: int, phase_title: str) -> None:
+def _append_index_row(index_path: Path, phase_key: str, phase_title: str) -> None:
     """Append a new row to the phases table in an existing index.md."""
     content = index_path.read_text(encoding="utf-8")
-    row = f"| {phase_id} | {phase_title} | planned | [phase-{phase_id}.md](phase-{phase_id}.md) |"
+    row = f"| {phase_key} | {phase_title} | planned | [phase-{phase_key}.md](phase-{phase_key}.md) |"
 
     # Find the end of the table and append
     lines = content.splitlines(keepends=True)
@@ -201,16 +201,16 @@ def _append_index_row(index_path: Path, phase_id: int, phase_title: str) -> None
     index_path.write_text("".join(new_lines), encoding="utf-8")
 
 
-def _create_index(index_path: Path, phase_id: int, phase_title: str, project_name: str = "project") -> None:
+def _create_index(index_path: Path, phase_key: str, phase_title: str, project_name: str = "project") -> None:
     """Create a brand-new index.md from the index template."""
     env = _load_env()
     tmpl = env.get_template("docs/phases/index.md.j2")
     phases = [
         {
-            "id": phase_id,
+            "id": phase_key,
             "title": phase_title,
             "status": "planned",
-            "file": f"phase-{phase_id}.md",
+            "file": f"phase-{phase_key}.md",
         }
     ]
     content = tmpl.render(project_name=project_name, phases=phases)
@@ -233,8 +233,12 @@ def _create_index(index_path: Path, phase_id: int, phase_title: str, project_nam
 @click.option(
     "--phase-id",
     required=True,
-    type=int,
-    help="Integer phase number (e.g. 3).",
+    help="Phase identifier string (e.g. 56, PM025).",
+)
+@click.option(
+    "--suffix",
+    default=None,
+    help="Phase suffix (e.g. main, post1, ante1). Produces phase-{id}-{suffix}.md.",
 )
 @click.option(
     "--title",
@@ -263,7 +267,8 @@ def _create_index(index_path: Path, phase_id: int, phase_title: str, project_nam
 )
 def phase_new(
     project_dir: str,
-    phase_id: int,
+    phase_id: str,
+    suffix: str | None,
     title: str | None,
     goal: str | None,
     phase_class: str | None,
@@ -278,24 +283,27 @@ def phase_new(
 
     phases_dir = project_path / "docs" / "phases"
 
+    # Compute the canonical phase key (used in filenames and index rows)
+    phase_key = f"{phase_id}-{suffix}" if suffix else phase_id
+
     # 1. Ensure docs/phases/ exists (skip in dry-run)
     if not dry_run:
         phases_dir.mkdir(parents=True, exist_ok=True)
 
     # 2. Idempotency check
-    phase_file = phases_dir / f"phase-{phase_id}.md"
+    phase_file = phases_dir / f"phase-{phase_key}.md"
     if phase_file.exists():
         click.echo(
-            f"Warning: phase-{phase_id}.md already exists. Skipping (idempotent).",
+            f"Warning: phase-{phase_key}.md already exists. Skipping (idempotent).",
             err=False,
         )
         return
 
     # 3. Prompt for missing values
     if title is None:
-        title = click.prompt(f"Phase {phase_id} title", default="")
+        title = click.prompt(f"Phase {phase_key} title", default="")
     if goal is None:
-        goal = click.prompt(f"Phase {phase_id} goal (blank is OK)", default="")
+        goal = click.prompt(f"Phase {phase_key} goal (blank is OK)", default="")
 
     # 4. Load project_name from context
     project_name = _load_project_name(project_path)
@@ -303,20 +311,22 @@ def phase_new(
     # 5. Detect active era
     era_id = _detect_active_era(project_path)
 
-    # 6. Determine prev_phase
+    # 6. Determine prev_phase — only for pure-integer IDs with no suffix
     prev_phase = None
-    if phase_id > 1:
-        prev_file = phases_dir / f"phase-{phase_id - 1}.md"
-        if prev_file.exists():
-            prev_title = _read_phase_title(prev_file, phase_id - 1)
-            prev_phase = {"id": phase_id - 1, "title": prev_title}
+    if re.fullmatch(r"\d+", phase_id) and not suffix:
+        int_id = int(phase_id)
+        if int_id > 1:
+            prev_file = phases_dir / f"phase-{int_id - 1}.md"
+            if prev_file.exists():
+                prev_title = _read_phase_title(prev_file, int_id - 1)
+                prev_phase = {"id": int_id - 1, "title": prev_title}
 
     # 7. Render phase-N.md
     env = _load_env()
     phase_tmpl = env.get_template("docs/phases/phase.md.j2")
     rendered = phase_tmpl.render(
         project_name=project_name,
-        phase_id=phase_id,
+        phase_key=phase_key,
         phase_title=title,
         goal=goal,
         prev_phase=prev_phase,
@@ -338,7 +348,7 @@ def phase_new(
         click.echo(f"Created {phase_file.relative_to(project_path)}")
         # Update era Phases table if an active era was found
         if era_id:
-            _update_era_phases_table(project_path, era_id, phase_id, title or f"Phase {phase_id}")
+            _update_era_phases_table(project_path, era_id, phase_key, title or f"Phase {phase_key}")
 
     # 9. Update or create index.md
     index_path = phases_dir / "index.md"
@@ -347,7 +357,7 @@ def phase_new(
             rel = index_path.relative_to(project_path)
             click.echo(f"[DRY RUN] Would update: {rel}")
         else:
-            _append_index_row(index_path, phase_id, title or f"Phase {phase_id}")
+            _append_index_row(index_path, phase_key, title or f"Phase {phase_key}")
             click.echo(f"Updated {index_path.relative_to(project_path)}")
     else:
         if dry_run:
@@ -356,10 +366,10 @@ def phase_new(
             index_tmpl = index_env.get_template("docs/phases/index.md.j2")
             phases_list = [
                 {
-                    "id": phase_id,
-                    "title": title or f"Phase {phase_id}",
+                    "id": phase_key,
+                    "title": title or f"Phase {phase_key}",
                     "status": "planned",
-                    "file": f"phase-{phase_id}.md",
+                    "file": f"phase-{phase_key}.md",
                 }
             ]
             index_rendered = index_tmpl.render(project_name=project_name, phases=phases_list)
@@ -369,7 +379,7 @@ def phase_new(
             for line in index_rendered.splitlines()[:20]:
                 click.echo(line)
         else:
-            _create_index(index_path, phase_id, title or f"Phase {phase_id}", project_name)
+            _create_index(index_path, phase_key, title or f"Phase {phase_key}", project_name)
             click.echo(f"Created {index_path.relative_to(project_path)}")
 
 

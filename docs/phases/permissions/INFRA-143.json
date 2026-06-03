@@ -1,0 +1,12 @@
+{
+  "story_id": "INFRA-143",
+  "story_spec": "docs/stories/INFRA/INFRA-143.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/phase_new.py",
+    "skills/pairmode/templates/docs/phases/phase.md.j2",
+    "skills/pairmode/templates/docs/phases/index.md.j2",
+    "tests/pairmode/test_phase_new.py",
+    "docs/stories/INFRA/INFRA-143.md"
+  ],
+  "generated_at": "2026-06-03T17:17:35Z"
+}

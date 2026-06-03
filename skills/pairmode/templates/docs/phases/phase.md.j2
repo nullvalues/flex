@@ -1,4 +1,5 @@
 {% set _phase_class = phase_class | default(None) -%}
+{% set _phase_key = phase_key | default(phase_id) -%}
 {% if era_id or _phase_class -%}
 ---
 {% if era_id -%}
@@ -10,7 +11,7 @@ phase_class: {{ _phase_class }}
 ---
 
 {% endif -%}
-# {{ project_name }} — Phase {{ phase_id }}: {{ phase_title }}
+# {{ project_name }} — Phase {{ _phase_key }}: {{ phase_title }}
 
 {% if prev_phase or next_phase -%}
 {% if prev_phase -%}
@@ -45,6 +46,6 @@ this phase, record the management surface before the phase is checkpointed.
 
 ---
 
-### CP-{{ phase_id }} Cold-eyes checklist
+### CP-{{ _phase_key }} Cold-eyes checklist
 
 — developer fills in after phase completion —

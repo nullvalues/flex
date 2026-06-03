@@ -10,6 +10,7 @@ from click.testing import CliRunner
 from skills.pairmode.scripts.phase_new import (
     phase_new,
     _read_phase_title,
+    _append_index_row,
     _create_index,
     _detect_active_era,
     _update_era_phases_table,
@@ -273,14 +274,14 @@ class TestCreateIndex:
 
     def test_project_name_in_rendered_index(self, tmp_path: pathlib.Path) -> None:
         index_path = tmp_path / "index.md"
-        _create_index(index_path, phase_id=1, phase_title="First Phase", project_name="MyProject")
+        _create_index(index_path, phase_key="1", phase_title="First Phase", project_name="MyProject")
         content = index_path.read_text()
         assert "MyProject" in content
 
     def test_default_fallback_renders_without_crash(self, tmp_path: pathlib.Path) -> None:
         index_path = tmp_path / "index.md"
         # Call with default project_name — must not raise
-        _create_index(index_path, phase_id=1, phase_title="First Phase")
+        _create_index(index_path, phase_key="1", phase_title="First Phase")
         assert index_path.exists()
         content = index_path.read_text()
         assert "First Phase" in content
@@ -426,7 +427,7 @@ class TestUpdateErasPhasesTable:
     def test_appends_row_to_phases_table(self, tmp_path: pathlib.Path) -> None:
         eras_dir = tmp_path / "docs" / "eras"
         era_file = _write_era(eras_dir, "001-foundation.md", ERA_ACTIVE_CONTENT)
-        _update_era_phases_table(tmp_path, "001", 3, "My Phase")
+        _update_era_phases_table(tmp_path, "001", "3", "My Phase")
         content = era_file.read_text()
         assert "| 3 | My Phase | planned |" in content
 
@@ -434,7 +435,7 @@ class TestUpdateErasPhasesTable:
         eras_dir = tmp_path / "docs" / "eras"
         _write_era(eras_dir, "001-foundation.md", ERA_ACTIVE_CONTENT)
         # Trying to update era 002 which doesn't exist — must not raise
-        _update_era_phases_table(tmp_path, "002", 1, "Whatever")
+        _update_era_phases_table(tmp_path, "002", "1", "Whatever")
 
     def test_update_era_phases_table_with_no_frontmatter(self, tmp_path: pathlib.Path) -> None:
         """Era file with body content but no frontmatter block must not crash.
@@ -454,7 +455,7 @@ class TestUpdateErasPhasesTable:
         era_file.write_text(body_only_content, encoding="utf-8")
 
         # Must not raise regardless of whether it inserts the row
-        _update_era_phases_table(tmp_path, "001", 3, "My Phase")
+        _update_era_phases_table(tmp_path, "001", "3", "My Phase")
         # Era file still readable after the call
         assert era_file.exists()
 
@@ -728,3 +729,215 @@ class TestPhaseClassValidation:
 
     def test_default_phase_class_constant(self) -> None:
         assert DEFAULT_PHASE_CLASS == "production"
+
+
+# ---------------------------------------------------------------------------
+# Tests: string phase-id and --suffix flag (INFRA-143)
+# ---------------------------------------------------------------------------
+
+
+class TestSuffixFlag:
+    """--suffix produces phase-{id}-{suffix}.md with correct phase_key in content."""
+
+    def test_suffix_produces_correct_filename(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "56",
+                "--suffix", "main",
+                "--title", "Main Phase",
+                "--goal", "",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        phase_file = tmp_path / "docs" / "phases" / "phase-56-main.md"
+        assert phase_file.exists(), f"Expected phase-56-main.md but got: {list((tmp_path / 'docs' / 'phases').iterdir())}"
+
+    def test_suffix_phase_key_in_heading(self, tmp_path: pathlib.Path) -> None:
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "56",
+                "--suffix", "main",
+                "--title", "Main Phase",
+                "--goal", "",
+            ]
+        )
+        content = (tmp_path / "docs" / "phases" / "phase-56-main.md").read_text()
+        assert "Phase 56-main" in content
+
+    def test_suffix_index_row_uses_full_key(self, tmp_path: pathlib.Path) -> None:
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "56",
+                "--suffix", "main",
+                "--title", "Main Phase",
+                "--goal", "",
+            ]
+        )
+        index_content = (tmp_path / "docs" / "phases" / "index.md").read_text()
+        assert "56-main" in index_content
+        assert "phase-56-main.md" in index_content
+
+    def test_suffix_cp_checklist_uses_phase_key(self, tmp_path: pathlib.Path) -> None:
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "56",
+                "--suffix", "main",
+                "--title", "Main Phase",
+                "--goal", "",
+            ]
+        )
+        content = (tmp_path / "docs" / "phases" / "phase-56-main.md").read_text()
+        assert "CP-56-main" in content
+
+
+class TestStringPhaseId:
+    """--phase-id accepts non-integer strings like PM025."""
+
+    def test_string_id_produces_correct_filename(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "PM025",
+                "--title", "PM Phase",
+                "--goal", "",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        phase_file = tmp_path / "docs" / "phases" / "phase-PM025.md"
+        assert phase_file.exists()
+
+    def test_string_id_with_suffix_produces_correct_filename(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "PM025",
+                "--suffix", "main",
+                "--title", "PM Main Phase",
+                "--goal", "",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        phase_file = tmp_path / "docs" / "phases" / "phase-PM025-main.md"
+        assert phase_file.exists()
+
+    def test_string_id_no_prev_phase_lookup(self, tmp_path: pathlib.Path) -> None:
+        """String IDs must not attempt prev_phase lookup (no integer arithmetic)."""
+        # Create a numeric phase file first to ensure any accidental lookup would find something
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "Numeric Phase",
+                "--goal", "",
+            ]
+        )
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "PM025",
+                "--title", "String Phase",
+                "--goal", "",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs" / "phases" / "phase-PM025.md").read_text()
+        # No backward nav link to any phase file from a string ID
+        assert "phase-1.md" not in content
+
+    def test_string_id_index_row_uses_full_key(self, tmp_path: pathlib.Path) -> None:
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "PM025",
+                "--suffix", "main",
+                "--title", "PM Main Phase",
+                "--goal", "",
+            ]
+        )
+        index_content = (tmp_path / "docs" / "phases" / "index.md").read_text()
+        assert "PM025-main" in index_content
+        assert "phase-PM025-main.md" in index_content
+
+
+class TestIntegerIdBackwardsCompat:
+    """Integer-style phase IDs continue to work exactly as before."""
+
+    def test_integer_id_produces_phase_N_md(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "56",
+                "--title", "Numeric Only",
+                "--goal", "",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "docs" / "phases" / "phase-56.md").exists()
+        assert not (tmp_path / "docs" / "phases" / "phase-56-.md").exists()
+
+    def test_integer_id_prev_phase_still_populated(self, tmp_path: pathlib.Path) -> None:
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "Phase One",
+                "--goal", "",
+            ]
+        )
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "2",
+                "--title", "Phase Two",
+                "--goal", "",
+            ]
+        )
+        content = (tmp_path / "docs" / "phases" / "phase-2.md").read_text()
+        assert "Phase One" in content or "phase-1.md" in content
+
+    def test_integer_id_with_suffix_no_prev_phase(self, tmp_path: pathlib.Path) -> None:
+        """Integer ID + suffix must not attempt prev_phase lookup."""
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "Phase One",
+                "--goal", "",
+            ]
+        )
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "2",
+                "--suffix", "main",
+                "--title", "Phase Two Main",
+                "--goal", "",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs" / "phases" / "phase-2-main.md").read_text()
+        # With suffix present, no prev_phase nav should be generated
+        assert "phase-1.md" not in content
+
+
+class TestAppendIndexRow:
+    """_append_index_row uses full phase_key in the row and filename link."""
+
+    def test_append_row_with_simple_key(self, tmp_path: pathlib.Path) -> None:
+        index_path = tmp_path / "index.md"
+        _create_index(index_path, phase_key="1", phase_title="First Phase")
+        _append_index_row(index_path, phase_key="PM025-main", phase_title="PM Main")
+        content = index_path.read_text()
+        assert "PM025-main" in content
+        assert "phase-PM025-main.md" in content
+
+    def test_append_row_integer_key(self, tmp_path: pathlib.Path) -> None:
+        index_path = tmp_path / "index.md"
+        _create_index(index_path, phase_key="1", phase_title="First Phase")
+        _append_index_row(index_path, phase_key="2", phase_title="Second Phase")
+        content = index_path.read_text()
+        assert "phase-2.md" in content

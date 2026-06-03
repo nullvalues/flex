@@ -2,7 +2,7 @@
 id: INFRA-142
 rail: INFRA
 title: "`docs/architecture.md` — document Edit/Write → scope_guard dispatch"
-status: planned
+status: complete
 phase: "55"
 story_class: doc
 primary_files:
