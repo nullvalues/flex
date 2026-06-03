@@ -2,6 +2,7 @@
 name: flex:pairmode
 description: Bootstrap, audit, sync, and manage pairmode methodology for this project.
 allowed-tools: AskUserQuestion, Bash, Read, Write
+pairmode_version: "0.2.0"
 ---
 
 # flex:pairmode

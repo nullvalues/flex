@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp57-global-session-hook-era001-close
+
+**Phase:** 57 — Global session hook + era-001 documentation close
+**Tag command:** `git tag cp57-global-session-hook-era001-close && git push origin cp57-global-session-hook-era001-close`
+**Acceptance:** Two stories. `global_session_check.py` added as a stdlib-only global SessionStart hook: detects pairmode via `.companion/pairmode_context.json` or fallback file presence, prints a status block (current story, active era, last git tag, canon sync status) or a soft bootstrap prompt for non-pairmode projects; graceful failure on all error paths; 7 tests pass (INFRA-146). README updated with era-001 accomplishment banner and production-ready status; context budget gate added to build loop description; `docs/brief.md` `pre_tool_use.py` dual-delegate description updated; `docs/eras/001-initial.md` era status set to `closing` with era summary appended (INFRA-147). `SKILL.md` gains `pairmode_version: "0.2.0"` for canon sync check, `### Global session hook` install docs, and `global_session_check.py` entry added to `docs/architecture.md` module listing. 1964 tests pass.
+
+---
+
 ## cp56-phase-naming-suffix
 
 **Phase:** 56 — Phase naming suffix convention
