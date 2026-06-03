@@ -1,7 +1,7 @@
 ---
 id: "001"
 name: flex — Initial development
-status: active
+status: closing
 ---
 
 ## Strategic intent
@@ -100,3 +100,9 @@ effort-DB analytics, and surfacing the data era 001 accumulated.
 | 54 | sync-all wrapper command | planned |
 | 56 | Phase naming suffix convention | planned |
 | 57 | Global session hook + era-001 documentation close | planned |
+
+## Era summary
+
+Era 001 closes at Phase 57. Defining accomplishment: pairmode foundation — context
+limits, system-of-record enforcement, deterministic process codification. Era 002
+begins with the observability SPA (Phase 58+).

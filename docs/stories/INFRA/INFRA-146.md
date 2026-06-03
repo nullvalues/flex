@@ -2,7 +2,7 @@
 id: INFRA-146
 rail: INFRA
 title: "`global_session_check.py` — global SessionStart pairmode hook"
-status: planned
+status: complete
 phase: "57"
 primary_files:
   - skills/pairmode/scripts/global_session_check.py

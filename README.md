@@ -7,10 +7,17 @@ recording it as you decide (reactive memory) and by requiring it before you buil
 (proactive process). It captures what you are building and why — automatically, as you
 work — and makes that record the source of truth for every agent and every session.
 
+**Era 001 — pairmode foundation (complete)**
+An Anchor evolution focused on `/flex:pairmode` context management: enforcing 150k
+context limits per build, persistent refocus to system of record, and systematic
+shifts of deterministic processes to code. The result is a largely hands-free
+auto-mode build loop. Era 002 opens with a planned observability SPA to replace the
+companion sidebar.
+
 ## Status
 
-Alpha. Under active development. Core workflows are functional and used in production on
-this repo. The API and scaffold format may change without notice. See Known Limitations.
+Production-ready for solo developers. Core workflows are stable and self-hosted on
+this repo. API and scaffold format may change with notice. See Known Limitations.
 
 ## What flex does
 
@@ -164,13 +171,15 @@ in place.
 
    Pairmode owns this loop. Companion is not required to use it; if companion is running,
    the sidebar will surface the active story but does not gate the build.
-2. Invoke the builder subagent: "Build story RAIL-NNN." The builder reads the spec,
+2. Before spawning the next builder, verify context budget (< 150k tokens). If the
+   projected token count would exceed the threshold, `/clear` and resume first.
+3. Invoke the builder subagent: "Build story RAIL-NNN." The builder reads the spec,
    implements, and runs tests.
-3. Invoke the reviewer subagent. It runs the review checklist and the test suite.
-4. On PASS: the reviewer commits with the story tag. On FAIL: the builder fixes and
+4. Invoke the reviewer subagent. It runs the review checklist and the test suite.
+5. On PASS: the reviewer commits with the story tag. On FAIL: the builder fixes and
    the reviewer re-runs.
-5. If the builder is stuck after two attempts: invoke the loop-breaker.
-6. After each phase: run the 8-step checkpoint sequence (build gate, security audit,
+6. If the builder is stuck after two attempts: invoke the loop-breaker.
+7. After each phase: run the 8-step checkpoint sequence (build gate, security audit,
    intent review, documentation update, phase completion check, CER backlog review,
    checkpoint tag, report).
 
