@@ -1,0 +1,11 @@
+{
+  "story_id": "INFRA-147",
+  "story_spec": "docs/stories/INFRA/INFRA-147.md",
+  "allowed_paths": [
+    "README.md",
+    "docs/brief.md",
+    "docs/eras/001-initial.md",
+    "docs/stories/INFRA/INFRA-147.md"
+  ],
+  "generated_at": "2026-06-03T20:00:15Z"
+}
