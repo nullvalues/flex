@@ -497,6 +497,66 @@ Integer-ID projects (e.g. `phase-56.md`) omit the suffix entirely.
 
 ---
 
+### Global session hook
+
+`skills/pairmode/scripts/global_session_check.py` is a lightweight script intended to be
+installed as a global `SessionStart` hook in `~/.claude/settings.json`. It runs once when
+Claude Code opens a session and prints either a soft bootstrap prompt (for non-pairmode
+projects) or a compact pairmode status block (for pairmode projects).
+
+**What the hook does:**
+
+- Detects whether the current project is pairmode-enabled (presence of
+  `.companion/pairmode_context.json`, or both `CLAUDE.build.md` and
+  `docs/phases/index.md`).
+- For non-pairmode projects: prints a one-line prompt suggesting
+  `/flex:pairmode bootstrap`.
+- For pairmode projects: prints a status block showing project name,
+  current story, active era, last git tag, and canon sync status.
+
+The hook uses stdlib only (no uv, no click, no rich) and gracefully suppresses
+all exceptions so it never blocks a session.
+
+**Manual install steps:**
+
+```bash
+# 1. Copy the hook script to the global hooks directory
+mkdir -p ~/.claude/hooks
+cp /path/to/flex/skills/pairmode/scripts/global_session_check.py \
+   ~/.claude/hooks/pairmode_check.py
+
+# 2. Add a SessionStart entry to ~/.claude/settings.json
+# Merge into the existing "hooks" key, or add it:
+# "hooks": {
+#   "SessionStart": [{
+#     "hooks": [{
+#       "type": "command",
+#       "command": "python3 ~/.claude/hooks/pairmode_check.py",
+#       "timeout": 10
+#     }]
+#   }]
+# }
+```
+
+**Configuring the flex directory (for canon sync status):**
+
+The hook needs to find the flex repo to compare pairmode versions. It checks in order:
+
+1. `FLEX_DIR` environment variable — set in your shell profile:
+   ```bash
+   export FLEX_DIR="/path/to/flex"
+   ```
+2. `~/.claude/pairmode_config.json` — a JSON file with a `flex_dir` key:
+   ```json
+   {"flex_dir": "/path/to/flex"}
+   ```
+3. Common paths: `/mnt/work/flex`, `~/flex`, `~/projects/flex`
+
+If none of these resolve, the canon sync line shows `Set FLEX_DIR env var to enable
+currency check` as a reminder.
+
+---
+
 ### `/flex:pairmode cer`
 
 > **Note:** `cer` is invoked directly via CLI, not through the pairmode skill dispatcher.

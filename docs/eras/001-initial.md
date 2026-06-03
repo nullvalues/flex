@@ -99,3 +99,4 @@ effort-DB analytics, and surfacing the data era 001 accumulated.
 | 53 | Phase 52 cold-eyes fixes + story cost estimation | planned |
 | 54 | sync-all wrapper command | planned |
 | 56 | Phase naming suffix convention | planned |
+| 57 | Global session hook + era-001 documentation close | planned |
