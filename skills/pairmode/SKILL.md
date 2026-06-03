@@ -429,7 +429,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 > Correct invocation:
 > ```bash
 > PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/phase_new.py" \
->   --project-dir "$(pwd)" --phase-id N
+>   --project-dir "$(pwd)" --phase-id PM025 --suffix main
 > ```
 
 **When to use:** When starting a new build phase and you want to lazy-scaffold the phase
@@ -437,33 +437,63 @@ file without interrupting the flow. Run this instead of manually creating a phas
 from scratch.
 
 **Inputs expected:**
-- `--phase-id N` — the phase number (required).
+- `--phase-id STRING` — the phase ID: either a plain integer (e.g. `56`) or a string predicate
+  with zero-padded number (e.g. `PM025`). Required.
+- `--suffix TEXT` — optional suffix appended to the filename after the phase ID (e.g. `main`,
+  `post1`, `ante1`, `sec`). See "Phase naming suffixes" below.
 - `--title TEXT` — optional phase title (defaults to "Phase N").
 - `--goal TEXT` — optional one-line goal for the phase (defaults to empty).
 
 **What it does:**
 1. Renders `skills/pairmode/templates/docs/phases/phase.md.j2` with the provided phase ID,
    title, and goal, plus project context from `.companion/pairmode_context.json` if present.
-2. Writes the rendered file to `docs/phases/phase-N.md` in the target project.
+2. Writes the rendered file to `docs/phases/phase-N.md` (no suffix) or
+   `docs/phases/phase-PM025-main.md` (with suffix) in the target project.
 3. Updates `docs/phases/index.md` if it exists — appends the new phase row to the phase
    table. If `docs/phases/index.md` does not exist, it is created first.
 4. Reports the file path written and the index row added.
 
 **Outputs:**
-- `docs/phases/phase-N.md` — scaffolded phase file with placeholder story slots.
+- `docs/phases/phase-N.md` — scaffolded phase file (integer ID, no suffix).
+- `docs/phases/phase-PM025-main.md` — scaffolded phase file (string predicate + suffix).
 - `docs/phases/index.md` — updated with the new phase row (created if absent).
 
 **CLI invocation:**
 ```bash
+# Integer ID (no suffix):
 PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/phase_new.py" \
-  --project-dir "$(pwd)" --phase-id N
+  --project-dir "$(pwd)" --phase-id 56
+
+# String predicate with suffix:
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/phase_new.py" \
+  --project-dir "$(pwd)" --phase-id PM025 --suffix main
 ```
 
 Optional flags:
-- `--phase-id N` — phase number (required)
+- `--phase-id STRING` — phase ID: integer or string predicate (required)
+- `--suffix TEXT` — filename suffix (e.g. `main`, `post1`, `post2`, `ante1`, `ante2`, `sec`); any string accepted
 - `--title TEXT` — phase title (default: "Phase N")
 - `--goal TEXT` — phase goal summary (default: empty)
 - `--dry-run` — print what would be written without writing anything
+
+**Phase naming suffixes**
+
+When a project uses a string predicate (e.g. `PM`), suffix the phase key to preserve
+disk sort order and communicate phase intent:
+
+| Suffix | Meaning | Sort position |
+|--------|---------|---------------|
+| `-ante[N]` | Preflight prerequisite — must complete before the main phase | Before `-main` |
+| `-main` | The primary phase | — |
+| `-post[N]` | Follow-on remediation — must complete before the next main phase | After `-main` |
+| `-sec` | Security prerequisite (same semantics as `-ante`, conventional security label) | Before `-main` |
+
+Alphabetical sort matches build order: `ante < main < post`. Use `ls docs/phases/` to
+see phases in correct build sequence — no additional ordering metadata needed.
+
+Checkpoint tags follow the same naming: `cp-PM025-main`, `cp-PM025-post1`, etc.
+
+Integer-ID projects (e.g. `phase-56.md`) omit the suffix entirely.
 
 ---
 

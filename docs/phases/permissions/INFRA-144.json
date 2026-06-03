@@ -1,0 +1,13 @@
+{
+  "story_id": "INFRA-144",
+  "story_spec": "docs/stories/INFRA/INFRA-144.md",
+  "allowed_paths": [
+    "skills/pairmode/SKILL.md",
+    "skills/pairmode/templates/CLAUDE.build.md.j2",
+    "skills/pairmode/templates/docs/phases/index.md.j2",
+    "CLAUDE.build.md",
+    "docs/pairmode/PAIRMODE.md",
+    "docs/stories/INFRA/INFRA-144.md"
+  ],
+  "generated_at": "2026-06-03T17:24:33Z"
+}

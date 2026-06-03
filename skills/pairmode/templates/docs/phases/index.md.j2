@@ -3,6 +3,13 @@
 This document is the index of all build phases for the project.
 Each phase has a dedicated file in `docs/phases/`.
 
+**Naming convention** (if using a string predicate):
+- Predicate: project-specific (e.g. `PM`). 3-digit zero-padded number.
+- Suffix system: `-ante[N]` (preflight, blocks parent), `-main` (the phase itself), `-post[N]` (remediation, blocks subsequent phases).
+- Alphabetical sort matches build order: `'a' < 'm' < 'p'`.
+- Checkpoint tags follow the same naming: `cp-<PRED>NNN-main`, etc.
+- Omit suffix for projects using sequential integer IDs.
+
 **Next to build:** [Phase {{ phases[0].id }}: {{ phases[0].title }}]({{ phases[0].file }})
 
 | Phase | Title | Status | Deferred from | Link |

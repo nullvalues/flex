@@ -240,6 +240,24 @@ They appear under a `## Proposed phases (not yet sequenced)` section.
 3. Remove its row from the `## Proposed phases` section of `index.md`.
 Git history records the transit.
 
+### Phase naming suffixes
+
+**Phase naming suffixes** — when a project uses a string predicate (e.g. `PM`), suffix the
+phase key to preserve disk sort order:
+
+| Suffix | Meaning | Sort position |
+|--------|---------|---------------|
+| `-ante[N]` | Preflight prerequisite — must complete before the main phase | Before `-main` |
+| `-main` | The primary phase | — |
+| `-post[N]` | Follow-on remediation — must complete before the next main phase | After `-main` |
+| `-sec` | Security prerequisite (same semantics as `-ante`) | Before `-main` |
+
+Alphabetical order matches build order: `ante < main < post`.
+Checkpoint tags follow the same naming: `cp-PM025-main`, `cp-PM025-post1`, etc.
+
+Use `phase_new.py --phase-id PM025 --suffix main` to scaffold a phase with a suffix.
+Integer-ID projects (e.g. `phase-56.md`) omit the suffix entirely.
+
 ---
 
 ## Model evaluation

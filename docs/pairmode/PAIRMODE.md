@@ -135,6 +135,7 @@ that avoids touching `state.json` entirely if the upstream maintainer prefers it
 | Project-scoped pipe path via `state.json` | The companion skill already writes `state.json` at session start; reading the pipe path from there requires no new infrastructure and avoids shell environment plumbing. An env-variable alternative exists if the upstream maintainer prefers not to extend `state.json` — see `docs/pipe-architecture.md` |
 | Lessons append-only | Immutability ensures lessons survive across context compaction and agent restarts; status is the only mutable field |
 | `schema_validator.py` as canonical frontmatter parser | Centralizes YAML frontmatter parsing so changes to the schema propagate to all callers without reimplementation; imported by `story_resolver.py`, `permission_scope.py`, `era_new.py`, and `story_new.py` |
+| Phase naming suffixes | Projects that need to insert remediation or preflight phases without breaking disk sort order can use `-ante[N]`/`-main`/`-post[N]` suffixes. `phase_new.py --suffix <value>` scaffolds the file; alphabetical order ensures build order matches `ls` output. See `skills/pairmode/SKILL.md` § `/flex:pairmode phase-new` for the full suffix table. |
 
 ---
 
