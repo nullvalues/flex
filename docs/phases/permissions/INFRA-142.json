@@ -1,0 +1,9 @@
+{
+  "story_id": "INFRA-142",
+  "story_spec": "docs/stories/INFRA/INFRA-142.md",
+  "allowed_paths": [
+    "docs/architecture.md",
+    "docs/stories/INFRA/INFRA-142.md"
+  ],
+  "generated_at": "2026-06-03T04:17:42Z"
+}

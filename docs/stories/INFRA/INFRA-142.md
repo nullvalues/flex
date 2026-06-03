@@ -7,7 +7,7 @@ phase: "55"
 story_class: doc
 primary_files:
   - docs/architecture.md
-touches: []
+touches:
 ---
 
 # INFRA-142 — `docs/architecture.md` — document Edit/Write → scope_guard dispatch

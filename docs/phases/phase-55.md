@@ -22,7 +22,7 @@ Replace the per-story `write-permissions`/`clear-permissions` cycle — which wr
 | INFRA-139 | `pre_tool_use.py` Edit/Write dispatch + CLAUDE.md carve-out update | complete |
 | INFRA-140 | Fix sync regression: `sync.py` maintains deny list after sync | complete |
 | BUILD-024 | Replace `write-permissions`/`clear-permissions` with `permissions create` in build loop | complete |
-| INFRA-141 | `permissions-create` story_id validation + output path containment (CER-036) | planned |
+| INFRA-141 | `permissions-create` story_id validation + output path containment (CER-036) | complete |
 | INFRA-142 | `docs/architecture.md` — document Edit/Write → scope_guard dispatch (CER-037) | planned |
 
 ## Schema delivery
