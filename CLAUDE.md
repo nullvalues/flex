@@ -38,17 +38,21 @@ Run every item on every review invocation.
    Hooks are thin relays only. Any blocking logic in a hook is CRITICAL.
 
    **Documented thin-delegation exception:** `hooks/pre_tool_use.py`
-   is the canonical thin delegate (CER-027 enforcement). It is
-   allowed: one stdin parse, one `tool_name == "Task"` check, one
-   delegated call into `skills/pairmode/scripts/context_budget.py`,
-   and one stdout emit of the module's return value. All domain
-   logic — transcript read, effort.db query, threshold math, state
-   mutation — lives in the named module, NOT in the hook.
+   is a thin dispatcher for two tool types:
 
-   Any *additional* logic added inside `pre_tool_use.py` beyond
-   stdin-parse + tool-name-check + delegate + emit remains CRITICAL.
-   Any *other* hook that emits a decision-block response remains
-   CRITICAL.
+   - `Task` → `skills/pairmode/scripts/context_budget.py`
+     (CER-027 context-budget enforcement)
+   - `Edit` / `Write` → `skills/pairmode/scripts/scope_guard.py`
+     (Phase 55 story file-scope enforcement)
+
+   For each dispatch: one tool-name check, one delegated module call,
+   one stdout emit. All domain logic lives in the named modules, NOT
+   in the hook. The hook owns one state write (acknowledged_at) for
+   the Task branch; the Edit/Write branch is read-only.
+
+   Any logic added inside `pre_tool_use.py` beyond tool-name dispatch
+   + module delegation + emit remains CRITICAL.
+   Any *other* hook that emits a decision-block response remains CRITICAL.
 
 2. PIPE CONTRACT
    Do all hook scripts write only to the project-scoped pipe (e.g. `/tmp/companion-<hash>.pipe`)?

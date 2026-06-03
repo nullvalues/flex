@@ -2,7 +2,7 @@
 id: INFRA-138
 rail: INFRA
 title: "`scope_guard.py` — story file-scope enforcement module"
-status: planned
+status: complete
 phase: "55"
 story_class: code
 primary_files:

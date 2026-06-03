@@ -8,7 +8,6 @@ story_class: code
 primary_files:
   - hooks/pre_tool_use.py
   - CLAUDE.md
-  - skills/pairmode/templates/CLAUDE.md.j2
 touches:
   - tests/pairmode/test_pre_tool_use_scope_guard.py
 ---
@@ -91,6 +90,8 @@ added branch as a CRITICAL violation.
 
 - Modifying `scope_guard.py` (INFRA-138).
 - Updating `skills/pairmode/templates/CLAUDE.build.md.j2` (BUILD-024).
+- Updating `skills/pairmode/templates/CLAUDE.md.j2` — the template has no HOOK PERFORMANCE
+  section (that block is flex-project-specific prose). Only the project-root `CLAUDE.md` is updated.
 - Adding scope-guard carve-out to SKILL.md or architecture.md (intent review
   will flag any needed doc updates at checkpoint).
 
@@ -175,9 +176,9 @@ in the Ensures section above. The block begins with
 `**Documented thin-delegation exception:**` and ends before
 `Any *other* hook that emits`.
 
-### 4. Edit `skills/pairmode/templates/CLAUDE.md.j2`
+### 4. ~~Edit `skills/pairmode/templates/CLAUDE.md.j2`~~
 
-Apply the identical replacement at the same position in the template file.
+Not applicable — the template has no HOOK PERFORMANCE section. Skip this step.
 
 ## Tests
 
