@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp54-sync-all-wrapper
+
+**Phase:** 54 — sync-all wrapper command
+**Tag command:** `git tag cp54-sync-all-wrapper && git push origin cp54-sync-all-wrapper`
+**Acceptance:** One story. `pairmode_sync.py` gains a `sync-all` click subcommand that sequences `sync.py` → `sync-agents` → `sync-build` in fixed order via subprocess. Defaults to dry-run; `sync.py` is skipped in dry-run mode (no `--dry-run` support in that script) with an explanatory notice. `--apply` runs all three; `--yes` propagates to each. Fail-fast: on non-zero exit from any step, remaining steps are skipped and wrapper exits with the same code. `_depth_guard_sync_build` runs before any downstream call. SKILL.md gains `### /flex:pairmode sync-all` section and Commands-index entry. architecture.md updated. 1902 tests pass.
+
+---
+
 ## cp53-phase52-fixes-story-cost-estimate
 
 **Phase:** 53 — Phase 52 cold-eyes fixes + story cost estimation

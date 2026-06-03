@@ -2,7 +2,7 @@
 id: INFRA-136
 rail: INFRA
 title: "`pairmode_sync.py sync-all` wrapper subcommand and SKILL.md entry"
-status: planned
+status: complete
 phase: "54"
 story_class: code
 primary_files:

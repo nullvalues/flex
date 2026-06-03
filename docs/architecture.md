@@ -49,7 +49,7 @@ flex/
         permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
         next_story.py             ← find next unbuilt story from a phase file; CLI: uv run next_story.py <phase-file> [--json] [--project-dir DIR]
-        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand); also registers register/unregister/list-projects in the top-level CLI group
+        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all three sync operations in fixed order (sync-all subcommand); also registers register/unregister/list-projects in the top-level CLI group
         pairmode_register.py      ← manage registered_projects in .companion/state.json (register/unregister/list-projects subcommands)
         pairmode_migrate.py       ← one-shot migration of an anchor-bootstrapped sibling project to flex naming (migrate-from-anchor subcommand)
       seed/
@@ -601,6 +601,27 @@ Behaviour:
 - `--apply --yes`: writes without prompting.
 - If no changes: prints "No changes to apply." and exits 0.
 - Applies a depth guard on `--project-dir` (fewer than 3 path components are rejected).
+
+**`pairmode_sync.py` — `sync-all` subcommand.**
+Sequences all three sync operations in a single CLI call: `sync.py` (methodology files)
+→ `sync-agents` (agent frontmatter) → `sync-build` (CLAUDE.build.md). Safe by default:
+without `--apply`, `sync.py` is skipped (it has no `--dry-run` flag) and the remaining
+two commands run in dry-run mode. With `--apply`, all three are invoked. Fail-fast: if
+any downstream command exits non-zero, the wrapper emits an error and exits with the same
+status code; remaining commands are not invoked.
+
+CLI:
+```bash
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+  sync-all --project-dir DIR [--apply] [--yes]
+```
+
+Behaviour:
+- `--dry-run` (default True): skips `sync.py`; runs `sync-agents` and `sync-build` in dry-run mode.
+- `--apply`: runs all three; `sync-agents` without `--dry-run`; `sync-build` with `--apply`.
+- `--yes` / `-y`: propagated to every downstream invocation.
+- Depth guard (`_depth_guard_sync_build`) runs against `--project-dir` before any subprocess call.
+- Per-command output is preceded by a `=== <label> ===` separator line.
 
 **`pairmode_register.py` — `register`, `unregister`, `list-projects` subcommands.**
 Manages the `registered_projects` list in flex's own `.companion/state.json`. All three

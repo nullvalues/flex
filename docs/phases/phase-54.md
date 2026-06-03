@@ -17,7 +17,7 @@ Add a `sync-all` wrapper subcommand to `pairmode_sync.py` that sequences the thr
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-136 | `pairmode_sync.py sync-all` wrapper subcommand and SKILL.md entry | planned |
+| INFRA-136 | `pairmode_sync.py sync-all` wrapper subcommand and SKILL.md entry | complete |
 
 ## Schema delivery
 
