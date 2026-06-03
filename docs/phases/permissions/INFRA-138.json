@@ -1,0 +1,10 @@
+{
+  "story_id": "INFRA-138",
+  "story_spec": "docs/stories/INFRA/INFRA-138.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/scope_guard.py",
+    "tests/pairmode/test_scope_guard.py",
+    "docs/stories/INFRA/INFRA-138.md"
+  ],
+  "generated_at": "2026-06-03T02:24:01Z"
+}

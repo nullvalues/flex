@@ -1,0 +1,12 @@
+{
+  "story_id": "INFRA-139",
+  "story_spec": "docs/stories/INFRA/INFRA-139.md",
+  "allowed_paths": [
+    "hooks/pre_tool_use.py",
+    "CLAUDE.md",
+    "skills/pairmode/templates/CLAUDE.md.j2",
+    "tests/pairmode/test_pre_tool_use_scope_guard.py",
+    "docs/stories/INFRA/INFRA-139.md"
+  ],
+  "generated_at": "2026-06-03T02:24:01Z"
+}

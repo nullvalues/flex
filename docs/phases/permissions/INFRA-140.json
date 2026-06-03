@@ -1,0 +1,10 @@
+{
+  "story_id": "INFRA-140",
+  "story_spec": "docs/stories/INFRA/INFRA-140.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/sync.py",
+    "tests/pairmode/test_sync_deny_list.py",
+    "docs/stories/INFRA/INFRA-140.md"
+  ],
+  "generated_at": "2026-06-03T02:24:01Z"
+}
