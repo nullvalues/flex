@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp56-phase-naming-suffix
+
+**Phase:** 56 — Phase naming suffix convention
+**Tag command:** `git tag cp56-phase-naming-suffix && git push origin cp56-phase-naming-suffix`
+**Acceptance:** Three stories (2 planned + 1 security remediation). `phase_new.py` `--phase-id` changed from `type=int` to `str`; new `--suffix` flag added; `phase_key = f"{phase_id}-{suffix}"` used as the canonical identifier in filenames, index rows, era table, and Jinja2 template; `prev_phase` detection gated on `re.fullmatch(r"\d+", phase_id) and not suffix` for backwards compat (INFRA-143). Path validation via `_SAFE_PHASE_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")` guards `--phase-id` and `--suffix` before any filesystem access; traversal tests added (INFRA-145 / CER-038). Documentation updated: SKILL.md phase-new section, `CLAUDE.build.md.j2` + live `CLAUDE.build.md`, `index.md.j2` naming-convention block, `PAIRMODE.md` design-decisions table, `architecture.md` Phase documentation policy section (INFRA-144 + intent review). 1957 tests pass.
+
+---
+
 ## cp55-story-scoped-permissions
 
 **Phase:** 55 — Story-scoped file permissions via hook enforcement

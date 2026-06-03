@@ -2,7 +2,7 @@
 id: INFRA-145
 rail: INFRA
 title: "CER-038: `phase_new.py` phase-id/suffix path validation"
-status: planned
+status: complete
 phase: "56"
 primary_files:
   - skills/pairmode/scripts/phase_new.py

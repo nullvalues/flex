@@ -54,7 +54,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 53 | Phase 52 cold-eyes fixes + story cost estimation | complete | [phase-53.md](phase-53.md) · cp53 |
 | 54 | sync-all wrapper command | complete | [phase-54.md](phase-54.md) · cp54 |
 | 55 | Story-scoped file permissions via hook enforcement | complete | [phase-55.md](phase-55.md) · cp55-story-scoped-permissions |
-| 56 | Phase naming suffix convention | planned | [phase-56.md](phase-56.md) |
+| 56 | Phase naming suffix convention | complete | [phase-56.md](phase-56.md) · cp56-phase-naming-suffix |
 
 ---
 

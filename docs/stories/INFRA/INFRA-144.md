@@ -2,7 +2,7 @@
 id: INFRA-144
 rail: INFRA
 title: "Naming convention documentation"
-status: planned
+status: complete
 phase: "56"
 primary_files:
   - skills/pairmode/SKILL.md

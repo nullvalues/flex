@@ -2,7 +2,7 @@
 id: INFRA-143
 rail: INFRA
 title: "`phase_new.py` — string phase-id and `--suffix` flag"
-status: planned
+status: complete
 phase: "56"
 primary_files:
   - skills/pairmode/scripts/phase_new.py

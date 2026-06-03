@@ -19,7 +19,7 @@ Codify PM-NNN-main / -post / -ante suffix system into phase_new.py and methodolo
 |----|-------|--------|
 | INFRA-143 | `phase_new.py` — string phase-id and `--suffix` flag | complete |
 | INFRA-144 | Naming convention documentation | complete |
-| INFRA-145 | CER-038: `phase_new.py` phase-id/suffix path validation | planned |
+| INFRA-145 | CER-038: `phase_new.py` phase-id/suffix path validation | complete |
 
 ## Schema delivery
 
@@ -33,4 +33,9 @@ No new persistent schema objects in this phase.
 
 ### CP-56 Cold-eyes checklist
 
-— developer fills in after phase completion —
+- All three stories complete (INFRA-143, INFRA-144, INFRA-145)
+- Build gate: 1957 tests pass
+- Security audit: CER-038 path traversal (phase-id/suffix) — RESOLVED INFRA-145
+- Intent review: story file status fields updated; architecture.md and index.md.j2 doc gaps applied
+- Documentation: index.md updated to `complete · cp56-phase-naming-suffix`; checkpoints.md entry added
+- Tag: `cp56-phase-naming-suffix`

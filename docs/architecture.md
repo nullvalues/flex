@@ -1027,7 +1027,19 @@ for shared utils" rule. It must be preserved when either module is modified.
 
 ## Phase documentation policy
 
-Each phase gets its own file: `docs/phases/phase-N.md`.
+Each phase gets its own file: `docs/phases/phase-N.md` (integer ID) or
+`docs/phases/phase-PM025-main.md` (string predicate + suffix).
+
+**Phase naming suffixes** — Projects that need to insert remediation or preflight phases
+without breaking disk sort order can use suffix variants:
+- `-ante[N]` — preflight prerequisite (sorts before `-main`; must complete first)
+- `-main` — the primary phase
+- `-post[N]` — follow-on remediation (sorts after `-main`; must complete before next)
+- `-sec` — security prerequisite (same semantics as `-ante`, conventional security label)
+
+Alphabetical order mirrors build order: `ante < main < post`. Checkpoint tags follow the
+same naming: `cp-PM025-main`, `cp-PM025-post1`, etc. See `skills/pairmode/SKILL.md`
+§ `/flex:pairmode phase-new` for the full suffix table and CLI flags.
 
 **Proposed phases** — A phase conceived before it is literally the next build target uses
 a proposed filename: `docs/phases/phase-proposed-<kebab-name>-YYYYMMDD-NNN.md`. Proposed
@@ -1037,7 +1049,9 @@ into the next available sequential phase, the proposed file is deleted via `git 
 the row is removed from the index. See `CLAUDE.build.md` § Proposed phases for the full
 sequencing workflow.
 
-- New phases are always created as `docs/phases/phase-N.md` using `phase_new.py`.
+- New phases are always created using `phase_new.py --phase-id ID [--suffix SUFFIX]`.
+  Integer IDs produce `phase-N.md`; string predicates with suffixes produce
+  `phase-PM025-main.md`.
 - The monolithic `docs/phase-prompts.md` is the legacy format for Phases 1–7 (flex repo only).
   It is not extended with new phase content going forward.
 - `docs/phases/index.md` is the canonical list of all phases and their status.

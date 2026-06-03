@@ -5,7 +5,7 @@ Each phase has a dedicated file in `docs/phases/`.
 
 **Naming convention** (if using a string predicate):
 - Predicate: project-specific (e.g. `PM`). 3-digit zero-padded number.
-- Suffix system: `-ante[N]` (preflight, blocks parent), `-main` (the phase itself), `-post[N]` (remediation, blocks subsequent phases).
+- Suffix system: `-ante[N]` (preflight, blocks parent), `-main` (the phase itself), `-post[N]` (remediation, blocks subsequent phases), `-sec` (security prerequisite, same semantics as `-ante`).
 - Alphabetical sort matches build order: `'a' < 'm' < 'p'`.
 - Checkpoint tags follow the same naming: `cp-<PRED>NNN-main`, etc.
 - Omit suffix for projects using sequential integer IDs.
