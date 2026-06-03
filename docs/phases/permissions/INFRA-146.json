@@ -1,0 +1,10 @@
+{
+  "story_id": "INFRA-146",
+  "story_spec": "docs/stories/INFRA/INFRA-146.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/global_session_check.py",
+    "skills/pairmode/SKILL.md",
+    "docs/stories/INFRA/INFRA-146.md"
+  ],
+  "generated_at": "2026-06-03T19:50:21Z"
+}
