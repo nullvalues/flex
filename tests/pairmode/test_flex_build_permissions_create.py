@@ -176,3 +176,38 @@ def test_permissions_create_stdout_reports_path_and_count(tmp_path):
     assert "permissions: wrote docs/phases/permissions/INFRA-999.json" in result.output
     # Count should be 3: a.py, b.py, story spec
     assert "(3 paths)" in result.output
+
+
+def test_permissions_create_rejects_invalid_story_id_format(tmp_path):
+    """story_id without a rail prefix is rejected before any path construction."""
+    runner = CliRunner()
+    result = runner.invoke(
+        flex_build,
+        ["permissions-create", "invalid", "--project-dir", str(tmp_path)],
+    )
+    assert result.exit_code != 0
+    # CliRunner mixes stdout and stderr in result.output by default
+    assert "invalid story_id" in result.output
+
+
+def test_permissions_create_rejects_traversal_story_id(tmp_path):
+    """story_id containing .. segments is rejected by format validation."""
+    runner = CliRunner()
+    result = runner.invoke(
+        flex_build,
+        ["permissions-create", "../../etc/passwd", "--project-dir", str(tmp_path)],
+    )
+    assert result.exit_code != 0
+
+
+def test_permissions_create_accepts_valid_story_id(tmp_path):
+    """A properly formatted story_id with a real story file succeeds."""
+    runner = CliRunner()
+    _make_story(tmp_path, "INFRA-999", primary_files=["a.py"], touches=["b.py"])
+    result = runner.invoke(
+        flex_build,
+        ["permissions-create", "INFRA-999", "--project-dir", str(tmp_path)],
+    )
+    assert result.exit_code == 0
+    out_path = tmp_path / "docs" / "phases" / "permissions" / "INFRA-999.json"
+    assert out_path.exists()

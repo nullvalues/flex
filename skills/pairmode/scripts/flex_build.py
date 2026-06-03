@@ -50,6 +50,12 @@ from context_health import check_context_health  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
+# Validation constants
+# ---------------------------------------------------------------------------
+
+_STORY_ID_RE = re.compile(r"^[A-Z][A-Z0-9_]*-\d{3}$")
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -221,10 +227,21 @@ def cmd_clear_permissions(project_dir: str) -> None:
 )
 def cmd_permissions_create(story_id: str, project_dir: str) -> None:
     """Generate docs/phases/permissions/<STORY_ID>.json from story spec frontmatter."""
+    if not _STORY_ID_RE.match(story_id):
+        click.echo(f"permissions-create: invalid story_id format: {story_id!r}", err=True)
+        sys.exit(1)
+
     project_path = Path(project_dir).resolve()
     rail = story_id.split("-")[0]
     story_spec_rel = f"docs/stories/{rail}/{story_id}.md"
     story_path = project_path / story_spec_rel
+
+    stories_root = project_path / "docs" / "stories"
+    try:
+        story_path.resolve().relative_to(stories_root.resolve())
+    except ValueError:
+        click.echo("permissions-create: story spec path escapes project root", err=True)
+        sys.exit(1)
 
     if not story_path.exists():
         click.echo(f"permissions-create: story spec not found: {story_path}", err=True)
@@ -251,6 +268,12 @@ def cmd_permissions_create(story_id: str, project_dir: str) -> None:
     out_dir = project_path / "docs" / "phases" / "permissions"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{story_id}.json"
+
+    try:
+        out_path.resolve().relative_to(out_dir.resolve())
+    except ValueError:
+        click.echo("permissions-create: output path escapes permissions dir", err=True)
+        sys.exit(1)
 
     payload = {
         "story_id": story_id,

@@ -2,7 +2,7 @@
 id: BUILD-024
 rail: BUILD
 title: "Replace `write-permissions`/`clear-permissions` with `permissions-create` in build loop"
-status: planned
+status: complete
 phase: "55"
 story_class: code
 primary_files:
