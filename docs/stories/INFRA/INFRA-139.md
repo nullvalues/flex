@@ -2,7 +2,7 @@
 id: INFRA-139
 rail: INFRA
 title: "`pre_tool_use.py` Edit/Write dispatch + CLAUDE.md carve-out update"
-status: planned
+status: complete
 phase: "55"
 story_class: code
 primary_files:

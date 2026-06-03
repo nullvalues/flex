@@ -1031,19 +1031,29 @@ class TestNonTtyWhatWhyWarning:
 # ---------------------------------------------------------------------------
 
 class TestDefaultDenyScopeDocs:
-    """DEFAULT_DENY must protect docs/phases/** and docs/brief.md but not operational files."""
+    """DEFAULT_DENY must protect only docs/phases/permissions/** (Phase 55 minimal set).
 
-    def test_edit_docs_phases_glob_in_default_deny(self):
-        assert "Edit(docs/phases/**)" in DEFAULT_DENY
+    scope_guard.py enforces per-story file scope at the hook level, so
+    DEFAULT_DENY no longer needs to hard-block docs/phases/**, docs/brief.md,
+    etc. Those protections are handled by scope_guard; only the permissions
+    files directory (self-modification attack vector) is hard-denied here.
+    """
 
-    def test_write_docs_phases_glob_in_default_deny(self):
-        assert "Write(docs/phases/**)" in DEFAULT_DENY
+    def test_edit_permissions_glob_in_default_deny(self):
+        assert "Edit(docs/phases/permissions/**)" in DEFAULT_DENY
 
-    def test_edit_docs_brief_in_default_deny(self):
-        assert "Edit(docs/brief.md)" in DEFAULT_DENY
+    def test_write_permissions_glob_in_default_deny(self):
+        assert "Write(docs/phases/permissions/**)" in DEFAULT_DENY
 
-    def test_write_docs_brief_in_default_deny(self):
-        assert "Write(docs/brief.md)" in DEFAULT_DENY
+    def test_old_docs_phases_glob_not_in_default_deny(self):
+        """Broad docs/phases/** glob was superseded by the narrower permissions/**."""
+        assert "Edit(docs/phases/**)" not in DEFAULT_DENY
+        assert "Write(docs/phases/**)" not in DEFAULT_DENY
+
+    def test_docs_brief_not_in_default_deny(self):
+        """docs/brief.md is no longer hard-denied; scope_guard handles it."""
+        assert "Edit(docs/brief.md)" not in DEFAULT_DENY
+        assert "Write(docs/brief.md)" not in DEFAULT_DENY
 
     def test_blanket_edit_docs_not_in_default_deny(self):
         assert "Edit(docs/**)" not in DEFAULT_DENY
@@ -1114,11 +1124,10 @@ class TestIdeologyMdBootstrap:
         # File should still have the sentinel content (not overwritten silently)
         assert (tmp_path / "docs/ideology.md").read_text(encoding="utf-8") == "sentinel content"
 
-    def test_edit_ideology_md_in_default_deny(self):
-        assert "Edit(docs/ideology.md)" in DEFAULT_DENY
-
-    def test_write_ideology_md_in_default_deny(self):
-        assert "Write(docs/ideology.md)" in DEFAULT_DENY
+    def test_ideology_md_not_in_default_deny(self):
+        """docs/ideology.md is no longer hard-denied; scope_guard enforces per-story scope."""
+        assert "Edit(docs/ideology.md)" not in DEFAULT_DENY
+        assert "Write(docs/ideology.md)" not in DEFAULT_DENY
 
 
 # ---------------------------------------------------------------------------
@@ -1539,11 +1548,10 @@ class TestReconstructionMdBootstrap:
         content = (tmp_path / "docs/reconstruction.md").read_text(encoding="utf-8")
         assert "## Instructions for the reconstruction agent" in content
 
-    def test_edit_reconstruction_md_in_default_deny(self):
-        assert "Edit(docs/reconstruction.md)" in DEFAULT_DENY
-
-    def test_write_reconstruction_md_in_default_deny(self):
-        assert "Write(docs/reconstruction.md)" in DEFAULT_DENY
+    def test_reconstruction_md_not_in_default_deny(self):
+        """docs/reconstruction.md is no longer hard-denied; scope_guard enforces per-story scope."""
+        assert "Edit(docs/reconstruction.md)" not in DEFAULT_DENY
+        assert "Write(docs/reconstruction.md)" not in DEFAULT_DENY
 
     def test_reconstruction_md_existing_file_prompts_confirmation(self, tmp_path):
         """Bootstrap on existing project with docs/reconstruction.md present prompts for

@@ -68,8 +68,18 @@ AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/reconstruction-agent.md", "agents/reconstruction-agent.md.j2"),
 ]
 
-# Default deny list written into .claude/settings.json
+# Default deny list written into .claude/settings.json.
+# Kept minimal — scope_guard.py (Phase 55) enforces per-story file scope at
+# the hook level. Only the permissions files directory is hard-denied here to
+# prevent builders from self-modifying their own scope declarations.
 DEFAULT_DENY: list[str] = [
+    "Edit(docs/phases/permissions/**)",
+    "Write(docs/phases/permissions/**)",
+]
+
+# Entries removed from DEFAULT_DENY in Phase 55. Kept here so sync.py can
+# prune them from existing projects' settings.json on next sync.
+_SUPERSEDED_DENY_ENTRIES: list[str] = [
     "Edit(CLAUDE.md)",
     "Write(CLAUDE.md)",
     "Edit(CLAUDE.build.md)",
@@ -260,6 +270,38 @@ def _merge_deny_list(settings_path: pathlib.Path, new_entries: list[str]) -> Non
 
     permissions["deny"] = deny
     settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(data, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def _prune_superseded_deny_entries(
+    settings_path: pathlib.Path,
+    entries_to_remove: list[str],
+) -> None:
+    """Remove deny entries that are no longer in DEFAULT_DENY from settings_path.
+
+    Idempotent: entries already absent are silently skipped.
+    Preserves any custom deny entries not in entries_to_remove.
+    """
+    if not settings_path.exists():
+        return
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return
+
+    permissions = data.get("permissions", {})
+    deny: list[str] = permissions.get("deny", [])
+
+    to_remove = set(entries_to_remove)
+    new_deny = [e for e in deny if e not in to_remove]
+
+    if new_deny == deny:
+        return  # nothing to prune
+
+    permissions["deny"] = new_deny
+    data["permissions"] = permissions
     settings_path.write_text(
         json.dumps(data, indent=2) + "\n", encoding="utf-8"
     )
