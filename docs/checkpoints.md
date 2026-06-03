@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp55-story-scoped-permissions
+
+**Phase:** 55 — Story-scoped file permissions via hook enforcement
+**Tag command:** `git tag cp55-story-scoped-permissions && git push origin cp55-story-scoped-permissions`
+**Acceptance:** Seven stories (5 planned + 2 security remediations). `flex_build.py permissions-create` generates `docs/phases/permissions/<STORY_ID>.json` from story `primary_files`/`touches` frontmatter; includes `_STORY_ID_RE` validation and `resolve().relative_to()` path containment (INFRA-137, INFRA-141). `scope_guard.py` reads `.companion/state.json["current_story"]["id"]` and the permissions file to enforce story file scope; fails open on all error conditions (INFRA-138). `hooks/pre_tool_use.py` gains `Edit`/`Write` dispatch branch delegating to `scope_guard.check_path`; CLAUDE.md carve-out updated to document dual-dispatch pattern (INFRA-139). `sync.py` now calls `_merge_deny_list` + `_prune_superseded_deny_entries` after `_register_pretooluse_hook`; `DEFAULT_DENY` simplified to `docs/phases/permissions/**` only; `_SUPERSEDED_DENY_ENTRIES` exported for downstream cleanup (INFRA-140). `CLAUDE.build.md` and template updated: `write-permissions` replaced by `permissions-create STORY_ID`, `story_context.py --set` added, `clear-permissions` replaced by `story_context.py --clear`, spec-mode step 5 adds permissions loop (BUILD-024). `docs/architecture.md` updated: `pre_tool_use.py` description expanded, step 9.5 added, documented exception block extended to dual-delegate, `scope_guard.py` added to module list, `permission_scope.py` marked legacy, build-loop step 2 updated (INFRA-142 + intent review). 1938 tests pass.
+
+---
+
 ## cp54-sync-all-wrapper
 
 **Phase:** 54 — sync-all wrapper command

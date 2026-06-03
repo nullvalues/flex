@@ -35,7 +35,7 @@ flex/
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
-        flex_build.py             ← CLI wrapping 15 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, check-guardrail, context-health, check-stubs, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate); replaces inline python -c blocks in CLAUDE.build.md.j2
+        flex_build.py             ← CLI wrapping 16 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stubs, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate); replaces inline python -c blocks in CLAUDE.build.md.j2
         refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
@@ -46,7 +46,8 @@ flex/
         era_new.py                ← create era documents
         era_transition.py         ← formally close the current active era and open the next; CLI: uv run era_transition.py --project-dir DIR [--name NAME] [--intent INTENT] [--yes]; also registered as flex_build.py transition-era
         schema_validator.py       ← validate story/era/phase manifest frontmatter
-        permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json
+        permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json (legacy; Phase 55 replaces runtime use with scope_guard.py + permissions-create for new projects)
+        scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json and fails open (Phase 55, INFRA-138)
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
         next_story.py             ← find next unbuilt story from a phase file; CLI: uv run next_story.py <phase-file> [--json] [--project-dir DIR]
         pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all three sync operations in fixed order (sync-all subcommand); also registers register/unregister/list-projects in the top-level CLI group
@@ -142,9 +143,12 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    file contains delegation language ("See phase doc") or is missing an acceptance
    surface. A story that fails either gate is blocked until the operator resolves it.
 
-2. **Permission pre-write** — `permission_scope.py` writes story-scoped allow rules to
-   `.claude/settings.local.json` before the builder spawns, so the builder operates only
-   inside the declared file surface.
+2. **Permission pre-write** — `flex_build.py permissions-create` generates
+   `docs/phases/permissions/<story_id>.json` from the story's `primary_files` and `touches`
+   frontmatter. `story_context.py --set` stamps the active story into `.companion/state.json`.
+   The `pre_tool_use.py` hook then enforces the declared scope via `scope_guard.py` on every
+   Edit/Write call during the builder session. (Phase 55 replaced the old `permission_scope.py`
+   / `settings.local.json` allow-rule cycle; see step 9.5 and § Hook architecture.)
 
 3. **Builder spawn** — `model_selector.select_builder_model()` picks the model (haiku for
    doc/lesson, sonnet baseline for code, opus on high-scope signals or retry). The builder
@@ -389,6 +393,10 @@ manifests containing the story's ID in their `## Stories` table and updates the 
 CLI: `uv run python skills/pairmode/scripts/story_update.py --story-id RAIL-NNN --status complete --project-dir .`
 Orchestrators must call this after a successful reviewer commit (see CLAUDE.build.md Step 3).
 Valid statuses: `draft`, `planned`, `in-progress`, `complete`, `backlog`.
+
+**Note (Phase 55):** The pairmode build loop no longer calls `write_story_permissions` for
+routine story builds; `flex_build.py permissions-create` + `scope_guard.py` replaces it.
+The `permission_scope.py` functions remain for backward compatibility and manual use.
 
 **`permission_scope.py` path containment:** `write_story_permissions` validates every path
 from `primary_files` and `touches` against `project_dir` using `Path.resolve().relative_to()`

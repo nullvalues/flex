@@ -54,7 +54,8 @@ All additions are new files. No existing flex files were deleted.
 - `scripts/era_new.py` — create era documents
 - `scripts/era_transition.py` — formally close the current active era and open the next
 - `scripts/schema_validator.py` — validate story/era/phase manifest frontmatter
-- `scripts/permission_scope.py` — story-scoped allow rules for `.claude/settings.local.json`
+- `scripts/permission_scope.py` — story-scoped allow rules for `.claude/settings.local.json` (legacy; Phase 55 replaced runtime use with `scope_guard.py` + `permissions-create`)
+- `scripts/scope_guard.py` — story file-scope enforcement for pre_tool_use hook; reads `docs/phases/permissions/<story_id>.json` and fails open (Phase 55)
 - `scripts/story_resolver.py` — resolve story IDs to story file content; parse phase manifests
 - `scripts/story_update.py` — update story and phase manifest status fields
 - `scripts/pairmode_status.py` — print current pairmode state and sidebar attachment status
