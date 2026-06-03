@@ -7,11 +7,19 @@ Each subcommand wraps one helper call from the pairmode scripts package
 The CLI exists solely so the orchestrator template can shell out to a single
 script rather than embed multi-line Python boilerplate.
 
+Commands: select-builder-model, select-reviewer-model,
+select-security-auditor-model, select-intent-reviewer-model,
+write-permissions, clear-permissions, permissions-create,
+check-guardrail, context-health, check-stubs, current-phase,
+transition-era, write-attempt-count, read-attempt-count,
+clear-attempt-count, story-cost-estimate.
+
 Story: INFRA-131.
 """
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import re
 import sys
@@ -201,6 +209,59 @@ def cmd_clear_permissions(project_dir: str) -> None:
     """Clear story-scoped allow rules from ``.claude/settings.local.json``."""
     project_path = Path(project_dir).resolve()
     clear_story_permissions(project_path)
+
+
+@flex_build.command("permissions-create")
+@click.argument("story_id")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_permissions_create(story_id: str, project_dir: str) -> None:
+    """Generate docs/phases/permissions/<STORY_ID>.json from story spec frontmatter."""
+    project_path = Path(project_dir).resolve()
+    rail = story_id.split("-")[0]
+    story_spec_rel = f"docs/stories/{rail}/{story_id}.md"
+    story_path = project_path / story_spec_rel
+
+    if not story_path.exists():
+        click.echo(f"permissions-create: story spec not found: {story_path}", err=True)
+        sys.exit(1)
+
+    try:
+        fm = _read_story_frontmatter(story_path)
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"permissions-create: failed to parse frontmatter: {exc}", err=True)
+        sys.exit(1)
+
+    primary_files: list[str] = fm.get("primary_files") or []
+    touches: list[str] = fm.get("touches") or []
+
+    seen: set[str] = set()
+    allowed: list[str] = []
+    for p in primary_files + touches:
+        if p not in seen:
+            seen.add(p)
+            allowed.append(p)
+    if story_spec_rel not in seen:
+        allowed.append(story_spec_rel)
+
+    out_dir = project_path / "docs" / "phases" / "permissions"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{story_id}.json"
+
+    payload = {
+        "story_id": story_id,
+        "story_spec": story_spec_rel,
+        "allowed_paths": allowed,
+        "generated_at": _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    out_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    click.echo(
+        f"permissions: wrote docs/phases/permissions/{story_id}.json ({len(allowed)} paths)"
+    )
 
 
 @flex_build.command("select-security-auditor-model")
