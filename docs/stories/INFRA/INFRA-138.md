@@ -27,7 +27,9 @@ Fail-closed would block all writes during non-story orchestrator work (spec mode
 checkpointing, etc.), which would break the workflow entirely.
 
 The active story ID is read from `.companion/state.json` under the key
-`current_story` — the same key `context_budget.py` already uses.
+`current_story`. **This value is a dict**, not a string — `story_context.py`
+stores it as `{"id": "RAIL-NNN", "set_at": "..."}`. The module must extract
+the `"id"` sub-key, not coerce the whole dict to a string.
 
 ## Ensures
 
@@ -44,10 +46,12 @@ The active story ID is read from `.companion/state.json` under the key
 1. Resolve `project_dir` to an absolute Path.
 2. Read `<project_dir>/.companion/state.json`. On any error (missing, malformed),
    return `(True, "no state.json — allowing")`.
-3. Extract `current_story` from state. If absent or empty,
-   return `(True, "no active story — allowing")`.
+3. Extract the story ID from state: `state.get("current_story", {}).get("id")`.
+   `current_story` is stored as a dict `{"id": "RAIL-NNN", "set_at": "..."}` by
+   `story_context.py`. If the key is absent, the dict is missing the `"id"` sub-key,
+   or the extracted value is empty, return `(True, "no active story — allowing")`.
 4. Construct permissions file path:
-   `<project_dir>/docs/phases/permissions/<current_story>.json`.
+   `<project_dir>/docs/phases/permissions/<story_id>.json`.
 5. If the file does not exist, return `(True, "no permissions file for {story_id} — allowing")`.
 6. Parse the JSON file. On decode error, return `(True, "malformed permissions file — allowing")`.
 7. Extract `allowed_paths` list from the JSON. If absent or empty,
@@ -127,7 +131,8 @@ def check_path(
 def _read_current_story(project: Path) -> str | None:
     try:
         state = json.loads((project / ".companion" / "state.json").read_text())
-        val = state.get("current_story")
+        # current_story is stored as {"id": "RAIL-NNN", "set_at": "..."} by story_context.py
+        val = state.get("current_story", {}).get("id")
         return str(val).strip() if val else None
     except Exception:
         return None
@@ -178,8 +183,8 @@ Use `tmp_path` to create a fake project tree with `.companion/state.json` and
    — state.json exists but has no `current_story` key; assert `(True, ...)`.
 
 3. `test_scope_guard_allows_when_no_permissions_file`
-   — state.json has `current_story: "INFRA-999"`; no permissions file;
-   assert `(True, ...)` and reason contains "no permissions file".
+   — state.json has `current_story: {"id": "INFRA-999", "set_at": "..."}`;
+   no permissions file; assert `(True, ...)` and reason contains "no permissions file".
 
 4. `test_scope_guard_allows_declared_primary_file`
    — permissions file has `allowed_paths: ["skills/foo.py"]`;

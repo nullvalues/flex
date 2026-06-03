@@ -36,14 +36,18 @@ for permissions housekeeping.
 
 Phase 55 provides a replacement: `flex_build.py permissions-create STORY-ID`
 writes `docs/phases/permissions/STORY-ID.json` (in `docs/phases/`, not `.claude/`),
-which the `scope_guard` hook reads automatically. No corresponding cleanup command
-is needed — the permissions file is idempotent and persists across stories safely
-(the hook only consults the file for the story listed in `state.json`'s
-`current_story` field).
+which the `scope_guard` hook reads automatically. `scope_guard` identifies the active
+story by reading `current_story` from `.companion/state.json`. **The build loop has
+never called `story_context.py --set` to stamp this value** — scope_guard would
+always fail open without it. BUILD-024 must add that stamp.
 
-This story updates `CLAUDE.build.md` and its Jinja2 template to use the new
-mechanism: replace `write-permissions` with `permissions-create` before the builder,
-and remove the `clear-permissions` call entirely.
+This story updates `CLAUDE.build.md` and its Jinja2 template to:
+1. Replace `write-permissions` with `permissions-create` before the builder.
+2. Add `story_context.py --set RAIL-NNN` immediately after `permissions-create`
+   (so `scope_guard` knows which story is active during the build).
+3. Remove `clear-permissions` from Step 3 and replace it with
+   `story_context.py --clear` (so `current_story` is cleared after each story
+   and scope enforcement does not bleed into the next story's build).
 
 ## Ensures
 
@@ -64,18 +68,21 @@ session will not prompt for edits to any file declared in primary_files or touch
 
 Is replaced with:
 ```
-Before spawning the builder, generate the story's scope-enforcement permissions file:
+Before spawning the builder, generate the story's scope-enforcement permissions file
+and stamp the active story into state.json so the scope_guard hook can identify it:
 
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py permissions-create \
   RAIL-NNN --project-dir .
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_context.py \
+  --set RAIL-NNN --project-dir .
 ```
 
-Replace RAIL-NNN with the current story's ID. This writes
+Replace RAIL-NNN with the current story's ID. `permissions-create` writes
 `docs/phases/permissions/RAIL-NNN.json` from the story spec's `primary_files` and
-`touches` frontmatter. The `scope_guard` hook reads this file automatically on
-every Edit/Write tool call during the build and blocks writes to undeclared paths.
-No cleanup step is needed after the build — the permissions file is idempotent.
+`touches` frontmatter. `story_context.py --set` stamps `current_story` into
+`.companion/state.json` so the `scope_guard` hook knows which permissions file to
+consult for every Edit/Write call during the build.
 ```
 
 ### `CLAUDE.build.md` — Step 3 (after reviewer)
@@ -88,8 +95,16 @@ PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts
 ```
 ```
 
-Is removed entirely. Step 3's numbering is updated accordingly (what was item 2
-becomes item 1, etc.).
+Is replaced with:
+```
+1. Clear the active story context so scope enforcement does not bleed into the next story:
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_context.py \
+  --clear --project-dir .
+```
+```
+
+Step 3's remaining items are renumbered starting from 2.
 
 ### Spec-mode workflow — Step 5 (commit spec)
 
@@ -150,17 +165,17 @@ session will not prompt for edits to any file declared in primary_files or touch
 
 **Replace with:**
 ```
-Before spawning the builder, generate the story's scope-enforcement permissions file:
+Before spawning the builder, generate the story's scope-enforcement permissions file
+and stamp the active story into state.json:
 
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py permissions-create \
   RAIL-NNN --project-dir .
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_context.py \
+  --set RAIL-NNN --project-dir .
 ```
 
-Replace RAIL-NNN with the current story's ID. This writes
-`docs/phases/permissions/RAIL-NNN.json` from the story spec's `primary_files` and
-`touches` frontmatter. The `scope_guard` hook enforces this scope automatically on
-every Edit/Write call during the build. No cleanup step is needed after the build.
+Replace RAIL-NNN with the current story's ID.
 ```
 
 **Find** (Step 3 item 1 — clear-permissions):
@@ -171,7 +186,16 @@ PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts
 ```
 ```
 
-**Delete** this item and renumber the remaining Step 3 items starting from 1.
+**Replace with:**
+```
+1. Clear the active story context:
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_context.py \
+  --clear --project-dir .
+```
+```
+
+Renumber the remaining Step 3 items starting from 2.
 
 **Find** (spec-mode Step 5b — story files commit):
 ```
@@ -200,11 +224,13 @@ PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts
 
 ### 2. Edit `skills/pairmode/templates/CLAUDE.build.md.j2`
 
-Apply the same three changes, using `{{ pairmode_scripts_dir }}` instead of the
-hardcoded path. The `write-permissions --story-id` form becomes
-`permissions-create` (positional argument, no `--story-id` flag). The
-`clear-permissions` block is deleted. The spec-mode step is updated with the
-`permissions-create` loop and the expanded `git add`.
+Apply the same changes, using `{{ pairmode_scripts_dir }}` instead of the
+hardcoded path:
+- Replace `write-permissions --story-id RAIL-NNN` with `permissions-create RAIL-NNN`
+  (positional argument, no `--story-id` flag).
+- Add the `story_context.py --set RAIL-NNN` call immediately after `permissions-create`.
+- Replace the `clear-permissions` block with `story_context.py --clear`.
+- Add the `permissions-create` loop to spec-mode Step 5 and expand the `git add`.
 
 ## Tests
 
@@ -214,13 +240,17 @@ This is a documentation/template story — the acceptance criteria are structura
 Verify with `grep`:
 
 ```bash
-grep -c "write-permissions" CLAUDE.build.md       # must be 0
-grep -c "clear-permissions" CLAUDE.build.md       # must be 0
-grep -c "permissions-create" CLAUDE.build.md      # must be >= 2 (Step 2 + spec Step 5)
+grep -c "write-permissions" CLAUDE.build.md        # must be 0
+grep -c "clear-permissions" CLAUDE.build.md        # must be 0
+grep -c "permissions-create" CLAUDE.build.md       # must be >= 2 (Step 2 + spec Step 5)
+grep -c "story_context.py --set" CLAUDE.build.md   # must be >= 1
+grep -c "story_context.py --clear" CLAUDE.build.md # must be >= 1
 grep -c "docs/phases/permissions/" CLAUDE.build.md # must be >= 1
-grep -c "write-permissions" skills/pairmode/templates/CLAUDE.build.md.j2  # must be 0
-grep -c "clear-permissions" skills/pairmode/templates/CLAUDE.build.md.j2  # must be 0
-grep -c "permissions-create" skills/pairmode/templates/CLAUDE.build.md.j2 # must be >= 2
+grep -c "write-permissions" skills/pairmode/templates/CLAUDE.build.md.j2   # must be 0
+grep -c "clear-permissions" skills/pairmode/templates/CLAUDE.build.md.j2   # must be 0
+grep -c "permissions-create" skills/pairmode/templates/CLAUDE.build.md.j2  # must be >= 2
+grep -c "story_context.py --set" skills/pairmode/templates/CLAUDE.build.md.j2   # must be >= 1
+grep -c "story_context.py --clear" skills/pairmode/templates/CLAUDE.build.md.j2 # must be >= 1
 ```
 
 If `tests/pairmode/test_templates.py` already asserts on `CLAUDE.build.md.j2`
