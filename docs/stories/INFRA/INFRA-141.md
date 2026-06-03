@@ -2,7 +2,7 @@
 id: INFRA-141
 rail: INFRA
 title: "`permissions-create` story_id validation + output path containment"
-status: planned
+status: complete
 phase: "55"
 story_class: code
 primary_files:

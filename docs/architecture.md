@@ -23,7 +23,7 @@ flex/
     exit_plan_mode.py             ← relay plan content for impact analysis
     post_tool_use.py              ← pair partner: relay file changes
     session_end.py                ← signal sidebar to summarize and exit
-    pre_tool_use.py               ← context budget enforcement (CER-027); thin delegate to skills/pairmode/scripts/context_budget.py
+    pre_tool_use.py               ← thin dispatcher: Task → context_budget.py (CER-027 budget enforcement); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement)
 
   skills/
     pairmode/                     ← /flex:pairmode — bootstrap and manage pairmode
@@ -177,6 +177,17 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    a verbatim prompt; the operator picks Proceed (acknowledged) or
    `/clear` and resume. CER-027 documents the failure mode this
    replaces.
+
+9.5 **Story file-scope enforcement** — `hooks/pre_tool_use.py` also intercepts
+   `Edit` and `Write` tool calls. It delegates to
+   `skills/pairmode/scripts/scope_guard.py`, which reads
+   `<project_dir>/.companion/state.json["current_story"]["id"]` and then reads
+   `<project_dir>/docs/phases/permissions/<story_id>.json` to verify the target
+   path is declared in the active story's `primary_files` or `touches`. If the
+   path is not declared, the hook emits `{"decision": "block", "reason": "..."}`.
+   The check fails open on any error (missing state, missing permissions file,
+   malformed JSON) so non-story orchestrator work (checkpointing, spec mode) is
+   never blocked. Introduced in Phase 55 (INFRA-138, INFRA-139).
 
 10. **Checkpoint** — at phase end, the intent-reviewer and security-auditor run across all stories.
     Documentation is updated, all planned stories are verified complete or deferred, and the phase
@@ -782,13 +793,18 @@ Hooks must:
 - Never make API calls
 - Never write to spec files directly
 
-**Documented exception — `hooks/pre_tool_use.py` (CER-027 enforcement):**
-This hook emits a Claude Code hook decision JSON to stdout (not to the pipe) and writes
-`context_budget_acknowledged_at` to `.companion/state.json`. It does not write to the pipe.
-All decision logic lives in `skills/pairmode/scripts/context_budget.py`; the hook itself is a
-six-line delegate. See `CLAUDE.md` HOOK PERFORMANCE check #1 for the full carve-out language.
-Any additional hook that emits a `decision: block` response or writes to state.json outside
-this documented exception remains CRITICAL.
+**Documented exception — `hooks/pre_tool_use.py` (dual thin-delegate):**
+`pre_tool_use.py` dispatches to two modules:
+
+- **`Task` → `context_budget.py` (CER-027):** decides whether to block a new
+  subagent spawn based on transcript token count. Writes
+  `context_budget_acknowledged_at` to `.companion/state.json`. Does not write
+  to the pipe.
+- **`Edit`/`Write` → `scope_guard.py` (Phase 55):** decides whether to block
+  a file write based on the active story's declared `primary_files`/`touches`.
+  Read-only; no state writes. Fails open when state or permissions file absent.
+
+All decision logic lives in the named modules; the hook is a thin dispatcher.
 
 The sidebar does all heavy work asynchronously. If the sidebar is not running, the pipe write
 silently fails and the session continues normally — no data is lost because the session
