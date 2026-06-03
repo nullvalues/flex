@@ -924,6 +924,99 @@ class TestIntegerIdBackwardsCompat:
         assert "phase-1.md" not in content
 
 
+class TestPhaseIdValidation:
+    """Traversal payloads in --phase-id and --suffix are rejected."""
+
+    def test_traversal_in_phase_id_exits_1(self, tmp_path: pathlib.Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            phase_new,
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "../../../attack",
+                "--title", "T",
+                "--goal", "",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 1
+        assert "--phase-id" in result.output
+        assert not (tmp_path / "docs").exists()
+
+    def test_traversal_in_suffix_exits_1(self, tmp_path: pathlib.Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            phase_new,
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "56",
+                "--suffix", "../../escape",
+                "--title", "T",
+                "--goal", "",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 1
+        assert "--suffix" in result.output
+        assert not (tmp_path / "docs").exists()
+
+    def test_absolute_path_in_suffix_exits_1(self, tmp_path: pathlib.Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            phase_new,
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "56",
+                "--suffix", "/abs/path",
+                "--title", "T",
+                "--goal", "",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 1
+        assert not (tmp_path / "docs").exists()
+
+    def test_empty_phase_id_exits_1(self, tmp_path: pathlib.Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            phase_new,
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "",
+                "--title", "T",
+                "--goal", "",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 1
+        assert not (tmp_path / "docs").exists()
+
+    def test_valid_string_id_with_suffix_succeeds(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "PM025",
+                "--suffix", "main",
+                "--title", "Valid Phase",
+                "--goal", "",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "docs" / "phases" / "phase-PM025-main.md").exists()
+
+    def test_integer_id_no_suffix_succeeds(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "56",
+                "--title", "Numeric Only",
+                "--goal", "",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "docs" / "phases" / "phase-56.md").exists()
+
+
 class TestAppendIndexRow:
     """_append_index_row uses full phase_key in the row and filename link."""
 

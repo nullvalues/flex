@@ -28,6 +28,8 @@ from schema_validator import _parse_frontmatter, VALID_PHASE_CLASSES, DEFAULT_PH
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
+_SAFE_PHASE_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -282,6 +284,15 @@ def phase_new(
         raise SystemExit(1)
 
     phases_dir = project_path / "docs" / "phases"
+
+    # Validate phase_id and suffix against safe character set
+    for _flag, _value in [("--phase-id", phase_id), ("--suffix", suffix)]:
+        if _value is not None and not _SAFE_PHASE_COMPONENT.fullmatch(_value):
+            click.echo(
+                f"Error: {_flag} must match [A-Za-z0-9][A-Za-z0-9_-]* (got {_value!r})",
+                err=True,
+            )
+            raise SystemExit(1)
 
     # Compute the canonical phase key (used in filenames and index rows)
     phase_key = f"{phase_id}-{suffix}" if suffix else phase_id

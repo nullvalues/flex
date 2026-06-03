@@ -17,8 +17,9 @@ Codify PM-NNN-main / -post / -ante suffix system into phase_new.py and methodolo
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-143 | `phase_new.py` — string phase-id and `--suffix` flag | planned |
-| INFRA-144 | Naming convention documentation | planned |
+| INFRA-143 | `phase_new.py` — string phase-id and `--suffix` flag | complete |
+| INFRA-144 | Naming convention documentation | complete |
+| INFRA-145 | CER-038: `phase_new.py` phase-id/suffix path validation | planned |
 
 ## Schema delivery
 
