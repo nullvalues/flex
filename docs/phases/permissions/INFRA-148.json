@@ -1,0 +1,14 @@
+{
+  "story_id": "INFRA-148",
+  "story_spec": "docs/stories/INFRA/INFRA-148.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/context_budget.py",
+    "skills/pairmode/scripts/flex_build.py",
+    "tests/pairmode/test_context_budget.py",
+    "tests/pairmode/test_pre_tool_use_hook.py",
+    "tests/pairmode/fixtures/context_budget_prompt.txt",
+    "hooks/pre_tool_use.py",
+    "docs/stories/INFRA/INFRA-148.md"
+  ],
+  "generated_at": "2026-06-03T21:34:07Z"
+}

@@ -18,7 +18,7 @@ Ship a global pairmode SessionStart hook; refresh README and brief to capture er
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-146 | `global_session_check.py` — global SessionStart pairmode hook | complete |
-| INFRA-147 | README and docs era-001 close | planned |
+| INFRA-147 | README and docs era-001 close | complete |
 
 ## Schema delivery
 
