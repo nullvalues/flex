@@ -51,8 +51,9 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 50 | Phase/story spec boundary policy | complete | [phase-50.md](phase-50.md) · cp50-phase-story-boundary-policy |
 | 51 | Stub gate and phase-doc scan enforcement | complete | [phase-51.md](phase-51.md) · cp51-stub-gate-enforcement |
 | 52 | Lean orchestrator and spec workflow | complete | [phase-52.md](phase-52.md) · cp52-lean-orchestrator-spec-workflow |
-| 53 | Phase 52 cold-eyes fixes + story cost estimation | planned | [phase-53.md](phase-53.md) |
-| 54 | sync-all wrapper command | planned | [phase-54.md](phase-54.md) |
+| 53 | Phase 52 cold-eyes fixes + story cost estimation | complete | [phase-53.md](phase-53.md) · cp53 |
+| 54 | sync-all wrapper command | complete | [phase-54.md](phase-54.md) · cp54 |
+| 55 | Story-scoped file permissions via hook enforcement | planned | [phase-55.md](phase-55.md) |
 
 ---
 
