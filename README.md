@@ -1,6 +1,6 @@
-# Flex — The IDE for Intent
+# Flex — Muscular Models constrained by Skeletal Intent
 
-Code is cheap to generate. Intent is scarce. Agents drift without it: constraints agreed
+Agents drift quickly and very reliably get less reliable at known thresholds: constraints agreed
 on two sessions ago are invisible today, modules accumulate contradictory assumptions, and
 every new session starts from zero. Flex makes intent persistent in two ways: by
 recording it as you decide (reactive memory) and by requiring it before you build
@@ -9,7 +9,7 @@ work — and makes that record the source of truth for every agent and every ses
 
 **Era 001 — pairmode foundation (complete)**
 An Anchor evolution focused on `/flex:pairmode` context management: enforcing 150k
-context limits per build, persistent refocus to system of record, and systematic
+context limits per build, persistent refocus to the system of record, and systematic
 shifts of deterministic processes to code. The result is a largely hands-free
 auto-mode build loop. Era 002 opens with a planned observability SPA to replace the
 companion sidebar.
