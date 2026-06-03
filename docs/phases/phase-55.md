@@ -18,7 +18,7 @@ Replace the per-story `write-permissions`/`clear-permissions` cycle — which wr
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-137 | `flex_build.py permissions create` — generate story permissions file from spec frontmatter | complete |
-| INFRA-138 | `scope_guard.py` — story file-scope enforcement module | planned |
+| INFRA-138 | `scope_guard.py` — story file-scope enforcement module | complete |
 | INFRA-139 | `pre_tool_use.py` Edit/Write dispatch + CLAUDE.md carve-out update | planned |
 | INFRA-140 | Fix sync regression: `sync.py` maintains deny list after sync | planned |
 | BUILD-024 | Replace `write-permissions`/`clear-permissions` with `permissions create` in build loop | planned |
