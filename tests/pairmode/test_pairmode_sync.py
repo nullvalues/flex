@@ -21,6 +21,7 @@ from pairmode_sync import (  # noqa: E402
     _build_template_context,
     _merge_body_sections,
     _render_build_template,
+    pairmode_cli,
     sync_agents,
 )
 
@@ -370,4 +371,252 @@ def test_no_changes_message_only_when_clean(tmp_path: pathlib.Path) -> None:
     )
     assert "No changes to apply." in result.output, (
         f"Expected 'No changes to apply.' in output, got:\n{result.output}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# sync-all tests
+# ---------------------------------------------------------------------------
+
+
+def _make_deep_project_dir(tmp_path: pathlib.Path) -> pathlib.Path:
+    """Return a project dir with >= 3 path components (depth guard safe)."""
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+    return project_dir
+
+
+def _run_sync_all(args: list[str], subprocess_mock=None):
+    """Invoke sync-all via Click's CliRunner with subprocess.run mocked."""
+    import unittest.mock
+    from click.testing import CliRunner
+
+    runner = CliRunner()
+    if subprocess_mock is not None:
+        with unittest.mock.patch("pairmode_sync.subprocess.run", subprocess_mock):
+            return runner.invoke(pairmode_cli, ["sync-all"] + args, catch_exceptions=False)
+    return runner.invoke(pairmode_cli, ["sync-all"] + args, catch_exceptions=False)
+
+
+def _ok_run(returncode: int = 0):
+    """Return a mock subprocess.run that always returns the given returncode."""
+    import unittest.mock
+
+    def _run(argv, check=False):
+        result = unittest.mock.MagicMock()
+        result.returncode = returncode
+        return result
+
+    return _run
+
+
+def _capturing_run(return_codes=None):
+    """Return a mock subprocess.run that records calls and returns given codes in order."""
+    import unittest.mock
+
+    codes = list(return_codes or [0, 0, 0])
+    calls = []
+
+    def _run(argv, check=False):
+        calls.append(list(argv))
+        rc = codes.pop(0) if codes else 0
+        result = unittest.mock.MagicMock()
+        result.returncode = rc
+        return result
+
+    return _run, calls
+
+
+def test_sync_all_dry_run_default_skips_sync_py_and_passes_dry_run_to_others(
+    tmp_path: pathlib.Path,
+) -> None:
+    """In default dry-run mode: sync.py is skipped; sync-agents and sync-build get --dry-run."""
+    project_dir = _make_deep_project_dir(tmp_path)
+    mock_run, calls = _capturing_run([0, 0])
+
+    result = _run_sync_all(["--project-dir", str(project_dir)], mock_run)
+
+    assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
+    # sync.py not invoked — only two subprocess calls
+    assert len(calls) == 2, f"Expected 2 subprocess calls, got {len(calls)}: {calls}"
+    # sync-agents must contain --dry-run
+    agents_argv = calls[0]
+    assert "--dry-run" in agents_argv, f"sync-agents argv missing --dry-run: {agents_argv}"
+    assert "sync-agents" in agents_argv, f"Expected sync-agents call, got: {agents_argv}"
+    # sync-build must contain --dry-run
+    build_argv = calls[1]
+    assert "--dry-run" in build_argv, f"sync-build argv missing --dry-run: {build_argv}"
+    assert "sync-build" in build_argv, f"Expected sync-build call, got: {build_argv}"
+    # stdout should contain all three section headers and the skipped notice
+    assert "=== sync (methodology files) ===" in result.output
+    assert "=== sync-agents (agent frontmatter) ===" in result.output
+    assert "=== sync-build (CLAUDE.build.md) ===" in result.output
+    assert "skipped:" in result.output
+
+
+def test_sync_all_apply_invokes_all_three_in_order(tmp_path: pathlib.Path) -> None:
+    """--apply: all three commands invoked in order; no --dry-run; sync-build gets --apply."""
+    project_dir = _make_deep_project_dir(tmp_path)
+    mock_run, calls = _capturing_run([0, 0, 0])
+
+    result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
+
+    assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
+    assert len(calls) == 3, f"Expected 3 subprocess calls, got {len(calls)}: {calls}"
+    # Order: sync.py, sync-agents, sync-build
+    assert "sync.py" in calls[0][-2] or any("sync.py" in a for a in calls[0]), (
+        f"First call should be sync.py, got: {calls[0]}"
+    )
+    assert "sync-agents" in calls[1], f"Second call should be sync-agents, got: {calls[1]}"
+    assert "sync-build" in calls[2], f"Third call should be sync-build, got: {calls[2]}"
+    # No --dry-run in any argv
+    for argv in calls:
+        assert "--dry-run" not in argv, f"--dry-run found in argv: {argv}"
+    # sync-build should contain --apply
+    assert "--apply" in calls[2], f"sync-build argv missing --apply: {calls[2]}"
+
+
+def test_sync_all_yes_propagates_to_all_in_apply_mode(tmp_path: pathlib.Path) -> None:
+    """--apply --yes: all three invocations receive --yes."""
+    project_dir = _make_deep_project_dir(tmp_path)
+    mock_run, calls = _capturing_run([0, 0, 0])
+
+    result = _run_sync_all(
+        ["--project-dir", str(project_dir), "--apply", "--yes"], mock_run
+    )
+
+    assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
+    assert len(calls) == 3
+    for argv in calls:
+        assert "--yes" in argv, f"--yes missing from argv: {argv}"
+
+
+def test_sync_all_yes_in_dry_run_propagates_to_sync_agents_and_sync_build(
+    tmp_path: pathlib.Path,
+) -> None:
+    """--yes in dry-run mode: sync.py skipped; sync-agents and sync-build each get --yes and --dry-run."""
+    project_dir = _make_deep_project_dir(tmp_path)
+    mock_run, calls = _capturing_run([0, 0])
+
+    result = _run_sync_all(["--project-dir", str(project_dir), "--yes"], mock_run)
+
+    assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
+    assert len(calls) == 2, f"Expected 2 calls (sync.py skipped), got {len(calls)}: {calls}"
+    for argv in calls:
+        assert "--yes" in argv, f"--yes missing from argv: {argv}"
+        assert "--dry-run" in argv, f"--dry-run missing from argv: {argv}"
+    assert "skipped:" in result.output
+
+
+def test_sync_all_halts_on_sync_py_failure(tmp_path: pathlib.Path) -> None:
+    """If sync.py exits non-zero in --apply mode, sync-agents and sync-build are not invoked."""
+    project_dir = _make_deep_project_dir(tmp_path)
+    mock_run, calls = _capturing_run([2])  # sync.py fails with exit 2
+
+    result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
+
+    assert result.exit_code == 2, f"Expected exit 2, got {result.exit_code}:\n{result.output}"
+    # Only one subprocess call (sync.py); the chain halted
+    assert len(calls) == 1, f"Expected 1 call before halt, got {len(calls)}: {calls}"
+    # output (stderr is mixed in) should mention halting chain
+    assert "halting chain" in result.output, (
+        f"Expected 'halting chain' in output, got: {result.output!r}"
+    )
+
+
+def test_sync_all_halts_on_sync_agents_failure(tmp_path: pathlib.Path) -> None:
+    """If sync-agents exits 1, sync-build is not invoked; wrapper exits 1."""
+    project_dir = _make_deep_project_dir(tmp_path)
+    # apply mode: sync.py (ok=0), sync-agents (fail=1)
+    mock_run, calls = _capturing_run([0, 1])
+
+    result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
+
+    assert result.exit_code == 1, f"Expected exit 1, got {result.exit_code}"
+    # sync.py and sync-agents were invoked; sync-build was not
+    assert len(calls) == 2, f"Expected 2 calls, got {len(calls)}: {calls}"
+    assert "sync-agents" in calls[1], f"Second call should be sync-agents, got: {calls[1]}"
+
+
+def test_sync_all_halts_on_sync_build_failure(tmp_path: pathlib.Path) -> None:
+    """If sync-build exits 3, wrapper exits 3; all three commands were invoked."""
+    project_dir = _make_deep_project_dir(tmp_path)
+    mock_run, calls = _capturing_run([0, 0, 3])
+
+    result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
+
+    assert result.exit_code == 3, f"Expected exit 3, got {result.exit_code}"
+    assert len(calls) == 3, f"Expected 3 calls, got {len(calls)}: {calls}"
+
+
+def test_sync_all_depth_guard_rejects_shallow_dir(tmp_path: pathlib.Path) -> None:
+    """Depth guard must reject shallow paths (< 3 components); no subprocess invoked."""
+    import unittest.mock
+    from click.testing import CliRunner
+
+    mock_run = unittest.mock.MagicMock()
+    runner = CliRunner()
+    with unittest.mock.patch("pairmode_sync.subprocess.run", mock_run):
+        result = runner.invoke(pairmode_cli, ["sync-all", "--project-dir", "/tmp"])
+
+    assert result.exit_code != 0, f"Expected non-zero exit for shallow dir, got 0"
+    mock_run.assert_not_called()
+
+
+def test_sync_all_project_dir_defaults_to_cwd(tmp_path: pathlib.Path) -> None:
+    """Without --project-dir, downstream argvs include --project-dir set to resolved cwd."""
+    import os
+    import unittest.mock
+    from click.testing import CliRunner
+
+    # Use a sufficiently deep real directory as CWD
+    project_dir = _make_deep_project_dir(tmp_path)
+    mock_run, calls = _capturing_run([0, 0])
+
+    runner = CliRunner()
+    # Change working directory to project_dir so the default "." resolves there
+    orig_cwd = os.getcwd()
+    try:
+        os.chdir(project_dir)
+        with unittest.mock.patch("pairmode_sync.subprocess.run", mock_run):
+            result = runner.invoke(pairmode_cli, ["sync-all"], catch_exceptions=False)
+    finally:
+        os.chdir(orig_cwd)
+
+    assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
+    expected_dir = str(project_dir.resolve())
+    for argv in calls:
+        assert "--project-dir" in argv, f"--project-dir missing from argv: {argv}"
+        idx = argv.index("--project-dir")
+        assert argv[idx + 1] == expected_dir, (
+            f"Expected --project-dir={expected_dir}, got {argv[idx + 1]}"
+        )
+
+
+def test_sync_all_header_separators_present_in_order(tmp_path: pathlib.Path) -> None:
+    """--apply mode: all three === headers appear in the correct order in stdout."""
+    project_dir = _make_deep_project_dir(tmp_path)
+    mock_run, _ = _capturing_run([0, 0, 0])
+
+    result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
+
+    assert result.exit_code == 0
+    headers = [
+        "=== sync (methodology files) ===",
+        "=== sync-agents (agent frontmatter) ===",
+        "=== sync-build (CLAUDE.build.md) ===",
+    ]
+    positions = [result.output.find(h) for h in headers]
+    assert all(p >= 0 for p in positions), (
+        f"One or more headers missing from output: {result.output!r}"
+    )
+    assert positions == sorted(positions), (
+        f"Headers not in expected order. Positions: {positions}"
+    )
+
+
+def test_sync_all_registered_on_pairmode_cli() -> None:
+    """'sync-all' must be registered as a command on pairmode_cli."""
+    assert "sync-all" in pairmode_cli.commands, (
+        f"sync-all not found in pairmode_cli.commands: {list(pairmode_cli.commands.keys())}"
     )

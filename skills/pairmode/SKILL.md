@@ -14,7 +14,7 @@ audit, sync, and lesson capture.
 ## Commands
 
 Available subcommands: `bootstrap`, `audit`, `sync`, `lesson`, `review`, `reconstruct`, `score`,
-`phase-new`, `cer`, `story`, `sync-agents`, `drift-report`, `sync-build`, `register`,
+`phase-new`, `cer`, `story`, `sync-agents`, `drift-report`, `sync-build`, `sync-all`, `register`,
 `unregister`, `list-projects`, `migrate-from-anchor`.
 
 ### `/flex:pairmode bootstrap`
@@ -729,6 +729,64 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 - `--dry-run` — print the diff and exit without writing.
 - `--apply` — write the rendered template to `CLAUDE.build.md` (prompts unless `--yes` is set).
 - `--yes` / `-y` — skip confirmation when `--apply` is set.
+
+---
+
+### `/flex:pairmode sync-all`
+
+> **Note:** `sync-all` is invoked directly via CLI, not through the pairmode skill dispatcher.
+> Correct invocation:
+> ```bash
+> PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+>   sync-all --project-dir "$(pwd)" [--dry-run] [--apply] [--yes]
+> ```
+
+**When to use:** When you want to bring a project fully up to date with the canonical pairmode
+methodology in one command — running all three sync operations in the correct order without having
+to remember their individual flags or invocation sequences.
+
+**What it does:**
+
+Runs the three sync operations in a fixed, deterministic order:
+
+1. `sync.py` — applies the audit delta to methodology files (`CLAUDE.md`, `docs/*`, scaffold
+   templates). This step only runs in `--apply` mode because `sync.py` has no `--dry-run` flag.
+   In dry-run mode the wrapper emits a `skipped:` notice and continues with the remaining steps.
+2. `sync-agents` — re-renders the frontmatter of `.claude/agents/*.md` files from canonical
+   Jinja2 templates. Always invoked; runs in `--dry-run` mode by default.
+3. `sync-build` — diffs (and with `--apply`, rewrites) `CLAUDE.build.md` from the canonical
+   `CLAUDE.build.md.j2` template. Always invoked; runs in `--dry-run` mode by default.
+
+**Dry-run (default):** Safe by default. Without `--apply`, only `sync-agents` and `sync-build`
+are invoked, both in dry-run mode. `sync.py` is skipped with an explanatory message.
+
+**Confirmation:** The wrapper does not open its own confirmation prompt. Each downstream command
+handles its own confirmation. Passing `--yes` propagates to every downstream invocation,
+suppressing all prompts.
+
+**Fail-fast:** If any downstream command exits non-zero, the wrapper immediately prints an error
+identifying the failing command and exits with the same status code. Remaining commands in the
+chain are not invoked.
+
+**CLI invocation:**
+```bash
+# Preview changes (default dry-run — safe to run any time)
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+  sync-all --project-dir "$(pwd)"
+
+# Apply all changes without prompts
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+  sync-all --project-dir "$(pwd)" --apply --yes
+```
+
+**Flags:**
+- `--project-dir PATH` — target project root (default: current directory). Validated with a depth
+  guard (paths with fewer than 3 components are rejected).
+- `--dry-run` — preview mode (default `True`). In dry-run mode, `sync.py` is skipped and the
+  remaining two commands run with `--dry-run`.
+- `--apply` — write changes to disk. Overrides `--dry-run`; runs all three commands including
+  `sync.py`.
+- `--yes` / `-y` — suppress confirmation prompts in every downstream command.
 
 ---
 

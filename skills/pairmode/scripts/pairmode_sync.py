@@ -14,11 +14,17 @@ in the target file while preserving the body.
 canonical ``CLAUDE.build.md.j2`` template rendered with the project's
 ``state.json``.  With ``--apply``, it writes the rendered template.
 
+``sync-all`` runs all three sync operations in fixed order: sync.py (methodology
+files) → sync-agents (agent frontmatter) → sync-build (CLAUDE.build.md).
+
 Usage:
     uv run python skills/pairmode/scripts/pairmode_sync.py sync-agents \\
         [--project-dir DIR] [--dry-run] [--yes]
 
     uv run python skills/pairmode/scripts/pairmode_sync.py sync-build \\
+        --project-dir DIR [--dry-run] [--apply] [--yes]
+
+    uv run python skills/pairmode/scripts/pairmode_sync.py sync-all \\
         --project-dir DIR [--dry-run] [--apply] [--yes]
 """
 
@@ -26,6 +32,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -587,6 +594,111 @@ def sync_build(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
     click.echo(f"  updated: {build_file.name}")
 
 
+@click.command("sync-all")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root (defaults to current directory).",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=True,
+    help="Safe-by-default: preview changes without writing. Pass --apply to write.",
+)
+@click.option(
+    "--apply",
+    is_flag=True,
+    default=False,
+    help="Apply changes to disk. Overrides --dry-run when set.",
+)
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    default=False,
+    help="Suppress confirmation prompts; propagated to each downstream command.",
+)
+def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
+    """Run all three sync operations in fixed order.
+
+    Invocation order: sync.py (methodology files) → sync-agents (agent
+    frontmatter) → sync-build (CLAUDE.build.md).
+
+    Safe by default — without --apply, only sync-agents and sync-build are
+    run in dry-run mode (sync.py is skipped because it has no --dry-run flag).
+    Pass --apply to run all three and write changes to disk.
+
+    Fail-fast: if any downstream command exits non-zero, the wrapper halts and
+    exits with the same status code. Remaining commands are not invoked.
+    """
+    project_path = Path(project_dir).resolve()
+    _depth_guard_sync_build(project_path)
+
+    # --apply overrides the dry_run flag regardless of its value
+    effective_apply = bool(apply)
+
+    # Paths for downstream scripts
+    _this_script = Path(__file__).resolve()
+    _sync_script = _this_script.parent / "sync.py"
+
+    # Build the downstream invocation list.
+    # Each entry: (label, argv, skip_in_dry_run)
+    # skip_in_dry_run=True means the command is skipped when effective_apply is False.
+
+    # --- sync.py ---
+    sync_argv = [sys.executable, str(_sync_script), "--project-dir", str(project_path)]
+    if yes:
+        sync_argv.append("--yes")
+
+    # --- sync-agents ---
+    agents_argv = [
+        sys.executable, str(_this_script),
+        "sync-agents",
+        "--project-dir", str(project_path),
+    ]
+    if not effective_apply:
+        agents_argv.append("--dry-run")
+    if yes:
+        agents_argv.append("--yes")
+
+    # --- sync-build ---
+    build_argv = [
+        sys.executable, str(_this_script),
+        "sync-build",
+        "--project-dir", str(project_path),
+    ]
+    if not effective_apply:
+        build_argv.append("--dry-run")
+    else:
+        build_argv.append("--apply")
+    if yes:
+        build_argv.append("--yes")
+
+    invocations: list[tuple[str, list[str], bool]] = [
+        ("sync (methodology files)", sync_argv, True),
+        ("sync-agents (agent frontmatter)", agents_argv, False),
+        ("sync-build (CLAUDE.build.md)", build_argv, False),
+    ]
+
+    for label, argv, skip_in_dry_run in invocations:
+        click.echo(f"=== {label} ===")
+        if skip_in_dry_run and not effective_apply:
+            click.echo(
+                "skipped: sync.py does not support --dry-run; pass --apply to run it"
+            )
+            continue
+
+        result = subprocess.run(argv, check=False)  # noqa: S603
+        if result.returncode != 0:
+            click.echo(
+                f"error: '{label}' exited {result.returncode} — halting chain",
+                err=True,
+            )
+            sys.exit(result.returncode)
+
+
 # ---------------------------------------------------------------------------
 # CLI group
 # ---------------------------------------------------------------------------
@@ -599,6 +711,7 @@ def pairmode_cli() -> None:
 
 pairmode_cli.add_command(sync_agents)
 pairmode_cli.add_command(sync_build)
+pairmode_cli.add_command(sync_all)
 
 # Register the register/unregister/list-projects commands from pairmode_register.py
 from pairmode_register import register, unregister, list_projects  # noqa: E402
