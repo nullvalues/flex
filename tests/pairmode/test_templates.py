@@ -1392,21 +1392,31 @@ import re
 
 
 class TestClaudeBuildMdPermissionScopeCommands:
-    """Story BUILD-002 / INFRA-131: CLAUDE.build.md.j2 must contain explicit
-    bash commands that exercise the story-scoped permission lifecycle and the
-    story-status update.  After INFRA-131 collapsed the inline ``python -c``
-    blocks into ``flex_build.py`` subcommands, the assertions reference the
-    new CLI surface (``write-permissions`` / ``clear-permissions``) while
-    ``story_update.py`` continues to be invoked directly."""
+    """Story BUILD-002 / INFRA-131 / BUILD-024: CLAUDE.build.md.j2 must contain
+    explicit bash commands that exercise the story-scoped permission lifecycle and
+    the story-status update.  After BUILD-024 replaced write-permissions /
+    clear-permissions with permissions-create + story_context.py, the assertions
+    reference the new CLI surface while ``story_update.py`` continues to be
+    invoked directly."""
 
     def setup_method(self):
         self.output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
 
-    def test_write_story_permissions_present(self):
-        assert "flex_build.py write-permissions" in self.output
+    def test_permissions_create_present(self):
+        assert "flex_build.py permissions-create" in self.output
 
-    def test_clear_story_permissions_present(self):
-        assert "flex_build.py clear-permissions" in self.output
+    def test_story_context_set_present(self):
+        assert "story_context.py" in self.output
+        assert "--set RAIL-NNN" in self.output
+
+    def test_story_context_clear_present(self):
+        assert "--clear" in self.output
+
+    def test_write_permissions_absent(self):
+        assert "flex_build.py write-permissions" not in self.output
+
+    def test_clear_permissions_absent(self):
+        assert "flex_build.py clear-permissions" not in self.output
 
     def test_story_update_py_present(self):
         assert "story_update.py" in self.output

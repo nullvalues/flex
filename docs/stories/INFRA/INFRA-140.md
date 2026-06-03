@@ -2,7 +2,7 @@
 id: INFRA-140
 rail: INFRA
 title: "Fix sync regression + simplify DEFAULT_DENY so scope_guard is the sole file-scope enforcer"
-status: planned
+status: complete
 phase: "55"
 story_class: code
 primary_files:

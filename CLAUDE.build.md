@@ -94,9 +94,16 @@ In spec mode: follow the spec workflow below. Do not enter the build loop.
       with frontmatter + Background + Ensures + Out of scope + Instructions +
       Tests. Also update `docs/phases/phase-N.md` with the Goal and Stories
       table. Phase doc = planning surface only."
+   b2. Generate permissions files for each story in the phase:
+       For each story ID in the confirmed Stories table, run:
+       ```bash
+       PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+         permissions-create STORY-ID --project-dir .
+       ```
+
    c. Commit:
       ```bash
-      git add docs/phases/phase-N.md docs/stories/
+      git add docs/phases/phase-N.md docs/stories/ docs/phases/permissions/
       git commit -m "spec(phase-N): scaffold phase and story specs [spec-mode]"
       ```
    d. Report:
@@ -444,15 +451,16 @@ PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts
 Use the printed integer as the starting attempt number. If it prints `0`,
 this is a fresh story and the attempt number is `1`.
 
-Before spawning the builder, pre-authorize edits within the story's declared scope:
+Before spawning the builder, generate the story's scope-enforcement permissions file
+and stamp the active story into state.json:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py write-permissions \
-  --story-id RAIL-NNN --project-dir .
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py permissions-create \
+  RAIL-NNN --project-dir .
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_context.py --set RAIL-NNN --project-dir .
 ```
 
-Replace RAIL/RAIL-NNN with the current story's ID. After this runs, the builder
-session will not prompt for edits to any file declared in primary_files or touches.
+Replace RAIL-NNN with the current story's ID.
 
 Spawn the `builder` subagent with:
 - The story ID only (e.g. `BUILD-012`)
@@ -638,9 +646,9 @@ Story commits use the format: `feat(story-RAIL-NNN)` (e.g., `feat(story-BOOTSTRA
 
 After the reviewer commits or reverts:
 
-1. Clean up story-scoped allow rules:
+1. Clear the active story context:
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py clear-permissions --project-dir .
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_context.py --clear --project-dir .
 ```
 
 2. If the reviewer committed (PASS): update the story status to complete:
