@@ -2,7 +2,7 @@
 id: INFRA-137
 rail: INFRA
 title: "`flex_build.py permissions create` — generate story permissions file from spec frontmatter"
-status: planned
+status: complete
 phase: "55"
 story_class: code
 primary_files:
