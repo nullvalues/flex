@@ -55,7 +55,8 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 54 | sync-all wrapper command | complete | [phase-54.md](phase-54.md) · cp54 |
 | 55 | Story-scoped file permissions via hook enforcement | complete | [phase-55.md](phase-55.md) · cp55-story-scoped-permissions |
 | 56 | Phase naming suffix convention | complete | [phase-56.md](phase-56.md) · cp56-phase-naming-suffix |
-| 57 | Global session hook + era-001 documentation close | planned | [phase-57.md](phase-57.md) |
+| 57 | Global session hook + era-001 documentation close | complete | [phase-57.md](phase-57.md) · cp57-global-session-hook-era001-close |
+| 58 | Context budget gate — state.json contract | planned | [phase-58.md](phase-58.md) |
 
 ---
 
