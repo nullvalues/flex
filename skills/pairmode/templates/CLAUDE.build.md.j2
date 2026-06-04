@@ -459,7 +459,30 @@ Action required:
 When resolved, say: "Continue building"
 ```
 
-If neither condition is present: proceed to Step 1.
+If neither condition is present: proceed to the **Pre-story scope check**.
+
+### Pre-story scope check
+
+Run this check **once per story**, after the stub gate, before spawning the
+builder.
+
+  scope_warnings=$(PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py \
+    check-story-scope RAIL-NNN --project-dir .)
+
+Replace `RAIL-NNN` with the current story's ID.
+
+If `scope_warnings` is non-empty, surface the output to the developer:
+
+  SCOPE CHECK — Story RAIL-NNN
+
+  [scope_warnings verbatim]
+
+  These are heuristic warnings only. Review and update primary_files/touches
+  if the flagged files will be edited, or proceed if they are out of scope.
+
+If `scope_warnings` is empty, print nothing and continue silently.
+
+The check does not block. Continue to Step 1 regardless of output.
 
 ### Step 1 — Spawn the builder
 

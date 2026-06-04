@@ -2415,3 +2415,68 @@ class TestInfra131FlexBuildTemplate:
 
     def test_rendered_template_has_no_inline_sys_path_boilerplate(self):
         assert "sys.path.insert(0, " not in self.output
+
+
+# ---------------------------------------------------------------------------
+# Story BUILD-025 — Pre-story scope check section wired into CLAUDE.build.md.j2
+# ---------------------------------------------------------------------------
+
+
+class TestBuild025PreStoryScopeCheck:
+    """Story BUILD-025: CLAUDE.build.md.j2 (and flex's own CLAUDE.build.md)
+    contain a new ``### Pre-story scope check`` section between the stub gate
+    and Step 1 that invokes ``flex_build.py check-story-scope`` advisorily.
+    The stub gate's trailing cross-reference points to the new section."""
+
+    def setup_method(self):
+        self.output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
+        self.flex_build_md = (
+            pathlib.Path(__file__).parent.parent.parent / "CLAUDE.build.md"
+        ).read_text(encoding="utf-8")
+
+    # --- Rendered template ---------------------------------------------------
+
+    def test_rendered_template_contains_pre_story_scope_check_heading(self):
+        assert "### Pre-story scope check" in self.output
+
+    def test_rendered_template_invokes_check_story_scope_command(self):
+        assert "check-story-scope" in self.output
+
+    def test_rendered_template_uses_scripts_dir_path(self):
+        # The template must reference pairmode_scripts_dir, not a hardcoded path.
+        assert "/path/to/flex/skills/pairmode/scripts/flex_build.py" in self.output
+
+    def test_rendered_template_contains_scope_check_banner(self):
+        assert "SCOPE CHECK" in self.output
+
+    def test_rendered_template_stub_gate_points_to_scope_check(self):
+        assert "proceed to the **Pre-story scope check**" in self.output
+
+    def test_rendered_template_states_check_does_not_block(self):
+        assert "does not block" in self.output
+
+    def test_rendered_template_scope_check_appears_between_stub_gate_and_step1(self):
+        stub_idx = self.output.index("### Pre-story stub gate")
+        scope_idx = self.output.index("### Pre-story scope check")
+        step1_idx = self.output.index("### Step 1 — Spawn the builder")
+        assert stub_idx < scope_idx < step1_idx
+
+    # --- flex's own CLAUDE.build.md -----------------------------------------
+
+    def test_flex_claude_build_md_contains_pre_story_scope_check_heading(self):
+        assert "### Pre-story scope check" in self.flex_build_md
+
+    def test_flex_claude_build_md_invokes_check_story_scope_command(self):
+        assert "check-story-scope" in self.flex_build_md
+
+    def test_flex_claude_build_md_contains_scope_check_banner(self):
+        assert "SCOPE CHECK" in self.flex_build_md
+
+    def test_flex_claude_build_md_stub_gate_points_to_scope_check(self):
+        assert "proceed to the **Pre-story scope check**" in self.flex_build_md
+
+    def test_flex_claude_build_md_scope_check_appears_between_stub_gate_and_step1(self):
+        stub_idx = self.flex_build_md.index("### Pre-story stub gate")
+        scope_idx = self.flex_build_md.index("### Pre-story scope check")
+        step1_idx = self.flex_build_md.index("### Step 1 — Spawn the builder")
+        assert stub_idx < scope_idx < step1_idx
