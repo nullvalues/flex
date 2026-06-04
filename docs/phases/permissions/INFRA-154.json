@@ -1,0 +1,10 @@
+{
+  "story_id": "INFRA-154",
+  "story_spec": "docs/stories/INFRA/INFRA-154.md",
+  "allowed_paths": [
+    "skills/companion/scripts/sidebar.py",
+    "tests/pairmode/test_sidebar_scope_miss.py",
+    "docs/stories/INFRA/INFRA-154.md"
+  ],
+  "generated_at": "2026-06-04T15:26:49Z"
+}

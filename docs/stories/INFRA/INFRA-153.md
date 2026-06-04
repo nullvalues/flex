@@ -2,7 +2,7 @@
 id: INFRA-153
 rail: INFRA
 title: "Checkpoint report — fix `[CP-N]` / `[N+1]` placeholders and add next-phase branching"
-status: planned
+status: complete
 phase: "60"
 story_class: methodology
 primary_files:

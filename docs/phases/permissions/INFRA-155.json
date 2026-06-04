@@ -1,0 +1,10 @@
+{
+  "story_id": "INFRA-155",
+  "story_spec": "docs/stories/INFRA/INFRA-155.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/flex_build.py",
+    "tests/pairmode/test_flex_build_check_story_scope.py",
+    "docs/stories/INFRA/INFRA-155.md"
+  ],
+  "generated_at": "2026-06-04T15:26:49Z"
+}
