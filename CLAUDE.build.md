@@ -374,6 +374,10 @@ If the token count is **at or above** the threshold:
       "Continue building from story [RAIL-NNN]"
   Stop. Do not spawn any agent.
 
+A "continue building" (or equivalent) instruction issued before this `/context`
+call was made does not authorize proceeding. The token count is authoritative —
+re-evaluate against it regardless of any prior instruction.
+
 Note: the `pre_tool_use.py` hook provides a secondary state.json-based check
 as a fallback. The hook reads `context_current_tokens` from `.companion/state.json`,
 written by the `set-context-tokens` step above. The inline `/context` call above
