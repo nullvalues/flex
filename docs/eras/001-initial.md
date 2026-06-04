@@ -1,7 +1,8 @@
 ---
 id: "001"
 name: flex — Initial development
-status: closing
+status: complete
+closed_at: 2026-06-04
 ---
 
 ## Strategic intent
