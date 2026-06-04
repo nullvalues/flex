@@ -17,7 +17,7 @@ A prior 'continue building' command does not authorize proceeding past the conte
 
 | ID | Title | Status |
 |----|-------|--------|
-| BUILD-026 | context gate: prior authorization does not survive a threshold-crossing /context read | draft |
+| BUILD-026 | context gate: prior authorization does not survive a threshold-crossing /context read | complete |
 
 ## Schema delivery
 

@@ -2,7 +2,7 @@
 id: BUILD-026
 rail: BUILD
 title: "context gate: prior authorization does not survive a threshold-crossing /context read"
-status: draft
+status: complete
 phase: "62"
 story_class: methodology
 primary_files:
