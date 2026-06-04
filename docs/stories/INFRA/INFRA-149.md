@@ -66,16 +66,18 @@ gate has a valid token count on every subsequent Task spawn.
 4. In the secondary-fallback description, update the phrase "transcript-based check" (or
    "transcript JSONL") to "state.json-based check" wherever it appears. No other prose changes.
 
-### Manual propagation (part of story acceptance)
+### Manual propagation (orchestrator post-commit step — not builder acceptance)
 
-5. After the template and flex's live file are updated and tests pass, run:
+5. The builder cannot reach `/mnt/work/forqsite` due to cross-project scope restrictions.
+   After the story commits, the orchestrator runs the forqsite sync directly. The builder
+   does NOT attempt AC5; the reviewer does NOT block on it.
+
+   Orchestrator step (run after reviewer PASS):
    ```bash
-   cd /mnt/work/forqsite
    PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/pairmode_sync.py \
-     sync-build --project-dir .
+     sync-build --project-dir /mnt/work/forqsite --apply --yes
    ```
    Verify `CLAUDE.build.md` in forqsite contains the `set-context-tokens` step.
-   This is the highest-priority downstream project given the PM023-main context blowout.
 
 ## Out of scope
 
