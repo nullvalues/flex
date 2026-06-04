@@ -1,0 +1,11 @@
+{
+  "story_id": "BUILD-026",
+  "story_spec": "docs/stories/BUILD/BUILD-026.md",
+  "allowed_paths": [
+    "CLAUDE.build.md",
+    "skills/pairmode/templates/CLAUDE.build.md.j2",
+    "tests/pairmode/test_templates.py",
+    "docs/stories/BUILD/BUILD-026.md"
+  ],
+  "generated_at": "2026-06-04T18:51:04Z"
+}

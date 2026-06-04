@@ -60,6 +60,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 59 | context_budget.py silent-fail edge closure (CER-040, CER-041) | planned | [phase-59.md](phase-59.md) |
 | 60 | Checkpoint report intelligence — phase-key fix and next-phase detection | planned | [phase-60.md](phase-60.md) |
 | 61 | Scope-Miss Capture & Pre-Story Scope Checks | planned | [phase-61.md](phase-61.md) |
+| 62 | Context gate authorization clarity | planned | [phase-62.md](phase-62.md) |
 
 ---
 
