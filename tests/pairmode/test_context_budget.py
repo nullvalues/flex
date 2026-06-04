@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -179,6 +180,66 @@ def test_read_context_tokens_from_state_non_numeric_returns_none():
 def test_read_context_tokens_from_state_non_dict_returns_none():
     """A non-dict argument returns None."""
     assert context_budget.read_context_tokens_from_state(None) is None  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# read_context_tokens_from_state — CER-041 staleness handling
+# ---------------------------------------------------------------------------
+
+
+def test_read_context_tokens_fresh():
+    """recorded_at 10 minutes ago under default TTL=60 → returns the value."""
+    now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    recorded_at = (now - timedelta(minutes=10)).isoformat()
+    state = {
+        "context_current_tokens": 50_000,
+        "context_current_tokens_recorded_at": recorded_at,
+    }
+    assert (
+        context_budget.read_context_tokens_from_state(state, _now=now) == 50_000
+    )
+
+
+def test_read_context_tokens_stale():
+    """recorded_at 90 minutes ago under default TTL=60 → returns None."""
+    now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    recorded_at = (now - timedelta(minutes=90)).isoformat()
+    state = {
+        "context_current_tokens": 50_000,
+        "context_current_tokens_recorded_at": recorded_at,
+    }
+    assert context_budget.read_context_tokens_from_state(state, _now=now) is None
+
+
+def test_read_context_tokens_no_recorded_at():
+    """recorded_at absent → TTL not enforced; returns the value."""
+    state = {"context_current_tokens": 50_000}
+    assert (
+        context_budget.read_context_tokens_from_state(state) == 50_000
+    )
+
+
+def test_read_context_tokens_unparseable_recorded_at():
+    """recorded_at not parseable → staleness skipped; returns the value."""
+    state = {
+        "context_current_tokens": 50_000,
+        "context_current_tokens_recorded_at": "not-a-date",
+    }
+    assert (
+        context_budget.read_context_tokens_from_state(state) == 50_000
+    )
+
+
+def test_read_context_tokens_custom_ttl():
+    """recorded_at 30 minutes ago under custom TTL=20 → stale; returns None."""
+    now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    recorded_at = (now - timedelta(minutes=30)).isoformat()
+    state = {
+        "context_current_tokens": 50_000,
+        "context_current_tokens_recorded_at": recorded_at,
+        "context_current_tokens_ttl_minutes": 20,
+    }
+    assert context_budget.read_context_tokens_from_state(state, _now=now) is None
 
 
 # ---------------------------------------------------------------------------
@@ -591,3 +652,21 @@ def test_set_context_tokens_does_not_touch_acknowledged_at(tmp_path):
     state = json.loads((companion / "state.json").read_text(encoding="utf-8"))
     assert state["context_current_tokens"] == 95_000
     assert state["context_budget_acknowledged_at"] == 130_000
+
+
+def test_set_context_tokens_writes_recorded_at(tmp_path):
+    """CER-041: writes context_current_tokens_recorded_at alongside tokens."""
+    project_dir = tmp_path / "sub" / "project"
+    project_dir.mkdir(parents=True)
+
+    result = _invoke_set_context_tokens(project_dir, 42_000)
+    assert result.exit_code == 0, result.output
+
+    state = json.loads(
+        (project_dir / ".companion" / "state.json").read_text(encoding="utf-8")
+    )
+    assert "context_current_tokens_recorded_at" in state
+    # Parseable as ISO 8601 (datetime.fromisoformat round-trips the value).
+    recorded_at = state["context_current_tokens_recorded_at"]
+    parsed = datetime.fromisoformat(recorded_at)
+    assert parsed.tzinfo is not None

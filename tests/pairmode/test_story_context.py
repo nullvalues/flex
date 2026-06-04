@@ -211,6 +211,25 @@ class TestClearCurrentStory:
         assert "current_story" not in raw
         assert raw["last_loaded_modules"] == ["billing"]
 
+    def test_clear_removes_context_tokens(self, tmp_path):
+        """CER-041: --clear wipes both context_current_tokens and recorded_at."""
+        companion = make_companion_dir(tmp_path)
+        write_state(
+            companion,
+            {
+                "current_story": {"id": "INFRA-151", "set_at": "2026-01-01T00:00:00+00:00"},
+                "context_current_tokens": 50_000,
+                "context_current_tokens_recorded_at": "2026-01-01T00:00:00+00:00",
+            },
+        )
+        state = clear_current_story(companion)
+        assert "context_current_tokens" not in state
+        assert "context_current_tokens_recorded_at" not in state
+        # Verify on-disk state matches.
+        raw = json.loads((companion / "state.json").read_text())
+        assert "context_current_tokens" not in raw
+        assert "context_current_tokens_recorded_at" not in raw
+
 
 # ---------------------------------------------------------------------------
 # Schema round-trip (full current_story schema)

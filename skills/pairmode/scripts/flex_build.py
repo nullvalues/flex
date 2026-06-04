@@ -23,6 +23,7 @@ import datetime as _dt
 import json
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Make sibling modules importable when invoked as a script.
@@ -703,6 +704,7 @@ def cmd_set_context_tokens(tokens: int, project_dir: str) -> None:
         state = {}
 
     state["context_current_tokens"] = tokens
+    state["context_current_tokens_recorded_at"] = datetime.now(timezone.utc).isoformat()
     state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
     click.echo(f"context: recorded {tokens:,} tokens")
 

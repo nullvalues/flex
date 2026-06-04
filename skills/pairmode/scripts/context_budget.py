@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import statistics
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -62,10 +63,24 @@ _CONTEXT_CHECK_REQUIRED_MSG = (
 # ---------------------------------------------------------------------------
 
 
-def read_context_tokens_from_state(state: dict) -> int | None:
+def read_context_tokens_from_state(
+    state: dict,
+    _now: datetime | None = None,
+) -> int | None:
     """Return ``int(state["context_current_tokens"])`` when the key is present
     and the value is a valid positive integer. Returns ``None`` for any other
     case (absent, zero, negative, non-numeric).
+
+    CER-041: when ``state["context_current_tokens_recorded_at"]`` is present
+    and parseable, the recorded value is treated as stale (and ``None`` is
+    returned) once its age exceeds ``state["context_current_tokens_ttl_minutes"]``
+    (default 60). A missing or unparseable ``recorded_at`` skips the staleness
+    check and returns the value as-is (backwards compatible with state.json
+    written before this story shipped).
+
+    The ``_now`` parameter is private and exists solely for test injection
+    (so tests can freeze the wall clock). Production callers (``decide()``)
+    must not pass it.
     """
     if not isinstance(state, dict):
         return None
@@ -77,6 +92,26 @@ def read_context_tokens_from_state(state: dict) -> int | None:
     except (TypeError, ValueError):
         return None
     if value <= 0:
+        return None
+
+    # CER-041 staleness check. A missing or unparseable recorded_at falls
+    # through to returning ``value`` (preserving the pre-CER-041 contract).
+    recorded_at = state.get("context_current_tokens_recorded_at")
+    if not recorded_at:
+        return value
+    try:
+        recorded_at_dt = datetime.fromisoformat(recorded_at)
+    except (TypeError, ValueError):
+        return value
+
+    now = _now if _now is not None else datetime.now(timezone.utc)
+    try:
+        ttl_minutes = int(state.get("context_current_tokens_ttl_minutes", 60) or 60)
+    except (TypeError, ValueError):
+        ttl_minutes = 60
+
+    age_minutes = (now - recorded_at_dt).total_seconds() / 60
+    if age_minutes > ttl_minutes:
         return None
     return value
 
