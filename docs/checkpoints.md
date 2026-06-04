@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp60-checkpoint-report-intelligence
+
+**Phase:** 60 — Checkpoint report intelligence — phase-key fix and next-phase detection
+**Tag command:** `git tag cp60-checkpoint-report-intelligence && git push origin cp60-checkpoint-report-intelligence`
+**Acceptance:** Two stories. INFRA-152: `flex_build.py next-phase --after [phase-id]` subcommand added; reads `docs/phases/index.md` via `_parse_index_phases()`, returns the key of the immediately following row (exit 0) or exits 1 silently when the phase is not found, is last, or the index is absent; `_is_aggregate_range()` helper extracted to correctly distinguish integer-range rows from suffix-keyed phase refs (fixing a pre-existing `_parse_index_phases` skip bug); 6 new test cases in `test_flex_build_next_phase.py`. INFRA-153: `CLAUDE.build.md` and `skills/pairmode/templates/CLAUDE.build.md.j2` updated — `[CP-N]` replaced by `[phase-id]` in checkpoint header; `next_phase_id` capture block inserted after step 7 tag; context-health advisory and closing prompt branch on `next_phase_id` non-empty/empty (replacing `[N+1]` arithmetic). Architecture.md: `flex_build.py` helper count updated 17→18, `next-phase` appended to command list. 1991 tests pass.
+
+---
+
 ## cp59-context-budget-silent-fail-edges
 
 **Phase:** 59 — context_budget.py silent-fail edge closure (CER-040, CER-041)
