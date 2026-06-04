@@ -330,14 +330,34 @@ def _depth_guard(project_dir: Path) -> None:
         sys.exit(1)
 
 
+def _is_aggregate_range(phase_ref: str) -> bool:
+    """Return True when *phase_ref* looks like a legacy aggregate range (e.g. ``1–7`` or ``1-7``).
+
+    An aggregate range has both sides of the separator as integers.  Named
+    suffix phases like ``RD077-main`` are NOT ranges and must not be skipped.
+    """
+    for sep in ("–", "-"):
+        if sep in phase_ref:
+            left, _, right = phase_ref.partition(sep)
+            try:
+                int(left)
+                int(right)
+                return True
+            except ValueError:
+                pass
+    return False
+
+
 def _parse_index_phases(index_text: str) -> list[tuple[str, str]]:
     """Parse ``docs/phases/index.md`` and return ``[(phase_ref, status)]``.
 
-    ``phase_ref`` is the raw first-column value (e.g. ``52`` or ``1–7``).
+    ``phase_ref`` is the raw first-column value (e.g. ``52``, ``RD077-main``).
     ``status`` is the third column, lowercased.
 
-    Rows with multi-phase entries like ``1–7`` are skipped because they
-    describe legacy aggregated phases that have no individual phase file.
+    Rows with multi-phase entries like ``1–7`` or ``1-7`` (where both sides of
+    the separator are integers) are skipped because they describe legacy
+    aggregated phases that have no individual phase file.  Named suffix phases
+    like ``RD077-main`` are retained.
     """
     rows: list[tuple[str, str]] = []
     in_table = False
@@ -366,12 +386,10 @@ def _parse_index_phases(index_text: str) -> list[tuple[str, str]]:
             continue
 
         phase_ref = parts[1].strip()
-        # Skip aggregate rows (e.g. "1–7", "1-7")
-        if "–" in phase_ref or ("-" in phase_ref and not phase_ref.isdigit()):
-            try:
-                int(phase_ref)
-            except ValueError:
-                continue
+        # Skip aggregate range rows (e.g. "1–7", "1-7") but keep suffix-keyed
+        # phases like "RD077-main".
+        if _is_aggregate_range(phase_ref):
+            continue
 
         # Status is the third data column (index 3 after leading empty at 0).
         status = parts[3].strip().lower() if len(parts) > 3 else ""
@@ -446,6 +464,52 @@ def cmd_current_phase(project_dir: str) -> None:
             sys.exit(0)
 
     click.echo("No active phase found — all stories complete.", err=True)
+    sys.exit(1)
+
+
+@flex_build.command("next-phase")
+@click.option(
+    "--after",
+    "after_phase",
+    required=True,
+    type=str,
+    help="Current phase key (e.g. 59 or RD077-main).",
+)
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_next_phase(after_phase: str, project_dir: str) -> None:
+    """Print the phase key immediately following *after_phase* in the index.
+
+    Reads ``docs/phases/index.md``, finds the row whose ``phase_ref`` equals
+    ``--after``, and prints the ``phase_ref`` of the next row.  Exits 1
+    (with empty stdout) when the index is missing, the phase is not found, or
+    the matched row is the last in the index.
+
+    The command is read-only and makes no writes.
+    """
+    project_path = Path(project_dir).resolve()
+
+    index_path = project_path / "docs" / "phases" / "index.md"
+    if not index_path.exists():
+        sys.exit(1)
+
+    index_text = index_path.read_text(encoding="utf-8")
+    phase_rows = _parse_index_phases(index_text)
+
+    for i, (phase_ref, _status) in enumerate(phase_rows):
+        if phase_ref == after_phase:
+            if i + 1 < len(phase_rows):
+                click.echo(phase_rows[i + 1][0])
+                sys.exit(0)
+            else:
+                # Matched row is the last one — no next phase.
+                sys.exit(1)
+
+    # Phase not found in index.
     sys.exit(1)
 
 
