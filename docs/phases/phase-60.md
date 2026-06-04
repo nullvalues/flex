@@ -13,7 +13,7 @@ Replace two brittle placeholders in the checkpoint report template. First: renam
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-152 | `flex_build.py next-phase --after [phase-id]` — index-based next-phase lookup | planned |
+| INFRA-152 | `flex_build.py next-phase --after [phase-id]` — index-based next-phase lookup | complete |
 | INFRA-153 | Checkpoint report — fix `[CP-N]` / `[N+1]` placeholders and add next-phase branching | planned |
 
 **Story dependency:** INFRA-153 depends on the `next-phase` CLI introduced in INFRA-152. Build INFRA-152 first.
