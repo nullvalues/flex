@@ -35,7 +35,7 @@ flex/
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
-        flex_build.py             ← CLI wrapping 16 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stubs, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate); replaces inline python -c blocks in CLAUDE.build.md.j2
+        flex_build.py             ← CLI wrapping 17 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stubs, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens); replaces inline python -c blocks in CLAUDE.build.md.j2
         refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
@@ -173,15 +173,19 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
 
 9. **Context budget check** — `hooks/pre_tool_use.py` fires on every
    Task spawn and delegates to
-   `skills/pairmode/scripts/context_budget.py`. The module reads the
-   transcript's last assistant `usage` block, estimates the next
-   step's tokens (median of recent effort.db attempts for the
-   current phase, or `state["expected_step_tokens"]` as a seeded
-   fallback), and blocks the spawn when the projected total would
-   exceed `threshold * (1 + overrun_pct)`. The block reason carries
-   a verbatim prompt; the operator picks Proceed (acknowledged) or
-   `/clear` and resume. CER-027 documents the failure mode this
-   replaces.
+   `skills/pairmode/scripts/context_budget.py`. The module reads
+   `state["context_current_tokens"]` (written by the orchestrator's
+   `flex_build.py set-context-tokens` step after each `/context`
+   call), estimates the next step's tokens (median of recent
+   effort.db attempts for the current phase, or
+   `state["expected_step_tokens"]` as a seeded fallback), and blocks
+   the spawn when the projected total would exceed `threshold *
+   (1 + overrun_pct)`. When `context_current_tokens` is absent, the
+   module blocks with a `CONTEXT CHECK REQUIRED` prompt directing the
+   operator to call `/context` and run `set-context-tokens`.
+   The block reason carries a verbatim prompt; the operator picks
+   Proceed (acknowledged) or `/clear` and resume. CER-027 and
+   CER-039 document the failure modes this replaces.
 
 9.5 **Story file-scope enforcement** — `hooks/pre_tool_use.py` also intercepts
    `Edit` and `Write` tool calls. It delegates to
@@ -763,6 +767,12 @@ Fields:
 - `current_story` — **optional**; present only when pairmode is active and the user
   confirmed which story they are working on. Contains `id` (required), optional `title`,
   and `set_at` (UTC ISO-8601 timestamp). Absent when the user skips the prompt.
+- `context_current_tokens` — **optional**; integer; written by `flex_build.py set-context-tokens --tokens N`
+  after the orchestrator calls `/context`. Read by `context_budget.py` via
+  `read_context_tokens_from_state()`. When absent, `context_budget.decide()` blocks Task spawns
+  with a `CONTEXT CHECK REQUIRED` prompt. Cleared implicitly on `/clear` (new session starts
+  without the key; the orchestrator must re-run `set-context-tokens` on the first Context gate).
+  Never written by the companion sidebar or hook.
 - `registered_projects` — **optional**; list of absolute paths to pairmode-scaffolded
   projects to include in cross-project drift detection. When present and non-empty,
   `/flex:pairmode review` runs `pairmode_drift_report --convergent` across all listed
@@ -805,10 +815,11 @@ Hooks must:
 **Documented exception — `hooks/pre_tool_use.py` (dual thin-delegate):**
 `pre_tool_use.py` dispatches to two modules:
 
-- **`Task` → `context_budget.py` (CER-027):** decides whether to block a new
-  subagent spawn based on transcript token count. Writes
-  `context_budget_acknowledged_at` to `.companion/state.json`. Does not write
-  to the pipe.
+- **`Task` → `context_budget.py` (CER-027, CER-039):** decides whether to block a new
+  subagent spawn based on `state["context_current_tokens"]` (written by
+  `flex_build.py set-context-tokens`). Blocks with `CONTEXT CHECK REQUIRED` when
+  the key is absent. Writes `context_budget_acknowledged_at` to
+  `.companion/state.json`. Does not write to the pipe.
 - **`Edit`/`Write` → `scope_guard.py` (Phase 55):** decides whether to block
   a file write based on the active story's declared `primary_files`/`touches`.
   Read-only; no state writes. Fails open when state or permissions file absent.
