@@ -347,6 +347,11 @@ The threshold is the value of `context_budget_threshold` in `.companion/state.js
 If the token count is **below** the threshold:
   Output: `CONTEXT: [N] / [threshold] tokens — proceeding`
 
+  Then record the count for the secondary hook gate:
+    PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+      set-context-tokens --tokens [N] --project-dir .
+  Replace [N] with the integer token count read from /context.
+
   Then call:
     PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
       story-cost-estimate --story-id RAIL-NNN --project-dir .
@@ -369,9 +374,10 @@ If the token count is **at or above** the threshold:
       "Continue building from story [RAIL-NNN]"
   Stop. Do not spawn any agent.
 
-Note: the `pre_tool_use.py` hook provides a secondary transcript-based check
-as a fallback. The inline `/context` call above is the primary gate and should
-be treated as authoritative.
+Note: the `pre_tool_use.py` hook provides a secondary state.json-based check
+as a fallback. The hook reads `context_current_tokens` from `.companion/state.json`,
+written by the `set-context-tokens` step above. The inline `/context` call above
+is the primary gate and should be treated as authoritative.
 
 ### Pre-story schema gate
 
@@ -753,7 +759,7 @@ iteration (see `### Context gate` above) is the authoritative check. It reads
 directly from the Claude Code runtime and is evaluated before any agent spawns.
 
 **Secondary fallback:** Enforced mechanically by `hooks/pre_tool_use.py` (matcher `Task`)
-as a belt-and-suspenders transcript-based check. It delegates to
+as a belt-and-suspenders state.json-based check. It delegates to
 `/mnt/work/flex/skills/pairmode/scripts/context_budget.py`.
 On every subagent spawn, the hook checks whether the projected
 next-step total would exceed
