@@ -665,6 +665,48 @@ def cmd_story_cost_estimate(story_id: str, project_dir: str) -> None:
     )
 
 
+@flex_build.command("set-context-tokens")
+@click.option("--tokens", required=True, type=int, help="Token count from /context (must be > 0).")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_set_context_tokens(tokens: int, project_dir: str) -> None:
+    """Record the current ``/context`` token count into ``.companion/state.json``.
+
+    Writes ``state["context_current_tokens"] = N``. The pre_tool_use hook reads
+    this value (via ``context_budget.read_context_tokens_from_state``) to decide
+    whether to block a Task spawn (INFRA-148).
+    """
+    if tokens <= 0:
+        click.echo(
+            f"set-context-tokens: --tokens must be > 0 (got {tokens})", err=True
+        )
+        sys.exit(1)
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    companion = project_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    state_path = companion / "state.json"
+
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            if not isinstance(state, dict):
+                state = {}
+        except (json.JSONDecodeError, OSError):
+            state = {}
+    else:
+        state = {}
+
+    state["context_current_tokens"] = tokens
+    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    click.echo(f"context: recorded {tokens:,} tokens")
+
+
 @flex_build.command("transition-era")
 @click.option("--name", default=None, help="New era name (required in --yes mode).")
 @click.option("--intent", default="", help="Strategic intent for the new era.")

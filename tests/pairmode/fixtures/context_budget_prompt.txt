@@ -1,5 +1,6 @@
 CONTEXT BUDGET — [story RAIL-NNN] just completed.
 Context is at approximately [N] tokens (threshold: [T], overrun: [O]).
+Estimated next step: ~[E] tokens — [R] tokens remaining before ceiling.
 
 Continuing risks context compaction mid-story. Options:
 

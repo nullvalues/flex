@@ -27,7 +27,6 @@ def main():
             import context_budget
             result = context_budget.decide(
                 project_dir=Path(data.get("cwd") or "."),
-                transcript_path=data.get("transcript_path") or "",
             )
         except Exception:
             sys.exit(0)

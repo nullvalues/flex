@@ -67,7 +67,7 @@ def _parse_frontmatter(text: str) -> dict[str, Any] | None:
             key = scalar_m.group(1)
             value_raw = scalar_m.group(2).strip()
 
-            if value_raw == "" or value_raw is None:
+            if value_raw in ("", "[]") or value_raw is None:
                 # Start of a block sequence
                 current_key = key
                 current_list = []

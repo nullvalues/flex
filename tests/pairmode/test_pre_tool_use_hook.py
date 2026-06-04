@@ -1,5 +1,9 @@
 """Tests for hooks/pre_tool_use.py — thin PreToolUse delegate (INFRA-128).
 
+INFRA-148: token-source contract changed from transcript JSONL parsing to
+``state.json["context_current_tokens"]``. Transcript fixtures replaced with
+state seeding.
+
 All tests invoke the hook via subprocess.run to exercise the real script
 end-to-end, matching the Claude Code hook execution contract.
 """
@@ -9,9 +13,6 @@ import json
 import sys
 import time
 from pathlib import Path
-from unittest.mock import patch
-
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 HOOK_PATH = REPO_ROOT / "hooks" / "pre_tool_use.py"
@@ -28,6 +29,13 @@ def _run_hook(stdin_data: dict, cwd: Path | None = None) -> "subprocess.Complete
     )
 
 
+def _seed_state(tmp_path: Path, state: dict) -> None:
+    """Write state.json to tmp_path/.companion/state.json."""
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    (companion / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # Test 1: tool_name != "Task" → exit 0, empty stdout
 # ---------------------------------------------------------------------------
@@ -41,65 +49,76 @@ def test_non_task_tool_exits_cleanly(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 2: tool_name == "Task" + decide() returns None → exit 0, empty stdout
+# Test 2: tool_name == "Task" + tokens below ceiling → exit 0, empty stdout
 # ---------------------------------------------------------------------------
 
 
 def test_task_tool_no_block_exits_cleanly(tmp_path):
-    """Task tool with decide() returning None → exit 0, empty stdout."""
-    # No state.json → decide() returns None (state is absent → returns None).
-    result = _run_hook({
-        "tool_name": "Task",
-        "cwd": str(tmp_path),
-        "transcript_path": "",
-    })
+    """Task tool with current tokens under ceiling → exit 0, empty stdout."""
+    _seed_state(
+        tmp_path,
+        {
+            "context_budget_threshold": 1000,
+            "context_budget_overrun_pct": 0.0,
+            "expected_step_tokens": 100,
+            "context_budget_reprompt_margin": 0,
+            "context_current_tokens": 500,
+        },
+    )
+    result = _run_hook({"tool_name": "Task", "cwd": str(tmp_path)})
     assert result.returncode == 0
     assert result.stdout.strip() == b""
 
 
 # ---------------------------------------------------------------------------
-# Test 3: tool_name == "Task" + decide() returns block → stdout is block JSON
+# Test 3: tool_name == "Task" + tokens above ceiling → stdout is block JSON
 # ---------------------------------------------------------------------------
 
 
 def test_task_tool_block_emits_decision(tmp_path):
-    """Task tool with decide() returning a block payload emits decision JSON."""
-    # Write a state.json that will trigger a block:
-    # current_tokens > threshold * 1.1 + expected_step_tokens forces a block.
-    companion = tmp_path / ".companion"
-    companion.mkdir()
-    state = {
-        "context_budget_threshold": 1000,
-        "context_budget_overrun_pct": 0.0,
-        "expected_step_tokens": 100,
-        "context_budget_reprompt_margin": 0,
-    }
-    (companion / "state.json").write_text(json.dumps(state))
-
-    # Write a transcript that reports 1200 input tokens (> 1000 + 100 = 1100).
-    transcript = tmp_path / "transcript.jsonl"
-    transcript.write_text(json.dumps({
-        "type": "assistant",
-        "message": {
-            "usage": {
-                "input_tokens": 1200,
-                "cache_read_input_tokens": 0,
-                "cache_creation_input_tokens": 0,
-            }
-        }
-    }) + "\n")
-
-    result = _run_hook({
-        "tool_name": "Task",
-        "cwd": str(tmp_path),
-        "transcript_path": str(transcript),
-    })
+    """Task tool with current tokens above ceiling emits decision JSON."""
+    _seed_state(
+        tmp_path,
+        {
+            "context_budget_threshold": 1000,
+            "context_budget_overrun_pct": 0.0,
+            "expected_step_tokens": 100,
+            "context_budget_reprompt_margin": 0,
+            "context_current_tokens": 1200,
+        },
+    )
+    result = _run_hook({"tool_name": "Task", "cwd": str(tmp_path)})
     assert result.returncode == 0
     assert result.stdout.strip() != b""
     payload = json.loads(result.stdout)
     assert payload["decision"] == "block"
     assert "reason" in payload
     assert len(payload["reason"]) > 0
+    assert "CONTEXT BUDGET" in payload["reason"]
+
+
+# ---------------------------------------------------------------------------
+# Test 3b (INFRA-148): tool_name == "Task" with no context_current_tokens
+# in state.json → block with CONTEXT CHECK REQUIRED.
+# ---------------------------------------------------------------------------
+
+
+def test_task_tool_block_when_no_context_tokens_recorded(tmp_path):
+    """state.json exists but lacks context_current_tokens → block CHECK REQUIRED."""
+    _seed_state(
+        tmp_path,
+        {
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 53_000,
+        },
+    )
+    result = _run_hook({"tool_name": "Task", "cwd": str(tmp_path)})
+    assert result.returncode == 0
+    assert result.stdout.strip() != b""
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+    assert "CONTEXT CHECK REQUIRED" in payload["reason"]
 
 
 # ---------------------------------------------------------------------------
@@ -109,31 +128,6 @@ def test_task_tool_block_emits_decision(tmp_path):
 
 def test_import_failure_degrades_safely(tmp_path):
     """If context_budget cannot be imported, the hook exits 0 with empty stdout."""
-    # Pass a cwd that has no scripts dir reachable via PLUGIN_ROOT — the hook
-    # inserts PLUGIN_ROOT/skills/pairmode/scripts. We poison sys.modules by
-    # passing cwd pointing at a tmpdir (no state.json so decide would return
-    # None anyway), but we need to simulate the import actually failing.
-    # Strategy: point cwd at a dir where no .companion/state.json exists AND
-    # temporarily rename the module to simulate import failure by running the
-    # hook with PYTHONPATH cleared and the scripts dir hidden.
-    #
-    # Simpler: run hook with tool_name=Task and a cwd that is a completely
-    # different temp dir, then monkeypatch context_budget out via a wrapper
-    # script. Actually, the cleanest approach per the spec is to call via
-    # subprocess and rely on the hook's own try/except to absorb the error.
-    # We simulate by writing a broken context_budget.py in a temp scripts dir
-    # that raises on import, and we can't easily inject that via subprocess.
-    #
-    # Best approach: create a minimal wrapper that inserts a bad path and then
-    # imports the hook. Instead, we test the degrade behavior by running the
-    # real hook with an invalid PLUGIN_ROOT override — we can't do that without
-    # modifying the hook. The spec says "simulate by temporarily removing the
-    # scripts dir from sys.path before calling" — but that only works in-process.
-    #
-    # Per spec: call via subprocess.run. So we create a bad context_budget.py
-    # in a temp dir and prepend that to sys.path by setting PYTHONPATH so the
-    # hook picks it up before the real scripts dir. The real PLUGIN_ROOT insert
-    # happens in the hook but PYTHONPATH is checked first by Python.
     import subprocess, os
     bad_scripts = tmp_path / "bad_scripts"
     bad_scripts.mkdir()
@@ -144,7 +138,7 @@ def test_import_failure_degrades_safely(tmp_path):
 
     result = subprocess.run(
         [sys.executable, str(HOOK_PATH)],
-        input=json.dumps({"tool_name": "Task", "cwd": str(tmp_path), "transcript_path": ""}).encode(),
+        input=json.dumps({"tool_name": "Task", "cwd": str(tmp_path)}).encode(),
         capture_output=True,
         env=env,
     )
@@ -172,7 +166,7 @@ def test_decide_raises_degrades_safely(tmp_path):
 
     result = subprocess.run(
         [sys.executable, str(HOOK_PATH)],
-        input=json.dumps({"tool_name": "Task", "cwd": str(tmp_path), "transcript_path": ""}).encode(),
+        input=json.dumps({"tool_name": "Task", "cwd": str(tmp_path)}).encode(),
         capture_output=True,
         env=env,
     )
@@ -188,7 +182,7 @@ def test_decide_raises_degrades_safely(tmp_path):
 def test_performance_100_runs_under_5_seconds(tmp_path):
     """100 hook invocations (decide returns None) must complete in under 5 seconds."""
     # No state.json → decide returns None → pass-through.
-    stdin_data = json.dumps({"tool_name": "Task", "cwd": str(tmp_path), "transcript_path": ""}).encode()
+    stdin_data = json.dumps({"tool_name": "Task", "cwd": str(tmp_path)}).encode()
     import subprocess
     start = time.monotonic()
     for _ in range(100):

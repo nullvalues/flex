@@ -2,7 +2,7 @@
 id: INFRA-147
 rail: INFRA
 title: "README and docs era-001 close"
-status: planned
+status: complete
 phase: "57"
 primary_files:
   - README.md

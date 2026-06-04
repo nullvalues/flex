@@ -10,13 +10,18 @@ Design boundary (D11):
   ``context_budget_acknowledged_at`` to state.json when ``decide()`` returns
   ``block=True``.
 
+INFRA-148 contract change: the current token count is no longer derived by
+tail-reading the session transcript JSONL (that path silently returned ``None``
+on every production session). Instead, the orchestrator records the count
+from ``/context`` into ``state["context_current_tokens"]`` via
+``flex_build.py set-context-tokens`` and this module reads from there.
+
 The companion phase-spend CLI ``context_budget_check.py`` is unrelated and
 remains untouched.
 """
 
 from __future__ import annotations
 
-import collections
 import json
 import sqlite3
 import statistics
@@ -37,58 +42,43 @@ _FIXTURE_PATH = (
 
 
 # ---------------------------------------------------------------------------
-# 1. Compute current context-window usage from a transcript JSONL file
+# Module-level message constants
+# ---------------------------------------------------------------------------
+
+_FLEX_BUILD_PATH = Path(__file__).resolve().parent / "flex_build.py"
+
+_CONTEXT_CHECK_REQUIRED_MSG = (
+    "CONTEXT CHECK REQUIRED\n"
+    "No token count recorded for this session. Before spawning, call /context "
+    "and run:\n"
+    f"  PATH=$HOME/.local/bin:$PATH uv run python {_FLEX_BUILD_PATH} \\\n"
+    "    set-context-tokens --tokens N --project-dir .\n"
+    "Replace N with the integer token count from /context.\n"
+)
+
+
+# ---------------------------------------------------------------------------
+# 1. Read the current context-window count from state.json
 # ---------------------------------------------------------------------------
 
 
-def compute_context_tokens(transcript_path: str) -> int | None:
-    """Return the orchestrator context-window estimate at the last assistant
-    turn (``input_tokens + cache_read_input_tokens +
-    cache_creation_input_tokens``), or ``None`` if the transcript is missing,
-    malformed, or has no assistant turns yet.
-
-    Tail-reads the last ~50 lines to avoid the cost of a full-file parse.
+def read_context_tokens_from_state(state: dict) -> int | None:
+    """Return ``int(state["context_current_tokens"])`` when the key is present
+    and the value is a valid positive integer. Returns ``None`` for any other
+    case (absent, zero, negative, non-numeric).
     """
-    if not transcript_path:
+    if not isinstance(state, dict):
         return None
-    path = Path(transcript_path)
-    if not path.exists() or not path.is_file():
+    if "context_current_tokens" not in state:
         return None
-
+    raw = state.get("context_current_tokens")
     try:
-        with path.open("r", encoding="utf-8", errors="replace") as fh:
-            tail = collections.deque(fh, maxlen=50)
-    except OSError:
+        value = int(raw)
+    except (TypeError, ValueError):
         return None
-
-    # Walk tail in reverse to find the LAST assistant message with usage.
-    for line in reversed(tail):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(entry, dict):
-            continue
-        if entry.get("type") != "assistant":
-            continue
-        message = entry.get("message")
-        if not isinstance(message, dict):
-            continue
-        usage = message.get("usage")
-        if not isinstance(usage, dict):
-            continue
-        try:
-            input_tokens = int(usage.get("input_tokens", 0) or 0)
-            cache_read = int(usage.get("cache_read_input_tokens", 0) or 0)
-            cache_create = int(usage.get("cache_creation_input_tokens", 0) or 0)
-        except (TypeError, ValueError):
-            continue
-        return input_tokens + cache_read + cache_create
-
-    return None
+    if value <= 0:
+        return None
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -173,18 +163,26 @@ def render_alert_prompt(
     tokens: int,
     threshold: int,
     overrun_pct: float,
+    expected_next: int,
 ) -> str:
     """Template the verbatim prompt body from
     ``tests/pairmode/fixtures/context_budget_prompt.txt`` with
-    ``[story RAIL-NNN]``, ``[N]``, ``[T]``, and ``[O]`` substituted.
-    ``story_id`` falls back to ``"current"`` when ``None``.
+    ``[story RAIL-NNN]``, ``[N]``, ``[T]``, ``[O]``, ``[E]``, and ``[R]``
+    substituted. ``story_id`` falls back to ``"current"`` when ``None``.
+
+    ``[E]`` is ``expected_next``; ``[R]`` is ``ceiling - tokens`` where
+    ``ceiling = int(threshold * (1 + overrun_pct))``.
     """
     template = _FIXTURE_PATH.read_text(encoding="utf-8")
     story_label = story_id if story_id else "current"
+    ceiling = int(threshold * (1.0 + overrun_pct))
+    remaining = ceiling - tokens
     rendered = template.replace("[story RAIL-NNN]", f"[story {story_label}]")
     rendered = rendered.replace("[N]", f"{tokens:,}")
     rendered = rendered.replace("[T]", f"{threshold:,}")
     rendered = rendered.replace("[O]", f"{overrun_pct:.0%}")
+    rendered = rendered.replace("[E]", f"{expected_next:,}")
+    rendered = rendered.replace("[R]", f"{remaining:,}")
     return rendered
 
 
@@ -207,25 +205,40 @@ def _read_state(project_dir: Path) -> dict | None:
     return data
 
 
-def decide(project_dir: Path, transcript_path: str) -> dict | None:
-    """End-to-end glue. Reads state.json + effort.db + transcript, calls
-    ``should_block``, and returns
+def decide(project_dir: Path) -> dict | None:
+    """End-to-end glue. Reads state.json + effort.db, calls ``should_block``,
+    and returns
 
         {"block": True, "reason": "<prompt>", "tokens": N,
          "acknowledged_at": N}
 
-    when the next step would exceed the overrun ceiling, else ``None``.
+    when the next step would exceed the overrun ceiling, ``None`` when within
+    budget, or a "CONTEXT CHECK REQUIRED" block dict when no token count is
+    recorded in state.
 
     The caller (the hook) is responsible for writing ``acknowledged_at`` back
     to state.json after consuming. This function is strictly read-only — it
-    MUST NOT write to state.json, effort.db, or the transcript (D11).
+    MUST NOT write to state.json or effort.db (D11).
     """
     if not isinstance(project_dir, Path):
         project_dir = Path(project_dir)
 
     state = _read_state(project_dir)
     if state is None:
+        # No state.json (or malformed) — degrade safely. Without state we have
+        # no budget configuration and no current_tokens record; the hook fails
+        # open and the orchestrator continues. This matches the pre-INFRA-148
+        # behaviour for non-pairmode projects.
         return None
+
+    current_tokens = read_context_tokens_from_state(state)
+    if current_tokens is None:
+        return {
+            "block": True,
+            "reason": _CONTEXT_CHECK_REQUIRED_MSG,
+            "tokens": 0,
+            "acknowledged_at": 0,
+        }
 
     threshold = int(state.get("context_budget_threshold", 120000) or 120000)
     overrun_pct = float(state.get("context_budget_overrun_pct", 0.10) or 0.10)
@@ -240,10 +253,6 @@ def decide(project_dir: Path, transcript_path: str) -> dict | None:
             acknowledged_at = int(acknowledged_at_raw)
         except (TypeError, ValueError):
             acknowledged_at = None
-
-    current_tokens = compute_context_tokens(transcript_path)
-    if current_tokens is None:
-        return None
 
     phase = state.get("current_phase") or state.get("phase")
     db_path = project_dir / ".companion" / "effort.db"
@@ -270,6 +279,7 @@ def decide(project_dir: Path, transcript_path: str) -> dict | None:
         tokens=current_tokens,
         threshold=threshold,
         overrun_pct=overrun_pct,
+        expected_next=expected_next,
     )
     return {
         "block": True,

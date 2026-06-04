@@ -1,5 +1,9 @@
 """Tests for skills/pairmode/scripts/context_budget.py.
 
+INFRA-148: token-source contract changed from transcript JSONL tail-read to
+``state.json["context_current_tokens"]``. All previous transcript fixtures are
+replaced with state.json seeding.
+
 Run with:
     PATH=$HOME/.local/bin:$PATH uv run pytest \\
         tests/pairmode/test_context_budget.py -x -q
@@ -10,42 +14,22 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
-import time
 from pathlib import Path
+
+from click.testing import CliRunner
 
 # Ensure the pairmode scripts directory is on the path.
 sys.path.insert(
     0, str(Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts")
 )
 
-import context_budget
+import context_budget  # noqa: E402
+from flex_build import flex_build  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _write_transcript(path: Path, entries: list[dict]) -> None:
-    """Write JSONL transcript with the given entries."""
-    with path.open("w", encoding="utf-8") as fh:
-        for entry in entries:
-            fh.write(json.dumps(entry) + "\n")
-
-
-def _assistant(input_tokens: int, cache_read: int, cache_create: int) -> dict:
-    """Build an assistant transcript entry with the given usage tokens."""
-    return {
-        "type": "assistant",
-        "message": {
-            "usage": {
-                "input_tokens": input_tokens,
-                "output_tokens": 100,
-                "cache_read_input_tokens": cache_read,
-                "cache_creation_input_tokens": cache_create,
-            }
-        },
-    }
 
 
 def _create_effort_db(db_path: Path) -> None:
@@ -112,84 +96,93 @@ def _insert_attempts(
         conn.close()
 
 
+def _setup_project(
+    tmp_path: Path,
+    state: dict,
+    attempt_tokens: list[int] | None = None,
+) -> Path:
+    """Lay out a synthetic project with state.json and an optional effort.db."""
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    (companion / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    if attempt_tokens is not None:
+        db_path = companion / "effort.db"
+        _create_effort_db(db_path)
+        _insert_attempts(
+            db_path,
+            phase=str(state.get("current_phase", "1")),
+            tokens_list=attempt_tokens,
+        )
+
+    return tmp_path
+
+
 # ---------------------------------------------------------------------------
-# compute_context_tokens
+# read_context_tokens_from_state
 # ---------------------------------------------------------------------------
 
 
-def test_compute_context_tokens_single_assistant(tmp_path):
-    """Single assistant message: returns sum of input+cache_read+cache_create."""
-    transcript = tmp_path / "t.jsonl"
-    _write_transcript(transcript, [_assistant(1000, 5000, 200)])
-    assert context_budget.compute_context_tokens(str(transcript)) == 6200
-
-
-def test_compute_context_tokens_last_turn_not_running_total(tmp_path):
-    """Multiple assistant turns: returns the LAST turn's sum, not running total."""
-    transcript = tmp_path / "t.jsonl"
-    _write_transcript(
-        transcript,
-        [
-            _assistant(500, 1000, 100),
-            {"type": "user", "message": {"content": "hi"}},
-            _assistant(800, 2000, 200),
-            {"type": "user", "message": {"content": "hi again"}},
-            _assistant(1200, 4000, 300),
-        ],
+def test_read_context_tokens_from_state_present_int():
+    """Key present with a valid positive int returns that int."""
+    assert (
+        context_budget.read_context_tokens_from_state(
+            {"context_current_tokens": 125_000}
+        )
+        == 125_000
     )
-    # Last assistant turn: 1200 + 4000 + 300 = 5500
-    assert context_budget.compute_context_tokens(str(transcript)) == 5500
 
 
-def test_compute_context_tokens_missing_file(tmp_path):
-    """Missing file: returns None."""
-    assert context_budget.compute_context_tokens(str(tmp_path / "missing.jsonl")) is None
-
-
-def test_compute_context_tokens_empty_file(tmp_path):
-    """Empty file: returns None."""
-    transcript = tmp_path / "empty.jsonl"
-    transcript.write_text("", encoding="utf-8")
-    assert context_budget.compute_context_tokens(str(transcript)) is None
-
-
-def test_compute_context_tokens_assistant_without_usage(tmp_path):
-    """Assistant turns with no usage object: returns None."""
-    transcript = tmp_path / "t.jsonl"
-    _write_transcript(
-        transcript,
-        [
-            {"type": "assistant", "message": {"content": "no usage here"}},
-            {"type": "assistant", "message": {}},
-        ],
+def test_read_context_tokens_from_state_present_numeric_string():
+    """Key present as numeric string is coerced to int."""
+    assert (
+        context_budget.read_context_tokens_from_state(
+            {"context_current_tokens": "9999"}
+        )
+        == 9999
     )
-    assert context_budget.compute_context_tokens(str(transcript)) is None
 
 
-def test_compute_context_tokens_tail_read_is_fast(tmp_path):
-    """Large transcript (>1MB): tail-read path returns under 100ms."""
-    transcript = tmp_path / "big.jsonl"
-    # Pad with user messages to inflate file size past 1MB.
-    user_padding = {"type": "user", "message": {"content": "x" * 1000}}
-    lines: list[dict] = []
-    for _ in range(2000):  # ~2MB
-        lines.append(user_padding)
-    # Append the final assistant turn that should be the answer.
-    lines.append(_assistant(1234, 5678, 90))
-    _write_transcript(transcript, lines)
-    # Confirm size really is large.
-    assert transcript.stat().st_size > 1_000_000
+def test_read_context_tokens_from_state_absent_returns_none():
+    """Key absent returns None."""
+    assert context_budget.read_context_tokens_from_state({}) is None
 
-    start = time.perf_counter()
-    result = context_budget.compute_context_tokens(str(transcript))
-    elapsed = time.perf_counter() - start
 
-    assert result == 1234 + 5678 + 90
-    assert elapsed < 0.1, f"tail read took {elapsed:.3f}s (>100ms)"
+def test_read_context_tokens_from_state_zero_returns_none():
+    """Zero is treated as invalid (no recorded count)."""
+    assert (
+        context_budget.read_context_tokens_from_state({"context_current_tokens": 0})
+        is None
+    )
+
+
+def test_read_context_tokens_from_state_negative_returns_none():
+    """Negative values are invalid."""
+    assert (
+        context_budget.read_context_tokens_from_state(
+            {"context_current_tokens": -50}
+        )
+        is None
+    )
+
+
+def test_read_context_tokens_from_state_non_numeric_returns_none():
+    """Non-numeric value returns None."""
+    assert (
+        context_budget.read_context_tokens_from_state(
+            {"context_current_tokens": "not a number"}
+        )
+        is None
+    )
+
+
+def test_read_context_tokens_from_state_non_dict_returns_none():
+    """A non-dict argument returns None."""
+    assert context_budget.read_context_tokens_from_state(None) is None  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
-# estimate_next_step_tokens
+# estimate_next_step_tokens (unchanged from prior implementation)
 # ---------------------------------------------------------------------------
 
 
@@ -212,7 +205,6 @@ def test_estimate_next_step_tokens_five_or_more(tmp_path):
         phase="1",
         tokens_list=[10000, 20000, 30000, 40000, 50000],
     )
-    # median of 10000,20000,30000,40000,50000 = 30000
     result = context_budget.estimate_next_step_tokens(db_path, "1", seeded_default=99999)
     assert result == 30000
 
@@ -241,12 +233,11 @@ def test_estimate_next_step_tokens_none_phase(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# should_block
+# should_block (pure decision, unchanged)
 # ---------------------------------------------------------------------------
 
 
 def test_should_block_under_ceiling_returns_false():
-    """current 110k + expected 15k = 125k, ceiling = 120k * 1.10 = 132k. No block."""
     assert (
         context_budget.should_block(
             current_tokens=110_000,
@@ -260,7 +251,6 @@ def test_should_block_under_ceiling_returns_false():
 
 
 def test_should_block_over_ceiling_returns_true():
-    """current 120k + expected 15k = 135k > 132k ceiling. Block."""
     assert (
         context_budget.should_block(
             current_tokens=120_000,
@@ -274,7 +264,6 @@ def test_should_block_over_ceiling_returns_true():
 
 
 def test_should_block_within_margin_after_ack_returns_false():
-    """Acknowledged at 140k with 10k margin; current 140k -> no re-prompt."""
     assert (
         context_budget.should_block(
             current_tokens=140_000,
@@ -289,7 +278,6 @@ def test_should_block_within_margin_after_ack_returns_false():
 
 
 def test_should_block_crossed_margin_after_ack_returns_true():
-    """Acknowledged at 140k with 10k margin; current 150k -> re-prompt."""
     assert (
         context_budget.should_block(
             current_tokens=150_000,
@@ -304,28 +292,38 @@ def test_should_block_crossed_margin_after_ack_returns_true():
 
 
 # ---------------------------------------------------------------------------
-# render_alert_prompt
+# render_alert_prompt — now takes expected_next
 # ---------------------------------------------------------------------------
 
 
-def test_render_alert_prompt_matches_fixture_byte_for_byte():
-    """Render matches the fixture file byte-for-byte except for substitutions."""
+def test_render_alert_prompt_matches_fixture_with_substitutions():
+    """Render substitutes every placeholder including the new [E] and [R]."""
     fixture_path = (
         Path(__file__).parent / "fixtures" / "context_budget_prompt.txt"
     )
+    threshold = 120_000
+    overrun_pct = 0.10
+    tokens = 140_000
+    expected_next = 17_500
+    ceiling = int(threshold * (1.0 + overrun_pct))
+    remaining = ceiling - tokens
+
     expected = (
         fixture_path.read_text(encoding="utf-8")
         .replace("[story RAIL-NNN]", "[story HOOKS-001]")
-        .replace("[N]", "140,000")
-        .replace("[T]", "120,000")
-        .replace("[O]", "10%")
+        .replace("[N]", f"{tokens:,}")
+        .replace("[T]", f"{threshold:,}")
+        .replace("[O]", f"{overrun_pct:.0%}")
+        .replace("[E]", f"{expected_next:,}")
+        .replace("[R]", f"{remaining:,}")
     )
 
     rendered = context_budget.render_alert_prompt(
         story_id="HOOKS-001",
-        tokens=140_000,
-        threshold=120_000,
-        overrun_pct=0.10,
+        tokens=tokens,
+        threshold=threshold,
+        overrun_pct=overrun_pct,
+        expected_next=expected_next,
     )
     assert rendered == expected
 
@@ -337,41 +335,33 @@ def test_render_alert_prompt_story_id_falls_back_to_current():
         tokens=100,
         threshold=200,
         overrun_pct=0.10,
+        expected_next=50,
     )
     assert "[story current]" in rendered
 
 
+def test_render_alert_prompt_substitutes_expected_next_and_remaining():
+    """Both [E] and [R] are substituted with computed values."""
+    rendered = context_budget.render_alert_prompt(
+        story_id="INFRA-148",
+        tokens=130_000,
+        threshold=120_000,
+        overrun_pct=0.10,
+        expected_next=12_345,
+    )
+    # ceiling = 132,000; remaining = 132,000 - 130,000 = 2,000
+    assert "12,345 tokens" in rendered
+    assert "2,000 tokens remaining" in rendered
+
+
 # ---------------------------------------------------------------------------
-# decide — end-to-end
+# decide — state.json contract
 # ---------------------------------------------------------------------------
 
 
-def _setup_project(
-    tmp_path: Path,
-    state: dict,
-    attempt_tokens: list[int] | None = None,
-    transcript_entries: list[dict] | None = None,
-) -> tuple[Path, Path]:
-    """Lay out a synthetic project with state.json, effort.db, and a transcript."""
-    companion = tmp_path / ".companion"
-    companion.mkdir(parents=True, exist_ok=True)
-    (companion / "state.json").write_text(json.dumps(state), encoding="utf-8")
-
-    if attempt_tokens is not None:
-        db_path = companion / "effort.db"
-        _create_effort_db(db_path)
-        _insert_attempts(db_path, phase=str(state.get("current_phase", "1")),
-                          tokens_list=attempt_tokens)
-
-    transcript = tmp_path / "transcript.jsonl"
-    if transcript_entries is not None:
-        _write_transcript(transcript, transcript_entries)
-    return tmp_path, transcript
-
-
-def test_decide_returns_block_dict_when_over_ceiling(tmp_path):
-    """End-to-end: returns the expected dict when budget exceeded."""
-    project_dir, transcript = _setup_project(
+def test_decide_returns_block_when_over_ceiling(tmp_path):
+    """state.json reports tokens above ceiling → block dict with prompt."""
+    project_dir = _setup_project(
         tmp_path,
         state={
             "context_budget_threshold": 120_000,
@@ -380,11 +370,11 @@ def test_decide_returns_block_dict_when_over_ceiling(tmp_path):
             "context_budget_reprompt_margin": 10_000,
             "current_phase": "47",
             "current_story": "INFRA-127",
+            "context_current_tokens": 125_000,
         },
-        transcript_entries=[_assistant(100_000, 20_000, 5_000)],  # 125k
     )
 
-    result = context_budget.decide(project_dir, str(transcript))
+    result = context_budget.decide(project_dir)
     assert result is not None
     assert result["block"] is True
     assert result["tokens"] == 125_000
@@ -393,9 +383,50 @@ def test_decide_returns_block_dict_when_over_ceiling(tmp_path):
     assert "INFRA-127" in result["reason"]
 
 
+def test_decide_returns_none_when_under_ceiling(tmp_path):
+    """state.json reports tokens well under ceiling → pass through (None)."""
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 1_000,
+            "context_budget_reprompt_margin": 10_000,
+            "current_phase": "47",
+            "current_story": "INFRA-148",
+            "context_current_tokens": 10_000,
+        },
+    )
+
+    result = context_budget.decide(project_dir)
+    assert result is None
+
+
+def test_decide_returns_check_required_when_tokens_absent(tmp_path):
+    """state.json with no context_current_tokens → block with CONTEXT CHECK REQUIRED."""
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 53_000,
+            "current_phase": "58",
+            "current_story": "INFRA-148",
+        },
+    )
+
+    result = context_budget.decide(project_dir)
+    assert result is not None
+    assert result["block"] is True
+    assert result["tokens"] == 0
+    assert result["acknowledged_at"] == 0
+    assert "CONTEXT CHECK REQUIRED" in result["reason"]
+    assert "set-context-tokens" in result["reason"]
+
+
 def test_decide_returns_none_when_acknowledged_within_margin(tmp_path):
-    """End-to-end: returns None when acknowledged_at is recent enough."""
-    project_dir, transcript = _setup_project(
+    """Already-acknowledged budget within reprompt margin → None."""
+    project_dir = _setup_project(
         tmp_path,
         state={
             "context_budget_threshold": 120_000,
@@ -405,22 +436,118 @@ def test_decide_returns_none_when_acknowledged_within_margin(tmp_path):
             "context_budget_acknowledged_at": 140_000,
             "current_phase": "47",
             "current_story": "INFRA-127",
+            "context_current_tokens": 145_000,
         },
-        transcript_entries=[_assistant(120_000, 20_000, 5_000)],  # 145k, < 150k
     )
 
-    result = context_budget.decide(project_dir, str(transcript))
+    result = context_budget.decide(project_dir)
     assert result is None
 
 
 def test_decide_returns_none_on_malformed_state(tmp_path):
-    """Malformed state.json: returns None (degrade safely)."""
+    """Malformed state.json: degrade safely (returns None)."""
     companion = tmp_path / ".companion"
     companion.mkdir(parents=True, exist_ok=True)
     (companion / "state.json").write_text("{not json at all", encoding="utf-8")
 
-    transcript = tmp_path / "transcript.jsonl"
-    _write_transcript(transcript, [_assistant(100_000, 20_000, 5_000)])
-
-    result = context_budget.decide(tmp_path, str(transcript))
+    result = context_budget.decide(tmp_path)
     assert result is None
+
+
+def test_decide_returns_none_when_state_absent(tmp_path):
+    """No .companion/state.json: pass through (non-pairmode project)."""
+    result = context_budget.decide(tmp_path)
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# set-context-tokens CLI
+# ---------------------------------------------------------------------------
+
+
+def _invoke_set_context_tokens(project_dir: Path, tokens: int):
+    runner = CliRunner()
+    return runner.invoke(
+        flex_build,
+        [
+            "set-context-tokens",
+            "--tokens",
+            str(tokens),
+            "--project-dir",
+            str(project_dir),
+        ],
+    )
+
+
+def test_set_context_tokens_writes_state(tmp_path):
+    """Writes context_current_tokens to .companion/state.json."""
+    project_dir = tmp_path / "sub" / "project"
+    project_dir.mkdir(parents=True)
+
+    result = _invoke_set_context_tokens(project_dir, 87_500)
+    assert result.exit_code == 0, result.output
+    assert "recorded 87,500 tokens" in result.output
+
+    state_path = project_dir / ".companion" / "state.json"
+    assert state_path.exists()
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["context_current_tokens"] == 87_500
+
+
+def test_set_context_tokens_preserves_existing_state(tmp_path):
+    """An existing state.json with other keys is preserved and merged."""
+    project_dir = tmp_path / "sub" / "project"
+    companion = project_dir / ".companion"
+    companion.mkdir(parents=True)
+    (companion / "state.json").write_text(
+        json.dumps({"pairmode_version": "1.0", "current_story": "INFRA-148"}),
+        encoding="utf-8",
+    )
+
+    result = _invoke_set_context_tokens(project_dir, 42_000)
+    assert result.exit_code == 0, result.output
+
+    state = json.loads((companion / "state.json").read_text(encoding="utf-8"))
+    assert state["context_current_tokens"] == 42_000
+    assert state["pairmode_version"] == "1.0"
+    assert state["current_story"] == "INFRA-148"
+
+
+def test_set_context_tokens_rejects_zero(tmp_path):
+    """--tokens 0 exits non-zero and does not touch state.json."""
+    project_dir = tmp_path / "sub" / "project"
+    project_dir.mkdir(parents=True)
+
+    result = _invoke_set_context_tokens(project_dir, 0)
+    assert result.exit_code != 0
+    assert "must be > 0" in result.output
+    assert not (project_dir / ".companion" / "state.json").exists()
+
+
+def test_set_context_tokens_rejects_negative(tmp_path):
+    """--tokens -1 exits non-zero and does not touch state.json."""
+    project_dir = tmp_path / "sub" / "project"
+    project_dir.mkdir(parents=True)
+
+    result = _invoke_set_context_tokens(project_dir, -1)
+    assert result.exit_code != 0
+    assert "must be > 0" in result.output
+    assert not (project_dir / ".companion" / "state.json").exists()
+
+
+def test_set_context_tokens_does_not_touch_acknowledged_at(tmp_path):
+    """Recording a new token count does not clear context_budget_acknowledged_at."""
+    project_dir = tmp_path / "sub" / "project"
+    companion = project_dir / ".companion"
+    companion.mkdir(parents=True)
+    (companion / "state.json").write_text(
+        json.dumps({"context_budget_acknowledged_at": 130_000}),
+        encoding="utf-8",
+    )
+
+    result = _invoke_set_context_tokens(project_dir, 95_000)
+    assert result.exit_code == 0, result.output
+
+    state = json.loads((companion / "state.json").read_text(encoding="utf-8"))
+    assert state["context_current_tokens"] == 95_000
+    assert state["context_budget_acknowledged_at"] == 130_000
