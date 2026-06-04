@@ -773,6 +773,108 @@ def cmd_set_context_tokens(tokens: int, project_dir: str) -> None:
     click.echo(f"context: recorded {tokens:,} tokens")
 
 
+@flex_build.command("check-story-scope")
+@click.argument("story_id")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_check_story_scope(story_id: str, project_dir: str) -> None:
+    """Check declared primary_files/touches for common co-dependency scope misses.
+
+    Applies two heuristics:
+
+    1. Test co-location — a skills/pairmode/scripts/*.py file should have its
+       sibling test declared.
+    2. Template/live-rendered pair — a *.j2 template should have its rendered
+       live counterpart declared.
+
+    Always exits 0.  Prints nothing when no warnings are found.
+    """
+    # Validate story_id format.
+    if not _STORY_ID_RE.match(story_id):
+        click.echo(
+            f"check-story-scope: invalid story_id format: {story_id!r}", err=True
+        )
+        sys.exit(1)
+
+    project_path = Path(project_dir).resolve()
+    story_path = _story_path(story_id, project_path)
+
+    if not story_path.exists():
+        click.echo(
+            f"check-story-scope: story spec not found: {story_path}", err=True
+        )
+        sys.exit(1)
+
+    try:
+        fm = _read_story_frontmatter(story_path)
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"check-story-scope: failed to parse frontmatter: {exc}", err=True)
+        sys.exit(1)
+
+    primary_files: list[str] = fm.get("primary_files") or []
+    touches: list[str] = fm.get("touches") or []
+
+    def _norm(s: str) -> str:
+        return s.replace("\\", "/").lstrip("./")
+
+    # Build the declared scope set (normalised).
+    scope_set: set[str] = set()
+    for p in primary_files + touches:
+        scope_set.add(_norm(p))
+
+    # Rule 1 — Test co-location.
+    for p in primary_files + touches:
+        np = _norm(p)
+        # Match skills/pairmode/scripts/<name>.py where <name> is not test_* / __init__
+        parts = np.split("/")
+        if (
+            len(parts) == 4
+            and parts[0] == "skills"
+            and parts[1] == "pairmode"
+            and parts[2] == "scripts"
+            and parts[3].endswith(".py")
+        ):
+            basename = parts[3]
+            if basename.startswith("test_") or basename == "__init__.py":
+                continue
+            stem = basename[:-3]  # strip .py
+            expected_test = f"tests/pairmode/test_{stem}.py"
+            # Check that the test file exists on disk.
+            if (project_path / expected_test).exists():
+                if _norm(expected_test) not in scope_set:
+                    click.echo(
+                        f"SCOPE WARNING: {story_id}: scripts/{basename} declared but "
+                        f"tests/pairmode/test_{stem}.py not in primary_files/touches"
+                    )
+
+    # Rule 2 — Template / live-rendered pair.
+    for p in primary_files + touches:
+        np = _norm(p)
+        # Match skills/pairmode/templates/**/*.j2
+        if not (np.startswith("skills/pairmode/templates/") and np.endswith(".j2")):
+            continue
+        bare = Path(np).name[:-3]  # strip .j2
+        # Candidate locations in order:
+        # 1. bare at project root
+        # 2. skills/pairmode/<bare>
+        candidates = [bare, f"skills/pairmode/{bare}"]
+        for candidate in candidates:
+            if (project_path / candidate).exists():
+                if _norm(candidate) not in scope_set:
+                    click.echo(
+                        f"SCOPE WARNING: {story_id}: {np} declared but "
+                        f"{candidate} not in primary_files/touches"
+                    )
+                # Only emit for the first matching candidate.
+                break
+
+    sys.exit(0)
+
+
 @flex_build.command("transition-era")
 @click.option("--name", default=None, help="New era name (required in --yes mode).")
 @click.option("--intent", default="", help="Strategic intent for the new era.")

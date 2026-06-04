@@ -2,7 +2,7 @@
 id: INFRA-154
 rail: INFRA
 title: "companion sidebar scope_miss capture from scope_guard elevation pattern"
-status: planned
+status: complete
 phase: "61"
 story_class: code
 primary_files:
