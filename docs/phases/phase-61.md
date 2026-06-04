@@ -18,7 +18,7 @@ Close the scope-miss feedback loop by making both detection and prevention mecha
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-154 | companion sidebar scope_miss capture from scope_guard elevation pattern | complete |
-| INFRA-155 | `flex_build.py check-story-scope RAIL-NNN` — co-dependency heuristic warnings | planned |
+| INFRA-155 | `flex_build.py check-story-scope RAIL-NNN` — co-dependency heuristic warnings | complete |
 | BUILD-025 | wire `check-story-scope` into CLAUDE.build.md pre-story step (live + template) | planned |
 
 **Story dependency:** BUILD-025 depends on the `check-story-scope` subcommand introduced in INFRA-155. Build INFRA-155 before BUILD-025. INFRA-154 is independent of the other two and may be built in any order.
