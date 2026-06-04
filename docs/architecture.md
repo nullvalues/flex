@@ -35,7 +35,7 @@ flex/
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
-        flex_build.py             ← CLI wrapping 18 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stubs, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens, next-phase); replaces inline python -c blocks in CLAUDE.build.md.j2
+        flex_build.py             ← CLI wrapping 19 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stubs, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens, next-phase, check-story-scope); replaces inline python -c blocks in CLAUDE.build.md.j2
         refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
@@ -143,6 +143,10 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    object without a management surface; (b) the **stub gate** checks whether the story
    file contains delegation language ("See phase doc") or is missing an acceptance
    surface. A story that fails either gate is blocked until the operator resolves it.
+   After both gates pass, the **pre-story scope check** runs `flex_build.py
+   check-story-scope` to surface likely-missing file declarations (missing sibling
+   test, missing live-rendered template counterpart); it is informational only and
+   never blocks.
 
 2. **Permission pre-write** — `flex_build.py permissions-create` generates
    `docs/phases/permissions/<story_id>.json` from the story's `primary_files` and `touches`

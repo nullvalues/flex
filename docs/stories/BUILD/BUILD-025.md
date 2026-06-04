@@ -2,7 +2,7 @@
 id: BUILD-025
 rail: BUILD
 title: "wire `check-story-scope` into CLAUDE.build.md pre-story step (live + template)"
-status: planned
+status: complete
 phase: "61"
 story_class: methodology
 primary_files:
