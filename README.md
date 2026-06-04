@@ -171,17 +171,38 @@ in place.
 
    Pairmode owns this loop. Companion is not required to use it; if companion is running,
    the sidebar will surface the active story but does not gate the build.
-2. Before spawning the next builder, verify context budget (< 150k tokens). If the
-   projected token count would exceed the threshold, `/clear` and resume first.
-3. Invoke the builder subagent: "Build story RAIL-NNN." The builder reads the spec,
-   implements, and runs tests.
-4. Invoke the reviewer subagent. It runs the review checklist and the test suite.
-5. On PASS: the reviewer commits with the story tag. On FAIL: the builder fixes and
-   the reviewer re-runs.
-6. If the builder is stuck after two attempts: invoke the loop-breaker.
-7. After each phase: run the 8-step checkpoint sequence (build gate, security audit,
+2. **Context gate.** Before the next builder spawns, the orchestrator calls `/context` and
+   writes the current token count to `.companion/state.json`. A secondary mechanical gate
+   fires independently: `hooks/pre_tool_use.py` intercepts every Task spawn and blocks it
+   if the recorded count exceeds `context_budget_threshold` (default: 120k tokens). A value
+   older than 60 minutes is treated as absent — the hook blocks until the count is refreshed.
+   When the primary gate fires, the orchestrator pauses and prompts: `"CONTEXT BUDGET —
+   context is at approximately N tokens. Proceed or /clear and resume."` Both layers are
+   required; the hook fires whether or not the orchestrator remembered to call `/context`.
+3. **Invoke the builder subagent: "Build story RAIL-NNN."** The builder receives only the
+   story ID. The orchestrator passes no story text, file contents, or prior context. The
+   builder reads `docs/stories/<RAIL>/<RAIL>-NNN.md` cold, derives all needed context from
+   the live codebase, implements the story, and runs tests.
+4. **Invoke the reviewer subagent.** The reviewer also receives only the story ID and reads
+   its own context cold. It diffs the working tree against HEAD, runs the review checklist,
+   and executes the test suite. The reviewer sees what the builder actually changed — not
+   what the builder reported it changed.
+5. On PASS: the reviewer commits with the story tag. On FAIL: the orchestrator auto-retries
+   with an escalated model (attempt 1 → sonnet, attempt 2 → opus). After two failures, the
+   loop-breaker subagent proposes a single alternative approach; the developer decides whether
+   to proceed with a third attempt or pause.
+6. After each phase: run the 8-step checkpoint sequence (build gate, security audit,
    intent review, documentation update, phase completion check, CER backlog review,
-   checkpoint tag, report).
+   checkpoint tag, context health report).
+
+**The CER and intent refocus.** At each checkpoint, the orchestrator checks
+`docs/cer/backlog.md` for open "Do Now" entries before tagging. The CER (Constraints and
+Exceptions Register) is the project's structured triage log: findings from cold-eyes
+reviewers — security auditor, intent reviewer, post-mortems — land in one of four quadrants
+(Do Now, Do Later, Do Much Later, Do Never). The Do Now gate is a hard block: the checkpoint
+cannot be tagged until every open "Do Now" entry is resolved or formally re-triaged with an
+explicit reason. Findings accumulate across phases, so each checkpoint is also a backlog
+grooming session — the mechanism that prevents intent drift from compounding silently.
 
 ## The canonical spec format
 
