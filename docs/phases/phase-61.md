@@ -17,7 +17,7 @@ Close the scope-miss feedback loop by making both detection and prevention mecha
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-154 | companion sidebar scope_miss capture from scope_guard elevation pattern | planned |
+| INFRA-154 | companion sidebar scope_miss capture from scope_guard elevation pattern | complete |
 | INFRA-155 | `flex_build.py check-story-scope RAIL-NNN` — co-dependency heuristic warnings | planned |
 | BUILD-025 | wire `check-story-scope` into CLAUDE.build.md pre-story step (live + template) | planned |
 
