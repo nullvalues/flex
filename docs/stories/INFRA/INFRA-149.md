@@ -2,7 +2,7 @@
 id: INFRA-149
 rail: INFRA
 title: "`CLAUDE.build.md` — record `/context` result to state.json in Context gate"
-status: planned
+status: complete
 phase: "58"
 story_class: methodology
 primary_files:

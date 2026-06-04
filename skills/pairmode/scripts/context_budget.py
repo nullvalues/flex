@@ -192,16 +192,24 @@ def render_alert_prompt(
 
 
 def _read_state(project_dir: Path) -> dict | None:
-    """Load .companion/state.json, or None if missing/malformed."""
+    """Load .companion/state.json.
+
+    Returns:
+        None   — file is absent (non-pairmode project, fail-open).
+        {}     — file exists but is malformed (JSON error, OSError, or
+                 non-dict root); the caller treats this as a pairmode project
+                 with a broken state, triggering CONTEXT CHECK REQUIRED.
+        dict   — file exists and parsed successfully.
+    """
     state_path = project_dir / ".companion" / "state.json"
     if not state_path.exists():
         return None
     try:
         data = json.loads(state_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return None
+        return {}
     if not isinstance(data, dict):
-        return None
+        return {}
     return data
 
 
@@ -225,10 +233,7 @@ def decide(project_dir: Path) -> dict | None:
 
     state = _read_state(project_dir)
     if state is None:
-        # No state.json (or malformed) — degrade safely. Without state we have
-        # no budget configuration and no current_tokens record; the hook fails
-        # open and the orchestrator continues. This matches the pre-INFRA-148
-        # behaviour for non-pairmode projects.
+        # No state.json — non-pairmode project, fail-open.
         return None
 
     current_tokens = read_context_tokens_from_state(state)

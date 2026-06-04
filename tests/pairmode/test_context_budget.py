@@ -445,19 +445,59 @@ def test_decide_returns_none_when_acknowledged_within_margin(tmp_path):
 
 
 def test_decide_returns_none_on_malformed_state(tmp_path):
-    """Malformed state.json: degrade safely (returns None)."""
+    """Malformed state.json: _read_state returns {} → CONTEXT CHECK REQUIRED block."""
     companion = tmp_path / ".companion"
     companion.mkdir(parents=True, exist_ok=True)
     (companion / "state.json").write_text("{not json at all", encoding="utf-8")
 
     result = context_budget.decide(tmp_path)
-    assert result is None
+    assert result is not None
+    assert result["block"] is True
+    assert "CONTEXT CHECK REQUIRED" in result["reason"]
 
 
 def test_decide_returns_none_when_state_absent(tmp_path):
     """No .companion/state.json: pass through (non-pairmode project)."""
     result = context_budget.decide(tmp_path)
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# decide — CER-040 malformed state.json edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_decide_no_state_file_passthrough(tmp_path):
+    """`.companion/` directory exists but state.json is absent → None (fail-open)."""
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    # No state.json created — directory exists but file does not.
+    result = context_budget.decide(tmp_path)
+    assert result is None
+
+
+def test_decide_malformed_state_file_context_check_required(tmp_path):
+    """state.json exists with invalid JSON → block=True with CONTEXT CHECK REQUIRED."""
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    (companion / "state.json").write_text("not json{{", encoding="utf-8")
+
+    result = context_budget.decide(tmp_path)
+    assert result is not None
+    assert result["block"] is True
+    assert "CONTEXT CHECK REQUIRED" in result["reason"]
+
+
+def test_decide_non_dict_state_file_context_check_required(tmp_path):
+    """state.json exists with valid JSON but non-dict root → block=True with CONTEXT CHECK REQUIRED."""
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    (companion / "state.json").write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+
+    result = context_budget.decide(tmp_path)
+    assert result is not None
+    assert result["block"] is True
+    assert "CONTEXT CHECK REQUIRED" in result["reason"]
 
 
 # ---------------------------------------------------------------------------
