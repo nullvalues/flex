@@ -2,7 +2,7 @@
 id: INFRA-152
 rail: INFRA
 title: "`flex_build.py next-phase --after [phase-id]` — index-based next-phase lookup"
-status: planned
+status: complete
 phase: "60"
 story_class: code
 primary_files:

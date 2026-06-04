@@ -938,6 +938,15 @@ If no open "Do Now" entries (or backlog.md does not exist): proceed to step 7.
 Run the tag command from `/docs/checkpoints.md` for this phase.
 Commit any doc updates from step 3 alongside the tag.
 
+After pushing the tag, detect whether a next phase is already spec'd:
+
+  next_phase_id=$(PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+    next-phase --after [phase-id] --project-dir .)
+
+If the command exits 0: `next_phase_id` holds the next phase key (e.g. `60`).
+If the command exits 1: `next_phase_id` is empty — no next phase is spec'd.
+Pass `next_phase_id` into step 8 to populate the closing prompt.
+
 ### 7.5. Context health check
 
 Query the effort DB for this phase's retry burden and compare it against the
@@ -952,8 +961,14 @@ PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts
 Capture the JSON. Extract the `message` field for the checkpoint report.
 If `recommendation` is `elevated` or `high`, the report line becomes:
 
-  Context health:   <message>
-    → /clear before "Build Phase N+1" is advised.
+  When `next_phase_id` is non-empty:
+    Context health:   <message>
+      → /clear before beginning Phase [next_phase_id] is advised.
+        Say: "Build Phase [next_phase_id]" in the fresh session.
+
+  When `next_phase_id` is empty:
+    Context health:   <message>
+      → /clear before beginning the next phase is advised.
 
 If `recommendation` is `normal` or `insufficient_data`:
 
@@ -962,7 +977,7 @@ If `recommendation` is `normal` or `insufficient_data`:
 ### 8. Report
 
   ═══════════════════════════════════════════════
-  CHECKPOINT [CP-N] COMPLETE — [tag name]
+  CHECKPOINT [phase-id] COMPLETE — [tag name]
   ═══════════════════════════════════════════════
 
   Stories completed: [list with one-line description each]
@@ -977,7 +992,14 @@ If `recommendation` is `normal` or `insufficient_data`:
 
   Git tag: [tag name]
 
-  To begin Phase [N+1], say: "Build Phase [N+1]"
+  Use the `next_phase_id` captured in step 7 to populate the closing line:
+
+    • next_phase_id non-empty →
+        To begin Phase [next_phase_id], say: "Build Phase [next_phase_id]"
+
+    • next_phase_id empty →
+        No further phases are spec'd. To plan the next phase, say:
+          "spec next phase [intent]"
   ═══════════════════════════════════════════════
 
 Stop. Do not begin the next phase until the user says to.
