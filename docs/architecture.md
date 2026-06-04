@@ -184,8 +184,13 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    module blocks with a `CONTEXT CHECK REQUIRED` prompt directing the
    operator to call `/context` and run `set-context-tokens`.
    The block reason carries a verbatim prompt; the operator picks
-   Proceed (acknowledged) or `/clear` and resume. CER-027 and
-   CER-039 document the failure modes this replaces.
+   Proceed (acknowledged) or `/clear` and resume.
+   Also blocks with `CONTEXT CHECK REQUIRED` when `state.json` exists but is malformed
+   (JSON decode error or non-dict root) — the malformed-file path returns `{}` from
+   `_read_state()`, which propagates to a missing-tokens block (CER-040). Blocks when
+   `context_current_tokens` is present but its `context_current_tokens_recorded_at`
+   timestamp is older than the TTL, treating a stale value as absent (CER-041).
+   References: CER-027, CER-039, CER-040, CER-041.
 
 9.5 **Story file-scope enforcement** — `hooks/pre_tool_use.py` also intercepts
    `Edit` and `Write` tool calls. It delegates to
@@ -769,10 +774,18 @@ Fields:
   and `set_at` (UTC ISO-8601 timestamp). Absent when the user skips the prompt.
 - `context_current_tokens` — **optional**; integer; written by `flex_build.py set-context-tokens --tokens N`
   after the orchestrator calls `/context`. Read by `context_budget.py` via
-  `read_context_tokens_from_state()`. When absent, `context_budget.decide()` blocks Task spawns
-  with a `CONTEXT CHECK REQUIRED` prompt. Cleared implicitly on `/clear` (new session starts
-  without the key; the orchestrator must re-run `set-context-tokens` on the first Context gate).
-  Never written by the companion sidebar or hook.
+  `read_context_tokens_from_state()`. When absent or stale, `context_budget.decide()` blocks Task spawns
+  with a `CONTEXT CHECK REQUIRED` prompt. Explicitly removed by `story_context.py clear_current_story()`
+  as part of the `/clear` cleanup path. Never written by the companion sidebar or hook.
+- `context_current_tokens_recorded_at` — **optional**; UTC ISO-8601 timestamp string; written
+  alongside `context_current_tokens` by `flex_build.py set-context-tokens`. Used by
+  `read_context_tokens_from_state()` to enforce a staleness TTL (default 60 minutes,
+  overridable via `context_current_tokens_ttl_minutes`). A value older than the TTL is treated
+  as absent — returns `None`, causing `decide()` to fire `CONTEXT CHECK REQUIRED`. Absent or
+  unparseable timestamps skip the staleness check (backwards-compatible). Removed alongside
+  `context_current_tokens` by `clear_current_story()` (CER-041).
+- `context_current_tokens_ttl_minutes` — **optional**; integer; overrides the default 60-minute
+  staleness TTL for `context_current_tokens`. When absent or unparseable, the default of 60 is used.
 - `registered_projects` — **optional**; list of absolute paths to pairmode-scaffolded
   projects to include in cross-project drift detection. When present and non-empty,
   `/flex:pairmode review` runs `pairmode_drift_report --convergent` across all listed
@@ -815,10 +828,11 @@ Hooks must:
 **Documented exception — `hooks/pre_tool_use.py` (dual thin-delegate):**
 `pre_tool_use.py` dispatches to two modules:
 
-- **`Task` → `context_budget.py` (CER-027, CER-039):** decides whether to block a new
+- **`Task` → `context_budget.py` (CER-027, CER-039, CER-040, CER-041):** decides whether to block a new
   subagent spawn based on `state["context_current_tokens"]` (written by
   `flex_build.py set-context-tokens`). Blocks with `CONTEXT CHECK REQUIRED` when
-  the key is absent. Writes `context_budget_acknowledged_at` to
+  the key is absent, when `state.json` is malformed (CER-040), or when the recorded
+  value is stale beyond the TTL (CER-041). Writes `context_budget_acknowledged_at` to
   `.companion/state.json`. Does not write to the pipe.
 - **`Edit`/`Write` → `scope_guard.py` (Phase 55):** decides whether to block
   a file write based on the active story's declared `primary_files`/`touches`.

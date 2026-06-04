@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp59-context-budget-silent-fail-edges
+
+**Phase:** 59 — context_budget.py silent-fail edge closure (CER-040, CER-041)
+**Tag command:** `git tag cp59-context-budget-silent-fail-edges && git push origin cp59-context-budget-silent-fail-edges`
+**Acceptance:** Two stories. INFRA-150 (CER-040): `_read_state()` now returns `{}` instead of `None` when `state.json` exists but is malformed (JSON decode error or non-dict root); file-absent path still returns `None` (non-pairmode compat preserved); 3 new test cases. INFRA-151 (CER-041): `flex_build.py set-context-tokens` writes `context_current_tokens_recorded_at` (UTC ISO-8601) alongside the token count; `read_context_tokens_from_state` gains `_now` injection param and TTL staleness check (default 60 min, configurable via `context_current_tokens_ttl_minutes`) — stale values treated as absent, triggering CONTEXT CHECK REQUIRED; `clear_current_story()` removes both token keys as belt-and-suspenders; 7 new test cases across `test_context_budget.py` and `test_story_context.py`. Architecture.md updated: three new state.json keys documented, step-9 context budget description updated to name CER-040/CER-041 block paths, hook architecture exception updated. CER-040 and CER-041 resolved. 1985 tests pass.
+
+---
+
 ## cp57-global-session-hook-era001-close
 
 **Phase:** 57 — Global session hook + era-001 documentation close

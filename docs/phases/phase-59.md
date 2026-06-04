@@ -26,7 +26,7 @@ Close both residual silent-fail edges in `context_budget.py`:
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-150 | `context_budget.py` — block on malformed state.json with operator signal (CER-040) | complete |
-| INFRA-151 | `context_budget.py` — timestamp `context_current_tokens` and treat stale values as absent (CER-041) | planned |
+| INFRA-151 | `context_budget.py` — timestamp `context_current_tokens` and treat stale values as absent (CER-041) | complete |
 
 **Story dependency:** INFRA-150 and INFRA-151 touch different functions in `context_budget.py`
 and are independently buildable. Build INFRA-150 first (simpler; purely a `_read_state` fix).

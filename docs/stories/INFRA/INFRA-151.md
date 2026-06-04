@@ -2,7 +2,7 @@
 id: INFRA-151
 rail: INFRA
 title: "`context_budget.py` — timestamp `context_current_tokens` and treat stale values as absent (CER-041)"
-status: planned
+status: complete
 phase: "59"
 story_class: code
 primary_files:
