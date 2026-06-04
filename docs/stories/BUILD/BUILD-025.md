@@ -8,7 +8,8 @@ story_class: methodology
 primary_files:
   - CLAUDE.build.md
   - skills/pairmode/templates/CLAUDE.build.md.j2
-touches: []
+touches:
+  - tests/pairmode/test_templates.py
 ---
 
 # BUILD-025 — wire `check-story-scope` into CLAUDE.build.md pre-story step

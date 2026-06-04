@@ -2,7 +2,7 @@
 id: INFRA-155
 rail: INFRA
 title: "`flex_build.py check-story-scope RAIL-NNN` — co-dependency heuristic warnings"
-status: planned
+status: complete
 phase: "61"
 story_class: code
 primary_files:
