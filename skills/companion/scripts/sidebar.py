@@ -54,6 +54,11 @@ DENY_RATIONALE_PATH = ".claude/settings.deny-rationale.json"
 # Pattern to extract glob from Edit(...) or Write(...) or Bash(...)
 _RULE_RE = re.compile(r'^(?:Edit|Write|Bash)\((.+)\)$')
 
+# Pattern to detect scope_guard block messages in tool_result content.
+_SCOPE_BLOCK_RE = re.compile(
+    r"not in story scope for ([A-Z][A-Z0-9_]*-\d{3}): (\S+)"
+)
+
 # Lazy deny-rationale rules cache; keyed by cwd to handle multi-project sidebars.
 _deny_rationale_cache: dict[str, list[dict]] = {}
 
@@ -118,6 +123,11 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from skills.pairmode.scripts.spec_exception import record_spec_exception  # noqa: E402
+from skills.pairmode.scripts.lesson_utils import (  # noqa: E402
+    load_lessons,
+    save_lessons,
+    next_lesson_id,
+)
 
 try:
     from skills.pairmode.scripts.effort_recorder import record_effort  # noqa: E402
@@ -571,7 +581,7 @@ Keep everything at product/architecture level — no implementation details.
 
 [
   {
-    "type": "business_rule | non_negotiable | tradeoff | decision | conflict",
+    "type": "business_rule | non_negotiable | tradeoff | decision | conflict | scope_miss",
     "text": "concise statement",
     "evidence": "brief quote",
     "confidence": "high | medium | low",
@@ -1056,6 +1066,165 @@ def render_implementation(file_path: str, alert: dict | None):
         console.print()
 
 
+# ── Scope-miss capture ────────────────────────────────────────────────────────
+
+
+def _extract_scope_misses(transcript_path: str) -> list[dict]:
+    """Scan a Claude Code JSONL transcript for block-then-elevate patterns.
+
+    Returns a list of dicts: {story_id, blocked_path, elevated}.
+    One dict per distinct (story_id, blocked_path) pair; deduplicated.
+    Makes no LLM calls.
+    """
+    if not transcript_path or not os.path.exists(transcript_path):
+        return []
+
+    # First pass: collect (story_id, blocked_path, tool_use_id) for every
+    # scope_guard block we find in tool_result content.
+    blocked: dict[str, dict] = {}  # tool_use_id -> {story_id, blocked_path}
+
+    # Second pass: track which blocked_paths were subsequently written.
+    elevated_paths: set[str] = set()
+
+    try:
+        with open(transcript_path, encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception:
+        return []
+
+    for raw_line in lines:
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+        try:
+            obj = json.loads(raw_line)
+        except Exception:
+            continue
+
+        obj_type = obj.get("type", "")
+        message = obj.get("message", {})
+        role = message.get("role", "") or obj_type
+        content = message.get("content", [])
+        if not isinstance(content, list):
+            continue
+
+        if role == "user":
+            # Look for tool_result blocks containing scope_guard block messages.
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") != "tool_result":
+                    continue
+                tool_use_id = block.get("tool_use_id", "")
+                block_content = block.get("content", "")
+                # content may be a string or list of {"type": "text", "text": ...}
+                if isinstance(block_content, list):
+                    text = " ".join(
+                        c.get("text", "")
+                        for c in block_content
+                        if isinstance(c, dict) and c.get("type") == "text"
+                    )
+                else:
+                    text = str(block_content)
+                for m in _SCOPE_BLOCK_RE.finditer(text):
+                    story_id = m.group(1)
+                    blocked_path = m.group(2)
+                    blocked[tool_use_id] = {
+                        "story_id": story_id,
+                        "blocked_path": blocked_path,
+                    }
+
+        elif role == "assistant":
+            # Look for tool_use blocks for Edit/Write on a previously-blocked path.
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") != "tool_use":
+                    continue
+                if block.get("name") not in {"Edit", "Write"}:
+                    continue
+                file_path = block.get("input", {}).get("file_path", "")
+                normalised = file_path.lstrip("./") if file_path else ""
+                if normalised:
+                    # Check whether this path was previously blocked.
+                    for info in blocked.values():
+                        if normalised == info["blocked_path"]:
+                            elevated_paths.add(normalised)
+
+    # Deduplicate by (story_id, blocked_path).
+    seen: set[tuple[str, str]] = set()
+    result: list[dict] = []
+    for info in blocked.values():
+        key = (info["story_id"], info["blocked_path"])
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(
+            {
+                "story_id": info["story_id"],
+                "blocked_path": info["blocked_path"],
+                "elevated": info["blocked_path"] in elevated_paths,
+            }
+        )
+    return result
+
+
+def _save_scope_miss_lessons(misses: list[dict]) -> int:
+    """Append scope_miss lessons for each miss not already recorded.
+
+    Returns the count of newly written lessons (0 if all were duplicates).
+    Never raises — the sidebar must not fail due to scope-miss capture.
+    """
+    if not misses:
+        return 0
+    try:
+        data = load_lessons()
+        existing = data.get("lessons", [])
+        existing_triggers = {entry.get("trigger") for entry in existing}
+        written = 0
+        for miss in misses:
+            dedup_key = f"scope_miss:{miss['story_id']}:{miss['blocked_path']}"
+            if dedup_key in existing_triggers:
+                continue
+            if miss["elevated"]:
+                learning = (
+                    f"Spec writer missed {miss['blocked_path']} for story "
+                    f"{miss['story_id']}. Elevation was granted — re-spec should "
+                    "declare this file."
+                )
+            else:
+                learning = (
+                    f"Spec writer missed {miss['blocked_path']} for story "
+                    f"{miss['story_id']}. Elevation was refused — confirm whether "
+                    "the file is genuinely out of scope."
+                )
+            new_lesson = {
+                "id": next_lesson_id(existing),
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "source_project": "flex",
+                "trigger": dedup_key,
+                "problem": (
+                    f"Story {miss['story_id']}: builder needed "
+                    f"{miss['blocked_path']} but it was not in primary_files or "
+                    "touches; scope_guard blocked the edit."
+                ),
+                "learning": learning,
+                "applies_to": ["all"],
+                "status": "captured",
+                "type": "scope_miss",
+            }
+            existing.append(new_lesson)
+            existing_triggers.add(dedup_key)
+            written += 1
+        if written:
+            data["lessons"] = existing
+            save_lessons(data)
+        return written
+    except Exception as _e:
+        log_error(f"scope_miss lesson save error: {_e}")
+        return 0
+
+
 # ── Event handlers ────────────────────────────────────────────────────────────
 
 
@@ -1070,33 +1239,40 @@ def handle_stop(event: dict):
     new_items = extract_incremental(transcript, loaded_modules)
     if not new_items:
         console.print("[dim]  · nothing new[/dim]")
-        return
+    else:
+        session_id = event.get("session_id", "")
+        added = 0
+        for item in new_items:
+            if isinstance(item, dict) and item.get("type"):
+                item["captured_at"] = datetime.now().isoformat()
+                item["source"] = "incremental"
+                with lock:
+                    captures.append(item)
+                persist_capture(item, session_id)
+                added += 1
 
-    session_id = event.get("session_id", "")
-    added = 0
-    for item in new_items:
-        if isinstance(item, dict) and item.get("type"):
-            item["captured_at"] = datetime.now().isoformat()
-            item["source"] = "incremental"
-            with lock:
-                captures.append(item)
-            persist_capture(item, session_id)
-            added += 1
+        if not added:
+            console.print("[dim]  · nothing new[/dim]")
+        else:
+            ts = datetime.now().strftime("%H:%M:%S")
+            console.print(f"[dim]{ts} ✓ {added} capture(s)[/dim]")
 
-    if not added:
-        console.print("[dim]  · nothing new[/dim]")
-        return
+            # check new captures against spec
+            new_conflicts = []
+            if loaded_modules:
+                specs = load_all_specs(cwd, loaded_modules)
+                new_conflicts = check_conflicts(new_items, specs)
 
-    ts = datetime.now().strftime("%H:%M:%S")
-    console.print(f"[dim]{ts} ✓ {added} capture(s)[/dim]")
+            render_planning(ts, new_items, new_conflicts)
 
-    # check new captures against spec
-    new_conflicts = []
-    if loaded_modules:
-        specs = load_all_specs(cwd, loaded_modules)
-        new_conflicts = check_conflicts(new_items, specs)
-
-    render_planning(ts, new_items, new_conflicts)
+    try:
+        misses = _extract_scope_misses(transcript)
+        if misses:
+            written = _save_scope_miss_lessons(misses)
+            if written:
+                console.print(f"[dim]  ✓ {written} scope_miss lesson(s) recorded[/dim]")
+    except Exception as _e:
+        log_error(f"scope_miss extraction error: {_e}")
 
 
 def display_override_prompt(event: dict) -> None:

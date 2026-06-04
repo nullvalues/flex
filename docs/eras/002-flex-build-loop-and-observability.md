@@ -17,3 +17,4 @@ Era 002 extends the build loop with observability and intelligence: replacing th
 
 | Phase | Title | Status |
 |-------|-------|--------|
+| 61 | Scope-Miss Capture & Pre-Story Scope Checks | planned |
