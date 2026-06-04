@@ -1,0 +1,10 @@
+{
+  "story_id": "INFRA-153",
+  "story_spec": "docs/stories/INFRA/INFRA-153.md",
+  "allowed_paths": [
+    "skills/pairmode/templates/CLAUDE.build.md.j2",
+    "CLAUDE.build.md",
+    "docs/stories/INFRA/INFRA-153.md"
+  ],
+  "generated_at": "2026-06-04T14:05:20Z"
+}
