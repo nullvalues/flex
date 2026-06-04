@@ -57,6 +57,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 56 | Phase naming suffix convention | complete | [phase-56.md](phase-56.md) · cp56-phase-naming-suffix |
 | 57 | Global session hook + era-001 documentation close | complete | [phase-57.md](phase-57.md) · cp57-global-session-hook-era001-close |
 | 58 | Context budget gate — state.json contract | planned | [phase-58.md](phase-58.md) |
+| 59 | context_budget.py silent-fail edge closure (CER-040, CER-041) | planned | [phase-59.md](phase-59.md) |
 
 ---
 

@@ -1,0 +1,10 @@
+{
+  "story_id": "INFRA-150",
+  "story_spec": "docs/stories/INFRA/INFRA-150.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/context_budget.py",
+    "tests/pairmode/test_context_budget.py",
+    "docs/stories/INFRA/INFRA-150.md"
+  ],
+  "generated_at": "2026-06-04T02:27:56Z"
+}
