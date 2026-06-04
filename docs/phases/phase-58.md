@@ -25,7 +25,7 @@ informed proceed-or-clear decision.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-148 | `context_budget.py` — replace transcript parsing with state.json contract | planned |
+| INFRA-148 | `context_budget.py` — replace transcript parsing with state.json contract | complete |
 | INFRA-149 | `CLAUDE.build.md` — record `/context` result to state.json in Context gate | planned |
 
 **Story dependency:** INFRA-149 references the `set-context-tokens` CLI introduced in INFRA-148.
