@@ -1,0 +1,12 @@
+{
+  "story_id": "INFRA-160",
+  "story_spec": "docs/stories/INFRA/INFRA-160.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/flex_build.py",
+    "skills/pairmode/scripts/context_budget.py",
+    "tests/pairmode/test_context_budget.py",
+    "tests/pairmode/test_flex_build_story_cost.py",
+    "docs/stories/INFRA/INFRA-160.md"
+  ],
+  "generated_at": "2026-06-09T14:20:17Z"
+}
