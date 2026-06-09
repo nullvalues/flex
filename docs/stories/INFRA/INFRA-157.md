@@ -2,7 +2,7 @@
 id: INFRA-157
 rail: INFRA
 title: "System of Record API: `GET /api/repos/:id/system`"
-status: planned
+status: complete
 phase: "63"
 story_class: code
 primary_files:
