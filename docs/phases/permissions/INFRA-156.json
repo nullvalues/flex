@@ -1,0 +1,16 @@
+{
+  "story_id": "INFRA-156",
+  "story_spec": "docs/stories/INFRA/INFRA-156.md",
+  "allowed_paths": [
+    "skills/observability/package.json",
+    "skills/observability/api/package.json",
+    "skills/observability/api/src/server.ts",
+    "skills/observability/api/src/registry.ts",
+    "skills/observability/api/src/routes/repos.ts",
+    "skills/observability/api/tsconfig.json",
+    "skills/observability/ui/package.json",
+    "skills/observability/pnpm-workspace.yaml",
+    "docs/stories/INFRA/INFRA-156.md"
+  ],
+  "generated_at": "2026-06-09T13:32:47Z"
+}
