@@ -4,6 +4,7 @@ import { registerReposRoutes } from './routes/repos.js';
 import { registerSystemRoutes } from './routes/system.js';
 import { registerLessonsRoutes } from './routes/lessons.js';
 import { registerUserRoutes } from './routes/user.js';
+import { registerContextRoutes } from './routes/context.js';
 
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
@@ -28,6 +29,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerSystemRoutes(app);
   await registerLessonsRoutes(app);
   await registerUserRoutes(app);
+  await registerContextRoutes(app);
 
   return app;
 }

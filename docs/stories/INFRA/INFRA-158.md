@@ -2,7 +2,7 @@
 id: INFRA-158
 rail: INFRA
 title: "Lessons + memories + policies API with promotion-candidate filter"
-status: planned
+status: complete
 phase: "63"
 story_class: code
 primary_files:
