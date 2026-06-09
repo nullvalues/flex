@@ -1,0 +1,6 @@
+{
+  "name": "@flex-obs/root",
+  "version": "0.1.0",
+  "private": true,
+  "description": "flex observability SPA workspace root"
+}
