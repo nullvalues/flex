@@ -2,7 +2,7 @@
 id: INFRA-159
 rail: INFRA
 title: "Context Management API: `GET /api/repos/:id/context`"
-status: planned
+status: complete
 phase: "63"
 story_class: code
 primary_files:

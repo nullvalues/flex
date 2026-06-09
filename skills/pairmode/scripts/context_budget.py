@@ -248,7 +248,10 @@ def _read_state(project_dir: Path) -> dict | None:
     return data
 
 
-def decide(project_dir: Path) -> dict | None:
+def decide(
+    project_dir: Path,
+    flex_factor: float = 1.0,
+) -> dict | None:
     """End-to-end glue. Reads state.json + effort.db, calls ``should_block``,
     and returns
 
@@ -259,12 +262,33 @@ def decide(project_dir: Path) -> dict | None:
     budget, or a "CONTEXT CHECK REQUIRED" block dict when no token count is
     recorded in state.
 
+    ``flex_factor`` scales the effective ceiling:
+    ``ceiling = threshold * (1 + overrun_pct) * flex_factor``.
+    Values <= 0 are clamped to 1.0; values > 5.0 are clamped to 5.0.
+    The default of 1.0 preserves the pre-INFRA-160 behaviour exactly.
+
     The caller (the hook) is responsible for writing ``acknowledged_at`` back
     to state.json after consuming. This function is strictly read-only — it
     MUST NOT write to state.json or effort.db (D11).
     """
+    import sys as _sys
+
     if not isinstance(project_dir, Path):
         project_dir = Path(project_dir)
+
+    # Clamp flex_factor to a safe range.
+    if flex_factor <= 0:
+        print(
+            f"context_budget.decide: flex_factor={flex_factor!r} is <= 0; clamped to 1.0",
+            file=_sys.stderr,
+        )
+        flex_factor = 1.0
+    elif flex_factor > 5.0:
+        print(
+            f"context_budget.decide: flex_factor={flex_factor!r} is > 5.0; clamped to 5.0",
+            file=_sys.stderr,
+        )
+        flex_factor = 5.0
 
     state = _read_state(project_dir)
     if state is None:
@@ -302,15 +326,12 @@ def decide(project_dir: Path) -> dict | None:
         seeded_default,
     )
 
-    blocked = should_block(
-        current_tokens=current_tokens,
-        expected_next=expected_next,
-        threshold=threshold,
-        overrun_pct=overrun_pct,
-        acknowledged_at=acknowledged_at,
-        reprompt_margin=reprompt_margin,
-    )
+    # Apply flex_factor to the effective ceiling.
+    ceiling = threshold * (1.0 + overrun_pct) * flex_factor
+    blocked = (current_tokens + expected_next) > ceiling
     if not blocked:
+        return None
+    if acknowledged_at is not None and current_tokens < acknowledged_at + reprompt_margin:
         return None
 
     story_id = state.get("current_story") or state.get("story_id")

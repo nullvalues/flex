@@ -670,3 +670,128 @@ def test_set_context_tokens_writes_recorded_at(tmp_path):
     recorded_at = state["context_current_tokens_recorded_at"]
     parsed = datetime.fromisoformat(recorded_at)
     assert parsed.tzinfo is not None
+
+
+# ---------------------------------------------------------------------------
+# decide — flex_factor parameter (INFRA-160)
+# ---------------------------------------------------------------------------
+
+
+def test_flex_factor_widens_ceiling(tmp_path):
+    """flex_factor=1.5 widens the ceiling; 170000 tokens should be allowed.
+
+    threshold=120000, overrun_pct=0.10, flex_factor=1.5
+    ceiling = 120000 * 1.10 * 1.50 = 198000
+    current=170000 + expected_step=1000 = 171000 < 198000 → allow (None).
+    """
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 1_000,
+            "context_budget_reprompt_margin": 10_000,
+            "current_phase": "63",
+            "current_story": "INFRA-160",
+            "context_current_tokens": 170_000,
+        },
+    )
+    result = context_budget.decide(project_dir, flex_factor=1.5)
+    assert result is None
+
+
+def test_flex_factor_tightens_ceiling(tmp_path):
+    """flex_factor=0.5 tightens the ceiling; 70000 tokens should be blocked.
+
+    threshold=120000, overrun_pct=0.10, flex_factor=0.5
+    ceiling = 120000 * 1.10 * 0.50 = 66000
+    current=70000 + expected_step=1000 = 71000 > 66000 → block.
+    """
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 1_000,
+            "context_budget_reprompt_margin": 10_000,
+            "current_phase": "63",
+            "current_story": "INFRA-160",
+            "context_current_tokens": 70_000,
+        },
+    )
+    result = context_budget.decide(project_dir, flex_factor=0.5)
+    assert result is not None
+    assert result["block"] is True
+
+
+def test_flex_factor_default_unchanged(tmp_path):
+    """flex_factor omitted (default 1.0) — same behaviour as before INFRA-160.
+
+    threshold=120000, overrun_pct=0.10, flex_factor=1.0 (default)
+    ceiling = 120000 * 1.10 = 132000
+    current=125000 + expected_step=53000 = 178000 > 132000 → block.
+    """
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 53_000,
+            "context_budget_reprompt_margin": 10_000,
+            "current_phase": "63",
+            "current_story": "INFRA-160",
+            "context_current_tokens": 125_000,
+        },
+    )
+    result = context_budget.decide(project_dir)
+    assert result is not None
+    assert result["block"] is True
+
+
+def test_flex_factor_clamped_at_zero(tmp_path, capsys):
+    """flex_factor=0 is clamped to 1.0 with a warning; behaviour is default.
+
+    After clamping: ceiling = 120000 * 1.10 * 1.0 = 132000
+    current=10000 + expected_step=1000 = 11000 < 132000 → allow (None).
+    """
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 1_000,
+            "context_budget_reprompt_margin": 10_000,
+            "current_phase": "63",
+            "current_story": "INFRA-160",
+            "context_current_tokens": 10_000,
+        },
+    )
+    result = context_budget.decide(project_dir, flex_factor=0)
+    # Clamped to 1.0 → normal ceiling → tokens well under → allow
+    assert result is None
+    captured = capsys.readouterr()
+    assert "clamped to 1.0" in captured.err
+
+
+def test_flex_factor_clamped_at_high(tmp_path, capsys):
+    """flex_factor=10.0 is clamped to 5.0 with a warning.
+
+    After clamping: ceiling = 120000 * 1.10 * 5.0 = 660000
+    current=10000 + expected_step=1000 = 11000 < 660000 → allow (None).
+    """
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 1_000,
+            "context_budget_reprompt_margin": 10_000,
+            "current_phase": "63",
+            "current_story": "INFRA-160",
+            "context_current_tokens": 10_000,
+        },
+    )
+    result = context_budget.decide(project_dir, flex_factor=10.0)
+    assert result is None
+    captured = capsys.readouterr()
+    assert "clamped to 5.0" in captured.err

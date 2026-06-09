@@ -71,10 +71,20 @@ def _story_path(story_id: str, project_dir: Path) -> Path:
 
 
 def _read_story_frontmatter(story_path: Path) -> dict:
-    """Read and parse YAML frontmatter from a story spec file."""
+    """Read and parse YAML frontmatter from a story spec file.
+
+    Always includes ``flex_factor`` as a float (default 1.0 when the key is
+    absent or non-numeric). INFRA-160.
+    """
     text = story_path.read_text(encoding="utf-8")
-    fm = _parse_frontmatter(text)
-    return fm or {}
+    fm = _parse_frontmatter(text) or {}
+    # Ensure flex_factor is always a float, defaulting to 1.0.
+    try:
+        flex_factor = float(fm.get("flex_factor", 1.0) or 1.0)
+    except (TypeError, ValueError):
+        flex_factor = 1.0
+    fm["flex_factor"] = flex_factor
+    return fm
 
 
 def _read_guardrail_multiplier(project_dir: Path) -> float:
