@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { registerReposRoutes } from './routes/repos.js';
+import { registerSystemRoutes } from './routes/system.js';
 
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
@@ -22,6 +23,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   await registerReposRoutes(app);
+  await registerSystemRoutes(app);
 
   return app;
 }

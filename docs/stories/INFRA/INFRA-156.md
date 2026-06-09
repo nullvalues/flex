@@ -2,7 +2,7 @@
 id: INFRA-156
 rail: INFRA
 title: "`skills/observability/` pnpm workspace — Fastify skeleton + registry + `/api/repos`"
-status: planned
+status: complete
 phase: "63"
 story_class: code
 primary_files:
