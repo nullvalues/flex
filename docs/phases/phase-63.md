@@ -258,7 +258,7 @@ No new SQLite tables. No state.json keys added by this phase.
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-156 | `skills/observability/` pnpm workspace — Fastify skeleton + registry + `/api/repos` | complete |
-| INFRA-157 | System of Record API: `/api/repos/:id/system` (era → phase → story tree) | planned |
+| INFRA-157 | System of Record API: `/api/repos/:id/system` (era → phase → story tree) | complete |
 | INFRA-158 | Lessons + memories + policies API; promotion-candidate filter (D6) | planned |
 | INFRA-159 | Context Management API: `/api/repos/:id/context` (waypoints, threshold triples, effort.db metrics) | planned |
 | INFRA-160 | `flex_factor` frontmatter field + read path through `context_budget.decide()` | planned |

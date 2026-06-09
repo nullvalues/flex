@@ -1,0 +1,13 @@
+{
+  "story_id": "INFRA-158",
+  "story_spec": "docs/stories/INFRA/INFRA-158.md",
+  "allowed_paths": [
+    "skills/observability/api/src/routes/lessons.ts",
+    "skills/observability/api/src/routes/user.ts",
+    "skills/observability/api/src/parsers/lessons.ts",
+    "skills/observability/api/src/parsers/markdownMeta.ts",
+    "skills/observability/api/src/server.ts",
+    "docs/stories/INFRA/INFRA-158.md"
+  ],
+  "generated_at": "2026-06-09T13:56:48Z"
+}
