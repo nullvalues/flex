@@ -1,0 +1,12 @@
+{
+  "story_id": "INFRA-159",
+  "story_spec": "docs/stories/INFRA/INFRA-159.md",
+  "allowed_paths": [
+    "skills/observability/api/src/routes/context.ts",
+    "skills/observability/api/src/readers/stateJson.ts",
+    "skills/observability/api/src/readers/effortDb.ts",
+    "skills/observability/api/src/server.ts",
+    "docs/stories/INFRA/INFRA-159.md"
+  ],
+  "generated_at": "2026-06-09T14:07:32Z"
+}
