@@ -61,6 +61,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 60 | Checkpoint report intelligence — phase-key fix and next-phase detection | planned | [phase-60.md](phase-60.md) |
 | 61 | Scope-Miss Capture & Pre-Story Scope Checks | planned | [phase-61.md](phase-61.md) |
 | 62 | Context gate authorization clarity | planned | [phase-62.md](phase-62.md) |
+| 63 | Observability SPA — read-only window glass | planned | [phase-63.md](phase-63.md) |
 
 ---
 
@@ -71,6 +72,4 @@ Phases conceived before they enter the build queue are stored as
 until sequenced. When sequenced, their stories are absorbed into the next
 available phase and the proposed file is deleted (git history records the transit).
 
-| Proposed file | Title | Era |
-|---------------|-------|-----|
-| [phase-proposed-observability-spa-20260602-001.md](phase-proposed-observability-spa-20260602-001.md) | Observability SPA (sidebar replacement) | 002 |
+*(none — `phase-proposed-observability-spa-20260602-001.md` absorbed into Phase 63)*
