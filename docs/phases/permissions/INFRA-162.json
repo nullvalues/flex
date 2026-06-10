@@ -1,0 +1,10 @@
+{
+  "story_id": "INFRA-162",
+  "story_spec": "docs/stories/INFRA/INFRA-162.md",
+  "allowed_paths": [
+    "skills/observability/scripts/flex_observability.py",
+    "tests/pairmode/test_flex_observability.py",
+    "docs/stories/INFRA/INFRA-162.md"
+  ],
+  "generated_at": "2026-06-10T17:06:24Z"
+}
