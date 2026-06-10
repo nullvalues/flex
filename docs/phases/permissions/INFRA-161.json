@@ -1,0 +1,19 @@
+{
+  "story_id": "INFRA-161",
+  "story_spec": "docs/stories/INFRA/INFRA-161.md",
+  "allowed_paths": [
+    "skills/observability/ui/package.json",
+    "skills/observability/ui/vite.config.ts",
+    "skills/observability/ui/tailwind.config.ts",
+    "skills/observability/ui/src/main.tsx",
+    "skills/observability/ui/src/App.tsx",
+    "skills/observability/ui/src/components/RepoPanel.tsx",
+    "skills/observability/ui/src/components/SystemOfRecord.tsx",
+    "skills/observability/ui/src/components/ContextMetrics.tsx",
+    "skills/observability/ui/src/api/client.ts",
+    "skills/observability/api/src/server.ts",
+    "skills/observability/package.json",
+    "docs/stories/INFRA/INFRA-161.md"
+  ],
+  "generated_at": "2026-06-10T16:51:19Z"
+}
