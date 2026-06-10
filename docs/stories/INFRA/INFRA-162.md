@@ -2,7 +2,7 @@
 id: INFRA-162
 rail: INFRA
 title: "`flex-observability` Python CLI — register / unregister / list / serve"
-status: planned
+status: complete
 phase: "63"
 story_class: code
 primary_files:

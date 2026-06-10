@@ -1036,6 +1036,31 @@ makes the final promotion decision.
 
 ---
 
+## Observability surface
+
+Phase 63 ships a read-only observability SPA surfacing pairmode data from `.companion/state.json`
+and `.companion/effort.db`. Multi-repo support is first-class: one instance shows N registered
+repos in side-by-side panels.
+
+**Architecture:** `skills/observability/` is a pnpm monorepo with `api/` (Fastify 5) and
+`ui/` (Vite + React 19) workspaces. Registry at `~/.config/flex-observability/registry.json`.
+
+**API:** Six GET endpoints (read-only): `/api/repos`, `/api/repos/:id/system` (era → phase →
+story tree), `/api/repos/:id/context` (tokens, thresholds, effort.db), `/api/repos/:id/lessons`,
+`/api/user/memories`, `/api/user/policies`. Phase 64 adds PUT/POST routes.
+
+**Read-only contract:** All routes are GET; no write handlers. Phase 64 will add routes that
+shell out to `flex_build.py` subcommands.
+
+**`flex_factor`:** Story frontmatter field (default 1.0) overrides the effective context
+ceiling: `threshold × (1 + overrun_pct) × flex_factor`. Phase 63 reads it; Phase 64 adds UI controls.
+
+**CLI entry point:** `flex_observability.py` provides `register`, `unregister`, `list`, `serve`.
+Before first `serve`, run `pnpm install && pnpm --filter @flex-obs/api build`. Server binds
+to `127.0.0.1:7777` (loopback, dev-local only).
+
+---
+
 ## Layer rules for this codebase
 
 | Layer | May import from | May not import from |

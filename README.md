@@ -66,6 +66,10 @@ Use both when you want intent both enforced at the build gate and captured live.
 the default for serious projects: pairmode keeps the build honest against the spec, and
 companion records the decisions that surface during work.
 
+## Observability
+
+- **Observability SPA** — browser-based dashboard for context budget, effort metrics, and story status across multiple registered repos.
+
 ## Installation
 
 ```bash
@@ -126,6 +130,7 @@ checklists reflect your actual project history.
 | `/flex:pairmode drift-report` | on-demand | Compare registered projects against canonical templates; surface convergent improvements for promotion | `/flex:pairmode drift-report --projects <path> [--convergent]` | Per-project MISSING/EXTRA/DRIFT report; convergence candidates for promotion |
 | `pairmode sync-build` | on-demand | Diff and optionally apply canonical `CLAUDE.build.md` template to an existing project | `pairmode sync-build --project-dir DIR [--dry-run] [--apply] [--yes]` | Unified diff; updated `CLAUDE.build.md` on `--apply` |
 | `pairmode register` | on-demand | Manage the list of projects used by drift detection | `pairmode register/unregister/list-projects --project-dir DIR` | Updated `registered_projects` in `.companion/state.json` |
+| `/flex:observability` | on-demand | Browser-based dashboard for context budget, effort metrics, and story status across registered projects | `/flex:observability serve` | Local SPA at `127.0.0.1:7777`; phase status, context health, effort rollups, lessons with promotion candidates |
 | `/flex:companion` | reactive | Load spec, capture decisions, detect drift | `/flex:companion` | Updated `spec.json`, sidebar process |
 | `/flex:seed` | bootstrap-once | Mine transcripts, build canonical spec | `/flex:seed` | `openspec/specs/<module>/spec.json` |
 
