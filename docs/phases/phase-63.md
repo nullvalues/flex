@@ -263,7 +263,7 @@ No new SQLite tables. No state.json keys added by this phase.
 | INFRA-159 | Context Management API: `/api/repos/:id/context` (waypoints, threshold triples, effort.db metrics) | complete |
 | INFRA-160 | `flex_factor` frontmatter field + read path through `context_budget.decide()` | complete |
 | INFRA-161 | Vite + React 19 + Tailwind v4 + shadcn/ui frontend — multi-repo side-by-side panels | complete |
-| INFRA-162 | `flex-observability` Python CLI (register / unregister / list / serve) | planned |
+| INFRA-162 | `flex-observability` Python CLI (register / unregister / list / serve) | complete |
 | INFRA-163 | Docs — architecture.md section, `/flex:observability` skill entry | planned |
 
 **Build order:** INFRA-156 (foundation) → INFRA-157 / INFRA-158 / INFRA-159

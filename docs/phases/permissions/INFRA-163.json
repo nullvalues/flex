@@ -1,0 +1,11 @@
+{
+  "story_id": "INFRA-163",
+  "story_spec": "docs/stories/INFRA/INFRA-163.md",
+  "allowed_paths": [
+    "docs/architecture.md",
+    "skills/observability/SKILL.md",
+    "README.md",
+    "docs/stories/INFRA/INFRA-163.md"
+  ],
+  "generated_at": "2026-06-10T17:15:05Z"
+}
