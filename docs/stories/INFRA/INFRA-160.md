@@ -2,7 +2,7 @@
 id: INFRA-160
 rail: INFRA
 title: "`flex_factor` frontmatter field — read path through `context_budget.decide()`"
-status: planned
+status: complete
 phase: "63"
 story_class: code
 primary_files:
