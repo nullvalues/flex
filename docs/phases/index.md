@@ -65,6 +65,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 64 | Observability SPA hardening — cold-eyes review fixes | planned | [phase-64.md](phase-64.md) |
 | 65 | Context budget per-story drift fix | complete | [phase-65.md](phase-65.md) |
 | 66 | PAIRMODE_VERSION single-source | planned | [phase-66.md](phase-66.md) |
+| 67 | Bootstrap context-token seed | planned | [phase-67.md](phase-67.md) |
 
 ---
 
