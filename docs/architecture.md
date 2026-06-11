@@ -35,7 +35,7 @@ flex/
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
-        flex_build.py             ← CLI wrapping 19 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stubs, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens, next-phase, check-story-scope); replaces inline python -c blocks in CLAUDE.build.md.j2
+        flex_build.py             ← CLI wrapping 21 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stubs, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope); replaces inline python -c blocks in CLAUDE.build.md.j2
         refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
@@ -184,9 +184,9 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
 9. **Context budget check** — `hooks/pre_tool_use.py` fires on every
    Task spawn and delegates to
    `skills/pairmode/scripts/context_budget.py`. The module reads
-   `state["context_current_tokens"]` (written by the orchestrator's
-   `flex_build.py set-context-tokens` step after each `/context`
-   call), estimates the next step's tokens (median of recent
+   `state["context_current_tokens"]` (accumulated by `flex_build.py bump-context-tokens`
+   after each builder and reviewer spawn; anchored at session start or after `/clear`
+   via `flex_build.py set-context-tokens`), estimates the next step's tokens (median of recent
    effort.db attempts for the current phase, or
    `state["expected_step_tokens"]` as a seeded fallback), and blocks
    the spawn when the projected total would exceed `threshold *
@@ -782,18 +782,23 @@ Fields:
 - `current_story` — **optional**; present only when pairmode is active and the user
   confirmed which story they are working on. Contains `id` (required), optional `title`,
   and `set_at` (UTC ISO-8601 timestamp). Absent when the user skips the prompt.
-- `context_current_tokens` — **optional**; integer; written by `flex_build.py set-context-tokens --tokens N`
-  after the orchestrator calls `/context`. Read by `context_budget.py` via
-  `read_context_tokens_from_state()`. When absent or stale, `context_budget.decide()` blocks Task spawns
-  with a `CONTEXT CHECK REQUIRED` prompt. Explicitly removed by `story_context.py clear_current_story()`
-  as part of the `/clear` cleanup path. Never written by the companion sidebar or hook.
+- `context_current_tokens` — **optional**; integer; maintained by the build loop. Written by
+  `flex_build.py bump-context-tokens --cost N` after each builder and reviewer spawn (primary writer);
+  also written by `flex_build.py set-context-tokens --tokens N` for session-start anchoring and
+  manual recovery after `/clear`. Read by `context_budget.py` via `read_context_tokens_from_state()`.
+  When absent or stale, `context_budget.decide()` blocks Task spawns with a `CONTEXT CHECK REQUIRED`
+  prompt. Retained by `story_context.py clear_current_story()` so accumulated costs survive story
+  transitions within a session (Phase 65 INFRA-170; TTL handles cross-session staleness). Never
+  written by the companion sidebar or hook.
 - `context_current_tokens_recorded_at` — **optional**; UTC ISO-8601 timestamp string; written
-  alongside `context_current_tokens` by `flex_build.py set-context-tokens`. Used by
-  `read_context_tokens_from_state()` to enforce a staleness TTL (default 60 minutes,
+  alongside `context_current_tokens` by `flex_build.py bump-context-tokens` and `set-context-tokens`.
+  Used by `read_context_tokens_from_state()` to enforce a staleness TTL (default 60 minutes,
   overridable via `context_current_tokens_ttl_minutes`). A value older than the TTL is treated
   as absent — returns `None`, causing `decide()` to fire `CONTEXT CHECK REQUIRED`. Absent or
-  unparseable timestamps skip the staleness check (backwards-compatible). Removed alongside
-  `context_current_tokens` by `clear_current_story()` (CER-041).
+  unparseable timestamps skip the staleness check (backwards-compatible). Retained by
+  `clear_current_story()` alongside `context_current_tokens` so accumulated token counts
+  survive story transitions (Phase 65 INFRA-170; CER-041 belt-and-suspenders semantics retained
+  via TTL).
 - `context_current_tokens_ttl_minutes` — **optional**; integer; overrides the default 60-minute
   staleness TTL for `context_current_tokens`. When absent or unparseable, the default of 60 is used.
 - `registered_projects` — **optional**; list of absolute paths to pairmode-scaffolded

@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp65-context-budget-drift-fix
+
+**Phase:** 65 — Context budget per-story drift fix
+**Tag command:** `git tag cp65-context-budget-drift-fix && git push origin cp65-context-budget-drift-fix`
+**Acceptance:** Six stories. INFRA-169: `flex_build.py bump-context-tokens --cost N` accumulates actual per-story token cost into `state["context_current_tokens"]` (9 test cases). INFRA-170: `clear_current_story()` retains `context_current_tokens` and `context_current_tokens_recorded_at` so accumulated costs survive story transitions within a session; TTL handles cross-session staleness. INFRA-171: Three-tier estimation fallback in `estimate_next_step_tokens` (per-phase → global → seeded) and four-tier fallback in `_query_story_cost_samples` (rail → all-rails → global → insufficient). INFRA-172: `flex_build.py mark-phase-complete --phase N` writes `complete` status to `docs/phases/index.md` with atomic write and idempotency; forqsite retroactive fix committed. BUILD-027: Context gate redesigned to read accumulated value from state.json instead of calling `/context`; absent/stale key emits `CONTEXT CHECK REQUIRED` once per session; bump-context-tokens wired after both builder and reviewer record_attempt calls; forqsite synced. BUILD-028: `mark-phase-complete` wired into checkpoint step 7 before tagging; template updated; forqsite synced and retroactive index fix committed. CER-045 resolved. 2128 tests pass.
+
+---
+
 ## cp60-checkpoint-report-intelligence
 
 **Phase:** 60 — Checkpoint report intelligence — phase-key fix and next-phase detection
