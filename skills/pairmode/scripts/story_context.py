@@ -85,17 +85,15 @@ def set_current_story(
 def clear_current_story(companion_dir: Path) -> dict:
     """Remove current_story from state.json if present.
 
-    CER-041: also removes ``context_current_tokens`` and
-    ``context_current_tokens_recorded_at`` so a cleared session presents as
-    unrecorded rather than stale (belt-and-suspenders alongside the TTL check
-    in ``context_budget.read_context_tokens_from_state``).
+    ``context_current_tokens`` and ``context_current_tokens_recorded_at`` are
+    intentionally retained so accumulated token counts survive story transitions
+    within a session.  Cross-session staleness is handled by the TTL check in
+    ``context_budget.read_context_tokens_from_state``.
 
     Returns the updated state dict.
     """
     state = read_state(companion_dir)
     state.pop("current_story", None)
-    state.pop("context_current_tokens", None)
-    state.pop("context_current_tokens_recorded_at", None)
     write_state(companion_dir, state)
     return state
 
