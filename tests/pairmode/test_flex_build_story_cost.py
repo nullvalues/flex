@@ -1,8 +1,5 @@
-"""Tests for ``_read_story_frontmatter`` flex_factor field (INFRA-160).
-
-Verifies that ``_read_story_frontmatter`` always returns a ``flex_factor``
-float key: defaulting to 1.0 when absent, using the numeric value when
-present, and defaulting to 1.0 on non-numeric values.
+"""Tests for ``_read_story_frontmatter`` flex_factor field (INFRA-160) and
+``_query_story_cost_samples`` waterfall fallback (INFRA-171).
 
 Run with:
     PATH=$HOME/.local/bin:$PATH uv run pytest \\
@@ -11,6 +8,7 @@ Run with:
 
 from __future__ import annotations
 
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -19,7 +17,7 @@ sys.path.insert(
     0, str(Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts")
 )
 
-from flex_build import _read_story_frontmatter  # noqa: E402
+from flex_build import _query_story_cost_samples, _read_story_frontmatter  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -94,3 +92,103 @@ def test_other_frontmatter_keys_preserved(tmp_path: Path) -> None:
     assert fm["id"] == "INFRA-160"
     assert fm["rail"] == "INFRA"
     assert fm["flex_factor"] == 0.8
+
+
+# ---------------------------------------------------------------------------
+# _query_story_cost_samples waterfall (INFRA-171)
+# ---------------------------------------------------------------------------
+
+
+_MIN = 3  # matches _COST_MIN_SAMPLE in flex_build.py
+
+
+def _make_db(tmp_path: Path) -> Path:
+    """Create an effort.db with the minimal schema."""
+    db_path = tmp_path / "effort.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            story_id TEXT NOT NULL,
+            rail TEXT,
+            story_class TEXT,
+            outcome TEXT,
+            tokens_total INTEGER,
+            agent_role TEXT NOT NULL DEFAULT 'builder',
+            attempt_number INTEGER NOT NULL DEFAULT 1,
+            ts TEXT NOT NULL DEFAULT '2026-01-01T00:00:00+00:00'
+        )
+    """)
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+def _insert(
+    db_path: Path,
+    rail: str,
+    story_class: str,
+    outcome: str,
+    tokens: int,
+    n: int = 1,
+) -> None:
+    conn = sqlite3.connect(str(db_path))
+    for i in range(n):
+        conn.execute(
+            "INSERT INTO attempts (story_id, rail, story_class, outcome, tokens_total) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (f"{rail}-{i:03d}", rail, story_class, outcome, tokens),
+        )
+    conn.commit()
+    conn.close()
+
+
+def test_waterfall_tier1_rail_specific(tmp_path: Path) -> None:
+    """Tier 1: ≥ _COST_MIN_SAMPLE PASS rows for (rail, story_class) → tier='rail'."""
+    db_path = _make_db(tmp_path)
+    _insert(db_path, "INFRA", "code", "PASS", 10000, n=_MIN)
+
+    rows, tier = _query_story_cost_samples(db_path, "INFRA", "code")
+    assert tier == "rail"
+    assert len(rows) == _MIN
+
+
+def test_waterfall_tier2_all_rails(tmp_path: Path) -> None:
+    """Tier 2: Tier 1 insufficient; all-rails same class ≥ _MIN → tier='all-rails'."""
+    db_path = _make_db(tmp_path)
+    # Different rail, same story_class → satisfies tier 2 but not tier 1
+    _insert(db_path, "BUILD", "code", "PASS", 20000, n=_MIN)
+
+    rows, tier = _query_story_cost_samples(db_path, "INFRA", "code")
+    assert tier == "all-rails"
+    assert len(rows) == _MIN
+
+
+def test_waterfall_tier3_global(tmp_path: Path) -> None:
+    """Tier 3: Tiers 1 and 2 insufficient; global PASS rows ≥ _MIN → tier='global'."""
+    db_path = _make_db(tmp_path)
+    # Different story_class → tier 2 (all-rails/methodology) has 0 rows
+    # but tier 3 (global) has _MIN rows
+    _insert(db_path, "BUILD", "code", "PASS", 30000, n=_MIN)
+
+    rows, tier = _query_story_cost_samples(db_path, "INFRA", "methodology")
+    assert tier == "global"
+    assert len(rows) == _MIN
+
+
+def test_waterfall_tier4_insufficient(tmp_path: Path) -> None:
+    """Tier 4: all tiers insufficient → tier='insufficient'."""
+    db_path = _make_db(tmp_path)
+    # Only _MIN - 1 global PASS rows → insufficient
+    _insert(db_path, "BUILD", "code", "PASS", 40000, n=_MIN - 1)
+
+    rows, tier = _query_story_cost_samples(db_path, "INFRA", "code")
+    assert tier == "insufficient"
+    assert len(rows) == _MIN - 1
+
+
+def test_waterfall_no_db(tmp_path: Path) -> None:
+    """Missing db_path → tier='insufficient', empty rows."""
+    rows, tier = _query_story_cost_samples(tmp_path / "no-such.db", "INFRA", "code")
+    assert tier == "insufficient"
+    assert rows == []

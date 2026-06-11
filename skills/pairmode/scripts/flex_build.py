@@ -679,28 +679,56 @@ _COST_MIN_SAMPLE = 3
 
 def _query_story_cost_samples(
     db_path: Path, rail: str, story_class: str
-) -> list[int]:
-    """Return tokens_total values for PASS rows matching (rail, story_class)."""
+) -> tuple[list[int], str]:
+    """Return ``(tokens_total_values, tier)`` using a waterfall query strategy.
+
+    Tier 1 — specific (rail, story_class): if ≥ ``_COST_MIN_SAMPLE`` PASS rows.
+    Tier 2 — all rails, same story_class: if Tier 1 insufficient.
+    Tier 3 — all PASS rows (global): if Tier 2 insufficient.
+    Tier 4 — ``"insufficient"`` if global < ``_COST_MIN_SAMPLE``.
+
+    Returns a ``(rows, tier)`` tuple where ``tier`` is one of
+    ``"rail"``, ``"all-rails"``, ``"global"``, or ``"insufficient"``.
+    (INFRA-171)
+    """
     import sqlite3
 
     if not db_path.exists():
-        return []
-    conn = sqlite3.connect(str(db_path))
-    try:
+        return [], "insufficient"
+
+    def _q(conn: sqlite3.Connection, where: str, *params: object) -> list[int]:
         cur = conn.cursor()
         cur.execute(
-            """
+            f"""
             SELECT tokens_total
               FROM attempts
-             WHERE rail = ?
-               AND story_class = ?
+             WHERE {where}
                AND outcome = 'PASS'
                AND tokens_total IS NOT NULL
                AND tokens_total > 0
             """,
-            (rail, story_class),
+            params,
         )
         return [int(row[0]) for row in cur.fetchall()]
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        # Tier 1: specific rail + story_class.
+        rows = _q(conn, "rail = ? AND story_class = ?", rail, story_class)
+        if len(rows) >= _COST_MIN_SAMPLE:
+            return rows, "rail"
+
+        # Tier 2: all rails, same story_class.
+        rows = _q(conn, "story_class = ?", story_class)
+        if len(rows) >= _COST_MIN_SAMPLE:
+            return rows, "all-rails"
+
+        # Tier 3: global — all PASS rows.
+        rows = _q(conn, "1=1")
+        if len(rows) >= _COST_MIN_SAMPLE:
+            return rows, "global"
+
+        return rows, "insufficient"
     finally:
         conn.close()
 
@@ -725,19 +753,29 @@ def cmd_story_cost_estimate(story_id: str, project_dir: str) -> None:
     story_class = (fm.get("story_class") or "code").strip()
 
     db_path = resolve_effort_db_path(project_path)
-    samples = _query_story_cost_samples(db_path, rail, story_class)
+    samples, tier = _query_story_cost_samples(db_path, rail, story_class)
     n = len(samples)
 
-    if n < _COST_MIN_SAMPLE:
+    if tier == "insufficient":
         click.echo(
             f"estimate: insufficient data ({n} PASS attempts on {rail}/{story_class})"
         )
         return
 
     median = int(statistics.median(samples))
-    click.echo(
-        f"estimate: {median} tokens (median of {n} PASS attempts on {rail}/{story_class})"
-    )
+
+    if tier == "rail":
+        click.echo(
+            f"estimate: {median} tokens (median of {n} PASS attempts on {rail}/{story_class})"
+        )
+    elif tier == "all-rails":
+        click.echo(
+            f"estimate: {median} tokens (median of {n} PASS attempts, all rails, story_class={story_class})"
+        )
+    else:  # global
+        click.echo(
+            f"estimate: {median} tokens (median of {n} PASS attempts, global)"
+        )
 
 
 @flex_build.command("set-context-tokens")

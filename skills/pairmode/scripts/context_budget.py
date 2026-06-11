@@ -126,11 +126,18 @@ def estimate_next_step_tokens(
     phase: str | None,
     seeded_default: int,
 ) -> int:
-    """If ``db_path`` exists AND ``phase`` is set AND the attempts table has
-    >=5 rows for that phase with non-null ``tokens_total``: return the median.
-    Otherwise return ``seeded_default``.
+    """Waterfall estimation of the cost of the next step from historical data.
+
+    Tier 1 — per-phase median: if ``db_path`` exists AND ``phase`` is set AND
+    the attempts table has >=5 rows for that phase with non-null
+    ``tokens_total``, return the median.
+
+    Tier 2 — global median: if per-phase rows < 5 but total rows across all
+    phases >= 5, return the global median (INFRA-171).
+
+    Tier 3 — seeded default: if global rows < 5, return ``seeded_default``.
     """
-    if db_path is None or phase is None:
+    if db_path is None:
         return seeded_default
     if not isinstance(db_path, Path):
         db_path = Path(db_path)
@@ -144,21 +151,38 @@ def estimate_next_step_tokens(
 
     try:
         cur = conn.cursor()
-        cur.execute(
-            "SELECT tokens_total FROM attempts "
-            "WHERE phase = ? AND tokens_total IS NOT NULL",
-            (phase,),
-        )
-        rows = cur.fetchall()
-    except sqlite3.Error:
-        return seeded_default
+
+        # Tier 1: per-phase query (requires phase to be set).
+        if phase is not None:
+            try:
+                cur.execute(
+                    "SELECT tokens_total FROM attempts "
+                    "WHERE phase = ? AND tokens_total IS NOT NULL",
+                    (phase,),
+                )
+                phase_rows = cur.fetchall()
+            except sqlite3.Error:
+                phase_rows = []
+            phase_values = [int(r[0]) for r in phase_rows if r and r[0] is not None]
+            if len(phase_values) >= 5:
+                return int(statistics.median(phase_values))
+
+        # Tier 2: global all-phases fallback.
+        try:
+            cur.execute(
+                "SELECT tokens_total FROM attempts WHERE tokens_total IS NOT NULL"
+            )
+            global_rows = cur.fetchall()
+        except sqlite3.Error:
+            return seeded_default
+        global_values = [int(r[0]) for r in global_rows if r and r[0] is not None]
+        if len(global_values) >= 5:
+            return int(statistics.median(global_values))
     finally:
         conn.close()
 
-    values = [int(r[0]) for r in rows if r and r[0] is not None]
-    if len(values) < 5:
-        return seeded_default
-    return int(statistics.median(values))
+    # Tier 3: seeded default.
+    return seeded_default
 
 
 # ---------------------------------------------------------------------------

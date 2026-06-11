@@ -205,7 +205,10 @@ def test_estimate_ignores_null_tokens_total(tmp_path: Path) -> None:
 
 
 def test_estimate_segregates_by_story_class(tmp_path: Path) -> None:
-    """5 PASS rows for (BUILD, code) don't satisfy (BUILD, methodology)."""
+    """5 PASS rows for (BUILD, code) don't satisfy Tier 1 (BUILD, methodology).
+    The waterfall falls through to Tier 3 (global) which has 5 PASS rows.
+    INFRA-171: updated to reflect waterfall fallback behavior.
+    """
     _enable_tracking(tmp_path)
     db_path = tmp_path / ".companion" / "effort.db"
     _seed_db(db_path, "BUILD", "code", "PASS", 20000, 5)
@@ -220,11 +223,18 @@ def test_estimate_segregates_by_story_class(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, f"stderr: {result.stderr}"
     out = result.stdout.strip()
-    assert "insufficient data" in out, out
+    # Tier 1 (BUILD/methodology): 0 rows.
+    # Tier 2 (all-rails/methodology): 0 rows.
+    # Tier 3 (global): 5 rows → estimate produced.
+    assert "insufficient data" not in out, out
+    assert "global" in out, out
 
 
 def test_estimate_segregates_by_rail(tmp_path: Path) -> None:
-    """5 PASS rows for (BUILD, code) don't satisfy (INFRA, code)."""
+    """5 PASS rows for (BUILD, code) don't satisfy Tier 1 (INFRA, code).
+    The waterfall falls through to Tier 2 (all-rails, code) which has 5 rows.
+    INFRA-171: updated to reflect waterfall fallback behavior.
+    """
     _enable_tracking(tmp_path)
     db_path = tmp_path / ".companion" / "effort.db"
     _seed_db(db_path, "BUILD", "code", "PASS", 20000, 5)
@@ -239,7 +249,11 @@ def test_estimate_segregates_by_rail(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, f"stderr: {result.stderr}"
     out = result.stdout.strip()
-    assert "insufficient data" in out, out
+    # Tier 1 (INFRA/code): 0 rows.
+    # Tier 2 (all-rails/code): 5 rows → estimate produced with tier label.
+    assert "insufficient data" not in out, out
+    assert "all rails" in out, out
+    assert "story_class=code" in out, out
 
 
 def test_estimate_falls_back_to_story_class_code_when_frontmatter_missing(

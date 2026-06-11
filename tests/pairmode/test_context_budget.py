@@ -284,13 +284,81 @@ def test_estimate_next_step_tokens_none_db(tmp_path):
     assert result == 8888
 
 
-def test_estimate_next_step_tokens_none_phase(tmp_path):
-    """phase=None: returns seeded_default."""
+def test_estimate_next_step_tokens_none_phase_global_fallback(tmp_path):
+    """phase=None skips Tier 1; if global rows >=5 the global median is used.
+
+    INFRA-171: phase=None no longer short-circuits to seeded_default when
+    global data is available.
+    """
     db_path = tmp_path / "effort.db"
     _create_effort_db(db_path)
-    _insert_attempts(db_path, phase="1", tokens_list=[1, 2, 3, 4, 5, 6])
+    _insert_attempts(db_path, phase="1", tokens_list=[10, 20, 30, 40, 50, 60])
+    # Median of [10, 20, 30, 40, 50, 60] = 35
+    result = context_budget.estimate_next_step_tokens(db_path, None, seeded_default=1234)
+    assert result == 35
+
+
+def test_estimate_next_step_tokens_none_phase_seeded_fallback_when_insufficient(tmp_path):
+    """phase=None with < 5 global rows falls back to seeded_default."""
+    db_path = tmp_path / "effort.db"
+    _create_effort_db(db_path)
+    _insert_attempts(db_path, phase="1", tokens_list=[1, 2, 3])
     result = context_budget.estimate_next_step_tokens(db_path, None, seeded_default=1234)
     assert result == 1234
+
+
+# ---------------------------------------------------------------------------
+# estimate_next_step_tokens — INFRA-171 waterfall tests
+# ---------------------------------------------------------------------------
+
+
+def test_estimate_per_phase_wins_when_sufficient(tmp_path):
+    """Tier 1: per-phase ≥5 rows — per-phase median returned, not global.
+
+    Phase "7" has 5 rows [10k..50k] → median 30k.
+    Global also has those same rows but more in phase "99" — tie broken by
+    phase-specific median still equaling 30k.
+    """
+    db_path = tmp_path / "effort.db"
+    _create_effort_db(db_path)
+    # Phase 7: 5 rows → median 30k
+    _insert_attempts(db_path, phase="7", tokens_list=[10000, 20000, 30000, 40000, 50000])
+    # Other phase: adds noise to global
+    _insert_attempts(db_path, phase="99", tokens_list=[100000, 200000])
+
+    result = context_budget.estimate_next_step_tokens(db_path, "7", seeded_default=99999)
+    # Per-phase median of [10k, 20k, 30k, 40k, 50k] = 30k
+    assert result == 30000
+
+
+def test_estimate_global_fallback_when_per_phase_insufficient(tmp_path):
+    """Tier 2: per-phase < 5 rows, global ≥ 5 — global median returned.
+
+    Phase "3" has only 2 rows.  Other phases supply the remaining rows so
+    the global total is ≥ 5.
+    """
+    db_path = tmp_path / "effort.db"
+    _create_effort_db(db_path)
+    # Phase 3: only 2 rows (not enough for tier 1)
+    _insert_attempts(db_path, phase="3", tokens_list=[10000, 20000])
+    # Other phases supply 3 more rows → global = 5
+    _insert_attempts(db_path, phase="9", tokens_list=[30000, 40000, 50000])
+
+    result = context_budget.estimate_next_step_tokens(db_path, "3", seeded_default=99999)
+    # Global values: [10k, 20k, 30k, 40k, 50k] → median 30k
+    assert result == 30000
+
+
+def test_estimate_seeded_fallback_when_global_insufficient(tmp_path):
+    """Tier 3: global < 5 rows — seeded_default returned."""
+    db_path = tmp_path / "effort.db"
+    _create_effort_db(db_path)
+    # Only 3 rows total across all phases
+    _insert_attempts(db_path, phase="1", tokens_list=[10000, 20000])
+    _insert_attempts(db_path, phase="2", tokens_list=[30000])
+
+    result = context_budget.estimate_next_step_tokens(db_path, "1", seeded_default=5555)
+    assert result == 5555
 
 
 # ---------------------------------------------------------------------------
