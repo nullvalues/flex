@@ -863,3 +863,33 @@ def test_flex_factor_clamped_at_high(tmp_path, capsys):
     assert result is None
     captured = capsys.readouterr()
     assert "clamped to 5.0" in captured.err
+
+
+# INFRA-174: fresh bootstrap state (context_current_tokens=1) passes decide()
+# ---------------------------------------------------------------------------
+
+
+def test_decide_passes_with_bootstrap_seeded_tokens(tmp_path):
+    """context_current_tokens=1 (as seeded by bootstrap) passes decide() without blocking.
+
+    INFRA-174: _record_state seeds context_current_tokens=1 for new state files.
+    This test verifies that decide() returns None (no block) when called with
+    that minimal seeded value, confirming the first build step can proceed.
+    """
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 53_000,
+            "context_budget_reprompt_margin": 10_000,
+            "current_phase": "67",
+            "current_story": "INFRA-174",
+            # Value seeded by _record_state on a fresh bootstrap.
+            # No recorded_at — staleness check skips absent timestamps.
+            "context_current_tokens": 1,
+        },
+    )
+    result = context_budget.decide(project_dir)
+    # 1 + 53_000 = 53_001, ceiling = 120_000 * 1.10 = 132_000 → well under ceiling.
+    assert result is None, f"Expected None but got: {result}"

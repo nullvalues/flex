@@ -2,7 +2,7 @@
 id: BUILD-028
 rail: BUILD
 title: "`CLAUDE.build.md` checkpoint step 7 — call `mark-phase-complete`; retroactive index fix"
-status: planned
+status: complete
 phase: "65"
 story_class: methodology
 primary_files:

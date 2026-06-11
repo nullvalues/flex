@@ -2781,6 +2781,40 @@ class TestRecordStateEffortTracking:
         assert data["effort_tracking"] is False
 
 
+# INFRA-174: _record_state seeds context_current_tokens=1 for new state files
+# ---------------------------------------------------------------------------
+
+
+class TestRecordStateContextCurrentTokens:
+    """Tests for _record_state seeding context_current_tokens on new state files."""
+
+    def test_new_state_seeds_context_current_tokens(self, tmp_path):
+        """A newly-created state.json must contain context_current_tokens=1."""
+        state_path = tmp_path / ".companion" / "state.json"
+        _record_state(state_path, PAIRMODE_VERSION)
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        assert data["context_current_tokens"] == 1
+
+    def test_existing_state_preserves_context_current_tokens(self, tmp_path):
+        """An existing state.json with a real token value is NOT overwritten."""
+        state_path = tmp_path / ".companion" / "state.json"
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps({"effort_tracking": True, "context_current_tokens": 87500}),
+            encoding="utf-8",
+        )
+        _record_state(state_path, PAIRMODE_VERSION)
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        assert data["context_current_tokens"] == 87500
+
+    def test_no_recorded_at_seeded(self, tmp_path):
+        """context_current_tokens_recorded_at must NOT be seeded (staleness check skips absent timestamps)."""
+        state_path = tmp_path / ".companion" / "state.json"
+        _record_state(state_path, PAIRMODE_VERSION)
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "context_current_tokens_recorded_at" not in data
+
+
 class TestBootstrapEffortTrackingNote:
     """Tests that bootstrap output includes the transparency note only when appropriate."""
 

@@ -19,3 +19,4 @@ Era 002 extends the build loop with observability and intelligence: replacing th
 |-------|-------|--------|
 | 61 | Scope-Miss Capture & Pre-Story Scope Checks | planned |
 | 62 | Context gate authorization clarity | planned |
+| 66 | PAIRMODE_VERSION single-source | planned |

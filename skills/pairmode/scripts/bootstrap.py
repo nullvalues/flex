@@ -463,11 +463,18 @@ def _record_state(state_path: pathlib.Path, version: str) -> bool:
 
     # INFRA-127: seed context-budget defaults only for NEW state.json files.
     # Existing state.json files are left untouched per spec.
+    # INFRA-174: also seed context_current_tokens=1 so the very first build
+    # step passes the budget check without requiring a manual set-context-tokens
+    # call. Value 1 passes the value <= 0 guard; the orchestrator's
+    # set-context-tokens call replaces it before the first real build step.
+    # No recorded_at is seeded — a missing timestamp skips the staleness check,
+    # which is correct here.
     if is_new_state:
         data.setdefault("context_budget_threshold", 120000)
         data.setdefault("context_budget_overrun_pct", 0.10)
         data.setdefault("expected_step_tokens", _load_seed_expected_step_tokens())
         data.setdefault("context_budget_reprompt_margin", 10000)
+        data.setdefault("context_current_tokens", 1)
 
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
