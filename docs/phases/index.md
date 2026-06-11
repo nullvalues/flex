@@ -56,12 +56,13 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 55 | Story-scoped file permissions via hook enforcement | complete | [phase-55.md](phase-55.md) · cp55-story-scoped-permissions |
 | 56 | Phase naming suffix convention | complete | [phase-56.md](phase-56.md) · cp56-phase-naming-suffix |
 | 57 | Global session hook + era-001 documentation close | complete | [phase-57.md](phase-57.md) · cp57-global-session-hook-era001-close |
-| 58 | Context budget gate — state.json contract | planned | [phase-58.md](phase-58.md) |
-| 59 | context_budget.py silent-fail edge closure (CER-040, CER-041) | planned | [phase-59.md](phase-59.md) |
-| 60 | Checkpoint report intelligence — phase-key fix and next-phase detection | planned | [phase-60.md](phase-60.md) |
-| 61 | Scope-Miss Capture & Pre-Story Scope Checks | planned | [phase-61.md](phase-61.md) |
-| 62 | Context gate authorization clarity | planned | [phase-62.md](phase-62.md) |
-| 63 | Observability SPA — read-only window glass | planned | [phase-63.md](phase-63.md) |
+| 58 | Context budget gate — state.json contract | complete | [phase-58.md](phase-58.md) · cp58 |
+| 59 | context_budget.py silent-fail edge closure (CER-040, CER-041) | complete | [phase-59.md](phase-59.md) · cp59-context-budget-silent-fail-edges |
+| 60 | Checkpoint report intelligence — phase-key fix and next-phase detection | complete | [phase-60.md](phase-60.md) · cp60-checkpoint-report-intelligence |
+| 61 | Scope-Miss Capture & Pre-Story Scope Checks | complete | [phase-61.md](phase-61.md) · cp61 |
+| 62 | Context gate authorization clarity | complete | [phase-62.md](phase-62.md) · cp62 |
+| 63 | Observability SPA — read-only window glass | complete | [phase-63.md](phase-63.md) · cp63-observability-spa |
+| 64 | Observability SPA hardening — cold-eyes review fixes | planned | [phase-64.md](phase-64.md) |
 
 ---
 
