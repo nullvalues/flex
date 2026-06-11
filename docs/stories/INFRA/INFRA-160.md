@@ -49,13 +49,16 @@ Phase 64 will add a SPA control to set it.
 ### `skills/pairmode/scripts/context_budget.py`
 
 4. The `decide()` function signature gains an optional `flex_factor: float = 1.0`
-   parameter:
+   parameter (appended to the existing `project_dir: Path` parameter):
    ```python
    def decide(
-       state: dict,
+       project_dir: Path,
        flex_factor: float = 1.0,
-   ) -> DecideResult:
+   ) -> dict | None:
    ```
+   Internal state reading is unchanged — `decide()` reads state.json internally
+   from `project_dir`. The hook caller passes only `project_dir`; Phase 64 will
+   additionally pass `flex_factor` once it reads the story frontmatter.
 
 5. The effective ceiling inside `decide()` is updated from:
    ```python

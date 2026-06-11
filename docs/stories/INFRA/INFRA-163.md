@@ -2,7 +2,7 @@
 id: INFRA-163
 rail: INFRA
 title: "Docs — architecture.md observability section + `/flex:observability` skill entry"
-status: planned
+status: complete
 phase: "63"
 story_class: doc
 primary_files:

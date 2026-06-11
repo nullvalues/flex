@@ -87,6 +87,12 @@ flex/
         start_sidebar.sh          ← detects OS, opens sidebar in new terminal
         launch_sidebar.command    ← macOS launcher
         launch_sidebar.sh         ← Linux launcher
+    observability/                ← /flex:observability — browser observability SPA
+      SKILL.md
+      scripts/
+        flex_observability.py     ← CLI: register / unregister / list / serve
+      api/                        ← Fastify 5 TypeScript API (pnpm workspace)
+      ui/                         ← Vite + React 19 frontend (pnpm workspace)
     seed/                         ← /flex:seed — bootstrap canonical spec (run once)
       SKILL.md
       scripts/
@@ -1055,8 +1061,9 @@ shell out to `flex_build.py` subcommands.
 **`flex_factor`:** Story frontmatter field (default 1.0) overrides the effective context
 ceiling: `threshold × (1 + overrun_pct) × flex_factor`. Phase 63 reads it; Phase 64 adds UI controls.
 
-**CLI entry point:** `flex_observability.py` provides `register`, `unregister`, `list`, `serve`.
-Before first `serve`, run `pnpm install && pnpm --filter @flex-obs/api build`. Server binds
+**CLI entry point:** `skills/observability/scripts/flex_observability.py` provides `register`,
+`unregister`, `list`, `serve`. Before first `serve`, run
+`cd skills/observability && pnpm install && pnpm --filter @flex-obs/api build`. Server binds
 to `127.0.0.1:7777` (loopback, dev-local only).
 
 ---
