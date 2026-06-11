@@ -63,6 +63,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 62 | Context gate authorization clarity | complete | [phase-62.md](phase-62.md) · cp62 |
 | 63 | Observability SPA — read-only window glass | complete | [phase-63.md](phase-63.md) · cp63-observability-spa |
 | 64 | Observability SPA hardening — cold-eyes review fixes | planned | [phase-64.md](phase-64.md) |
+| 65 | Context budget per-story drift fix | planned | [phase-65.md](phase-65.md) |
 
 ---
 

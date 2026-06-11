@@ -1,0 +1,10 @@
+{
+  "story_id": "INFRA-169",
+  "story_spec": "docs/stories/INFRA/INFRA-169.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/flex_build.py",
+    "tests/pairmode/test_flex_build_bump_context_tokens.py",
+    "docs/stories/INFRA/INFRA-169.md"
+  ],
+  "generated_at": "2026-06-11T04:17:25Z"
+}
