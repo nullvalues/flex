@@ -2,7 +2,7 @@
 id: INFRA-171
 rail: INFRA
 title: "Estimation fallback — cross-phase global median + cross-rail story-cost-estimate"
-status: planned
+status: complete
 phase: "65"
 story_class: code
 primary_files:

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -521,6 +522,86 @@ def cmd_next_phase(after_phase: str, project_dir: str) -> None:
 
     # Phase not found in index.
     sys.exit(1)
+
+
+@flex_build.command("mark-phase-complete")
+@click.option(
+    "--phase",
+    "phase_key",
+    required=True,
+    type=str,
+    help="Phase key to mark complete (e.g. 59 or PM037-main).",
+)
+@click.option(
+    "--project-dir",
+    required=True,
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_mark_phase_complete(phase_key: str, project_dir: str) -> None:
+    """Set the status cell of a phase row in docs/phases/index.md to 'complete'."""
+    import tempfile  # noqa: PLC0415
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    index_path = project_path / "docs" / "phases" / "index.md"
+    if not index_path.exists():
+        click.echo(
+            f"mark-phase-complete: index not found: {index_path}", err=True
+        )
+        raise SystemExit(1)
+
+    text = index_path.read_text(encoding="utf-8")
+    rows = _parse_index_phases(text)
+    found = any(ref == phase_key for ref, _ in rows)
+    if not found:
+        click.echo(
+            f"mark-phase-complete: phase '{phase_key}' not in index", err=True
+        )
+        raise SystemExit(1)
+
+    # Check for idempotency: if already complete, exit silently.
+    for ref, status in rows:
+        if ref == phase_key and status == "complete":
+            sys.exit(0)
+
+    # Rewrite the matching row in-place, line by line.
+    new_lines: list[str] = []
+    replaced = False
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        if not replaced and stripped.startswith("|"):
+            parts = stripped.split("|")
+            # parts[0] is '' (before first |), parts[-1] is '' (after last |)
+            # columns: parts[1]=phase, parts[2]=title, parts[3]=status, parts[4]=tag
+            if len(parts) >= 5:
+                cell_phase = parts[1].strip()
+                cell_status = parts[3].strip()
+                if cell_phase == phase_key and cell_status != "complete":
+                    new_row = (
+                        f"| {parts[1].strip()} | {parts[2].strip()} | complete |"
+                        f" {parts[4].strip()} |\n"
+                    )
+                    new_lines.append(new_row)
+                    replaced = True
+                    continue
+        new_lines.append(line)
+
+    new_text = "".join(new_lines)
+
+    # Atomic write: NamedTemporaryFile in same directory + os.replace.
+    dir_ = index_path.parent
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=dir_,
+        delete=False,
+        suffix=".tmp",
+    ) as tf:
+        tf.write(new_text)
+        tmp_path_str = tf.name
+
+    os.replace(tmp_path_str, index_path)
 
 
 _DELEGATION_RE = re.compile(
