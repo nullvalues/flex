@@ -2,7 +2,7 @@
 id: INFRA-172
 rail: INFRA
 title: "`flex_build.py mark-phase-complete` — write `complete` status to phase index"
-status: planned
+status: complete
 phase: "65"
 story_class: code
 primary_files:
