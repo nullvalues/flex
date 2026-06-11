@@ -2,7 +2,7 @@
 id: BUILD-027
 rail: BUILD
 title: "`CLAUDE.build.md` — accumulated context gate + bump-context-tokens in Step 6"
-status: planned
+status: complete
 phase: "65"
 story_class: methodology
 primary_files:

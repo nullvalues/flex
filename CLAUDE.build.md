@@ -985,7 +985,18 @@ If no open "Do Now" entries (or backlog.md does not exist): proceed to step 7.
 
 ### 7. Tag the checkpoint
 
-Run the tag command from `/docs/checkpoints.md` for this phase.
+Before tagging, mark the phase as complete in the index:
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+  mark-phase-complete --phase [phase-id] --project-dir .
+```
+
+This records the phase as complete in `docs/phases/index.md`. Stage the updated
+index alongside any doc updates from step 3. All staged changes (index update +
+doc updates) are included in the checkpoint commit.
+
+Then run the tag command from `/docs/checkpoints.md` for this phase.
 Commit any doc updates from step 3 alongside the tag.
 
 After pushing the tag, detect whether a next phase is already spec'd:
