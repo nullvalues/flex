@@ -59,16 +59,13 @@ new build. Applied to all three cached routes (system, context, lessons).
 |----|-------|--------|
 | INFRA-164 | `flex_observability.py` CLI hardening — subprocess exit, atomic write, ID uniqueness | planned |
 | INFRA-165 | `context_budget.py` flex_factor correctness — NaN clamp + `render_alert_prompt` ceiling | planned |
-| INFRA-166 | Fastify API route hardening — null project_dir, 0-token divergence, NaN threshold, flex_factor live read | planned |
 | INFRA-167 | TypeScript parser robustness — phaseIndex blank-line, MODULE_FILENAME_RE, era leading zeros, flex_factor NaN | planned |
+| INFRA-166 | Fastify API route hardening — null project_dir, 0-token divergence, NaN threshold, flex_factor live read | planned |
 | INFRA-168 | `effortDb.ts` p90 off-by-one + in-flight promise dedup for route cache thundering herd | planned |
 
-**Build order:** INFRA-164 and INFRA-165 are independent of each other and of
-INFRA-166/167/168. INFRA-166 depends on INFRA-167 (context route reads story
-frontmatter which uses the storyFrontmatter.ts parser fixed in INFRA-167).
-INFRA-168 is independent.
-
-Recommended order: INFRA-164 → INFRA-165 → INFRA-167 → INFRA-166 → INFRA-168.
+**Dependency note:** INFRA-166 is listed after INFRA-167 because the context
+route's flex_factor live-read (finding 7) calls `parseStoryFrontmatter`, which
+is fixed in INFRA-167. All other stories are independent.
 
 ## Tag
 
