@@ -783,6 +783,56 @@ def cmd_set_context_tokens(tokens: int, project_dir: str) -> None:
     click.echo(f"context: recorded {tokens:,} tokens")
 
 
+@flex_build.command("bump-context-tokens")
+@click.option("--cost", required=True, type=int, help="Token cost to add (must be > 0).")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_bump_context_tokens(cost: int, project_dir: str) -> None:
+    """Add --cost to context_current_tokens in state.json (per-story accumulation).
+
+    When ``context_current_tokens`` is absent or invalid, treats the base as 0
+    and writes ``cost`` as the new value.  Resets ``context_current_tokens_recorded_at``
+    on every successful write so the TTL clock restarts after each bump.
+
+    Silent no-op (exit 0) when ``.companion/state.json`` is absent — consistent
+    with ``set-context-tokens`` fail-open behaviour for non-pairmode projects.
+    """
+    if cost <= 0:
+        click.echo(
+            f"bump-context-tokens: --cost must be > 0 (got {cost})", err=True
+        )
+        sys.exit(1)
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    state_path = project_path / ".companion" / "state.json"
+
+    if not state_path.exists():
+        return  # non-pairmode project, fail-open
+
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if not isinstance(state, dict):
+            state = {}
+    except (json.JSONDecodeError, OSError):
+        state = {}
+
+    existing = state.get("context_current_tokens")
+    try:
+        base = int(existing) if existing and int(existing) > 0 else 0
+    except (TypeError, ValueError):
+        base = 0
+
+    state["context_current_tokens"] = base + cost
+    state["context_current_tokens_recorded_at"] = datetime.now(timezone.utc).isoformat()
+    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    click.echo(f"context: bumped by {cost:,} → total {state['context_current_tokens']:,} tokens")
+
+
 @flex_build.command("check-story-scope")
 @click.argument("story_id")
 @click.option(
