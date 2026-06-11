@@ -107,7 +107,7 @@ still showing `planned`).
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-169 | `flex_build.py bump-context-tokens` — per-story context estimate advance | complete |
-| INFRA-170 | `story_context.py --clear` — retain token count between stories | planned |
+| INFRA-170 | `story_context.py --clear` — retain token count between stories | complete |
 | INFRA-171 | Estimation fallback — cross-phase and cross-rail global median | planned |
 | INFRA-172 | `flex_build.py mark-phase-complete` — write `complete` status to phase index | planned |
 | BUILD-027 | `CLAUDE.build.md` — accumulated context gate + `bump-context-tokens` in Step 6 | planned |
