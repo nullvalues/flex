@@ -180,6 +180,10 @@ in place.
    `context_current_tokens` from `.companion/state.json`. This value is maintained by
    `flex_build.py bump-context-tokens` after each builder and reviewer spawn (primary writer),
    or anchored at session start via `flex_build.py set-context-tokens` after calling `/context`.
+   On session start after a `/clear` (or a fresh `startup`), the SessionStart hook auto-resets
+   the counter to a fresh-session baseline (`context_baseline_tokens`, default 25k) via
+   `session_reset.py` (Phase 68), so the manual anchor step is only needed when a precise
+   count matters.
    A secondary mechanical gate fires independently: `hooks/pre_tool_use.py` intercepts every
    Task spawn and blocks it if the recorded count exceeds `context_budget_threshold` (default:
    120k tokens). A value older than 60 minutes is treated as absent — the hook blocks until

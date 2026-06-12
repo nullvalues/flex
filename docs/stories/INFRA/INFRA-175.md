@@ -2,7 +2,7 @@
 id: INFRA-175
 rail: INFRA
 title: "Reset `context_current_tokens` on SessionStart `clear`/`startup` via thin-delegation hook"
-status: planned
+status: complete
 phase: "68"
 story_class: code
 primary_files:
@@ -19,7 +19,7 @@ touches:
 
 **Phase:** 68
 **Rail:** INFRA
-**Status:** planned
+**Status:** complete
 
 ## Problem (CER-047)
 

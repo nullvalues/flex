@@ -37,7 +37,7 @@ exception list, which gains a `session_start.py` thin-delegation entry.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-175 | Reset `context_current_tokens` on SessionStart `clear`/`startup` via thin-delegation hook | planned |
+| INFRA-175 | Reset `context_current_tokens` on SessionStart `clear`/`startup` via thin-delegation hook | complete |
 
 ## Schema delivery
 

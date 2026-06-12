@@ -195,6 +195,13 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    prompt directing the operator to call `/context` and run `set-context-tokens`.
    On a fresh bootstrap, the field is seeded to `1` by `_record_state()`
    (Phase 67 INFRA-174), so this block is not encountered on the first build step.
+   In every realistic flow the seed is replaced before that first gate check —
+   by the SessionStart `clear`/`startup` reset (Phase 68 INFRA-175; baseline
+   `context_baseline_tokens` or `25_000`) or by the orchestrator's
+   `set-context-tokens` call, whichever fires first. The `1` survives only in
+   the narrow window where bootstrap runs inside a live session with no
+   SessionStart event before the first build step — it is the no-op fallback,
+   not the value the gate normally reads.
    The block reason carries a verbatim prompt; the operator picks
    Proceed (acknowledged) or `/clear` and resume.
    Also blocks with `CONTEXT CHECK REQUIRED` when `state.json` exists but is malformed
@@ -789,7 +796,10 @@ Fields:
   also written by `flex_build.py set-context-tokens --tokens N` for session-start anchoring and
   manual recovery after `/clear`; also seeded to `1` by `bootstrap.py::_record_state()` when creating
   a new `state.json` (Phase 67 INFRA-174) so the first build step passes the budget check without a
-  manual `set-context-tokens` call. Read by `context_budget.py` via `read_context_tokens_from_state()`.
+  manual `set-context-tokens` call — though the seed is normally overwritten before that first step
+  by the SessionStart reset (Phase 68 INFRA-175) or by `set-context-tokens`, whichever fires first;
+  the seed's role is a no-op fallback when neither pathway fires.
+  Read by `context_budget.py` via `read_context_tokens_from_state()`.
   When absent or stale, `context_budget.decide()` blocks Task spawns with a `CONTEXT CHECK REQUIRED`
   prompt. Retained by `story_context.py clear_current_story()` so accumulated costs survive story
   transitions within a session (Phase 65 INFRA-170; TTL handles cross-session staleness).
@@ -811,6 +821,11 @@ Fields:
   via TTL).
 - `context_current_tokens_ttl_minutes` — **optional**; integer; overrides the default 60-minute
   staleness TTL for `context_current_tokens`. When absent or unparseable, the default of 60 is used.
+- `context_baseline_tokens` — **optional**; positive integer; operator-tunable per-project
+  override for the fresh-session baseline written by the SessionStart `clear`/`startup`
+  counter reset (Phase 68 INFRA-175). Read by `session_reset.decide_reset()`; when absent,
+  non-numeric, or non-positive, the default `25_000` is used. Opt-in only — not seeded by
+  `bootstrap.py`.
 - `registered_projects` — **optional**; list of absolute paths to pairmode-scaffolded
   projects to include in cross-project drift detection. When present and non-empty,
   `/flex:pairmode review` runs `pairmode_drift_report --convergent` across all listed
