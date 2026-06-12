@@ -2,7 +2,7 @@
 id: INFRA-174
 rail: INFRA
 title: "Seed `context_current_tokens` in `_record_state()` to skip manual bootstrap step"
-status: planned
+status: complete
 phase: "67"
 story_class: code
 primary_files:

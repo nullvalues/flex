@@ -26,7 +26,7 @@ replace the seed with the real value before the first build step executes.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-174 | Seed `context_current_tokens` in `_record_state()` to skip manual bootstrap step | planned |
+| INFRA-174 | Seed `context_current_tokens` in `_record_state()` to skip manual bootstrap step | complete |
 
 ## Schema delivery
 

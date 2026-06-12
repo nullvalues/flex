@@ -190,9 +190,11 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    effort.db attempts for the current phase, or
    `state["expected_step_tokens"]` as a seeded fallback), and blocks
    the spawn when the projected total would exceed `threshold *
-   (1 + overrun_pct)`. When `context_current_tokens` is absent, the
-   module blocks with a `CONTEXT CHECK REQUIRED` prompt directing the
-   operator to call `/context` and run `set-context-tokens`.
+   (1 + overrun_pct)`. When `context_current_tokens` is absent in an
+   established session, the module blocks with a `CONTEXT CHECK REQUIRED`
+   prompt directing the operator to call `/context` and run `set-context-tokens`.
+   On a fresh bootstrap, the field is seeded to `1` by `_record_state()`
+   (Phase 67 INFRA-174), so this block is not encountered on the first build step.
    The block reason carries a verbatim prompt; the operator picks
    Proceed (acknowledged) or `/clear` and resume.
    Also blocks with `CONTEXT CHECK REQUIRED` when `state.json` exists but is malformed
@@ -785,11 +787,14 @@ Fields:
 - `context_current_tokens` — **optional**; integer; maintained by the build loop. Written by
   `flex_build.py bump-context-tokens --cost N` after each builder and reviewer spawn (primary writer);
   also written by `flex_build.py set-context-tokens --tokens N` for session-start anchoring and
-  manual recovery after `/clear`. Read by `context_budget.py` via `read_context_tokens_from_state()`.
+  manual recovery after `/clear`; also seeded to `1` by `bootstrap.py::_record_state()` when creating
+  a new `state.json` (Phase 67 INFRA-174) so the first build step passes the budget check without a
+  manual `set-context-tokens` call. Read by `context_budget.py` via `read_context_tokens_from_state()`.
   When absent or stale, `context_budget.decide()` blocks Task spawns with a `CONTEXT CHECK REQUIRED`
   prompt. Retained by `story_context.py clear_current_story()` so accumulated costs survive story
   transitions within a session (Phase 65 INFRA-170; TTL handles cross-session staleness). Never
-  written by the companion sidebar or hook.
+  written by the companion sidebar or hook; `bootstrap.py` is the only non-build-loop writer (seed
+  only, on new state creation).
 - `context_current_tokens_recorded_at` — **optional**; UTC ISO-8601 timestamp string; written
   alongside `context_current_tokens` by `flex_build.py bump-context-tokens` and `set-context-tokens`.
   Used by `read_context_tokens_from_state()` to enforce a staleness TTL (default 60 minutes,
