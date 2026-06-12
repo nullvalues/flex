@@ -22,6 +22,8 @@
     "deny": [
       "Edit(skills/companion/**)",
       "Write(skills/companion/**)",
+      "Edit(hooks/**)",
+      "Write(hooks/**)",
       "Edit(lessons/**)",
       "Write(lessons/**)",
       "Edit(.claude-plugin/**)",
