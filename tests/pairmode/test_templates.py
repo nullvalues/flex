@@ -2296,10 +2296,14 @@ class TestInfra129ContextBudgetMechanicalEnforcementDocs:
         flex_claude_md = (
             REPO_ROOT / "CLAUDE.md"
         ).read_text(encoding="utf-8")
-        assert "Documented thin-delegation exception:" in flex_claude_md
+        assert "Documented thin-delegation exceptions:" in flex_claude_md
         assert "hooks/pre_tool_use.py" in flex_claude_md
         assert (
             "skills/pairmode/scripts/context_budget.py" in flex_claude_md
+        )
+        assert "hooks/session_start.py" in flex_claude_md
+        assert (
+            "skills/pairmode/scripts/session_reset.py" in flex_claude_md
         )
         assert "remains CRITICAL" in flex_claude_md
 
