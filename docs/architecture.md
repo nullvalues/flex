@@ -792,9 +792,14 @@ Fields:
   manual `set-context-tokens` call. Read by `context_budget.py` via `read_context_tokens_from_state()`.
   When absent or stale, `context_budget.decide()` blocks Task spawns with a `CONTEXT CHECK REQUIRED`
   prompt. Retained by `story_context.py clear_current_story()` so accumulated costs survive story
-  transitions within a session (Phase 65 INFRA-170; TTL handles cross-session staleness). Never
-  written by the companion sidebar or hook; `bootstrap.py` is the only non-build-loop writer (seed
-  only, on new state creation).
+  transitions within a session (Phase 65 INFRA-170; TTL handles cross-session staleness).
+  Not written by the companion sidebar. Two documented hook writes exist: `pre_tool_use.py`
+  writes `context_budget_acknowledged_at` (sibling key, not this one), and `session_start.py`
+  rewrites `context_current_tokens` itself (alongside `context_current_tokens_recorded_at`)
+  via `session_reset.decide_reset(source, state)` when the SessionStart `source` is `clear`
+  or `startup`, defaulting to `state["context_baseline_tokens"]` if set (else `25_000`); other
+  sources (`resume`, `compact`) never reset (CER-047 / Phase 68 INFRA-175). `bootstrap.py` is
+  the only other non-build-loop writer (seed only, on new state creation).
 - `context_current_tokens_recorded_at` — **optional**; UTC ISO-8601 timestamp string; written
   alongside `context_current_tokens` by `flex_build.py bump-context-tokens` and `set-context-tokens`.
   Used by `read_context_tokens_from_state()` to enforce a staleness TTL (default 60 minutes,

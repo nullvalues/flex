@@ -1,12 +1,49 @@
 #!/usr/bin/env python3
-"""SessionStart hook — injects pairmode context into Claude's session."""
+"""SessionStart hook — injects pairmode context into Claude's session.
+
+Thin-delegation exception: when Claude Code passes a stdin payload containing
+``source`` (one of ``"startup"``, ``"resume"``, ``"clear"``, ``"compact"``),
+this hook delegates the dead-reckoning counter reset decision to
+``skills/pairmode/scripts/session_reset.decide_reset()`` (CER-047 / Phase 68
+INFRA-175). All decision logic lives in that module; the hook owns one state
+write (``context_current_tokens`` + ``context_current_tokens_recorded_at``)
+when ``decide_reset()`` returns an int, mirroring ``pre_tool_use.py``'s
+``acknowledged_at`` write pattern.
+"""
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
+
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PLUGIN_ROOT / "skills" / "pairmode" / "scripts"))
 
 
 def _pipe_active(pipe_path: str) -> bool:
     return bool(pipe_path) and Path(pipe_path).exists()
+
+
+def _read_source_from_stdin() -> str | None:
+    """Read the ``source`` field from the SessionStart stdin payload.
+
+    Returns ``None`` on any parse failure (backwards compatible with direct
+    invocation and older harnesses that pass no stdin).
+    """
+    try:
+        if sys.stdin.isatty():
+            return None
+        raw = sys.stdin.read()
+        if not raw:
+            return None
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            return None
+        source = data.get("source")
+        if isinstance(source, str):
+            return source
+        return None
+    except Exception:
+        return None
 
 
 def main() -> None:
@@ -23,7 +60,30 @@ def main() -> None:
     if not pairmode_version:
         return  # not a pairmode repo; emit nothing
 
+    # CER-047 / Phase 68 INFRA-175: delegate counter-reset decision.
+    source = _read_source_from_stdin()
+    reset_notice: str | None = None
+    try:
+        import session_reset
+        baseline = session_reset.decide_reset(source, state)
+        if isinstance(baseline, int):
+            now = datetime.now(timezone.utc).isoformat()
+            state["context_current_tokens"] = baseline
+            state["context_current_tokens_recorded_at"] = now
+            state_path.write_text(
+                json.dumps(state, indent=2), encoding="utf-8"
+            )
+            reset_notice = (
+                f"Context counter reset to {baseline} "
+                f"(session source: {source})."
+            )
+    except Exception:
+        # Reset path is best-effort; never break the status block.
+        pass
+
     lines: list[str] = [f"Pairmode v{pairmode_version} is active in this repo."]
+    if reset_notice:
+        lines.append(reset_notice)
 
     # Current story
     story = state.get("current_story")

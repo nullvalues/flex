@@ -37,8 +37,9 @@ Run every item on every review invocation.
    or take more than a few milliseconds to exit?
    Hooks are thin relays only. Any blocking logic in a hook is CRITICAL.
 
-   **Documented thin-delegation exception:** `hooks/pre_tool_use.py`
-   is a thin dispatcher for two tool types:
+   **Documented thin-delegation exceptions:**
+
+   `hooks/pre_tool_use.py` is a thin dispatcher for two tool types:
 
    - `Task` → `skills/pairmode/scripts/context_budget.py`
      (CER-027 context-budget enforcement)
@@ -50,8 +51,19 @@ Run every item on every review invocation.
    in the hook. The hook owns one state write (acknowledged_at) for
    the Task branch; the Edit/Write branch is read-only.
 
-   Any logic added inside `pre_tool_use.py` beyond tool-name dispatch
-   + module delegation + emit remains CRITICAL.
+   `hooks/session_start.py` (CER-047 / Phase 68 INFRA-175) is a thin
+   dispatcher for the SessionStart `source` field:
+
+   - `source` ∈ {`clear`, `startup`} → `skills/pairmode/scripts/session_reset.py`
+     (dead-reckoning counter reset)
+
+   For this dispatch: one stdin read, one delegated `decide_reset` call,
+   one hook-owned state write (`context_current_tokens` plus
+   `context_current_tokens_recorded_at`), one emit. All decision logic
+   lives in `session_reset.py`, NOT in the hook.
+
+   Any logic added inside `pre_tool_use.py` or `session_start.py` beyond
+   tool-name / source dispatch + module delegation + emit remains CRITICAL.
    Any *other* hook that emits a decision-block response remains CRITICAL.
 
 2. PIPE CONTRACT

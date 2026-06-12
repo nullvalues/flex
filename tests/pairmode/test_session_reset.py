@@ -1,0 +1,312 @@
+"""Tests for skills/pairmode/scripts/session_reset.py and the SessionStart
+hook's CER-047 / Phase 68 INFRA-175 dead-reckoning counter reset.
+
+Pure-decision tests cover ``decide_reset()`` (criteria 1-5). Hook-level tests
+invoke ``hooks/session_start.py`` as a subprocess against a temp project
+``state.json`` and inspect the resulting state and emitted ``additionalContext``
+(criteria 6-8).
+
+Run with:
+    PATH=$HOME/.local/bin:$PATH uv run pytest \\
+        tests/pairmode/test_session_reset.py -x -q
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+HOOK_PATH = REPO_ROOT / "hooks" / "session_start.py"
+
+# Make the skill scripts importable directly.
+sys.path.insert(
+    0,
+    str(REPO_ROOT / "skills" / "pairmode" / "scripts"),
+)
+
+import session_reset  # noqa: E402
+import context_budget  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _run_hook(
+    cwd: Path,
+    stdin: str | None = None,
+) -> "subprocess.CompletedProcess[str]":
+    """Invoke the SessionStart hook in ``cwd`` with optional stdin payload."""
+    return subprocess.run(
+        [sys.executable, str(HOOK_PATH)],
+        cwd=str(cwd),
+        input=stdin if stdin is not None else "",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _seed_state(cwd: Path, state: dict) -> Path:
+    """Write ``.companion/state.json`` under ``cwd`` and return its path."""
+    companion = cwd / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    state_path = companion / "state.json"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    return state_path
+
+
+def _read_state(state_path: Path) -> dict:
+    return json.loads(state_path.read_text(encoding="utf-8"))
+
+
+def _additional_context(stdout: str) -> str:
+    payload = json.loads(stdout)
+    return payload["hookSpecificOutput"]["additionalContext"]
+
+
+# ---------------------------------------------------------------------------
+# Pure decision tests — ``session_reset.decide_reset``
+# ---------------------------------------------------------------------------
+
+
+# Acceptance criterion 1
+
+
+def test_decide_reset_clear_returns_default_baseline():
+    """`clear` source with pairmode_version returns DEFAULT_BASELINE_TOKENS."""
+    state = {"pairmode_version": "0.1.0"}
+    assert session_reset.decide_reset("clear", state) == 25_000
+    assert session_reset.DEFAULT_BASELINE_TOKENS == 25_000
+
+
+# Acceptance criterion 2
+
+
+def test_decide_reset_startup_matches_clear():
+    """`startup` source behaves identically to `clear`."""
+    state = {"pairmode_version": "0.1.0"}
+    assert session_reset.decide_reset("startup", state) == session_reset.decide_reset(
+        "clear", state
+    )
+
+
+# Acceptance criterion 3
+
+
+@pytest.mark.parametrize("source", ["resume", "compact", None, ""])
+def test_decide_reset_non_reset_sources_return_none(source):
+    """Sources outside RESET_SOURCES never reset."""
+    state = {"pairmode_version": "0.1.0"}
+    assert session_reset.decide_reset(source, state) is None
+
+
+def test_decide_reset_unknown_source_returns_none():
+    """Unknown source strings never reset."""
+    state = {"pairmode_version": "0.1.0"}
+    assert session_reset.decide_reset("totally-unknown", state) is None
+
+
+# Acceptance criterion 4
+
+
+def test_decide_reset_without_pairmode_version_returns_none():
+    """Non-pairmode repo (no pairmode_version) → never reset."""
+    assert session_reset.decide_reset("clear", {}) is None
+    assert session_reset.decide_reset("clear", {"foo": 1}) is None
+    # falsy pairmode_version is also non-pairmode
+    assert session_reset.decide_reset("clear", {"pairmode_version": ""}) is None
+    assert session_reset.decide_reset("clear", {"pairmode_version": None}) is None
+
+
+def test_decide_reset_non_dict_state_returns_none():
+    """Defensive: non-dict state never resets."""
+    assert session_reset.decide_reset("clear", None) is None  # type: ignore[arg-type]
+    assert session_reset.decide_reset("clear", "string") is None  # type: ignore[arg-type]
+    assert session_reset.decide_reset("clear", 42) is None  # type: ignore[arg-type]
+
+
+# Acceptance criterion 5
+
+
+def test_decide_reset_honors_context_baseline_tokens_override():
+    """A positive integer override is returned verbatim."""
+    state = {"pairmode_version": "0.1.0", "context_baseline_tokens": 30_000}
+    assert session_reset.decide_reset("clear", state) == 30_000
+
+
+@pytest.mark.parametrize("bad", [0, -5, "abc", None])
+def test_decide_reset_invalid_override_falls_back_to_default(bad):
+    """Invalid/non-positive overrides fall back to DEFAULT_BASELINE_TOKENS."""
+    state = {"pairmode_version": "0.1.0", "context_baseline_tokens": bad}
+    assert session_reset.decide_reset("clear", state) == 25_000
+
+
+def test_decide_reset_string_integer_override_accepted():
+    """A numeric string is coerced to int and accepted when positive."""
+    state = {"pairmode_version": "0.1.0", "context_baseline_tokens": "40000"}
+    assert session_reset.decide_reset("clear", state) == 40_000
+
+
+# ---------------------------------------------------------------------------
+# Hook-level tests — ``hooks/session_start.py`` with stdin payloads
+# ---------------------------------------------------------------------------
+
+
+# Acceptance criterion 6
+
+
+def test_hook_clear_resets_phantom_counter(tmp_path):
+    """`{"source":"clear"}` rewrites the phantom counter and timestamp."""
+    state_path = _seed_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "context_current_tokens": 212_492,
+            "context_current_tokens_recorded_at": "2026-06-12T00:00:00+00:00",
+        },
+    )
+    result = _run_hook(tmp_path, stdin=json.dumps({"source": "clear"}))
+    assert result.returncode == 0
+    state = _read_state(state_path)
+    assert state["context_current_tokens"] == 25_000
+    # Timestamp rewritten — must be different from the seeded sentinel and
+    # parseable as a tz-aware ISO-8601 string.
+    new_ts = state["context_current_tokens_recorded_at"]
+    assert new_ts != "2026-06-12T00:00:00+00:00"
+    parsed = datetime.fromisoformat(new_ts)
+    assert parsed.tzinfo is not None
+    # additionalContext mentions the reset and the source.
+    ctx = _additional_context(result.stdout)
+    assert "Context counter reset to 25000" in ctx
+    assert "clear" in ctx
+
+
+def test_hook_startup_resets_phantom_counter(tmp_path):
+    """`{"source":"startup"}` also resets (per criterion 2 + hook delegation)."""
+    state_path = _seed_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "context_current_tokens": 180_000,
+        },
+    )
+    result = _run_hook(tmp_path, stdin=json.dumps({"source": "startup"}))
+    assert result.returncode == 0
+    state = _read_state(state_path)
+    assert state["context_current_tokens"] == 25_000
+    assert "context_current_tokens_recorded_at" in state
+    ctx = _additional_context(result.stdout)
+    assert "startup" in ctx
+
+
+def test_hook_clear_honors_baseline_override(tmp_path):
+    """`context_baseline_tokens` override is honored end-to-end."""
+    state_path = _seed_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "context_baseline_tokens": 30_000,
+            "context_current_tokens": 200_000,
+        },
+    )
+    result = _run_hook(tmp_path, stdin=json.dumps({"source": "clear"}))
+    assert result.returncode == 0
+    state = _read_state(state_path)
+    assert state["context_current_tokens"] == 30_000
+
+
+# Acceptance criterion 7
+
+
+def test_hook_resume_leaves_state_byte_identical(tmp_path):
+    """`{"source":"resume"}` must not rewrite the counter or timestamp."""
+    seeded = {
+        "pairmode_version": "0.1.0",
+        "context_current_tokens": 100_000,
+        "context_current_tokens_recorded_at": "2026-06-12T00:00:00+00:00",
+    }
+    state_path = _seed_state(tmp_path, seeded)
+    before = state_path.read_bytes()
+    result = _run_hook(tmp_path, stdin=json.dumps({"source": "resume"}))
+    assert result.returncode == 0
+    assert state_path.read_bytes() == before
+    # Status block still emits (no exception eats the output).
+    ctx = _additional_context(result.stdout)
+    assert "Pairmode v0.1.0 is active" in ctx
+    assert "Context counter reset" not in ctx
+
+
+def test_hook_empty_stdin_leaves_state_byte_identical(tmp_path):
+    """No stdin payload → source=None → no reset and status block intact."""
+    seeded = {
+        "pairmode_version": "0.1.0",
+        "context_current_tokens": 100_000,
+        "context_current_tokens_recorded_at": "2026-06-12T00:00:00+00:00",
+    }
+    state_path = _seed_state(tmp_path, seeded)
+    before = state_path.read_bytes()
+    result = _run_hook(tmp_path, stdin="")
+    assert result.returncode == 0
+    assert state_path.read_bytes() == before
+    ctx = _additional_context(result.stdout)
+    assert "Pairmode v0.1.0 is active" in ctx
+    assert "Context counter reset" not in ctx
+
+
+def test_hook_garbage_stdin_leaves_state_byte_identical(tmp_path):
+    """Unparseable stdin → source=None → no reset and status block intact."""
+    seeded = {
+        "pairmode_version": "0.1.0",
+        "context_current_tokens": 100_000,
+        "context_current_tokens_recorded_at": "2026-06-12T00:00:00+00:00",
+    }
+    state_path = _seed_state(tmp_path, seeded)
+    before = state_path.read_bytes()
+    result = _run_hook(tmp_path, stdin="not-json{")
+    assert result.returncode == 0
+    assert state_path.read_bytes() == before
+    ctx = _additional_context(result.stdout)
+    assert "Pairmode v0.1.0 is active" in ctx
+    assert "Context counter reset" not in ctx
+
+
+def test_hook_no_reset_when_pairmode_version_absent(tmp_path):
+    """Non-pairmode repo with `clear` source emits nothing and writes nothing."""
+    seeded = {"context_current_tokens": 99_999}
+    state_path = _seed_state(tmp_path, seeded)
+    before = state_path.read_bytes()
+    result = _run_hook(tmp_path, stdin=json.dumps({"source": "clear"}))
+    assert result.returncode == 0
+    # Hook early-exits before any output.
+    assert result.stdout.strip() == ""
+    assert state_path.read_bytes() == before
+
+
+# Acceptance criterion 8
+
+
+def test_hook_post_reset_unblocks_context_budget_gate(tmp_path):
+    """After a clear-reset the budget gate reads the new baseline, not None."""
+    state_path = _seed_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "context_current_tokens": 212_492,
+            "context_current_tokens_recorded_at": "2026-06-12T00:00:00+00:00",
+        },
+    )
+    result = _run_hook(tmp_path, stdin=json.dumps({"source": "clear"}))
+    assert result.returncode == 0
+    state = _read_state(state_path)
+    # The budget reader returns the baseline integer — i.e. NOT None — so the
+    # CONTEXT CHECK REQUIRED block is not triggered.
+    tokens = context_budget.read_context_tokens_from_state(state)
+    assert tokens == 25_000
