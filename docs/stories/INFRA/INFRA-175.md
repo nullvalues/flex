@@ -10,6 +10,7 @@ primary_files:
   - skills/pairmode/scripts/session_reset.py
 touches:
   - tests/pairmode/test_session_reset.py
+  - tests/pairmode/test_templates.py
   - CLAUDE.md
   - docs/architecture.md
 ---
