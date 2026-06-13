@@ -1,0 +1,13 @@
+{
+  "story_id": "INFRA-178",
+  "story_spec": "docs/stories/INFRA/INFRA-178.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/_version.py",
+    "skills/pairmode/scripts/audit.py",
+    "skills/pairmode/scripts/bootstrap.py",
+    "skills/pairmode/scripts/sync.py",
+    "tests/pairmode/test_pairmode_status.py",
+    "docs/stories/INFRA/INFRA-178.md"
+  ],
+  "generated_at": "2026-06-13T13:47:04Z"
+}
