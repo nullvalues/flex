@@ -27,8 +27,8 @@ dispatcher's tool-name check to accept both names.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-176 | Verify spawn-tool name and widen PreToolUse matcher/dispatch to `Task\|Agent` | complete |
-| INFRA-177 | Remove completed one-time lessons bypass rule from pairmode_migrate.py (cp-69 security audit) | planned |
+| INFRA-176 | Verify spawn-tool name and widen PreToolUse matcher/dispatch to Task+Agent | complete |
+| INFRA-177 | Remove completed one-time lessons bypass rule from pairmode_migrate.py (cp-69 security audit) | complete |
 
 ## Schema delivery
 

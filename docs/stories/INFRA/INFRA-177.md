@@ -2,7 +2,7 @@
 id: INFRA-177
 rail: INFRA
 title: "Remove completed one-time lessons bypass rule from pairmode_migrate.py (security audit cp-69)"
-status: planned
+status: complete
 phase: "69"
 story_class: code
 primary_files:
@@ -33,8 +33,12 @@ is complete. Resolution: option (c) — remove the rule entirely.
    removed from the `MIGRATION_RULES` list in `pairmode_migrate.py`.
 2. `_apply_bypass_rule()` function is removed entirely (it has no other callers).
 3. The `elif rule.strategy == "bypass":` dispatch branch in `migrate()` is removed.
-4. The `MigrationRule.lessons_gated` field and rule 15 (`strategy="regenerate"`,
-   `handler="lessons_md"`) are left in place — they are not part of this fix.
+4. The `MigrationRule.lessons_gated` field and the regenerate/lessons_md rule
+   (`strategy="regenerate"`, `handler="lessons_md"`) are left in place — they
+   are not part of this fix. (Implementation note: the builder compacted the
+   rule_id sequence after removing the bypass rule; what was rule 15 became
+   rule 14. Behavioral outcome is identical — rule_id is an internal sequential
+   key with no external contract.)
 5. The `--migrate-lessons` CLI flag and `migrate_lessons` parameter remain
    (rule 15 still uses them to gate LESSONS.md regeneration).
 6. `tests/pairmode/test_pairmode_migrate.py`:
