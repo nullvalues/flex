@@ -4,6 +4,10 @@ INFRA-148: token-source contract changed from transcript JSONL parsing to
 ``state.json["context_current_tokens"]``. Transcript fixtures replaced with
 state seeding.
 
+INFRA-176 (CER-049): the dispatcher now accepts both ``Task`` and ``Agent``
+as the agent-spawn tool name. Parametrized cases assert identical block/pass
+behavior under either name.
+
 All tests invoke the hook via subprocess.run to exercise the real script
 end-to-end, matching the Claude Code hook execution contract.
 """
@@ -13,6 +17,8 @@ import json
 import sys
 import time
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 HOOK_PATH = REPO_ROOT / "hooks" / "pre_tool_use.py"
@@ -49,12 +55,14 @@ def test_non_task_tool_exits_cleanly(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 2: tool_name == "Task" + tokens below ceiling → exit 0, empty stdout
+# Test 2: agent-spawn tool + tokens below ceiling → exit 0, empty stdout
+# Parametrized over Task / Agent (INFRA-176 / CER-049).
 # ---------------------------------------------------------------------------
 
 
-def test_task_tool_no_block_exits_cleanly(tmp_path):
-    """Task tool with current tokens under ceiling → exit 0, empty stdout."""
+@pytest.mark.parametrize("spawn_tool", ["Task", "Agent"])
+def test_spawn_tool_no_block_exits_cleanly(tmp_path, spawn_tool):
+    """Agent-spawn tool with current tokens under ceiling → exit 0, empty stdout."""
     _seed_state(
         tmp_path,
         {
@@ -65,18 +73,20 @@ def test_task_tool_no_block_exits_cleanly(tmp_path):
             "context_current_tokens": 500,
         },
     )
-    result = _run_hook({"tool_name": "Task", "cwd": str(tmp_path)})
+    result = _run_hook({"tool_name": spawn_tool, "cwd": str(tmp_path)})
     assert result.returncode == 0
     assert result.stdout.strip() == b""
 
 
 # ---------------------------------------------------------------------------
-# Test 3: tool_name == "Task" + tokens above ceiling → stdout is block JSON
+# Test 3: agent-spawn tool + tokens above ceiling → stdout is block JSON
+# Parametrized over Task / Agent (INFRA-176 / CER-049).
 # ---------------------------------------------------------------------------
 
 
-def test_task_tool_block_emits_decision(tmp_path):
-    """Task tool with current tokens above ceiling emits decision JSON."""
+@pytest.mark.parametrize("spawn_tool", ["Task", "Agent"])
+def test_spawn_tool_block_emits_decision(tmp_path, spawn_tool):
+    """Agent-spawn tool with current tokens above ceiling emits decision JSON."""
     _seed_state(
         tmp_path,
         {
@@ -87,7 +97,7 @@ def test_task_tool_block_emits_decision(tmp_path):
             "context_current_tokens": 1200,
         },
     )
-    result = _run_hook({"tool_name": "Task", "cwd": str(tmp_path)})
+    result = _run_hook({"tool_name": spawn_tool, "cwd": str(tmp_path)})
     assert result.returncode == 0
     assert result.stdout.strip() != b""
     payload = json.loads(result.stdout)
@@ -98,12 +108,14 @@ def test_task_tool_block_emits_decision(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 3b (INFRA-148): tool_name == "Task" with no context_current_tokens
-# in state.json → block with CONTEXT CHECK REQUIRED.
+# Test 3b (INFRA-148): agent-spawn tool with no context_current_tokens
+# in state.json → block with CONTEXT CHECK REQUIRED. Parametrized over
+# Task / Agent (INFRA-176 / CER-049).
 # ---------------------------------------------------------------------------
 
 
-def test_task_tool_block_when_no_context_tokens_recorded(tmp_path):
+@pytest.mark.parametrize("spawn_tool", ["Task", "Agent"])
+def test_spawn_tool_block_when_no_context_tokens_recorded(tmp_path, spawn_tool):
     """state.json exists but lacks context_current_tokens → block CHECK REQUIRED."""
     _seed_state(
         tmp_path,
@@ -113,7 +125,7 @@ def test_task_tool_block_when_no_context_tokens_recorded(tmp_path):
             "expected_step_tokens": 53_000,
         },
     )
-    result = _run_hook({"tool_name": "Task", "cwd": str(tmp_path)})
+    result = _run_hook({"tool_name": spawn_tool, "cwd": str(tmp_path)})
     assert result.returncode == 0
     assert result.stdout.strip() != b""
     payload = json.loads(result.stdout)

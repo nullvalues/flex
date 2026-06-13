@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """
-PreToolUse hook — dispatches to context_budget (Task) and scope_guard (Edit/Write).
+PreToolUse hook — dispatches to context_budget (Task/Agent) and scope_guard (Edit/Write).
 
 Thin dispatcher. Domain logic lives in the named modules:
-  - Task  → skills/pairmode/scripts/context_budget.py  (CER-027)
+  - Task/Agent → skills/pairmode/scripts/context_budget.py  (CER-027, CER-049)
   - Edit/Write → skills/pairmode/scripts/scope_guard.py (Phase 55)
 No logic beyond tool-name dispatch, module call, and stdout emit.
+
+CER-049: Current Claude Code harnesses name the agent-spawn tool `Agent`
+(was `Task` in earlier harnesses). The matcher in hooks.json and the
+tool-name check here accept both names so the context-budget gate fires
+under either harness.
 """
 import json, sys
 from pathlib import Path
@@ -22,7 +27,7 @@ def main():
 
     tool_name = data.get("tool_name")
 
-    if tool_name == "Task":
+    if tool_name in ("Task", "Agent"):
         try:
             import context_budget
             result = context_budget.decide(

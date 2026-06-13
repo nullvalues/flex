@@ -23,7 +23,7 @@ flex/
     exit_plan_mode.py             ← relay plan content for impact analysis
     post_tool_use.py              ← pair partner: relay file changes
     session_end.py                ← signal sidebar to summarize and exit
-    pre_tool_use.py               ← thin dispatcher: Task → context_budget.py (CER-027 budget enforcement); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement)
+    pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement)
 
   skills/
     pairmode/                     ← /flex:pairmode — bootstrap and manage pairmode
@@ -182,7 +182,9 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    subagent (opus) to diagnose the root cause cold and propose one alternative approach.
 
 9. **Context budget check** — `hooks/pre_tool_use.py` fires on every
-   Task spawn and delegates to
+   agent-spawn tool call (matcher `"Task|Agent"`; the current Claude Code
+   harness names the tool `Agent`, earlier harnesses named it `Task` —
+   see CER-049) and delegates to
    `skills/pairmode/scripts/context_budget.py`. The module reads
    `state["context_current_tokens"]` (accumulated by `flex_build.py bump-context-tokens`
    after each builder and reviewer spawn; anchored at session start or after `/clear`
@@ -868,12 +870,15 @@ Hooks must:
 **Documented exception — `hooks/pre_tool_use.py` (dual thin-delegate):**
 `pre_tool_use.py` dispatches to two modules:
 
-- **`Task` → `context_budget.py` (CER-027, CER-039, CER-040, CER-041):** decides whether to block a new
+- **`Task`/`Agent` → `context_budget.py` (CER-027, CER-039, CER-040, CER-041, CER-049):**
+  decides whether to block a new
   subagent spawn based on `state["context_current_tokens"]` (written by
   `flex_build.py set-context-tokens`). Blocks with `CONTEXT CHECK REQUIRED` when
   the key is absent, when `state.json` is malformed (CER-040), or when the recorded
   value is stale beyond the TTL (CER-041). Writes `context_budget_acknowledged_at` to
-  `.companion/state.json`. Does not write to the pipe.
+  `.companion/state.json`. Does not write to the pipe. Matcher and tool-name
+  check accept both `Task` (legacy harness) and `Agent` (current harness) — see
+  CER-049.
 - **`Edit`/`Write` → `scope_guard.py` (Phase 55):** decides whether to block
   a file write based on the active story's declared `primary_files`/`touches`.
   Read-only; no state writes. Fails open when state or permissions file absent.

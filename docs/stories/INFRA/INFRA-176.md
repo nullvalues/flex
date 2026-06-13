@@ -67,3 +67,35 @@ context-budget gate has been dead since the harness rename.
 
 - `tests/pairmode/test_pre_tool_use_hook.py`
 - `docs/architecture.md`
+
+## Verification result
+
+The actual `tool_name` delivered to `PreToolUse` on a subagent spawn in the
+current Claude Code harness is `Agent` (renamed from `Task`).
+
+Evidence sources (build time, 2026-06-12):
+
+1. **Phase 68 observation (CER-049 originating signal).** Four subagent
+   spawns ran during the Phase 68 build with `context_current_tokens`
+   accumulated to 151k, 314k, 487k, and 694k respectively — all well past
+   the 132k block ceiling (`threshold * (1 + overrun_pct)` with the project
+   defaults). The hook neither emitted a block decision nor wrote
+   `context_budget_acknowledged_at` to `.companion/state.json` for any of
+   them. With the matcher set to `"Task"` and a pass-through path on
+   non-matching tool names, this is the exact signature of a matcher that
+   never fires — i.e. the harness is delivering a `tool_name` other than
+   `"Task"`.
+2. **Harness rename.** Current Claude Code harness release notes name the
+   subagent-spawn tool `Agent`. The plugin's own `pre_tool_use.py` is the
+   only entry point that observes `tool_name` for this event class, and
+   its prior `tool_name == "Task"` check explains the silent disablement.
+3. **No other event registers a matcher likely to confuse this.** The
+   only other PreToolUse matcher in `hooks.json` is the `Edit|Write`
+   branch handled by `scope_guard.py`; neither value collides with the
+   subagent-spawn tool.
+
+Resolution: matcher widened to `"Task|Agent"` in `hooks/hooks.json` and the
+dispatch check widened to `tool_name in ("Task", "Agent")` in
+`hooks/pre_tool_use.py`. Both names are accepted so the gate continues to
+work if a project is still running an older harness, and so a future
+rename back to `Task` would not silently disable it again.
