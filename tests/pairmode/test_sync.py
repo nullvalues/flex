@@ -255,13 +255,15 @@ class TestSyncUpdatesStateJson:
         assert state_path.exists(), ".companion/state.json should have been created"
 
     def test_pairmode_version_written(self, tmp_path: Path) -> None:
+        from skills.pairmode.scripts._version import PAIRMODE_VERSION
+
         _copy_canonical_files(tmp_path)
 
         sync_project(tmp_path, yes=True)
 
         state = json.loads((tmp_path / ".companion" / "state.json").read_text(encoding="utf-8"))
         assert "pairmode_version" in state
-        assert state["pairmode_version"] == "0.1.0"
+        assert state["pairmode_version"] == PAIRMODE_VERSION
 
     def test_last_sync_written(self, tmp_path: Path) -> None:
         _copy_canonical_files(tmp_path)
@@ -291,13 +293,15 @@ class TestSyncMergesStateJson:
         assert state.get("another") == 42, "Existing field 'another' should be preserved"
 
     def test_pairmode_version_overwritten_on_merge(self, tmp_path: Path) -> None:
+        from skills.pairmode.scripts._version import PAIRMODE_VERSION
+
         _copy_canonical_files(tmp_path)
         _write_state(tmp_path, extra_fields={"pairmode_version": "0.0.1", "other": "keep"})
 
         sync_project(tmp_path, yes=True)
 
         state = json.loads((tmp_path / ".companion" / "state.json").read_text(encoding="utf-8"))
-        assert state["pairmode_version"] == "0.1.0", "pairmode_version should be updated"
+        assert state["pairmode_version"] == PAIRMODE_VERSION, "pairmode_version should be updated"
         assert state.get("other") == "keep", "'other' field should survive merge"
 
     def test_lessons_applied_written(self, tmp_path: Path) -> None:
@@ -491,6 +495,8 @@ class TestSyncNoPairmodeVersionInState:
 
     def test_sync_writes_pairmode_version_to_state(self, tmp_path: Path) -> None:
         """After sync, state.json should have pairmode_version even if it was absent before."""
+        from skills.pairmode.scripts._version import PAIRMODE_VERSION
+
         _write_state(tmp_path)  # no pairmode_version key
         _copy_canonical_files(tmp_path)
 
@@ -500,7 +506,7 @@ class TestSyncNoPairmodeVersionInState:
             (tmp_path / ".companion" / "state.json").read_text(encoding="utf-8")
         )
         assert "pairmode_version" in state
-        assert state["pairmode_version"] == "0.1.0"
+        assert state["pairmode_version"] == PAIRMODE_VERSION
 
 
 class TestSyncCreatesMissingClaudeMd:

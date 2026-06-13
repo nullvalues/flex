@@ -289,9 +289,11 @@ class TestAuditProjectNoPairmodeVersion:
         assert result.pairmode_version is None
 
     def test_canonical_version_always_set(self, tmp_path: Path) -> None:
+        from skills.pairmode.scripts._version import PAIRMODE_VERSION
+
         result = audit_project(tmp_path)
 
-        assert result.canonical_version == "0.1.0"
+        assert result.canonical_version == PAIRMODE_VERSION
 
 
 class TestFormatAuditOutput:
@@ -586,13 +588,15 @@ class TestAuditVersionMismatch:
         )
 
     def test_canonical_version_is_always_current(self, tmp_path: Path) -> None:
+        from skills.pairmode.scripts._version import PAIRMODE_VERSION
+
         _write_state(tmp_path, version="0.0.1")
         _copy_canonical_files(tmp_path)
 
         result = audit_project(tmp_path)
 
-        assert result.canonical_version == "0.1.0", (
-            f"Expected canonical_version='0.1.0', got: {result.canonical_version}"
+        assert result.canonical_version == PAIRMODE_VERSION, (
+            f"Expected canonical_version='{PAIRMODE_VERSION}', got: {result.canonical_version}"
         )
 
     def test_version_mismatch_does_not_add_spurious_missing_items(self, tmp_path: Path) -> None:

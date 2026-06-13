@@ -26,13 +26,13 @@ from skills.pairmode.scripts.audit import (  # noqa: E402
     CANONICAL_FILES,
     EXISTENCE_CHECK_FILES,
     SCAFFOLD_FILES,
-    PAIRMODE_VERSION,
     _split_sections,
     _normalise,
     _enrich_scaffold_context,
     _load_project_context as _audit_load_project_context,
     _load_overrides,
 )
+from skills.pairmode.scripts._version import PAIRMODE_VERSION  # noqa: E402
 from skills.pairmode.scripts.bootstrap import (  # noqa: E402
     DEFAULT_DENY,
     PAIRMODE_DEFAULT_RAILS,

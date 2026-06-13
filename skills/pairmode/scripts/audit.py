@@ -20,12 +20,11 @@ import jinja2
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from skills.pairmode.scripts import lesson_utils  # noqa: E402
+from skills.pairmode.scripts._version import PAIRMODE_VERSION  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-PAIRMODE_VERSION = "0.1.0"
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
@@ -87,7 +86,7 @@ class AuditResult:
     inconsistent: list[AuditItem] = field(default_factory=list)
     extra: list[AuditItem] = field(default_factory=list)
     pairmode_version: str | None = None
-    canonical_version: str = "0.1.0"
+    canonical_version: str = PAIRMODE_VERSION
     context_missing: bool = False
 
 

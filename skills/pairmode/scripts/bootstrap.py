@@ -23,14 +23,13 @@ import jinja2
 from skills.pairmode.scripts import spec_reader as _spec_reader
 from skills.pairmode.scripts import checklist_deriver as _checklist_deriver
 from skills.pairmode.scripts import denylist_deriver as _denylist_deriver
+from skills.pairmode.scripts._version import PAIRMODE_VERSION  # noqa: E402
 import ideology_parser as _ideology_parser
 from schema_validator import _parse_frontmatter
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-PAIRMODE_VERSION = "0.2.0"
 
 PAIRMODE_DEFAULT_RAILS = {
     "generic": ["CORE", "INFRA", "TEST"],
