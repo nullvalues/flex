@@ -29,7 +29,7 @@ dispatcher's tool-name check to accept both names.
 |----|-------|--------|
 | INFRA-176 | Verify spawn-tool name and widen PreToolUse matcher/dispatch to Task+Agent | complete |
 | INFRA-177 | Remove completed one-time lessons bypass rule from pairmode_migrate.py (cp-69 security audit) | complete |
-| INFRA-178 | Single-source PAIRMODE_VERSION into _version.py (CER-046) | planned |
+| INFRA-178 | Single-source PAIRMODE_VERSION into _version.py (CER-046) | complete |
 
 ## Schema delivery
 

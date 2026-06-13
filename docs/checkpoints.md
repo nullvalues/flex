@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp69-pretooluse-agent-matcher-cer046
+
+**Phase:** 69 — PreToolUse matcher dead under Agent tool rename (CER-049)
+**Tag command:** `git tag cp69-pretooluse-agent-matcher-cer046 && git push origin cp69-pretooluse-agent-matcher-cer046`
+**Acceptance:** Three stories. INFRA-176 (CER-049): `hooks/hooks.json` PreToolUse matcher widened from `"Task"` to `"Task|Agent"`; `pre_tool_use.py` dispatch widened to `tool_name in ("Task", "Agent")`; three parametrized test cases added for both tool names; `## Verification result` section written in story file confirming the harness rename; `docs/architecture.md` matcher references updated in three locations. INFRA-177: one-time lessons bypass rule (rule 14, strategy `"bypass"`, handler `"lessons_json"`) removed from `pairmode_migrate.py`; `_apply_bypass_rule()` function and `elif strategy == "bypass"` dispatch branch removed; `test_migrate_lessons_with_flag` removed; `test_lessons_gated_rule_is_only_14` updated to expect only the remaining regenerate rule (security audit cp-69 HIGH finding resolved). INFRA-178 (CER-046): `_version.py` created as single source of truth (`PAIRMODE_VERSION = "0.2.0"`); `audit.py`, `bootstrap.py`, and `sync.py` all import from it; local diverging definitions removed; `AuditResult.canonical_version` default fixed; test assertions updated. CER-046 and CER-049 resolved. 2157 tests pass.
+
+---
+
 ## cp65-context-budget-drift-fix
 
 **Phase:** 65 — Context budget per-story drift fix

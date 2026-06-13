@@ -2,7 +2,7 @@
 id: INFRA-178
 rail: INFRA
 title: "Single-source PAIRMODE_VERSION into _version.py (CER-046)"
-status: planned
+status: complete
 phase: "69"
 story_class: code
 primary_files:
