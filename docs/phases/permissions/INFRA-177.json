@@ -1,0 +1,10 @@
+{
+  "story_id": "INFRA-177",
+  "story_spec": "docs/stories/INFRA/INFRA-177.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/pairmode_migrate.py",
+    "tests/pairmode/test_pairmode_migrate.py",
+    "docs/stories/INFRA/INFRA-177.md"
+  ],
+  "generated_at": "2026-06-13T04:06:09Z"
+}
