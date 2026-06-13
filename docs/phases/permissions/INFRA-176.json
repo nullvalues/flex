@@ -1,0 +1,12 @@
+{
+  "story_id": "INFRA-176",
+  "story_spec": "docs/stories/INFRA/INFRA-176.md",
+  "allowed_paths": [
+    "hooks/hooks.json",
+    "hooks/pre_tool_use.py",
+    "tests/pairmode/test_pre_tool_use_hook.py",
+    "docs/architecture.md",
+    "docs/stories/INFRA/INFRA-176.md"
+  ],
+  "generated_at": "2026-06-13T03:41:45Z"
+}
