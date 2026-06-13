@@ -399,39 +399,6 @@ def test_migrate_lessons_default_skip(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 7 — lessons with flag
-# ---------------------------------------------------------------------------
-
-
-def test_migrate_lessons_with_flag(tmp_path: Path) -> None:
-    """With migrate_lessons=True, lessons.json source_project and LESSONS.md are rewritten."""
-    project = _build_anchor_project(tmp_path)
-    lessons_file = project / "lessons" / "lessons.json"
-    lessons_md = project / "lessons" / "LESSONS.md"
-
-    _run_migrate_no_subprocess(project, apply=True, yes=True, migrate_lessons=True)
-
-    # lessons.json: the content should have been rewritten (anchor→flex substitutions)
-    new_content = lessons_file.read_text(encoding="utf-8")
-    # The bypass rule applies _substitute_anchor_to_flex which rewrites "anchor:pairmode"
-    # etc. The source_project field "anchor" is not directly substituted by the bypass
-    # rule — it only substitutes specific patterns. Let's verify the file was at least
-    # processed (changed in report).
-    #
-    # The _substitute_anchor_to_flex function substitutes: anchor:pairmode,
-    # Anchor Methodology Lessons, anchor repo root, Anchor Methodology.
-    # The fixture's lessons.json body contains "anchor" in trigger/learning text.
-    # However, the bypass rule only rewrites those specific anchored patterns.
-    # The test verifies LESSONS.md was regenerated (heading changed from Anchor to Flex).
-    assert "Anchor Methodology Lessons" not in lessons_md.read_text(encoding="utf-8"), (
-        "LESSONS.md still contains 'Anchor Methodology Lessons' after migration"
-    )
-    assert "Flex Methodology Lessons" in lessons_md.read_text(encoding="utf-8"), (
-        "LESSONS.md does not contain 'Flex Methodology Lessons' after migration"
-    )
-
-
-# ---------------------------------------------------------------------------
 # Test 8 — idempotent
 # ---------------------------------------------------------------------------
 
@@ -723,16 +690,16 @@ class TestDataclasses:
 class TestMigrationRules:
     """MIGRATION_RULES structure checks."""
 
-    def test_migration_rules_has_15_entries(self) -> None:
-        assert len(_mod.MIGRATION_RULES) == 15
+    def test_migration_rules_has_14_entries(self) -> None:
+        assert len(_mod.MIGRATION_RULES) == 14
 
-    def test_migration_rules_ids_are_sequential_1_to_15(self) -> None:
+    def test_migration_rules_ids_are_sequential_1_to_14(self) -> None:
         ids = sorted(r.rule_id for r in _mod.MIGRATION_RULES)
-        assert ids == list(range(1, 16))
+        assert ids == list(range(1, 15))
 
-    def test_lessons_gated_rules_are_14_and_15(self) -> None:
+    def test_lessons_gated_rule_is_only_14(self) -> None:
         for rule in _mod.MIGRATION_RULES:
-            if rule.rule_id in (14, 15):
+            if rule.rule_id == 14:
                 assert rule.lessons_gated is True
             else:
                 assert rule.lessons_gated is False

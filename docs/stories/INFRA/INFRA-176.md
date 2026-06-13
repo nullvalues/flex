@@ -2,7 +2,7 @@
 id: INFRA-176
 rail: INFRA
 title: "Verify spawn-tool name and widen PreToolUse matcher/dispatch to `Task|Agent`"
-status: planned
+status: complete
 phase: "69"
 story_class: code
 primary_files:

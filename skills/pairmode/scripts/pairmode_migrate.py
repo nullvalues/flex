@@ -59,10 +59,10 @@ class MigrationRule:
 
     rule_id: int
     description: str
-    strategy: str   # "subprocess" | "regex" | "conditional" | "bypass" | "regenerate"
+    strategy: str   # "subprocess" | "regex" | "conditional" | "regenerate"
     # For regex rules: list of (pattern, replacement) pairs
     patterns: list[tuple[str, str]] = field(default_factory=list)
-    # For conditional/bypass rules: optional handler key
+    # For conditional/regenerate rules: optional handler key
     handler: str = ""
     # Gate flag — if True this rule is only applied when --migrate-lessons is set
     lessons_gated: bool = False
@@ -221,17 +221,9 @@ MIGRATION_RULES: list[MigrationRule] = [
         strategy="conditional",
         handler="state_json",
     ),
-    # 14 — lessons/lessons.json: one-time bypass (gated on --migrate-lessons)
+    # 14 — lessons/LESSONS.md: regenerate (gated on --migrate-lessons)
     MigrationRule(
         rule_id=14,
-        description="lessons/lessons.json — one-time bypass",
-        strategy="bypass",
-        handler="lessons_json",
-        lessons_gated=True,
-    ),
-    # 15 — lessons/LESSONS.md: regenerate (gated on --migrate-lessons)
-    MigrationRule(
-        rule_id=15,
         description="lessons/LESSONS.md — regenerate",
         strategy="regenerate",
         handler="lessons_md",
@@ -300,9 +292,6 @@ def _resolve_targets(rule: MigrationRule, project_dir: Path) -> list[Path]:
         p = project_dir / ".companion" / "state.json"
         return [p] if p.exists() else []
     if rid == 14:
-        p = project_dir / "lessons" / "lessons.json"
-        return [p] if p.exists() else []
-    if rid == 15:
         p = project_dir / "lessons" / "LESSONS.md"
         # Always return the target path; we will create it even if it doesn't exist
         return [p]
@@ -539,52 +528,6 @@ def _apply_conditional_rule(
     report.changed.append(str(target))
 
 
-def _apply_bypass_rule(
-    rule: MigrationRule,
-    target: Path,
-    backup_suffix: str,
-    apply: bool,
-    report: MigrationReport,
-) -> None:
-    """Apply a one-time bypass to lessons.json (anchor→flex rename in content)."""
-    if not target.exists():
-        report.missing.append(str(target))
-        return
-
-    original_text = target.read_text(encoding="utf-8")
-    try:
-        data = json.loads(original_text)
-    except json.JSONDecodeError as exc:
-        click.echo(f"  warning: could not parse {target}: {exc}", err=True)
-        report.skipped.append(str(target))
-        return
-
-    # Rewrite JSON as text with anchor→flex substitutions
-    serialised = json.dumps(data, indent=2) + "\n"
-    new_text = _substitute_anchor_to_flex(serialised)
-
-    if new_text == serialised:
-        report.skipped.append(str(target))
-        return
-
-    if apply:
-        backup_path = Path(str(target) + backup_suffix)
-        backup_path.write_text(original_text, encoding="utf-8")
-        report.backups.append(str(backup_path))
-        target.write_text(new_text, encoding="utf-8")
-
-    report.changed.append(str(target))
-
-
-def _substitute_anchor_to_flex(text: str) -> str:
-    """Apply the canonical anchor→flex rename substitutions to *text*."""
-    text = re.sub(r"\banchor:pairmode\b", "flex:pairmode", text)
-    text = re.sub(r"\bAnchor Methodology Lessons\b", "Flex Methodology Lessons", text)
-    text = re.sub(r"\banchor repo root\b", "repo root", text)
-    text = re.sub(r"\bAnchor Methodology\b", "Flex Methodology", text)
-    return text
-
-
 def _apply_regenerate_rule(
     rule: MigrationRule,
     target: Path,
@@ -649,7 +592,7 @@ def migrate(
     yes:
         When True, skip the [y/N] confirmation prompt (only relevant when apply=True).
     migrate_lessons:
-        When True, apply rules 14 (lessons.json bypass) and 15 (LESSONS.md regenerate).
+        When True, apply rule 14 (LESSONS.md regenerate).
     backup_suffix:
         Suffix appended to each file before modification (e.g. ".pre-flex-migration").
 
@@ -723,11 +666,6 @@ def migrate(
             targets = _resolve_targets(rule, project_dir)
             for target in targets:
                 _apply_conditional_rule(rule, target, backup_suffix, apply, report)
-
-        elif rule.strategy == "bypass":
-            targets = _resolve_targets(rule, project_dir)
-            for target in targets:
-                _apply_bypass_rule(rule, target, backup_suffix, apply, report)
 
         elif rule.strategy == "regenerate":
             targets = _resolve_targets(rule, project_dir)
