@@ -17,7 +17,7 @@ Eliminate the silent version downgrade caused by three diverging `PAIRMODE_VERSI
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-173 | `skills/pairmode/scripts/_version.py` — single-source `PAIRMODE_VERSION` consumed by `audit.py`, `bootstrap.py`, and `sync.py` | planned |
+| INFRA-173 | `skills/pairmode/scripts/_version.py` — single-source `PAIRMODE_VERSION` consumed by `audit.py`, `bootstrap.py`, and `sync.py` | deferred |
 
 ## Schema delivery
 
@@ -27,6 +27,14 @@ this phase, record the management surface before the phase is checkpointed.
 | Object | Management surface | Exception |
 |---|---|---|
 | | | |
+
+---
+
+## Deferred stories
+
+| Story | Reason | Resumed in |
+|-------|--------|-----------|
+| INFRA-173 | CER-046 (the blocking finding this story was written to fix) remained open Do Now through Phases 67 and 68; build was deferred to avoid compaction. The fix was ultimately delivered as Phase 69 INFRA-178 (`_version.py` single-source, same design). | Phase 69 INFRA-178 |
 
 ---
 

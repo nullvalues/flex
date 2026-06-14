@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp66-pairmode-version-deferred
+
+**Phase:** 66 — PAIRMODE_VERSION single-source
+**Tag command:** `git tag cp66-pairmode-version-deferred && git push origin cp66-pairmode-version-deferred`
+**Acceptance:** Zero stories built. INFRA-173 (single-source PAIRMODE_VERSION) was formally deferred — CER-046 (the blocking Do Now finding) remained open through Phases 67 and 68; the build was deferred to avoid compaction. The fix was delivered in Phase 69 as INFRA-178 (`_version.py` created, all three import sites updated, same design as INFRA-173's acceptance criteria). Phase formally closed as deferred. 2157 tests pass (codebase unchanged from cp65 in this phase).
+
+---
+
 ## cp69-pretooluse-agent-matcher-cer046
 
 **Phase:** 69 — PreToolUse matcher dead under Agent tool rename (CER-049)

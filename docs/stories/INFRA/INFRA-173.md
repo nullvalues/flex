@@ -2,7 +2,7 @@
 id: INFRA-173
 rail: INFRA
 title: "`skills/pairmode/scripts/_version.py` — single-source `PAIRMODE_VERSION` consumed by `audit.py`, `bootstrap.py`, and `sync.py`"
-status: planned
+status: deferred
 phase: "66"
 story_class: code
 primary_files:
