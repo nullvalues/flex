@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp68-sessionstart-context-reset
+
+**Phase:** 68 — SessionStart context-counter reset (CER-047)
+**Tag command:** `git tag cp68-sessionstart-context-reset && git push origin cp68-sessionstart-context-reset`
+**Acceptance:** One story. INFRA-175: `hooks/session_start.py` thin-delegation dispatcher reads the `source` field from the SessionStart hook payload and delegates to a new pure module `skills/pairmode/scripts/session_reset.py`. On `clear` or `startup`, the hook writes `context_current_tokens = context_baseline_tokens` (default 25k) and `context_current_tokens_recorded_at` to `.companion/state.json`, resetting the dead-reckoning counter so the context gate no longer re-blocks on a stale value from the previous session. `compact` and `resume` are deliberately excluded. CLAUDE.md checklist item 1 updated with session_start.py thin-delegation entry; architecture.md state.json field docs and Hook architecture section updated. CER-047 resolved. 2157 tests pass (2155 at acceptance, 2 gained from Phase 69 additions; all pass against the Phase 68 code surface).
+
+---
+
 ## cp67-bootstrap-context-seed
 
 **Phase:** 67 — Bootstrap context-token seed

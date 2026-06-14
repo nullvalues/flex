@@ -24,6 +24,7 @@ flex/
     post_tool_use.py              ← pair partner: relay file changes
     session_end.py                ← signal sidebar to summarize and exit
     pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement)
+    session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write
 
   skills/
     pairmode/                     ← /flex:pairmode — bootstrap and manage pairmode
@@ -48,6 +49,7 @@ flex/
         schema_validator.py       ← validate story/era/phase manifest frontmatter
         permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json (legacy; Phase 55 replaces runtime use with scope_guard.py + permissions-create for new projects)
         scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json and fails open (Phase 55, INFRA-138)
+        session_reset.py          ← pure decision logic for SessionStart counter reset; no I/O (mirrors context_budget.py D11 boundary); CER-047 / Phase 68 INFRA-175
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
         next_story.py             ← find next unbuilt story from a phase file; CLI: uv run next_story.py <phase-file> [--json] [--project-dir DIR]
         pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all three sync operations in fixed order (sync-all subcommand); also registers register/unregister/list-projects in the top-level CLI group
@@ -884,6 +886,17 @@ Hooks must:
   Read-only; no state writes. Fails open when state or permissions file absent.
 
 All decision logic lives in the named modules; the hook is a thin dispatcher.
+
+**Documented exception — `hooks/session_start.py` (CER-047 / Phase 68 INFRA-175):**
+`session_start.py` dispatches to one module:
+
+- **`source` ∈ {`clear`, `startup`} → `session_reset.py`:** resets the dead-reckoning
+  context counter to a fresh-session baseline (`state["context_baseline_tokens"]` if set,
+  else `25_000`). Returns `None` for `resume` and `compact` (no reset). The hook writes
+  `context_current_tokens` and `context_current_tokens_recorded_at` to state.json when
+  `decide_reset()` returns an int; all decision logic lives in `session_reset.py`.
+  `compact` is deliberately excluded (CER-047 — post-compact window size unknown; stale
+  counter over-blocks, which is fail-safe).
 
 The sidebar does all heavy work asynchronously. If the sidebar is not running, the pipe write
 silently fails and the session continues normally — no data is lost because the session

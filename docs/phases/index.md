@@ -66,7 +66,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 65 | Context budget per-story drift fix | complete | [phase-65.md](phase-65.md) |
 | 66 | PAIRMODE_VERSION single-source | deferred → Phase 69 INFRA-178 | [phase-66.md](phase-66.md) |
 | 67 | Bootstrap context-token seed | complete | [phase-67.md](phase-67.md) |
-| 68 | SessionStart context-counter reset (CER-047) | built — cp-68 tag pending | [phase-68.md](phase-68.md) |
+| 68 | SessionStart context-counter reset (CER-047) | complete | [phase-68.md](phase-68.md) |
 | 69 | PreToolUse matcher dead under Agent rename (CER-049) | complete | [phase-69.md](phase-69.md) |
 
 ---

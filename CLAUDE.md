@@ -41,8 +41,8 @@ Run every item on every review invocation.
 
    `hooks/pre_tool_use.py` is a thin dispatcher for two tool types:
 
-   - `Task` → `skills/pairmode/scripts/context_budget.py`
-     (CER-027 context-budget enforcement)
+   - `Task` / `Agent` → `skills/pairmode/scripts/context_budget.py`
+     (CER-027 context-budget enforcement; both tool names accepted — CER-049)
    - `Edit` / `Write` → `skills/pairmode/scripts/scope_guard.py`
      (Phase 55 story file-scope enforcement)
 
