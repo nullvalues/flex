@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp67-bootstrap-context-seed
+
+**Phase:** 67 — Bootstrap context-token seed
+**Tag command:** `git tag cp67-bootstrap-context-seed && git push origin cp67-bootstrap-context-seed`
+**Acceptance:** One story. INFRA-174: `_record_state()` in `bootstrap.py` now seeds `context_current_tokens = 1` alongside the other budget defaults when creating a new `state.json`. The seed value (1) passes the `> 0` guard in `read_context_tokens_from_state`, lets the first build step proceed without the manual `set-context-tokens` anchor, and is replaced by the orchestrator's real value before the first builder spawns. Three new tests cover the seed on new state, the downstream `context_budget.decide()` pass-through, and preservation of the field on existing state. `architecture.md` updated with seed documentation. 2157 tests pass.
+
+---
+
 ## cp66-pairmode-version-deferred
 
 **Phase:** 66 — PAIRMODE_VERSION single-source
