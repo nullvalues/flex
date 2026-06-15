@@ -69,7 +69,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 68 | SessionStart context-counter reset (CER-047) | complete | [phase-68.md](phase-68.md) |
 | 69 | PreToolUse matcher dead under Agent rename (CER-049) | complete | [phase-69.md](phase-69.md) |
 | 70 | Remove bump-context-tokens from orchestrator build loop | complete | [phase-70.md](phase-70.md) |
-| 71 | Propagate BUILD-029 Context gate fix into CLAUDE.build.md.j2 template | planned | [phase-71.md](phase-71.md) |
+| 71 | Propagate BUILD-029 Context gate fix into CLAUDE.build.md.j2 template | complete | [phase-71.md](phase-71.md) |
 
 ---
 

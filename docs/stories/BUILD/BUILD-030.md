@@ -2,7 +2,7 @@
 id: BUILD-030
 rail: BUILD
 title: "Propagate BUILD-029 Context gate fix into `CLAUDE.build.md.j2` template"
-status: planned
+status: complete
 phase: "71"
 story_class: methodology
 primary_files:
@@ -223,6 +223,21 @@ After the edits, run `pairmode_sync.py sync-build --dry-run --project-dir .`
 from `/mnt/work/flex`. The expected outcome is an empty diff — confirming the
 template renders to exactly the post-BUILD-029 `CLAUDE.build.md` in this
 project, so applying sync to any sibling will not regress the gate.
+
+## As-built note
+
+The builder also updated the following template sections that were carrying
+stale pre-BUILD-029 values, aligned to current architecture.md:
+
+- Builder model decision table: `attempt` column added; threshold updated from
+  `< 3` to `< 5` primary_files; `retry-upgrade` row added.
+- Step 1 and Step 2 `record_attempt.py` examples: extended token flag set added
+  (`--tokens-in`, `--tokens-out`, `--cache-read-tokens`, `--cache-write-tokens`).
+- Retry path: instruction to re-call `select_builder_model` with `attempt_number=2`
+  added before retry builder spawn.
+- `build_command` and `test_command` blocks: `or` fallback for absent context keys.
+
+None of these changes affect Python logic or hook behavior.
 
 ## Tests
 

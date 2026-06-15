@@ -29,6 +29,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp71-propagate-context-gate-fix-to-template
+
+**Phase:** 71 — Propagate BUILD-029 Context gate fix into CLAUDE.build.md.j2 template
+**Tag command:** `git tag cp71-propagate-context-gate-fix-to-template && git push origin cp71-propagate-context-gate-fix-to-template`
+**Acceptance:** One story. BUILD-030: `CLAUDE.build.md.j2` Context gate section rewritten to open with `/context` call; `CONTEXT CHECK REQUIRED` branch removed from gate; `set-context-tokens` call added to below-threshold path; `bump-context-tokens --cost` blocks removed from Step 1 and Step 2; "Primary gate" paragraph updated to describe live `/context` call; "Secondary fallback" matcher updated to `Task|Agent`. Also corrected stale template sections discovered during sync-build parity check (decision table columns/thresholds, `record_attempt.py` extended token flags, retry model re-selection instruction, `build_command`/`test_command` `or` fallbacks). `sync-build --dry-run` on this project produces "No changes to apply." — template and live `CLAUDE.build.md` now agree. 2157 tests pass. Attempt 2 (first attempt failed AC 10: sync-build still showed 97-line diff; second attempt reconciled all remaining template drift).
+
+---
+
 ## cp70-restore-context-gate-remove-bump
 
 **Phase:** 70 — Restore per-story `/context` call in Context gate

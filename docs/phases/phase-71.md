@@ -17,7 +17,7 @@ BUILD-029 corrected the Context gate in flex's own CLAUDE.build.md (live orchest
 
 | ID | Title | Status |
 |----|-------|--------|
-| BUILD-030 | Propagate BUILD-029 Context gate fix into `CLAUDE.build.md.j2` template | planned |
+| BUILD-030 | Propagate BUILD-029 Context gate fix into `CLAUDE.build.md.j2` template | complete |
 
 ## Schema delivery
 
