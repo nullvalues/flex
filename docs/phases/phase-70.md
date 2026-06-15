@@ -17,7 +17,7 @@ The build loop conflates two distinct token-tracking processes. record_attempt.p
 
 | ID | Title | Status |
 |----|-------|--------|
-| BUILD-029 | Restore per-story `/context` call in Context gate; remove `bump-context-tokens` | planned |
+| BUILD-029 | Restore per-story `/context` call in Context gate; remove `bump-context-tokens` | complete |
 
 ## Schema delivery
 
