@@ -68,7 +68,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 67 | Bootstrap context-token seed | complete | [phase-67.md](phase-67.md) |
 | 68 | SessionStart context-counter reset (CER-047) | complete | [phase-68.md](phase-68.md) |
 | 69 | PreToolUse matcher dead under Agent rename (CER-049) | complete | [phase-69.md](phase-69.md) |
-| 70 | Remove bump-context-tokens from orchestrator build loop | planned | [phase-70.md](phase-70.md) |
+| 70 | Remove bump-context-tokens from orchestrator build loop | complete | [phase-70.md](phase-70.md) |
 
 ---
 

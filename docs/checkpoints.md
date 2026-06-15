@@ -29,6 +29,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp70-restore-context-gate-remove-bump
+
+**Phase:** 70 — Restore per-story `/context` call in Context gate
+**Tag command:** `git tag cp70-restore-context-gate-remove-bump && git push origin cp70-restore-context-gate-remove-bump`
+**Acceptance:** One story. BUILD-029: `CLAUDE.build.md` Context gate rewritten to open with a direct `/context` call (live read) instead of reading `context_current_tokens` from state.json; below-threshold path records the count via `set-context-tokens` for the hook; the CONTEXT CHECK REQUIRED branch removed from the gate (hook still emits it when stored value is absent/stale); both `bump-context-tokens` invocations removed from Step 1 (builder) and Step 2 (reviewer); "Context budget check" section updated to describe the primary gate as the per-story `/context` call and the secondary fallback matcher as `Task|Agent`; `docs/architecture.md` § 9 and state.json key descriptions updated; `README.md` updated. `bump-context-tokens` command itself preserved in `flex_build.py`. Intent review identified template gap: `skills/pairmode/templates/CLAUDE.build.md.j2` not updated (follow-on in Phase 71). 2157 tests pass.
+
+---
+
 ## cp69-pretooluse-agent-matcher-cer046
 
 **Phase:** 69 — PreToolUse matcher dead under Agent tool rename (CER-049)
