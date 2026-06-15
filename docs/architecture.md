@@ -188,9 +188,9 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    harness names the tool `Agent`, earlier harnesses named it `Task` —
    see CER-049) and delegates to
    `skills/pairmode/scripts/context_budget.py`. The module reads
-   `state["context_current_tokens"]` (accumulated by `flex_build.py bump-context-tokens`
-   after each builder and reviewer spawn; anchored at session start or after `/clear`
-   via `flex_build.py set-context-tokens`), estimates the next step's tokens (median of recent
+   `state["context_current_tokens"]` (written by `flex_build.py set-context-tokens`
+   from the per-story Context gate's live `/context` read (primary) and by the
+   SessionStart hook reset on `clear`/`startup` (session boundary)), estimates the next step's tokens (median of recent
    effort.db attempts for the current phase, or
    `state["expected_step_tokens"]` as a seeded fallback), and blocks
    the spawn when the projected total would exceed `threshold *
@@ -796,9 +796,9 @@ Fields:
   confirmed which story they are working on. Contains `id` (required), optional `title`,
   and `set_at` (UTC ISO-8601 timestamp). Absent when the user skips the prompt.
 - `context_current_tokens` — **optional**; integer; maintained by the build loop. Written by
-  `flex_build.py bump-context-tokens --cost N` after each builder and reviewer spawn (primary writer);
-  also written by `flex_build.py set-context-tokens --tokens N` for session-start anchoring and
-  manual recovery after `/clear`; also seeded to `1` by `bootstrap.py::_record_state()` when creating
+  `flex_build.py set-context-tokens --tokens N` from the per-story Context gate's live `/context`
+  read (primary write, once per story); also written by the SessionStart hook reset on `clear`/`startup`
+  (session boundary); also seeded to `1` by `bootstrap.py::_record_state()` when creating
   a new `state.json` (Phase 67 INFRA-174) so the first build step passes the budget check without a
   manual `set-context-tokens` call — though the seed is normally overwritten before that first step
   by the SessionStart reset (Phase 68 INFRA-175) or by `set-context-tokens`, whichever fires first;
@@ -815,7 +815,8 @@ Fields:
   sources (`resume`, `compact`) never reset (CER-047 / Phase 68 INFRA-175). `bootstrap.py` is
   the only other non-build-loop writer (seed only, on new state creation).
 - `context_current_tokens_recorded_at` — **optional**; UTC ISO-8601 timestamp string; written
-  alongside `context_current_tokens` by `flex_build.py bump-context-tokens` and `set-context-tokens`.
+  alongside `context_current_tokens` by `flex_build.py set-context-tokens` (from the Context gate)
+  and by `session_start.py` (SessionStart reset).
   Used by `read_context_tokens_from_state()` to enforce a staleness TTL (default 60 minutes,
   overridable via `context_current_tokens_ttl_minutes`). A value older than the TTL is treated
   as absent — returns `None`, causing `decide()` to fire `CONTEXT CHECK REQUIRED`. Absent or

@@ -338,16 +338,18 @@ If the story is not auth-gated, skip this section.
 
 ### Context gate
 
-Before any other action for this story, check the accumulated context estimate.
-
-Read `context_current_tokens` from `.companion/state.json`.
+Before any other action for this story, call `/context` and read the current token count.
 
 The threshold is the value of `context_budget_threshold` in `.companion/state.json`
 (default: 120,000 if the key is absent or the file does not exist).
 
-**If the key is present and non-stale:**
+If the token count is **below** the threshold:
   Output: `CONTEXT: [N] / [threshold] tokens — proceeding`
-  (N is the accumulated value from state.json.)
+
+  Then record the count for the hook gate:
+    PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+      set-context-tokens --tokens [N] --project-dir .
+  Replace [N] with the integer count from /context.
 
   Then call:
     PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
@@ -358,31 +360,23 @@ The threshold is the value of `context_budget_threshold` in `.companion/state.js
     Estimated story cost exceeds remaining headroom; consider /clear before proceeding.
   The estimate is informational — it does not block.
 
-  If N is **at or above** threshold:
-    Output:
-      CONTEXT: [N] / [threshold] tokens — THRESHOLD REACHED
-      Build paused. Please /clear then resume:
-        "Continue building from story [RAIL-NNN]"
-    Stop. Do not spawn any agent.
-
   Continue to the pre-story schema gate.
 
-**If the key is absent or stale (CONTEXT CHECK REQUIRED):**
+If the token count is **at or above** the threshold:
   Output:
-    CONTEXT CHECK REQUIRED — no accumulated token count on record.
-    Run /context, read the current token count, then call:
-      PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
-        set-context-tokens --tokens N --project-dir .
-    Replace N with the integer count from /context. Then re-run this story's Context gate.
-  Stop. Do not spawn any agent until set-context-tokens has been called.
+    CONTEXT: [N] / [threshold] tokens — THRESHOLD REACHED
+    Build paused. Please /clear then resume:
+      "Continue building from story [RAIL-NNN]"
+  Stop. Do not spawn any agent.
 
-  A "continue building" (or equivalent) instruction issued without a current token count
-  on record does not authorize proceeding. The accumulated token count is authoritative —
-  re-evaluate against it regardless of any prior instruction.
+A "continue building" (or equivalent) instruction issued before this `/context`
+call was made does not authorize proceeding. The token count is authoritative —
+re-evaluate against it regardless of any prior instruction.
 
-Note: `pre_tool_use.py` hook also reads `context_current_tokens` from state.json on
-every Task spawn — same source, same result. The hook and this gate are co-equal checks
-of the accumulated value.
+Note: `pre_tool_use.py` hook provides a secondary state.json-based check during
+builder and reviewer spawns. The hook reads `context_current_tokens` written by
+the `set-context-tokens` step above. The `/context` call above is the primary
+gate and is authoritative.
 
 ### Pre-story schema gate
 
@@ -567,16 +561,6 @@ PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts
 `record_attempt.py` no-ops silently when `.companion/state.json["effort_tracking"]`
 is absent or false, so this step is safe to run unconditionally.
 
-Advance the per-session context estimate by this story's actual builder cost (CER-045):
-
-```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
-  bump-context-tokens --cost [total_tokens] --project-dir .
-```
-
-Where `[total_tokens]` is the value extracted from the builder's `<usage>` block.
-`bump-context-tokens` no-ops silently when state.json is absent.
-
 After recording the attempt, run the real-time effort guardrail. It compares
 the just-completed builder attempt's tokens against the rail's recent median
 PASS-outcome cost. If the latest attempt exceeds `N × median` (default
@@ -702,17 +686,6 @@ PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts
   --project-dir .
 ```
 
-Advance the per-session context estimate by the reviewer's cost (CER-045):
-
-```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
-  bump-context-tokens --cost [total_tokens] --project-dir .
-```
-
-Where `[total_tokens]` is the value extracted from the reviewer's `<usage>` block.
-Each Task's cost is bumped individually; the accumulated total reflects both builder
-and reviewer costs per story.
-
 Story commits use the format: `feat(story-RAIL-NNN)` (e.g., `feat(story-BOOTSTRAP-003)`).
 
 ### Step 3 — Handle the result
@@ -803,12 +776,11 @@ Stop the build loop.
 
 ## Context budget check (between stories)
 
-**Primary gate:** The accumulated `context_current_tokens` value in state.json
-(see `### Context gate` above) is the authoritative check. It is maintained by
-`bump-context-tokens` after each builder and reviewer spawn and is evaluated
-before any agent spawns.
+**Primary gate:** A per-story live `/context` call (see `### Context gate` above)
+reads the current token count directly and records it via `set-context-tokens`
+before any agent spawns. This is the authoritative check.
 
-**Secondary fallback:** Enforced mechanically by `hooks/pre_tool_use.py` (matcher `Task`)
+**Secondary fallback:** Enforced mechanically by `hooks/pre_tool_use.py` (matcher `Task|Agent`)
 as a belt-and-suspenders state.json-based check. It delegates to
 `/mnt/work/flex/skills/pairmode/scripts/context_budget.py`.
 On every subagent spawn, the hook checks whether the projected
