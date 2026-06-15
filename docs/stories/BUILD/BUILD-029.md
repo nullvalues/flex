@@ -1,7 +1,7 @@
 ---
 id: BUILD-029
 rail: BUILD
-title: "Remove `bump-context-tokens` from orchestrator build loop"
+title: "Restore per-story `/context` call in Context gate; remove `bump-context-tokens`"
 status: planned
 phase: "70"
 story_class: methodology
@@ -12,78 +12,174 @@ touches:
   - README.md
 ---
 
-# BUILD-029 — Remove `bump-context-tokens` from orchestrator build loop
+# BUILD-029 — Restore per-story `/context` call in Context gate; remove `bump-context-tokens`
 
 ## Context
 
-The build loop contains two `bump-context-tokens --cost [total_tokens]` calls:
-one after the builder returns (Step 1) and one after the reviewer returns (Step 2).
-These were added in Phase 65 (BUILD-027 / CER-045) to keep `context_current_tokens`
-current between stories so the context gate has a non-stale value to evaluate.
+BUILD-027 (Phase 65, CER-045) replaced the Context gate's direct `/context` call with
+reading `context_current_tokens` from state.json, and introduced `bump-context-tokens`
+to keep that stored value current by adding subagent `total_tokens` after each builder
+and reviewer spawn.
 
-The cost input is `total_tokens` from the subagent's `<usage>` block. This is wrong:
-subagents (builder, reviewer) start fresh with only the story ID. Their `total_tokens`
-reflects the subagent's own internal context (50–90k each), not what gets added to the
-orchestrator's context window (which grows only by the compact SUMMARY + BUILD-RESULT
-the subagent returns). Bumping by subagent totals inflates `context_current_tokens`
-by ~50–90k per spawn, producing values of 300k+ when the real orchestrator context
-is ~60k. This causes false budget blocks.
+This design has two flaws:
 
-There are two distinct token-tracking processes:
-1. **Metric collection** — `record_attempt.py` feeds `effort.db` with per-story token
-   costs for cost estimation and the effort guardrail. `total_tokens` feeds this correctly.
-2. **Orchestrator context management** — `context_current_tokens` in `state.json`, read
-   by the hook before every agent spawn. Should reflect the orchestrator's actual context.
+**Flaw 1 — Wrong input to bump.** Subagents (builder, reviewer) start fresh with only
+the story ID. Their `total_tokens` is their own internal context cost — not the growth
+of the orchestrator's context window. Bumping by 50–90k per spawn inflates
+`context_current_tokens` to 300k+ when the real orchestrator context is ~60–80k.
+False budget blocks result.
 
-The bump calls conflate these two by writing metric data into the context management key.
+**Flaw 2 — Wrong gate design.** The pre-story Context gate is a synchronous, real-time
+decision: "we're about to build — do we have room?" It doesn't need a stored value or
+a TTL. It needs the live count right now. BUILD-027 introduced TTL-based staleness
+logic into what should be a direct snapshot check.
 
-The correct sources for `context_current_tokens` are:
-- **SessionStart hook** — resets to baseline on `clear`/`startup` (Phase 68 INFRA-175)
-- **`set-context-tokens`** — user runs `/context`, reads the integer, calls
-  `flex_build.py set-context-tokens --tokens N`. This is the authoritative write.
-
-When `context_current_tokens` is absent or stale (TTL: 60 minutes), `context_budget.py`
-already fires `CONTEXT CHECK REQUIRED`, which prompts the user to run `/context` and
-call `set-context-tokens`. That path is correct and sufficient.
+The correct design (pre-BUILD-027):
+- **Context gate** (before each story): call `/context`, read N, compare to threshold.
+  If room: record N via `set-context-tokens` for the hook to use during spawns, then proceed.
+  If at threshold: stop.
+- **Hook** (PreToolUse, before each Agent spawn): reads `context_current_tokens` from
+  state.json — the value the Context gate just wrote. TTL is appropriate here because the
+  hook fires many times within a story and you don't want a live `/context` call on every
+  spawn. The TTL guards against the hook seeing a value from a previous session.
+- **bump-context-tokens**: not called anywhere in the build loop. The build loop has
+  no good proxy for the orchestrator's per-spawn context growth. Don't guess.
 
 ## Acceptance criteria
 
-1. `CLAUDE.build.md` Step 1 (after builder): the `bump-context-tokens --cost [total_tokens]`
-   call and its surrounding comment are removed. `record_attempt.py` call is untouched.
+### `CLAUDE.build.md` — Context gate
 
-2. `CLAUDE.build.md` Step 2 (after reviewer): same — the `bump-context-tokens` call and
-   its comment are removed. `record_attempt.py` call is untouched.
+1. The `### Context gate` section opens with a `/context` call, not a state.json read.
+   The gate reads the live token count and compares it to the threshold.
 
-3. `CLAUDE.build.md` "Context budget check (between stories)" section: the claim that
-   `bump-context-tokens` is the primary writer of `context_current_tokens` is removed.
-   The section accurately describes the two authoritative sources: SessionStart hook reset
-   and user-driven `set-context-tokens`.
+2. The **below-threshold** path records the live count via `set-context-tokens` before
+   proceeding, so the hook has an accurate value for the builder and reviewer spawns:
 
-4. `docs/architecture.md` § 9 "Context budget check": the phrase
-   "accumulated by `flex_build.py bump-context-tokens` after each builder and reviewer spawn"
-   is removed. The description correctly attributes `context_current_tokens` to the
-   SessionStart hook reset and `set-context-tokens`.
+   ```
+   Then record the count for the hook gate:
+     PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+       set-context-tokens --tokens [N] --project-dir .
+   Replace [N] with the integer count from /context.
+   ```
 
-5. `docs/architecture.md` `context_current_tokens` state.json key description (≈ line 798):
-   `bump-context-tokens` is no longer listed as the "primary writer". The description
-   reflects: SessionStart hook reset (primary), `set-context-tokens` (user-driven recovery),
-   bootstrap seed of `1` (fallback only).
+3. The **at/above-threshold** path blocks and outputs `THRESHOLD REACHED` — unchanged
+   from the current text.
 
-6. `docs/architecture.md` `context_current_tokens_recorded_at` description (≈ line 817):
-   `bump-context-tokens` is removed from the list of writers; only `set-context-tokens`
-   and `session_start.py` remain.
+4. The CONTEXT CHECK REQUIRED block is **removed** from the Context gate. It is no longer
+   needed here: the gate calls `/context` directly and always has a live value. (The hook
+   still emits CONTEXT CHECK REQUIRED when its stored value is absent or stale — that
+   path remains correct for the hook's role.)
 
-7. `README.md` line ≈ 181: any reference to `bump-context-tokens` as a writer of
-   `context_current_tokens` is corrected to reflect SessionStart + `set-context-tokens`.
+5. The closing note on the hook's role is updated to reflect:
+   "The `pre_tool_use.py` hook provides a secondary state.json-based check during the
+   builder and reviewer spawns. The hook reads `context_current_tokens` written by the
+   `set-context-tokens` step above. The `/context` call above is the primary gate and
+   is authoritative."
 
-8. `flex_build.py bump-context-tokens` command and its tests are NOT removed —
-   the command may have standalone uses. Only the orchestrator protocol calls are removed.
+### `CLAUDE.build.md` — Steps 1 and 2
+
+6. The `bump-context-tokens --cost [total_tokens]` call and its surrounding comment are
+   **removed** from Step 1 (after builder). The `record_attempt.py` call is untouched.
+
+7. The same removal applies to Step 2 (after reviewer).
+
+### `CLAUDE.build.md` — Context budget check (between stories)
+
+8. The "Primary gate" paragraph no longer says the value is "maintained by
+   `bump-context-tokens`." It accurately describes the gate as a per-story live
+   `/context` call, with the hook as the secondary check during spawns.
+
+9. The "Secondary fallback" paragraph's matcher reference is updated from `Task` to
+   `Task|Agent` (CER-049 correction).
+
+### `docs/architecture.md`
+
+10. § 9 "Context budget check": the sentence describing `context_current_tokens` as
+    "accumulated by `flex_build.py bump-context-tokens` after each builder and reviewer
+    spawn" is replaced with: "written by `flex_build.py set-context-tokens` from the
+    per-story Context gate's live `/context` read (primary) and by the SessionStart hook
+    reset on `clear`/`startup` (session boundary)."
+
+11. The state.json `context_current_tokens` key description (≈ line 798): remove
+    "`flex_build.py bump-context-tokens --cost N` after each builder and reviewer spawn
+    (primary writer)." Update to: the Context gate's `set-context-tokens` call (per
+    story, primary write) and the SessionStart hook reset (session boundary).
+
+12. The `context_current_tokens_recorded_at` description (≈ line 817): remove
+    `bump-context-tokens` from the writers list. Writers: `set-context-tokens`
+    (from the Context gate) and `session_start.py` (SessionStart reset).
+
+### `README.md`
+
+13. Any description of `bump-context-tokens` as a writer of `context_current_tokens`
+    is corrected to reflect the Context gate's per-story `set-context-tokens` call.
+
+### Out of scope
+
+14. `flex_build.py bump-context-tokens` command and its tests are NOT removed.
+    Only the build loop invocations are removed.
+
+15. The hook's CONTEXT CHECK REQUIRED path is NOT removed. It remains correct for
+    the hook's role (fires when `context_current_tokens` is absent or stale, e.g.
+    after a cold session start without a SessionStart event or a very long session
+    that outlasts the TTL). The Context gate's per-story `/context` call prevents
+    this path from being the common case.
 
 ## Implementation guidance
 
-### CLAUDE.build.md — Step 1 removal
+### Context gate replacement
 
-Find the block after `record_attempt.py` in Step 1 that reads:
+The current Context gate (CLAUDE.build.md `### Context gate`) reads from state.json
+and has a CONTEXT CHECK REQUIRED branch. Replace the entire section with the
+pre-BUILD-027 design:
+
+```
+### Context gate
+
+Before any other action for this story, call `/context` and read the current token count.
+
+The threshold is the value of `context_budget_threshold` in `.companion/state.json`
+(default: 120,000 if the key is absent or the file does not exist).
+
+If the token count is **below** the threshold:
+  Output: `CONTEXT: [N] / [threshold] tokens — proceeding`
+
+  Then record the count for the hook gate:
+    PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+      set-context-tokens --tokens [N] --project-dir .
+  Replace [N] with the integer count from /context.
+
+  Then call:
+    PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+      story-cost-estimate --story-id RAIL-NNN --project-dir .
+
+  Display its output verbatim. If the estimate is numeric and `threshold - N` is
+  less than the estimate, append:
+    Estimated story cost exceeds remaining headroom; consider /clear before proceeding.
+  The estimate is informational — it does not block.
+
+  Continue to the pre-story schema gate.
+
+If the token count is **at or above** the threshold:
+  Output:
+    CONTEXT: [N] / [threshold] tokens — THRESHOLD REACHED
+    Build paused. Please /clear then resume:
+      "Continue building from story [RAIL-NNN]"
+  Stop. Do not spawn any agent.
+
+A "continue building" (or equivalent) instruction issued before this `/context`
+call was made does not authorize proceeding. The token count is authoritative —
+re-evaluate against it regardless of any prior instruction.
+
+Note: `pre_tool_use.py` hook provides a secondary state.json-based check during
+builder and reviewer spawns. The hook reads `context_current_tokens` written by
+the `set-context-tokens` step above. The `/context` call above is the primary
+gate and is authoritative.
+```
+
+### Step 1 and Step 2 — bump removal
+
+Find and remove each block matching:
 
 ```
 Advance the per-session context estimate by this story's actual builder cost (CER-045):
@@ -97,84 +193,20 @@ Where `[total_tokens]` is the value extracted from the builder's `<usage>` block
 `bump-context-tokens` no-ops silently when state.json is absent.
 ```
 
-Remove this entire block (paragraph + code fence + trailing sentence).
-
-### CLAUDE.build.md — Step 2 removal
-
-Find the block after `record_attempt.py` in Step 2 that reads:
-
-```
-Advance the per-session context estimate by the reviewer's cost (CER-045):
-
-```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
-  bump-context-tokens --cost [total_tokens] --project-dir .
-```
-
-Where `[total_tokens]` is the value extracted from the reviewer's `<usage>` block.
-Each Task's cost is bumped individually; the accumulated total reflects both builder
-and reviewer costs per story.
-```
-
-Remove this entire block.
-
-### CLAUDE.build.md — Context budget check section
-
-The section currently opens with:
-
-> **Primary gate:** The accumulated `context_current_tokens` value in state.json
-> (see `### Context gate` above) is the authoritative check. It is maintained by
-> `bump-context-tokens` after each builder and reviewer spawn and is evaluated
-> before any agent spawns.
-
-Replace with:
-
-> **Primary gate:** The accumulated `context_current_tokens` value in state.json
-> (see `### Context gate` above) is the authoritative check. It is written by the
-> SessionStart hook on `clear`/`startup` (baseline reset) and by `set-context-tokens`
-> when the user runs `/context` and records the current count. The hook enforces
-> `CONTEXT CHECK REQUIRED` when the value is absent or stale (TTL: 60 minutes).
-
-Also update the secondary fallback paragraph: the matcher reference should say
-`Task|Agent` (not `Task`) to reflect the CER-049 fix.
-
-### docs/architecture.md
-
-Three targeted edits:
-
-**Edit 1** — § 9 sentence starting "The module reads `state["context_current_tokens"]`
-(accumulated by `flex_build.py bump-context-tokens` after each builder and reviewer
-spawn; anchored at session start or after `/clear` via `flex_build.py set-context-tokens`)":
-
-Replace parenthetical with:
-"(written by the SessionStart hook reset on `clear`/`startup` and by `flex_build.py
-set-context-tokens` when the operator runs `/context` and records the current count)"
-
-**Edit 2** — state.json `context_current_tokens` key description. Remove:
-"Written by `flex_build.py bump-context-tokens --cost N` after each builder and
-reviewer spawn (primary writer);"
-
-Update to lead with:
-"Written by the SessionStart hook (`session_start.py`) on `clear`/`startup` (primary
-reset) and by `flex_build.py set-context-tokens --tokens N` for manual recovery after
-`/clear` or when `CONTEXT CHECK REQUIRED` fires;"
-
-**Edit 3** — `context_current_tokens_recorded_at` description. Remove `bump-context-tokens`
-from the list of writers. Only `set-context-tokens` and `session_start.py` remain.
-
-### README.md
-
-Locate any sentence that describes `bump-context-tokens` as the primary writer of
-`context_current_tokens`. Replace with a description of SessionStart + `set-context-tokens`.
+And the equivalent reviewer block in Step 2. Remove only these blocks; leave
+all surrounding `record_attempt.py` text intact.
 
 ## Tests
 
-This is a methodology story — changes are to CLAUDE.build.md, docs/architecture.md, and
-README.md only. No Python logic is modified.
+Methodology story — changes to CLAUDE.build.md, docs/architecture.md, README.md only.
 
 Verification:
-- `grep -n "bump-context-tokens" CLAUDE.build.md` should show only the command
-  description in the "Context budget check" section (if any reference remains there
-  for documentation), but no `--cost [total_tokens]` invocations.
-- `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q` must pass
-  (no code changes, but confirm nothing broke).
+```bash
+# No bump invocations remain in the build loop
+grep -n "bump-context-tokens" CLAUDE.build.md
+# Should show zero results (or only within the "Context budget check" section
+# where the command is described, not invoked)
+
+# Test suite passes unchanged
+PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q
+```

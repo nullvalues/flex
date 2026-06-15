@@ -2,7 +2,7 @@
 era: "002"
 ---
 
-# project — Phase 70: Remove bump-context-tokens from orchestrator build loop
+# flex — Phase 70: Restore per-story `/context` call in Context gate
 
 ← [Phase 69: PreToolUse matcher dead under Agent tool rename (CER-049)](phase-69.md)
 
@@ -17,7 +17,7 @@ The build loop conflates two distinct token-tracking processes. record_attempt.p
 
 | ID | Title | Status |
 |----|-------|--------|
-| BUILD-029 | Remove `bump-context-tokens` from orchestrator build loop | planned |
+| BUILD-029 | Restore per-story `/context` call in Context gate; remove `bump-context-tokens` | planned |
 
 ## Schema delivery
 
