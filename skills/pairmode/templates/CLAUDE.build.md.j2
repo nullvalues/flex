@@ -338,45 +338,34 @@ If the story is not auth-gated, skip this section.
 
 ### Context gate
 
-Before any other action for this story, call `/context` and read the current token count.
+Before any other action for this story, read `context_current_tokens` from
+`.companion/state.json` (written by the `pre_tool_use.py` hook on the previous
+spawn, or the SessionStart baseline of 25,000 if no spawn has occurred yet in
+this session).
 
 The threshold is the value of `context_budget_threshold` in `.companion/state.json`
 (default: 120,000 if the key is absent or the file does not exist).
 
-If the token count is **below** the threshold:
-  Output: `CONTEXT: [N] / [threshold] tokens — proceeding`
+Output: `CONTEXT: [N] / [threshold] tokens`
 
-  Then record the count for the hook gate:
-    PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py \
-      set-context-tokens --tokens [N] --project-dir .
-  Replace [N] with the integer count from /context.
-
-  Then call:
+Then call:
     PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py \
       story-cost-estimate --story-id RAIL-NNN --project-dir .
 
-  Display its output verbatim. If the estimate is numeric and `threshold - N` is
-  less than the estimate, append:
+Display its output verbatim. If the estimate is numeric and `threshold - N` is less
+than the estimate, append:
     Estimated story cost exceeds remaining headroom; consider /clear before proceeding.
-  The estimate is informational — it does not block.
+The estimate is informational — it does not block.
 
-  Continue to the pre-story schema gate.
+Continue to the pre-story schema gate.
 
-If the token count is **at or above** the threshold:
-  Output:
-    CONTEXT: [N] / [threshold] tokens — THRESHOLD REACHED
-    Build paused. Please /clear then resume:
-      "Continue building from story [RAIL-NNN]"
-  Stop. Do not spawn any agent.
-
-A "continue building" (or equivalent) instruction issued before this `/context`
-call was made does not authorize proceeding. The token count is authoritative —
-re-evaluate against it regardless of any prior instruction.
-
-Note: `pre_tool_use.py` hook provides a secondary state.json-based check during
-builder and reviewer spawns. The hook reads `context_current_tokens` written by
-the `set-context-tokens` step above. The `/context` call above is the primary
-gate and is authoritative.
+Note: the `pre_tool_use.py` hook reads the live token count from the session JSONL
+transcript before every Task/Agent spawn and writes it back to state.json.  The
+hook is the sole budget enforcer — it will block the spawn and offer options
+(Proceed or /clear) if `current + estimated_next_step` exceeds the overrun ceiling
+(`threshold × (1 + overrun_pct)`, default 132,000). Tokens in the range
+[threshold, ceiling) are not hard-stopped; the hook determines whether the next
+step's cost would push over the ceiling.
 
 ### Pre-story schema gate
 
@@ -776,20 +765,23 @@ Stop the build loop.
 
 ## Context budget check (between stories)
 
-**Primary gate:** A per-story live `/context` call (see `### Context gate` above)
-reads the current token count directly and records it via `set-context-tokens`
-before any agent spawns. This is the authoritative check.
+**Enforcer:** `hooks/pre_tool_use.py` (matcher `Task|Agent`) delegates to
+`{{ pairmode_scripts_dir }}/context_budget.py`. On every subagent spawn, the hook:
 
-**Secondary fallback:** Enforced mechanically by `hooks/pre_tool_use.py` (matcher `Task|Agent`)
-as a belt-and-suspenders state.json-based check. It delegates to
-`{{ pairmode_scripts_dir }}/context_budget.py`.
-On every subagent spawn, the hook checks whether the projected
-next-step total would exceed
-`state["context_budget_threshold"] * (1 + state["context_budget_overrun_pct"])`
-(defaults: 120 000 × 1.10 = 132 000). When it would, the spawn is
-blocked and the verbatim prompt below is fed back as the block
-reason. The orchestrator surfaces it to the user **verbatim** — no
-commentary, no recommendation — and waits for a response.
+1. Reads the live token count from the session JSONL transcript
+   (`~/.claude/projects/{cwd-key}/{session_id}.jsonl`, last 100 lines,
+   last `type: "assistant"` entry's `usage` sum). No LLM cooperation required.
+2. Writes the count to `state["context_current_tokens"]` so the Context gate
+   (above) can display it on the next story.
+3. Falls back to `state["context_current_tokens"]` if JSONL parsing fails
+   (missing session, no assistant entry yet). Does **not** re-write state.json
+   on the fallback path (avoids re-arming the staleness TTL with stale data).
+4. Checks whether `current + estimated_next_step > threshold × (1 + overrun_pct)`
+   (defaults: 120,000 × 1.10 = 132,000). When it would, blocks the spawn.
+
+`set-context-tokens` (in `flex_build.py`) remains as a manual override / debugging
+escape hatch. The SessionStart hook seeds `context_current_tokens` to the
+configurable baseline (default 25,000) on every `/clear` or fresh `startup`.
 
 Canonical prompt body (source of truth:
 `tests/pairmode/fixtures/context_budget_prompt.txt`, reproduced
@@ -798,6 +790,7 @@ here for in-doc readability):
 ````
 CONTEXT BUDGET — [story RAIL-NNN] just completed.
 Context is at approximately [N] tokens (threshold: [T], overrun: [O]).
+Estimated next step: ~[E] tokens — [R] tokens remaining before ceiling.
 
 Continuing risks context compaction mid-story. Options:
 
@@ -813,9 +806,10 @@ Response handling:
   written `state["context_budget_acknowledged_at"]`. Re-prompt is
   suppressed until tokens cross
   `acknowledged_at + state["context_budget_reprompt_margin"]`
-  (default 10 000).
+  (default 10,000).
 - "Clear and resume" → user types `/clear`; the fresh session
-  starts with empty transcript and the hook passes through.
+  starts with a SessionStart-reset counter and the hook reads a fresh
+  JSONL file.
 
 Tunables (all in `.companion/state.json`):
 `context_budget_threshold`, `context_budget_overrun_pct`,

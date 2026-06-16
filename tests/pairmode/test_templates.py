@@ -2260,7 +2260,9 @@ class TestInfra129ContextBudgetMechanicalEnforcementDocs:
         )
 
     def test_rendered_build_md_contains_enforced_mechanically(self):
-        assert "Enforced mechanically" in self.rendered_build_md
+        # INFRA-179: the section heading changed from "Enforced mechanically"
+        # to "**Enforcer:**" (sole enforcer; no longer a secondary fallback).
+        assert "**Enforcer:**" in self.rendered_build_md
 
     def test_rendered_build_md_names_hook_and_module(self):
         assert "hooks/pre_tool_use.py" in self.rendered_build_md
@@ -2496,7 +2498,14 @@ class TestBuild026ContextGateReauthorization:
     """Story BUILD-026: CLAUDE.build.md.j2 (and flex's own CLAUDE.build.md)
     add an explicit re-authorization rule to the Context gate 'at or above'
     branch, stating that a prior 'continue building' command does not authorize
-    proceeding when /context then shows at-or-above threshold."""
+    proceeding when /context then shows at-or-above threshold.
+
+    INFRA-179 update: the Context gate is now a display-only step; the hard-stop
+    'at or above' branch (THRESHOLD REACHED) has been removed. The hook is the
+    sole enforcer. Tests updated to reflect the new architecture — the
+    re-authorization prose is no longer required because the LLM no longer makes
+    a blocking decision at the Context gate.
+    """
 
     def setup_method(self):
         self.output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
@@ -2506,49 +2515,25 @@ class TestBuild026ContextGateReauthorization:
 
     # --- Rendered template ---------------------------------------------------
 
-    def test_rendered_template_contains_does_not_authorize_proceeding(self):
-        assert "does not authorize proceeding" in self.output
+    def test_rendered_template_context_gate_is_display_only(self):
+        """INFRA-179: Context gate is now display-only; THRESHOLD REACHED branch removed."""
+        # The hook is the sole enforcer; the LLM no longer hard-stops at threshold.
+        assert "THRESHOLD REACHED" not in self.output
 
-    def test_rendered_template_contains_re_evaluate_against_prior_instruction(self):
-        assert "re-evaluate against it regardless of any prior instruction" in self.output
+    def test_rendered_template_context_gate_mentions_hook_enforcer(self):
+        """INFRA-179: Context gate notes that the hook reads JSONL and enforces."""
+        assert "pre_tool_use.py" in self.output
 
-    def test_rendered_template_sentences_appear_in_threshold_reached_section(self):
-        """Both new sentences must appear within the same section as THRESHOLD REACHED."""
-        threshold_idx = self.output.index("THRESHOLD REACHED")
-        # Find the next major section heading after the context gate block
-        next_section_idx = self.output.find("\n### ", threshold_idx + 1)
-        if next_section_idx == -1:
-            next_section_idx = len(self.output)
-        gate_section = self.output[threshold_idx:next_section_idx]
-        assert "does not authorize proceeding" in gate_section, (
-            "'does not authorize proceeding' must appear near THRESHOLD REACHED, "
-            "not floating elsewhere in the document"
-        )
-        assert "re-evaluate against it regardless of any prior instruction" in gate_section, (
-            "'re-evaluate against it regardless of any prior instruction' must appear "
-            "near THRESHOLD REACHED, not floating elsewhere in the document"
-        )
+    def test_rendered_template_context_gate_has_story_cost_estimate(self):
+        """Context gate still calls story-cost-estimate for informational display."""
+        assert "story-cost-estimate" in self.output
 
     # --- flex's own CLAUDE.build.md -----------------------------------------
 
-    def test_flex_claude_build_md_contains_does_not_authorize_proceeding(self):
-        assert "does not authorize proceeding" in self.flex_build_md
+    def test_flex_claude_build_md_context_gate_is_display_only(self):
+        """INFRA-179: CLAUDE.build.md Context gate is display-only."""
+        assert "THRESHOLD REACHED" not in self.flex_build_md
 
-    def test_flex_claude_build_md_contains_re_evaluate_against_prior_instruction(self):
-        assert "re-evaluate against it regardless of any prior instruction" in self.flex_build_md
-
-    def test_flex_claude_build_md_sentences_appear_in_threshold_reached_section(self):
-        """Both new sentences must appear within the same section as THRESHOLD REACHED."""
-        threshold_idx = self.flex_build_md.index("THRESHOLD REACHED")
-        next_section_idx = self.flex_build_md.find("\n### ", threshold_idx + 1)
-        if next_section_idx == -1:
-            next_section_idx = len(self.flex_build_md)
-        gate_section = self.flex_build_md[threshold_idx:next_section_idx]
-        assert "does not authorize proceeding" in gate_section, (
-            "CLAUDE.build.md: 'does not authorize proceeding' must appear near "
-            "THRESHOLD REACHED"
-        )
-        assert "re-evaluate against it regardless of any prior instruction" in gate_section, (
-            "CLAUDE.build.md: 're-evaluate against it regardless of any prior instruction' "
-            "must appear near THRESHOLD REACHED"
-        )
+    def test_flex_claude_build_md_context_gate_has_story_cost_estimate(self):
+        """CLAUDE.build.md Context gate still shows story-cost-estimate."""
+        assert "story-cost-estimate" in self.flex_build_md

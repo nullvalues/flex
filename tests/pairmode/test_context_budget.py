@@ -551,6 +551,7 @@ def test_decide_returns_check_required_when_tokens_absent(tmp_path):
     assert result["acknowledged_at"] == 0
     assert "CONTEXT CHECK REQUIRED" in result["reason"]
     assert "set-context-tokens" in result["reason"]
+    assert "session transcript or from state.json" in result["reason"]
 
 
 def test_decide_returns_none_when_acknowledged_within_margin(tmp_path):
@@ -893,3 +894,262 @@ def test_decide_passes_with_bootstrap_seeded_tokens(tmp_path):
     result = context_budget.decide(project_dir)
     # 1 + 53_000 = 53_001, ceiling = 120_000 * 1.10 = 132_000 → well under ceiling.
     assert result is None, f"Expected None but got: {result}"
+
+
+# ---------------------------------------------------------------------------
+# _derive_transcript_path (INFRA-179)
+# ---------------------------------------------------------------------------
+
+
+def test_derive_transcript_path_empty_session_id_returns_none(tmp_path):
+    """Empty session_id returns None."""
+    assert context_budget._derive_transcript_path(tmp_path, "") is None
+
+
+def test_derive_transcript_path_none_session_id_returns_none(tmp_path):
+    """None session_id returns None."""
+    assert context_budget._derive_transcript_path(tmp_path, None) is None  # type: ignore[arg-type]
+
+
+def test_derive_transcript_path_nonexistent_file_returns_none(tmp_path):
+    """Valid session_id but file not on disk returns None."""
+    result = context_budget._derive_transcript_path(
+        tmp_path, "abc123", home=tmp_path
+    )
+    assert result is None
+
+
+def test_derive_transcript_path_existing_file_returns_path(tmp_path):
+    """Existing JSONL file: returns the correct Path."""
+    sid = "test-session-id"
+    cwd = Path("/a/b/c")
+    cwd_key = str(cwd.resolve()).replace("/", "-")
+    jsonl_dir = tmp_path / ".claude" / "projects" / cwd_key
+    jsonl_dir.mkdir(parents=True)
+    jsonl_file = jsonl_dir / f"{sid}.jsonl"
+    jsonl_file.write_text("{}", encoding="utf-8")
+
+    result = context_budget._derive_transcript_path(cwd, sid, home=tmp_path)
+    assert result == jsonl_file
+
+
+def test_derive_transcript_path_formula_key_transform(tmp_path):
+    """Path key is cwd.resolve().replace('/', '-')."""
+    sid = "abc"
+    cwd = Path("/a/b/c")
+    expected_key = "-a-b-c"
+    jsonl_dir = tmp_path / ".claude" / "projects" / expected_key
+    jsonl_dir.mkdir(parents=True)
+    (jsonl_dir / f"{sid}.jsonl").write_text("{}", encoding="utf-8")
+
+    result = context_budget._derive_transcript_path(cwd, sid, home=tmp_path)
+    assert result is not None
+    assert result.name == f"{sid}.jsonl"
+    assert expected_key in str(result)
+
+
+def test_derive_transcript_path_relative_cwd_resolved(tmp_path):
+    """cwd='.' is resolved to an absolute path; no literal dot in key."""
+    sid = "reltest"
+    cwd = Path(".")
+    cwd_key = str(cwd.resolve()).replace("/", "-")
+    jsonl_dir = tmp_path / ".claude" / "projects" / cwd_key
+    jsonl_dir.mkdir(parents=True)
+    (jsonl_dir / f"{sid}.jsonl").write_text("{}", encoding="utf-8")
+
+    result = context_budget._derive_transcript_path(cwd, sid, home=tmp_path)
+    assert result is not None
+    # The key must not contain a literal '.' as the first character
+    # (it should be the absolute path transformed).
+    assert "-." not in str(result.parent.name[:2])
+
+
+# ---------------------------------------------------------------------------
+# compute_context_tokens (INFRA-179)
+# ---------------------------------------------------------------------------
+
+
+def _write_jsonl(path: Path, entries: list) -> None:
+    """Write a list of dicts as JSONL (one JSON object per line)."""
+    lines = [json.dumps(e) for e in entries]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_compute_context_tokens_valid_entry(tmp_path):
+    """Valid JSONL with one assistant entry returns sum of usage fields."""
+    jsonl = tmp_path / "session.jsonl"
+    _write_jsonl(jsonl, [
+        {
+            "type": "assistant",
+            "message": {
+                "usage": {
+                    "input_tokens": 1000,
+                    "cache_read_input_tokens": 500,
+                    "cache_creation_input_tokens": 200,
+                }
+            },
+        }
+    ])
+    result = context_budget.compute_context_tokens(jsonl)
+    assert result == 1700
+
+
+def test_compute_context_tokens_no_assistant_entry_returns_none(tmp_path):
+    """Only user/tool_result entries in tail → None."""
+    jsonl = tmp_path / "session.jsonl"
+    _write_jsonl(jsonl, [
+        {"type": "user", "message": {}},
+        {"type": "tool_result", "content": "ok"},
+    ])
+    result = context_budget.compute_context_tokens(jsonl)
+    assert result is None
+
+
+def test_compute_context_tokens_assistant_missing_usage_returns_none(tmp_path):
+    """Assistant entry with no 'usage' key → None."""
+    jsonl = tmp_path / "session.jsonl"
+    _write_jsonl(jsonl, [
+        {"type": "assistant", "message": {"content": "hello"}},
+    ])
+    result = context_budget.compute_context_tokens(jsonl)
+    assert result is None
+
+
+def test_compute_context_tokens_missing_file_returns_none(tmp_path):
+    """Path does not exist → None (no raise)."""
+    result = context_budget.compute_context_tokens(tmp_path / "no-such.jsonl")
+    assert result is None
+
+
+def test_compute_context_tokens_malformed_lines_skipped(tmp_path):
+    """Malformed lines before valid entry are skipped; valid entry found."""
+    jsonl = tmp_path / "session.jsonl"
+    lines = [
+        "not json{{",
+        "also not json",
+        json.dumps({
+            "type": "assistant",
+            "message": {
+                "usage": {
+                    "input_tokens": 300,
+                    "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0,
+                }
+            },
+        }),
+    ]
+    jsonl.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    result = context_budget.compute_context_tokens(jsonl)
+    assert result == 300
+
+
+def test_compute_context_tokens_entry_beyond_50_lines_found(tmp_path):
+    """Assistant entry at line 60 from end is found (tail is 100, not 50)."""
+    jsonl = tmp_path / "session.jsonl"
+    # Build 99 user lines + 1 assistant at position 40 from start of the 100-tail
+    # (i.e., 60 lines from the end of a 99-line file — well within the 100-line tail).
+    entries = [{"type": "user", "message": {}} for _ in range(59)]
+    entries.append({
+        "type": "assistant",
+        "message": {
+            "usage": {
+                "input_tokens": 9999,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+            }
+        },
+    })
+    entries.extend([{"type": "user", "message": {}} for _ in range(39)])
+    assert len(entries) == 99
+    _write_jsonl(jsonl, entries)
+    result = context_budget.compute_context_tokens(jsonl)
+    assert result == 9999
+
+
+def test_compute_context_tokens_oserror_returns_none(tmp_path, monkeypatch):
+    """OSError on open → None (no raise)."""
+    jsonl = tmp_path / "session.jsonl"
+    jsonl.write_text("{}", encoding="utf-8")
+
+    original_read_text = Path.read_text
+
+    def _raise_oserror(self, *args, **kwargs):
+        if self == jsonl:
+            raise OSError("simulated read failure")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _raise_oserror)
+    result = context_budget.compute_context_tokens(jsonl)
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# read_current_tokens (INFRA-179)
+# ---------------------------------------------------------------------------
+
+
+def test_read_current_tokens_jsonl_succeeds(tmp_path):
+    """Creates JSONL fixture; result matches JSONL sum."""
+    sid = "readtest"
+    cwd = tmp_path / "project"
+    cwd.mkdir()
+    cwd_key = str(cwd.resolve()).replace("/", "-")
+    jsonl_dir = tmp_path / ".claude" / "projects" / cwd_key
+    jsonl_dir.mkdir(parents=True)
+    jsonl_file = jsonl_dir / f"{sid}.jsonl"
+    _write_jsonl(jsonl_file, [
+        {
+            "type": "assistant",
+            "message": {
+                "usage": {
+                    "input_tokens": 2000,
+                    "cache_read_input_tokens": 300,
+                    "cache_creation_input_tokens": 100,
+                }
+            },
+        }
+    ])
+
+    result = context_budget.read_current_tokens(
+        project_dir=cwd, session_id=sid, home=tmp_path
+    )
+    assert result == 2400
+
+
+def test_read_current_tokens_no_session_id_returns_none(tmp_path):
+    """session_id='' → None."""
+    result = context_budget.read_current_tokens(
+        project_dir=tmp_path, session_id="", home=tmp_path
+    )
+    assert result is None
+
+
+def test_read_current_tokens_jsonl_file_missing_returns_none(tmp_path):
+    """Valid session_id but no JSONL file on disk → None."""
+    result = context_budget.read_current_tokens(
+        project_dir=tmp_path, session_id="nonexistent", home=tmp_path
+    )
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# decide — updated message text and session_id kwarg (INFRA-179)
+# ---------------------------------------------------------------------------
+
+
+def test_decide_returns_check_required_message_updated(tmp_path):
+    """CONTEXT CHECK REQUIRED message now mentions 'session transcript or from state.json'."""
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 53_000,
+            "current_phase": "72",
+            "current_story": "INFRA-179",
+        },
+    )
+    result = context_budget.decide(project_dir)
+    assert result is not None
+    assert result["block"] is True
+    assert "session transcript or from state.json" in result["reason"]

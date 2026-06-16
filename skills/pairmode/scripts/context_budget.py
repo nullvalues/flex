@@ -6,15 +6,24 @@ read-only) functions with no side effects on import.
 
 Design boundary (D11):
 - ``decide()`` MUST NOT write to state.json, effort.db, or the transcript.
-- The hook (INFRA-128) is the only writer; it persists
-  ``context_budget_acknowledged_at`` to state.json when ``decide()`` returns
-  ``block=True``.
+- The hook (``hooks/pre_tool_use.py``) is the sole writer; it makes two
+  delegated calls:
+  (a) ``read_current_tokens(project_dir, session_id)`` — JSONL-only read of
+      the live token count; when successful the hook writes
+      ``context_current_tokens`` + ``context_current_tokens_recorded_at``
+      to state.json.
+  (b) ``decide(project_dir, session_id)`` — JSONL-first, state.json-fallback
+      block decision; the hook writes ``context_budget_acknowledged_at``
+      to state.json when the result has ``block=True``.
 
-INFRA-148 contract change: the current token count is no longer derived by
-tail-reading the session transcript JSONL (that path silently returned ``None``
-on every production session). Instead, the orchestrator records the count
-from ``/context`` into ``state["context_current_tokens"]`` via
-``flex_build.py set-context-tokens`` and this module reads from there.
+Both state writes are merged into a single ``write_text()`` call in the hook;
+the hook is the sole state.json writer. This function (``decide``) is
+strictly read-only (D11).
+
+INFRA-179: restored JSONL transcript parsing as the primary token source.
+``decide()`` now accepts ``session_id`` and tries
+``read_current_tokens(project_dir, session_id)`` before falling back to
+``state["context_current_tokens"]``. The hook passes both arguments.
 
 The companion phase-spend CLI ``context_budget_check.py`` is unrelated and
 remains untouched.
@@ -27,6 +36,130 @@ import sqlite3
 import statistics
 from datetime import datetime, timezone
 from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# JSONL transcript path derivation and token extraction (INFRA-179)
+# ---------------------------------------------------------------------------
+
+
+def _derive_transcript_path(
+    cwd: Path,
+    session_id: str,
+    home: "Path | None" = None,
+) -> "Path | None":
+    """Derive the Claude Code session JSONL transcript path.
+
+    ``home`` defaults to ``Path.home()`` when ``None``; callers (including
+    tests) can inject an alternative root to avoid touching ``~/.claude/``.
+
+    Constructs:
+        home / ".claude" / "projects" / str(cwd.resolve()).replace("/", "-")
+        / f"{session_id}.jsonl"
+
+    Returns ``None`` if:
+    - ``session_id`` is empty, None, or not a non-empty string.
+    - The constructed path does not exist on disk (fail-open).
+    - Any exception is caught.
+
+    Pure function; no side effects.
+    """
+    try:
+        if not session_id or not isinstance(session_id, str):
+            return None
+        if home is None:
+            home = Path.home()
+        cwd_key = str(Path(cwd).resolve()).replace("/", "-")
+        candidate = home / ".claude" / "projects" / cwd_key / f"{session_id}.jsonl"
+        if not candidate.exists():
+            return None
+        return candidate
+    except Exception:
+        return None
+
+
+def compute_context_tokens(transcript_path: Path) -> "int | None":
+    """Tail-read ``transcript_path`` and return the live context token count.
+
+    Reads the last 100 lines (increased from 50 to handle busy sessions).
+    Walks in reverse to find the last ``type: "assistant"`` entry with a
+    ``message.usage`` block. Returns the sum of:
+      ``input_tokens + cache_read_input_tokens + cache_creation_input_tokens``
+
+    Returns ``None`` if:
+    - File is missing or unreadable (OSError).
+    - No valid assistant entry with a ``usage`` dict is found in the tail.
+    - Any numeric value is non-numeric.
+    - Any exception occurs.
+
+    Never raises. No TTL is applied — the JSONL value always reflects the
+    most recent completed response.
+    """
+    try:
+        try:
+            lines = transcript_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return None
+        tail = lines[-100:]
+        for line in reversed(tail):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("type") != "assistant":
+                continue
+            message = entry.get("message")
+            if not isinstance(message, dict):
+                continue
+            usage = message.get("usage")
+            if not isinstance(usage, dict):
+                continue
+            try:
+                input_tokens = int(usage.get("input_tokens", 0) or 0)
+                cache_read = int(usage.get("cache_read_input_tokens", 0) or 0)
+                cache_create = int(usage.get("cache_creation_input_tokens", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            total = input_tokens + cache_read + cache_create
+            if total < 0:
+                continue
+            return total
+        return None
+    except Exception:
+        return None
+
+
+def read_current_tokens(
+    project_dir: Path,
+    session_id: str = "",
+    home: "Path | None" = None,
+) -> "int | None":
+    """JSONL-only read of the live context token count.
+
+    No state.json fallback. This function is the hook's source for the live
+    count it writes back to state.json. Keeping it JSONL-only avoids
+    re-arming the CER-041 staleness TTL with a stale state.json value.
+
+    Logic:
+    1. If ``session_id`` is non-empty: derive the transcript path and call
+       ``compute_context_tokens()``. Return the count if positive.
+    2. Return ``None`` in all other cases.
+
+    ``home`` is passed through to ``_derive_transcript_path`` for testability.
+    """
+    if not session_id:
+        return None
+    transcript_path = _derive_transcript_path(project_dir, session_id, home)
+    if transcript_path is None:
+        return None
+    count = compute_context_tokens(transcript_path)
+    if count is not None and count > 0:
+        return count
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -50,8 +183,9 @@ _FLEX_BUILD_PATH = Path(__file__).resolve().parent / "flex_build.py"
 
 _CONTEXT_CHECK_REQUIRED_MSG = (
     "CONTEXT CHECK REQUIRED\n"
-    "No token count recorded for this session. Before spawning, call /context "
-    "and run:\n"
+    "No token count could be read from the session transcript or from state.json.\n"
+    "This should resolve automatically on the next spawn if session_id is available.\n"
+    "To record manually, run:\n"
     f"  PATH=$HOME/.local/bin:$PATH uv run python {_FLEX_BUILD_PATH} \\\n"
     "    set-context-tokens --tokens N --project-dir .\n"
     "Replace N with the integer token count from /context.\n"
@@ -274,26 +408,31 @@ def _read_state(project_dir: Path) -> dict | None:
 
 def decide(
     project_dir: Path,
+    session_id: str = "",
     flex_factor: float = 1.0,
-) -> dict | None:
-    """End-to-end glue. Reads state.json + effort.db, calls ``should_block``,
-    and returns
+) -> "dict | None":
+    """End-to-end glue. Reads JSONL transcript (primary) then state.json
+    (fallback), calls ``should_block``, and returns
 
         {"block": True, "reason": "<prompt>", "tokens": N,
          "acknowledged_at": N}
 
     when the next step would exceed the overrun ceiling, ``None`` when within
-    budget, or a "CONTEXT CHECK REQUIRED" block dict when no token count is
-    recorded in state.
+    budget, or a "CONTEXT CHECK REQUIRED" block dict when no token count can
+    be derived from either JSONL or state.json.
+
+    ``session_id`` is passed to ``read_current_tokens()`` for the JSONL read.
+    When empty (default), the JSONL path is skipped and the function falls
+    back directly to state.json.
 
     ``flex_factor`` scales the effective ceiling:
     ``ceiling = threshold * (1 + overrun_pct) * flex_factor``.
     Values <= 0 are clamped to 1.0; values > 5.0 are clamped to 5.0.
     The default of 1.0 preserves the pre-INFRA-160 behaviour exactly.
 
-    The caller (the hook) is responsible for writing ``acknowledged_at`` back
-    to state.json after consuming. This function is strictly read-only — it
-    MUST NOT write to state.json or effort.db (D11).
+    The caller (the hook) is responsible for writing ``acknowledged_at`` and
+    the live token count back to state.json after consuming. This function is
+    strictly read-only — it MUST NOT write to state.json or effort.db (D11).
     """
     import sys as _sys
 
@@ -319,7 +458,12 @@ def decide(
         # No state.json — non-pairmode project, fail-open.
         return None
 
-    current_tokens = read_context_tokens_from_state(state)
+    # Two-tier waterfall for the current token count:
+    # Tier 1: JSONL transcript (live, no TTL).
+    # Tier 2: state.json (written by hook or set-context-tokens; subject to TTL).
+    current_tokens: int | None = read_current_tokens(project_dir, session_id)
+    if current_tokens is None:
+        current_tokens = read_context_tokens_from_state(state)
     if current_tokens is None:
         return {
             "block": True,
