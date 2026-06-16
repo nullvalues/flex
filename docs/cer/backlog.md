@@ -1,6 +1,6 @@
 # flex — Cold-Eyes Review (CER) Backlog
 
-*Last updated: 2026-06-13 (CER-049 resolved Phase 69 INFRA-176; CER-046 resolved Phase 69 INFRA-178; CER-047 resolved Phase 68)*
+*Last updated: 2026-06-16 (CER-051 added Phase 72 security audit; CER-049 resolved Phase 69 INFRA-176; CER-046 resolved Phase 69 INFRA-178; CER-047 resolved Phase 68)*
 
 This file is the structured triage log for findings from external cold-eyes reviews.
 Each finding is assigned to one quadrant. Findings are not deleted — resolved findings
@@ -84,6 +84,7 @@ Not urgent, marginal value. Style, cosmetics, speculative improvements.
 | ID | Finding | Source | Date | Phase |
 |----|---------|--------|------|-------|
 | CER-050 | `.companion/state.json` writes are non-atomic across all writers — `hooks/session_start.py:73-75` (INFRA-175 reset write), `hooks/pre_tool_use.py` (`acknowledged_at`), and the flex_build.py CLI paths all use direct `write_text()` with no temp-file + `os.replace()`. A process kill mid-write could truncate state.json (recovery: re-bootstrap or manual `set-context-tokens`). Concurrent writers are not expected in normal operation. Fix: shared `_atomic_write_state()` helper (tempfile in same dir + `os.replace`) adopted by all writers. LOW severity (informational; pre-existing pattern, called out by Phase 68 security audit for parity). | Phase 68 security audit | 2026-06-12 | 68 |
+| CER-051 | `_derive_transcript_path` constructs `home/".claude"/"projects"/cwd_key/f"{session_id}.jsonl"` without normalising or rejecting traversal sequences in the `session_id` basename. If `session_id` ever contained `../`, the constructed path could resolve outside `~/.claude/projects/`. Impact is low in practice: `session_id` is supplied by Claude Code in the PreToolUse stdin payload (not user input); the function only tail-reads the file; all exceptions are caught and `None` returned (fail-open). Worst case: read of an arbitrary `.jsonl` file, sum of three integer fields written to `state.json["context_current_tokens"]`. Fix: reject any `session_id` containing `/` or `..` before path construction, or replace the existence check with a `Path.resolve()` containment check against `home / ".claude" / "projects" / cwd_key`. LOW severity. `skills/pairmode/scripts/context_budget.py:_derive_transcript_path`. | Phase 72 security audit | 2026-06-16 | 72 |
 
 
 ---

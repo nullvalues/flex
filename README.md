@@ -176,16 +176,16 @@ in place.
 
    Pairmode owns this loop. Companion is not required to use it; if companion is running,
    the sidebar will surface the active story but does not gate the build.
-2. **Context gate.** Before the next builder spawns, the orchestrator calls `/context` to read
-   the live token count and compares it to `context_budget_threshold` (default: 120k). If below
-   threshold, the live count is recorded via `flex_build.py set-context-tokens` so the hook gate
-   has an accurate value for the builder and reviewer spawns. On session start after a `/clear`
-   (or a fresh `startup`), the SessionStart hook auto-resets `context_current_tokens` to a
+2. **Context gate.** The orchestrator reads `context_current_tokens` from `.companion/state.json`
+   and displays it alongside the threshold (default: 120k). The hook is the sole budget enforcer:
+   `hooks/pre_tool_use.py` intercepts every Agent spawn, tail-reads the live token count from the
+   session JSONL transcript (`~/.claude/projects/{cwd-key}/{session_id}.jsonl`, last 100 lines,
+   last `type: "assistant"` entry's `usage` sum — no LLM cooperation required), and writes it back
+   to `state.json` so the next story's Context gate displays an up-to-date value. Falls back to the
+   stored `context_current_tokens` if JSONL parsing fails. Blocks the spawn if the projected total
+   would exceed the overrun ceiling (`threshold × 1.10`, default 132k). On session start after a
+   `/clear` (or a fresh `startup`), the SessionStart hook auto-resets `context_current_tokens` to a
    fresh-session baseline (`context_baseline_tokens`, default 25k) via `session_reset.py` (Phase 68).
-   A secondary mechanical gate fires independently: `hooks/pre_tool_use.py` intercepts every
-   Agent spawn and blocks it if the recorded count exceeds the threshold. The per-story
-   `/context` call is the primary gate; the hook is a belt-and-suspenders secondary check
-   during builder and reviewer spawns.
 3. **Invoke the builder subagent: "Build story RAIL-NNN."** The builder receives only the
    story ID. The orchestrator passes no story text, file contents, or prior context. The
    builder reads `docs/stories/<RAIL>/<RAIL>-NNN.md` cold, derives all needed context from

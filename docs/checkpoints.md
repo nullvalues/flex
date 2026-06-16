@@ -29,6 +29,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp72-restore-jsonl-context-gate
+
+**Phase:** 72 — Restore JSONL-based context gate
+**Tag command:** `git tag cp72-restore-jsonl-context-gate && git push origin cp72-restore-jsonl-context-gate`
+**Acceptance:** One story. INFRA-179: `context_budget.py` gains `_derive_transcript_path` (constructs JSONL path from `cwd` + `session_id`), `compute_context_tokens` (tail-reads last 100 lines, finds last `type: "assistant"` entry, sums `input + cache_read + cache_creation` tokens), and `read_current_tokens` (JSONL-only public function for the hook). `decide()` gains `session_id` parameter and JSONL-first waterfall (JSONL → state.json fallback). `_CONTEXT_CHECK_REQUIRED_MSG` updated to note auto-resolution. `hooks/pre_tool_use.py` Task/Agent branch expanded: two delegated calls (`read_current_tokens` + `decide`), merged state.json write (`context_current_tokens` + `context_current_tokens_recorded_at` on JSONL success; `context_budget_acknowledged_at` on block). `CLAUDE.build.md` Context gate converted to display-only (reads state.json; no `/context` call; no `set-context-tokens`); hook is sole enforcer. `skills/pairmode/templates/CLAUDE.build.md.j2` mirrored. `CLAUDE.md` carve-out updated to document two delegated calls and both state-write paths. `docs/architecture.md` §9, Hook architecture, and Companion data files updated with JSONL-first waterfall description. `README.md` Context gate description updated. CER-051 logged (LOW: `session_id` traversal advisory). 2173 tests pass (17 new test cases in `test_context_budget.py`; `test_templates.py` updated for new Context gate text).
+
+---
+
 ## cp71-propagate-context-gate-fix-to-template
 
 **Phase:** 71 — Propagate BUILD-029 Context gate fix into CLAUDE.build.md.j2 template

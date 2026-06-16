@@ -42,7 +42,7 @@ path ourselves from `cwd` (available in the event) and `session_id` (also availa
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-179 | Restore JSONL transcript parsing in context_budget.py; make hook the sole enforcer | planned |
+| INFRA-179 | Restore JSONL transcript parsing in context_budget.py; make hook the sole enforcer | complete |
 
 ## Schema delivery
 
