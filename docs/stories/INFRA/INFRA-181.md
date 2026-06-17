@@ -2,7 +2,7 @@
 id: INFRA-181
 rail: INFRA
 title: "Revert Phase 72 JSONL additions; restore /context + set-context-tokens Context gate"
-status: planned
+status: complete
 phase: "73"
 story_class: code
 primary_files:

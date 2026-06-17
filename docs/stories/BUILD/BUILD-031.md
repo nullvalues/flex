@@ -2,7 +2,7 @@
 id: BUILD-031
 rail: BUILD
 title: "Context gate flow diagram; README tooling update"
-status: planned
+status: complete
 phase: "73"
 story_class: doc
 primary_files:
