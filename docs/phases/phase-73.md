@@ -18,8 +18,8 @@ Replace the mutable context_current_tokens scalar with a per-story-ID dict (cont
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-180 | Replace context_current_tokens scalar with per-story-ID dict; add session-boundary staleness gate | complete |
-| INFRA-181 | Revert Phase 72 JSONL additions; restore /context + set-context-tokens Context gate | planned |
-| BUILD-031 | Context gate flow diagram; README tooling update | planned |
+| INFRA-181 | Revert Phase 72 JSONL additions; restore /context + set-context-tokens Context gate | complete |
+| BUILD-031 | Context gate flow diagram; README tooling update | complete |
 
 ## Schema delivery
 
