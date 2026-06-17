@@ -2,7 +2,7 @@
 id: INFRA-179
 rail: INFRA
 title: "Restore JSONL transcript parsing in context_budget.py; make hook the sole enforcer"
-status: planned
+status: complete
 phase: "72"
 story_class: code
 primary_files:
