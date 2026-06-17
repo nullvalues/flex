@@ -11,8 +11,13 @@ work — and makes that record the source of truth for every agent and every ses
 An Anchor evolution focused on `/flex:pairmode` context management: enforcing 150k
 context limits per build, persistent refocus to the system of record, and systematic
 shifts of deterministic processes to code. The result is a largely hands-free
-auto-mode build loop. Era 002 opens with a planned observability SPA to replace the
-companion sidebar.
+auto-mode build loop.
+
+**Era 002 — build loop and observability (active)**
+Extends the build loop with observability and mechanical enforcement: a browser-based
+SPA for context budget and effort metrics (Phase 63), story-scoped file permissions
+via hook enforcement (Phase 55), a reliable story-ID-bound context gate (Phase 73),
+and ongoing closure of spec-quality gaps that cause builder friction.
 
 ## Status
 
@@ -179,15 +184,16 @@ in place.
 2. **Context gate.** Before the next builder spawns, the orchestrator calls `/context`
    to read the live token count and records it for the current story via
    `flex_build.py set-context-tokens`, which writes to
-   `state["context_story_tokens"][story_id]`. On session start after a `/clear`
-   (or a fresh `startup`), the SessionStart hook writes `context_session_reset_at` so
-   pre-clear dict entries are detected as stale.
-   The hook is the sole budget enforcer: `hooks/pre_tool_use.py` intercepts every
-   Agent spawn, looks up the current story's dict entry, validates it post-dates the
-   last session reset, and blocks if the entry is absent, stale, or the projected token
-   total exceeds the overrun ceiling (`threshold × 1.10`, default 132k). If the
-   orchestrator skipped `set-context-tokens`, the hook blocks with
-   CONTEXT CHECK REQUIRED — the orchestrator's lapse becomes a hard stop.
+   `state["context_story_tokens"][story_id]` — a per-story dict that accumulates
+   across the session. On `/clear` or fresh startup, the SessionStart hook writes
+   `context_session_reset_at`, invalidating pre-clear entries.
+   The hook is the sole enforcer: `hooks/pre_tool_use.py` intercepts every Agent
+   spawn, looks up the story's dict entry, validates it post-dates the last session
+   reset, and blocks if the entry is absent, stale, or the projected token total
+   exceeds the overrun ceiling (`threshold × 1.10`, default 132k). If the orchestrator
+   skipped `set-context-tokens`, the hook blocks with CONTEXT CHECK REQUIRED — the
+   lapse becomes a hard stop, not a silent pass. See
+   `docs/pairmode/context-gate-flow.md` for the full flow diagram.
 3. **Invoke the builder subagent: "Build story RAIL-NNN."** The builder receives only the
    story ID. The orchestrator passes no story text, file contents, or prior context. The
    builder reads `docs/stories/<RAIL>/<RAIL>-NNN.md` cold, derives all needed context from
@@ -256,9 +262,13 @@ developer decision to override. `lineage` is append-only.
   updates. Pairmode functions without it, but decisions are not captured live.
 - `lesson_review.py` annotates templates with improvement suggestions but does not apply
   them. The developer must open the template and implement the change manually.
-- Story status updates and some orchestrator steps require manual bash invocations.
-  `story_update.py` (introduced in Phase 18) reduces friction but does not fully automate
-  the status lifecycle.
+- Story status updates and orchestrator steps that used to require manual bash
+  invocations are now covered by `story_update.py` and `flex_build.py`, which together
+  cover the full status lifecycle (introduced in Phases 18, 22, 45).
+- Context gate reliability depends on the orchestrator calling `/context` and
+  `set-context-tokens` before each story spawn. The hook enforces this by blocking
+  when the entry is absent, but cannot force the orchestrator to call `/context` if
+  it is operating outside the pairmode build loop.
 - The reconstruction workflow (ideology extraction and competing implementation seeding)
   requires a populated spec and works best after several sessions of decision capture.
 
