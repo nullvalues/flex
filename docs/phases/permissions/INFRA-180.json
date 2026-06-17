@@ -1,0 +1,15 @@
+{
+  "story_id": "INFRA-180",
+  "story_spec": "docs/stories/INFRA/INFRA-180.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/context_budget.py",
+    "skills/pairmode/scripts/flex_build.py",
+    "tests/pairmode/test_context_budget.py",
+    "tests/pairmode/test_flex_build_set_context_tokens.py",
+    "hooks/pre_tool_use.py",
+    "hooks/session_start.py",
+    "skills/pairmode/scripts/session_reset.py",
+    "docs/stories/INFRA/INFRA-180.md"
+  ],
+  "generated_at": "2026-06-17T18:06:21Z"
+}

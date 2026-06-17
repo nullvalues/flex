@@ -71,6 +71,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 70 | Remove bump-context-tokens from orchestrator build loop | complete | [phase-70.md](phase-70.md) |
 | 71 | Propagate BUILD-029 Context gate fix into CLAUDE.build.md.j2 template | complete | [phase-71.md](phase-71.md) |
 | 72 | Restore JSONL-based context gate | complete | [phase-72.md](phase-72.md) |
+| 73 | Per-story context token dict; revert Phase 72 JSONL gate | planned | [phase-73.md](phase-73.md) |
 
 ---
 
