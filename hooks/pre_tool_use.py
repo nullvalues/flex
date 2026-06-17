@@ -3,15 +3,13 @@
 PreToolUse hook — dispatches to context_budget (Task/Agent) and scope_guard (Edit/Write).
 
 Thin dispatcher. Domain logic lives in the named modules:
-  - Task/Agent → skills/pairmode/scripts/context_budget.py  (CER-027, CER-049)
-    Two delegated module calls:
-      (a) read_current_tokens(project_dir, session_id) — JSONL-only live count;
-          when successful the hook writes context_current_tokens +
-          context_current_tokens_recorded_at to state.json.
-      (b) decide(project_dir, session_id) — JSONL-first, state.json-fallback
-          block decision; the hook writes context_budget_acknowledged_at
-          to state.json when result["block"] is True.
-    Both state writes are merged into a single write_text() call.
+  - Task/Agent → skills/pairmode/scripts/context_budget.py  (CER-027, CER-049, INFRA-180)
+    One delegated module call:
+      decide(project_dir, story_id) — per-story dict lookup block decision;
+      the hook writes context_budget_acknowledged_at to state.json when
+      result["block"] is True.
+    No live-count write; set-context-tokens is the sole writer of
+    context_story_tokens.
   - Edit/Write → skills/pairmode/scripts/scope_guard.py (Phase 55)
     Read-only; no state writes.
 
@@ -19,6 +17,11 @@ CER-049: Current Claude Code harnesses name the agent-spawn tool `Agent`
 (was `Task` in earlier harnesses). The matcher in hooks.json and the
 tool-name check here accept both names so the context-budget gate fires
 under either harness.
+
+INFRA-180: removed Phase 72 JSONL additions (read_current_tokens call and
+live_tokens path). The Task/Agent branch now makes a single decide() call,
+passing story_id for the per-story dict lookup. The state.json write
+reduces to context_budget_acknowledged_at only (on block).
 """
 import json, sys
 from pathlib import Path
@@ -38,44 +41,32 @@ def main():
     if tool_name in ("Task", "Agent"):
         try:
             import context_budget
-            from datetime import datetime, timezone
 
             project_dir = Path(data.get("cwd") or ".")
-            session_id = data.get("session_id", "")
-
-            # JSONL-only read — for state.json display update.
-            live_tokens = context_budget.read_current_tokens(
-                project_dir=project_dir,
-                session_id=session_id,
+            story_id = (
+                json.loads((project_dir / ".companion" / "state.json").read_text())
+                .get("current_story", {})
+                .get("id", "")
+                if (project_dir / ".companion" / "state.json").exists()
+                else ""
             )
 
-            # Block decision (JSONL-first, state.json fallback internally).
             result = context_budget.decide(
                 project_dir=project_dir,
-                session_id=session_id,
+                story_id=story_id,
             )
         except Exception:
             sys.exit(0)
 
-        # Merge state.json writes (live count + optional acknowledged_at).
-        needs_write = live_tokens is not None or (result and result.get("block"))
-        if needs_write:
+        if result and result.get("block"):
             try:
                 state_path = project_dir / ".companion" / "state.json"
                 if state_path.exists():
                     state = json.loads(state_path.read_text())
-                    if live_tokens is not None:
-                        state["context_current_tokens"] = live_tokens
-                        state["context_current_tokens_recorded_at"] = (
-                            datetime.now(timezone.utc).isoformat()
-                        )
-                    if result and result.get("block"):
-                        state["context_budget_acknowledged_at"] = result["acknowledged_at"]
+                    state["context_budget_acknowledged_at"] = result["acknowledged_at"]
                     state_path.write_text(json.dumps(state, indent=2))
             except Exception:
                 pass
-
-        if result and result.get("block"):
             print(json.dumps({"decision": "block", "reason": result["reason"]}))
         sys.exit(0)
 

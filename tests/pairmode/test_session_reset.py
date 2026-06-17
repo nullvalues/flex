@@ -81,9 +81,12 @@ def _additional_context(stdout: str) -> str:
 
 
 def test_decide_reset_clear_returns_default_baseline():
-    """`clear` source with pairmode_version returns DEFAULT_BASELINE_TOKENS."""
+    """`clear` source with pairmode_version returns dict with DEFAULT_BASELINE_TOKENS."""
     state = {"pairmode_version": "0.1.0"}
-    assert session_reset.decide_reset("clear", state) == 25_000
+    result = session_reset.decide_reset("clear", state)
+    assert isinstance(result, dict)
+    assert result["should_reset"] is True
+    assert result["context_current_tokens"] == 25_000
     assert session_reset.DEFAULT_BASELINE_TOKENS == 25_000
 
 
@@ -91,11 +94,12 @@ def test_decide_reset_clear_returns_default_baseline():
 
 
 def test_decide_reset_startup_matches_clear():
-    """`startup` source behaves identically to `clear`."""
+    """`startup` source returns same baseline as `clear`."""
     state = {"pairmode_version": "0.1.0"}
-    assert session_reset.decide_reset("startup", state) == session_reset.decide_reset(
-        "clear", state
-    )
+    clear_result = session_reset.decide_reset("clear", state)
+    startup_result = session_reset.decide_reset("startup", state)
+    assert isinstance(startup_result, dict)
+    assert startup_result["context_current_tokens"] == clear_result["context_current_tokens"]
 
 
 # Acceptance criterion 3
@@ -137,22 +141,28 @@ def test_decide_reset_non_dict_state_returns_none():
 
 
 def test_decide_reset_honors_context_baseline_tokens_override():
-    """A positive integer override is returned verbatim."""
+    """A positive integer override is returned in context_current_tokens."""
     state = {"pairmode_version": "0.1.0", "context_baseline_tokens": 30_000}
-    assert session_reset.decide_reset("clear", state) == 30_000
+    result = session_reset.decide_reset("clear", state)
+    assert isinstance(result, dict)
+    assert result["context_current_tokens"] == 30_000
 
 
 @pytest.mark.parametrize("bad", [0, -5, "abc", None])
 def test_decide_reset_invalid_override_falls_back_to_default(bad):
     """Invalid/non-positive overrides fall back to DEFAULT_BASELINE_TOKENS."""
     state = {"pairmode_version": "0.1.0", "context_baseline_tokens": bad}
-    assert session_reset.decide_reset("clear", state) == 25_000
+    result = session_reset.decide_reset("clear", state)
+    assert isinstance(result, dict)
+    assert result["context_current_tokens"] == 25_000
 
 
 def test_decide_reset_string_integer_override_accepted():
     """A numeric string is coerced to int and accepted when positive."""
     state = {"pairmode_version": "0.1.0", "context_baseline_tokens": "40000"}
-    assert session_reset.decide_reset("clear", state) == 40_000
+    result = session_reset.decide_reset("clear", state)
+    assert isinstance(result, dict)
+    assert result["context_current_tokens"] == 40_000
 
 
 # ---------------------------------------------------------------------------
@@ -310,3 +320,69 @@ def test_hook_post_reset_unblocks_context_budget_gate(tmp_path):
     # CONTEXT CHECK REQUIRED block is not triggered.
     tokens = context_budget.read_context_tokens_from_state(state)
     assert tokens == 25_000
+
+
+# ---------------------------------------------------------------------------
+# INFRA-180: context_session_reset_at in decide_reset return
+# ---------------------------------------------------------------------------
+
+
+def test_decide_reset_clear_returns_context_session_reset_at():
+    """`clear` → context_session_reset_at present in return dict."""
+    state = {"pairmode_version": "0.1.0"}
+    result = session_reset.decide_reset("clear", state)
+    assert isinstance(result, dict)
+    assert "context_session_reset_at" in result
+    # Must be parseable as a UTC ISO-8601 string.
+    parsed = datetime.fromisoformat(result["context_session_reset_at"])
+    assert parsed.tzinfo is not None
+
+
+def test_decide_reset_startup_returns_context_session_reset_at():
+    """`startup` → context_session_reset_at present in return dict."""
+    state = {"pairmode_version": "0.1.0"}
+    result = session_reset.decide_reset("startup", state)
+    assert isinstance(result, dict)
+    assert "context_session_reset_at" in result
+    parsed = datetime.fromisoformat(result["context_session_reset_at"])
+    assert parsed.tzinfo is not None
+
+
+@pytest.mark.parametrize("source", ["resume", "compact"])
+def test_decide_reset_non_reset_sources_no_context_session_reset_at(source):
+    """`resume`/`compact` → None returned; no context_session_reset_at."""
+    state = {"pairmode_version": "0.1.0"}
+    result = session_reset.decide_reset(source, state)
+    assert result is None
+
+
+def test_hook_clear_writes_context_session_reset_at(tmp_path):
+    """`clear` via hook: state.json gains context_session_reset_at."""
+    state_path = _seed_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "context_current_tokens": 100_000,
+        },
+    )
+    result = _run_hook(tmp_path, stdin=json.dumps({"source": "clear"}))
+    assert result.returncode == 0
+    state = _read_state(state_path)
+    assert "context_session_reset_at" in state
+    parsed = datetime.fromisoformat(state["context_session_reset_at"])
+    assert parsed.tzinfo is not None
+
+
+def test_hook_resume_does_not_write_context_session_reset_at(tmp_path):
+    """`resume` via hook: state.json does NOT gain context_session_reset_at."""
+    state_path = _seed_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "context_current_tokens": 100_000,
+        },
+    )
+    result = _run_hook(tmp_path, stdin=json.dumps({"source": "resume"}))
+    assert result.returncode == 0
+    state = _read_state(state_path)
+    assert "context_session_reset_at" not in state

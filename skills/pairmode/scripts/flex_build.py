@@ -870,9 +870,12 @@ def cmd_story_cost_estimate(story_id: str, project_dir: str) -> None:
 def cmd_set_context_tokens(tokens: int, project_dir: str) -> None:
     """Record the current ``/context`` token count into ``.companion/state.json``.
 
-    Writes ``state["context_current_tokens"] = N``. The pre_tool_use hook reads
-    this value (via ``context_budget.read_context_tokens_from_state``) to decide
-    whether to block a Task spawn (INFRA-148).
+    Writes ``state["context_current_tokens"] = N`` (kept for backwards compat /
+    display) and, when an active story ID is set, writes to the per-story dict
+    ``state["context_story_tokens"][story_id] = {"tokens": N, "recorded_at": ...}``.
+    The pre_tool_use hook reads ``context_story_tokens`` (via
+    ``context_budget.read_context_tokens_from_state``) to decide whether to block
+    a Task spawn (INFRA-180).
     """
     if tokens <= 0:
         click.echo(
@@ -896,8 +899,32 @@ def cmd_set_context_tokens(tokens: int, project_dir: str) -> None:
     else:
         state = {}
 
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Scalar write — kept for backwards compat with sibling-project display.
     state["context_current_tokens"] = tokens
-    state["context_current_tokens_recorded_at"] = datetime.now(timezone.utc).isoformat()
+    state["context_current_tokens_recorded_at"] = now_iso
+
+    # Per-story dict write (INFRA-180).
+    active_story = state.get("current_story")
+    if isinstance(active_story, dict):
+        story_id = active_story.get("id", "")
+    elif isinstance(active_story, str):
+        story_id = active_story
+    else:
+        story_id = ""
+
+    if story_id:
+        state.setdefault("context_story_tokens", {})[story_id] = {
+            "tokens": tokens,
+            "recorded_at": now_iso,
+        }
+    else:
+        click.echo(
+            "set-context-tokens: no active story; dict entry not written",
+            err=True,
+        )
+
     state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
     click.echo(f"context: recorded {tokens:,} tokens")
 

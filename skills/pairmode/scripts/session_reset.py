@@ -1,6 +1,6 @@
 """session_reset.py — Pure decision logic for SessionStart context counter reset.
 
-CER-047 / Phase 68 INFRA-175.
+CER-047 / Phase 68 INFRA-175.  Updated INFRA-180.
 
 `context_current_tokens` is a dead-reckoning counter: anchored once from a real
 `/context` reading, then advanced by each builder/reviewer's measured cost.
@@ -17,11 +17,17 @@ This module decides — purely from the source string and the current state dict
 Design boundary (D11, mirrors ``context_budget.py``):
 - ``decide_reset()`` MUST NOT read or write the filesystem.
 - The hook (INFRA-175 / ``hooks/session_start.py``) is the only writer; it
-  persists ``context_current_tokens`` + ``context_current_tokens_recorded_at``
-  to state.json when ``decide_reset()`` returns an int.
+  persists the returned keys to state.json when ``decide_reset()`` returns a
+  dict with ``should_reset=True``.
+
+INFRA-180: ``decide_reset()`` now returns a dict (or None) instead of an int
+(or None). The dict includes ``context_session_reset_at`` so the hook can write
+the session boundary timestamp alongside the existing counter fields.
 """
 
 from __future__ import annotations
+
+from datetime import datetime, timezone
 
 
 # ---------------------------------------------------------------------------
@@ -47,21 +53,28 @@ DEFAULT_BASELINE_TOKENS = 25_000
 # ---------------------------------------------------------------------------
 
 
-def decide_reset(source: str | None, state: dict) -> int | None:
-    """Return the baseline token value to write, or ``None`` for no reset.
+def decide_reset(source: str | None, state: dict) -> "dict | None":
+    """Return the reset decision dict, or ``None`` for no reset.
+
+    When a reset is warranted, returns:
+        {
+            "should_reset": True,
+            "context_current_tokens": baseline,
+            "context_current_tokens_recorded_at": now_iso,
+            "context_session_reset_at": now_iso,
+        }
 
     Rules:
       - Returns ``None`` unless ``source in RESET_SOURCES``.
       - Returns ``None`` unless ``state`` is a dict containing a truthy
         ``pairmode_version`` (non-pairmode repos are untouched, matching the
         existing early-exit in ``session_start.py``).
-      - Otherwise returns ``int(state.get("context_baseline_tokens"))`` when
-        that key holds a valid positive integer, else
+      - Otherwise returns a dict with ``should_reset=True`` and the baseline
+        value from ``state["context_baseline_tokens"]`` (positive int) else
         ``DEFAULT_BASELINE_TOKENS``.
 
-    The function performs no I/O. The caller (the SessionStart hook) is
-    responsible for writing the returned value (and a fresh
-    ``context_current_tokens_recorded_at`` timestamp) back to state.json.
+    The function performs no filesystem I/O. The caller (the SessionStart
+    hook) is responsible for writing the returned keys to state.json.
     """
     if source not in RESET_SOURCES:
         return None
@@ -77,5 +90,16 @@ def decide_reset(source: str | None, state: dict) -> int | None:
         except (TypeError, ValueError):
             override = None
         if override is not None and override > 0:
-            return override
-    return DEFAULT_BASELINE_TOKENS
+            baseline = override
+        else:
+            baseline = DEFAULT_BASELINE_TOKENS
+    else:
+        baseline = DEFAULT_BASELINE_TOKENS
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    return {
+        "should_reset": True,
+        "context_current_tokens": baseline,
+        "context_current_tokens_recorded_at": now_iso,
+        "context_session_reset_at": now_iso,
+    }

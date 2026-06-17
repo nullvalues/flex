@@ -5,14 +5,14 @@ Thin-delegation exception: when Claude Code passes a stdin payload containing
 ``source`` (one of ``"startup"``, ``"resume"``, ``"clear"``, ``"compact"``),
 this hook delegates the dead-reckoning counter reset decision to
 ``skills/pairmode/scripts/session_reset.decide_reset()`` (CER-047 / Phase 68
-INFRA-175). All decision logic lives in that module; the hook owns one state
-write (``context_current_tokens`` + ``context_current_tokens_recorded_at``)
-when ``decide_reset()`` returns an int, mirroring ``pre_tool_use.py``'s
-``acknowledged_at`` write pattern.
+INFRA-175 / INFRA-180). All decision logic and timestamp generation live in
+that module; the hook owns one state write (all keys returned by
+``decide_reset()``: ``context_current_tokens``,
+``context_current_tokens_recorded_at``, and ``context_session_reset_at``)
+when ``decide_reset()`` returns a dict with ``should_reset=True``.
 """
 import json
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -60,16 +60,20 @@ def main() -> None:
     if not pairmode_version:
         return  # not a pairmode repo; emit nothing
 
-    # CER-047 / Phase 68 INFRA-175: delegate counter-reset decision.
+    # CER-047 / Phase 68 INFRA-175 / INFRA-180: delegate counter-reset decision.
     source = _read_source_from_stdin()
     reset_notice: str | None = None
     try:
         import session_reset
-        baseline = session_reset.decide_reset(source, state)
-        if isinstance(baseline, int):
-            now = datetime.now(timezone.utc).isoformat()
+        reset_result = session_reset.decide_reset(source, state)
+        if isinstance(reset_result, dict) and reset_result.get("should_reset"):
+            baseline = reset_result["context_current_tokens"]
+            # Write all keys returned by decide_reset to state.json.
             state["context_current_tokens"] = baseline
-            state["context_current_tokens_recorded_at"] = now
+            state["context_current_tokens_recorded_at"] = reset_result[
+                "context_current_tokens_recorded_at"
+            ]
+            state["context_session_reset_at"] = reset_result["context_session_reset_at"]
             state_path.write_text(
                 json.dumps(state, indent=2), encoding="utf-8"
             )
