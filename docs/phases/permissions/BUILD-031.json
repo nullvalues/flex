@@ -1,0 +1,10 @@
+{
+  "story_id": "BUILD-031",
+  "story_spec": "docs/stories/BUILD/BUILD-031.md",
+  "allowed_paths": [
+    "docs/pairmode/context-gate-flow.md",
+    "README.md",
+    "docs/stories/BUILD/BUILD-031.md"
+  ],
+  "generated_at": "2026-06-17T18:11:49Z"
+}
