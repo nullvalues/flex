@@ -21,4 +21,4 @@ Era 002 extends the build loop with observability and intelligence: replacing th
 | 62 | Context gate authorization clarity | planned |
 | 66 | PAIRMODE_VERSION single-source | planned |
 | 70 | Remove bump-context-tokens from orchestrator build loop | planned |
-| 73 | Per-story context token dict; revert Phase 72 JSONL gate | planned |
+| 73 | Per-story context token dict; revert Phase 72 JSONL gate | complete |

@@ -63,9 +63,10 @@ Run every item on every review invocation.
      (dead-reckoning counter reset)
 
    For this dispatch: one stdin read, one delegated `decide_reset` call,
-   one hook-owned state write (`context_current_tokens` plus
-   `context_current_tokens_recorded_at`), one emit. All decision logic
-   lives in `session_reset.py`, NOT in the hook.
+   one hook-owned state write (`context_current_tokens` +
+   `context_current_tokens_recorded_at` + `context_session_reset_at` —
+   three keys returned by `decide_reset()` as a dict — see INFRA-180),
+   one emit. All decision logic lives in `session_reset.py`, NOT in the hook.
 
    Any logic added inside `pre_tool_use.py` or `session_start.py` beyond
    tool-name / source dispatch + module delegation + emit remains CRITICAL.

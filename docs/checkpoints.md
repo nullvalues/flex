@@ -29,6 +29,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp73-per-story-context-token-dict
+
+**Phase:** 73 — Per-story context token dict; revert Phase 72 JSONL gate
+**Tag command:** `git tag cp73-per-story-context-token-dict && git push origin cp73-per-story-context-token-dict`
+**Acceptance:** Three stories. INFRA-180: `context_budget.py` gains `_read_story_token_entry` and `_is_entry_fresh`; `read_context_tokens_from_state` gains `story_id` parameter with dict-first read path; `decide()` renames `session_id` → `story_id`; `set-context-tokens` writes `context_story_tokens[story_id]` dict entry alongside the backwards-compat scalar; `session_reset.decide_reset()` return type changed from `int|None` to `dict|None` and now returns `context_session_reset_at`; `session_start.py` writes `context_session_reset_at` on clear/startup; `pre_tool_use.py` Task/Agent branch simplified to single `decide(story_id=...)` call with `context_budget_acknowledged_at`-only state write. INFRA-181: `_derive_transcript_path`, `compute_context_tokens`, and `read_current_tokens` (Phase 72 JSONL dead code) removed; `CLAUDE.build.md` and `.j2` template restored to `/context` + `set-context-tokens` Context gate; `CLAUDE.md`, `docs/architecture.md`, and `README.md` updated. BUILD-031: `docs/pairmode/context-gate-flow.md` created with three ASCII flow diagrams (per-story setup, hook enforcement, session reset) and data model table; `README.md` Era 002 blurb and Known Limitations updated. 2192 tests pass.
+
+---
+
 ## cp72-restore-jsonl-context-gate
 
 **Phase:** 72 — Restore JSONL-based context gate

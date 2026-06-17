@@ -24,7 +24,7 @@ flex/
     post_tool_use.py              ← pair partner: relay file changes
     session_end.py                ← signal sidebar to summarize and exit
     pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement)
-    session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write
+    session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write (context_current_tokens + context_current_tokens_recorded_at + context_session_reset_at on clear/startup — INFRA-180)
 
   skills/
     pairmode/                     ← /flex:pairmode — bootstrap and manage pairmode
@@ -889,8 +889,10 @@ All decision logic lives in the named modules; the hook is a thin dispatcher.
 - **`source` ∈ {`clear`, `startup`} → `session_reset.py`:** resets the dead-reckoning
   context counter to a fresh-session baseline (`state["context_baseline_tokens"]` if set,
   else `25_000`). Returns `None` for `resume` and `compact` (no reset). The hook writes
-  `context_current_tokens` and `context_current_tokens_recorded_at` to state.json when
-  `decide_reset()` returns an int; all decision logic lives in `session_reset.py`.
+  `context_current_tokens`, `context_current_tokens_recorded_at`, and
+  `context_session_reset_at` to state.json when `decide_reset()` returns a dict with
+  `should_reset=True`; all decision logic lives in `session_reset.py`.
+  (INFRA-180 changed the return type from `int | None` to `dict | None`.)
   `compact` is deliberately excluded (CER-047 — post-compact window size unknown; stale
   counter over-blocks, which is fail-safe).
 
