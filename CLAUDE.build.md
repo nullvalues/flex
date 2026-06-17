@@ -338,15 +338,19 @@ If the story is not auth-gated, skip this section.
 
 ### Context gate
 
-Before any other action for this story, read `context_current_tokens` from
-`.companion/state.json` (written by the `pre_tool_use.py` hook on the previous
-spawn, or the SessionStart baseline of 25,000 if no spawn has occurred yet in
-this session).
+Before any other action for this story, call `/context` and read the current token count.
 
 The threshold is the value of `context_budget_threshold` in `.companion/state.json`
 (default: 120,000 if the key is absent or the file does not exist).
 
 Output: `CONTEXT: [N] / [threshold] tokens`
+
+Then record the count for this story:
+    PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+      set-context-tokens --tokens N --project-dir .
+Replace N with the integer token count from /context. This writes the count into
+`state["context_story_tokens"][story_id]` so the hook can enforce the gate on the
+next spawn.
 
 Then call:
     PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
@@ -359,13 +363,11 @@ The estimate is informational — it does not block.
 
 Continue to the pre-story schema gate.
 
-Note: the `pre_tool_use.py` hook reads the live token count from the session JSONL
-transcript before every Task/Agent spawn and writes it back to state.json.  The
-hook is the sole budget enforcer — it will block the spawn and offer options
-(Proceed or /clear) if `current + estimated_next_step` exceeds the overrun ceiling
-(`threshold × (1 + overrun_pct)`, default 132,000). Tokens in the range
-[threshold, ceiling) are not hard-stopped; the hook determines whether the next
-step's cost would push over the ceiling.
+Note: the `pre_tool_use.py` hook reads `state["context_story_tokens"][story_id]`
+before every Task/Agent spawn. If the entry is absent (orchestrator skipped
+`set-context-tokens`) or was recorded before the last `/clear`
+(`context_session_reset_at`), the hook blocks with CONTEXT CHECK REQUIRED.
+The hook is the sole budget enforcer.
 
 ### Pre-story schema gate
 
@@ -768,20 +770,25 @@ Stop the build loop.
 **Enforcer:** `hooks/pre_tool_use.py` (matcher `Task|Agent`) delegates to
 `skills/pairmode/scripts/context_budget.py`. On every subagent spawn, the hook:
 
-1. Reads the live token count from the session JSONL transcript
-   (`~/.claude/projects/{cwd-key}/{session_id}.jsonl`, last 100 lines,
-   last `type: "assistant"` entry's `usage` sum). No LLM cooperation required.
-2. Writes the count to `state["context_current_tokens"]` so the Context gate
-   (above) can display it on the next story.
-3. Falls back to `state["context_current_tokens"]` if JSONL parsing fails
-   (missing session, no assistant entry yet). Does **not** re-write state.json
-   on the fallback path (avoids re-arming the staleness TTL with stale data).
-4. Checks whether `current + estimated_next_step > threshold × (1 + overrun_pct)`
-   (defaults: 120,000 × 1.10 = 132,000). When it would, blocks the spawn.
+1. Reads `state["current_story"]["id"]` to get the active story ID.
+2. Looks up `state["context_story_tokens"][story_id]` — the count the orchestrator
+   recorded via `set-context-tokens` at the Context gate step above.
+3. Validates the entry is fresh: `entry["recorded_at"]` must post-date
+   `state["context_session_reset_at"]` (written by the SessionStart hook on
+   `clear`/`startup`). An entry older than the last session reset is stale.
+4. If the entry is missing or stale: blocks with CONTEXT CHECK REQUIRED.
+   The orchestrator must call `/context` and run `set-context-tokens` for the
+   current story before the spawn can proceed.
+5. If entry is fresh: checks whether `tokens + estimated_next_step > threshold ×
+   (1 + overrun_pct)` (defaults: 120,000 × 1.10 = 132,000). Blocks when exceeded.
 
-`set-context-tokens` (in `flex_build.py`) remains as a manual override / debugging
-escape hatch. The SessionStart hook seeds `context_current_tokens` to the
-configurable baseline (default 25,000) on every `/clear` or fresh `startup`.
+The per-story dict preserves the full session history of token counts — visible in
+`.companion/state.json["context_story_tokens"]`. A /clear is visible as a lower count
+for the same story ID on the subsequent run (the entry is overwritten when the
+orchestrator re-records after the clear).
+
+`set-context-tokens` is the sole writer of `context_story_tokens` entries.
+The SessionStart hook writes `context_session_reset_at` on `clear`/`startup`.
 
 Canonical prompt body (source of truth:
 `tests/pairmode/fixtures/context_budget_prompt.txt`, reproduced
@@ -807,9 +814,10 @@ Response handling:
   suppressed until tokens cross
   `acknowledged_at + state["context_budget_reprompt_margin"]`
   (default 10,000).
-- "Clear and resume" → user types `/clear`; the fresh session
-  starts with a SessionStart-reset counter and the hook reads a fresh
-  JSONL file.
+- "Clear and resume" → user types `/clear`; the SessionStart hook writes a fresh
+  `context_session_reset_at`, invalidating pre-clear dict entries. The orchestrator
+  calls `/context` and `set-context-tokens` in the resumed session to record a
+  fresh entry for the story.
 
 Tunables (all in `.companion/state.json`):
 `context_budget_threshold`, `context_budget_overrun_pct`,

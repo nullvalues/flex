@@ -2496,15 +2496,11 @@ class TestBuild025PreStoryScopeCheck:
 
 class TestBuild026ContextGateReauthorization:
     """Story BUILD-026: CLAUDE.build.md.j2 (and flex's own CLAUDE.build.md)
-    add an explicit re-authorization rule to the Context gate 'at or above'
-    branch, stating that a prior 'continue building' command does not authorize
-    proceeding when /context then shows at-or-above threshold.
+    describe the Context gate enforcement.
 
-    INFRA-179 update: the Context gate is now a display-only step; the hard-stop
-    'at or above' branch (THRESHOLD REACHED) has been removed. The hook is the
-    sole enforcer. Tests updated to reflect the new architecture — the
-    re-authorization prose is no longer required because the LLM no longer makes
-    a blocking decision at the Context gate.
+    INFRA-181 update: the Context gate now calls /context and set-context-tokens
+    to write context_story_tokens[story_id]. The hook is the sole enforcer —
+    it blocks with CONTEXT CHECK REQUIRED when the entry is absent or stale.
     """
 
     def setup_method(self):
@@ -2515,25 +2511,44 @@ class TestBuild026ContextGateReauthorization:
 
     # --- Rendered template ---------------------------------------------------
 
-    def test_rendered_template_context_gate_is_display_only(self):
-        """INFRA-179: Context gate is now display-only; THRESHOLD REACHED branch removed."""
-        # The hook is the sole enforcer; the LLM no longer hard-stops at threshold.
+    def test_rendered_template_context_gate_no_threshold_reached(self):
+        """INFRA-181: hard-stop THRESHOLD REACHED branch removed."""
         assert "THRESHOLD REACHED" not in self.output
 
+    def test_rendered_template_context_gate_calls_set_context_tokens(self):
+        """INFRA-181: Context gate calls set-context-tokens to record the count."""
+        assert "set-context-tokens" in self.output
+
     def test_rendered_template_context_gate_mentions_hook_enforcer(self):
-        """INFRA-179: Context gate notes that the hook reads JSONL and enforces."""
+        """INFRA-181: Context gate notes that the hook enforces the budget."""
         assert "pre_tool_use.py" in self.output
 
     def test_rendered_template_context_gate_has_story_cost_estimate(self):
         """Context gate still calls story-cost-estimate for informational display."""
         assert "story-cost-estimate" in self.output
 
+    def test_rendered_template_context_gate_calls_slash_context(self):
+        """INFRA-181: Context gate instructs calling /context first."""
+        assert "/context" in self.output
+
+    def test_rendered_template_context_gate_mentions_context_story_tokens(self):
+        """INFRA-181: Context gate documents the dict key written by set-context-tokens."""
+        assert "context_story_tokens" in self.output
+
     # --- flex's own CLAUDE.build.md -----------------------------------------
 
-    def test_flex_claude_build_md_context_gate_is_display_only(self):
-        """INFRA-179: CLAUDE.build.md Context gate is display-only."""
+    def test_flex_claude_build_md_context_gate_no_threshold_reached(self):
+        """INFRA-181: CLAUDE.build.md Context gate has no THRESHOLD REACHED."""
         assert "THRESHOLD REACHED" not in self.flex_build_md
+
+    def test_flex_claude_build_md_context_gate_calls_set_context_tokens(self):
+        """INFRA-181: CLAUDE.build.md Context gate calls set-context-tokens."""
+        assert "set-context-tokens" in self.flex_build_md
 
     def test_flex_claude_build_md_context_gate_has_story_cost_estimate(self):
         """CLAUDE.build.md Context gate still shows story-cost-estimate."""
         assert "story-cost-estimate" in self.flex_build_md
+
+    def test_flex_claude_build_md_context_gate_calls_slash_context(self):
+        """INFRA-181: CLAUDE.build.md Context gate instructs calling /context first."""
+        assert "/context" in self.flex_build_md

@@ -2,7 +2,7 @@
 id: INFRA-180
 rail: INFRA
 title: "Replace context_current_tokens scalar with per-story-ID dict; add session-boundary staleness gate"
-status: planned
+status: complete
 phase: "73"
 story_class: code
 primary_files:

@@ -176,16 +176,18 @@ in place.
 
    Pairmode owns this loop. Companion is not required to use it; if companion is running,
    the sidebar will surface the active story but does not gate the build.
-2. **Context gate.** The orchestrator reads `context_current_tokens` from `.companion/state.json`
-   and displays it alongside the threshold (default: 120k). The hook is the sole budget enforcer:
-   `hooks/pre_tool_use.py` intercepts every Agent spawn, tail-reads the live token count from the
-   session JSONL transcript (`~/.claude/projects/{cwd-key}/{session_id}.jsonl`, last 100 lines,
-   last `type: "assistant"` entry's `usage` sum — no LLM cooperation required), and writes it back
-   to `state.json` so the next story's Context gate displays an up-to-date value. Falls back to the
-   stored `context_current_tokens` if JSONL parsing fails. Blocks the spawn if the projected total
-   would exceed the overrun ceiling (`threshold × 1.10`, default 132k). On session start after a
-   `/clear` (or a fresh `startup`), the SessionStart hook auto-resets `context_current_tokens` to a
-   fresh-session baseline (`context_baseline_tokens`, default 25k) via `session_reset.py` (Phase 68).
+2. **Context gate.** Before the next builder spawns, the orchestrator calls `/context`
+   to read the live token count and records it for the current story via
+   `flex_build.py set-context-tokens`, which writes to
+   `state["context_story_tokens"][story_id]`. On session start after a `/clear`
+   (or a fresh `startup`), the SessionStart hook writes `context_session_reset_at` so
+   pre-clear dict entries are detected as stale.
+   The hook is the sole budget enforcer: `hooks/pre_tool_use.py` intercepts every
+   Agent spawn, looks up the current story's dict entry, validates it post-dates the
+   last session reset, and blocks if the entry is absent, stale, or the projected token
+   total exceeds the overrun ceiling (`threshold × 1.10`, default 132k). If the
+   orchestrator skipped `set-context-tokens`, the hook blocks with
+   CONTEXT CHECK REQUIRED — the orchestrator's lapse becomes a hard stop.
 3. **Invoke the builder subagent: "Build story RAIL-NNN."** The builder receives only the
    story ID. The orchestrator passes no story text, file contents, or prior context. The
    builder reads `docs/stories/<RAIL>/<RAIL>-NNN.md` cold, derives all needed context from

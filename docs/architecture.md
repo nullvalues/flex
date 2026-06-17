@@ -187,40 +187,23 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    agent-spawn tool call (matcher `"Task|Agent"`; the current Claude Code
    harness names the tool `Agent`, earlier harnesses named it `Task` —
    see CER-049) and delegates to
-   `skills/pairmode/scripts/context_budget.py`. The module uses a two-tier
-   waterfall for the current token count:
-   Tier 1 (primary): `read_current_tokens(project_dir, session_id)` tail-reads
-   the last 100 lines of `~/.claude/projects/{cwd-key}/{session_id}.jsonl`, finds
-   the last `type: "assistant"` entry, and sums `input_tokens +
-   cache_read_input_tokens + cache_creation_input_tokens` from its `message.usage`
-   block. No LLM cooperation required (INFRA-179).
-   Tier 2 (fallback): `read_context_tokens_from_state(state)` reads
-   `state["context_current_tokens"]` — written by the hook itself on the previous
-   spawn (JSONL path), by the SessionStart hook reset on `clear`/`startup`
-   (session boundary), or by `flex_build.py set-context-tokens` as a manual
-   override/escape hatch. Subject to the CER-041 staleness TTL.
-   The module estimates the next step's tokens (median of recent effort.db attempts
-   or `state["expected_step_tokens"]`) and blocks the spawn when the projected
-   total would exceed `threshold * (1 + overrun_pct)`. When no token count is
-   derivable from either source, the module blocks with a `CONTEXT CHECK REQUIRED`
-   prompt; the message notes this should resolve automatically on the next spawn
-   if `session_id` is available.
-   On a fresh bootstrap, the field is seeded to `1` by `_record_state()`
-   (Phase 67 INFRA-174) — in every realistic flow the seed is replaced before
-   the first gate check by the SessionStart `clear`/`startup` reset (Phase 68
-   INFRA-175; baseline `context_baseline_tokens` or `25_000`).
-   After each successful JSONL read, the hook writes `context_current_tokens` and
-   `context_current_tokens_recorded_at` back to state.json so the orchestrator's
-   Context gate can display the current value on the next story.
+   `skills/pairmode/scripts/context_budget.py`. The module reads the token
+   count from `state["context_story_tokens"][story_id]` (written by
+   `flex_build.py set-context-tokens` from the orchestrator's per-story
+   `/context` call). Falls back to the scalar `context_current_tokens` when
+   `story_id` is empty (backwards-compat for non-pairmode callers).
+   If the dict entry is absent or predates `context_session_reset_at`
+   (written by the SessionStart hook on `clear`/`startup`), blocks with
+   CONTEXT CHECK REQUIRED. The module estimates the next step's tokens
+   (median of recent effort.db attempts or `state["expected_step_tokens"]`)
+   and blocks the spawn when the projected total would exceed
+   `threshold * (1 + overrun_pct)`.
    The block reason carries a verbatim prompt; the operator picks
    Proceed (acknowledged) or `/clear` and resume.
    Also blocks with `CONTEXT CHECK REQUIRED` when `state.json` exists but is malformed
    (JSON decode error or non-dict root) — the malformed-file path returns `{}` from
-   `_read_state()`, which propagates to a missing-tokens block (CER-040). Blocks when
-   `context_current_tokens` is present but its `context_current_tokens_recorded_at`
-   timestamp is older than the TTL, treating a stale value as absent (CER-041) —
-   fallback path only; JSONL values carry no TTL.
-   References: CER-027, CER-039, CER-040, CER-041, INFRA-179.
+   `_read_state()`, which propagates to a missing-tokens block (CER-040).
+   References: CER-027, CER-039, CER-040, INFRA-180, INFRA-181.
 
 9.5 **Story file-scope enforcement** — `hooks/pre_tool_use.py` also intercepts
    `Edit` and `Write` tool calls. It delegates to
@@ -802,41 +785,40 @@ Fields:
 - `current_story` — **optional**; present only when pairmode is active and the user
   confirmed which story they are working on. Contains `id` (required), optional `title`,
   and `set_at` (UTC ISO-8601 timestamp). Absent when the user skips the prompt.
-- `context_current_tokens` — **optional**; integer; maintained by the build loop. Written by
-  `hooks/pre_tool_use.py` on every subagent spawn where JSONL parsing succeeds (primary write —
-  INFRA-179; replaces the former `set-context-tokens` per-story write); also written by the
-  SessionStart hook reset on `clear`/`startup` (session boundary); also seeded to `1` by
-  `bootstrap.py::_record_state()` when creating a new `state.json` (Phase 67 INFRA-174) —
-  the seed is normally overwritten before the first build step by the SessionStart reset
-  (Phase 68 INFRA-175); the seed's role is a no-op fallback when neither pathway fires.
-  `flex_build.py set-context-tokens` remains as a manual override/escape hatch.
-  Read by `context_budget.py` via `read_context_tokens_from_state()` (fallback tier).
-  When absent or stale, `context_budget.decide()` blocks Task spawns with a `CONTEXT CHECK REQUIRED`
-  prompt; the message notes this should resolve automatically on the next spawn if `session_id`
-  is available. Retained by `story_context.py clear_current_story()` so accumulated costs survive
-  story transitions within a session (Phase 65 INFRA-170; TTL handles cross-session staleness).
-  Not written by the companion sidebar. Hook writes: `pre_tool_use.py` writes
-  `context_current_tokens` + `context_current_tokens_recorded_at` when JSONL parsing succeeds
-  (INFRA-179), and `context_budget_acknowledged_at` when blocking — both in a single merged
-  `write_text()` call. `session_start.py` writes `context_current_tokens` (alongside
-  `context_current_tokens_recorded_at`) via `session_reset.decide_reset(source, state)` when
-  the SessionStart `source` is `clear` or `startup`, defaulting to
-  `state["context_baseline_tokens"]` if set (else `25_000`); other sources (`resume`, `compact`)
-  never reset (CER-047 / Phase 68 INFRA-175). `bootstrap.py` is the only other non-hook writer
-  (seed only, on new state creation).
+- `context_story_tokens` — **optional**; dict keyed by story ID (e.g. `"INFRA-181"`);
+  written by `flex_build.py set-context-tokens` at the Context gate step before each
+  story's builder spawn. Each entry is `{"tokens": int, "recorded_at": "<ISO-8601>"}`.
+  Read by `context_budget.decide()` via `_read_story_token_entry()` and validated for
+  freshness against `context_session_reset_at` by `_is_entry_fresh()`. An entry predating
+  the last session reset is treated as absent (stale), triggering CONTEXT CHECK REQUIRED.
+  `set-context-tokens` is the sole writer of entries; the hook only reads. INFRA-180.
+- `context_session_reset_at` — **optional**; UTC ISO-8601 timestamp string; written by
+  `session_start.py` on `clear`/`startup` via `session_reset.decide_reset()`. Used by
+  `_is_entry_fresh()` to detect pre-clear dict entries in `context_story_tokens`. An entry
+  with `recorded_at` not strictly after `context_session_reset_at` is treated as stale.
+  Absent means no reset has been recorded — `_is_entry_fresh()` fails open. INFRA-180.
+- `context_current_tokens` — **optional**; integer; display-only scalar kept for backwards
+  compatibility with sibling-project CLAUDE.build.md files that display it at the Context gate.
+  Written by `flex_build.py set-context-tokens` alongside the dict entry; also written by
+  the SessionStart hook reset on `clear`/`startup`; also seeded to `1` by
+  `bootstrap.py::_record_state()` when creating a new `state.json` (Phase 67 INFRA-174).
+  Not read by the hook or `decide()` when a `story_id` is provided — the dict path takes
+  precedence. The scalar fallback path in `read_context_tokens_from_state()` is used only
+  when `story_id` is empty (non-pairmode callers). Not written by the companion sidebar.
+  `session_start.py` writes it alongside `context_current_tokens_recorded_at` via
+  `session_reset.decide_reset(source, state)` when the SessionStart `source` is `clear`
+  or `startup`, defaulting to `state["context_baseline_tokens"]` if set (else `25_000`);
+  other sources (`resume`, `compact`) never reset (CER-047 / Phase 68 INFRA-175).
+  `bootstrap.py` is the only other non-hook writer (seed only, on new state creation).
 - `context_current_tokens_recorded_at` — **optional**; UTC ISO-8601 timestamp string; written
-  alongside `context_current_tokens` by `hooks/pre_tool_use.py` on every spawn where JSONL
-  parsing succeeds (INFRA-179; primary write), by `flex_build.py set-context-tokens` (manual
-  override), and by `session_start.py` (SessionStart reset).
-  Used by `read_context_tokens_from_state()` to enforce a staleness TTL (default 60 minutes,
-  overridable via `context_current_tokens_ttl_minutes`). A value older than the TTL is treated
-  as absent — returns `None`, causing `decide()` to fire `CONTEXT CHECK REQUIRED`. Absent or
-  unparseable timestamps skip the staleness check (backwards-compatible). Retained by
-  `clear_current_story()` alongside `context_current_tokens` so accumulated token counts
-  survive story transitions (Phase 65 INFRA-170; CER-041 belt-and-suspenders semantics retained
-  via TTL).
+  alongside `context_current_tokens` by `flex_build.py set-context-tokens` (manual override /
+  display) and by `session_start.py` (SessionStart reset).
+  Used by `read_context_tokens_from_state()` on the scalar fallback path to enforce a staleness
+  TTL (default 60 minutes, overridable via `context_current_tokens_ttl_minutes`). Not used
+  when the dict path (`context_story_tokens`) is active.
 - `context_current_tokens_ttl_minutes` — **optional**; integer; overrides the default 60-minute
-  staleness TTL for `context_current_tokens`. When absent or unparseable, the default of 60 is used.
+  staleness TTL for the scalar `context_current_tokens` fallback path. When absent or
+  unparseable, the default of 60 is used.
 - `context_baseline_tokens` — **optional**; positive integer; operator-tunable per-project
   override for the fresh-session baseline written by the SessionStart `clear`/`startup`
   counter reset (Phase 68 INFRA-175). Read by `session_reset.decide_reset()`; when absent,
@@ -884,17 +866,16 @@ Hooks must:
 **Documented exception — `hooks/pre_tool_use.py` (dual thin-delegate):**
 `pre_tool_use.py` dispatches to two modules:
 
-- **`Task`/`Agent` → `context_budget.py` (CER-027, CER-039, CER-040, CER-041, CER-049, INFRA-179):**
-  the hook makes two delegated calls: (a) `read_current_tokens(project_dir, session_id)` —
-  JSONL-only live count; when successful the hook writes `context_current_tokens` +
-  `context_current_tokens_recorded_at` to state.json; (b) `decide(project_dir, session_id)` —
-  JSONL-first, state.json-fallback block decision; the hook writes
-  `context_budget_acknowledged_at` to state.json when `result["block"]` is True. Both state
-  writes are merged into a single `write_text()` call. `decide()` itself is strictly
-  read-only (D11). Blocks with `CONTEXT CHECK REQUIRED` when no count is derivable from
-  JSONL or state.json; when `state.json` is malformed (CER-040); or when the state.json
-  value is stale beyond the TTL (CER-041). Does not write to the pipe. Matcher and
-  tool-name check accept both `Task` (legacy harness) and `Agent` (current harness) —
+- **`Task`/`Agent` → `context_budget.py` (CER-027, CER-039, CER-040, CER-049, INFRA-180, INFRA-181):**
+  the hook makes one delegated call: `decide(project_dir, story_id)` — reads
+  `context_story_tokens[story_id]` from state.json and validates freshness against
+  `context_session_reset_at`; the hook writes `context_budget_acknowledged_at` to
+  state.json when `result["block"]` is True (single `write_text()` call). `decide()`
+  itself is strictly read-only (D11). `set-context-tokens` (not the hook) is the sole
+  writer of `context_story_tokens` entries. Blocks with `CONTEXT CHECK REQUIRED` when
+  no entry is present for the story or the entry is stale (predates the last session
+  reset); when `state.json` is malformed (CER-040). Does not write to the pipe. Matcher
+  and tool-name check accept both `Task` (legacy harness) and `Agent` (current harness) —
   see CER-049.
 - **`Edit`/`Write` → `scope_guard.py` (Phase 55):** decides whether to block
   a file write based on the active story's declared `primary_files`/`touches`.

@@ -46,14 +46,12 @@ Run every item on every review invocation.
    - `Edit` / `Write` → `skills/pairmode/scripts/scope_guard.py`
      (Phase 55 story file-scope enforcement)
 
-   For the `Task`/`Agent` dispatch: one tool-name check, two delegated module
-   calls (`read_current_tokens` for the live JSONL count, `decide` for the block
-   decision), one combined state.json write, one stdout emit. All domain logic lives
-   in the named modules, NOT in the hook. The Task branch has two state-write paths,
-   merged into a single `write_text()` call: `context_current_tokens` +
-   `context_current_tokens_recorded_at` when a live JSONL count is obtained (every
-   spawn where JSONL parsing succeeds), and `context_budget_acknowledged_at` when
-   blocking.
+   For the `Task`/`Agent` dispatch: one tool-name check, one delegated module call
+   (`decide(story_id=...)` for the block decision — reads `context_story_tokens[story_id]`
+   from state.json), one stdout emit. All domain logic lives in the named module, NOT
+   in the hook. The Task branch has one state-write path: `context_budget_acknowledged_at`
+   when blocking (single `write_text()` call). `set-context-tokens` (not the hook) is
+   the sole writer of `context_story_tokens` entries.
 
    For the `Edit`/`Write` dispatch: one tool-name check, one delegated module call,
    one stdout emit. The Edit/Write branch is read-only.

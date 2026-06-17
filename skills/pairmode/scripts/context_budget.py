@@ -8,20 +8,30 @@ Design boundary (D11):
 - ``decide()`` MUST NOT write to state.json, effort.db, or the transcript.
 - The hook (``hooks/pre_tool_use.py``) is the sole writer; it makes one
   delegated call:
-  ``decide(project_dir, story_id)`` — state.json dict-first block decision;
-  the hook writes ``context_budget_acknowledged_at`` to state.json when the
-  result has ``block=True``.
+  ``decide(project_dir, story_id)`` — reads ``context_story_tokens[story_id]``
+  from state.json; the hook writes ``context_budget_acknowledged_at`` to
+  state.json when the result has ``block=True``.
 
-The hook is the sole state.json writer. This function (``decide``) is
-strictly read-only (D11).
+The hook is the sole state.json writer for context budget state. This
+function (``decide``) is strictly read-only (D11).
 
-INFRA-180: replaced the mutable ``context_current_tokens`` scalar with a
-per-story-ID dict ``context_story_tokens``. ``decide()`` now accepts
-``story_id`` and reads ``context_story_tokens[story_id]`` first, validating
-freshness against ``context_session_reset_at``. The JSONL waterfall added in
-Phase 72 (INFRA-179) is removed entirely — ``read_context_tokens_from_state``
-is the sole token source. ``set-context-tokens`` is the sole writer of
-``context_story_tokens``.
+Token source architecture (post INFRA-180/181):
+- ``decide()`` accepts ``story_id`` and reads
+  ``state["context_story_tokens"][story_id]`` as the primary source,
+  validating freshness against ``state["context_session_reset_at"]``.
+- Falls back to the scalar ``state["context_current_tokens"]`` when
+  ``story_id`` is empty (backwards-compat for non-pairmode callers).
+- ``read_context_tokens_from_state()`` is the sole token source for
+  ``decide()``. There is no JSONL path — the orchestrator calls ``/context``
+  before each story and writes the count via ``flex_build.py set-context-tokens``.
+- ``set-context-tokens`` is the sole writer of ``context_story_tokens`` entries.
+- The hook passes ``story_id`` from ``state["current_story"]["id"]``.
+
+INFRA-180: replaced the mutable ``context_current_tokens`` scalar with the
+per-story-ID dict ``context_story_tokens``. The JSONL waterfall added in
+Phase 72 (INFRA-179) and removed in INFRA-180 is gone entirely.
+INFRA-181: removed dead JSONL functions (_derive_transcript_path,
+compute_context_tokens, read_current_tokens) and updated this docstring.
 
 The companion phase-spend CLI ``context_budget_check.py`` is unrelated and
 remains untouched.
