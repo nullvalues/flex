@@ -47,14 +47,29 @@ Run every item on every review invocation.
      (Phase 55 story file-scope enforcement)
 
    For the `Task`/`Agent` dispatch: one tool-name check, one delegated module call
-   (`decide(story_id=...)` for the block decision — reads `context_story_tokens[story_id]`
-   from state.json), one stdout emit. All domain logic lives in the named module, NOT
-   in the hook. The Task branch has one state-write path: `context_budget_acknowledged_at`
-   when blocking (single `write_text()` call). `set-context-tokens` (not the hook) is
-   the sole writer of `context_story_tokens` entries.
+   (`decide(project_dir)` for the block decision — reads `context_current_tokens`
+   scalar from state.json, written by `post_tool_use.py` after each completed
+   Task/Agent spawn), one stdout emit. All domain logic lives in the named module,
+   NOT in the hook. The Task branch has one state-write path:
+   `context_budget_acknowledged_at` when blocking (single `write_text()` call).
+   `post_tool_use.py` (PostToolUse Task/Agent branch, INFRA-182) is the sole live
+   writer of `context_current_tokens`.
 
    For the `Edit`/`Write` dispatch: one tool-name check, one delegated module call,
    one stdout emit. The Edit/Write branch is read-only.
+
+   `hooks/post_tool_use.py` is a thin dispatcher for two tool types:
+
+   - `Write` / `Edit` / `MultiEdit` → companion sidebar pipe relay (file-change events)
+   - `Task` / `Agent` → `skills/pairmode/scripts/context_budget.py`
+     (INFRA-182 PostToolUse context-token writer)
+
+   For the `Task`/`Agent` dispatch: one tool-name check, one delegated module call
+   (`read_current_tokens(project_dir, session_id)` — reads the JSONL transcript,
+   bounded to last 500 lines), one state.json write (`context_current_tokens` +
+   `context_current_tokens_recorded_at` when a live count is obtained). Never emits
+   a block decision. All JSONL parsing logic lives in `context_budget.py`, NOT in
+   the hook. The Task/Agent branch is write-only.
 
    `hooks/session_start.py` (CER-047 / Phase 68 INFRA-175) is a thin
    dispatcher for the SessionStart `source` field:
@@ -68,9 +83,10 @@ Run every item on every review invocation.
    three keys returned by `decide_reset()` as a dict — see INFRA-180),
    one emit. All decision logic lives in `session_reset.py`, NOT in the hook.
 
-   Any logic added inside `pre_tool_use.py` or `session_start.py` beyond
-   tool-name / source dispatch + module delegation + emit remains CRITICAL.
-   Any *other* hook that emits a decision-block response remains CRITICAL.
+   Any logic added inside `pre_tool_use.py`, `post_tool_use.py`, or
+   `session_start.py` beyond tool-name / source dispatch + module delegation
+   + emit remains CRITICAL. Any *other* hook that emits a decision-block
+   response remains CRITICAL.
 
 2. PIPE CONTRACT
    Do all hook scripts write only to the project-scoped pipe (e.g. `/tmp/companion-<hash>.pipe`)?

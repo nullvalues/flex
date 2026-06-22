@@ -246,13 +246,13 @@ def test_compute_context_tokens_sums_all_cache_fields(tmp_path):
     assert result == 1700
 
 
-def test_compute_context_tokens_full_reverse_scan_beyond_100_lines(tmp_path):
-    """Full reverse scan finds an assistant entry even when it is beyond 100 lines from end.
+def test_compute_context_tokens_finds_entry_beyond_100_lines_within_500_bound(tmp_path):
+    """Bounded scan finds assistant entry when it is beyond 100 lines but within 500 lines from end.
 
-    INFRA-182: compute_context_tokens uses full reverse scan, no fixed-line tail.
+    INFRA-183: compute_context_tokens uses a 500-line tail (bounded scan).
     This test creates a file where the assistant entry is at line 1 and there
-    are 150 non-assistant lines after it. A 100-line tail would miss it;
-    the full scan must find it.
+    are 150 non-assistant lines after it (151 lines total). All 151 lines fall
+    within the 500-line tail so the entry must be found.
     """
     f = tmp_path / "long.jsonl"
     entries = [_assistant_entry(input_tokens=42000)]
@@ -1153,3 +1153,68 @@ def test_decide_passes_with_bootstrap_seeded_tokens(tmp_path):
     )
     result = context_budget.decide(project_dir)
     assert result is None, f"Expected None but got: {result}"
+
+
+# ---------------------------------------------------------------------------
+# INFRA-183 security remediation tests
+# ---------------------------------------------------------------------------
+
+
+def test_derive_transcript_path_returns_none_for_traversal_session_id(tmp_path):
+    """_derive_transcript_path returns None for session_id containing ../ traversal.
+
+    INFRA-183: containment check via Path.resolve().is_relative_to() must
+    reject any session_id that, after path construction and resolution, lands
+    outside ~/.claude/.
+    """
+    # Create a fake home with a .claude dir so the containment check can run
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    (fake_home / ".claude").mkdir()
+
+    # A session_id with .. that would try to escape ~/.claude/
+    traversal_session_id = "../../../etc/passwd"
+    result = context_budget._derive_transcript_path(
+        tmp_path / "project", traversal_session_id, home=fake_home
+    )
+    assert result is None, (
+        f"Expected None for traversal session_id, got {result!r}"
+    )
+
+
+def test_compute_context_tokens_finds_entry_at_line_450(tmp_path):
+    """compute_context_tokens finds assistant entry at line 450 (within 500-line bound).
+
+    INFRA-183: 500-line tail regression guard. An assistant entry at line 450
+    (from the start, with 50 non-assistant lines following it) is within the
+    last 500 lines and must be found.
+    """
+    f = tmp_path / "t.jsonl"
+    # Build a file: 449 human entries, then the target assistant entry, then 50 human entries
+    entries = [{"type": "human", "message": {}} for _ in range(449)]
+    entries.append(_assistant_entry(input_tokens=45000))
+    entries += [{"type": "human", "message": {}} for _ in range(50)]
+    # Total: 500 lines — assistant is at position 450 (1-indexed), exactly in the tail
+    f.write_text(_make_jsonl(entries), encoding="utf-8")
+    result = context_budget.compute_context_tokens(f)
+    assert result == 45000, f"Expected 45000, got {result!r}"
+
+
+def test_compute_context_tokens_does_not_find_entry_beyond_500_line_bound(tmp_path):
+    """compute_context_tokens does NOT find assistant entry placed only at line 600.
+
+    INFRA-183: 500-line tail bound guard. An assistant entry at line 1 (from the
+    start) with 600 non-assistant lines following it is outside the last 500 lines
+    and must NOT be found.
+    """
+    f = tmp_path / "t.jsonl"
+    # The assistant entry is first; then 600 human lines follow
+    entries = [_assistant_entry(input_tokens=99000)]
+    entries += [{"type": "human", "message": {}} for _ in range(600)]
+    # Total: 601 lines; assistant is at line 1, which is > 500 from the end
+    f.write_text(_make_jsonl(entries), encoding="utf-8")
+    result = context_budget.compute_context_tokens(f)
+    # The bounded tail (last 500 lines) contains only human entries → None
+    assert result is None, (
+        f"Expected None (assistant outside 500-line bound), got {result!r}"
+    )

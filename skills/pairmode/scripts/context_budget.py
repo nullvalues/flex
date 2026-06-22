@@ -106,6 +106,9 @@ def _derive_transcript_path(
             home = Path.home()
         cwd_key = str(Path(cwd).resolve()).replace("/", "-")
         candidate = home / ".claude" / "projects" / cwd_key / f"{session_id}.jsonl"
+        resolved = candidate.resolve()
+        if not resolved.is_relative_to((home / ".claude").resolve()):
+            return None
         if not candidate.exists():
             return None
         return candidate
@@ -114,11 +117,11 @@ def _derive_transcript_path(
 
 
 def compute_context_tokens(transcript_path: Path) -> "int | None":
-    """Full reverse scan of ``transcript_path``; return the live context token count.
+    """Bounded reverse scan of ``transcript_path``; return the live context token count.
 
-    Walks the entire file in reverse (no fixed-line tail) to find the last
-    ``type: "assistant"`` entry with a ``message.usage`` block. Returns the
-    sum of:
+    Reads the last 500 lines of the file (bounded tail) and walks them in
+    reverse to find the last ``type: "assistant"`` entry with a
+    ``message.usage`` block. Returns the sum of:
       ``input_tokens + cache_read_input_tokens + cache_creation_input_tokens``
 
     Returns ``None`` if:
@@ -135,7 +138,8 @@ def compute_context_tokens(transcript_path: Path) -> "int | None":
             lines = transcript_path.read_text(encoding="utf-8").splitlines()
         except OSError:
             return None
-        for line in reversed(lines):  # full scan, no slice
+        tail = lines[-500:] if len(lines) > 500 else lines
+        for line in reversed(tail):
             line = line.strip()
             if not line:
                 continue
