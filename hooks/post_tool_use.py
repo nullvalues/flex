@@ -5,6 +5,11 @@ PostToolUse hook — Pair Partner + Validator roles.
 Fires after every file write/edit. Thin relay only.
 Sends file change event to sidebar for UML delta + spec check.
 
+Also fires after Task/Agent tool calls (INFRA-182): reads the JSONL
+transcript via context_budget.read_current_tokens() and writes
+context_current_tokens + context_current_tokens_recorded_at to state.json.
+This branch never blocks — exits silently on any failure.
+
 Protected-file classification is intentionally NOT done here.
 The hook must stay a thin relay (millisecond exit, no file reads beyond
 the grandfathered state.json read).  The sidebar process is responsible
@@ -16,6 +21,9 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PLUGIN_ROOT / "skills" / "pairmode" / "scripts"))
 
 
 def _resolve_pipe_path(raw_path: str) -> str | None:
@@ -56,6 +64,31 @@ def main():
         sys.exit(0)
 
     tool_name = data.get("tool_name", "")
+
+    if tool_name in ("Task", "Agent"):
+        # Read JSONL, write fresh count to state.json. Never blocks.
+        try:
+            import context_budget
+            project_dir = Path(data.get("cwd") or ".")
+            session_id = data.get("session_id", "")
+            live_tokens = context_budget.read_current_tokens(
+                project_dir=project_dir,
+                session_id=session_id,
+            )
+            if live_tokens is not None:
+                from datetime import datetime, timezone
+                state_path = project_dir / ".companion" / "state.json"
+                if state_path.exists():
+                    state = json.loads(state_path.read_text())
+                    state["context_current_tokens"] = live_tokens
+                    state["context_current_tokens_recorded_at"] = (
+                        datetime.now(timezone.utc).isoformat()
+                    )
+                    state_path.write_text(json.dumps(state, indent=2))
+        except Exception:
+            pass
+        sys.exit(0)
+
     if tool_name not in WATCHED_TOOLS:
         sys.exit(0)
 

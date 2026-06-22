@@ -1,8 +1,9 @@
-"""Tests for flex_build.py set-context-tokens — per-story dict write (INFRA-180).
+"""Tests for flex_build.py set-context-tokens — scalar write only (INFRA-182).
 
-Covers the new context_story_tokens dict write behaviour added in INFRA-180.
-The existing scalar write (context_current_tokens) tests live in
-test_context_budget.py and are preserved there.
+INFRA-182: set-context-tokens writes the scalar context_current_tokens only.
+The per-story dict (context_story_tokens) is no longer written — PostToolUse
+handles automatic updates via JSONL reading.
+set-context-tokens remains as a manual override / debugging escape hatch.
 
 Run with:
     PATH=$HOME/.local/bin:$PATH uv run pytest \\
@@ -60,111 +61,69 @@ def _read_state(project_dir: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# context_story_tokens dict write
+# Scalar write only (INFRA-182)
 # ---------------------------------------------------------------------------
 
 
-def test_active_story_dict_entry_written(tmp_path):
-    """Active story + tokens → context_story_tokens[story_id] written."""
+def test_scalar_write_with_active_story(tmp_path):
+    """Even with an active story, only scalar is written — no dict entry."""
     project_dir = _setup_project(
         tmp_path,
         {
             "pairmode_version": "1.0",
-            "current_story": {"id": "INFRA-180", "title": "test story"},
+            "current_story": {"id": "INFRA-182", "title": "test story"},
         },
     )
     result = _invoke(project_dir, 80_000)
     assert result.exit_code == 0, result.output
 
     state = _read_state(project_dir)
-    assert "context_story_tokens" in state
-    entry = state["context_story_tokens"]["INFRA-180"]
-    assert entry["tokens"] == 80_000
-    assert "recorded_at" in entry
+    assert state["context_current_tokens"] == 80_000
+    # INFRA-182: dict NOT written even with active story
+    assert "context_story_tokens" not in state
 
 
-def test_no_active_story_dict_entry_not_written_stderr_note(tmp_path):
-    """No active story → dict entry not written; note emitted to stderr."""
+def test_scalar_write_without_active_story(tmp_path):
+    """No active story → scalar still written, no dict entry."""
     project_dir = _setup_project(tmp_path, {"pairmode_version": "1.0"})
     result = _invoke(project_dir, 50_000)
     assert result.exit_code == 0, result.output
 
     state = _read_state(project_dir)
-    # Scalar write still happens
     assert state["context_current_tokens"] == 50_000
-    # Dict NOT written when no active story
     assert "context_story_tokens" not in state
-    # Stderr note present (CliRunner mixes stderr into output by default)
-    assert "no active story" in result.output
 
 
-def test_multiple_stories_accumulate_dict_grows(tmp_path):
-    """Multiple stories accumulate — all entries preserved in dict."""
-    project_dir = _setup_project(
-        tmp_path,
-        {
-            "pairmode_version": "1.0",
-            "current_story": {"id": "INFRA-180", "title": "first"},
-        },
-    )
-    _invoke(project_dir, 40_000)
-
-    # Switch story
-    companion = project_dir / ".companion"
-    state = json.loads((companion / "state.json").read_text())
-    state["current_story"] = {"id": "INFRA-181", "title": "second"}
-    (companion / "state.json").write_text(json.dumps(state), encoding="utf-8")
-
-    _invoke(project_dir, 60_000)
-
-    state = _read_state(project_dir)
-    assert "INFRA-180" in state["context_story_tokens"]
-    assert "INFRA-181" in state["context_story_tokens"]
-    assert state["context_story_tokens"]["INFRA-180"]["tokens"] == 40_000
-    assert state["context_story_tokens"]["INFRA-181"]["tokens"] == 60_000
-
-
-def test_overwrite_same_story_entry_updated(tmp_path):
-    """Recording same story twice overwrites with new value (post-clear scenario)."""
-    project_dir = _setup_project(
-        tmp_path,
-        {
-            "pairmode_version": "1.0",
-            "current_story": {"id": "INFRA-180", "title": "test"},
-        },
-    )
-    _invoke(project_dir, 40_000)
-    _invoke(project_dir, 55_000)
-
-    state = _read_state(project_dir)
-    assert state["context_story_tokens"]["INFRA-180"]["tokens"] == 55_000
-
-
-def test_recorded_at_is_utc_iso8601(tmp_path):
-    """recorded_at in context_story_tokens entry is a UTC ISO-8601 string."""
-    project_dir = _setup_project(
-        tmp_path,
-        {
-            "pairmode_version": "1.0",
-            "current_story": {"id": "INFRA-180", "title": "test"},
-        },
-    )
+def test_recorded_at_written_alongside_scalar(tmp_path):
+    """context_current_tokens_recorded_at written with the scalar."""
+    project_dir = _setup_project(tmp_path, {"pairmode_version": "1.0"})
     result = _invoke(project_dir, 70_000)
     assert result.exit_code == 0, result.output
 
     state = _read_state(project_dir)
-    recorded_at = state["context_story_tokens"]["INFRA-180"]["recorded_at"]
+    assert "context_current_tokens_recorded_at" in state
+    recorded_at = state["context_current_tokens_recorded_at"]
     parsed = datetime.fromisoformat(recorded_at)
     assert parsed.tzinfo is not None
 
 
-def test_scalar_write_preserved_alongside_dict(tmp_path):
-    """Both context_current_tokens (scalar) and context_story_tokens (dict) written."""
+def test_overwrite_scalar_updated(tmp_path):
+    """Recording twice overwrites the scalar with the new value."""
+    project_dir = _setup_project(tmp_path, {"pairmode_version": "1.0"})
+    _invoke(project_dir, 40_000)
+    _invoke(project_dir, 55_000)
+
+    state = _read_state(project_dir)
+    assert state["context_current_tokens"] == 55_000
+
+
+def test_other_state_preserved(tmp_path):
+    """Existing state.json keys are preserved when scalar is updated."""
     project_dir = _setup_project(
         tmp_path,
         {
             "pairmode_version": "1.0",
-            "current_story": {"id": "INFRA-180", "title": "test"},
+            "context_budget_threshold": 120_000,
         },
     )
     result = _invoke(project_dir, 45_000)
@@ -172,21 +131,5 @@ def test_scalar_write_preserved_alongside_dict(tmp_path):
 
     state = _read_state(project_dir)
     assert state["context_current_tokens"] == 45_000
-    assert state["context_story_tokens"]["INFRA-180"]["tokens"] == 45_000
-
-
-def test_current_story_as_string_uses_string_as_key(tmp_path):
-    """current_story as a plain string (legacy format) still writes the dict entry."""
-    project_dir = _setup_project(
-        tmp_path,
-        {
-            "pairmode_version": "1.0",
-            "current_story": "INFRA-180",
-        },
-    )
-    result = _invoke(project_dir, 30_000)
-    assert result.exit_code == 0, result.output
-
-    state = _read_state(project_dir)
-    assert "INFRA-180" in state["context_story_tokens"]
-    assert state["context_story_tokens"]["INFRA-180"]["tokens"] == 30_000
+    assert state["pairmode_version"] == "1.0"
+    assert state["context_budget_threshold"] == 120_000

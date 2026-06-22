@@ -338,19 +338,13 @@ If the story is not auth-gated, skip this section.
 
 ### Context gate
 
-Before any other action for this story, call `/context` and read the current token count.
+Before any other action for this story, call `/context` and read the current token count
+for display.
 
 The threshold is the value of `context_budget_threshold` in `.companion/state.json`
 (default: 120,000 if the key is absent or the file does not exist).
 
-Output: `CONTEXT: [N] / [threshold] tokens`
-
-Then record the count for this story:
-    PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py \
-      set-context-tokens --tokens N --project-dir .
-Replace N with the integer token count from /context. This writes the count into
-`state["context_story_tokens"][story_id]` so the hook can enforce the gate on the
-next spawn.
+Output: `CONTEXT: [N] / [threshold] tokens — proceeding`
 
 Then call:
     PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py \
@@ -363,11 +357,10 @@ The estimate is informational — it does not block.
 
 Continue to the pre-story schema gate.
 
-Note: the `pre_tool_use.py` hook reads `state["context_story_tokens"][story_id]`
-before every Task/Agent spawn. If the entry is absent (orchestrator skipped
-`set-context-tokens`) or was recorded before the last `/clear`
-(`context_session_reset_at`), the hook blocks with CONTEXT CHECK REQUIRED.
-The hook is the sole budget enforcer.
+Note: `pre_tool_use.py` enforces the budget automatically on every Task/Agent spawn by
+reading `context_current_tokens` from state.json (written by `post_tool_use.py` after
+each completed spawn, or by the SessionStart baseline on `/clear`). No manual token
+recording is required.
 
 ### Pre-story schema gate
 
@@ -770,25 +763,22 @@ Stop the build loop.
 **Enforcer:** `hooks/pre_tool_use.py` (matcher `Task|Agent`) delegates to
 `{{ pairmode_scripts_dir }}/context_budget.py`. On every subagent spawn, the hook:
 
-1. Reads `state["current_story"]["id"]` to get the active story ID.
-2. Looks up `state["context_story_tokens"][story_id]` — the count the orchestrator
-   recorded via `set-context-tokens` at the Context gate step above.
-3. Validates the entry is fresh: `entry["recorded_at"]` must post-date
-   `state["context_session_reset_at"]` (written by the SessionStart hook on
-   `clear`/`startup`). An entry older than the last session reset is stale.
-4. If the entry is missing or stale: blocks with CONTEXT CHECK REQUIRED.
-   The orchestrator must call `/context` and run `set-context-tokens` for the
-   current story before the spawn can proceed.
-5. If entry is fresh: checks whether `tokens + estimated_next_step > threshold ×
+1. Reads `state["context_current_tokens"]` — written by `post_tool_use.py`
+   (Task|Agent PostToolUse) after each completed spawn by reading the JSONL
+   transcript, or set to a fresh-session baseline by the SessionStart hook on
+   `clear`/`startup`.
+2. Validates freshness: `context_current_tokens_recorded_at` must not predate
+   `context_session_reset_at` (strict less-than = stale). Equal timestamps
+   are treated as fresh (SessionStart baseline case).
+3. If absent or stale: blocks with CONTEXT CHECK REQUIRED. The count will
+   update automatically after the next tool call completes. Running `/clear`
+   and resuming also resets it via the SessionStart hook.
+4. If fresh: checks whether `tokens + estimated_next_step > threshold ×
    (1 + overrun_pct)` (defaults: 120,000 × 1.10 = 132,000). Blocks when exceeded.
 
-The per-story dict preserves the full session history of token counts — visible in
-`.companion/state.json["context_story_tokens"]`. A /clear is visible as a lower count
-for the same story ID on the subsequent run (the entry is overwritten when the
-orchestrator re-records after the clear).
-
-`set-context-tokens` is the sole writer of `context_story_tokens` entries.
-The SessionStart hook writes `context_session_reset_at` on `clear`/`startup`.
+Write/read split: `post_tool_use.py` is the writer; `pre_tool_use.py` is the
+reader. No manual `set-context-tokens` call is required during normal operation.
+`set-context-tokens` remains available as a manual override / debugging escape hatch.
 
 Canonical prompt body (source of truth:
 `tests/pairmode/fixtures/context_budget_prompt.txt`, reproduced
@@ -815,9 +805,8 @@ Response handling:
   `acknowledged_at + state["context_budget_reprompt_margin"]`
   (default 10,000).
 - "Clear and resume" → user types `/clear`; the SessionStart hook writes a fresh
-  `context_session_reset_at`, invalidating pre-clear dict entries. The orchestrator
-  calls `/context` and `set-context-tokens` in the resumed session to record a
-  fresh entry for the story.
+  `context_session_reset_at` and resets `context_current_tokens` to the
+  baseline value. The PostToolUse hook will update it after the next spawn.
 
 Tunables (all in `.companion/state.json`):
 `context_budget_threshold`, `context_budget_overrun_pct`,

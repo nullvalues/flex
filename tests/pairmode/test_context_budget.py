@@ -1,10 +1,11 @@
 """Tests for skills/pairmode/scripts/context_budget.py.
 
-INFRA-180: replaced context_current_tokens scalar with per-story-ID dict
-``context_story_tokens``. Added _read_story_token_entry, _is_entry_fresh,
-and updated read_context_tokens_from_state / decide signatures.
-Phase 72 JSONL tests (_derive_transcript_path, compute_context_tokens,
-read_current_tokens) removed.
+INFRA-182: PostToolUse is the writer, PreToolUse is the reader.
+- Restored _derive_transcript_path, compute_context_tokens, read_current_tokens.
+- compute_context_tokens uses full reverse scan (no fixed-line tail).
+- decide() reads context_current_tokens from state.json only; blocks hard
+  when absent or stale (recorded_at < context_session_reset_at).
+- Removed per-story dict logic (_is_entry_fresh, _read_story_token_entry).
 
 Run with:
     PATH=$HOME/.local/bin:$PATH uv run pytest \\
@@ -119,6 +120,187 @@ def _setup_project(
         )
 
     return tmp_path
+
+
+def _make_jsonl(entries: list[dict]) -> str:
+    """Serialize a list of dicts as JSONL."""
+    return "\n".join(json.dumps(e) for e in entries) + "\n"
+
+
+def _assistant_entry(
+    input_tokens: int = 10000,
+    cache_read: int = 0,
+    cache_create: int = 0,
+) -> dict:
+    """Build a minimal assistant JSONL entry with usage."""
+    return {
+        "type": "assistant",
+        "message": {
+            "usage": {
+                "input_tokens": input_tokens,
+                "cache_read_input_tokens": cache_read,
+                "cache_creation_input_tokens": cache_create,
+            }
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# _derive_transcript_path
+# ---------------------------------------------------------------------------
+
+
+def test_derive_transcript_path_empty_session_id(tmp_path):
+    """Empty session_id returns None."""
+    result = context_budget._derive_transcript_path(tmp_path, "", home=tmp_path)
+    assert result is None
+
+
+def test_derive_transcript_path_none_session_id(tmp_path):
+    """None session_id returns None."""
+    result = context_budget._derive_transcript_path(tmp_path, None, home=tmp_path)  # type: ignore[arg-type]
+    assert result is None
+
+
+def test_derive_transcript_path_missing_file(tmp_path):
+    """Non-existent JSONL file returns None (fail-open)."""
+    result = context_budget._derive_transcript_path(
+        tmp_path, "abc123", home=tmp_path
+    )
+    assert result is None
+
+
+def test_derive_transcript_path_existing_file(tmp_path):
+    """Existing JSONL file returns the path."""
+    cwd = tmp_path / "myproject"
+    cwd.mkdir()
+    cwd_key = str(cwd.resolve()).replace("/", "-")
+    jsonl_dir = tmp_path / ".claude" / "projects" / cwd_key
+    jsonl_dir.mkdir(parents=True)
+    jsonl_file = jsonl_dir / "session123.jsonl"
+    jsonl_file.write_text("{}\n", encoding="utf-8")
+
+    result = context_budget._derive_transcript_path(
+        cwd, "session123", home=tmp_path
+    )
+    assert result == jsonl_file
+
+
+# ---------------------------------------------------------------------------
+# compute_context_tokens
+# ---------------------------------------------------------------------------
+
+
+def test_compute_context_tokens_returns_none_for_missing_file(tmp_path):
+    """Missing file returns None."""
+    result = context_budget.compute_context_tokens(tmp_path / "no-such.jsonl")
+    assert result is None
+
+
+def test_compute_context_tokens_returns_none_for_empty_file(tmp_path):
+    """Empty file returns None."""
+    f = tmp_path / "empty.jsonl"
+    f.write_text("", encoding="utf-8")
+    assert context_budget.compute_context_tokens(f) is None
+
+
+def test_compute_context_tokens_finds_last_assistant_entry(tmp_path):
+    """Returns usage sum from the LAST assistant entry."""
+    f = tmp_path / "t.jsonl"
+    f.write_text(
+        _make_jsonl([
+            _assistant_entry(input_tokens=5000),
+            {"type": "human", "message": {}},
+            _assistant_entry(input_tokens=10000, cache_read=2000),
+        ]),
+        encoding="utf-8",
+    )
+    result = context_budget.compute_context_tokens(f)
+    assert result == 12000  # 10000 + 2000 from last entry
+
+
+def test_compute_context_tokens_skips_non_assistant_entries(tmp_path):
+    """Non-assistant entries are skipped."""
+    f = tmp_path / "t.jsonl"
+    f.write_text(
+        _make_jsonl([
+            {"type": "human", "message": {"usage": {"input_tokens": 99}}},
+            _assistant_entry(input_tokens=7777),
+        ]),
+        encoding="utf-8",
+    )
+    result = context_budget.compute_context_tokens(f)
+    assert result == 7777
+
+
+def test_compute_context_tokens_sums_all_cache_fields(tmp_path):
+    """input_tokens + cache_read + cache_create are all summed."""
+    f = tmp_path / "t.jsonl"
+    f.write_text(
+        _make_jsonl([
+            _assistant_entry(input_tokens=1000, cache_read=500, cache_create=200),
+        ]),
+        encoding="utf-8",
+    )
+    result = context_budget.compute_context_tokens(f)
+    assert result == 1700
+
+
+def test_compute_context_tokens_full_reverse_scan_beyond_100_lines(tmp_path):
+    """Full reverse scan finds an assistant entry even when it is beyond 100 lines from end.
+
+    INFRA-182: compute_context_tokens uses full reverse scan, no fixed-line tail.
+    This test creates a file where the assistant entry is at line 1 and there
+    are 150 non-assistant lines after it. A 100-line tail would miss it;
+    the full scan must find it.
+    """
+    f = tmp_path / "long.jsonl"
+    entries = [_assistant_entry(input_tokens=42000)]
+    # Add 150 human entries after the assistant entry
+    entries += [{"type": "human", "message": {}} for _ in range(150)]
+    f.write_text(_make_jsonl(entries), encoding="utf-8")
+    result = context_budget.compute_context_tokens(f)
+    assert result == 42000
+
+
+def test_compute_context_tokens_skips_malformed_json(tmp_path):
+    """Malformed JSON lines are skipped; valid entry is found."""
+    f = tmp_path / "t.jsonl"
+    content = "not json\n" + json.dumps(_assistant_entry(input_tokens=3000)) + "\n"
+    f.write_text(content, encoding="utf-8")
+    result = context_budget.compute_context_tokens(f)
+    assert result == 3000
+
+
+# ---------------------------------------------------------------------------
+# read_current_tokens
+# ---------------------------------------------------------------------------
+
+
+def test_read_current_tokens_empty_session_id(tmp_path):
+    """Empty session_id returns None."""
+    assert context_budget.read_current_tokens(tmp_path, session_id="") is None
+
+
+def test_read_current_tokens_missing_transcript(tmp_path):
+    """Missing transcript returns None."""
+    assert context_budget.read_current_tokens(tmp_path, session_id="nosuch", home=tmp_path) is None
+
+
+def test_read_current_tokens_valid_transcript(tmp_path):
+    """Valid transcript returns token count."""
+    cwd = tmp_path / "proj"
+    cwd.mkdir()
+    cwd_key = str(cwd.resolve()).replace("/", "-")
+    jsonl_dir = tmp_path / ".claude" / "projects" / cwd_key
+    jsonl_dir.mkdir(parents=True)
+    jsonl_file = jsonl_dir / "sess.jsonl"
+    jsonl_file.write_text(
+        _make_jsonl([_assistant_entry(input_tokens=55000)]),
+        encoding="utf-8",
+    )
+    result = context_budget.read_current_tokens(cwd, session_id="sess", home=tmp_path)
+    assert result == 55000
 
 
 # ---------------------------------------------------------------------------
@@ -315,39 +497,24 @@ def test_estimate_next_step_tokens_none_phase_seeded_fallback_when_insufficient(
 
 
 def test_estimate_per_phase_wins_when_sufficient(tmp_path):
-    """Tier 1: per-phase ≥5 rows — per-phase median returned, not global.
-
-    Phase "7" has 5 rows [10k..50k] → median 30k.
-    Global also has those same rows but more in phase "99" — tie broken by
-    phase-specific median still equaling 30k.
-    """
+    """Tier 1: per-phase ≥5 rows — per-phase median returned, not global."""
     db_path = tmp_path / "effort.db"
     _create_effort_db(db_path)
-    # Phase 7: 5 rows → median 30k
     _insert_attempts(db_path, phase="7", tokens_list=[10000, 20000, 30000, 40000, 50000])
-    # Other phase: adds noise to global
     _insert_attempts(db_path, phase="99", tokens_list=[100000, 200000])
 
     result = context_budget.estimate_next_step_tokens(db_path, "7", seeded_default=99999)
-    # Per-phase median of [10k, 20k, 30k, 40k, 50k] = 30k
     assert result == 30000
 
 
 def test_estimate_global_fallback_when_per_phase_insufficient(tmp_path):
-    """Tier 2: per-phase < 5 rows, global ≥ 5 — global median returned.
-
-    Phase "3" has only 2 rows.  Other phases supply the remaining rows so
-    the global total is ≥ 5.
-    """
+    """Tier 2: per-phase < 5 rows, global ≥ 5 — global median returned."""
     db_path = tmp_path / "effort.db"
     _create_effort_db(db_path)
-    # Phase 3: only 2 rows (not enough for tier 1)
     _insert_attempts(db_path, phase="3", tokens_list=[10000, 20000])
-    # Other phases supply 3 more rows → global = 5
     _insert_attempts(db_path, phase="9", tokens_list=[30000, 40000, 50000])
 
     result = context_budget.estimate_next_step_tokens(db_path, "3", seeded_default=99999)
-    # Global values: [10k, 20k, 30k, 40k, 50k] → median 30k
     assert result == 30000
 
 
@@ -355,7 +522,6 @@ def test_estimate_seeded_fallback_when_global_insufficient(tmp_path):
     """Tier 3: global < 5 rows — seeded_default returned."""
     db_path = tmp_path / "effort.db"
     _create_effort_db(db_path)
-    # Only 3 rows total across all phases
     _insert_attempts(db_path, phase="1", tokens_list=[10000, 20000])
     _insert_attempts(db_path, phase="2", tokens_list=[30000])
 
@@ -552,8 +718,6 @@ def test_decide_returns_check_required_when_tokens_absent(tmp_path):
     assert result["tokens"] == 0
     assert result["acknowledged_at"] == 0
     assert "CONTEXT CHECK REQUIRED" in result["reason"]
-    assert "set-context-tokens" in result["reason"]
-    assert "current story" in result["reason"]
 
 
 def test_decide_returns_none_when_acknowledged_within_margin(tmp_path):
@@ -603,7 +767,6 @@ def test_decide_no_state_file_passthrough(tmp_path):
     """`.companion/` directory exists but state.json is absent → None (fail-open)."""
     companion = tmp_path / ".companion"
     companion.mkdir(parents=True, exist_ok=True)
-    # No state.json created — directory exists but file does not.
     result = context_budget.decide(tmp_path)
     assert result is None
 
@@ -627,6 +790,115 @@ def test_decide_non_dict_state_file_context_check_required(tmp_path):
     (companion / "state.json").write_text(json.dumps([1, 2, 3]), encoding="utf-8")
 
     result = context_budget.decide(tmp_path)
+    assert result is not None
+    assert result["block"] is True
+    assert "CONTEXT CHECK REQUIRED" in result["reason"]
+
+
+# ---------------------------------------------------------------------------
+# decide — staleness check (INFRA-182)
+# ---------------------------------------------------------------------------
+
+
+def test_decide_blocks_when_recorded_at_before_session_reset(tmp_path):
+    """context_current_tokens_recorded_at < context_session_reset_at → CONTEXT CHECK REQUIRED.
+
+    INFRA-182: strict less-than staleness check. If recorded_at predates the
+    last session reset, the count is stale and must be refreshed.
+    """
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 1_000,
+            "current_phase": "74",
+            "context_current_tokens": 50_000,
+            # recorded_at BEFORE session reset
+            "context_current_tokens_recorded_at": "2026-06-22T10:00:00+00:00",
+            "context_session_reset_at": "2026-06-22T11:00:00+00:00",
+        },
+    )
+    result = context_budget.decide(project_dir)
+    assert result is not None
+    assert result["block"] is True
+    assert "CONTEXT CHECK REQUIRED" in result["reason"]
+
+
+def test_decide_proceeds_when_recorded_at_equals_session_reset(tmp_path):
+    """recorded_at == context_session_reset_at → NOT stale (baseline case).
+
+    The SessionStart hook sets both to the same timestamp on /clear.
+    Equal means the baseline was just written — treat as fresh.
+    """
+    ts = "2026-06-22T11:00:00+00:00"
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 1_000,
+            "current_phase": "74",
+            "context_current_tokens": 25_000,
+            "context_current_tokens_recorded_at": ts,
+            "context_session_reset_at": ts,
+        },
+    )
+    result = context_budget.decide(project_dir)
+    # 25_000 + 1_000 = 26_000 < 132_000 → under budget → None
+    assert result is None
+
+
+def test_decide_proceeds_when_recorded_at_after_session_reset(tmp_path):
+    """recorded_at > context_session_reset_at → fresh, no block from staleness."""
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 1_000,
+            "current_phase": "74",
+            "context_current_tokens": 25_000,
+            "context_current_tokens_recorded_at": "2026-06-22T12:00:00+00:00",
+            "context_session_reset_at": "2026-06-22T11:00:00+00:00",
+        },
+    )
+    result = context_budget.decide(project_dir)
+    assert result is None
+
+
+def test_decide_proceeds_when_no_session_reset_at(tmp_path):
+    """context_session_reset_at absent → fail-open, no staleness block."""
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 1_000,
+            "current_phase": "74",
+            "context_current_tokens": 25_000,
+            "context_current_tokens_recorded_at": "2026-06-22T10:00:00+00:00",
+            # No context_session_reset_at
+        },
+    )
+    result = context_budget.decide(project_dir)
+    assert result is None
+
+
+def test_decide_blocks_when_tokens_absent_from_state(tmp_path):
+    """No context_current_tokens → CONTEXT CHECK REQUIRED (independent of staleness)."""
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 1_000,
+            "current_phase": "74",
+            "context_session_reset_at": "2026-06-22T11:00:00+00:00",
+            # No context_current_tokens
+        },
+    )
+    result = context_budget.decide(project_dir)
     assert result is not None
     assert result["block"] is True
     assert "CONTEXT CHECK REQUIRED" in result["reason"]
@@ -737,10 +1009,27 @@ def test_set_context_tokens_writes_recorded_at(tmp_path):
         (project_dir / ".companion" / "state.json").read_text(encoding="utf-8")
     )
     assert "context_current_tokens_recorded_at" in state
-    # Parseable as ISO 8601 (datetime.fromisoformat round-trips the value).
     recorded_at = state["context_current_tokens_recorded_at"]
     parsed = datetime.fromisoformat(recorded_at)
     assert parsed.tzinfo is not None
+
+
+def test_set_context_tokens_does_not_write_context_story_tokens(tmp_path):
+    """INFRA-182: set-context-tokens writes scalar only, not context_story_tokens dict."""
+    project_dir = tmp_path / "sub" / "project"
+    companion = project_dir / ".companion"
+    companion.mkdir(parents=True)
+    (companion / "state.json").write_text(
+        json.dumps({"current_story": {"id": "INFRA-182", "title": "test"}}),
+        encoding="utf-8",
+    )
+
+    result = _invoke_set_context_tokens(project_dir, 50_000)
+    assert result.exit_code == 0, result.output
+
+    state = json.loads((companion / "state.json").read_text(encoding="utf-8"))
+    assert state["context_current_tokens"] == 50_000
+    assert "context_story_tokens" not in state
 
 
 # ---------------------------------------------------------------------------
@@ -749,12 +1038,7 @@ def test_set_context_tokens_writes_recorded_at(tmp_path):
 
 
 def test_flex_factor_widens_ceiling(tmp_path):
-    """flex_factor=1.5 widens the ceiling; 170000 tokens should be allowed.
-
-    threshold=120000, overrun_pct=0.10, flex_factor=1.5
-    ceiling = 120000 * 1.10 * 1.50 = 198000
-    current=170000 + expected_step=1000 = 171000 < 198000 → allow (None).
-    """
+    """flex_factor=1.5 widens the ceiling; 170000 tokens should be allowed."""
     project_dir = _setup_project(
         tmp_path,
         state={
@@ -772,12 +1056,7 @@ def test_flex_factor_widens_ceiling(tmp_path):
 
 
 def test_flex_factor_tightens_ceiling(tmp_path):
-    """flex_factor=0.5 tightens the ceiling; 70000 tokens should be blocked.
-
-    threshold=120000, overrun_pct=0.10, flex_factor=0.5
-    ceiling = 120000 * 1.10 * 0.50 = 66000
-    current=70000 + expected_step=1000 = 71000 > 66000 → block.
-    """
+    """flex_factor=0.5 tightens the ceiling; 70000 tokens should be blocked."""
     project_dir = _setup_project(
         tmp_path,
         state={
@@ -796,12 +1075,7 @@ def test_flex_factor_tightens_ceiling(tmp_path):
 
 
 def test_flex_factor_default_unchanged(tmp_path):
-    """flex_factor omitted (default 1.0) — same behaviour as before INFRA-160.
-
-    threshold=120000, overrun_pct=0.10, flex_factor=1.0 (default)
-    ceiling = 120000 * 1.10 = 132000
-    current=125000 + expected_step=53000 = 178000 > 132000 → block.
-    """
+    """flex_factor omitted (default 1.0) — same behaviour as before INFRA-160."""
     project_dir = _setup_project(
         tmp_path,
         state={
@@ -820,11 +1094,7 @@ def test_flex_factor_default_unchanged(tmp_path):
 
 
 def test_flex_factor_clamped_at_zero(tmp_path, capsys):
-    """flex_factor=0 is clamped to 1.0 with a warning; behaviour is default.
-
-    After clamping: ceiling = 120000 * 1.10 * 1.0 = 132000
-    current=10000 + expected_step=1000 = 11000 < 132000 → allow (None).
-    """
+    """flex_factor=0 is clamped to 1.0 with a warning; behaviour is default."""
     project_dir = _setup_project(
         tmp_path,
         state={
@@ -838,18 +1108,13 @@ def test_flex_factor_clamped_at_zero(tmp_path, capsys):
         },
     )
     result = context_budget.decide(project_dir, flex_factor=0)
-    # Clamped to 1.0 → normal ceiling → tokens well under → allow
     assert result is None
     captured = capsys.readouterr()
     assert "clamped to 1.0" in captured.err
 
 
 def test_flex_factor_clamped_at_high(tmp_path, capsys):
-    """flex_factor=10.0 is clamped to 5.0 with a warning.
-
-    After clamping: ceiling = 120000 * 1.10 * 5.0 = 660000
-    current=10000 + expected_step=1000 = 11000 < 660000 → allow (None).
-    """
+    """flex_factor=10.0 is clamped to 5.0 with a warning."""
     project_dir = _setup_project(
         tmp_path,
         state={
@@ -873,12 +1138,7 @@ def test_flex_factor_clamped_at_high(tmp_path, capsys):
 
 
 def test_decide_passes_with_bootstrap_seeded_tokens(tmp_path):
-    """context_current_tokens=1 (as seeded by bootstrap) passes decide() without blocking.
-
-    INFRA-174: _record_state seeds context_current_tokens=1 for new state files.
-    This test verifies that decide() returns None (no block) when called with
-    that minimal seeded value, confirming the first build step can proceed.
-    """
+    """context_current_tokens=1 (as seeded by bootstrap) passes decide() without blocking."""
     project_dir = _setup_project(
         tmp_path,
         state={
@@ -888,241 +1148,8 @@ def test_decide_passes_with_bootstrap_seeded_tokens(tmp_path):
             "context_budget_reprompt_margin": 10_000,
             "current_phase": "67",
             "current_story": "INFRA-174",
-            # Value seeded by _record_state on a fresh bootstrap.
-            # No recorded_at — staleness check skips absent timestamps.
             "context_current_tokens": 1,
         },
     )
     result = context_budget.decide(project_dir)
-    # 1 + 53_000 = 53_001, ceiling = 120_000 * 1.10 = 132_000 → well under ceiling.
     assert result is None, f"Expected None but got: {result}"
-
-
-# ---------------------------------------------------------------------------
-# _read_story_token_entry (INFRA-180)
-# ---------------------------------------------------------------------------
-
-
-def test_read_story_token_entry_present_and_well_formed():
-    """Entry present and well-formed → returns the dict."""
-    state = {
-        "context_story_tokens": {
-            "INFRA-180": {"tokens": 42_000, "recorded_at": "2026-06-17T10:00:00+00:00"}
-        }
-    }
-    entry = context_budget._read_story_token_entry(state, "INFRA-180")
-    assert entry is not None
-    assert entry["tokens"] == 42_000
-    assert entry["recorded_at"] == "2026-06-17T10:00:00+00:00"
-
-
-def test_read_story_token_entry_story_id_absent_returns_none():
-    """story_id not in context_story_tokens → None."""
-    state = {
-        "context_story_tokens": {
-            "INFRA-001": {"tokens": 10_000, "recorded_at": "2026-06-17T10:00:00+00:00"}
-        }
-    }
-    assert context_budget._read_story_token_entry(state, "INFRA-999") is None
-
-
-def test_read_story_token_entry_context_story_tokens_absent_returns_none():
-    """context_story_tokens key absent from state → None."""
-    assert context_budget._read_story_token_entry({}, "INFRA-180") is None
-
-
-def test_read_story_token_entry_malformed_entry_returns_none():
-    """Entry exists but missing 'tokens' → None."""
-    state = {
-        "context_story_tokens": {
-            "INFRA-180": {"recorded_at": "2026-06-17T10:00:00+00:00"}
-        }
-    }
-    assert context_budget._read_story_token_entry(state, "INFRA-180") is None
-
-
-# ---------------------------------------------------------------------------
-# _is_entry_fresh (INFRA-180)
-# ---------------------------------------------------------------------------
-
-
-def test_is_entry_fresh_recorded_after_reset_returns_true():
-    """recorded_at strictly after context_session_reset_at → True."""
-    entry = {"tokens": 50_000, "recorded_at": "2026-06-17T12:00:00+00:00"}
-    state = {"context_session_reset_at": "2026-06-17T11:00:00+00:00"}
-    assert context_budget._is_entry_fresh(entry, state) is True
-
-
-def test_is_entry_fresh_recorded_before_reset_returns_false():
-    """recorded_at before context_session_reset_at → False (stale)."""
-    entry = {"tokens": 50_000, "recorded_at": "2026-06-17T10:00:00+00:00"}
-    state = {"context_session_reset_at": "2026-06-17T11:00:00+00:00"}
-    assert context_budget._is_entry_fresh(entry, state) is False
-
-
-def test_is_entry_fresh_recorded_equal_to_reset_returns_false():
-    """recorded_at equal to context_session_reset_at → False (not strictly after)."""
-    ts = "2026-06-17T11:00:00+00:00"
-    entry = {"tokens": 50_000, "recorded_at": ts}
-    state = {"context_session_reset_at": ts}
-    assert context_budget._is_entry_fresh(entry, state) is False
-
-
-def test_is_entry_fresh_no_reset_at_returns_true():
-    """context_session_reset_at absent from state → True (fail-open)."""
-    entry = {"tokens": 50_000, "recorded_at": "2026-06-17T10:00:00+00:00"}
-    state = {}
-    assert context_budget._is_entry_fresh(entry, state) is True
-
-
-def test_is_entry_fresh_unparseable_recorded_at_returns_true():
-    """Unparseable recorded_at → True (fail-open)."""
-    entry = {"tokens": 50_000, "recorded_at": "not-a-date"}
-    state = {"context_session_reset_at": "2026-06-17T11:00:00+00:00"}
-    assert context_budget._is_entry_fresh(entry, state) is True
-
-
-def test_is_entry_fresh_unparseable_reset_at_returns_true():
-    """Unparseable context_session_reset_at → True (fail-open)."""
-    entry = {"tokens": 50_000, "recorded_at": "2026-06-17T10:00:00+00:00"}
-    state = {"context_session_reset_at": "not-a-date"}
-    assert context_budget._is_entry_fresh(entry, state) is True
-
-
-# ---------------------------------------------------------------------------
-# read_context_tokens_from_state — story_id additions (INFRA-180)
-# ---------------------------------------------------------------------------
-
-
-def test_read_context_tokens_story_id_fresh_dict_entry():
-    """story_id + fresh dict entry → returns dict tokens."""
-    state = {
-        "context_story_tokens": {
-            "INFRA-180": {"tokens": 55_000, "recorded_at": "2026-06-17T12:00:00+00:00"}
-        },
-        "context_session_reset_at": "2026-06-17T11:00:00+00:00",
-    }
-    result = context_budget.read_context_tokens_from_state(state, story_id="INFRA-180")
-    assert result == 55_000
-
-
-def test_read_context_tokens_story_id_stale_dict_entry_returns_none():
-    """story_id + stale dict entry (before reset) → None."""
-    state = {
-        "context_story_tokens": {
-            "INFRA-180": {"tokens": 55_000, "recorded_at": "2026-06-17T10:00:00+00:00"}
-        },
-        "context_session_reset_at": "2026-06-17T11:00:00+00:00",
-    }
-    result = context_budget.read_context_tokens_from_state(state, story_id="INFRA-180")
-    assert result is None
-
-
-def test_read_context_tokens_story_id_no_dict_entry_returns_none():
-    """story_id + no entry for that ID → None."""
-    state = {
-        "context_story_tokens": {},
-    }
-    result = context_budget.read_context_tokens_from_state(state, story_id="INFRA-999")
-    assert result is None
-
-
-def test_read_context_tokens_empty_story_id_scalar_path():
-    """story_id='' + scalar present → scalar fallback returns the value."""
-    state = {"context_current_tokens": 70_000}
-    result = context_budget.read_context_tokens_from_state(state, story_id="")
-    assert result == 70_000
-
-
-# ---------------------------------------------------------------------------
-# decide — story_id additions (INFRA-180)
-# ---------------------------------------------------------------------------
-
-
-def test_decide_fresh_dict_entry_under_budget_returns_none(tmp_path):
-    """Fresh dict entry under budget → None (pass)."""
-    now_iso = "2026-06-17T12:00:00+00:00"
-    project_dir = _setup_project(
-        tmp_path,
-        state={
-            "context_budget_threshold": 120_000,
-            "context_budget_overrun_pct": 0.10,
-            "expected_step_tokens": 1_000,
-            "context_budget_reprompt_margin": 10_000,
-            "current_phase": "73",
-            "current_story": {"id": "INFRA-180", "title": "test"},
-            "context_story_tokens": {
-                "INFRA-180": {"tokens": 10_000, "recorded_at": now_iso}
-            },
-            "context_session_reset_at": "2026-06-17T11:00:00+00:00",
-        },
-    )
-    result = context_budget.decide(project_dir, story_id="INFRA-180")
-    assert result is None
-
-
-def test_decide_fresh_dict_entry_over_budget_returns_block(tmp_path):
-    """Fresh dict entry over budget → block dict."""
-    now_iso = "2026-06-17T12:00:00+00:00"
-    project_dir = _setup_project(
-        tmp_path,
-        state={
-            "context_budget_threshold": 120_000,
-            "context_budget_overrun_pct": 0.10,
-            "expected_step_tokens": 53_000,
-            "context_budget_reprompt_margin": 10_000,
-            "current_phase": "73",
-            "current_story": {"id": "INFRA-180", "title": "test"},
-            "context_story_tokens": {
-                "INFRA-180": {"tokens": 125_000, "recorded_at": now_iso}
-            },
-            "context_session_reset_at": "2026-06-17T11:00:00+00:00",
-        },
-    )
-    result = context_budget.decide(project_dir, story_id="INFRA-180")
-    assert result is not None
-    assert result["block"] is True
-    assert result["tokens"] == 125_000
-
-
-def test_decide_stale_dict_entry_returns_check_required(tmp_path):
-    """Stale dict entry (before reset) → CONTEXT CHECK REQUIRED."""
-    project_dir = _setup_project(
-        tmp_path,
-        state={
-            "context_budget_threshold": 120_000,
-            "context_budget_overrun_pct": 0.10,
-            "expected_step_tokens": 53_000,
-            "current_phase": "73",
-            "current_story": {"id": "INFRA-180", "title": "test"},
-            "context_story_tokens": {
-                # recorded_at BEFORE session reset
-                "INFRA-180": {"tokens": 80_000, "recorded_at": "2026-06-17T10:00:00+00:00"}
-            },
-            "context_session_reset_at": "2026-06-17T11:00:00+00:00",
-        },
-    )
-    result = context_budget.decide(project_dir, story_id="INFRA-180")
-    assert result is not None
-    assert result["block"] is True
-    assert "CONTEXT CHECK REQUIRED" in result["reason"]
-    assert "current story" in result["reason"]
-
-
-def test_decide_no_dict_entry_for_story_returns_check_required(tmp_path):
-    """No dict entry for the story → CONTEXT CHECK REQUIRED."""
-    project_dir = _setup_project(
-        tmp_path,
-        state={
-            "context_budget_threshold": 120_000,
-            "context_budget_overrun_pct": 0.10,
-            "expected_step_tokens": 53_000,
-            "current_phase": "73",
-            "current_story": {"id": "INFRA-180", "title": "test"},
-            "context_story_tokens": {},
-        },
-    )
-    result = context_budget.decide(project_dir, story_id="INFRA-180")
-    assert result is not None
-    assert result["block"] is True
-    assert "CONTEXT CHECK REQUIRED" in result["reason"]

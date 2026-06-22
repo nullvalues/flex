@@ -4,34 +4,35 @@ This module owns the decision logic for when to alert the orchestrator that
 its context window is about to overflow. It is a library of pure (or
 read-only) functions with no side effects on import.
 
+Write/read split (INFRA-182):
+- ``post_tool_use.py`` calls ``read_current_tokens()`` after each Task/Agent
+  completion to read the live JSONL token count, then writes
+  ``context_current_tokens`` + ``context_current_tokens_recorded_at`` to
+  state.json.
+- ``decide()`` reads ``context_current_tokens`` from state.json only (written
+  by PostToolUse or by the SessionStart baseline on /clear). If absent or stale
+  (recorded before the last session reset), ``decide()`` blocks with CONTEXT
+  CHECK REQUIRED.
+- ``set-context-tokens`` CLI remains available as a manual override /
+  debugging escape hatch; it writes the scalar ``context_current_tokens``
+  only.
+
 Design boundary (D11):
 - ``decide()`` MUST NOT write to state.json, effort.db, or the transcript.
-- The hook (``hooks/pre_tool_use.py``) is the sole writer; it makes one
-  delegated call:
-  ``decide(project_dir, story_id)`` — reads ``context_story_tokens[story_id]``
-  from state.json; the hook writes ``context_budget_acknowledged_at`` to
-  state.json when the result has ``block=True``.
+- The hook (``hooks/pre_tool_use.py``) is the sole decision writer; it makes
+  one delegated call: ``decide(project_dir)`` — reads
+  ``context_current_tokens`` from state.json; the hook writes
+  ``context_budget_acknowledged_at`` to state.json when the result has
+  ``block=True``.
 
 The hook is the sole state.json writer for context budget state. This
 function (``decide``) is strictly read-only (D11).
 
-Token source architecture (post INFRA-180/181):
-- ``decide()`` accepts ``story_id`` and reads
-  ``state["context_story_tokens"][story_id]`` as the primary source,
-  validating freshness against ``state["context_session_reset_at"]``.
-- Falls back to the scalar ``state["context_current_tokens"]`` when
-  ``story_id`` is empty (backwards-compat for non-pairmode callers).
-- ``read_context_tokens_from_state()`` is the sole token source for
-  ``decide()``. There is no JSONL path — the orchestrator calls ``/context``
-  before each story and writes the count via ``flex_build.py set-context-tokens``.
-- ``set-context-tokens`` is the sole writer of ``context_story_tokens`` entries.
-- The hook passes ``story_id`` from ``state["current_story"]["id"]``.
-
-INFRA-180: replaced the mutable ``context_current_tokens`` scalar with the
-per-story-ID dict ``context_story_tokens``. The JSONL waterfall added in
-Phase 72 (INFRA-179) and removed in INFRA-180 is gone entirely.
-INFRA-181: removed dead JSONL functions (_derive_transcript_path,
-compute_context_tokens, read_current_tokens) and updated this docstring.
+INFRA-182: PostToolUse is now the writer of context_current_tokens.
+PreToolUse reads state.json only — no JSONL reading in PreToolUse. No
+per-story dict. No stale fallback (absent or stale = hard block).
+Restored _derive_transcript_path, compute_context_tokens, read_current_tokens
+with full reverse scan (no fixed-line tail).
 
 The companion phase-spend CLI ``context_budget_check.py`` is unrelated and
 remains untouched.
@@ -67,12 +68,133 @@ _FLEX_BUILD_PATH = Path(__file__).resolve().parent / "flex_build.py"
 
 _CONTEXT_CHECK_REQUIRED_MSG = (
     "CONTEXT CHECK REQUIRED\n"
-    "No token count has been recorded for the current story in this session.\n"
-    "Call /context and run:\n"
-    f"  PATH=$HOME/.local/bin:$PATH uv run python {_FLEX_BUILD_PATH} \\\n"
-    "    set-context-tokens --tokens N --project-dir .\n"
-    "Replace N with the integer token count from /context.\n"
+    "Context token count is missing or stale. It will update automatically\n"
+    "after the next tool call completes.\n"
 )
+
+
+# ---------------------------------------------------------------------------
+# 0. JSONL transcript reading (PostToolUse writer path)
+# ---------------------------------------------------------------------------
+
+
+def _derive_transcript_path(
+    cwd: Path,
+    session_id: str,
+    home: "Path | None" = None,
+) -> "Path | None":
+    """Derive the Claude Code session JSONL transcript path.
+
+    ``home`` defaults to ``Path.home()`` when ``None``; callers (including
+    tests) can inject an alternative root to avoid touching ``~/.claude/``.
+
+    Constructs:
+        home / ".claude" / "projects" / str(cwd.resolve()).replace("/", "-")
+        / f"{session_id}.jsonl"
+
+    Returns ``None`` if:
+    - ``session_id`` is empty, None, or not a non-empty string.
+    - The constructed path does not exist on disk (fail-open).
+    - Any exception is caught.
+
+    Pure function; no side effects.
+    """
+    try:
+        if not session_id or not isinstance(session_id, str):
+            return None
+        if home is None:
+            home = Path.home()
+        cwd_key = str(Path(cwd).resolve()).replace("/", "-")
+        candidate = home / ".claude" / "projects" / cwd_key / f"{session_id}.jsonl"
+        if not candidate.exists():
+            return None
+        return candidate
+    except Exception:
+        return None
+
+
+def compute_context_tokens(transcript_path: Path) -> "int | None":
+    """Full reverse scan of ``transcript_path``; return the live context token count.
+
+    Walks the entire file in reverse (no fixed-line tail) to find the last
+    ``type: "assistant"`` entry with a ``message.usage`` block. Returns the
+    sum of:
+      ``input_tokens + cache_read_input_tokens + cache_creation_input_tokens``
+
+    Returns ``None`` if:
+    - File is missing or unreadable (OSError).
+    - No valid assistant entry with a ``usage`` dict is found.
+    - Any numeric value is non-numeric.
+    - Any exception occurs.
+
+    Never raises. No TTL is applied — the JSONL value always reflects the
+    most recent completed response.
+    """
+    try:
+        try:
+            lines = transcript_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return None
+        for line in reversed(lines):  # full scan, no slice
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("type") != "assistant":
+                continue
+            message = entry.get("message")
+            if not isinstance(message, dict):
+                continue
+            usage = message.get("usage")
+            if not isinstance(usage, dict):
+                continue
+            try:
+                input_tokens = int(usage.get("input_tokens", 0) or 0)
+                cache_read = int(usage.get("cache_read_input_tokens", 0) or 0)
+                cache_create = int(usage.get("cache_creation_input_tokens", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            total = input_tokens + cache_read + cache_create
+            if total < 0:
+                continue
+            return total
+        return None
+    except Exception:
+        return None
+
+
+def read_current_tokens(
+    project_dir: Path,
+    session_id: str = "",
+    home: "Path | None" = None,
+) -> "int | None":
+    """JSONL-only read of the live context token count.
+
+    No state.json fallback. This function is the PostToolUse hook's source
+    for the live count it writes back to state.json. Keeping it JSONL-only
+    avoids re-arming the CER-041 staleness TTL with a stale state.json value.
+
+    Logic:
+    1. If ``session_id`` is non-empty: derive the transcript path and call
+       ``compute_context_tokens()``. Return the count if positive.
+    2. Return ``None`` in all other cases.
+
+    ``home`` is passed through to ``_derive_transcript_path`` for testability.
+    """
+    if not session_id:
+        return None
+    transcript_path = _derive_transcript_path(project_dir, session_id, home)
+    if transcript_path is None:
+        return None
+    count = compute_context_tokens(transcript_path)
+    if count is not None and count > 0:
+        return count
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -80,99 +202,18 @@ _CONTEXT_CHECK_REQUIRED_MSG = (
 # ---------------------------------------------------------------------------
 
 
-def _read_story_token_entry(
-    state: dict,
-    story_id: str,
-) -> "dict | None":
-    """Return ``state["context_story_tokens"][story_id]`` when present and
-    correctly shaped (``{"tokens": int, "recorded_at": str}``).
-
-    Returns ``None`` if:
-    - ``context_story_tokens`` is absent from state.
-    - ``story_id`` is not a key in the dict.
-    - The entry is malformed (missing ``tokens`` or ``recorded_at``, or
-      ``tokens`` is not an int-coercible value).
-    - Any exception occurs.
-
-    Never raises.
-    """
-    try:
-        token_dict = state.get("context_story_tokens")
-        if not isinstance(token_dict, dict):
-            return None
-        entry = token_dict.get(story_id)
-        if not isinstance(entry, dict):
-            return None
-        # Validate shape: tokens must be int-coercible, recorded_at must be str.
-        tokens = entry.get("tokens")
-        recorded_at = entry.get("recorded_at")
-        if tokens is None or recorded_at is None:
-            return None
-        int(tokens)  # will raise if non-numeric
-        if not isinstance(recorded_at, str):
-            return None
-        return entry
-    except Exception:
-        return None
-
-
-def _is_entry_fresh(
-    entry: dict,
-    state: dict,
-    _now: "datetime | None" = None,
-) -> bool:
-    """Return ``True`` when ``entry["recorded_at"]`` post-dates
-    ``state["context_session_reset_at"]``.
-
-    Rules:
-    - Returns ``True`` if ``context_session_reset_at`` is absent from state
-      (no reset recorded yet — fail-open).
-    - Returns ``True`` if either timestamp is unparseable (fail-open for
-      backwards compatibility).
-    - Returns ``False`` if ``entry["recorded_at"]`` is not **strictly after**
-      ``context_session_reset_at`` (equal timestamps are treated as stale —
-      the entry was recorded at the same instant as the reset boundary).
-    - ``_now`` is accepted for signature symmetry with other helpers but is
-      not used.
-    """
-    reset_at_str = state.get("context_session_reset_at")
-    if not reset_at_str:
-        return True
-    recorded_at_str = entry.get("recorded_at", "")
-    try:
-        reset_dt = datetime.fromisoformat(reset_at_str)
-        recorded_dt = datetime.fromisoformat(recorded_at_str)
-    except (TypeError, ValueError, AttributeError):
-        return True
-    return recorded_dt > reset_dt
-
-
 def read_context_tokens_from_state(
     state: dict,
-    story_id: str = "",
     _now: datetime | None = None,
 ) -> int | None:
-    """Return the recorded token count for ``story_id`` when a fresh entry
-    exists in ``state["context_story_tokens"]``, or fall back to the scalar
-    ``state["context_current_tokens"]`` when ``story_id`` is empty.
+    """Return the recorded scalar token count from state.json.
 
-    Primary path (when ``story_id`` is non-empty):
-    1. Call ``_read_story_token_entry(state, story_id)``.
-    2. If entry found and ``_is_entry_fresh(entry, state)`` is True: return
-       ``entry["tokens"]`` as an int.
-    3. If entry found but stale (recorded before last session reset): return
-       ``None`` (stale = treat as absent).
-    4. If entry not found: return ``None``.
-
-    Scalar fallback path (when ``story_id`` is empty):
-    Returns ``int(state["context_current_tokens"])`` when the key is present
-    and the value is a valid positive integer. Returns ``None`` for any other
-    case (absent, zero, negative, non-numeric). This path is used by tests
-    that do not yet pass a story ID and by callers in non-pairmode projects.
-
-    CER-041: the scalar path checks ``context_current_tokens_recorded_at``
-    against ``context_current_tokens_ttl_minutes`` (default 60 minutes). A
-    missing or unparseable ``recorded_at`` skips the staleness check.
+    Reads ``state["context_current_tokens"]`` and returns it as a positive
+    integer, or ``None`` when:
+    - The key is absent.
+    - The value is zero, negative, or non-numeric.
+    - CER-041 staleness TTL: ``context_current_tokens_recorded_at`` is older
+      than ``context_current_tokens_ttl_minutes`` (default 60 minutes).
 
     The ``_now`` parameter is private and exists solely for test injection
     (so tests can freeze the wall clock). Production callers (``decide()``)
@@ -181,19 +222,6 @@ def read_context_tokens_from_state(
     if not isinstance(state, dict):
         return None
 
-    # Primary path: per-story dict lookup.
-    if story_id:
-        entry = _read_story_token_entry(state, story_id)
-        if entry is None:
-            return None
-        if not _is_entry_fresh(entry, state, _now):
-            return None
-        try:
-            return int(entry["tokens"])
-        except (TypeError, ValueError, KeyError):
-            return None
-
-    # Scalar fallback path (story_id="" — backwards-compat and non-pairmode).
     if "context_current_tokens" not in state:
         return None
     raw = state.get("context_current_tokens")
@@ -382,25 +410,49 @@ def _read_state(project_dir: Path) -> dict | None:
     return data
 
 
+def _is_stale(state: dict) -> bool:
+    """Return True when context_current_tokens_recorded_at < context_session_reset_at.
+
+    Staleness rule (strict less-than): if recorded_at predates the last
+    session reset, the value is stale. Equal timestamps are NOT stale —
+    the SessionStart baseline sets both to the same timestamp, so equal
+    means the baseline itself was just written.
+
+    Returns False (not stale) when:
+    - context_session_reset_at is absent from state (no reset recorded — fail-open).
+    - Either timestamp is unparseable (fail-open for backwards compatibility).
+    - recorded_at >= reset_at (fresh or equal to the reset instant).
+    """
+    reset_at_str = state.get("context_session_reset_at")
+    if not reset_at_str:
+        return False
+    recorded_at_str = state.get("context_current_tokens_recorded_at", "")
+    if not recorded_at_str:
+        # No recorded_at means we cannot compare → treat as stale
+        return True
+    try:
+        reset_dt = datetime.fromisoformat(reset_at_str)
+        recorded_dt = datetime.fromisoformat(recorded_at_str)
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return recorded_dt < reset_dt
+
+
 def decide(
     project_dir: Path,
-    story_id: str = "",
     flex_factor: float = 1.0,
 ) -> "dict | None":
-    """End-to-end glue. Reads ``state["context_story_tokens"][story_id]``
-    (primary) or ``state["context_current_tokens"]`` (scalar fallback when
-    ``story_id`` is empty), calls ``should_block``, and returns
+    """End-to-end glue. Reads ``state["context_current_tokens"]`` from state.json
+    (written by ``post_tool_use.py`` after each Task/Agent completion, or by the
+    SessionStart baseline on /clear), calls ``should_block``, and returns
 
         {"block": True, "reason": "<prompt>", "tokens": N,
          "acknowledged_at": N}
 
     when the next step would exceed the overrun ceiling, ``None`` when within
-    budget, or a "CONTEXT CHECK REQUIRED" block dict when no token count can
-    be derived.
-
-    ``story_id`` is passed to ``read_context_tokens_from_state()`` for the
-    per-story dict lookup. When empty (default), falls back to the scalar
-    ``context_current_tokens`` path (backwards-compat).
+    budget, or a "CONTEXT CHECK REQUIRED" block dict when:
+    - context_current_tokens is absent from state.json.
+    - context_current_tokens_recorded_at < context_session_reset_at (stale).
 
     ``flex_factor`` scales the effective ceiling:
     ``ceiling = threshold * (1 + overrun_pct) * flex_factor``.
@@ -408,9 +460,9 @@ def decide(
     The default of 1.0 preserves the pre-INFRA-160 behaviour exactly.
 
     The caller (the hook) is responsible for writing ``acknowledged_at`` back
-    to state.json when blocking. ``set-context-tokens`` is the sole writer of
-    ``context_story_tokens``. This function is strictly read-only — it MUST
-    NOT write to state.json or effort.db (D11).
+    to state.json when blocking. ``post_tool_use.py`` is the sole writer of
+    ``context_current_tokens`` (via read_current_tokens). This function is
+    strictly read-only — it MUST NOT write to state.json or effort.db (D11).
     """
     import sys as _sys
 
@@ -436,9 +488,28 @@ def decide(
         # No state.json — non-pairmode project, fail-open.
         return None
 
-    # Read the current token count: per-story dict (primary) or scalar fallback.
-    current_tokens: int | None = read_context_tokens_from_state(state, story_id)
+    # Read context_current_tokens directly (bypass TTL; session-reset check below).
+    current_tokens: int | None = None
+    raw = state.get("context_current_tokens")
+    if raw is not None:
+        try:
+            v = int(raw)
+            if v > 0:
+                current_tokens = v
+        except (TypeError, ValueError):
+            pass
+
+    # Absent → block hard.
     if current_tokens is None:
+        return {
+            "block": True,
+            "reason": _CONTEXT_CHECK_REQUIRED_MSG,
+            "tokens": 0,
+            "acknowledged_at": 0,
+        }
+
+    # Staleness check: if recorded_at < reset_at (strict less-than), block hard.
+    if _is_stale(state):
         return {
             "block": True,
             "reason": _CONTEXT_CHECK_REQUIRED_MSG,
@@ -476,7 +547,7 @@ def decide(
     if acknowledged_at is not None and current_tokens < acknowledged_at + reprompt_margin:
         return None
 
-    state_story_id = story_id or state.get("current_story") or state.get("story_id")
+    state_story_id = state.get("current_story") or state.get("story_id")
     prompt = render_alert_prompt(
         story_id=str(state_story_id) if state_story_id else None,
         tokens=current_tokens,

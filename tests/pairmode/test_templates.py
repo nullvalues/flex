@@ -2498,9 +2498,9 @@ class TestBuild026ContextGateReauthorization:
     """Story BUILD-026: CLAUDE.build.md.j2 (and flex's own CLAUDE.build.md)
     describe the Context gate enforcement.
 
-    INFRA-181 update: the Context gate now calls /context and set-context-tokens
-    to write context_story_tokens[story_id]. The hook is the sole enforcer —
-    it blocks with CONTEXT CHECK REQUIRED when the entry is absent or stale.
+    INFRA-182 update: the Context gate is now display-only (/context for display,
+    story-cost-estimate for informational). PostToolUse writes context_current_tokens
+    automatically; no manual set-context-tokens call is required.
     """
 
     def setup_method(self):
@@ -2512,15 +2512,20 @@ class TestBuild026ContextGateReauthorization:
     # --- Rendered template ---------------------------------------------------
 
     def test_rendered_template_context_gate_no_threshold_reached(self):
-        """INFRA-181: hard-stop THRESHOLD REACHED branch removed."""
+        """INFRA-182: hard-stop THRESHOLD REACHED branch removed."""
         assert "THRESHOLD REACHED" not in self.output
 
-    def test_rendered_template_context_gate_calls_set_context_tokens(self):
-        """INFRA-181: Context gate calls set-context-tokens to record the count."""
-        assert "set-context-tokens" in self.output
+    def test_rendered_template_context_gate_no_set_context_tokens_in_gate(self):
+        """INFRA-182: Context gate no longer calls set-context-tokens (display-only)."""
+        # set-context-tokens may appear in the Context budget check section
+        # but must NOT appear inside the ### Context gate section itself.
+        gate_start = self.output.index("### Context gate")
+        gate_end = self.output.index("\n### ", gate_start + 1)
+        gate_section = self.output[gate_start:gate_end]
+        assert "set-context-tokens" not in gate_section
 
     def test_rendered_template_context_gate_mentions_hook_enforcer(self):
-        """INFRA-181: Context gate notes that the hook enforces the budget."""
+        """INFRA-182: Context gate notes that the hook enforces the budget automatically."""
         assert "pre_tool_use.py" in self.output
 
     def test_rendered_template_context_gate_has_story_cost_estimate(self):
@@ -2528,27 +2533,30 @@ class TestBuild026ContextGateReauthorization:
         assert "story-cost-estimate" in self.output
 
     def test_rendered_template_context_gate_calls_slash_context(self):
-        """INFRA-181: Context gate instructs calling /context first."""
+        """INFRA-182: Context gate instructs calling /context for display."""
         assert "/context" in self.output
 
-    def test_rendered_template_context_gate_mentions_context_story_tokens(self):
-        """INFRA-181: Context gate documents the dict key written by set-context-tokens."""
-        assert "context_story_tokens" in self.output
+    def test_rendered_template_context_gate_mentions_post_tool_use(self):
+        """INFRA-182: Context gate notes that post_tool_use.py writes the count."""
+        assert "post_tool_use.py" in self.output
 
     # --- flex's own CLAUDE.build.md -----------------------------------------
 
     def test_flex_claude_build_md_context_gate_no_threshold_reached(self):
-        """INFRA-181: CLAUDE.build.md Context gate has no THRESHOLD REACHED."""
+        """INFRA-182: CLAUDE.build.md Context gate has no THRESHOLD REACHED."""
         assert "THRESHOLD REACHED" not in self.flex_build_md
 
-    def test_flex_claude_build_md_context_gate_calls_set_context_tokens(self):
-        """INFRA-181: CLAUDE.build.md Context gate calls set-context-tokens."""
-        assert "set-context-tokens" in self.flex_build_md
+    def test_flex_claude_build_md_context_gate_no_set_context_tokens_in_gate(self):
+        """INFRA-182: CLAUDE.build.md Context gate does not call set-context-tokens."""
+        gate_start = self.flex_build_md.index("### Context gate")
+        gate_end = self.flex_build_md.index("\n### ", gate_start + 1)
+        gate_section = self.flex_build_md[gate_start:gate_end]
+        assert "set-context-tokens" not in gate_section
 
     def test_flex_claude_build_md_context_gate_has_story_cost_estimate(self):
         """CLAUDE.build.md Context gate still shows story-cost-estimate."""
         assert "story-cost-estimate" in self.flex_build_md
 
     def test_flex_claude_build_md_context_gate_calls_slash_context(self):
-        """INFRA-181: CLAUDE.build.md Context gate instructs calling /context first."""
+        """INFRA-182: CLAUDE.build.md Context gate instructs calling /context for display."""
         assert "/context" in self.flex_build_md
