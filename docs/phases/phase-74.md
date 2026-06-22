@@ -1,7 +1,7 @@
 # Phase 74 — PostToolUse JSONL context gate (deterministic, no LLM cooperation)
 
 **Era:** era-002
-**Status:** planned
+**Status:** complete
 **Parent phase:** Phase 73 (per-story dict gate) — superseded by this design
 
 ## Problem
@@ -26,7 +26,7 @@ The SessionStart baseline (25,000) covers the first spawn of a session before an
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-182 | PostToolUse JSONL writer + PreToolUse state.json reader — deterministic context gate | planned |
+| INFRA-182 | PostToolUse JSONL writer + PreToolUse state.json reader — deterministic context gate | complete |
 
 ---
 
@@ -36,7 +36,7 @@ The SessionStart baseline (25,000) covers the first spawn of a session before an
 
 **Rail:** INFRA
 **Phase:** 74
-**Status:** planned
+**Status:** complete
 
 ### Problem
 
