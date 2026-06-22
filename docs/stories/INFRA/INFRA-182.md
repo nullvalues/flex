@@ -2,7 +2,7 @@
 id: INFRA-182
 rail: INFRA
 title: "PostToolUse JSONL writer + PreToolUse state.json reader — deterministic context gate"
-status: planned
+status: complete
 phase: "74"
 story_class: code
 primary_files:
@@ -15,6 +15,10 @@ touches:
   - skills/pairmode/templates/CLAUDE.build.md.j2
   - tests/pairmode/test_context_budget.py
   - tests/pairmode/test_templates.py
+  - tests/pairmode/test_flex_build_set_context_tokens.py
+  - skills/pairmode/scripts/flex_build.py
+  - docs/phases/index.md
+  - docs/phases/phase-74.md
 ---
 
 # INFRA-182 — PostToolUse JSONL writer + PreToolUse state.json reader — deterministic context gate
