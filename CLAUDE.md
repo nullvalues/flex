@@ -80,7 +80,7 @@ Run every item on every review invocation.
    For this dispatch: one stdin read, one delegated `decide_reset` call,
    one hook-owned state write (`context_current_tokens` +
    `context_current_tokens_recorded_at` + `context_session_reset_at` —
-   three keys returned by `decide_reset()` as a dict — see INFRA-180),
+   three keys returned by `decide_reset()` as a dict — see INFRA-180, INFRA-182),
    one emit. All decision logic lives in `session_reset.py`, NOT in the hook.
 
    Any logic added inside `pre_tool_use.py`, `post_tool_use.py`, or

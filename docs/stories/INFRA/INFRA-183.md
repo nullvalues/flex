@@ -2,7 +2,7 @@
 id: INFRA-183
 rail: INFRA
 title: "Phase 74 security remediation — bound JSONL scan, session_id containment, CLAUDE.md exception doc"
-status: planned
+status: complete
 phase: "75"
 story_class: code
 primary_files:

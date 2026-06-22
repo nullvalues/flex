@@ -5,6 +5,22 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp75-phase74-security-remediation
+
+**Phase:** 75 — Phase 74 security remediation
+**Tag command:** `git tag cp75-phase74-security-remediation && git push origin cp75-phase74-security-remediation`
+**Acceptance:** One story: INFRA-183. Bounded `compute_context_tokens` to last 500 lines (CRITICAL from Phase 74 audit); added `Path.resolve().is_relative_to()` containment guard to `_derive_transcript_path` (HIGH from Phase 74 audit); updated `CLAUDE.md` HOOK PERFORMANCE section to document `post_tool_use.py` thin-delegation exception and correct stale `decide()` interface description; filed CER-052 as resolved; updated `docs/pairmode/context-gate-flow.md` and `README.md` to reflect INFRA-182 write/read split design. Security audit: 0 findings. 2195 tests pass.
+
+---
+
+## cp74-posttooluse-jsonl-context-gate
+
+**Phase:** 74 — PostToolUse JSONL context gate — deterministic, no LLM cooperation
+**Tag command:** `git tag cp74-posttooluse-jsonl-context-gate && git push origin cp74-posttooluse-jsonl-context-gate`
+**Acceptance:** One story: INFRA-182. Added `Task|Agent` PostToolUse matcher to `hooks/hooks.json`; `post_tool_use.py` Task/Agent branch reads JSONL transcript via `context_budget.read_current_tokens()` and writes `context_current_tokens` + `context_current_tokens_recorded_at` to state.json (never blocks); `pre_tool_use.py` simplified to `decide(project_dir)` — no `story_id`, no `session_id`; `context_budget.py` restored JSONL reading functions, `decide()` reads scalar `context_current_tokens` only (hard-blocks if absent or stale), removed all per-story dict logic; `CLAUDE.build.md` and `.j2` template updated to display-only Context gate. Security audit findings from Phase 74 resolved in Phase 75 (cp75 tags with this phase). 2195 tests pass.
+
+---
+
 ## cp68-sessionstart-context-reset
 
 **Phase:** 68 — SessionStart context-counter reset (CER-047)

@@ -181,18 +181,15 @@ in place.
 
    Pairmode owns this loop. Companion is not required to use it; if companion is running,
    the sidebar will surface the active story but does not gate the build.
-2. **Context gate.** Before the next builder spawns, the orchestrator calls `/context`
-   to read the live token count and records it for the current story via
-   `flex_build.py set-context-tokens`, which writes to
-   `state["context_story_tokens"][story_id]` — a per-story dict that accumulates
-   across the session. On `/clear` or fresh startup, the SessionStart hook writes
-   `context_session_reset_at`, invalidating pre-clear entries.
-   The hook is the sole enforcer: `hooks/pre_tool_use.py` intercepts every Agent
-   spawn, looks up the story's dict entry, validates it post-dates the last session
-   reset, and blocks if the entry is absent, stale, or the projected token total
-   exceeds the overrun ceiling (`threshold × 1.10`, default 132k). If the orchestrator
-   skipped `set-context-tokens`, the hook blocks with CONTEXT CHECK REQUIRED — the
-   lapse becomes a hard stop, not a silent pass. See
+2. **Context gate.** After each builder or reviewer spawn completes,
+   `hooks/post_tool_use.py` reads the live token count from the session JSONL
+   transcript and writes it to `state["context_current_tokens"]` — no orchestrator
+   action required. On the next spawn, `hooks/pre_tool_use.py` reads that value,
+   checks it isn't stale (predating the last `/clear`), and blocks if the projected
+   total exceeds the overrun ceiling (`threshold × 1.10`, default 132k). The
+   SessionStart hook resets the count to a fresh-session baseline on `/clear` or
+   startup. No LLM cooperation required — the write/read split between PostToolUse
+   and PreToolUse is fully mechanical. See
    `docs/pairmode/context-gate-flow.md` for the full flow diagram.
 3. **Invoke the builder subagent: "Build story RAIL-NNN."** The builder receives only the
    story ID. The orchestrator passes no story text, file contents, or prior context. The
@@ -265,10 +262,10 @@ developer decision to override. `lineage` is append-only.
 - Story status updates and orchestrator steps that used to require manual bash
   invocations are now covered by `story_update.py` and `flex_build.py`, which together
   cover the full status lifecycle (introduced in Phases 18, 22, 45).
-- Context gate reliability depends on the orchestrator calling `/context` and
-  `set-context-tokens` before each story spawn. The hook enforces this by blocking
-  when the entry is absent, but cannot force the orchestrator to call `/context` if
-  it is operating outside the pairmode build loop.
+- Context gate enforcement is fully automatic via the PostToolUse/PreToolUse hook split
+  (INFRA-182, Phase 74). The gate does not depend on orchestrator cooperation. A first
+  spawn after `/clear` uses the SessionStart baseline (25,000 tokens); PostToolUse
+  updates the count from the JSONL transcript after each spawn completes.
 - The reconstruction workflow (ideology extraction and competing implementation seeding)
   requires a populated spec and works best after several sessions of decision capture.
 

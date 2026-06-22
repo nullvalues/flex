@@ -17,7 +17,7 @@ Phase 74's security audit (checkpoint cp-74) returned FAIL with two CRITICAL fin
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-183 | Phase 74 security remediation — bound JSONL scan, session_id containment, CLAUDE.md exception doc | planned |
+| INFRA-183 | Phase 74 security remediation — bound JSONL scan, session_id containment, CLAUDE.md exception doc | complete |
 
 ---
 

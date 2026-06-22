@@ -32,7 +32,7 @@ INFRA-182: PostToolUse is now the writer of context_current_tokens.
 PreToolUse reads state.json only — no JSONL reading in PreToolUse. No
 per-story dict. No stale fallback (absent or stale = hard block).
 Restored _derive_transcript_path, compute_context_tokens, read_current_tokens
-with full reverse scan (no fixed-line tail).
+bounded to last 500 lines (INFRA-183).
 
 The companion phase-spend CLI ``context_budget_check.py`` is unrelated and
 remains untouched.

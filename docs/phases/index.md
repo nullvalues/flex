@@ -73,7 +73,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 72 | Restore JSONL-based context gate | complete | [phase-72.md](phase-72.md) |
 | 73 | Per-story context token dict; revert Phase 72 JSONL gate | complete | [phase-73.md](phase-73.md) |
 | 74 | PostToolUse JSONL context gate — deterministic, no LLM cooperation | complete | [phase-74.md](phase-74.md) |
-| 75 | Phase 74 security remediation — bound JSONL scan, session_id containment, CLAUDE.md doc | planned | [phase-75.md](phase-75.md) |
+| 75 | Phase 74 security remediation — bound JSONL scan, session_id containment, CLAUDE.md doc | complete | [phase-75.md](phase-75.md) |
 
 ---
 
