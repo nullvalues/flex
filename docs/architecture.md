@@ -630,7 +630,9 @@ Compares the target project's `CLAUDE.build.md` against the canonical `CLAUDE.bu
 template rendered with the project's `state.json` and `pairmode_context.json`. Prints a
 unified diff. With `--apply`, writes the rendered template to the project's `CLAUDE.build.md`
 after confirmation (or immediately with `--apply --yes`). With `--dry-run`, prints the diff
-and exits without writing.
+and exits without writing. Also seeds missing context gate keys in `.companion/state.json`
+(BUILD-032, Phase 76): if `context_session_reset_at` or `context_current_tokens` are absent,
+`--apply` writes a fresh-session baseline so the context gate does not false-block on first spawn.
 
 CLI:
 ```bash
@@ -642,8 +644,10 @@ Behaviour:
 - Renders `CLAUDE.build.md.j2` with `project_name`, `build_command`, `test_command`,
   `migration_command` sourced from `state.json` and `pairmode_context.json` (graceful
   fallback when keys are absent).
-- `--dry-run` or no `--apply`: prints diff and exits 0 without writing.
-- `--apply`: prints diff, prompts "Apply? [y/N]", writes on `y`.
+- `--dry-run` or no `--apply`: prints diff and exits 0 without writing. Emits a warning
+  line if context gate keys are missing.
+- `--apply`: prints diff, prompts "Apply? [y/N]", writes on `y`. Seeds missing context
+  gate keys after writing `CLAUDE.build.md`.
 - `--apply --yes`: writes without prompting.
 - If no changes: prints "No changes to apply." and exits 0.
 - Applies a depth guard on `--project-dir` (fewer than 3 path components are rejected).

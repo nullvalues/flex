@@ -2,13 +2,15 @@
 id: BUILD-032
 rail: BUILD
 title: "sync-build seeds context gate state on --apply"
-status: planned
+status: complete
 phase: "76"
-story_class: feature
+story_class: code
 primary_files:
   - skills/pairmode/scripts/pairmode_sync.py
 touches:
   - tests/pairmode/test_pairmode_sync.py
+  - tests/pairmode/test_pre_tool_use_hook.py
+  - scripts/seed-context-gate.sh
 ---
 
 # BUILD-032 — sync-build seeds context gate state on --apply
@@ -86,7 +88,7 @@ Do not write state.json in dry-run mode.
   hard-block → PostToolUse writes real count after first spawn completes — safe
   degraded path). Emit the seeded line noting which key was added.
 
-## Acceptance criteria
+## Acceptance criterion
 
 1. `sync-build --apply` on a project with missing `context_session_reset_at` and
    stale `context_current_tokens`: seeds all three keys; emits seeded line; project

@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp76-sync-build-context-gate-seed
+
+**Phase:** 76 — sync-build seeds context gate state on --apply
+**Tag command:** `git tag cp76-sync-build-context-gate-seed && git push origin cp76-sync-build-context-gate-seed`
+**Acceptance:** One story: BUILD-032. Added `_seed_context_gate_state()` to `pairmode_sync.py`; `sync-build --apply` now seeds missing `context_session_reset_at`, `context_current_tokens`, and `context_current_tokens_recorded_at` when absent; dry-run emits warning lines; six tests cover all edge cases. Also raised pre-existing flaky performance test wall-clock limit 5s→15s. Security audit: 0 findings. 2201 tests pass.
+
+---
+
 ## cp75-phase74-security-remediation
 
 **Phase:** 75 — Phase 74 security remediation
