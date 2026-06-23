@@ -21,6 +21,7 @@ from pairmode_sync import (  # noqa: E402
     _build_template_context,
     _merge_body_sections,
     _render_build_template,
+    _seed_context_gate_state,
     pairmode_cli,
     sync_agents,
 )
@@ -620,3 +621,197 @@ def test_sync_all_registered_on_pairmode_cli() -> None:
     assert "sync-all" in pairmode_cli.commands, (
         f"sync-all not found in pairmode_cli.commands: {list(pairmode_cli.commands.keys())}"
     )
+
+
+# ---------------------------------------------------------------------------
+# _seed_context_gate_state tests
+# ---------------------------------------------------------------------------
+
+
+def test_sync_build_apply_seeds_missing_context_gate_state(tmp_path: pathlib.Path) -> None:
+    """Both context gate keys absent: seeds all three; emits seeded line."""
+    import io
+    from click.testing import CliRunner
+
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    state_path = companion_dir / "state.json"
+    state_path.write_text(json.dumps({"pairmode_version": "1.0"}), encoding="utf-8")
+
+    runner = CliRunner()
+    # Capture stdout from _seed_context_gate_state directly
+    with runner.isolated_filesystem():
+        from click.testing import CliRunner as CR
+        import io as _io
+
+        output = _io.StringIO()
+        import click as _click
+        with _click.Context(_click.Command("test")):
+            from unittest.mock import patch
+            with patch("click.echo", side_effect=lambda msg, **kw: output.write(str(msg) + "\n")):
+                _seed_context_gate_state(project_dir, state_path, dry_run=False)
+
+    written = json.loads(state_path.read_text(encoding="utf-8"))
+    assert "context_session_reset_at" in written, "context_session_reset_at not seeded"
+    assert written["context_current_tokens"] == 25000, (
+        f"Expected context_current_tokens=25000, got {written.get('context_current_tokens')}"
+    )
+    assert "context_current_tokens_recorded_at" in written, (
+        "context_current_tokens_recorded_at not seeded"
+    )
+    # Existing key must be preserved
+    assert written.get("pairmode_version") == "1.0", "Existing pairmode_version was lost"
+    assert "seeded" in output.getvalue(), f"Expected 'seeded' in output, got: {output.getvalue()!r}"
+
+
+def test_sync_build_apply_no_seed_when_keys_present(tmp_path: pathlib.Path) -> None:
+    """Both context gate keys present: no write to state.json, no seeded output."""
+    import io
+    from unittest.mock import patch
+
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    state_path = companion_dir / "state.json"
+
+    original = {
+        "context_session_reset_at": "2026-01-01T00:00:00+00:00",
+        "context_current_tokens": 50000,
+        "context_current_tokens_recorded_at": "2026-01-01T00:00:00+00:00",
+    }
+    state_path.write_text(json.dumps(original), encoding="utf-8")
+
+    original_mtime = state_path.stat().st_mtime
+
+    output = io.StringIO()
+    with patch("click.echo", side_effect=lambda msg, **kw: output.write(str(msg) + "\n")):
+        _seed_context_gate_state(project_dir, state_path, dry_run=False)
+
+    # state.json must not have been modified
+    assert state_path.stat().st_mtime == original_mtime, "state.json was written when no seed needed"
+    assert output.getvalue() == "", f"Expected no output, got: {output.getvalue()!r}"
+
+
+def test_sync_build_apply_creates_state_json_if_absent(tmp_path: pathlib.Path) -> None:
+    """No state.json at all: creates .companion/state.json with only the three context gate keys."""
+    import io
+    from unittest.mock import patch
+
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    state_path = companion_dir / "state.json"
+
+    output = io.StringIO()
+    with patch("click.echo", side_effect=lambda msg, **kw: output.write(str(msg) + "\n")):
+        _seed_context_gate_state(project_dir, state_path, dry_run=False)
+
+    assert state_path.exists(), "state.json was not created"
+    written = json.loads(state_path.read_text(encoding="utf-8"))
+    assert set(written.keys()) == {
+        "context_session_reset_at",
+        "context_current_tokens",
+        "context_current_tokens_recorded_at",
+    }, f"Expected only three context gate keys, got: {list(written.keys())}"
+    assert written["context_current_tokens"] == 25000
+    assert "seeded" in output.getvalue()
+
+
+def test_sync_build_dry_run_emits_warning_not_write(tmp_path: pathlib.Path) -> None:
+    """Dry-run with missing keys: warning lines emitted; state.json not written."""
+    import io
+    from unittest.mock import patch
+
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    state_path = companion_dir / "state.json"
+    state_path.write_text(json.dumps({}), encoding="utf-8")
+
+    original_content = state_path.read_text(encoding="utf-8")
+
+    output = io.StringIO()
+    with patch("click.echo", side_effect=lambda msg, **kw: output.write(str(msg) + "\n")):
+        _seed_context_gate_state(project_dir, state_path, dry_run=True)
+
+    # state.json must not have been modified
+    assert state_path.read_text(encoding="utf-8") == original_content, (
+        "state.json was written in dry-run mode"
+    )
+    out = output.getvalue()
+    assert "warning:" in out, f"Expected 'warning:' in output, got: {out!r}"
+    assert "context_session_reset_at" in out, f"Expected missing key in warning, got: {out!r}"
+    assert "context_current_tokens" in out, f"Expected missing key in warning, got: {out!r}"
+
+
+def test_sync_build_apply_seeds_only_missing_reset_at(tmp_path: pathlib.Path) -> None:
+    """Only context_session_reset_at absent: seeds it; does not alter tokens or recorded_at."""
+    import io
+    from unittest.mock import patch
+
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    state_path = companion_dir / "state.json"
+
+    original = {
+        "context_current_tokens": 75000,
+        "context_current_tokens_recorded_at": "2025-12-01T10:00:00+00:00",
+    }
+    state_path.write_text(json.dumps(original), encoding="utf-8")
+
+    output = io.StringIO()
+    with patch("click.echo", side_effect=lambda msg, **kw: output.write(str(msg) + "\n")):
+        _seed_context_gate_state(project_dir, state_path, dry_run=False)
+
+    written = json.loads(state_path.read_text(encoding="utf-8"))
+    assert "context_session_reset_at" in written, "context_session_reset_at not seeded"
+    # tokens and recorded_at must be preserved
+    assert written["context_current_tokens"] == 75000, (
+        f"context_current_tokens was altered: {written['context_current_tokens']}"
+    )
+    assert written["context_current_tokens_recorded_at"] == "2025-12-01T10:00:00+00:00", (
+        "context_current_tokens_recorded_at was altered"
+    )
+    assert "seeded" in output.getvalue()
+
+
+def test_sync_build_apply_seeds_only_missing_current_tokens(tmp_path: pathlib.Path) -> None:
+    """Only context_current_tokens absent: seeds tokens=25000 and recorded_at=now; reset_at untouched."""
+    import io
+    from unittest.mock import patch
+
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    state_path = companion_dir / "state.json"
+
+    existing_reset_at = "2026-03-15T08:00:00+00:00"
+    original = {
+        "context_session_reset_at": existing_reset_at,
+    }
+    state_path.write_text(json.dumps(original), encoding="utf-8")
+
+    output = io.StringIO()
+    with patch("click.echo", side_effect=lambda msg, **kw: output.write(str(msg) + "\n")):
+        _seed_context_gate_state(project_dir, state_path, dry_run=False)
+
+    written = json.loads(state_path.read_text(encoding="utf-8"))
+    assert written.get("context_current_tokens") == 25000, (
+        f"Expected context_current_tokens=25000, got {written.get('context_current_tokens')}"
+    )
+    assert "context_current_tokens_recorded_at" in written, (
+        "context_current_tokens_recorded_at not seeded"
+    )
+    # reset_at must be preserved (not overwritten)
+    assert written["context_session_reset_at"] == existing_reset_at, (
+        f"context_session_reset_at was overwritten: {written['context_session_reset_at']}"
+    )
+    assert "seeded" in output.getvalue()

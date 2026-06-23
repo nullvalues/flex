@@ -30,8 +30,10 @@ Usage:
 
 from __future__ import annotations
 
+import datetime
 import difflib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -501,6 +503,83 @@ def sync_agents(project_dir: str, dry_run: bool, yes: bool) -> None:
         click.echo(f"  updated: {agent_file.name}")
 
 
+def _seed_context_gate_state(project_dir: Path, state_path: Path, dry_run: bool) -> None:
+    """Seed missing context gate keys in state.json.
+
+    Checks whether ``context_session_reset_at`` or ``context_current_tokens`` are absent
+    from state.json.  If either is missing, and not in dry-run mode, writes the appropriate
+    seed values.  In dry-run mode, emits warning lines without writing.
+
+    The three keys managed by this function:
+    - ``context_session_reset_at``  — UTC ISO-8601 timestamp; written when absent.
+    - ``context_current_tokens``    — integer 25000; written when absent.
+    - ``context_current_tokens_recorded_at`` — same timestamp as reset_at; written only when
+      context_current_tokens is also absent (paired write).
+
+    Edge cases:
+    - Only ``context_session_reset_at`` absent: seed it; leave the other two untouched.
+    - Only ``context_current_tokens`` absent: seed it (= 25000) and its ``_recorded_at``
+      (= now); leave ``context_session_reset_at`` untouched.
+    - state.json missing entirely: create it with only the three keys.
+    - ``.companion/`` directory missing: create it before writing.
+    """
+    # Load or initialise state
+    if state_path.exists():
+        try:
+            state: dict = json.loads(state_path.read_text(encoding="utf-8"))
+            if not isinstance(state, dict):
+                state = {}
+        except (json.JSONDecodeError, OSError):
+            state = {}
+    else:
+        state = {}
+
+    missing_reset_at = "context_session_reset_at" not in state
+    missing_tokens = "context_current_tokens" not in state
+
+    if not missing_reset_at and not missing_tokens:
+        # Both present — nothing to do
+        return
+
+    if dry_run:
+        # Emit warning lines to stdout; do not write
+        click.echo("warning: state.json missing context gate keys — run with --apply to seed")
+        if missing_reset_at:
+            click.echo("  missing: context_session_reset_at")
+        if missing_tokens:
+            click.echo("  missing: context_current_tokens")
+        return
+
+    # --- Apply path: write the missing keys ---
+    now_ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    if missing_reset_at:
+        state["context_session_reset_at"] = now_ts
+
+    if missing_tokens:
+        state["context_current_tokens"] = 25000
+        state["context_current_tokens_recorded_at"] = now_ts
+
+    # Ensure .companion/ exists
+    companion_dir = state_path.parent
+    companion_dir.mkdir(parents=True, exist_ok=True)
+
+    # Atomic write: temp file in same directory, then os.replace
+    tmp_path = state_path.with_suffix(".json.tmp")
+    try:
+        tmp_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        os.replace(str(tmp_path), str(state_path))
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+
+    # Build the seeded line
+    seeded_ts = state.get("context_session_reset_at", now_ts)
+    click.echo(
+        f"  seeded: context gate state (context_current_tokens={state.get('context_current_tokens', 25000)}, reset_at={seeded_ts})"
+    )
+
+
 @click.command("sync-build")
 @click.option(
     "--project-dir",
@@ -572,16 +651,25 @@ def sync_build(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
         )
     )
 
+    state_path = project_path / ".companion" / "state.json"
+
     if not diff_lines:
         click.echo("No changes to apply.")
+        # Still check and seed context gate state even when build file is up to date
+        if dry_run or not apply:
+            _seed_context_gate_state(project_path, state_path, dry_run=True)
+        else:
+            _seed_context_gate_state(project_path, state_path, dry_run=False)
+        return
+
+    # --dry-run or no --apply: emit warning before diff output, then exit
+    if dry_run or not apply:
+        _seed_context_gate_state(project_path, state_path, dry_run=True)
+        click.echo("".join(diff_lines), nl=False)
         return
 
     # Print the diff
     click.echo("".join(diff_lines), nl=False)
-
-    # --dry-run or no --apply: exit without writing
-    if dry_run or not apply:
-        return
 
     # --apply path: prompt unless --yes
     if not yes:
@@ -592,6 +680,9 @@ def sync_build(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
 
     build_file.write_text(rendered, encoding="utf-8")
     click.echo(f"  updated: {build_file.name}")
+
+    # Seed context gate state after writing CLAUDE.build.md
+    _seed_context_gate_state(project_path, state_path, dry_run=False)
 
 
 @click.command("sync-all")
