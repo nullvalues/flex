@@ -1,0 +1,10 @@
+{
+  "story_id": "BUILD-032",
+  "story_spec": "docs/stories/BUILD/BUILD-032.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/pairmode_sync.py",
+    "tests/pairmode/test_pairmode_sync.py",
+    "docs/stories/BUILD/BUILD-032.md"
+  ],
+  "generated_at": "2026-06-23T15:11:09Z"
+}
