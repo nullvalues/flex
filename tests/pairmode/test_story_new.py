@@ -7,7 +7,7 @@ import pathlib
 import pytest
 from click.testing import CliRunner
 
-from skills.pairmode.scripts.story_new import story_new
+from skills.pairmode.scripts.story_new import story_new, _story_frontmatter
 
 
 # ---------------------------------------------------------------------------
@@ -553,6 +553,56 @@ class TestStoryBodyFormat:
         requires_pos = content.index("## Requires")
         ensures_pos = content.index("## Ensures")
         assert requires_pos < ensures_pos, "## Requires must appear before ## Ensures"
+
+
+class TestAuthGatedSchemaIntroducesFields:
+    """auth_gated and schema_introduces are scaffolded into new story frontmatter."""
+
+    def test_story_frontmatter_includes_auth_gated(self) -> None:
+        """_story_frontmatter() output contains 'auth_gated: false'."""
+        output = _story_frontmatter("INFRA-001", "INFRA", "Test story", "78")
+        assert "auth_gated: false" in output
+
+    def test_story_frontmatter_includes_schema_introduces(self) -> None:
+        """_story_frontmatter() output contains 'schema_introduces: false'."""
+        output = _story_frontmatter("INFRA-001", "INFRA", "Test story", "78")
+        assert "schema_introduces: false" in output
+
+    def test_story_frontmatter_field_order(self) -> None:
+        """auth_gated and schema_introduces appear after story_class and before primary_files."""
+        output = _story_frontmatter(
+            "INFRA-001", "INFRA", "Test story", "78", story_class="code"
+        )
+        sc_pos = output.index("story_class: code")
+        ag_pos = output.index("auth_gated: false")
+        si_pos = output.index("schema_introduces: false")
+        pf_pos = output.index("primary_files:")
+        assert sc_pos < ag_pos, "auth_gated must appear after story_class"
+        assert sc_pos < si_pos, "schema_introduces must appear after story_class"
+        assert ag_pos < pf_pos, "auth_gated must appear before primary_files"
+        assert si_pos < pf_pos, "schema_introduces must appear before primary_files"
+
+    def test_story_frontmatter_fields_in_frontmatter_block_not_body(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """auth_gated and schema_introduces appear in the frontmatter block, not the body."""
+        result = invoke(
+            ["--rail", "INFRA", "--title", "New fields test", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        parts = content.split("---")
+        assert len(parts) >= 3, "Expected frontmatter delimiters"
+        frontmatter_block = parts[1]
+        assert "auth_gated: false" in frontmatter_block
+        assert "schema_introduces: false" in frontmatter_block
+
+    def test_story_frontmatter_fields_present_without_story_class(self) -> None:
+        """Fields are emitted even when story_class is not provided."""
+        output = _story_frontmatter("INFRA-001", "INFRA", "No class story", "78")
+        assert "auth_gated: false" in output
+        assert "schema_introduces: false" in output
 
 
 class TestPathTraversalGuard:

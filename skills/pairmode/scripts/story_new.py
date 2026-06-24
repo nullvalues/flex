@@ -55,6 +55,7 @@ def _story_frontmatter(
     ]
     if story_class is not None:
         lines.append(f"story_class: {story_class}")
+    lines += ["auth_gated: false", "schema_introduces: false"]
     if source is not None:
         lines.append(f"source: {source}")
     lines += ["primary_files:", "touches:", "---"]

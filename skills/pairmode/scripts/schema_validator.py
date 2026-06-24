@@ -137,6 +137,12 @@ def validate_story_file(path: Path) -> list[str]:
     if "source" in fm and not (isinstance(fm["source"], str) and fm["source"]):
         errors.append("Field 'source' must be a non-empty string when present")
 
+    if "auth_gated" in fm and fm["auth_gated"] not in ("true", "false", True, False):
+        errors.append("Field 'auth_gated' must be a boolean (true/false)")
+
+    if "schema_introduces" in fm and fm["schema_introduces"] not in ("true", "false", True, False):
+        errors.append("Field 'schema_introduces' must be a boolean (true/false)")
+
     if "primary_files" in fm and not isinstance(fm["primary_files"], list):
         errors.append("Field 'primary_files' must be a list")
 

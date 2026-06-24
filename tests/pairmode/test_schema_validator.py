@@ -429,3 +429,68 @@ def test_phase_manifest_missing_era(tmp_path):
     p.write_text(content, encoding="utf-8")
     errors = validate_phase_manifest(p)
     assert any("era" in e for e in errors), f"Expected 'era' error, got: {errors}"
+
+
+# ---------------------------------------------------------------------------
+# auth_gated and schema_introduces field tests
+# ---------------------------------------------------------------------------
+
+def _story_with_field(extra_field: str) -> str:
+    """Return a valid story with an extra frontmatter field inserted after phase."""
+    return VALID_STORY.replace(
+        '    phase: "001"\n',
+        f'    phase: "001"\n    {extra_field}\n',
+    )
+
+
+def test_story_validates_with_auth_gated_false(tmp_path):
+    """auth_gated: false is accepted without errors."""
+    p = _write(tmp_path, "story.md", _story_with_field("auth_gated: false"))
+    errors = validate_story_file(p)
+    assert errors == [], f"Expected no errors, got: {errors}"
+
+
+def test_story_validates_with_auth_gated_true(tmp_path):
+    """auth_gated: true is accepted without errors."""
+    p = _write(tmp_path, "story.md", _story_with_field("auth_gated: true"))
+    errors = validate_story_file(p)
+    assert errors == [], f"Expected no errors, got: {errors}"
+
+
+def test_story_validates_with_schema_introduces_false(tmp_path):
+    """schema_introduces: false is accepted without errors."""
+    p = _write(tmp_path, "story.md", _story_with_field("schema_introduces: false"))
+    errors = validate_story_file(p)
+    assert errors == [], f"Expected no errors, got: {errors}"
+
+
+def test_story_validates_with_schema_introduces_true(tmp_path):
+    """schema_introduces: true is accepted without errors."""
+    p = _write(tmp_path, "story.md", _story_with_field("schema_introduces: true"))
+    errors = validate_story_file(p)
+    assert errors == [], f"Expected no errors, got: {errors}"
+
+
+def test_story_validates_without_new_fields(tmp_path):
+    """A story missing both auth_gated and schema_introduces passes (backwards compat)."""
+    p = _write(tmp_path, "story.md", VALID_STORY)
+    errors = validate_story_file(p)
+    assert errors == [], f"Expected no errors when new fields absent, got: {errors}"
+
+
+def test_story_fails_validation_auth_gated_non_boolean(tmp_path):
+    """auth_gated: yes (non-boolean string) emits a validation error."""
+    p = _write(tmp_path, "story.md", _story_with_field("auth_gated: yes"))
+    errors = validate_story_file(p)
+    assert any("auth_gated" in e for e in errors), (
+        f"Expected auth_gated error for non-boolean value, got: {errors}"
+    )
+
+
+def test_story_fails_validation_schema_introduces_non_boolean(tmp_path):
+    """schema_introduces: 1 (non-boolean string) emits a validation error."""
+    p = _write(tmp_path, "story.md", _story_with_field("schema_introduces: 1"))
+    errors = validate_story_file(p)
+    assert any("schema_introduces" in e for e in errors), (
+        f"Expected schema_introduces error for non-boolean value, got: {errors}"
+    )
