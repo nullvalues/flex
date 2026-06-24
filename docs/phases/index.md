@@ -75,7 +75,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 74 | PostToolUse JSONL context gate — deterministic, no LLM cooperation | complete | [phase-74.md](phase-74.md) |
 | 75 | Phase 74 security remediation — bound JSONL scan, session_id containment, CLAUDE.md doc | complete | [phase-75.md](phase-75.md) |
 | 76 | sync-build seeds context gate state on --apply | complete | [phase-76.md](phase-76.md) |
-| 77 | multi-era index parser fix | planned | [phase-77.md](phase-77.md) |
+| 77 | multi-era index parser fix | complete | [phase-77.md](phase-77.md) |
 
 ---
 

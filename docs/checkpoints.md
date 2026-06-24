@@ -511,3 +511,9 @@ stubs for docs/stories/ and docs/eras/ added. 997 tests pass.
 cloudnirvana/open-patterns with 5 patterns (NP-6 held pending PR #3 resolution; tracked as
 CER-031). All docs follow the catalog template verbatim with real "What Broke" incidents and
 "Security Implications" filled. 1835 tests pass (documentation-only phase; no Python changed).
+
+## cp77-multi-era-index-parser-fix
+**Tag command:** `git tag cp77-multi-era-index-parser-fix && git push origin cp77-multi-era-index-parser-fix`
+**Phase:** 77
+**Stories:** BUILD-033
+**Acceptance:** `_parse_index_phases` now resets table state on section boundaries (headings between era tables) instead of breaking, allowing multi-era index files to be fully scanned. Four new tests added. 2205 tests pass.

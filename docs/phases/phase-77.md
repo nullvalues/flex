@@ -19,4 +19,12 @@ though an active phase exists in a later table.
 
 | ID | Title | Status |
 |----|-------|--------|
-| BUILD-033 | fix multi-era index parser in _parse_index_phases | planned |
+| BUILD-033 | fix multi-era index parser in _parse_index_phases | complete |
+
+## Out-of-band change
+
+Commit 963e62e raised the `context_budget.py` default threshold from 120,000
+to 130,000 tokens (effective ceiling 143,000) and updated the matching
+`CLAUDE.build.md` documentation line. This change was applied without a story
+spec (global policy violation — minor). It is recorded here for traceability.
+Affected files: `skills/pairmode/scripts/context_budget.py`, `CLAUDE.build.md`.
