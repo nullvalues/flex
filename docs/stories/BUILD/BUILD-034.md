@@ -2,7 +2,7 @@
 id: BUILD-034
 rail: BUILD
 title: "pre-flight gate CLIs: check-stub, check-schema-gate, check-auth-gate"
-status: planned
+status: complete
 phase: "78"
 story_class: code
 primary_files:

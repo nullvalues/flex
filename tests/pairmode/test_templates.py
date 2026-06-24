@@ -2325,47 +2325,49 @@ class TestInfra129ContextBudgetMechanicalEnforcementDocs:
 # ---------------------------------------------------------------------------
 
 class TestInfra130AuthCheckGeneralization:
-    """Story INFRA-130: the auth check section in CLAUDE.build.md.j2 gains a
-    detection step that reads a recorded **Classification:** line from
-    docs/architecture.md and auto-satisfies the check when one is found.
-    The fallback path (load auth-coexistence.md and prompt) is preserved but
-    is no longer the unconditional first step."""
+    """Story INFRA-130 + BUILD-035: the auth check section in CLAUDE.build.md.j2.
+
+    BUILD-035 offloads the inline auth-check judgment logic to the
+    check-auth-gate CLI. The section now contains a CLI call instead of
+    inline prose. These tests verify the new CLI-call format is present.
+    """
 
     def setup_method(self):
         self.output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
 
-    def test_rendered_contains_classification_detection_marker(self):
-        """The rendered template must contain the bold **Classification:** marker
-        used to detect a recorded classification in docs/architecture.md."""
-        assert "**Classification:**" in self.output
+    def test_rendered_contains_auth_check_section(self):
+        """The rendered template must contain the auth check section heading."""
+        assert "### Auth check" in self.output
 
-    def test_rendered_contains_auto_satisfied(self):
-        """The auto-satisfy branch must be present in the rendered template."""
-        assert "auto-satisfied" in self.output
+    def test_rendered_contains_check_auth_gate_cli(self):
+        """The auth check section must contain the check-auth-gate CLI call."""
+        assert "check-auth-gate" in self.output
 
-    def test_rendered_contains_auth_coexistence_md_fallback(self):
-        """The fallback prompt path must still reference auth-coexistence.md."""
-        assert "auth-coexistence.md" in self.output
+    def test_rendered_auth_check_has_exit_code_protocol(self):
+        """The auth check section must include the exit-code protocol (Exit 0 / Exit 1)."""
+        auth_start = self.output.index("### Auth check")
+        next_section = self.output.find("\n### ", auth_start + 1)
+        auth_section = (
+            self.output[auth_start:next_section]
+            if next_section != -1
+            else self.output[auth_start:]
+        )
+        assert "Exit 0" in auth_section, "Exit 0 protocol missing from auth check section"
+        assert "Exit 1" in auth_section, "Exit 1 protocol missing from auth check section"
 
-    def test_rendered_contains_docs_architecture_md_in_auth_check(self):
-        """docs/architecture.md must be referenced inside the auth check section."""
-        auth_start = self.output.index("## Auth check")
-        # Find the next top-level section after auth check
-        next_section = self.output.find("\n## ", auth_start + 1)
-        auth_section = self.output[auth_start:next_section] if next_section != -1 else self.output[auth_start:]
-        assert "docs/architecture.md" in auth_section
+    def test_rendered_auth_check_in_build_loop(self):
+        """The auth check section must appear inside the Build loop block."""
+        build_loop_start = self.output.index("## Build loop")
+        assert "### Auth check" in self.output[build_loop_start:], (
+            "Auth check section not found within the Build loop block"
+        )
 
-    def test_auth_coexistence_md_not_unconditional_first_step(self):
-        """auth-coexistence.md must appear AFTER 'If no recorded classification',
-        not as the unconditional first instruction in the auth check section."""
-        auth_start = self.output.index("## Auth check")
-        next_section = self.output.find("\n## ", auth_start + 1)
-        auth_section = self.output[auth_start:next_section] if next_section != -1 else self.output[auth_start:]
-        no_recorded_pos = auth_section.index("If no recorded classification")
-        coexistence_pos = auth_section.index("auth-coexistence.md")
-        assert coexistence_pos > no_recorded_pos, (
-            "auth-coexistence.md must appear after 'If no recorded classification', "
-            "not as an unconditional first step in the auth check section"
+    def test_auth_check_after_context_gate(self):
+        """Auth check section must appear after the Context gate section."""
+        context_gate_pos = self.output.index("### Context gate")
+        auth_check_pos = self.output.index("### Auth check")
+        assert auth_check_pos > context_gate_pos, (
+            "Auth check section must appear after Context gate"
         )
 
 

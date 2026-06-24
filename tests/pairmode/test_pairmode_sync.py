@@ -815,3 +815,114 @@ def test_sync_build_apply_seeds_only_missing_current_tokens(tmp_path: pathlib.Pa
         f"context_session_reset_at was overwritten: {written['context_session_reset_at']}"
     )
     assert "seeded" in output.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# sync-build gate section replacement tests (BUILD-035)
+# ---------------------------------------------------------------------------
+
+# Old stub-gate prose that appears in pre-BUILD-035 CLAUDE.build.md files.
+# This is the distinctive delegation-language content that the new CLI-call
+# sections replace.
+_OLD_STUB_GATE_PROSE = """\
+### Pre-story stub gate
+
+Run this check **once per story**, after the schema gate, before spawning the builder.
+
+Read `docs/stories/<RAIL>/<RAIL>-NNN.md` and check for:
+
+**Delegation language** -- any of these appearing in the story body:
+- "See phase doc"
+- "See docs/phases/"
+- "See phase-"
+
+**Missing acceptance surface** -- none of these sections present:
+- `## Ensures`
+- `## Acceptance criterion`
+- `## Acceptance criteria`
+
+If delegation language found OR acceptance surface missing, stop and report:
+
+PRE-STORY BLOCK -- Story [RAIL-NNN] is a stub.
+"""
+
+
+def _make_old_gate_build_md(tmp_path: pathlib.Path) -> pathlib.Path:
+    """Create a CLAUDE.build.md containing the old inline stub-gate prose.
+
+    Returns the Path to the project root dir.
+    """
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    (companion_dir / "state.json").write_text(
+        json.dumps({"pairmode_version": "1.0"}), encoding="utf-8"
+    )
+    (companion_dir / "pairmode_context.json").write_text("{}", encoding="utf-8")
+
+    build_file = project_dir / "CLAUDE.build.md"
+    build_file.write_text(_OLD_STUB_GATE_PROSE, encoding="utf-8")
+
+    return project_dir
+
+
+def test_sync_build_dry_run_detects_old_gate_sections(tmp_path: pathlib.Path) -> None:
+    """sync-build --dry-run reports a non-empty diff when CLAUDE.build.md has old inline gate prose.
+
+    The old stub-gate section contains delegation-language prose ("See phase doc", etc.)
+    that the template replacement removes. After BUILD-035, the rendered template uses
+    CLI-call sections instead. A project still holding the old content must show a diff.
+    """
+    from click.testing import CliRunner
+
+    project_dir = _make_old_gate_build_md(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["sync-build", "--project-dir", str(project_dir), "--dry-run"],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, (
+        f"Expected exit 0 from --dry-run, got {result.exit_code}:\n{result.output}"
+    )
+    # The diff must be non-empty (old and new content differ)
+    assert "---" in result.output or "+++" in result.output, (
+        f"Expected a unified diff in output, got:\n{result.output!r}"
+    )
+
+
+def test_sync_build_apply_replaces_old_gate_sections(tmp_path: pathlib.Path) -> None:
+    """sync-build --apply --yes rewrites CLAUDE.build.md: contains check-stub, not old prose.
+
+    After applying the template, the written file must:
+    - Contain 'check-stub' (the new CLI subcommand name).
+    - Not contain the old delegation-language prose ('See phase doc').
+    """
+    from click.testing import CliRunner
+
+    project_dir = _make_old_gate_build_md(tmp_path)
+    build_file = project_dir / "CLAUDE.build.md"
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["sync-build", "--project-dir", str(project_dir), "--apply", "--yes"],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, (
+        f"Expected exit 0 from --apply --yes, got {result.exit_code}:\n{result.output}"
+    )
+
+    written = build_file.read_text(encoding="utf-8")
+
+    assert "check-stub" in written, (
+        "Expected 'check-stub' CLI call in written CLAUDE.build.md, but not found."
+    )
+    assert "See phase doc" not in written, (
+        "Old delegation-language prose ('See phase doc') still present in written file."
+    )

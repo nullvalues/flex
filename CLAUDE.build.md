@@ -264,7 +264,6 @@ Integer-ID projects (e.g. `phase-56.md`) omit the suffix entirely.
 
 Run this step **once per story**, before spawning the builder.
 
-Read `story_class` and `primary_files` from the story spec frontmatter.
 Call `select_builder_model` to get the model and selection reason:
 
 ```bash
@@ -305,35 +304,6 @@ builder invocation so the effort DB can surface decision-quality metrics later
 
 ---
 
-## Auth check (conditional — per story)
-
-Run this check **once per story**, after model evaluation, before spawning the builder.
-
-If this story is auth-gated (touches user authentication, session handling, permission
-checks, role validation, or access-controlled resources):
-
-**Step 1 — Check for a recorded classification.**
-Read `docs/architecture.md` and search for a line beginning with `**Classification:**`
-(present in `## Auth model` or `## Auth model classification` sections when the project's
-auth model has been classified by the operator).
-
-If a recorded classification is found:
-- The check is **auto-satisfied**. Note it briefly ("Auth: [classification] per
-  architecture.md") and proceed to the build loop.
-- Re-classify only if this story **changes the auth model itself** (e.g., introduces
-  ABAC to a previously RBAC-only system). If so, update `docs/architecture.md` before
-  building.
-
-If no recorded classification is found:
-a. Load `~/.claude/policies/auth-coexistence.md`.
-b. Surface the classification question to the user: RBAC / ABAC / both?
-c. Record the answer in `docs/architecture.md` before building.
-   Do not build this story until the classification is recorded.
-
-If the story is not auth-gated, skip this section.
-
----
-
 ## Build loop (repeat for each story)
 
 ### Context gate
@@ -355,95 +325,59 @@ than the estimate, append:
     Estimated story cost exceeds remaining headroom; consider /clear before proceeding.
 The estimate is informational — it does not block.
 
-Continue to the pre-story schema gate.
+Continue to the pre-story auth check.
 
 Note: `pre_tool_use.py` enforces the budget automatically on every Task/Agent spawn by
 reading `context_current_tokens` from state.json (written by `post_tool_use.py` after
 each completed spawn, or by the SessionStart baseline on `/clear`). No manual token
 recording is required.
 
+### Auth check (conditional — per story)
+
+Run this check **once per story**, after the context gate, before spawning the builder.
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+  check-auth-gate RAIL-NNN --project-dir .
+```
+
+Replace `RAIL-NNN` with the current story ID.
+
+- Exit 0: gate passes — proceed silently.
+- Exit 1: gate blocked — surface the printed message to the user and stop.
+  When resolved, say: "Continue building"
+
 ### Pre-story schema gate
 
-Run this check **once per story**, before pre-authorizing edits or spawning the builder.
+Run this check **once per story**, after the auth check, before spawning the builder.
 
-Read the story spec and answer:
-
-> Does this story introduce a new persistent schema object — a database table,
-> collection, index, or migration that creates or alters durable storage?
-
-If **no**: skip this section and proceed to Step 1.
-
-If **yes**: scan the remaining stories in the phase. Check whether any story
-provides a management surface for that schema object — a route, page, command,
-or component where a human can read, create, update, or delete the data without
-a database console.
-
-If a management surface story exists (current or remaining in phase): proceed normally.
-
-If no management surface story exists, check the current story's spec for an
-explicit exception note. Accepted exceptions:
-
-- **Append-only audit/log**: the table records immutable events and will be
-  surfaced via a future log viewer or existing audit route.
-- **Junction table**: both parent entities already have full management UIs.
-- **Cron-output cache**: rows are regenerated on a schedule; no human-editable
-  fields exist.
-
-If an accepted exception is documented in the spec: proceed normally.
-
-If no management surface story and no documented exception, stop and report:
-
-```
-PRE-STORY BLOCK — Story [RAIL-NNN] introduces schema object `<name>` with no
-management surface in this phase.
-
-A persistent schema change without an administrative surface is an incomplete feature.
-Options:
-1. Add a management UI story to the phase spec before building.
-2. Note an explicit exception in the story spec (append-only, junction table, or
-   cron-output cache) if one of those categories applies.
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+  check-schema-gate RAIL-NNN --project-dir .
 ```
 
-Do not spawn the builder until the user has resolved the block.
+Replace `RAIL-NNN` with the current story ID.
+
+- Exit 0: gate passes — proceed silently.
+- Exit 1: gate blocked — surface the printed message to the user and stop.
+  When resolved, say: "Continue building"
 
 ### Pre-story stub gate
 
 Run this check **once per story**, after the schema gate, before spawning the builder.
 
-Read `docs/stories/<RAIL>/<RAIL>-NNN.md` and check for:
-
-**Delegation language** — any of these appearing in the story body:
-- "See phase doc"
-- "See docs/phases/"
-- "See phase-"
-
-**Missing acceptance surface** — none of these sections present:
-- `## Ensures`
-- `## Acceptance criterion`
-- `## Acceptance criteria`
-
-If delegation language found OR acceptance surface missing, stop and report:
-
-```
-PRE-STORY BLOCK — Story [RAIL-NNN] is a stub.
-
-[If delegation language found:]
-The story file delegates the implementation spec to the phase doc.
-The phase doc is not the builder's contract — the story file must be.
-
-[If no acceptance surface:]
-The story file has no ## Ensures or ## Acceptance criterion section.
-The builder has no spec to build against.
-
-Action required:
-1. Find the relevant section in the phase doc for this story.
-2. Write the full acceptance criterion and implementation detail into
-   docs/stories/<RAIL>/<RAIL>-NNN.md.
-3. Remove or summarise the embedded section in the phase doc.
-When resolved, say: "Continue building"
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+  check-stub RAIL-NNN --project-dir .
 ```
 
-If neither condition is present: proceed to the **Pre-story scope check**.
+Replace `RAIL-NNN` with the current story ID.
+
+- Exit 0: gate passes — proceed silently.
+- Exit 1: gate blocked — surface the printed message to the user and stop.
+  When resolved, say: "Continue building"
+
+If the gate passes: proceed to the **Pre-story scope check**.
 
 ### Pre-story scope check
 
