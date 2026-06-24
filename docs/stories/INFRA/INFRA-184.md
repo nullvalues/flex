@@ -2,7 +2,7 @@
 id: INFRA-184
 rail: INFRA
 title: "story frontmatter: add auth_gated + schema_introduces fields"
-status: planned
+status: complete
 phase: "78"
 story_class: code
 primary_files:

@@ -1065,6 +1065,297 @@ def cmd_check_story_scope(story_id: str, project_dir: str) -> None:
     sys.exit(0)
 
 
+# ---------------------------------------------------------------------------
+# Pre-flight gate CLIs (BUILD-034)
+# ---------------------------------------------------------------------------
+
+_STUB_DELEGATION_RE = re.compile(
+    r"see phase doc|see docs/phases/|see phase-",
+    re.IGNORECASE,
+)
+_STUB_ACCEPTANCE_RE = re.compile(
+    r"^##\s+(?:ensures|acceptance criterion|acceptance criteria)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+_SCHEMA_MGMT_KEYWORDS = re.compile(
+    r"\b(?:management|ui|crud|admin|route|page|command|dashboard)\b",
+    re.IGNORECASE,
+)
+_SCHEMA_EXCEPTION_RE = re.compile(
+    r"append-only|junction table|cron-output cache",
+    re.IGNORECASE,
+)
+
+_AUTH_CLASSIFICATION_RE = re.compile(
+    r"^\*\*Classification:\*\*",
+    re.MULTILINE,
+)
+
+
+def _story_body(text: str) -> str:
+    """Return the body of a story file (after the closing --- of frontmatter)."""
+    lines = text.splitlines(keepends=True)
+    # Find the second '---' line
+    dashes_found = 0
+    for i, line in enumerate(lines):
+        if line.strip() == "---":
+            dashes_found += 1
+            if dashes_found == 2:
+                return "".join(lines[i + 1:])
+    return text
+
+
+def _find_phase_file(phase_id: str, project_dir: Path) -> Path | None:
+    """Return the path to the phase file for *phase_id*, or None if not found."""
+    candidate = project_dir / "docs" / "phases" / f"phase-{phase_id}.md"
+    if candidate.exists():
+        return candidate
+    return None
+
+
+def _parse_phase_stories_with_status(phase_text: str) -> list[tuple[str, str, str]]:
+    """Parse the ## Stories table; return [(story_id, title, status)]."""
+    stories_section_re = re.compile(r"^##\s+Stories\s*$", re.MULTILINE)
+    m = stories_section_re.search(phase_text)
+    if not m:
+        return []
+
+    section = phase_text[m.end():]
+    rows: list[tuple[str, str, str]] = []
+    header_seen = False
+    separator_seen = False
+    in_table = False
+
+    for line in section.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("##"):
+            break
+        if not stripped.startswith("|"):
+            if in_table and stripped:
+                break
+            continue
+        in_table = True
+        parts = [p.strip() for p in stripped.split("|")]
+        if len(parts) < 4:
+            continue
+        if not header_seen:
+            header_seen = True
+            continue
+        if not separator_seen:
+            separator_seen = True
+            continue
+        story_id_cell = parts[1].strip()
+        title_cell = parts[2].strip() if len(parts) > 2 else ""
+        status_cell = parts[3].strip().lower() if len(parts) > 3 else ""
+        # Strip Markdown link syntax
+        story_id_cell = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", story_id_cell)
+        if story_id_cell:
+            rows.append((story_id_cell, title_cell, status_cell))
+    return rows
+
+
+@flex_build.command("check-stub")
+@click.argument("story_id")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_check_stub(story_id: str, project_dir: str) -> None:
+    """Check a single story file for stub indicators (delegation language or missing acceptance surface).
+
+    Exits 0 silently on a clean story.
+    Exits 1 with a structured block when the story is a stub.
+    Exits 2 with a clear error message when the story file cannot be found.
+    """
+    project_path = Path(project_dir).resolve()
+    story_path = _story_path(story_id, project_path)
+
+    if not story_path.exists():
+        click.echo(
+            f"check-stub: story file not found: {story_path}", err=True
+        )
+        sys.exit(2)
+
+    text = story_path.read_text(encoding="utf-8")
+    body = _story_body(text)
+
+    reasons: list[str] = []
+
+    # Check for delegation language in the body.
+    m = _STUB_DELEGATION_RE.search(body)
+    if m:
+        line_start = body.rfind("\n", 0, m.start()) + 1
+        line_end = body.find("\n", m.end())
+        matched_line = body[line_start: line_end if line_end != -1 else len(body)].strip()
+        if len(matched_line) > 80:
+            matched_line = matched_line[:80] + "..."
+        reasons.append(f'Delegation language found: "{matched_line}"')
+
+    # Check for acceptance surface.
+    if not _STUB_ACCEPTANCE_RE.search(text):
+        reasons.append(
+            "No acceptance surface found (missing ## Ensures, ## Acceptance criterion, "
+            "or ## Acceptance criteria)."
+        )
+
+    if reasons:
+        click.echo(f"PRE-STORY BLOCK — Story [{story_id}] is a stub.")
+        for reason in reasons:
+            click.echo(reason)
+        click.echo("Action required: fill in the story spec before building.")
+        click.echo('When resolved, say: "Continue building"')
+        sys.exit(1)
+
+    # Silent pass.
+    sys.exit(0)
+
+
+@flex_build.command("check-schema-gate")
+@click.argument("story_id")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_check_schema_gate(story_id: str, project_dir: str) -> None:
+    """Check whether a schema-introducing story has a management surface in the phase.
+
+    Exits 0 silently when schema_introduces is absent/false, or when a management
+    surface story or documented exception is present.
+    Exits 1 with a structured block when schema_introduces is true and neither
+    condition is satisfied.
+    Exits 2 with a clear error message when the story file cannot be found.
+    """
+    project_path = Path(project_dir).resolve()
+    story_path = _story_path(story_id, project_path)
+
+    if not story_path.exists():
+        click.echo(
+            f"check-schema-gate: story file not found: {story_path}", err=True
+        )
+        sys.exit(2)
+
+    text = story_path.read_text(encoding="utf-8")
+    fm = _parse_frontmatter(text) or {}
+
+    schema_introduces_raw = fm.get("schema_introduces")
+    # _parse_frontmatter returns strings; coerce "true"/"false" as booleans.
+    if isinstance(schema_introduces_raw, bool):
+        schema_introduces = schema_introduces_raw
+    elif isinstance(schema_introduces_raw, str):
+        schema_introduces = schema_introduces_raw.lower() == "true"
+    else:
+        schema_introduces = False
+
+    if not schema_introduces:
+        sys.exit(0)
+
+    # schema_introduces is True — look for management surface or exception phrase.
+    body = _story_body(text)
+
+    # Check for exception phrase in story body.
+    if _SCHEMA_EXCEPTION_RE.search(body):
+        sys.exit(0)
+
+    # Load phase manifest to check remaining unbuilt stories.
+    phase_id = fm.get("phase")
+    if phase_id is not None:
+        phase_id_str = str(phase_id).strip()
+        phase_file = _find_phase_file(phase_id_str, project_path)
+        if phase_file is not None:
+            phase_text = phase_file.read_text(encoding="utf-8")
+            phase_stories = _parse_phase_stories_with_status(phase_text)
+            for sid, title, status in phase_stories:
+                if status == "complete":
+                    continue
+                if _SCHEMA_MGMT_KEYWORDS.search(title):
+                    sys.exit(0)
+                # Also check the story file's title if we can read it.
+                candidate_path = _story_path(sid, project_path)
+                if candidate_path.exists():
+                    candidate_fm = _parse_frontmatter(
+                        candidate_path.read_text(encoding="utf-8")
+                    ) or {}
+                    candidate_title = candidate_fm.get("title") or ""
+                    if _SCHEMA_MGMT_KEYWORDS.search(candidate_title):
+                        sys.exit(0)
+
+    click.echo(
+        f"PRE-STORY BLOCK — Story [{story_id}] introduces a schema object with no management surface."
+    )
+    click.echo("Options:")
+    click.echo("1. Add a management UI story to the phase spec before building.")
+    click.echo(
+        "2. Note an explicit exception in the story spec (append-only, junction table,"
+    )
+    click.echo("   or cron-output cache) if one of those categories applies.")
+    sys.exit(1)
+
+
+@flex_build.command("check-auth-gate")
+@click.argument("story_id")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_check_auth_gate(story_id: str, project_dir: str) -> None:
+    """Check whether an auth-gated story has a recorded auth model classification.
+
+    Exits 0 silently when auth_gated is absent/false, or when docs/architecture.md
+    contains a **Classification:** line.
+    Exits 1 with a structured block when auth_gated is true and no classification
+    is recorded.
+    Exits 2 with a clear error message when the story file cannot be found.
+    """
+    project_path = Path(project_dir).resolve()
+    story_path = _story_path(story_id, project_path)
+
+    if not story_path.exists():
+        click.echo(
+            f"check-auth-gate: story file not found: {story_path}", err=True
+        )
+        sys.exit(2)
+
+    text = story_path.read_text(encoding="utf-8")
+    fm = _parse_frontmatter(text) or {}
+
+    auth_gated_raw = fm.get("auth_gated")
+    # _parse_frontmatter returns strings; coerce "true"/"false" as booleans.
+    if isinstance(auth_gated_raw, bool):
+        auth_gated = auth_gated_raw
+    elif isinstance(auth_gated_raw, str):
+        auth_gated = auth_gated_raw.lower() == "true"
+    else:
+        auth_gated = False
+
+    if not auth_gated:
+        sys.exit(0)
+
+    # auth_gated is True — check docs/architecture.md for **Classification:** line.
+    arch_path = project_path / "docs" / "architecture.md"
+    if arch_path.exists():
+        arch_text = arch_path.read_text(encoding="utf-8")
+        if _AUTH_CLASSIFICATION_RE.search(arch_text):
+            sys.exit(0)
+
+    click.echo(
+        f"AUTH GATE — Story [{story_id}] is auth-gated but no classification is recorded."
+    )
+    click.echo(
+        "Load ~/.claude/policies/auth-coexistence.md and classify the auth model"
+    )
+    click.echo(
+        "(RBAC / ABAC / both), then record it in docs/architecture.md before building."
+    )
+    sys.exit(1)
+
+
 @flex_build.command("transition-era")
 @click.option("--name", default=None, help="New era name (required in --yes mode).")
 @click.option("--intent", default="", help="Strategic intent for the new era.")

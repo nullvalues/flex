@@ -2,7 +2,7 @@
 id: BUILD-033
 rail: BUILD
 title: "fix multi-era index parser in _parse_index_phases"
-status: planned
+status: complete
 phase: "77"
 story_class: code
 primary_files:

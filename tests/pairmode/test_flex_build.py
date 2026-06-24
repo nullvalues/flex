@@ -456,6 +456,242 @@ def test_parse_index_phases_single_era_unchanged() -> None:
     assert rows == [("5", "complete"), ("6", "planned")]
 
 
+# ---------------------------------------------------------------------------
+# check-stub (BUILD-034)
+# ---------------------------------------------------------------------------
+
+
+def _write_stub_story_fm(
+    project_dir: Path,
+    story_id: str,
+    *,
+    body: str = "## Ensures\n\n- It works.\n",
+    extra_fm: str = "",
+) -> Path:
+    """Write a minimal story with YAML frontmatter and given body."""
+    rail = story_id.split("-", 1)[0]
+    story_dir = project_dir / "docs" / "stories" / rail
+    story_dir.mkdir(parents=True, exist_ok=True)
+    story_path = story_dir / f"{story_id}.md"
+    story_path.write_text(
+        f"---\nid: {story_id}\nrail: {rail}\nstatus: planned\nphase: '99'\n"
+        f"primary_files: []\ntouches: []\n{extra_fm}---\n\n{body}",
+        encoding="utf-8",
+    )
+    return story_path
+
+
+def test_check_stub_clean_story_exits_0(tmp_path: Path) -> None:
+    """A story with ## Ensures and no delegation language exits 0 silently."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-900",
+        body="## Ensures\n\n- Widget turns blue.\n",
+    )
+    result = _run("check-stub", "BUILD-900", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert result.stdout.strip() == ""
+
+
+def test_check_stub_delegation_language_exits_1(tmp_path: Path) -> None:
+    """A story containing 'See phase doc' exits 1 with PRE-STORY BLOCK."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-901",
+        body="See phase doc `docs/phases/phase-42.md` for the full spec.\n\n## Ensures\n\n- Works.\n",
+    )
+    result = _run("check-stub", "BUILD-901", "--project-dir", str(tmp_path))
+    assert result.returncode == 1
+    assert "PRE-STORY BLOCK" in result.stdout
+    assert "BUILD-901" in result.stdout
+    assert "Delegation language found" in result.stdout
+
+
+def test_check_stub_missing_acceptance_surface_exits_1(tmp_path: Path) -> None:
+    """A story with no ## Ensures or equivalent exits 1."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-902",
+        body="## Background\n\nSome context.\n\n## Out of scope\n\nNothing.\n",
+    )
+    result = _run("check-stub", "BUILD-902", "--project-dir", str(tmp_path))
+    assert result.returncode == 1
+    assert "PRE-STORY BLOCK" in result.stdout
+    assert "No acceptance surface found" in result.stdout
+
+
+def test_check_stub_missing_story_file_exits_2(tmp_path: Path) -> None:
+    """A nonexistent story ID exits 2 with error on stderr."""
+    result = _run("check-stub", "BUILD-999", "--project-dir", str(tmp_path))
+    assert result.returncode == 2
+    assert "not found" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# check-schema-gate (BUILD-034)
+# ---------------------------------------------------------------------------
+
+
+def _write_phase_manifest(
+    project_dir: Path,
+    phase_id: str,
+    stories: list[tuple[str, str, str]],
+) -> Path:
+    """Write docs/phases/phase-<phase_id>.md with a ## Stories table."""
+    phases_dir = project_dir / "docs" / "phases"
+    phases_dir.mkdir(parents=True, exist_ok=True)
+    phase_path = phases_dir / f"phase-{phase_id}.md"
+    rows = "| ID | Title | Status |\n|----|-------|--------|\n"
+    for sid, title, status in stories:
+        rows += f"| {sid} | {title} | {status} |\n"
+    phase_path.write_text(
+        f"---\nid: '{phase_id}'\ntitle: Phase {phase_id}\n---\n\n## Stories\n\n{rows}",
+        encoding="utf-8",
+    )
+    return phase_path
+
+
+def test_check_schema_gate_false_exits_0(tmp_path: Path) -> None:
+    """schema_introduces: false exits 0 silently."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-910",
+        extra_fm="schema_introduces: false\n",
+    )
+    result = _run("check-schema-gate", "BUILD-910", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert result.stdout.strip() == ""
+
+
+def test_check_schema_gate_absent_exits_0(tmp_path: Path) -> None:
+    """schema_introduces absent exits 0 silently."""
+    _write_stub_story_fm(tmp_path, "BUILD-911")
+    result = _run("check-schema-gate", "BUILD-911", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert result.stdout.strip() == ""
+
+
+def test_check_schema_gate_true_with_mgmt_story_exits_0(tmp_path: Path) -> None:
+    """schema_introduces: true with a management story in the phase exits 0."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-912",
+        extra_fm="schema_introduces: true\nphase: '80'\n",
+    )
+    _write_phase_manifest(
+        tmp_path,
+        "80",
+        [
+            ("BUILD-912", "introduce new table", "planned"),
+            ("BUILD-913", "management UI for new table", "planned"),
+        ],
+    )
+    result = _run("check-schema-gate", "BUILD-912", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
+def test_check_schema_gate_true_with_exception_phrase_exits_0(tmp_path: Path) -> None:
+    """schema_introduces: true with 'append-only' in story body exits 0."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-914",
+        extra_fm="schema_introduces: true\n",
+        body=(
+            "## Background\n\nThis is an append-only audit log table.\n\n"
+            "## Ensures\n\n- Rows are immutable.\n"
+        ),
+    )
+    result = _run("check-schema-gate", "BUILD-914", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
+def test_check_schema_gate_true_no_mgmt_exits_1(tmp_path: Path) -> None:
+    """schema_introduces: true with no management surface and no exception exits 1."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-915",
+        extra_fm="schema_introduces: true\nphase: '81'\n",
+    )
+    _write_phase_manifest(
+        tmp_path,
+        "81",
+        [
+            ("BUILD-915", "introduce new table", "planned"),
+            ("BUILD-916", "add some index", "planned"),
+        ],
+    )
+    result = _run("check-schema-gate", "BUILD-915", "--project-dir", str(tmp_path))
+    assert result.returncode == 1
+    assert "PRE-STORY BLOCK" in result.stdout
+    assert "BUILD-915" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# check-auth-gate (BUILD-034)
+# ---------------------------------------------------------------------------
+
+
+def test_check_auth_gate_false_exits_0(tmp_path: Path) -> None:
+    """auth_gated: false exits 0 silently."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-920",
+        extra_fm="auth_gated: false\n",
+    )
+    result = _run("check-auth-gate", "BUILD-920", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert result.stdout.strip() == ""
+
+
+def test_check_auth_gate_absent_exits_0(tmp_path: Path) -> None:
+    """auth_gated absent exits 0 silently."""
+    _write_stub_story_fm(tmp_path, "BUILD-921")
+    result = _run("check-auth-gate", "BUILD-921", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert result.stdout.strip() == ""
+
+
+def test_check_auth_gate_true_with_classification_exits_0(tmp_path: Path) -> None:
+    """auth_gated: true with **Classification:** line in architecture.md exits 0."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-922",
+        extra_fm="auth_gated: true\n",
+    )
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    (docs_dir / "architecture.md").write_text(
+        "# Architecture\n\n**Classification:** RBAC\n\nSome content.\n",
+        encoding="utf-8",
+    )
+    result = _run("check-auth-gate", "BUILD-922", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
+def test_check_auth_gate_true_no_classification_exits_1(tmp_path: Path) -> None:
+    """auth_gated: true with no classification recorded exits 1."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-923",
+        extra_fm="auth_gated: true\n",
+    )
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    (docs_dir / "architecture.md").write_text(
+        "# Architecture\n\nNo classification recorded here.\n",
+        encoding="utf-8",
+    )
+    result = _run("check-auth-gate", "BUILD-923", "--project-dir", str(tmp_path))
+    assert result.returncode == 1
+    assert "AUTH GATE" in result.stdout
+    assert "BUILD-923" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# current-phase (existing test)
+# ---------------------------------------------------------------------------
+
+
 def test_current_phase_finds_active_in_second_era(tmp_path: Path) -> None:
     """cmd_current_phase exits 0 and prints the phase path from era-2 table."""
     # Set up docs/phases/index.md with era-1 all complete, era-2 has active.
