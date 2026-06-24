@@ -774,7 +774,7 @@ Stop the build loop.
    update automatically after the next tool call completes. Running `/clear`
    and resuming also resets it via the SessionStart hook.
 4. If fresh: checks whether `tokens + estimated_next_step > threshold ×
-   (1 + overrun_pct)` (defaults: 120,000 × 1.10 = 132,000). Blocks when exceeded.
+   (1 + overrun_pct)` (defaults: 130,000 × 1.10 = 143,000). Blocks when exceeded.
 
 Write/read split: `post_tool_use.py` is the writer; `pre_tool_use.py` is the
 reader. No manual `set-context-tokens` call is required during normal operation.

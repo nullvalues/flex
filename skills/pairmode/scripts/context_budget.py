@@ -521,7 +521,7 @@ def decide(
             "acknowledged_at": 0,
         }
 
-    threshold = int(state.get("context_budget_threshold", 120000) or 120000)
+    threshold = int(state.get("context_budget_threshold", 130000) or 130000)
     overrun_pct = float(state.get("context_budget_overrun_pct", 0.10) or 0.10)
     seeded_default = int(state.get("expected_step_tokens", 53000) or 53000)
     reprompt_margin = int(state.get("context_budget_reprompt_margin", 10000) or 10000)

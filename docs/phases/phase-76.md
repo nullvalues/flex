@@ -25,4 +25,4 @@ state, not require a separate manual state.json patch.
 
 | ID | Title | Status |
 |----|-------|--------|
-| BUILD-032 | sync-build seeds context gate state on --apply | planned |
+| BUILD-032 | sync-build seeds context gate state on --apply | complete |
