@@ -382,3 +382,99 @@ def test_check_stubs_exit_code_one_when_stubs_present(tmp_path: Path) -> None:
     )
     result = _run("check-stubs", "--project-dir", str(tmp_path))
     assert result.returncode == 1
+
+
+# ---------------------------------------------------------------------------
+# _parse_index_phases — multi-era tests
+# ---------------------------------------------------------------------------
+
+# Import the function under test directly.
+sys.path.insert(0, str(_REPO_ROOT / "skills" / "pairmode" / "scripts"))
+from flex_build import _parse_index_phases  # noqa: E402
+
+
+def _make_era_index(era1_rows: list[tuple[str, str]], era2_rows: list[tuple[str, str]]) -> str:
+    """Build a two-era index.md text with one table per era."""
+
+    def _table(rows: list[tuple[str, str]]) -> str:
+        lines = [
+            "| Phase | Title | Status |",
+            "|-------|-------|--------|",
+        ]
+        for ref, status in rows:
+            lines.append(f"| {ref} | Phase {ref} | {status} |")
+        return "\n".join(lines)
+
+    return (
+        "## Era 001\n\n"
+        + _table(era1_rows)
+        + "\n\n"
+        "## Era 002\n\n"
+        + _table(era2_rows)
+        + "\n"
+    )
+
+
+def test_parse_index_phases_multi_era_returns_all_rows() -> None:
+    """Rows from both era tables are returned."""
+    text = _make_era_index(
+        [("10", "complete"), ("11", "complete")],
+        [("20", "complete"), ("21", "planned")],
+    )
+    rows = _parse_index_phases(text)
+    refs = [r for r, _ in rows]
+    assert "10" in refs
+    assert "11" in refs
+    assert "20" in refs
+    assert "21" in refs
+    assert len(rows) == 4
+
+
+def test_parse_index_phases_multi_era_active_in_second_era() -> None:
+    """A planned row in era 2 is found even when era 1 is all complete."""
+    text = _make_era_index(
+        [("10", "complete"), ("11", "complete")],
+        [("20", "planned")],
+    )
+    rows = _parse_index_phases(text)
+    # era-1 rows present
+    assert ("10", "complete") in rows
+    assert ("11", "complete") in rows
+    # era-2 planned row present
+    assert ("20", "planned") in rows
+
+
+def test_parse_index_phases_single_era_unchanged() -> None:
+    """A single-table index returns the same rows as before the fix."""
+    text = (
+        "| Phase | Title | Status |\n"
+        "|-------|-------|--------|\n"
+        "| 5 | Phase five | complete |\n"
+        "| 6 | Phase six | planned |\n"
+    )
+    rows = _parse_index_phases(text)
+    assert rows == [("5", "complete"), ("6", "planned")]
+
+
+def test_current_phase_finds_active_in_second_era(tmp_path: Path) -> None:
+    """cmd_current_phase exits 0 and prints the phase path from era-2 table."""
+    # Set up docs/phases/index.md with era-1 all complete, era-2 has active.
+    phases_dir = tmp_path / "docs" / "phases"
+    phases_dir.mkdir(parents=True)
+
+    index_text = _make_era_index(
+        [("10", "complete")],
+        [("20", "planned")],
+    )
+    (phases_dir / "index.md").write_text(index_text, encoding="utf-8")
+
+    # Create the phase file that current-phase should find.
+    phase_file = phases_dir / "phase-20.md"
+    phase_file.write_text(
+        "---\nid: '20'\ntitle: Phase 20\nstatus: planned\n---\n\n## Stories\n",
+        encoding="utf-8",
+    )
+
+    result = _run("current-phase", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "phase-20" in result.stdout

@@ -380,7 +380,10 @@ def _parse_index_phases(index_text: str) -> list[tuple[str, str]]:
 
         if not stripped.startswith("|"):
             if in_table and stripped:
-                break
+                # End of this table — reset and keep scanning for more tables.
+                in_table = False
+                header_seen = False
+                separator_seen = False
             continue
 
         in_table = True
