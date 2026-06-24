@@ -32,7 +32,7 @@ reviewer continue to read their own story specs cold (unaffected).
 |----|-------|--------|
 | INFRA-184 | story frontmatter: add auth_gated + schema_introduces fields | complete |
 | BUILD-034 | pre-flight gate CLIs: check-stub, check-schema-gate, check-auth-gate | complete |
-| BUILD-035 | orchestrator pre-flight offload: CLAUDE.build.md + template sync | planned |
+| BUILD-035 | orchestrator pre-flight offload: CLAUDE.build.md + template sync | complete |
 
 ## Sync note
 

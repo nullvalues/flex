@@ -517,3 +517,9 @@ CER-031). All docs follow the catalog template verbatim with real "What Broke" i
 **Phase:** 77
 **Stories:** BUILD-033
 **Acceptance:** `_parse_index_phases` now resets table state on section boundaries (headings between era tables) instead of breaking, allowing multi-era index files to be fully scanned. Four new tests added. 2205 tests pass.
+
+## cp78-orchestrator-preflight-gate-cli-offload
+**Tag command:** `git tag cp78-orchestrator-preflight-gate-cli-offload && git push origin cp78-orchestrator-preflight-gate-cli-offload`
+**Phase:** 78
+**Stories:** INFRA-184, BUILD-034, BUILD-035
+**Acceptance:** Orchestrator pre-flight gates (auth, schema, stub) offloaded from inline LLM judgment to `flex_build.py` CLI calls. New story frontmatter fields `auth_gated` + `schema_introduces` scaffolded by `story_new.py`. CLAUDE.build.md.j2 template updated so `sync-build --apply` propagates to upstream repos. 2232 tests pass.

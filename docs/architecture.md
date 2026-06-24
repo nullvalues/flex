@@ -36,7 +36,7 @@ flex/
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
-        flex_build.py             ← CLI wrapping 21 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stubs, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope); replaces inline python -c blocks in CLAUDE.build.md.j2
+        flex_build.py             ← CLI wrapping 24 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stub, check-schema-gate, check-auth-gate, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope); replaces inline python -c blocks in CLAUDE.build.md.j2
         refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
@@ -147,15 +147,22 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
 
 1. **Story spec** — the phase doc names the story; the story file at
    `docs/stories/<RAIL>/<RAIL>-NNN.md` defines `## Requires`, `## Ensures`, and
-   `primary_files`/`touches`. Before the builder spawns, two pre-story gates run:
-   (a) the **schema gate** checks whether the story introduces a new persistent schema
-   object without a management surface; (b) the **stub gate** checks whether the story
-   file contains delegation language ("See phase doc") or is missing an acceptance
-   surface. A story that fails either gate is blocked until the operator resolves it.
-   After both gates pass, the **pre-story scope check** runs `flex_build.py
+   `primary_files`/`touches`. Before the builder spawns, three pre-story gates run
+   as `flex_build.py` CLI calls — exit 0 is a silent pass, exit 1 surfaces the
+   printed block and blocks the orchestrator, exit 2 indicates a missing story file.
+   Decision logic lives in the CLI, not in the orchestrator:
+   (a) the **auth gate** (`check-auth-gate`) reads `auth_gated` from story frontmatter;
+   when `true`, verifies a `**Classification:**` line exists in `docs/architecture.md`;
+   (b) the **schema gate** (`check-schema-gate`) reads `schema_introduces` from story
+   frontmatter; when `true`, checks for a management surface story in the phase or a
+   documented exception phrase in the story body;
+   (c) the **stub gate** (`check-stub`) checks whether the story file contains delegation
+   language ("See phase doc") or is missing an acceptance surface section.
+   A story that fails any gate is blocked until the operator resolves it.
+   After all gates pass, the **pre-story scope check** runs `flex_build.py
    check-story-scope` to surface likely-missing file declarations (missing sibling
    test, missing live-rendered template counterpart); it is informational only and
-   never blocks.
+   never blocks. (Phase 78 BUILD-034/BUILD-035)
 
 2. **Permission pre-write** — `flex_build.py permissions-create` generates
    `docs/phases/permissions/<story_id>.json` from the story's `primary_files` and `touches`
@@ -351,6 +358,8 @@ Story frontmatter fields summary:
 | `primary_files` | yes | List; may be empty only when `status` is `draft` or `backlog` |
 | `touches` | no | Secondary files the story modifies |
 | `story_class` | no | One of `code`, `doc`, `lesson`, `methodology`; defaults to `code` |
+| `auth_gated` | no | Boolean; `false` if absent; read by `flex_build.py check-auth-gate` — when `true`, the auth gate checks `docs/architecture.md` for a recorded `**Classification:**` before building |
+| `schema_introduces` | no | Boolean; `false` if absent; read by `flex_build.py check-schema-gate` — when `true`, the schema gate requires a management surface story in the phase or a documented exception |
 | `source` | no | Set by drift promotion to record the originating project |
 
 **Story body contract sections** follow the frontmatter block. Every story must contain either
