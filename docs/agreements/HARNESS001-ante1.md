@@ -70,7 +70,16 @@ net (the fleet runs `main`, never sees `harness`) while the additive contract
 (DP4) keeps the eventual merge clean. Fork (A) is the fallback if divergence on
 `harness` becomes unmanageable.
 
-**Decision:** ⬜ OPEN — proposed: B + additive discipline.
+**Decision:** ✅ AGREED — **B + additive discipline.** `git worktree add
+/mnt/work/flex-harness harness`; `/mnt/work/flex` stays on `main` (fleet-facing,
+stable); the worktree's `CLAUDE.build.md` is regenerated via `sync-build` with
+`pairmode_scripts_dir=/mnt/work/flex-harness/skills/pairmode/scripts` so
+flex-in-worktree exercises worktree scripts/tests, fully isolated from the fleet.
+Breaking code on `harness`; docs + truly-additive code may fast-track to `main`;
+flip = merge `harness → main`. Fork (A) is the fallback only if `harness` diverges
+unmanageably or DP7 finds an unavoidable shared-writer conflict. The worktree is a
+*hard* barrier (fleet physically cannot execute harness code — different path),
+unlike C which has no safety net.
 
 ---
 
@@ -85,8 +94,14 @@ cheap, named rollback anchor, independent of the branch strategy. Optionally a
 `stable/0.2` branch if we want fleet `FLEX_DIR` to track a branch rather than the
 tip of `main`.
 
-**Decision:** ⬜ OPEN — proposed: tag `v0.2.0` at current HEAD; `stable/0.2`
-branch only if we decide the fleet should track a branch.
+**Decision:** ✅ AGREED — **tag `v0.2.0` at HEAD** (flex's first semver tag; named
+"what the fleet runs today" rollback anchor, distinct from `cpNN-…` checkpoint
+tags). HEAD is `cp78 + 2 docs-only commits`, functionally identical to last
+known-good. **Branch topology deferred to DP5** (`stable/0.2` vs `release/0.3`,
+and whether `main` flips or the fleet stays on a stable line, is a cutover-topology
+decision — a rolling per-project cutover *requires* lagging projects to point at a
+stable line, so it must be decided alongside the cutover sequence). The `v0.2.0`
+tag is needed under any topology. Executed when the phase is built, not now.
 
 ---
 
@@ -104,8 +119,19 @@ branch only if we decide the fleet should track a branch.
   syncable. Proposed: `harness` branch carries the bump (as `0.3.0`); `main`
   stays `0.2.0` until cutover.
 
-**Decision:** ⬜ OPEN — proposed: pairmode → 0.3.0, plugin → 0.3.0, bump lives on
-`harness` only until flip.
+**Decision:** ✅ AGREED —
+- **Pairmode methodology:** `0.2.0` → **`0.3.0`** (stay pre-1.0; minor bump carries
+  the breaking change, matching existing cadence; 1.0.0 deferred until the harness
+  architecture is the proven baseline).
+- **Plugin version:** `plugin.json` + `marketplace.json` aligned to **`0.3.0`**;
+  documented rule "plugin version and pairmode version bump together," guarded by a
+  small test asserting the two match. *Not* single-sourced into the JSON manifests
+  (not worth a build step) — two manually-synced fields + one guard test.
+- **Timing:** the bump lives on **`harness` only**. `main` (fleet-facing) stays
+  `0.2.x` through dev so the SessionStart "behind canon" nag never fires
+  prematurely. `harness` carries **`0.3.0-dev`**, finalized to **`0.3.0`** at the
+  flip. The bump reaches the fleet's line only at cutover, where the nag firing is
+  *intentional* — the deliberate "run sync now" migration trigger (DP5).
 
 ---
 
@@ -125,7 +151,28 @@ branch only if we decide the fleet should track a branch.
 4. **A compat-guard test** asserts (1) — the set of CLI subcommands + their flags
    is frozen for the additive window.
 
-**Decision:** ⬜ OPEN — proposed: adopt the four-point contract + guard test.
+**Decision:** ✅ AGREED — adopt the four-point contract, scoped to the additive
+window `HARNESS001-main … HARNESS005-main`:
+
+1. **Existing CLI surface frozen.** No rename / removal / flag-change to existing
+   `flex_build.py` subcommands or their output contracts. Additions (notably
+   `next-action`) allowed. Consolidation/removal of old CLIs
+   (`select-builder-model`, `next_story`, `check-*-gate`, `read-attempt-count`, …)
+   happens only at/after the flip.
+2. **Resolver is pure-read.** `next-action` reads `state.json`, `effort.db`, the
+   index, story status, attempt counters; writes nothing authoritative (ideally
+   nothing at all; any cache is disposable and never read back by the
+   orchestrator). Orchestrator stays sole writer. (Same guarantee DP7 validates via
+   the state-ownership table.)
+3. **Fleet-facing surface frozen on `main`.** Consumer-facing templates
+   (`CLAUDE.build.md.j2`, `agents/*.md.j2`), global hooks, and agent files do not
+   change on `main` until the flip — a mid-era `sync` yields the unchanged 0.2.x
+   loop, never half-built harness. These evolve freely on `harness` (never executed
+   by the fleet per DP1).
+4. **Guard test.** A `tests/pairmode/` test snapshots the 0.2.x CLI command/flag
+   surface and asserts it stays a *subset* of the current surface (additions OK,
+   removals/renames forbidden) through HARNESS005; rebaselined at the flip.
+   Output-contract stability rides on existing per-command unit tests.
 
 ---
 
