@@ -6,7 +6,7 @@ abandoned `planned` stories — every planned story must be `complete` or formal
 `deferred`, the CER Do Now must be clear, and findings not built now must be
 captured in the backlog.
 
-**Status:** plan (decisions open)
+**Status:** settled (DC1–DC3 agreed) — ready to execute
 
 ## What the observability surface revealed
 
@@ -64,23 +64,28 @@ refactor).** Phase 64 hardens the *current* observability SPA and context-budget
 code that Era 003 Phase G + the harness context-control work will rebuild/replace —
 hardening soon-to-be-rebuilt code is wasted effort.
 
-**Possible exception:** INFRA-165 (`context_budget.py` flex_factor NaN) is a
-*correctness* bug in the live gate used *during* the Era-3 build (old loop, DP6).
-If the NaN actually misbehaves, a standalone fix may be warranted; otherwise it
-defers with the rest. **Decision:** ⬜ OPEN — proposed: defer all; confirm whether
-INFRA-165 is a fix-now exception.
+**INFRA-165 severity check (done):** two bugs — (1) NaN `flex_factor` slips the
+`<=0` / `>5.0` clamps (IEEE-754) → ceiling becomes NaN → gate silently never fires
+(fail-open); (2) `render_alert_prompt` shows an unfactored `[R]` remaining figure
+when `flex_factor != 1.0` (cosmetic). **Low severity, no Era-3-build impact:**
+`flex_factor` reads from story frontmatter (live projects show `1.0`), NaN only
+arises from malformed `flex_factor: nan`; realistic invalids are already clamped;
+our Era-3 specs won't set NaN so the build never hits the path; and
+`context_budget.py` is slated for rework at HARNESS006 (DP7). **Decision:**
+✅ AGREED — **defer all of Phase 64, INFRA-165 included.** Capture INFRA-165 with
+this severity note so the real bug isn't lost.
 
 ### DC2 — Status-drift stories → mark complete
 
-The work exists in git. **Decision:** ⬜ OPEN — proposed: mark INFRA-106/107/108/
-109/110/111, INFRA-148, BUILD-029 `complete` (verify each via git during execution).
+The work exists in git. **Decision:** ✅ AGREED — mark INFRA-106/107/108/109/110/
+111, INFRA-148, BUILD-029 `complete` (verify each via git during execution).
 
 ### DC3 — Defects D1/D2/D3 → defer + capture
 
 **Recommendation:** capture all three as backlog/CER entries tagged Era 003, do not
 fix in Era 002. D1 already lives in the harness agreements (DP7) — cross-reference
-it. D2/D3 fold into Phase G's mandate. **Decision:** ⬜ OPEN — proposed: capture +
-defer; Phase G's scope explicitly absorbs Phase 64 + D1/D2/D3.
+it. D2/D3 fold into Phase G's mandate. **Decision:** ✅ AGREED — capture + defer;
+Phase G's scope explicitly absorbs Phase 64 + D1/D2/D3.
 
 ## Execution sequence (once decisions confirmed)
 
