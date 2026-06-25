@@ -2,7 +2,7 @@
 id: BUILD-035
 rail: BUILD
 title: "orchestrator pre-flight offload: CLAUDE.build.md + template sync"
-status: planned
+status: complete
 phase: "78"
 story_class: code
 primary_files:

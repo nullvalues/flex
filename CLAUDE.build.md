@@ -420,14 +420,15 @@ and stamp the active story into state.json:
 
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py permissions-create \
-  RAIL-NNN --project-dir .
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_context.py --set RAIL-NNN --project-dir .
+  STORY-ID --project-dir .
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_context.py --set STORY-ID --project-dir .
 ```
 
-Replace RAIL-NNN with the current story's ID.
+Replace STORY-ID with the current story's ID verbatim. The tool accepts any ID format —
+never skip or pre-validate based on format. Pass the ID through and let the tool report errors.
 
 Spawn the `builder` subagent with:
-- The story ID only (e.g. `BUILD-012`)
+- The story ID only (the exact ID from the Stories table)
 
 Do not pass story text, file contents, or git history.
 The builder reads its own story spec and any context it needs.
@@ -695,7 +696,7 @@ Stop the build loop.
 ## Context budget check (between stories)
 
 **Enforcer:** `hooks/pre_tool_use.py` (matcher `Task|Agent`) delegates to
-`skills/pairmode/scripts/context_budget.py`. On every subagent spawn, the hook:
+`/mnt/work/flex/skills/pairmode/scripts/context_budget.py`. On every subagent spawn, the hook:
 
 1. Reads `state["context_current_tokens"]` — written by `post_tool_use.py`
    (Task|Agent PostToolUse) after each completed spawn by reading the JSONL
@@ -708,7 +709,7 @@ Stop the build loop.
    update automatically after the next tool call completes. Running `/clear`
    and resuming also resets it via the SessionStart hook.
 4. If fresh: checks whether `tokens + estimated_next_step > threshold ×
-   (1 + overrun_pct)` (defaults: 130,000 × 1.10 = 143,000). Blocks when exceeded.
+   (1 + overrun_pct)` (defaults: 120,000 × 1.10 = 132,000). Blocks when exceeded.
 
 Write/read split: `post_tool_use.py` is the writer; `pre_tool_use.py` is the
 reader. No manual `set-context-tokens` call is required during normal operation.
