@@ -185,8 +185,31 @@ window `HARNESS001-main … HARNESS005-main`:
 (preview the `CLAUDE.build.md` rewrite) → `--apply` → verify a build round →
 confirm `pairmode_version` advanced to 0.3.0.
 
-**Decision:** ⬜ OPEN — proposed: per-project rolling, flex-first then canary then
-fleet. (Documented in the phase, executed at HARNESS006.)
+**Decision:** ✅ AGREED — **Option Y (opt-in, do-nothing-stays-stable), rolling,
+sync-driven.** Resolves the DP2 branch-topology deferral.
+
+- **Binding mechanic (verified):** `pairmode_scripts_dir` = `Path(__file__).parent`
+  of whichever flex checkout runs the sync. A consumer's loop binds to flex by the
+  absolute scripts path *baked into its `CLAUDE.build.md` at sync time*, not by
+  `FLEX_DIR` (which only drives the version-nag hook).
+- **Topology:** `main` stays the stable 0.2.x line for the whole migration window;
+  `harness` is the 0.3.0 line in the DP1 worktree (`/mnt/work/flex-harness`). **No
+  `stable/0.2` branch** — `main` *is* stable. "Do nothing = stay on 0.2.x" is
+  structural (an un-synced project ignores any 0.3.0 checkout's mere existence).
+  Rejected the flip-`main`-immediately alternative: it breaks any project that does
+  nothing.
+- **Per-project mechanic:** run `sync-all --project-dir P` *from the harness
+  worktree's scripts* → bakes the worktree `pairmode_scripts_dir`, the thin-harness
+  template, and `pairmode_version 0.3.0`. `--dry-run` → `--apply` → verify a build
+  round → confirm version. (FLEX_DIR repoint optional, nag-only.)
+- **Rolling sequence (opt-in):** flex itself first (finalize `0.3.0-dev → 0.3.0`,
+  verify — the DP6 dogfood) → one canary fleet project → the rest, one at a time.
+  Operator-initiated per project; nothing forced (compatible with DP3 — the bump
+  reaches a project's line only when that project migrates).
+- **Final state:** fold `harness → main` (main = 0.3.0, unified), tag **`v0.3.0`**,
+  re-sync each project so `pairmode_scripts_dir` points back at canonical
+  `/mnt/work/flex`, remove the transient worktree.
+- **Authored here** as the migration runbook; **executed at/after HARNESS006.**
 
 ---
 
@@ -200,8 +223,16 @@ orchestrator loop** (safe because of the DP4 additive contract), and **flips its
 own loop last**, at `HARNESS006-main`. So the old loop builds the new one, then
 cuts over.
 
-**Decision:** ⬜ OPEN — proposed: build on old loop; flex flips itself at
-HARNESS006.
+**Decision:** ✅ AGREED — flex's **live build loop stays the 0.2.x shape through
+`HARNESS001-main … 005-main`** in both checkouts. The worktree isolates the *code
+being written*, not the loop being run (its `CLAUDE.build.md` is the 0.2.x template
+pointed at worktree scripts). The resolver + leaf workers built in 001–005 are
+exercised **only by their own tests**, never wired into flex's live loop until the
+flip. **`HARNESS006-main` is the flip in both senses:** rewrite template to the
+thin-harness shape, wire in `next-action` + workers, and flip flex first (regen
+flex's own `CLAUDE.build.md`, verify a full build round) — flex is developer *and*
+canary. Explicitly forbids progressively wiring the resolver into the live loop
+during 001–005, which would void the additive guarantee.
 
 ---
 
@@ -220,9 +251,52 @@ there is no conflict — and `next-action` stays advisory. Output: a documented
 **Risk to watch:** any place the resolver is tempted to *own* the attempt counter
 or story status before the flip — that would break additivity and force the fork.
 
-**Decision:** ⬜ OPEN — proposed: produce the state-ownership table; resolver
-read-only on every surface until flip. If any surface can't be cleanly
-single-writer, escalate DP1 to fork (A).
+**Semantic separation — effort.db ≠ context-control (load-bearing invariant).**
+The two token surfaces measure different things and must never cross-feed:
+- **effort.db** = *retrospective cost* from subagent `<usage>` blocks (tokens spent
+  in disposable subagent contexts). Inputs: model selection, guardrail, rollups,
+  cost display. **Never an input to a context-headroom or clear-seam decision.**
+- **context-control** = the orchestrator's *own live window occupancy*
+  (`context_current_tokens` + the `expected_step_tokens` window-growth constant).
+  This is the *sole* basis for headroom / clear-seam decisions.
+
+Rationale: subagent tokens never entered the orchestrator's window, so summing
+effort.db to estimate headroom counts tokens that were never there. The thin
+harness widens this gap (per-step window growth ≈ return-block size, decoupled from
+story effort), so the resolver must compute headroom *only* from context-control
+state and use effort.db *only* for cost/model.
+
+**Codified comingling found (remediation, lands at HARNESS006 / gate rewrite):**
+`CLAUDE.build.md:320-326` compares `threshold − N` (remaining window) against the
+`story-cost-estimate` effort.db median (`flex_build.py:834`) and advises `/clear` —
+exactly the wrong cross-feed. The correct mechanism already exists separately at
+`CLAUDE.build.md:696-750` (`context_current_tokens + expected_step_tokens` vs
+threshold). The redesign **deletes** the comingled advisory; the resolver/gate
+reports window occupancy only, and any effort-cost figure shown is labelled cost
+(not headroom) and never compared to remaining window. Recurrence cause: the bad
+model is written into the gate prose, so it re-teaches itself every run — the
+durable fix is removing the codified comparison, not "remembering." The redesign
+should also re-derive `expected_step_tokens` to model thin-harness return-block
+growth, not anything effort-derived.
+
+**Decision:** ✅ AGREED — **assumption HOLDS.** Orchestrator/hooks remain sole
+writers of every shared surface (state.json `context_*` via frozen hooks; active
+story / effort.db / `attempt_counter.json` / story status / permission files /
+index via orchestrator; commits+tags via reviewer/orchestrator). The resolver is
+pure-read on all of them and **writes nothing**. Conditioned on the load-bearing
+property that **`next-action` is a pure function of existing durable state** (no
+private persisted state) — the same property as the era invariant, so the test
+passes for the reason the architecture works.
+- **Escalation trip-wire:** if `HARNESS001-main` shows `next-action` needs
+  *authoritative* private state, keep it disposable+isolated+unread-by-orchestrator,
+  else escalate DP1 → fork.
+- **Semantic separation (effort.db ≠ context-control):** adopted as invariant
+  (see above) + remediation of the codified comingling at `CLAUDE.build.md:320-326`,
+  landing at HARNESS006.
+- **Pre-existing note:** `state.json` written non-atomically
+  (`story_context.write_state`, plain `write_text`); loop is sequential so low-risk,
+  but the resolver tolerates a transient malformed read; atomic-rename hardening is
+  a candidate task.
 
 ---
 
@@ -261,9 +335,11 @@ fleet.
 
 ## Open questions / to investigate
 
-- Does any consumer's bootstrapped `CLAUDE.build.md` invoke flex scripts by
-  absolute path vs. via `FLEX_DIR`? (Affects whether a worktree path swap is even
-  needed at cutover.)
+- ~~Does any consumer's bootstrapped `CLAUDE.build.md` invoke flex scripts by
+  absolute path vs. via `FLEX_DIR`?~~ **RESOLVED (DP5):** by absolute
+  `pairmode_scripts_dir` baked at sync time (`Path(__file__).parent` of the
+  syncing checkout). `FLEX_DIR` only drives the version-nag hook. Migration is
+  therefore sync-driven (re-render from the 0.3.0 checkout), not an env swap.
 - Should `marketplace.json`/`plugin.json` versions be made *live* (drive install)
   or formally documented as informational? (Out of scope unless it changes
   cutover.)
