@@ -2,7 +2,7 @@
 
 **Parent era:** [Era 003 — Orchestrator as harness](../eras/era-proposed-harness-20260624-001.md)
 **Phase key:** `HARNESS001-ante1` (era-wide preflight — must complete first)
-**Status:** walking (decisions open)
+**Status:** settled (all 8 DPs agreed; story outline finalized)
 
 > An *agreements doc* records the decisions for a phase before any story is
 > specced. We walk each decision point (DP) top to bottom; once a DP is settled,
@@ -313,25 +313,49 @@ here), and produce the authoritative consumer list. Decide whether the result
 should populate `registered_projects` so future drift/cutover tooling knows the
 fleet.
 
-**Decision:** ⬜ OPEN — proposed: build the discovery + record the canonical fleet.
+**Decision:** ✅ AGREED — build a **repeatable, read-only discovery command**
+(scans candidate dirs for both binding signals: a `CLAUDE.build.md` whose
+`pairmode_scripts_dir` references this flex checkout, and a `.companion/state.json`
+with `pairmode_version`). Snapshot now (additive, safe); the **authoritative run is
+a hard gate immediately before the fold** — under Option Y the fold makes
+`/mnt/work/flex` = 0.3.0, so any un-migrated bound project breaks at the fold; the
+fleet may change across the era, so the pre-fold run is what licenses the fold.
+`registered_projects` stays drift-opt-in (distinct purpose); optionally seeded from
+the discovered fleet, not forced.
 
 ---
 
-## Resulting story outline (RELEASE rail — finalize after DPs agreed)
+## Resulting story outline (RELEASE rail — finalized)
 
-*Provisional; pending the decisions above.*
+All decisions above are ✅ AGREED. This phase is **preflight**: it establishes the
+dev environment, the version line, the compat guarantees, and the migration plan —
+it does **not** start the refactor (that begins at `HARNESS001-main`).
 
-1. **Dev-line setup** — create `harness` branch + worktree; document the
-   `main`=stable / `harness`=dev split (DP1).
-2. **Stable anchor** — tag `v0.2.0`; optional `stable/0.2` branch (DP2).
-3. **Version reconciliation** — bump mechanics across `_version.py`, `SKILL.md`,
-   `plugin.json`, `marketplace.json`; bump on `harness` only (DP3).
-4. **Backward-compat contract + guard test** — write the contract into the era's
-   methodology docs; add the CLI-signature freeze test (DP4).
-5. **State-ownership table** — the additive-window single-writer map (DP4/DP7).
-6. **Fleet discovery** — enumerate live consumers; record canonical fleet (DP8).
-7. **Cutover & migration runbook** — the per-project rolling procedure, to be
-   *executed* at HARNESS006 but *authored* here (DP5/DP6).
+**Branch placement note:** ante1 is mostly main-safe — git plumbing, additive
+read-only tools, and methodology docs land on `main` (which stays 0.2.x). The
+**only** harness-only item is the version bump (RELEASE-002, per DP3 timing). From
+`HARNESS001-main` onward, refactor code is built in the worktree on `harness`.
+
+| Story | Title | Lands on | Executor | Acceptance gist |
+|-------|-------|----------|----------|-----------------|
+| RELEASE-001 | Dev-line & rollback anchor (DP1, DP2) | `main` (git) | operator | `harness` branch + `/mnt/work/flex-harness` worktree exist; worktree `CLAUDE.build.md` regenerated to worktree `pairmode_scripts_dir`; `v0.2.0` tag at main HEAD; `main` untouched & still 0.2.x. |
+| RELEASE-002 | Version reconciliation + match-guard (DP3) | `harness` | builder | `_version.py` + `SKILL.md` → `0.3.0-dev`; `plugin.json` + `marketplace.json` → `0.3.0`; test asserts plugin == pairmode version ("bump together"); `main` stays 0.2.0. |
+| RELEASE-003 | CLI-surface freeze guard test (DP4.4) | `main` | builder | Test snapshots the 0.2.x `flex_build.py` command/flag surface (click introspection); asserts current surface is a superset (additions OK; removals/renames fail) through the additive window. |
+| RELEASE-004 | Additive contract + state-ownership table (DP4, DP7) | `main` | builder | Four-point additive contract + state-ownership table + effort.db≠context-control invariant written into era methodology docs; references the codified comingling (`CLAUDE.build.md:320-326`) flagged for removal at HARNESS006. |
+| RELEASE-005 | Fleet discovery tool + snapshot (DP8) | `main` | builder | Repeatable read-only command lists projects bound to this checkout (both signals); current snapshot recorded; docs state the authoritative pre-fold run gates the fold. |
+| RELEASE-006 | Cutover & migration runbook (DP5, DP6) | `main` | builder | Self-contained runbook: Option Y rolling sync-driven migration, flex-first → canary → rest, final fold + `v0.3.0` + repoint + worktree removal, discovery gate before fold. Authored here; executed at/after HARNESS006. |
+
+**Candidate (not committed — surface per backlog policy):** `state.json`
+atomic-write hardening (DP7 pre-existing note). Recommend backlog (Do Later) unless
+trivial; pull into this phase only on explicit decision.
+
+## Status
+
+All 8 DPs ✅ AGREED; story outline finalized. **Ready for**
+`phase_new.py --phase-id HARNESS001 --suffix ante1` and `story_new.py` on the
+`RELEASE` rail (RELEASE-001 … RELEASE-006). Era activation (close 002 → activate
+003 via `era_transition.py`) is the gating step before these stories build —
+see the era doc's *Transition from Era 002* section.
 
 ## Open questions / to investigate
 
