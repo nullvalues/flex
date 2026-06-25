@@ -3,7 +3,7 @@ id: INFRA-108
 phase: '41'
 rail: INFRA
 story_class: doc
-status: planned
+status: complete
 primary_files:
   - docs/architecture.md
 touches: []

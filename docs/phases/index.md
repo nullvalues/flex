@@ -62,7 +62,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 61 | Scope-Miss Capture & Pre-Story Scope Checks | complete | [phase-61.md](phase-61.md) · cp61 |
 | 62 | Context gate authorization clarity | complete | [phase-62.md](phase-62.md) · cp62 |
 | 63 | Observability SPA — read-only window glass | complete | [phase-63.md](phase-63.md) · cp63-observability-spa |
-| 64 | Observability SPA hardening — cold-eyes review fixes | planned | [phase-64.md](phase-64.md) |
+| 64 | Observability SPA hardening — cold-eyes review fixes | deferred | [phase-64.md](phase-64.md) — resumed in Era 003 Phase G |
 | 65 | Context budget per-story drift fix | complete | [phase-65.md](phase-65.md) |
 | 66 | PAIRMODE_VERSION single-source | complete | [phase-66.md](phase-66.md) |
 | 67 | Bootstrap context-token seed | complete | [phase-67.md](phase-67.md) |

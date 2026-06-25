@@ -31,10 +31,10 @@ changes — documentation only.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-106 | Re-frame `README.md` around pairmode as the lead capability | planned |
-| INFRA-107 | Re-frame `docs/brief.md` around pairmode as the lead capability | planned |
-| INFRA-108 | Re-frame `docs/architecture.md` around pairmode as the lead capability | planned |
-| INFRA-109 | Update `CLAUDE.md` project context to reflect pairmode as shipped | planned |
+| INFRA-106 | Re-frame `README.md` around pairmode as the lead capability | complete |
+| INFRA-107 | Re-frame `docs/brief.md` around pairmode as the lead capability | complete |
+| INFRA-108 | Re-frame `docs/architecture.md` around pairmode as the lead capability | complete |
+| INFRA-109 | Update `CLAUDE.md` project context to reflect pairmode as shipped | complete |
 
 ---
 

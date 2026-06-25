@@ -3,7 +3,7 @@ id: INFRA-111
 phase: '42'
 rail: INFRA
 story_class: methodology
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/templates/CLAUDE.build.md.j2
 touches:

@@ -2,7 +2,7 @@
 id: INFRA-148
 rail: INFRA
 title: "`context_budget.py` — replace transcript parsing with state.json contract"
-status: planned
+status: complete
 phase: "58"
 story_class: code
 primary_files:

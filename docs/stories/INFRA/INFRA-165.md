@@ -2,7 +2,7 @@
 id: INFRA-165
 rail: INFRA
 title: "`context_budget.py` flex_factor correctness — NaN clamp + `render_alert_prompt` ceiling"
-status: planned
+status: backlog
 phase: "64"
 story_class: code
 primary_files:

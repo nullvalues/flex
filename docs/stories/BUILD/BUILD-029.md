@@ -2,7 +2,7 @@
 id: BUILD-029
 rail: BUILD
 title: "Restore per-story `/context` call in Context gate; remove `bump-context-tokens`"
-status: planned
+status: complete
 phase: "70"
 story_class: methodology
 primary_files:

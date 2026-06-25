@@ -6,7 +6,19 @@ abandoned `planned` stories — every planned story must be `complete` or formal
 `deferred`, the CER Do Now must be clear, and findings not built now must be
 captured in the backlog.
 
-**Status:** settled (DC1–DC3 agreed) — ready to execute
+**Status:** steps 1–5 executed (2026-06-25); **gated at step 6** (`era_transition`)
+pending explicit go.
+
+**Execution log (steps 1–5):**
+- Step 1: INFRA-106/107/108/109/110/111, INFRA-148, BUILD-029 → `complete`.
+- Step 2: Era 002 doc table rebuilt (58–78), Rails populated, `## Deferred stories`.
+- Step 3: Phase 64 deferred — 5 stories → `backlog`; index row → `deferred`;
+  phase-64.md banner → Era 003 Phase G.
+- Step 4: D1 → **CER-053**, D2 → **CER-054**, D3 → **CER-055** (Do Later).
+- Step 5: 7 Do Now items annotated `RESOLVED` (CER-049 P69, CER-047 P68,
+  CER-046 P66, CER-036 P55, CER-037 P55, CER-038 P56, CER-039 P58);
+  **CER-045 superseded by CER-054** (residual symptom (2) re-verified in Phase G).
+  Do Now now has zero un-resolved items.
 
 ## What the observability surface revealed
 

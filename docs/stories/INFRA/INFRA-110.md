@@ -3,7 +3,7 @@ id: INFRA-110
 phase: '42'
 rail: INFRA
 story_class: code
-status: planned
+status: complete
 primary_files:
   - skills/pairmode/scripts/context_budget_check.py
 touches:

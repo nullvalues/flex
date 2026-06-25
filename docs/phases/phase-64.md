@@ -8,6 +8,14 @@ era: "002"
 
 **Parent phase:** Phase 63 left behind zero deferred stories; this phase is a clean follow-on.
 
+> **⏸ DEFERRED (Era 002 close-out, 2026-06-25).** This phase was never built. Its
+> five stories (INFRA-164, INFRA-165, INFRA-166, INFRA-167, INFRA-168) are
+> deferred to **Era 003 Phase G (`HARNESS007-main`)**, which heavily refactors the
+> observability SPA and context-control mechanism — hardening the current surface
+> would be rebuilt-away work. Stories moved to `backlog`. See
+> `docs/agreements/era-002-closeout.md` (DC1). INFRA-165's NaN bug is low-severity
+> with no Era-3-build impact (severity note in the close-out doc).
+
 ## Goal
 
 Resolve all 15 findings from the Phase 63 cold-eyes review. No new features —
@@ -57,11 +65,11 @@ new build. Applied to all three cached routes (system, context, lessons).
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-164 | `flex_observability.py` CLI hardening — subprocess exit, atomic write, ID uniqueness | planned |
-| INFRA-165 | `context_budget.py` flex_factor correctness — NaN clamp + `render_alert_prompt` ceiling | planned |
-| INFRA-167 | TypeScript parser robustness — phaseIndex blank-line, MODULE_FILENAME_RE, era leading zeros, flex_factor NaN | planned |
-| INFRA-166 | Fastify API route hardening — null project_dir, 0-token divergence, NaN threshold, flex_factor live read | planned |
-| INFRA-168 | `effortDb.ts` p90 off-by-one + in-flight promise dedup for route cache thundering herd | planned |
+| INFRA-164 | `flex_observability.py` CLI hardening — subprocess exit, atomic write, ID uniqueness | backlog |
+| INFRA-165 | `context_budget.py` flex_factor correctness — NaN clamp + `render_alert_prompt` ceiling | backlog |
+| INFRA-167 | TypeScript parser robustness — phaseIndex blank-line, MODULE_FILENAME_RE, era leading zeros, flex_factor NaN | backlog |
+| INFRA-166 | Fastify API route hardening — null project_dir, 0-token divergence, NaN threshold, flex_factor live read | backlog |
+| INFRA-168 | `effortDb.ts` p90 off-by-one + in-flight promise dedup for route cache thundering herd | backlog |
 
 **Dependency note:** INFRA-166 is listed after INFRA-167 because the context
 route's flex_factor live-read (finding 7) calls `parseStoryFrontmatter`, which
