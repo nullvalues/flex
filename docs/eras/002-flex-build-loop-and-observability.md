@@ -1,7 +1,8 @@
 ---
 id: "002"
 name: flex — Build loop and observability
-status: active
+status: complete
+closed_at: 2026-06-26
 ---
 
 ## Strategic intent

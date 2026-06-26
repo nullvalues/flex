@@ -1,16 +1,8 @@
 ---
 id: "003"
 name: flex — Orchestrator as harness
-status: proposed
+status: active
 ---
-
-> **Proposal — not yet active.** This file mirrors the `phase-proposed-*`
-> convention at the era level. Era 002 remains the sole `active` era. On
-> activation, this becomes `003-harness.md` with `status: active` via
-> `era_transition.py`, at which point its frontmatter becomes schema-valid.
-> Until then it is a planning artifact that survives compaction; the
-> active-era resolvers (`global_session_check.py`, `phase_new.py`,
-> `story_new.py`) ignore it because its status is not `active`.
 
 ## Strategic intent
 
@@ -120,15 +112,44 @@ per phase are what the agreements doc must resolve.
 
 | Phase key | Title | Rail | Intent |
 |-----------|-------|------|--------|
-| `HARNESS001-ante1` | Versioning & upstream compatibility | RELEASE | **Era-wide preflight — must complete first.** Bump the version, establish the dev line, and guarantee downstream consumers keep running throughout the refactor (see § Versioning & compatibility). |
+| `HARNESS001-ante1` | Versioning & upstream compatibility | RELEASE | **Era-wide preflight — must complete first.** Bump the version, establish the dev line, and guarantee downstream consumers keep running throughout the refactor (see § Versioning & compatibility). Agreements doc settled: `docs/agreements/HARNESS001-ante1.md`. |
 | `HARNESS001-main` | Resolver foundation — deterministic skeleton | RESOLVER | Build `next-action` as a CLI covering sequencing, counters, model-selection routing only. Runs *alongside* the existing orchestrator (it asks "what's next?" without yet giving up control). Fully unit-tested in isolation. |
 | `HARNESS002-main` | Pre-flight gate worker | WORKER | Extract gate judgment into its own leaf worker, fed by existing gate CLIs as signals, returning a verdict scalar. Establishes the safe-clear seam. |
 | `HARNESS003-main` | Builder / reviewer / loop-breaker as leaf workers | WORKER | Convert from per-project agent prose to agent-shell + plugin procedure skills. Validate disposable-context isolation and lossless return contract. |
 | `HARNESS004-main` | Checkpoint as an action sequence | RESOLVER + WORKER | Decompose the 8-step checkpoint into resolver-emitted actions (`checkpoint-security`, `checkpoint-intent`, `checkpoint-docs`, `checkpoint-tag`), each a leaf worker, so nothing nests. |
 | `HARNESS005-main` | Spec-writer as a leaf worker | WORKER | Spec mode → resolver-driven action + spec skill (wrapping today's Plan-subagent step). |
-| `HARNESS006-main` | Harness reduction — the flip | HARNESS | Shrink `CLAUDE.build.md` and its `.j2` to the thin dispatch loop. Safe only once HARNESS001–005 exist. Enforces the invariant: harness holds nothing not reconstructable from `next-action`. |
-| `HARNESS007-main` | Observability refactor | OBS | Rework the SPA/API to read the resolver state model (next-action state, leaf-worker effort, resolver-owned index) instead of the old orchestrator-centric signals. Expected to be heavy. |
-| `HARNESS008-main` | Housekeeper consolidation | RESOLVER | Fold scattered index-integrity logic (deferred-story sweep, orphan/status-drift detection, era→phase→story cross-link validation) into the resolver's read-model as a first-class graph-invariant checker. May merge into `HARNESS001-main` if it stays small. |
+| `HARNESS006-main` | Harness reduction — the flip | HARNESS | Shrink `CLAUDE.build.md` and its `.j2` to the thin dispatch loop. Safe only once HARNESS001–005 exist. Enforces the invariant: harness holds nothing not reconstructable from `next-action`. The cutover (DP5/DP6) and the effort.db≠context-control comingling removal (DP7) land here. |
+| `HARNESS007-main` (**Phase G**) | Observability refactor | OBS | Rework the SPA/API to read the resolver state model (next-action state, leaf-worker effort, resolver-owned index) instead of the old orchestrator-centric signals. **Absorbs the deferred Era 002 Phase 64 + defects D1/D2/D3 — see § Phase G scope below.** Expected to be heavy. |
+| `HARNESS008-main` | Housekeeper consolidation | RESOLVER | Fold scattered index-integrity logic (deferred-story sweep, orphan/status-drift detection, era→phase→story cross-link validation) into the resolver's read-model as a first-class graph-invariant checker. May merge into `HARNESS001-main` if it stays small. Forcing function: the status-drift + stale-era-table mess found during the Era 002 close-out. |
+
+### Phase G scope (HARNESS007-main) — folded-in Era 002 work
+
+Per the Era 002 close-out (DC1/DC3, `docs/agreements/era-002-closeout.md`), the
+observability work deferred from Era 002 resumes here as part of Phase G. This
+phase's agreements doc must scope all of the following alongside the resolver-state
+SPA refactor:
+
+- **Phase 64 (Observability SPA hardening)** — 5 deferred stories, resumed here:
+  - INFRA-164 `flex_observability.py` CLI hardening
+  - INFRA-165 `context_budget.py` flex_factor correctness — NaN (low-severity per
+    DC1 severity check; capture preserved)
+  - INFRA-166 Fastify API route hardening — null project_dir
+  - INFRA-167 TypeScript parser robustness — phaseIndex blank
+  - INFRA-168 `effortDb.ts` p90 off-by-one + in-flight promise dedupe
+- **D1 → CER-053** — `expected_step_tokens` mis-sourced and uniform (seeded from
+  the effort-baseline builder median, stamped fleet-wide; the exact
+  effort.db ≠ context-control comingling, ≡ DP7). The redesign must re-derive
+  `expected_step_tokens` to model thin-harness return-block growth, not anything
+  effort-derived.
+- **D2 → CER-054** — `context_current_tokens` stuck at the reset seed; live token
+  writer not updating these projects. Root-cause needed. (Supersedes CER-045.)
+- **D3 → CER-055** — waypoint outcomes uniformly FAIL; either outcome recording
+  (`record_attempt.py` → effort.db `outcome`) or the SPA render is wrong; also
+  corrupts the `pairmode_effort.py models` PASS-rate report.
+
+The Phase G observability refactor reads the new resolver state model, so hardening
+the *old* orchestrator-centric surface in Era 002 would have been wasted effort —
+this fold is why Phase 64 was deferred rather than built.
 
 ### Open design threads to resolve in the agreements docs
 
@@ -151,57 +172,59 @@ per phase are what the agreements doc must resolve.
 ## Versioning & compatibility
 
 This era restructures the skills and the bootstrapped build loop — a **breaking
-change** for downstream consumers. flex is installed via the marketplace from
-`nullvalues/flex`; consumers run skill scripts from the installed plugin while
-`CLAUDE.build.md` and the agent files are bootstrapped *into* each project. So a
-skill refactor on `main` breaks consumers two ways at once: the plugin CLIs they
-call shift under them, and their per-project bootstrapped loop no longer matches.
-flex also dogfoods its own pairmode to build itself, so the refactor must not
-break flex's own build process mid-flight.
+change** for downstream consumers. flex is consumed via a single shared checkout
+(consumers resolve flex through `FLEX_DIR` and run skill scripts directly from it);
+consumers run skill scripts from the installed plugin while `CLAUDE.build.md` and
+the agent files are bootstrapped *into* each project. So a skill refactor on `main`
+breaks consumers two ways at once: the plugin CLIs they call shift under them, and
+their per-project bootstrapped loop no longer matches. flex also dogfoods its own
+pairmode to build itself, so the refactor must not break flex's own build process
+mid-flight.
 
 Two version numbers exist today and must be reconciled in `HARNESS001-ante1`:
 
 - **Plugin version** — `0.1.0` in `.claude-plugin/plugin.json` and
   `marketplace.json`.
-- **Pairmode methodology version** — `0.2.0`, single-sourced from `bootstrap.py`
-  (`PAIRMODE_VERSION`) and mirrored in `skills/pairmode/SKILL.md` frontmatter;
-  `pairmode_status.py` compares it against each project's recorded
+- **Pairmode methodology version** — `0.2.0`, single-sourced from
+  `skills/pairmode/scripts/_version.py` and mirrored in `skills/pairmode/SKILL.md`
+  frontmatter; `pairmode_status.py` compares it against each project's recorded
   `pairmode_version` to advise `sync`.
 
 The methodology bump (→ `0.3.0`) is the signal that tells every consumer "the
 build loop changed; sync deliberately." The plugin version bumps alongside it.
 
-**Compatibility strategy (recommended; to be ratified in `HARNESS001-ante1`):**
+**Compatibility strategy (ratified in `HARNESS001-ante1`, DP1–DP8):**
 
-1. **Pin a stable line for consumers.** Tag the current state as the last `0.2.x`
-   release and have downstream repos pin to it (marketplace `version`), so they
-   keep running unchanged until they choose to migrate.
+1. **Pin a stable line for consumers.** Tag the current state as `v0.2.0` (DP2),
+   the named rollback anchor; `main` stays the stable 0.2.x line through the whole
+   migration window (DP5, Option Y).
 2. **Additive-until-flip.** Per the design, the resolver runs *alongside* the
-   existing orchestrator through `HARNESS001`–`005`; keep every existing CLI
-   subcommand signature backward-compatible during that window so neither
-   consumers nor flex's own dogfooding break. The breaking change lands only at
-   the flip (`HARNESS006-main`), behind the `0.3.0` bump.
+   existing orchestrator through `HARNESS001`–`005`; the four-point additive
+   contract (DP4) keeps every existing CLI subcommand signature backward-compatible
+   during that window so neither consumers nor flex's own dogfooding break. The
+   breaking change lands only at the flip (`HARNESS006-main`), behind the `0.3.0`
+   bump.
 3. **Deliberate migration path.** `0.3.0` consumers adopt the new loop via
    `sync-build` / `sync-all`, which rewrites their bootstrapped `CLAUDE.build.md`
-   to the thin-harness template. Document the migration in the phase.
+   to the thin-harness template — per-project, rolling, opt-in (DP5 Option Y).
 
-**The open decision for `HARNESS001-ante1`'s agreements doc** is the isolation
-mechanism for the dev line: a **hard fork** (separate dev repo / long-lived
-branch, heaviest, only if divergence is expected to be long and messy) vs.
-**branch + pinned-stable + additive-until-flip** (recommended — least disruption,
-keeps a single repo, exploits the additive design) vs. another mechanism. The
-recommendation above assumes branch + pinned-stable; the fork is the fallback if
-the additive window proves unworkable.
+**Dev-line isolation (DP1, settled):** `harness` branch in a `git worktree`
+(`/mnt/work/flex-harness`); `/mnt/work/flex` stays on `main` (fleet-facing,
+stable). Breaking code lives on `harness` until the flip; docs and genuinely
+additive code may fast-track to `main`. The full agreements — including the
+state-ownership table (DP7) and the effort.db ≠ context-control invariant — are
+settled in `docs/agreements/HARNESS001-ante1.md`.
 
 ## Transition from Era 002
 
-Era 002 is `active` and still carries planned work (notably Phase 64,
-*Observability SPA hardening*). Per the phase-continuity policy, activating
-Era 003 requires formally closing 002 — deferring or completing its open phases
-with a `## Deferred stories` note — via `era_transition.py`. Because Era 003's
-**OBS** rail heavily reworks observability, 002's remaining observability phases
-are candidates to fold into Era 003's Phase G rather than be built under 002
-first. That fold/defer decision is the first item to settle at activation time.
+Era 002 was closed via `era_transition.py` on 2026-06-26 (`status: complete`,
+`closed_at: 2026-06-26`), and Era 003 activated. Per the phase-continuity policy,
+002's only genuinely-open phase — **Phase 64 (Observability SPA hardening)** — was
+formally deferred (its 5 stories → `backlog`/`deferred`, with a `## Deferred
+stories` note pointing here). Because Era 003's **OBS** rail reworks observability,
+Phase 64 plus the close-out defects **D1/D2/D3 (CER-053/054/055)** fold into
+**Phase G (HARNESS007-main)** rather than being built under 002 — see § Phase G
+scope above. The close-out record is `docs/agreements/era-002-closeout.md`.
 
 ## Era summary
 
