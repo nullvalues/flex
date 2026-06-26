@@ -21,7 +21,7 @@ Establish the dev environment, version line, and compatibility guarantees for th
 | RELEASE-003 | CLI-surface freeze guard test (DP4.4) | complete |
 | RELEASE-004 | Additive contract + state-ownership table (DP4, DP7) | complete |
 | RELEASE-005 | Fleet discovery tool + snapshot (DP8) | complete |
-| RELEASE-006 | Cutover & migration runbook (DP5, DP6) | planned |
+| RELEASE-006 | Cutover & migration runbook (DP5, DP6) | complete |
 | INFRA-185 | Isolate lesson_review CLIOutputClarity tests from live drift promotion (CER-057) | complete |
 
 ## Deferred stories
