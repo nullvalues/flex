@@ -1,46 +1,57 @@
-# Resume point — Era 003 active, ready to build HARNESS001-ante1
+# Resume point — HARNESS001-ante1 complete; next is HARNESS001-main
 
-**Written:** 2026-06-26 (step 6 / `era_transition` is done). Update or delete
-once `HARNESS001-ante1` is created and its first story is in flight.
+**Written:** 2026-06-26. Update/delete once HARNESS001-main agreements are walked
+and its first story is in flight.
 
 ## One-line status
 
-Era 002 is closed (`complete`, `closed_at: 2026-06-26`); **Era 003
-(orchestrator-as-harness) is `active`**. The transition (close-out steps 1–6) is
-complete and committed. Build gate green (2232 passed). The live era doc is
-`docs/eras/003-flex-orchestrator-as-harness.md`; the proposal file was deleted.
+Era 003 is `active`. **Phase HARNESS001-ante1 (preflight) is COMPLETE and tagged
+`cp-HARNESS001-ante1`** — build gate 2255 passed, security 0 CRITICAL/HIGH, intent
+review ALIGNED. All work committed/pushed to `origin/main` (and `harness`).
 
-## The next action (needs the user's go)
+## What shipped in HARNESS001-ante1
 
-Build the era-wide preflight phase `HARNESS001-ante1` (RELEASE rail):
+- **RELEASE-001** (operator git): `v0.2.0` rollback-anchor tag at main HEAD; `harness`
+  branch + `/mnt/work/flex-harness` worktree (worktree `CLAUDE.build.md` points at its
+  own scripts). main untouched, still 0.2.x.
+- **RELEASE-002** (harness-only): pairmode → `0.3.0-dev`, plugin/marketplace → `0.3.0`
+  + match-guard test. Built on `harness` (`175925d`); **`deferred` on main** (lands at
+  the fold, HARNESS006).
+- **RELEASE-003**: CLI-surface freeze guard test. **RELEASE-004**: "Era 003 additive
+  contract" section in `docs/architecture.md`. **RELEASE-005**: `fleet_discovery.py` +
+  `docs/fleet-snapshot.md` (9 projects). **RELEASE-006**: `docs/harness-cutover-runbook.md`.
+- **INFRA-185**: gate-blocker fix — isolated `lesson_review` CLIOutputClarity tests
+  from live drift promotion (CER-057).
 
-1. `phase_new.py --phase-id HARNESS001 --suffix ante1`
-2. `story_new.py` for **RELEASE-001 … RELEASE-006** — story outline is finalized
-   in `docs/agreements/HARNESS001-ante1.md` § "Resulting story outline".
-   - RELEASE-001 = operator git work (worktree + `v0.2.0` tag); lands on `main`.
-   - RELEASE-002 = the only harness-only story (version bump → `0.3.0-dev`);
-     lands on `harness`.
-   - RELEASE-003/004/005/006 = additive read-only tools + docs; land on `main`.
-3. Spec each story before building (spec-before-build policy), then build.
+## The next action
 
-## Read these first (in order)
+Phase **HARNESS001-main — Resolver foundation (deterministic skeleton)**, RESOLVER rail.
+Two things differ from ante1, both important:
 
-1. `docs/eras/003-flex-orchestrator-as-harness.md` — the live era doc (settled
-   architecture, rails, phase table; Phase G = HARNESS007-main absorbs the
-   deferred Era 002 Phase 64 + D1/D2/D3 = CER-053/054/055).
-2. `docs/agreements/HARNESS001-ante1.md` — settled DP1–DP8 + finalized
-   RELEASE-001…006 story outline. This is the input to `phase_new.py`.
-3. `docs/agreements/era-002-closeout.md` — historical close-out record.
+1. **Agreements first.** Per the era doc, each phase gets its own agreements doc walked
+   point-by-point BEFORE any story is specced. So the next step is to draft/walk
+   `docs/agreements/HARNESS001-main.md` (open threads: the full resolver state set;
+   signal/verdict boundary; leaf-worker return contract — see the era doc § "Open design
+   threads"). Do NOT jump straight to `phase_new.py`.
+2. **Built on `harness`, in the worktree.** From HARNESS001-main onward, refactor code is
+   breaking and lands on the `harness` branch in `/mnt/work/flex-harness` (DP1), exercised
+   only by its own tests until the flip (HARNESS006). The additive contract (DP4) +
+   CLI-surface freeze test (RELEASE-003) guard the fleet during this window.
 
-## Working-tree / housekeeping notes
+## Open backlog tied to this era (see docs/cer/backlog.md)
 
-- `flex_eph/` (observability screenshot) is untracked — leave it.
-- **Watch for the stray `flex_build.py` edit reappearing** (first-table `break`
-  parser + first-non-complete `current-phase`). Settled decision is option (a) —
-  revert, do not reintroduce. It came back once after the close-out and was
-  reverted again on 2026-06-26; if it keeps returning, something is regenerating
-  it. The committed HEAD version is the known-good state.
-- Recurring guardrail (also in auto-memory): never estimate orchestrator context
-  headroom from effort.db cost totals — see CER-053 / HARNESS001-ante1 DP7.
-- The status-drift + stale-era-table mess from the close-out is the forcing
-  function for the **HARNESS008 housekeeper**.
+- **CER-059** (Do Later, HARNESS006): `fleet_discovery` shows 0 Signal-1 hits across the
+  fleet — diagnose before the pre-fold gate (it gates fold blast-radius); + add a Signal-1
+  verification step to the runbook; + HARNESS006 needs an explicit AC to reconcile
+  RELEASE-002 `deferred → complete` on main at the fold.
+- **CER-058** (Do Later): `meander` appeared in `registered_projects` without the operator
+  running registration — investigate which bootstrap path writes it.
+
+## Housekeeping notes
+
+- `flex_eph/` untracked — leave it.
+- Recurring guardrail: never estimate orchestrator context headroom from effort.db cost
+  totals (effort.db ≠ context-control; now documented in `architecture.md` § Era 003
+  additive contract). `context_current_tokens` reads a stale 25k (CER-054, deferred to
+  Phase G) — the budget hook is not a reliable gauge.
+- The stray `flex_build.py` edit did NOT reappear this session after the initial revert.
