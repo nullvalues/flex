@@ -2,7 +2,7 @@
 id: RELEASE-005
 rail: RELEASE
 title: "Fleet discovery tool + snapshot (DP8)"
-status: planned
+status: complete
 phase: "HARNESS001-ante1"
 story_class: code
 primary_files:
