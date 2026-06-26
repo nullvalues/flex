@@ -17,7 +17,7 @@ Establish the dev environment, version line, and compatibility guarantees for th
 | ID | Title | Status |
 |----|-------|--------|
 | RELEASE-001 | Dev-line & rollback anchor (DP1, DP2) | complete |
-| RELEASE-002 | Version reconciliation + match-guard (DP3) | planned |
+| RELEASE-002 | Version reconciliation + match-guard (DP3) | complete |
 | RELEASE-003 | CLI-surface freeze guard test (DP4.4) | planned |
 | RELEASE-004 | Additive contract + state-ownership table (DP4, DP7) | planned |
 | RELEASE-005 | Fleet discovery tool + snapshot (DP8) | planned |
