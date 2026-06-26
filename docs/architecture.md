@@ -763,6 +763,85 @@ story.
 
 ---
 
+## Era 003 additive contract
+
+This section records the binding methodology agreements for the `HARNESS001-ante1 … HARNESS005-main`
+additive window. Authority: `docs/agreements/HARNESS001-ante1.md`, DP4 and DP7.
+
+### (a) Four-point additive contract (DP4)
+
+Scoped to the window `HARNESS001-main … HARNESS005-main`:
+
+1. **Existing CLI surface frozen.** No rename / removal / flag-change to existing `flex_build.py`
+   subcommands or their output contracts. Additions (notably `next-action`) are allowed.
+   Consolidation / removal of old CLIs (`select-builder-model`, `next_story`, `check-*-gate`,
+   `read-attempt-count`, …) happens only at or after the flip (HARNESS006).
+
+2. **Resolver is pure-read.** `next-action` reads `state.json`, `effort.db`, the era/phase/story
+   index, story status, and attempt counters; it writes nothing authoritative (any cache is
+   disposable and never read back by the orchestrator). The orchestrator remains the sole writer
+   of all shared state during the additive window.
+
+3. **Fleet-facing surface frozen on `main`.** Consumer-facing templates (`CLAUDE.build.md.j2`,
+   `agents/*.md.j2`), global hooks, and agent files do not change on `main` until the flip — a
+   mid-era `sync` on `main` yields the unchanged 0.2.x loop, never half-built harness code.
+   These evolve freely on `harness` (which the fleet never executes per DP1).
+
+4. **Guard test.** A `tests/pairmode/` test snapshots the 0.2.x `flex_build.py` command/flag
+   surface and asserts it stays a superset of that snapshot through HARNESS005 (additions are
+   OK; removals and renames fail). Cross-reference RELEASE-003. The snapshot is rebaselined at
+   the flip.
+
+### (b) State-ownership table (DP7)
+
+Single writer per shared-state surface during the additive window. The `next-action` resolver
+is **read-only** on every row.
+
+| Surface | Sole writer (additive window) | Resolver access |
+|---------|-------------------------------|-----------------|
+| `state.json` `context_*` (context tokens: `context_current_tokens`, `context_current_tokens_recorded_at`, `context_session_reset_at`) | orchestrator hooks (`post_tool_use.py` / `session_start.py`), frozen | read-only |
+| active story (`state.json` `current_story`) | orchestrator (`story_context.py`) | read-only |
+| `effort.db` | orchestrator (`record_attempt.py` / effort recorder) | read-only |
+| `attempt_counter.json` (attempt counters) | orchestrator (`flex_build.py write-attempt-count` / `clear-attempt-count`) | read-only |
+| story `status` frontmatter | orchestrator (`story_update.py`) | read-only |
+| permission files (`docs/phases/permissions/<story_id>.json`) | orchestrator (`flex_build.py permissions-create`) | read-only |
+| era/phase/story index (`docs/phases/index.md`) | orchestrator | read-only |
+| commits + tags | reviewer / orchestrator (via `git`) | read-only |
+| `next-action` resolver output | **reads all of the above; writes nothing** | — |
+
+### (c) effort.db ≠ context-control invariant (DP7)
+
+These two token surfaces measure fundamentally different things and must never cross-feed:
+
+- **`effort.db`** = *retrospective cost* from subagent `<usage>` blocks (tokens spent in
+  disposable subagent contexts). Inputs: model selection, guardrail, rollups, cost display.
+  **Never an input to a context-headroom or clear-seam decision.**
+
+- **context-control** = the orchestrator's own *live window occupancy*
+  (`context_current_tokens` + the `expected_step_tokens` window-growth constant). This is
+  the **sole** basis for headroom / clear-seam decisions.
+
+Rationale: subagent tokens never entered the orchestrator's window, so summing `effort.db`
+to estimate headroom counts tokens that were never there. The thin harness widens this gap
+further (per-step window growth ≈ return-block size, decoupled from story effort), so the
+resolver must compute headroom *only* from context-control state and use `effort.db` *only*
+for cost / model display.
+
+### Codified comingling — FLAGGED FOR REMOVAL AT HARNESS006
+
+`CLAUDE.build.md:320-326` compares `threshold − N` (remaining window) against the
+`story-cost-estimate` effort.db median (`flex_build.py:834`) and advises `/clear` — exactly
+the wrong cross-feed of the effort.db ≠ context-control invariant. The correct mechanism
+already exists separately at `CLAUDE.build.md:696-750` (`context_current_tokens +
+expected_step_tokens` vs threshold). The redesign at HARNESS006 deletes the comingled
+advisory; the resolver/gate reports window occupancy only, and any effort-cost figure shown
+is labelled cost (not headroom) and never compared to remaining window.
+
+**This story (RELEASE-004) does NOT remove the comingled advisory at `CLAUDE.build.md:320-326`.
+That removal is HARNESS006 scope (the gate rewrite).**
+
+---
+
 ## Companion data files
 
 `.companion/product.json` contains a `config` key pointing to an external config file path.
