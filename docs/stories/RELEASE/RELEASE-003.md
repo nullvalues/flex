@@ -2,7 +2,7 @@
 id: RELEASE-003
 rail: RELEASE
 title: "CLI-surface freeze guard test (DP4.4)"
-status: planned
+status: complete
 phase: "HARNESS001-ante1"
 story_class: code
 primary_files:
