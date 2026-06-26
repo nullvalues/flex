@@ -88,6 +88,29 @@ asserts the plugin version matches the *release core* of the pairmode version
 - Use only stdlib (`json`, `re`/`pathlib`) — no new entries in
   `requirements.txt`.
 
+### Execution split — deny-listed files are OPERATOR-edited
+
+`.claude/settings.json` hard-denies `Edit(.claude-plugin/**)` and
+`Write(.claude-plugin/**)` for every Claude session (the worktree inherits the
+same project settings). Therefore:
+
+- **Builder-editable** (no deny): `skills/pairmode/scripts/_version.py`,
+  `skills/pairmode/SKILL.md`, and the new `tests/pairmode/test_version_match.py`.
+  The builder does these via Edit/Write.
+- **Operator-only** (deny-listed — Claude cannot Edit/Write them): the two
+  version-string changes in `.claude-plugin/plugin.json` and
+  `.claude-plugin/marketplace.json`. The human operator edits these by hand
+  (both are `"version": "0.1.0"` → `"0.3.0"`; one occurrence each — `plugin.json`
+  top-level `version`, `marketplace.json` `plugins[0].version`). This is the
+  methodology's sanctioned protected-file path (CLAUDE.build.md § Rules: protected
+  edits are blocked and handed to the operator). Do NOT attempt to bypass the deny
+  via Bash `sed`/redirection — the guardrail is intentional; a human makes the
+  deliberate change.
+
+The build loop surfaces the deny block as a developer-action gate; the operator
+applies the two edits, then says "continue building" so the reviewer can verify
+all four version files + the match-guard test together.
+
 ## Tests
 
 `tests/pairmode/test_version_match.py` (new). Run:
