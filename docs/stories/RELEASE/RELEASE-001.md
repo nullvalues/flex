@@ -2,7 +2,7 @@
 id: RELEASE-001
 rail: RELEASE
 title: "Dev-line & rollback anchor (DP1, DP2)"
-status: planned
+status: complete
 phase: "HARNESS001-ante1"
 story_class: methodology
 primary_files:
