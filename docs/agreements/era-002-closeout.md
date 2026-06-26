@@ -20,6 +20,21 @@ pending explicit go.
   **CER-045 superseded by CER-054** (residual symptom (2) re-verified in Phase G).
   Do Now now has zero un-resolved items.
 
+**Post-step-5 (gate cleanup):**
+- Reverted stray uncommitted working-tree code that was not part of this work
+  (`flex_build.py` first-table parser / first-non-complete `current-phase`;
+  `flex_observability.py` `NODE_ENV=production`) — option (a); they broke 3
+  multi-era tests, contradicted Phase 77, and made `current-phase` mis-fire.
+- Fixed pre-existing red test `test_story_context_set_present`: one-token
+  placeholder consistency fix `--set STORY-ID` → `--set RAIL-NNN` in
+  `CLAUDE.build.md.j2` and live `CLAUDE.build.md` (line 424).
+- Captured the `deferred`-recognition gap (`current-phase` treats only
+  `complete` as inactive → returned the deferred Phase 64) as **CER-056**;
+  deferred to the Era 003 `next-action` resolver.
+- **Full build gate green: 2232 passed, 0 failed.**
+
+**Remaining: step 6 (`era_transition`) only — gated on explicit go.**
+
 ## What the observability surface revealed
 
 Reviewing radar + forqsite side-by-side (`flex_eph/Screenshot … 11-50-04.png`)

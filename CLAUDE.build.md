@@ -421,7 +421,7 @@ and stamp the active story into state.json:
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py permissions-create \
   STORY-ID --project-dir .
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_context.py --set STORY-ID --project-dir .
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_context.py --set RAIL-NNN --project-dir .
 ```
 
 Replace STORY-ID with the current story's ID verbatim. The tool accepts any ID format —
