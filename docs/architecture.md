@@ -1216,6 +1216,52 @@ to `127.0.0.1:7777` (loopback, dev-local only).
 
 ---
 
+## Fleet discovery
+
+`skills/pairmode/scripts/fleet_discovery.py` is a **read-only** tool that scans candidate
+project directories and detects two binding signals:
+
+- **Signal 1 (scripts binding):** the project's `CLAUDE.build.md` contains a
+  `pairmode_scripts_dir` that resolves under THIS flex checkout's `skills/pairmode/scripts`.
+  This is the authoritative binding mechanic (DP5) — `pairmode_scripts_dir = Path(__file__).parent`
+  is baked in at sync time.
+
+- **Signal 2 (version binding):** the project's `.companion/state.json` has a
+  `pairmode_version` key (the version-nag signal).
+
+A project matched by either signal is reported; the report distinguishes "bound by scripts
+path", "bound by version only", and "both".
+
+**Default candidate set:** `registered_projects` from this checkout's `.companion/state.json`,
+merged with the documented candidate names under the parent of the flex root. Overridable via
+`--candidate-dir` (repeatable) or `--candidates-file`.
+
+**Read-only contract:** the tool never opens any scanned project file for write. The only file
+it writes is the snapshot under `docs/fleet-snapshot.md` in THIS repo, which is not a scanned
+project.
+
+**Pre-fold hard gate (DP8):** The authoritative pre-fold run of this tool is a **hard gate
+immediately before the fold**. Under Option Y, the fold makes `/mnt/work/flex` the 0.3.0
+checkout; any un-migrated bound project breaks at the fold. The fleet may change across the
+era, so the pre-fold run (HARNESS006 / RELEASE-006 runbook) is what licenses the fold.
+
+**`registered_projects` stays drift-opt-in:** the discovery tool never writes to
+`registered_projects`. Manual seeding from discovery results is allowed; forced sync is not.
+
+CLI:
+```bash
+uv run python skills/pairmode/scripts/fleet_discovery.py [OPTIONS]
+
+Options:
+  --candidate-dir PATH   Add a candidate directory to scan (repeatable)
+  --candidates-file PATH Read candidate dirs from a file (one per line)
+  --snapshot PATH        Write snapshot to this file (default: docs/fleet-snapshot.md)
+  --no-snapshot          Skip writing the snapshot file
+  --json                 Output JSON instead of human-readable text
+```
+
+---
+
 ## Layer rules for this codebase
 
 | Layer | May import from | May not import from |
