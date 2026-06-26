@@ -1,0 +1,9 @@
+{
+  "story_id": "RELEASE-004",
+  "story_spec": "docs/stories/RELEASE/RELEASE-004.md",
+  "allowed_paths": [
+    "docs/architecture.md",
+    "docs/stories/RELEASE/RELEASE-004.md"
+  ],
+  "generated_at": "2026-06-26T18:21:32Z"
+}

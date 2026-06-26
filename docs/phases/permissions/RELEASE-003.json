@@ -1,0 +1,10 @@
+{
+  "story_id": "RELEASE-003",
+  "story_spec": "docs/stories/RELEASE/RELEASE-003.md",
+  "allowed_paths": [
+    "tests/pairmode/test_cli_surface_freeze.py",
+    "tests/pairmode/fixtures/cli_surface_0_2.json",
+    "docs/stories/RELEASE/RELEASE-003.md"
+  ],
+  "generated_at": "2026-06-26T18:21:32Z"
+}

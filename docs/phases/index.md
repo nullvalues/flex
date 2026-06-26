@@ -77,6 +77,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 76 | sync-build seeds context gate state on --apply | complete | [phase-76.md](phase-76.md) |
 | 77 | multi-era index parser fix | complete | [phase-77.md](phase-77.md) |
 | 78 | orchestrator pre-flight gate CLI offload | complete | [phase-78.md](phase-78.md) |
+| HARNESS001-ante1 | Versioning & upstream compatibility | planned | [phase-HARNESS001-ante1.md](phase-HARNESS001-ante1.md) |
 
 ---
 

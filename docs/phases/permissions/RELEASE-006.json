@@ -1,0 +1,9 @@
+{
+  "story_id": "RELEASE-006",
+  "story_spec": "docs/stories/RELEASE/RELEASE-006.md",
+  "allowed_paths": [
+    "docs/harness-cutover-runbook.md",
+    "docs/stories/RELEASE/RELEASE-006.md"
+  ],
+  "generated_at": "2026-06-26T18:21:32Z"
+}
