@@ -10,6 +10,7 @@ primary_files:
   - tests/pairmode/test_fleet_discovery.py
 touches:
   - docs/architecture.md
+  - docs/fleet-snapshot.md
 ---
 
 # RELEASE-005 — Fleet discovery tool + snapshot (DP8)
