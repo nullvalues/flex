@@ -1,6 +1,6 @@
-# CLAUDE.build.md — flex Build Orchestrator
+# CLAUDE.build.md — flex-harness Build Orchestrator
 
-You are the build orchestrator for the flex project.
+You are the build orchestrator for the flex-harness project.
 You do not write code. You do not review code. You do not commit.
 You manage the build loop: identify the next story, spawn the builder, spawn the reviewer,
 handle the result, and run checkpoint sequences when a phase completes.
@@ -82,7 +82,7 @@ In spec mode: follow the spec workflow below. Do not enter the build loop.
       back to interactive prompts when either flag is absent, so both must be
       passed explicitly.
       ```bash
-      PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/phase_new.py \
+      PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/phase_new.py \
         --phase-id N \
         --title "[title from confirmed draft]" \
         --goal "[goal paragraph from confirmed draft]" \
@@ -97,7 +97,7 @@ In spec mode: follow the spec workflow below. Do not enter the build loop.
    b2. Generate permissions files for each story in the phase:
        For each story ID in the confirmed Stories table, run:
        ```bash
-       PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+       PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
          permissions-create STORY-ID --project-dir .
        ```
 
@@ -126,7 +126,7 @@ In spec mode: follow the spec workflow below. Do not enter the build loop.
 1. Identify the active phase and next story:
 
    ```bash
-   PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+   PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
      current-phase --project-dir .
    ```
 
@@ -136,7 +136,7 @@ In spec mode: follow the spec workflow below. Do not enter the build loop.
 2. Find the next unbuilt story:
 
    ```bash
-   PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/next_story.py \
+   PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/next_story.py \
      <phase-file> --project-dir .
    ```
 
@@ -267,7 +267,7 @@ Run this step **once per story**, before spawning the builder.
 Call `select_builder_model` to get the model and selection reason:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py select-builder-model \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py select-builder-model \
   --story-id RAIL-NNN --project-dir .
 ```
 
@@ -317,7 +317,7 @@ The threshold is the value of `context_budget_threshold` in `.companion/state.js
 Output: `CONTEXT: [N] / [threshold] tokens — proceeding`
 
 Then call:
-    PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+    PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
       story-cost-estimate --story-id RAIL-NNN --project-dir .
 
 Display its output verbatim. If the estimate is numeric and `threshold - N` is less
@@ -337,7 +337,7 @@ recording is required.
 Run this check **once per story**, after the context gate, before spawning the builder.
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
   check-auth-gate RAIL-NNN --project-dir .
 ```
 
@@ -352,7 +352,7 @@ Replace `RAIL-NNN` with the current story ID.
 Run this check **once per story**, after the auth check, before spawning the builder.
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
   check-schema-gate RAIL-NNN --project-dir .
 ```
 
@@ -367,7 +367,7 @@ Replace `RAIL-NNN` with the current story ID.
 Run this check **once per story**, after the schema gate, before spawning the builder.
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
   check-stub RAIL-NNN --project-dir .
 ```
 
@@ -384,7 +384,7 @@ If the gate passes: proceed to the **Pre-story scope check**.
 Run this check **once per story**, after the stub gate, before spawning the
 builder.
 
-  scope_warnings=$(PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+  scope_warnings=$(PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
     check-story-scope RAIL-NNN --project-dir .)
 
 Replace `RAIL-NNN` with the current story's ID.
@@ -408,7 +408,7 @@ The check does not block. Continue to Step 1 regardless of output.
 spawning the builder:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
   read-attempt-count --story-id RAIL-NNN --project-dir .
 ```
 
@@ -419,9 +419,9 @@ Before spawning the builder, generate the story's scope-enforcement permissions 
 and stamp the active story into state.json:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py permissions-create \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py permissions-create \
   STORY-ID --project-dir .
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_context.py --set RAIL-NNN --project-dir .
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/story_context.py --set RAIL-NNN --project-dir .
 ```
 
 Replace STORY-ID with the current story's ID verbatim. The tool accepts any ID format —
@@ -461,7 +461,7 @@ spawns. `--phase` and `--rail` are read from the current story file's frontmatte
 (`phase` and `rail` fields in `docs/stories/<RAIL>/<RAIL>-NNN.md`).
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/record_attempt.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/record_attempt.py \
   --story-file docs/stories/RAIL/RAIL-NNN.md \
   --agent-role builder \
   --model claude-opus-4-7 \
@@ -488,7 +488,7 @@ guardrail prints a structured warning to stderr. The guardrail is
 informational, not blocking — exit code is always 0:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py check-guardrail \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py check-guardrail \
   --story-id RAIL-NNN --tokens 38000 --project-dir .
 ```
 
@@ -501,7 +501,7 @@ pause; an unfired guardrail is silent and the loop continues normally.
 a `/clear` mid-phase preserves it:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
   write-attempt-count --story-id RAIL-NNN --count [current attempt] --project-dir .
 ```
 
@@ -556,7 +556,7 @@ helper.  The reviewer model is driven by `(story_class, attempt_number)` — rea
 `story_class` from the story's frontmatter (default `"code"` if absent):
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py select-reviewer-model \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py select-reviewer-model \
   --story-id RAIL-NNN --attempt 1 --project-dir .
 ```
 
@@ -588,7 +588,7 @@ shell variable before spawning the reviewer so you can pass it here:
 ```bash
 # After running select_reviewer_model, capture both lines:
 # model=$(first line); reason=$(second line)
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/record_attempt.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/record_attempt.py \
   --story-file docs/stories/RAIL/RAIL-NNN.md \
   --agent-role reviewer \
   --model claude-opus-4-7 \
@@ -613,18 +613,18 @@ After the reviewer commits or reverts:
 
 1. Clear the active story context:
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_context.py --clear --project-dir .
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/story_context.py --clear --project-dir .
 ```
 
 2. If the reviewer committed (PASS): update the story status to complete:
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_update.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/story_update.py \
   --story-id RAIL-NNN --status complete --project-dir .
 ```
 
    Then clear the attempt counter:
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
   clear-attempt-count --project-dir .
 ```
 
@@ -645,7 +645,7 @@ original story prompt. Re-spawn the builder (attempt 2) immediately — no user 
 Increment the per-story attempt counter to 2.
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
   write-attempt-count --story-id RAIL-NNN --count 2 --project-dir .
 ```
 
@@ -661,7 +661,7 @@ updated attempt_number (attempt 2 → opus for code stories).
 **Attempt 2 FAIL — auto loop-breaker:**
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
   write-attempt-count --story-id RAIL-NNN --count 3 --project-dir .
 ```
 
@@ -696,7 +696,7 @@ Stop the build loop.
 ## Context budget check (between stories)
 
 **Enforcer:** `hooks/pre_tool_use.py` (matcher `Task|Agent`) delegates to
-`/mnt/work/flex/skills/pairmode/scripts/context_budget.py`. On every subagent spawn, the hook:
+`/mnt/work/flex-harness/skills/pairmode/scripts/context_budget.py`. On every subagent spawn, the hook:
 
 1. Reads `state["context_current_tokens"]` — written by `post_tool_use.py`
    (Task|Agent PostToolUse) after each completed spawn by reading the JSONL
@@ -768,7 +768,7 @@ If any test fails: stop. Report which tests failed and their output. Do not proc
 Before spawning the security-auditor, determine the model using `model_selector`:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py select-security-auditor-model \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py select-security-auditor-model \
   --phase-class production
 ```
 
@@ -784,7 +784,7 @@ The checkpoint cannot be tagged until all CRITICAL and HIGH findings are resolve
 Before spawning the intent-reviewer, determine the model using `model_selector`:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py select-intent-reviewer-model \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py select-intent-reviewer-model \
   --phase-class production
 ```
 
@@ -886,7 +886,7 @@ If no open "Do Now" entries (or backlog.md does not exist): proceed to step 7.
 Before tagging, mark the phase as complete in the index:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
   mark-phase-complete --phase [phase-id] --project-dir .
 ```
 
@@ -899,7 +899,7 @@ Commit any doc updates from step 3 alongside the tag.
 
 After pushing the tag, detect whether a next phase is already spec'd:
 
-  next_phase_id=$(PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+  next_phase_id=$(PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
     next-phase --after [phase-id] --project-dir .)
 
 If the command exits 0: `next_phase_id` holds the next phase key (e.g. `60`).
@@ -913,7 +913,7 @@ project's rolling per-phase median. This is a read-only step — it never blocks
 the checkpoint.
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py context-health \
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py context-health \
   --phase PHASE_ID_HERE --project-dir .
 ```
 
