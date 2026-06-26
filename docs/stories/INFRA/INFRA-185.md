@@ -2,7 +2,7 @@
 id: INFRA-185
 rail: INFRA
 title: "Isolate lesson_review CLIOutputClarity tests from live drift promotion (CER-057)"
-status: planned
+status: complete
 phase: "HARNESS001-ante1"
 story_class: code
 primary_files:
