@@ -2,7 +2,7 @@
 id: RELEASE-002
 rail: RELEASE
 title: "Version reconciliation + match-guard (DP3)"
-status: planned
+status: complete
 phase: "HARNESS001-ante1"
 story_class: code
 primary_files:
