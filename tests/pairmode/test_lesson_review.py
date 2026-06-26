@@ -610,7 +610,7 @@ class TestCLIOutputClarity:
         lr_mod._REPO_ROOT = templates_root
         try:
             runner = CliRunner()
-            result = runner.invoke(lr_mod.cli, ["--approve", "L001"])
+            result = runner.invoke(lr_mod.cli, ["--approve", "L001", "--skip-drift"])
         finally:
             lr_mod._REPO_ROOT = original_root
 
@@ -635,7 +635,7 @@ class TestCLIOutputClarity:
         lr_mod._REPO_ROOT = templates_root
         try:
             runner = CliRunner()
-            result = runner.invoke(lr_mod.cli, ["--approve", "L001", "--reject", "L002"])
+            result = runner.invoke(lr_mod.cli, ["--approve", "L001", "--reject", "L002", "--skip-drift"])
         finally:
             lr_mod._REPO_ROOT = original_root
 
