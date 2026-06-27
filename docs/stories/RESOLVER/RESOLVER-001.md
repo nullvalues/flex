@@ -2,7 +2,7 @@
 id: RESOLVER-001
 rail: RESOLVER
 title: Action grammar + schema fixture (DP1)
-status: planned
+status: complete
 phase: "HARNESS001-main"
 story_class: code
 auth_gated: false
