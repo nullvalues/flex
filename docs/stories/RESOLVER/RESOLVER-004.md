@@ -2,7 +2,7 @@
 id: RESOLVER-004
 rail: RESOLVER
 title: Isolation test suite (DP8)
-status: planned
+status: complete
 phase: "HARNESS001-main"
 story_class: code
 auth_gated: false
