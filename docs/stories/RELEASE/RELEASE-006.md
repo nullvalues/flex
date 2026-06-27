@@ -2,7 +2,7 @@
 id: RELEASE-006
 rail: RELEASE
 title: "Cutover & migration runbook (DP5, DP6)"
-status: planned
+status: complete
 phase: "HARNESS001-ante1"
 story_class: doc
 primary_files:

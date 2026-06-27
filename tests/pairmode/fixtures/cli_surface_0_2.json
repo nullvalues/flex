@@ -1,0 +1,98 @@
+{
+  "select-builder-model": [
+    "--project-dir",
+    "--protected-file",
+    "--story-id"
+  ],
+  "write-permissions": [
+    "--project-dir",
+    "--story-id"
+  ],
+  "check-guardrail": [
+    "--project-dir",
+    "--story-id",
+    "--tokens"
+  ],
+  "select-reviewer-model": [
+    "--attempt",
+    "--project-dir",
+    "--story-id"
+  ],
+  "clear-permissions": [
+    "--project-dir"
+  ],
+  "permissions-create": [
+    "--project-dir",
+    "story_id"
+  ],
+  "select-security-auditor-model": [
+    "--phase-class"
+  ],
+  "select-intent-reviewer-model": [
+    "--phase-class"
+  ],
+  "context-health": [
+    "--phase",
+    "--project-dir"
+  ],
+  "current-phase": [
+    "--project-dir"
+  ],
+  "next-phase": [
+    "--after",
+    "--project-dir"
+  ],
+  "mark-phase-complete": [
+    "--phase",
+    "--project-dir"
+  ],
+  "check-stubs": [
+    "--project-dir"
+  ],
+  "write-attempt-count": [
+    "--count",
+    "--project-dir",
+    "--story-id"
+  ],
+  "read-attempt-count": [
+    "--project-dir",
+    "--story-id"
+  ],
+  "clear-attempt-count": [
+    "--project-dir"
+  ],
+  "story-cost-estimate": [
+    "--project-dir",
+    "--story-id"
+  ],
+  "set-context-tokens": [
+    "--project-dir",
+    "--tokens"
+  ],
+  "bump-context-tokens": [
+    "--cost",
+    "--project-dir"
+  ],
+  "check-story-scope": [
+    "--project-dir",
+    "story_id"
+  ],
+  "check-stub": [
+    "--project-dir",
+    "story_id"
+  ],
+  "check-schema-gate": [
+    "--project-dir",
+    "story_id"
+  ],
+  "check-auth-gate": [
+    "--project-dir",
+    "story_id"
+  ],
+  "transition-era": [
+    "--intent",
+    "--name",
+    "--project-dir",
+    "--yes"
+  ]
+}

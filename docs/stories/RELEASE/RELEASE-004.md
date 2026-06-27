@@ -2,7 +2,7 @@
 id: RELEASE-004
 rail: RELEASE
 title: "Additive contract + state-ownership table (DP4, DP7)"
-status: planned
+status: complete
 phase: "HARNESS001-ante1"
 story_class: methodology
 primary_files:

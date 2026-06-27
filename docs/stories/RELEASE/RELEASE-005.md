@@ -2,7 +2,7 @@
 id: RELEASE-005
 rail: RELEASE
 title: "Fleet discovery tool + snapshot (DP8)"
-status: planned
+status: complete
 phase: "HARNESS001-ante1"
 story_class: code
 primary_files:
@@ -10,6 +10,7 @@ primary_files:
   - tests/pairmode/test_fleet_discovery.py
 touches:
   - docs/architecture.md
+  - docs/fleet-snapshot.md
 ---
 
 # RELEASE-005 — Fleet discovery tool + snapshot (DP8)

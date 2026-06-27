@@ -1,0 +1,9 @@
+{
+  "story_id": "INFRA-185",
+  "story_spec": "docs/stories/INFRA/INFRA-185.md",
+  "allowed_paths": [
+    "tests/pairmode/test_lesson_review.py",
+    "docs/stories/INFRA/INFRA-185.md"
+  ],
+  "generated_at": "2026-06-26T20:47:31Z"
+}

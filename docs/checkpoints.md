@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp-HARNESS001-ante1
+
+**Phase:** HARNESS001-ante1 — Versioning & upstream compatibility (Era 003 preflight)
+**Tag command:** `git tag cp-HARNESS001-ante1 && git push origin cp-HARNESS001-ante1`
+**Acceptance:** Seven stories. **RELEASE-001** (operator git): `v0.2.0` rollback-anchor tag at main HEAD + `harness` branch & `/mnt/work/flex-harness` worktree, main untouched & still 0.2.x. **RELEASE-002** (harness-only, `deferred` on main): pairmode → `0.3.0-dev`, plugin/marketplace → `0.3.0` + version match-guard test (built on `harness` 175925d; lands on main at the fold). **RELEASE-003**: CLI-surface freeze guard test (24-command click snapshot, superset assertion). **RELEASE-004**: "Era 003 additive contract" section in `architecture.md` (four-point contract + state-ownership table + effort.db≠context-control invariant, comingling flagged for HARNESS006). **RELEASE-005**: read-only `fleet_discovery.py` + 20 tests + dated `docs/fleet-snapshot.md` (9 projects). **RELEASE-006**: `docs/harness-cutover-runbook.md` (Option Y rolling sync-driven migration). **INFRA-185**: isolated `lesson_review` CLIOutputClarity tests from live drift promotion (CER-057 gate-blocker; `--skip-drift`). Security audit: 0 CRITICAL/HIGH. Intent review: ALIGNED. 2255 tests pass.
+
+---
+
 ## cp76-sync-build-context-gate-seed
 
 **Phase:** 76 — sync-build seeds context gate state on --apply

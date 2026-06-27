@@ -5,7 +5,8 @@
     "skills/pairmode/scripts/fleet_discovery.py",
     "tests/pairmode/test_fleet_discovery.py",
     "docs/architecture.md",
+    "docs/fleet-snapshot.md",
     "docs/stories/RELEASE/RELEASE-005.md"
   ],
-  "generated_at": "2026-06-26T18:21:32Z"
+  "generated_at": "2026-06-26T21:08:09Z"
 }
