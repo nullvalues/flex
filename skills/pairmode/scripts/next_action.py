@@ -361,3 +361,206 @@ def infer_position(project_dir: "str | Path") -> dict:
         "gate_auth": gate_auth,
         "last_attempt_outcome": last_attempt_outcome,
     }
+
+
+# ---------------------------------------------------------------------------
+# State machine (RESOLVER-003)
+#
+# Maps a Position → exactly one action via the 9-state DP2 table.
+# Pure function — no I/O, no side effects.
+# ---------------------------------------------------------------------------
+
+#: Advisory signals that appear in meta.warnings[] but never change the action.
+_ADVISORY_GUARDRAIL: str = "guardrail-fired"
+_ADVISORY_CONTEXT: str = "context-budget-exceeded"
+
+
+def resolve_next_action(position: dict, *, warnings: "list[str] | None" = None) -> dict:
+    """Map a Position dict to a canonical action dict (RESOLVER-003, DP2).
+
+    Parameters
+    ----------
+    position:
+        A Position dict as returned by ``infer_position``.
+    warnings:
+        Optional list of advisory signal strings (e.g. ``["guardrail-fired"]``
+        or ``["context-budget-exceeded"]``).  These are surfaced in
+        ``meta.warnings[]`` and **never** change the emitted action (DP2).
+
+    Returns
+    -------
+    dict
+        A canonical action dict produced by ``make_action``; always passes
+        ``validate_action`` (returns ``[]``).
+
+    DP2 state table (evaluated in precedence order)
+    ------------------------------------------------
+    Row 1  — no active phase / all complete                → done
+    Row 9  — last story committed (PASS, no next story)    → checkpoint
+    Row 8  — story committed (PASS), more stories remain   → spawn-builder (next story, attempt 1)
+    Row 4  — any pre-flight gate blocked                   → await-user (gate-blocked:<which>)
+    Row 3  — model reason == prompted-upgrade, counter 0   → await-user (model-upgrade)
+    Row 2  — counter 0, auto model                         → spawn-builder (attempt 1)
+    Row 5  — counter 1, FAIL                               → spawn-builder (attempt 2, retry-upgrade)
+    Row 6  — counter 2, FAIL                               → spawn-loop-breaker
+    Row 7  — counter ≥ 3 or any other pause condition      → await-user (build-paused)
+
+    DP4 binding property: rows 3, 4, 7 are judgment-handoff states — the
+    resolver emits await-user and stops; it never computes the verdict.
+
+    DP6: model is embedded only for auto-resolved spawn actions
+    (``auto-baseline``, ``auto-downgrade``, ``retry-upgrade``).
+    ``prompted-upgrade`` routes to await-user:model-upgrade with the suggested
+    model in ``meta.suggested_model``; ``model`` field is None.
+
+    scalar is set per DP1:
+      - spawn actions: the target story ID
+      - checkpoint: the phase key (phase file stem)
+      - done / await-user: empty string
+    """
+    meta_base: dict = {}
+    if warnings:
+        meta_base["warnings"] = list(warnings)
+
+    active_phase_file = position.get("active_phase_file")
+    next_story_id: "str | None" = position.get("next_story_id")
+    attempt_count: int = int(position.get("attempt_count") or 0)
+    builder_model: "str | None" = position.get("builder_model")
+    builder_model_reason: "str | None" = position.get("builder_model_reason")
+    last_attempt_outcome: str = position.get("last_attempt_outcome") or OUTCOME_UNKNOWN
+    gate_stub: dict = position.get("gate_stub") or {"ok": True, "blocked_reason": ""}
+    gate_schema: dict = position.get("gate_schema") or {"ok": True, "blocked_reason": ""}
+    gate_auth: dict = position.get("gate_auth") or {"ok": True, "blocked_reason": ""}
+
+    # ------------------------------------------------------------------
+    # Row 1 — no active phase (all phases complete, or no phases at all)
+    # ------------------------------------------------------------------
+    if active_phase_file is None:
+        return make_action(DONE, scalar="", model=None, reason="", meta=meta_base)
+
+    # ------------------------------------------------------------------
+    # Row 9 — active phase, no next story (last story committed → checkpoint)
+    # Row also covers all-stories-complete within the active phase.
+    # ------------------------------------------------------------------
+    if next_story_id is None:
+        phase_key = active_phase_file.stem if hasattr(active_phase_file, "stem") else str(active_phase_file)
+        return make_action(
+            CHECKPOINT,
+            scalar=phase_key,
+            model=None,
+            reason="",
+            meta=meta_base,
+        )
+
+    # From here, next_story_id is non-None — there is an unbuilt story.
+
+    # ------------------------------------------------------------------
+    # Row 8 — story just committed (PASS) but more stories remain.
+    # The orchestrator hasn't cleared the counter yet, so we check outcome.
+    # Attempt number for the next story resets to 1.
+    # ------------------------------------------------------------------
+    if last_attempt_outcome == OUTCOME_PASS:
+        meta: dict = dict(meta_base)
+        meta["attempt"] = 1
+        return make_action(
+            SPAWN_BUILDER,
+            scalar=next_story_id,
+            model=builder_model,
+            reason=builder_model_reason or "auto-baseline",
+            meta=meta,
+        )
+
+    # ------------------------------------------------------------------
+    # Row 4 — any pre-flight gate blocked
+    # Gate verdict is a judgment handoff (DP4) — emit await-user, no verdict.
+    # Check gates in order: stub, schema, auth.
+    # ------------------------------------------------------------------
+    for gate_name, gate_dict in (
+        ("stub", gate_stub),
+        ("schema", gate_schema),
+        ("auth", gate_auth),
+    ):
+        if not gate_dict.get("ok", True):
+            meta = dict(meta_base)
+            meta["gate"] = gate_name
+            meta["gate_reason"] = gate_dict.get("blocked_reason", "")
+            return make_action(
+                AWAIT_USER,
+                scalar="",
+                model=None,
+                reason=f"gate-blocked:{gate_name}",
+                meta=meta,
+            )
+
+    # ------------------------------------------------------------------
+    # Row 3 — model selection requires user judgment (prompted-upgrade)
+    # Only applies at attempt 0 (first attempt decision).
+    # ------------------------------------------------------------------
+    if builder_model_reason == "prompted-upgrade" and attempt_count == 0:
+        meta = dict(meta_base)
+        meta["attempt"] = 1
+        if builder_model is not None:
+            meta["suggested_model"] = builder_model
+        return make_action(
+            AWAIT_USER,
+            scalar="",
+            model=None,
+            reason="model-upgrade",
+            meta=meta,
+        )
+
+    # ------------------------------------------------------------------
+    # Row 2 — first attempt, auto model (counter 0, no gate blocked, auto reason)
+    # ------------------------------------------------------------------
+    if attempt_count == 0:
+        meta = dict(meta_base)
+        meta["attempt"] = 1
+        return make_action(
+            SPAWN_BUILDER,
+            scalar=next_story_id,
+            model=builder_model,
+            reason=builder_model_reason or "auto-baseline",
+            meta=meta,
+        )
+
+    # ------------------------------------------------------------------
+    # Rows 5, 6, 7 — FAIL ladder (attempt_count >= 1, no commit)
+    # ------------------------------------------------------------------
+
+    # Row 5 — attempt 1 cycle failed → spawn attempt 2 with retry-upgrade
+    if attempt_count == 1 and last_attempt_outcome == OUTCOME_FAIL:
+        meta = dict(meta_base)
+        meta["attempt"] = 2
+        meta["fail_rung"] = "single-fail"
+        return make_action(
+            SPAWN_BUILDER,
+            scalar=next_story_id,
+            model="opus",
+            reason="retry-upgrade",
+            meta=meta,
+        )
+
+    # Row 6 — attempt 2 failed → loop-breaker
+    if attempt_count == 2 and last_attempt_outcome == OUTCOME_FAIL:
+        meta = dict(meta_base)
+        meta["attempt"] = 3
+        meta["fail_rung"] = "double-fail"
+        return make_action(
+            SPAWN_LOOP_BREAKER,
+            scalar=next_story_id,
+            model="opus",
+            reason="",
+            meta=meta,
+        )
+
+    # Row 7 — attempt 3+ failed (or any other pause: user-pause, DEVELOPER-ACTION)
+    meta = dict(meta_base)
+    meta["attempt"] = attempt_count + 1
+    meta["fail_rung"] = "triple-fail-or-pause"
+    return make_action(
+        AWAIT_USER,
+        scalar="",
+        model=None,
+        reason="build-paused",
+        meta=meta,
+    )

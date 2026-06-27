@@ -1496,5 +1496,61 @@ def cmd_transition_era(
     )
 
 
+@flex_build.command("next-action")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit the canonical JSON action object instead of a human-readable line.",
+)
+@click.option(
+    "--warning",
+    "warnings",
+    multiple=True,
+    help="Advisory signal to surface in meta.warnings[] (e.g. guardrail-fired). May be repeated.",
+)
+def cmd_next_action(project_dir: str, as_json: bool, warnings: tuple) -> None:
+    """Resolve the next build-loop action from durable state.
+
+    Pure-read: no file is written.  Advisory only — not wired into the live
+    CLAUDE.build.md loop (DP7).
+
+    Prints a human-readable summary by default; use --json to emit the
+    canonical action object that round-trips through validate_action.
+    """
+    from next_action import infer_position, resolve_next_action  # noqa: PLC0415
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+
+    warnings_list = list(warnings) if warnings else None
+    position = infer_position(project_path)
+    action = resolve_next_action(position, warnings=warnings_list)
+
+    if as_json:
+        click.echo(json.dumps(action))
+    else:
+        # Human-readable summary line.
+        action_val = action["action"]
+        scalar = action.get("scalar") or ""
+        reason = action.get("reason") or ""
+        model = action.get("model")
+        parts = [f"action: {action_val}"]
+        if scalar:
+            parts.append(f"scalar: {scalar}")
+        if reason:
+            parts.append(f"reason: {reason}")
+        if model:
+            parts.append(f"model: {model}")
+        click.echo("  ".join(parts))
+
+
 if __name__ == "__main__":
     flex_build()

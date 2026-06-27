@@ -1,13 +1,13 @@
 """
 tests/pairmode/test_next_action.py
 
-Unit-tests for next_action.infer_position (RESOLVER-002) and for the
-flex_build.py module-level extraction functions:
-  - resolve_current_phase
-  - read_attempt_count
-  - check_stub_gate
-  - check_schema_gate_result
-  - check_auth_gate_result
+Unit-tests for:
+  - next_action.infer_position (RESOLVER-002)
+  - next_action.resolve_next_action (RESOLVER-003)
+  - flex_build.py next-action subcommand (RESOLVER-003)
+  - flex_build.py module-level extraction functions:
+      resolve_current_phase, read_attempt_count,
+      check_stub_gate, check_schema_gate_result, check_auth_gate_result
 
 All tests use synthetic durable state (tmp project trees) and never depend on
 the real git log of this repo.  Where commit-authority checks are exercised,
@@ -480,3 +480,465 @@ class TestInferPositionReadOnly:
 
         new_files = after - before
         assert not new_files, f"infer_position wrote unexpected files: {new_files}"
+
+
+# ---------------------------------------------------------------------------
+# Import additions for RESOLVER-003 tests
+# ---------------------------------------------------------------------------
+
+from next_action import (  # noqa: E402
+    OUTCOME_PASS,
+    OUTCOME_FAIL,
+    OUTCOME_NONE,
+    resolve_next_action,
+    validate_action,
+    make_action,
+    DONE,
+    SPAWN_BUILDER,
+    SPAWN_LOOP_BREAKER,
+    CHECKPOINT,
+    AWAIT_USER,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for state-machine tests
+# ---------------------------------------------------------------------------
+
+
+def _make_position(
+    *,
+    active_phase_file=None,
+    next_story_id: "str | None" = None,
+    attempt_count: int = 0,
+    builder_model: "str | None" = "sonnet",
+    builder_model_reason: "str | None" = "auto-baseline",
+    gate_stub: "dict | None" = None,
+    gate_schema: "dict | None" = None,
+    gate_auth: "dict | None" = None,
+    last_attempt_outcome: str = OUTCOME_NONE,
+) -> dict:
+    """Build a synthetic Position dict for state-machine tests."""
+    _ok_gate = {"ok": True, "blocked_reason": ""}
+    return {
+        "active_phase_file": active_phase_file,
+        "next_story_id": next_story_id,
+        "next_story_file": None,
+        "attempt_count": attempt_count,
+        "builder_model": builder_model,
+        "builder_model_reason": builder_model_reason,
+        "gate_stub": gate_stub if gate_stub is not None else dict(_ok_gate),
+        "gate_schema": gate_schema if gate_schema is not None else dict(_ok_gate),
+        "gate_auth": gate_auth if gate_auth is not None else dict(_ok_gate),
+        "last_attempt_outcome": last_attempt_outcome,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tests — resolve_next_action state machine (RESOLVER-003)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveNextActionDone:
+    """Row 1: no active phase → done."""
+
+    def test_done_when_no_active_phase(self, tmp_path: Any) -> None:
+        pos = _make_position(active_phase_file=None)
+        action = resolve_next_action(pos)
+        assert action["action"] == DONE
+        assert action["scalar"] == ""
+        assert action["model"] is None
+        assert action["reason"] == ""
+        assert validate_action(action) == []
+
+
+class TestResolveNextActionCheckpoint:
+    """Row 9: active phase, no next story → checkpoint."""
+
+    def test_checkpoint_when_phase_complete(self, tmp_path: Any) -> None:
+        from pathlib import Path
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(active_phase_file=phase_file, next_story_id=None)
+        action = resolve_next_action(pos)
+        assert action["action"] == CHECKPOINT
+        assert action["scalar"] == "phase-1"  # stem of phase file
+        assert action["model"] is None
+        assert validate_action(action) == []
+
+
+class TestResolveNextActionSpawnBuilder:
+    """Rows 2/5/8: various spawn-builder conditions."""
+
+    def test_row_2_first_attempt_auto_model(self, tmp_path: Any) -> None:
+        """Counter 0, auto model → spawn-builder attempt 1."""
+        from pathlib import Path
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-001",
+            attempt_count=0,
+            builder_model="sonnet",
+            builder_model_reason="auto-baseline",
+            last_attempt_outcome=OUTCOME_NONE,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["scalar"] == "TEST-001"
+        assert action["model"] == "sonnet"
+        assert action["reason"] == "auto-baseline"
+        assert action["meta"]["attempt"] == 1
+        assert validate_action(action) == []
+
+    def test_row_5_second_attempt_retry_upgrade(self, tmp_path: Any) -> None:
+        """Counter 1, FAIL → spawn-builder attempt 2, retry-upgrade, opus."""
+        from pathlib import Path
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-002",
+            attempt_count=1,
+            builder_model="sonnet",
+            builder_model_reason="auto-baseline",
+            last_attempt_outcome=OUTCOME_FAIL,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["scalar"] == "TEST-002"
+        assert action["model"] == "opus"
+        assert action["reason"] == "retry-upgrade"
+        assert action["meta"]["attempt"] == 2
+        assert action["meta"]["fail_rung"] == "single-fail"
+        assert validate_action(action) == []
+
+    def test_row_8_pass_more_stories(self, tmp_path: Any) -> None:
+        """PASS outcome + more unbuilt stories → spawn-builder next story."""
+        from pathlib import Path
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-003",
+            attempt_count=1,
+            builder_model="sonnet",
+            builder_model_reason="auto-baseline",
+            last_attempt_outcome=OUTCOME_PASS,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["scalar"] == "TEST-003"
+        assert action["meta"]["attempt"] == 1
+        assert validate_action(action) == []
+
+
+class TestResolveNextActionSpawnLoopBreaker:
+    """Row 6: counter 2, FAIL → spawn-loop-breaker."""
+
+    def test_row_6_double_fail(self, tmp_path: Any) -> None:
+        from pathlib import Path
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-004",
+            attempt_count=2,
+            builder_model="opus",
+            builder_model_reason="retry-upgrade",
+            last_attempt_outcome=OUTCOME_FAIL,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_LOOP_BREAKER
+        assert action["scalar"] == "TEST-004"
+        assert action["model"] == "opus"
+        assert action["meta"]["fail_rung"] == "double-fail"
+        assert validate_action(action) == []
+
+
+class TestResolveNextActionAwaitUser:
+    """Rows 3/4/7: judgment-handoff → await-user."""
+
+    def test_row_4_gate_stub_blocked(self, tmp_path: Any) -> None:
+        """Pre-flight gate blocked → await-user reason gate-blocked:stub."""
+        from pathlib import Path
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-005",
+            gate_stub={"ok": False, "blocked_reason": "stub delegation detected"},
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == AWAIT_USER
+        assert action["scalar"] == ""
+        assert action["model"] is None
+        assert action["reason"] == "gate-blocked:stub"
+        assert action["meta"]["gate"] == "stub"
+        assert validate_action(action) == []
+
+    def test_row_3_prompted_upgrade(self, tmp_path: Any) -> None:
+        """prompted-upgrade at counter 0 → await-user model-upgrade, suggested_model in meta."""
+        from pathlib import Path
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-006",
+            attempt_count=0,
+            builder_model="opus",
+            builder_model_reason="prompted-upgrade",
+            last_attempt_outcome=OUTCOME_NONE,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == AWAIT_USER
+        assert action["reason"] == "model-upgrade"
+        assert action["model"] is None
+        assert action["meta"].get("suggested_model") == "opus"
+        assert validate_action(action) == []
+
+    def test_row_7_triple_fail_paused(self, tmp_path: Any) -> None:
+        """Counter ≥ 3 FAIL → await-user build-paused."""
+        from pathlib import Path
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-007",
+            attempt_count=3,
+            builder_model="opus",
+            builder_model_reason="retry-upgrade",
+            last_attempt_outcome=OUTCOME_FAIL,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == AWAIT_USER
+        assert action["reason"] == "build-paused"
+        assert action["model"] is None
+        assert validate_action(action) == []
+
+
+class TestResolveNextActionWarnings:
+    """Advisory signals appear in meta.warnings[] without changing the action."""
+
+    def test_guardrail_warning_does_not_change_action(self, tmp_path: Any) -> None:
+        """Guardrail-fired warning surfaces in meta.warnings[], does not block spawn."""
+        from pathlib import Path
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-008",
+            attempt_count=0,
+            builder_model="sonnet",
+            builder_model_reason="auto-baseline",
+            last_attempt_outcome=OUTCOME_NONE,
+        )
+        # Without warning: spawns builder.
+        action_no_warn = resolve_next_action(pos)
+        assert action_no_warn["action"] == SPAWN_BUILDER
+
+        # With guardrail-fired: still spawns builder, warning in meta.
+        action_warn = resolve_next_action(pos, warnings=["guardrail-fired"])
+        assert action_warn["action"] == SPAWN_BUILDER
+        assert "guardrail-fired" in action_warn["meta"].get("warnings", [])
+        assert validate_action(action_warn) == []
+
+    def test_context_budget_warning_does_not_change_action(self, tmp_path: Any) -> None:
+        """context-budget-exceeded advisory in meta.warnings[], action unchanged."""
+        from pathlib import Path
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id=None,  # → checkpoint
+        )
+        action = resolve_next_action(pos, warnings=["context-budget-exceeded"])
+        assert action["action"] == CHECKPOINT
+        assert "context-budget-exceeded" in action["meta"].get("warnings", [])
+        assert validate_action(action) == []
+
+
+class TestResolveNextActionOutputValid:
+    """All emitted actions pass validate_action."""
+
+    def test_all_emitted_action_types_pass_validate(self, tmp_path: Any) -> None:
+        from pathlib import Path
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+
+        positions = [
+            # done
+            _make_position(),
+            # checkpoint
+            _make_position(active_phase_file=phase_file, next_story_id=None),
+            # spawn-builder row 2
+            _make_position(
+                active_phase_file=phase_file,
+                next_story_id="X-001",
+                attempt_count=0,
+                last_attempt_outcome=OUTCOME_NONE,
+            ),
+            # spawn-builder row 5
+            _make_position(
+                active_phase_file=phase_file,
+                next_story_id="X-002",
+                attempt_count=1,
+                last_attempt_outcome=OUTCOME_FAIL,
+            ),
+            # spawn-loop-breaker row 6
+            _make_position(
+                active_phase_file=phase_file,
+                next_story_id="X-003",
+                attempt_count=2,
+                last_attempt_outcome=OUTCOME_FAIL,
+            ),
+            # await-user gate-blocked
+            _make_position(
+                active_phase_file=phase_file,
+                next_story_id="X-004",
+                gate_stub={"ok": False, "blocked_reason": "stub"},
+            ),
+            # await-user model-upgrade
+            _make_position(
+                active_phase_file=phase_file,
+                next_story_id="X-005",
+                attempt_count=0,
+                builder_model_reason="prompted-upgrade",
+                last_attempt_outcome=OUTCOME_NONE,
+            ),
+            # await-user build-paused
+            _make_position(
+                active_phase_file=phase_file,
+                next_story_id="X-006",
+                attempt_count=3,
+                last_attempt_outcome=OUTCOME_FAIL,
+            ),
+        ]
+        for i, pos in enumerate(positions):
+            action = resolve_next_action(pos)
+            violations = validate_action(action)
+            assert violations == [], (
+                f"Position {i} produced invalid action {action['action']!r}: "
+                + "; ".join(violations)
+            )
+
+
+# ---------------------------------------------------------------------------
+# Tests — next-action CLI subcommand (RESOLVER-003)
+# ---------------------------------------------------------------------------
+
+
+class TestNextActionCLI:
+    """Tests for the flex_build.py next-action subcommand."""
+
+    def test_json_flag_emits_valid_action(self, tmp_path: Any, monkeypatch: Any) -> None:
+        """--json emits a single JSON object that round-trips and validates."""
+        from click.testing import CliRunner
+        from skills.pairmode.scripts.flex_build import flex_build
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001", story_class="code", primary_files=["a.py"])
+        _patch_git_log(monkeypatch, "")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            flex_build,
+            ["next-action", "--project-dir", str(tmp_path), "--json"],
+        )
+        assert result.exit_code == 0, f"CLI failed: {result.output}"
+        obj = json.loads(result.output.strip())
+        assert isinstance(obj, dict)
+        violations = validate_action(obj)
+        assert violations == [], f"CLI JSON output failed validation: {violations}"
+        # Round-trip
+        assert json.loads(json.dumps(obj)) == obj
+
+    def test_default_output_is_human_readable(self, tmp_path: Any, monkeypatch: Any) -> None:
+        """Default invocation prints a human-readable line (not JSON)."""
+        from click.testing import CliRunner
+        from skills.pairmode.scripts.flex_build import flex_build
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001", story_class="code", primary_files=["a.py"])
+        _patch_git_log(monkeypatch, "")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            flex_build,
+            ["next-action", "--project-dir", str(tmp_path)],
+        )
+        assert result.exit_code == 0, f"CLI failed: {result.output}"
+        output = result.output.strip()
+        # Human-readable line contains "action:"
+        assert "action:" in output
+        # Must not be a raw JSON object at the top level
+        assert not output.startswith("{")
+
+    def test_json_action_value_is_spawn_builder_for_new_story(
+        self, tmp_path: Any, monkeypatch: Any
+    ) -> None:
+        """For an unbuilt story with counter 0, JSON output has action=spawn-builder."""
+        from click.testing import CliRunner
+        from skills.pairmode.scripts.flex_build import flex_build
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001", story_class="code", primary_files=["a.py"])
+        _patch_git_log(monkeypatch, "")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            flex_build,
+            ["next-action", "--project-dir", str(tmp_path), "--json"],
+        )
+        assert result.exit_code == 0
+        obj = json.loads(result.output.strip())
+        assert obj["action"] == "spawn-builder"
+        assert obj["scalar"] == "TEST-001"
+
+    def test_next_action_is_pure_read_no_files_written(
+        self, tmp_path: Any, monkeypatch: Any
+    ) -> None:
+        """next-action CLI must write no durable files."""
+        from click.testing import CliRunner
+        from skills.pairmode.scripts.flex_build import flex_build
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001", story_class="code", primary_files=["a.py"])
+        _patch_git_log(monkeypatch, "")
+
+        before = set(tmp_path.rglob("*"))
+        runner = CliRunner()
+        runner.invoke(
+            flex_build,
+            ["next-action", "--project-dir", str(tmp_path), "--json"],
+        )
+        after = set(tmp_path.rglob("*"))
+        new_files = after - before
+        assert not new_files, f"next-action wrote unexpected files: {new_files}"
+
+
+class TestNextActionCLISurfaceFreeze:
+    """next-action command is present in the live CLI surface (addition, not removal)."""
+
+    def test_next_action_command_present(self) -> None:
+        """flex_build must expose a next-action command."""
+        from skills.pairmode.scripts.flex_build import flex_build
+
+        assert "next-action" in flex_build.commands, (
+            "next-action command missing from flex_build CLI group"
+        )
