@@ -78,7 +78,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 77 | multi-era index parser fix | complete | [phase-77.md](phase-77.md) |
 | 78 | orchestrator pre-flight gate CLI offload | complete | [phase-78.md](phase-78.md) |
 | HARNESS001-ante1 | Versioning & upstream compatibility | complete | [phase-HARNESS001-ante1.md](phase-HARNESS001-ante1.md) |
-| HARNESS001-main | Resolver foundation (deterministic skeleton) | planned | [phase-HARNESS001-main.md](phase-HARNESS001-main.md) |
+| HARNESS001-main | Resolver foundation (deterministic skeleton) | complete | [phase-HARNESS001-main.md](phase-HARNESS001-main.md) |
 
 ---
 

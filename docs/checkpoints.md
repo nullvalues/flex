@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp-HARNESS001-main
+
+**Phase:** HARNESS001-main — Resolver foundation (deterministic skeleton, Era 003)
+**Tag command:** `git tag cp-HARNESS001-main && git push origin cp-HARNESS001-main`
+**Acceptance:** Four stories on the RESOLVER rail, building the advisory-only `flex_build.py next-action` resolver (not wired into the live `CLAUDE.build.md` — DP7). **RESOLVER-001** (DP1): `next_action.py` action grammar — `SCHEMA_VERSION=1`, five action constants, `ACTIONS` frozenset, `make_action`, stdlib-only `validate_action`; JSON Schema + samples fixtures. **RESOLVER-002** (DP3/DP5): pure-read `infer_position(project_dir)` composing `next_story`/`model_selector`/gate helpers as a library, plus signature-preserving extractions in `flex_build.py` (`resolve_current_phase`, `read_attempt_count`, `check_stub_gate`, `check_schema_gate_result`, `check_auth_gate_result`); no durable writes. **RESOLVER-003** (DP2/DP4/DP6): `resolve_next_action` 9-state machine + pure-read `next-action` subcommand (`--json`/`--warning`); judgment-handoffs route to `await-user` with no verdict computed; advisories in `meta.warnings[]`. **RESOLVER-004** (DP8): synthetic-state fixture builder + 9 parametrized DP2-state assertions + DP5 signature-drift/composition guard. Security audit: 0 CRITICAL/HIGH. Intent review: ALIGNED (1 MEDIUM carry-forward → CER-060, HARNESS002). 2361 tests pass.
+
+---
+
 ## cp-HARNESS001-ante1
 
 **Phase:** HARNESS001-ante1 — Versioning & upstream compatibility (Era 003 preflight)
