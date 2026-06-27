@@ -16,7 +16,7 @@ Build the deterministic build-loop skeleton as a standalone, advisory-only CLI â
 
 | ID | Title | Status |
 |----|-------|--------|
-| RESOLVER-001 | Action grammar + schema fixture (DP1) | planned |
+| RESOLVER-001 | Action grammar + schema fixture (DP1) | complete |
 | RESOLVER-002 | Position-inference read-model (DP3, DP5) | planned |
 | RESOLVER-003 | State machine + next-action subcommand (DP2, DP4, DP6) | planned |
 | RESOLVER-004 | Isolation test suite (DP8) | planned |
