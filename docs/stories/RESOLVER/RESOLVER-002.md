@@ -2,7 +2,7 @@
 id: RESOLVER-002
 rail: RESOLVER
 title: Position-inference read-model (DP3, DP5)
-status: planned
+status: complete
 phase: "HARNESS001-main"
 story_class: code
 auth_gated: false
