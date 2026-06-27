@@ -2,7 +2,7 @@
 id: RESOLVER-003
 rail: RESOLVER
 title: State machine + next-action subcommand (DP2, DP4, DP6)
-status: planned
+status: complete
 phase: "HARNESS001-main"
 story_class: code
 auth_gated: false
