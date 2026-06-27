@@ -412,23 +412,21 @@ def _parse_index_phases(index_text: str) -> list[tuple[str, str]]:
     return rows
 
 
-@flex_build.command("current-phase")
-@click.option(
-    "--project-dir",
-    default=".",
-    type=click.Path(file_okay=False, dir_okay=True),
-    help="Project root directory.",
-)
-def cmd_current_phase(project_dir: str) -> None:
-    """Print the active phase file path; exit 1 if all stories are complete."""
+def resolve_current_phase(project_dir: Path) -> Path | None:
+    """Return the active phase file Path, or None when all phases are complete.
+
+    Reads ``docs/phases/index.md`` when present (authoritative); falls back to
+    scanning ``docs/phases/phase-*.md`` files for one with an unbuilt story.
+    Pure read — no state writes.
+
+    Extracted from ``cmd_current_phase`` as a module-level helper so that
+    ``next_action.infer_position`` can compose it as a library call (RESOLVER-002).
+    """
     # Import lazily to avoid issues in environments where next_story isn't on
     # sys.path at module load time.
     from next_story import find_next_story  # noqa: E402  # type: ignore[import]
 
-    project_path = Path(project_dir).resolve()
-    _depth_guard(project_path)
-
-    index_path = project_path / "docs" / "phases" / "index.md"
+    index_path = project_dir / "docs" / "phases" / "index.md"
 
     if index_path.exists():
         index_text = index_path.read_text(encoding="utf-8")
@@ -442,22 +440,19 @@ def cmd_current_phase(project_dir: str) -> None:
                 active_phase_ref = phase_ref
 
         if active_phase_ref is not None:
-            candidate = project_path / "docs" / "phases" / f"phase-{active_phase_ref}.md"
+            candidate = project_dir / "docs" / "phases" / f"phase-{active_phase_ref}.md"
             if candidate.exists():
-                click.echo(str(candidate.relative_to(project_path)))
-                sys.exit(0)
+                return candidate
 
         # Index exists but all phases are complete (or the active phase file is
         # missing) — authoritative signal that no active phase remains.
-        click.echo("No active phase found — all stories complete.", err=True)
-        sys.exit(1)
+        return None
 
     # No index file — fallback: scan phase files directly for one with an
     # unbuilt story.
-    phases_dir = project_path / "docs" / "phases"
+    phases_dir = project_dir / "docs" / "phases"
     if not phases_dir.exists():
-        click.echo("No active phase found — all stories complete.", err=True)
-        sys.exit(1)
+        return None
 
     # Collect all phase-N.md files and sort descending by N.
     phase_files = sorted(
@@ -470,12 +465,31 @@ def cmd_current_phase(project_dir: str) -> None:
 
     for phase_file in phase_files:
         try:
-            result = find_next_story(phase_file, project_path)
+            result = find_next_story(phase_file, project_dir)
         except Exception:  # noqa: BLE001
             continue
         if result is not None:
-            click.echo(str(phase_file.relative_to(project_path)))
-            sys.exit(0)
+            return phase_file
+
+    return None
+
+
+@flex_build.command("current-phase")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_current_phase(project_dir: str) -> None:
+    """Print the active phase file path; exit 1 if all stories are complete."""
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+
+    result = resolve_current_phase(project_path)
+    if result is not None:
+        click.echo(str(result.relative_to(project_path)))
+        sys.exit(0)
 
     click.echo("No active phase found — all stories complete.", err=True)
     sys.exit(1)
@@ -707,6 +721,31 @@ def cmd_write_attempt_count(story_id: str, count: int, project_dir: str) -> None
     )
 
 
+def read_attempt_count(story_id: str, project_dir: Path) -> int:
+    """Return the persisted attempt count for *story_id* (0 if absent/mismatched).
+
+    Reads ``.companion/attempt_counter.json``; returns 0 when the file is
+    absent, unreadable, or records a different story ID.  Pure read — no
+    state writes.
+
+    Extracted from ``cmd_read_attempt_count`` as a module-level helper so that
+    ``next_action.infer_position`` can compose it as a library call (RESOLVER-002).
+    """
+    path = _attempt_counter_path(project_dir)
+    if not path.exists():
+        return 0
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return 0
+    if data.get("story_id") != story_id:
+        return 0
+    try:
+        return int(data.get("attempt_count", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 @flex_build.command("read-attempt-count")
 @click.option("--story-id", required=True, help="Story ID (e.g. BUILD-022).")
 @click.option(
@@ -719,22 +758,7 @@ def cmd_read_attempt_count(story_id: str, project_dir: str) -> None:
     """Print the persisted attempt count for *story_id* (0 if absent/mismatched)."""
     project_path = Path(project_dir).resolve()
     _depth_guard(project_path)
-    path = _attempt_counter_path(project_path)
-    if not path.exists():
-        click.echo("0")
-        return
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        click.echo("0")
-        return
-    if data.get("story_id") != story_id:
-        click.echo("0")
-        return
-    try:
-        click.echo(str(int(data.get("attempt_count", 0))))
-    except (TypeError, ValueError):
-        click.echo("0")
+    click.echo(str(read_attempt_count(story_id, project_path)))
 
 
 @flex_build.command("clear-attempt-count")
@@ -1155,29 +1179,23 @@ def _parse_phase_stories_with_status(phase_text: str) -> list[tuple[str, str, st
     return rows
 
 
-@flex_build.command("check-stub")
-@click.argument("story_id")
-@click.option(
-    "--project-dir",
-    default=".",
-    type=click.Path(file_okay=False, dir_okay=True),
-    help="Project root directory.",
-)
-def cmd_check_stub(story_id: str, project_dir: str) -> None:
-    """Check a single story file for stub indicators (delegation language or missing acceptance surface).
+def check_stub_gate(story_id: str, project_dir: Path) -> dict:
+    """Return a structured gate result for the stub check.
 
-    Exits 0 silently on a clean story.
-    Exits 1 with a structured block when the story is a stub.
-    Exits 2 with a clear error message when the story file cannot be found.
+    Returns a dict with keys:
+      - ``ok`` (bool): True when the story passes, False when blocked.
+      - ``missing`` (bool): True when the story file does not exist.
+      - ``reasons`` (list[str]): Human-readable block reasons (empty on pass).
+
+    Pure read — no state writes.
+
+    Extracted from ``cmd_check_stub`` as a module-level helper so that
+    ``next_action.infer_position`` can compose it as a library call (RESOLVER-002).
     """
-    project_path = Path(project_dir).resolve()
-    story_path = _story_path(story_id, project_path)
+    story_path = _story_path(story_id, project_dir)
 
     if not story_path.exists():
-        click.echo(
-            f"check-stub: story file not found: {story_path}", err=True
-        )
-        sys.exit(2)
+        return {"ok": False, "missing": True, "reasons": [f"story file not found: {story_path}"]}
 
     text = story_path.read_text(encoding="utf-8")
     body = _story_body(text)
@@ -1201,9 +1219,36 @@ def cmd_check_stub(story_id: str, project_dir: str) -> None:
             "or ## Acceptance criteria)."
         )
 
-    if reasons:
+    return {"ok": len(reasons) == 0, "missing": False, "reasons": reasons}
+
+
+@flex_build.command("check-stub")
+@click.argument("story_id")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_check_stub(story_id: str, project_dir: str) -> None:
+    """Check a single story file for stub indicators (delegation language or missing acceptance surface).
+
+    Exits 0 silently on a clean story.
+    Exits 1 with a structured block when the story is a stub.
+    Exits 2 with a clear error message when the story file cannot be found.
+    """
+    project_path = Path(project_dir).resolve()
+    result = check_stub_gate(story_id, project_path)
+
+    if result["missing"]:
+        click.echo(
+            f"check-stub: story file not found: {_story_path(story_id, project_path)}", err=True
+        )
+        sys.exit(2)
+
+    if not result["ok"]:
         click.echo(f"PRE-STORY BLOCK — Story [{story_id}] is a stub.")
-        for reason in reasons:
+        for reason in result["reasons"]:
             click.echo(reason)
         click.echo("Action required: fill in the story spec before building.")
         click.echo('When resolved, say: "Continue building"')
@@ -1211,6 +1256,78 @@ def cmd_check_stub(story_id: str, project_dir: str) -> None:
 
     # Silent pass.
     sys.exit(0)
+
+
+def check_schema_gate_result(story_id: str, project_dir: Path) -> dict:
+    """Return a structured gate result for the schema-introduces check.
+
+    Returns a dict with keys:
+      - ``ok`` (bool): True when the story passes, False when blocked.
+      - ``missing`` (bool): True when the story file does not exist.
+      - ``blocked_reason`` (str): Human-readable reason when blocked (empty on pass).
+
+    Pure read — no state writes.
+
+    Extracted from ``cmd_check_schema_gate`` as a module-level helper so that
+    ``next_action.infer_position`` can compose it as a library call (RESOLVER-002).
+    """
+    story_path = _story_path(story_id, project_dir)
+
+    if not story_path.exists():
+        return {"ok": False, "missing": True, "blocked_reason": f"story file not found: {story_path}"}
+
+    text = story_path.read_text(encoding="utf-8")
+    fm = _parse_frontmatter(text) or {}
+
+    schema_introduces_raw = fm.get("schema_introduces")
+    # _parse_frontmatter returns strings; coerce "true"/"false" as booleans.
+    if isinstance(schema_introduces_raw, bool):
+        schema_introduces = schema_introduces_raw
+    elif isinstance(schema_introduces_raw, str):
+        schema_introduces = schema_introduces_raw.lower() == "true"
+    else:
+        schema_introduces = False
+
+    if not schema_introduces:
+        return {"ok": True, "missing": False, "blocked_reason": ""}
+
+    # schema_introduces is True — look for management surface or exception phrase.
+    body = _story_body(text)
+
+    # Check for exception phrase in story body.
+    if _SCHEMA_EXCEPTION_RE.search(body):
+        return {"ok": True, "missing": False, "blocked_reason": ""}
+
+    # Load phase manifest to check remaining unbuilt stories.
+    phase_id = fm.get("phase")
+    if phase_id is not None:
+        phase_id_str = str(phase_id).strip()
+        phase_file = _find_phase_file(phase_id_str, project_dir)
+        if phase_file is not None:
+            phase_text = phase_file.read_text(encoding="utf-8")
+            phase_stories = _parse_phase_stories_with_status(phase_text)
+            for sid, title, status in phase_stories:
+                if status == "complete":
+                    continue
+                if _SCHEMA_MGMT_KEYWORDS.search(title):
+                    return {"ok": True, "missing": False, "blocked_reason": ""}
+                # Also check the story file's title if we can read it.
+                candidate_path = _story_path(sid, project_dir)
+                if candidate_path.exists():
+                    candidate_fm = _parse_frontmatter(
+                        candidate_path.read_text(encoding="utf-8")
+                    ) or {}
+                    candidate_title = candidate_fm.get("title") or ""
+                    if _SCHEMA_MGMT_KEYWORDS.search(candidate_title):
+                        return {"ok": True, "missing": False, "blocked_reason": ""}
+
+    return {
+        "ok": False,
+        "missing": False,
+        "blocked_reason": (
+            f"Story [{story_id}] introduces a schema object with no management surface."
+        ),
+    }
 
 
 @flex_build.command("check-schema-gate")
@@ -1231,69 +1348,77 @@ def cmd_check_schema_gate(story_id: str, project_dir: str) -> None:
     Exits 2 with a clear error message when the story file cannot be found.
     """
     project_path = Path(project_dir).resolve()
-    story_path = _story_path(story_id, project_path)
+    result = check_schema_gate_result(story_id, project_path)
 
-    if not story_path.exists():
+    if result["missing"]:
         click.echo(
-            f"check-schema-gate: story file not found: {story_path}", err=True
+            f"check-schema-gate: story file not found: {_story_path(story_id, project_path)}", err=True
         )
         sys.exit(2)
+
+    if not result["ok"]:
+        click.echo(
+            f"PRE-STORY BLOCK — Story [{story_id}] introduces a schema object with no management surface."
+        )
+        click.echo("Options:")
+        click.echo("1. Add a management UI story to the phase spec before building.")
+        click.echo(
+            "2. Note an explicit exception in the story spec (append-only, junction table,"
+        )
+        click.echo("   or cron-output cache) if one of those categories applies.")
+        sys.exit(1)
+
+    sys.exit(0)
+
+
+def check_auth_gate_result(story_id: str, project_dir: Path) -> dict:
+    """Return a structured gate result for the auth-gated check.
+
+    Returns a dict with keys:
+      - ``ok`` (bool): True when the story passes, False when blocked.
+      - ``missing`` (bool): True when the story file does not exist.
+      - ``blocked_reason`` (str): Human-readable reason when blocked (empty on pass).
+
+    Pure read — no state writes.
+
+    Extracted from ``cmd_check_auth_gate`` as a module-level helper so that
+    ``next_action.infer_position`` can compose it as a library call (RESOLVER-002).
+    """
+    story_path = _story_path(story_id, project_dir)
+
+    if not story_path.exists():
+        return {"ok": False, "missing": True, "blocked_reason": f"story file not found: {story_path}"}
 
     text = story_path.read_text(encoding="utf-8")
     fm = _parse_frontmatter(text) or {}
 
-    schema_introduces_raw = fm.get("schema_introduces")
+    auth_gated_raw = fm.get("auth_gated")
     # _parse_frontmatter returns strings; coerce "true"/"false" as booleans.
-    if isinstance(schema_introduces_raw, bool):
-        schema_introduces = schema_introduces_raw
-    elif isinstance(schema_introduces_raw, str):
-        schema_introduces = schema_introduces_raw.lower() == "true"
+    if isinstance(auth_gated_raw, bool):
+        auth_gated = auth_gated_raw
+    elif isinstance(auth_gated_raw, str):
+        auth_gated = auth_gated_raw.lower() == "true"
     else:
-        schema_introduces = False
+        auth_gated = False
 
-    if not schema_introduces:
-        sys.exit(0)
+    if not auth_gated:
+        return {"ok": True, "missing": False, "blocked_reason": ""}
 
-    # schema_introduces is True — look for management surface or exception phrase.
-    body = _story_body(text)
+    # auth_gated is True — check docs/architecture.md for **Classification:** line.
+    arch_path = project_dir / "docs" / "architecture.md"
+    if arch_path.exists():
+        arch_text = arch_path.read_text(encoding="utf-8")
+        if _AUTH_CLASSIFICATION_RE.search(arch_text):
+            return {"ok": True, "missing": False, "blocked_reason": ""}
 
-    # Check for exception phrase in story body.
-    if _SCHEMA_EXCEPTION_RE.search(body):
-        sys.exit(0)
-
-    # Load phase manifest to check remaining unbuilt stories.
-    phase_id = fm.get("phase")
-    if phase_id is not None:
-        phase_id_str = str(phase_id).strip()
-        phase_file = _find_phase_file(phase_id_str, project_path)
-        if phase_file is not None:
-            phase_text = phase_file.read_text(encoding="utf-8")
-            phase_stories = _parse_phase_stories_with_status(phase_text)
-            for sid, title, status in phase_stories:
-                if status == "complete":
-                    continue
-                if _SCHEMA_MGMT_KEYWORDS.search(title):
-                    sys.exit(0)
-                # Also check the story file's title if we can read it.
-                candidate_path = _story_path(sid, project_path)
-                if candidate_path.exists():
-                    candidate_fm = _parse_frontmatter(
-                        candidate_path.read_text(encoding="utf-8")
-                    ) or {}
-                    candidate_title = candidate_fm.get("title") or ""
-                    if _SCHEMA_MGMT_KEYWORDS.search(candidate_title):
-                        sys.exit(0)
-
-    click.echo(
-        f"PRE-STORY BLOCK — Story [{story_id}] introduces a schema object with no management surface."
-    )
-    click.echo("Options:")
-    click.echo("1. Add a management UI story to the phase spec before building.")
-    click.echo(
-        "2. Note an explicit exception in the story spec (append-only, junction table,"
-    )
-    click.echo("   or cron-output cache) if one of those categories applies.")
-    sys.exit(1)
+    return {
+        "ok": False,
+        "missing": False,
+        "blocked_reason": (
+            f"Story [{story_id}] is auth-gated but no classification is recorded in "
+            "docs/architecture.md."
+        ),
+    }
 
 
 @flex_build.command("check-auth-gate")
@@ -1314,46 +1439,27 @@ def cmd_check_auth_gate(story_id: str, project_dir: str) -> None:
     Exits 2 with a clear error message when the story file cannot be found.
     """
     project_path = Path(project_dir).resolve()
-    story_path = _story_path(story_id, project_path)
+    result = check_auth_gate_result(story_id, project_path)
 
-    if not story_path.exists():
+    if result["missing"]:
         click.echo(
-            f"check-auth-gate: story file not found: {story_path}", err=True
+            f"check-auth-gate: story file not found: {_story_path(story_id, project_path)}", err=True
         )
         sys.exit(2)
 
-    text = story_path.read_text(encoding="utf-8")
-    fm = _parse_frontmatter(text) or {}
+    if not result["ok"]:
+        click.echo(
+            f"AUTH GATE — Story [{story_id}] is auth-gated but no classification is recorded."
+        )
+        click.echo(
+            "Load ~/.claude/policies/auth-coexistence.md and classify the auth model"
+        )
+        click.echo(
+            "(RBAC / ABAC / both), then record it in docs/architecture.md before building."
+        )
+        sys.exit(1)
 
-    auth_gated_raw = fm.get("auth_gated")
-    # _parse_frontmatter returns strings; coerce "true"/"false" as booleans.
-    if isinstance(auth_gated_raw, bool):
-        auth_gated = auth_gated_raw
-    elif isinstance(auth_gated_raw, str):
-        auth_gated = auth_gated_raw.lower() == "true"
-    else:
-        auth_gated = False
-
-    if not auth_gated:
-        sys.exit(0)
-
-    # auth_gated is True — check docs/architecture.md for **Classification:** line.
-    arch_path = project_path / "docs" / "architecture.md"
-    if arch_path.exists():
-        arch_text = arch_path.read_text(encoding="utf-8")
-        if _AUTH_CLASSIFICATION_RE.search(arch_text):
-            sys.exit(0)
-
-    click.echo(
-        f"AUTH GATE — Story [{story_id}] is auth-gated but no classification is recorded."
-    )
-    click.echo(
-        "Load ~/.claude/policies/auth-coexistence.md and classify the auth model"
-    )
-    click.echo(
-        "(RBAC / ABAC / both), then record it in docs/architecture.md before building."
-    )
-    sys.exit(1)
+    sys.exit(0)
 
 
 @flex_build.command("transition-era")
