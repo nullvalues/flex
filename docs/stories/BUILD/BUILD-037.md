@@ -2,7 +2,7 @@
 id: BUILD-037
 rail: BUILD
 title: "mark-phase-complete: column-count-preserving status rewrite"
-status: planned
+status: complete
 phase: "79"
 story_class: code
 primary_files:

@@ -59,7 +59,7 @@ Three independent defects, all confirmed by reproduction against this repo's own
 | ID | Title | Status |
 |----|-------|--------|
 | BUILD-036 | current-phase: first-incomplete selection + status classification | complete |
-| BUILD-037 | mark-phase-complete: column-count-preserving status rewrite | planned |
+| BUILD-037 | mark-phase-complete: column-count-preserving status rewrite | complete |
 | BUILD-038 | reviewer FAIL-revert: drop `git clean -fd` | planned |
 
 ## Schema delivery
