@@ -168,12 +168,13 @@ EOF
 
 Any CRITICAL finding, any HIGH finding, or any failing test.
 
-On FAIL, revert:
+On FAIL, revert tracked files to their committed state:
 
 ```bash
 git checkout .
-git clean -fd
 ```
+
+Note: `git checkout .` restores all tracked files the builder modified. Untracked files (including any newly created by the builder) are intentionally left in place to avoid deleting unrelated untracked work.
 
 Stop at the first CRITICAL finding. Do not run remaining checklist items.
 
