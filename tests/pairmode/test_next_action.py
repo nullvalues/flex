@@ -384,6 +384,51 @@ class TestInferPositionFailOutcome:
         assert pos["builder_model"] == "opus"
         assert pos["builder_model_reason"] == "retry-upgrade"
 
+    def test_fail_at_attempt_1_selects_next_attempt_model(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """CF-1 / CER-060 (DP7.2): on FAIL at attempt_count==1, infer_position
+        selects the model at attempt_count + 1 (== 2) so the Position carries the
+        retry tier (opus / retry-upgrade) rather than the attempt-1 model."""
+        from model_selector import select_builder_model  # type: ignore[import]
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001")
+        _write_attempt_counter(tmp_path, "TEST-001", 1)
+        _patch_git_log(monkeypatch, "")  # no commit → FAIL
+
+        pos = infer_position(tmp_path)
+        assert pos["attempt_count"] == 1
+        assert pos["last_attempt_outcome"] == OUTCOME_FAIL
+        # Selected at attempt_count + 1 == 2.
+        expected_model, expected_reason = select_builder_model(
+            "code", [], [], attempt_number=2
+        )
+        assert pos["builder_model"] == expected_model == "opus"
+        assert pos["builder_model_reason"] == expected_reason == "retry-upgrade"
+
+    def test_first_launch_selects_attempt_1_model(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Regression guard: a none/first-launch Position (attempt_count == 0)
+        selects the attempt-1 model — the FAIL +1 shift must not leak to Row 2."""
+        from model_selector import select_builder_model  # type: ignore[import]
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        assert pos["attempt_count"] == 0
+        assert pos["last_attempt_outcome"] == OUTCOME_NONE
+        expected_model, expected_reason = select_builder_model(
+            "code", [], [], attempt_number=1
+        )
+        assert pos["builder_model"] == expected_model == "sonnet"
+        assert pos["builder_model_reason"] == expected_reason == "auto-baseline"
+
 
 class TestInferPositionGateBlocked:
     """A gate signalling blocked ⇒ Position carries that gate's blocked signal."""
@@ -597,7 +642,12 @@ class TestResolveNextActionSpawnBuilder:
         assert validate_action(action) == []
 
     def test_row_5_second_attempt_retry_upgrade(self, tmp_path: Any) -> None:
-        """Counter 1, FAIL → spawn-builder attempt 2, retry-upgrade, opus."""
+        """Counter 1, FAIL → spawn-builder attempt 2 emits the Position's model.
+
+        CF-1 / CER-060 (DP7.2): on FAIL, infer_position computes builder_model at
+        the next attempt number, so the Position carries opus / retry-upgrade and
+        Row 5 emits position.builder_model rather than hardcoding opus.
+        """
         from pathlib import Path
         phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
         phase_file.parent.mkdir(parents=True)
@@ -606,8 +656,8 @@ class TestResolveNextActionSpawnBuilder:
             active_phase_file=phase_file,
             next_story_id="TEST-002",
             attempt_count=1,
-            builder_model="sonnet",
-            builder_model_reason="auto-baseline",
+            builder_model="opus",
+            builder_model_reason="retry-upgrade",
             last_attempt_outcome=OUTCOME_FAIL,
         )
         action = resolve_next_action(pos)
@@ -618,6 +668,30 @@ class TestResolveNextActionSpawnBuilder:
         assert action["meta"]["attempt"] == 2
         assert action["meta"]["fail_rung"] == "single-fail"
         assert validate_action(action) == []
+
+    def test_row_5_emits_position_model_not_hardcoded(self, tmp_path: Any) -> None:
+        """Row 5 sources the retry tier from the Position (DP7.2 single-source).
+
+        A Position carrying a non-opus model on FAIL is emitted verbatim — proving
+        Row 5 no longer hardcodes opus / retry-upgrade. The defensive fallback only
+        applies when builder_model is None.
+        """
+        from pathlib import Path
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-002",
+            attempt_count=1,
+            builder_model="sonnet",
+            builder_model_reason="sentinel-reason",
+            last_attempt_outcome=OUTCOME_FAIL,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["model"] == "sonnet"
+        assert action["reason"] == "sentinel-reason"
 
     def test_row_8_pass_more_stories(self, tmp_path: Any) -> None:
         """PASS outcome + more unbuilt stories → spawn-builder next story."""

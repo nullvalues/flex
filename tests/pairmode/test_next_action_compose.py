@@ -210,6 +210,54 @@ def test_next_action_imports_story_resolver_or_uses_it() -> None:
     )
 
 
+def test_row5_model_is_selector_sourced() -> None:
+    """DP7.2 single-source call-site coverage (CF-1 ← CER-060).
+
+    The DP5 signature guard above asserts import *presence* only. This asserts
+    *coverage*: Row 5's emitted model must equal the selector's attempt-2 value
+    for a small code story — so a future select_builder_model retry-tier
+    rebalance fails loudly HERE rather than silently diverging from the state
+    machine.
+
+    If this fails, model_selector.select_builder_model's attempt>=2 code-story
+    tier has drifted away from next_action Row 5's emitted retry model.
+    """
+    from pathlib import Path
+
+    # The retry tier the selector assigns to a small code story at attempt 2.
+    expected_model, expected_reason = model_selector.select_builder_model(
+        "code", [], [], attempt_number=2
+    )
+
+    # A FAIL Position whose builder_model was computed at the next attempt
+    # (attempt_count + 1 == 2) by infer_position — exactly what Row 5 emits.
+    pos = {
+        "active_phase_file": Path("docs/phases/phase-1.md"),
+        "next_story_id": "RAIL-001",
+        "next_story_file": None,
+        "attempt_count": 1,
+        "builder_model": expected_model,
+        "builder_model_reason": expected_reason,
+        "gate_stub": {"ok": True, "blocked_reason": ""},
+        "gate_schema": {"ok": True, "blocked_reason": ""},
+        "gate_auth": {"ok": True, "blocked_reason": ""},
+        "last_attempt_outcome": next_action.OUTCOME_FAIL,
+    }
+    action = next_action.resolve_next_action(pos)
+
+    assert action["action"] == next_action.SPAWN_BUILDER
+    assert action["model"] == expected_model, (
+        "Row 5 retry model drifted from model_selector.select_builder_model "
+        f"(attempt_number=2): state machine emitted {action['model']!r} but the "
+        f"selector now returns {expected_model!r}. Reconcile next_action Row 5 / "
+        "infer_position §4 with the selector table."
+    )
+    assert action["reason"] == expected_reason
+    # The selector's retry tier for a code story is opus / retry-upgrade today.
+    assert expected_model == "opus"
+    assert expected_reason == "retry-upgrade"
+
+
 def test_next_action_no_inline_git_log_impl() -> None:
     """next_action.py does not reimplement git log parsing inline.
 

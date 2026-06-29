@@ -271,7 +271,40 @@ def infer_position(project_dir: "str | Path") -> dict:
         attempt_count = read_attempt_count(next_story_id, project_path)
 
     # ------------------------------------------------------------------
+    # 3b. Last-attempt outcome inference (DP3)
+    #
+    # Computed *before* model selection (§4) so the retry-tier composition
+    # (CF-1 / CER-060, DP7.2) can select at the *next* attempt number on FAIL.
+    #
+    # PASS  — a story-<ID> commit exists (git-authoritative).
+    # FAIL  — no commit + status still planned + attempt_count > 0
+    # none  — attempt_count == 0 (first launch)
+    # unknown — anything else
+    # ------------------------------------------------------------------
+    last_attempt_outcome: str = OUTCOME_UNKNOWN
+
+    if next_story_id is None:
+        # No active story — either all complete or phase empty.
+        last_attempt_outcome = OUTCOME_NONE
+    elif attempt_count == 0:
+        last_attempt_outcome = OUTCOME_NONE
+    else:
+        # Check for a story-<ID> commit (git-authoritative).
+        from next_story import _git_log_oneline, _has_story_commit  # type: ignore[import]
+        git_log = _git_log_oneline(project_path)
+        if _has_story_commit(next_story_id, git_log):
+            last_attempt_outcome = OUTCOME_PASS
+        else:
+            # No commit, attempt_count > 0 → last attempt failed.
+            last_attempt_outcome = OUTCOME_FAIL
+
+    # ------------------------------------------------------------------
     # 4. Builder model selection
+    #
+    # DP7.2 (CF-1 ← CER-060): on inferred FAIL the Position must hold the model
+    # for the *next* attempt so Row 5 can emit position.builder_model and the
+    # selector becomes the single source of the retry tier.  Otherwise
+    # (none/PASS/unknown) select at the current attempt as before.
     # ------------------------------------------------------------------
     builder_model: "str | None" = None
     builder_model_reason: "str | None" = None
@@ -299,11 +332,16 @@ def infer_position(project_dir: "str | Path") -> dict:
                 except (OSError, _json.JSONDecodeError):
                     pass
 
+            effective_attempt = (
+                attempt_count + 1
+                if last_attempt_outcome == OUTCOME_FAIL
+                else max(attempt_count, 1)
+            )
             builder_model, builder_model_reason = select_builder_model(
                 story_class,
                 list(primary_files),
                 protected_files,
-                attempt_number=max(attempt_count, 1),
+                attempt_number=effective_attempt,
             )
         except Exception:  # noqa: BLE001
             pass
@@ -337,34 +375,6 @@ def infer_position(project_dir: "str | Path") -> dict:
         gate_stub = dict(_no_gate)
         gate_schema = dict(_no_gate)
         gate_auth = dict(_no_gate)
-
-    # ------------------------------------------------------------------
-    # 6. Last-attempt outcome inference (DP3)
-    #
-    # PASS  — a story-<ID> commit exists (reuse next_story's commit-authority;
-    #          if such a commit exists, find_next_story would have skipped it —
-    #          we therefore check git directly here to cover the edge where the
-    #          story is identified by find_next_story as not committed yet).
-    # FAIL  — no commit + status still planned + attempt_count > 0
-    # none  — attempt_count == 0 (first launch)
-    # unknown — anything else
-    # ------------------------------------------------------------------
-    last_attempt_outcome: str = OUTCOME_UNKNOWN
-
-    if next_story_id is None:
-        # No active story — either all complete or phase empty.
-        last_attempt_outcome = OUTCOME_NONE
-    elif attempt_count == 0:
-        last_attempt_outcome = OUTCOME_NONE
-    else:
-        # Check for a story-<ID> commit (git-authoritative).
-        from next_story import _git_log_oneline, _has_story_commit  # type: ignore[import]
-        git_log = _git_log_oneline(project_path)
-        if _has_story_commit(next_story_id, git_log):
-            last_attempt_outcome = OUTCOME_PASS
-        else:
-            # No commit, attempt_count > 0 → last attempt failed.
-            last_attempt_outcome = OUTCOME_FAIL
 
     return {
         "active_phase_file": active_phase_file,
@@ -564,7 +574,14 @@ def resolve_next_action(position: dict, *, warnings: "list[str] | None" = None) 
     # Rows 5, 6, 7 — FAIL ladder (attempt_count >= 1, no commit)
     # ------------------------------------------------------------------
 
-    # Row 5 — attempt 1 cycle failed → spawn attempt 2 with retry-upgrade
+    # Row 5 — attempt 1 cycle failed → spawn attempt 2.
+    #
+    # DP7.2 (CF-1 ← CER-060): the retry tier is sourced from the Position's
+    # builder_model / builder_model_reason (computed at attempt_count + 1 on
+    # FAIL in infer_position §4), making the selector the single source of the
+    # retry tier rather than hardcoding opus / retry-upgrade in two places.
+    # Defensive fallback only if the Position carries no model (e.g. a directly
+    # constructed Position in a test).
     if attempt_count == 1 and last_attempt_outcome == OUTCOME_FAIL:
         meta = dict(meta_base)
         meta["attempt"] = 2
@@ -572,8 +589,8 @@ def resolve_next_action(position: dict, *, warnings: "list[str] | None" = None) 
         return make_action(
             SPAWN_BUILDER,
             scalar=next_story_id,
-            model="opus",
-            reason="retry-upgrade",
+            model=builder_model if builder_model is not None else "opus",
+            reason=builder_model_reason if builder_model is not None else "retry-upgrade",
             meta=meta,
         )
 
