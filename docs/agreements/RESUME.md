@@ -1,7 +1,6 @@
-# Resume point — HARNESS001-main complete; next is HARNESS002-main
+# Resume point — HARNESS002-main agreements SETTLED; next is phase_new.py + story specs
 
-**Written:** 2026-06-28. Update/delete once HARNESS002-main agreements are walked
-and its first story is in flight.
+**Written:** 2026-06-28. Update/delete once HARNESS002-main's first story is in flight.
 
 ## One-line status
 
@@ -39,19 +38,22 @@ resolver (NOT wired into the live `CLAUDE.build.md` — DP7):
 
 ## The next action
 
-Phase **HARNESS002-main — Gate verdict extraction**, RESOLVER rail (provisional).
-Two things to remember, both important:
+Phase **HARNESS002-main — Gate verdict extraction**, **WORKER rail (RESOLVER touch)**.
+The agreements walk is DONE. Two things to remember, both important:
 
-1. **Agreements first.** Per the era doc, each phase gets its own agreements doc walked
-   point-by-point BEFORE any story is specced. A SEED has been started at
-   `docs/agreements/HARNESS002-main.md` — it already carries forward **CF-1 (← CER-060)**,
-   the DP5 retry-path composition gap, which MUST be resolved during the walk. Walk the
-   doc (settle the signal/verdict boundary + CF-1), then run
-   `phase_new.py --phase-id HARNESS002 --suffix main`. Do NOT jump straight to `phase_new.py`.
+1. **Agreements SETTLED.** `docs/agreements/HARNESS002-main.md` is ✅ SETTLED — all 8 DPs
+   AGREED, story outline finalized (committed `docs(HARNESS002-main): settle …`). The next
+   step is `phase_new.py --phase-id HARNESS002 --suffix main` (phase-class `production`),
+   then `story_new.py` for the five stories: **WORKER-001** (verdict grammar + fixture) →
+   **RESOLVER-005** (`spawn-gate-worker` action + Row-4 split + routing) → **WORKER-002**
+   (gate worker: thin shell + plugin procedure skill) → **RESOLVER-006** (CF-1/CER-060 fix)
+   → **WORKER-003** (isolation suite). Build order is that sequence. **CF-1 (← CER-060)** is
+   bundled as RESOLVER-006 — it closes on that build.
 2. **Built on `harness`, in the worktree.** Refactor code is breaking and lands on the
    `harness` branch in `/mnt/work/flex-harness` (DP1), exercised only by its own tests
-   until the flip (HARNESS006). The additive contract (DP4) + CLI-surface freeze test
-   (RELEASE-003) guard the fleet during this window.
+   until the flip (HARNESS006). The gate worker is **advisory-only** — NOT wired into the
+   live `CLAUDE.build.md` this phase. The additive contract (DP4) + CLI-surface freeze test
+   (RELEASE-003) guard the fleet during this window (no `check-*` signature change — DP6).
 
 ## Open backlog tied to this era (see docs/cer/backlog.md)
 
