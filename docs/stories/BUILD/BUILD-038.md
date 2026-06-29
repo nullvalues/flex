@@ -4,7 +4,7 @@ rail: BUILD
 title: "reviewer FAIL-revert: drop git clean -fd"
 status: planned
 phase: "79"
-story_class: documentation
+story_class: doc
 primary_files:
   - .claude/agents/reviewer.md
 touches:
