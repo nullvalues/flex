@@ -1,0 +1,12 @@
+{
+  "story_id": "WORKER-002",
+  "story_spec": "docs/stories/WORKER/WORKER-002.md",
+  "allowed_paths": [
+    "skills/pairmode/templates/agents/gate-worker.md.j2",
+    "skills/pairmode/gate_worker/SKILL.md",
+    "tests/pairmode/test_gate_worker.py",
+    "skills/pairmode/scripts/gate_verdict.py",
+    "docs/stories/WORKER/WORKER-002.md"
+  ],
+  "generated_at": "2026-06-29T03:50:27Z"
+}

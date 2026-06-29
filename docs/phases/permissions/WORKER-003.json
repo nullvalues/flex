@@ -1,0 +1,11 @@
+{
+  "story_id": "WORKER-003",
+  "story_spec": "docs/stories/WORKER/WORKER-003.md",
+  "allowed_paths": [
+    "tests/pairmode/test_gate_worker_isolation.py",
+    "tests/pairmode/fixtures/gate_signals.json",
+    "tests/pairmode/resolver_fixtures.py",
+    "docs/stories/WORKER/WORKER-003.md"
+  ],
+  "generated_at": "2026-06-29T03:50:28Z"
+}

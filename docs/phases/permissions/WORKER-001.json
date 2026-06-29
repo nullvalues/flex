@@ -1,0 +1,11 @@
+{
+  "story_id": "WORKER-001",
+  "story_spec": "docs/stories/WORKER/WORKER-001.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/gate_verdict.py",
+    "tests/pairmode/test_gate_verdict.py",
+    "tests/pairmode/fixtures/gate_verdict_grammar.json",
+    "docs/stories/WORKER/WORKER-001.md"
+  ],
+  "generated_at": "2026-06-29T03:50:27Z"
+}
