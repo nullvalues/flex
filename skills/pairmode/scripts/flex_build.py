@@ -412,6 +412,33 @@ def _parse_index_phases(index_text: str) -> list[tuple[str, str]]:
     return rows
 
 
+def _is_terminal_status(status: str) -> bool:
+    """Return True when *status* represents a terminal (done / closed) phase state.
+
+    Terminal statuses:
+    - Exactly ``complete`` or begins with ``complete`` (e.g. ``complete (partial)``).
+
+    Match is case-insensitive; the caller is expected to pass an already-lowercased,
+    stripped value (as returned by ``_parse_index_phases``), but we normalise anyway.
+    """
+    normalised = status.strip().lower()
+    return normalised == "complete" or normalised.startswith("complete")
+
+
+def _is_active_status(status: str) -> bool:
+    """Return True when *status* means the phase is eligible as the current active phase.
+
+    Active = not terminal and not deferred.
+    ``deferred`` phases are parked; they are never returned as the active phase.
+    """
+    normalised = status.strip().lower()
+    if _is_terminal_status(normalised):
+        return False
+    if normalised == "deferred":
+        return False
+    return True
+
+
 @flex_build.command("current-phase")
 @click.option(
     "--project-dir",
@@ -434,21 +461,22 @@ def cmd_current_phase(project_dir: str) -> None:
         index_text = index_path.read_text(encoding="utf-8")
         phase_rows = _parse_index_phases(index_text)
 
-        # Walk rows in order and keep track of the last phase that is not
-        # 'complete'. The last such row wins (most recent active phase).
-        active_phase_ref: str | None = None
+        # Walk rows in index order (build order) and return the FIRST active
+        # phase whose phase file exists.  Skip terminal statuses
+        # (``complete``, ``complete (partial)``, …) and parked phases
+        # (``deferred``).  A planned-but-fileless future row must never mask
+        # an earlier active phase that has a file.
         for phase_ref, status in phase_rows:
-            if status != "complete":
-                active_phase_ref = phase_ref
-
-        if active_phase_ref is not None:
-            candidate = project_path / "docs" / "phases" / f"phase-{active_phase_ref}.md"
+            if not _is_active_status(status):
+                continue
+            candidate = project_path / "docs" / "phases" / f"phase-{phase_ref}.md"
             if candidate.exists():
                 click.echo(str(candidate.relative_to(project_path)))
                 sys.exit(0)
+            # Active row but no file yet — keep scanning for an earlier
+            # active row that does have a file (fileless-phase guard).
 
-        # Index exists but all phases are complete (or the active phase file is
-        # missing) — authoritative signal that no active phase remains.
+        # Index exists but no active phase with an existing file was found.
         click.echo("No active phase found — all stories complete.", err=True)
         sys.exit(1)
 

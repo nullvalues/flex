@@ -141,3 +141,142 @@ def test_current_phase_project_dir_depth_guard(tmp_path: Path) -> None:
     result = _run("current-phase", "--project-dir", "/")
     assert result.returncode == 1
     assert "depth guard" in result.stderr.lower() or "too shallow" in result.stderr.lower()
+
+
+# ---------------------------------------------------------------------------
+# BUILD-036 — first-incomplete selection + status classification
+# ---------------------------------------------------------------------------
+
+
+def _write_phase_index_4col(
+    project_dir: Path, rows: list[tuple[str, str, str]]
+) -> Path:
+    """Write a 4-column ``docs/phases/index.md`` (Phase | Title | Status | Tag)."""
+    phases_dir = project_dir / "docs" / "phases"
+    phases_dir.mkdir(parents=True, exist_ok=True)
+    index_path = phases_dir / "index.md"
+    lines = [
+        "# Phase Index\n\n",
+        "| Phase | Title | Status | Tag |\n",
+        "|-------|-------|--------|-----|\n",
+    ]
+    for phase_ref, title, status in rows:
+        lines.append(f"| {phase_ref} | {title} | {status} | |\n")
+    index_path.write_text("".join(lines), encoding="utf-8")
+    return index_path
+
+
+def _write_phase_index_5col(
+    project_dir: Path, rows: list[tuple[str, str, str]]
+) -> Path:
+    """Write a 5-column seeded ``docs/phases/index.md`` (Phase | Title | Status | Deferred from | Link)."""
+    phases_dir = project_dir / "docs" / "phases"
+    phases_dir.mkdir(parents=True, exist_ok=True)
+    index_path = phases_dir / "index.md"
+    lines = [
+        "# Phase Index\n\n",
+        "| Phase | Title | Status | Deferred from | Link |\n",
+        "|-------|-------|--------|---------------|------|\n",
+    ]
+    for phase_ref, title, status in rows:
+        lines.append(f"| {phase_ref} | {title} | {status} | | |\n")
+    index_path.write_text("".join(lines), encoding="utf-8")
+    return index_path
+
+
+def test_build036_first_of_two_active_phases(tmp_path: Path) -> None:
+    """Two planned phases both with files → first in index order is returned."""
+    _write_phase_index_4col(
+        tmp_path,
+        [
+            ("10", "First active", "planned"),
+            ("20", "Second active", "planned"),
+        ],
+    )
+    _write_phase_file(tmp_path, 10, "RAIL-010")
+    _write_phase_file(tmp_path, 20, "RAIL-020")
+
+    result = _run("current-phase", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "phase-10.md" in result.stdout.strip()
+    assert "phase-20.md" not in result.stdout.strip()
+
+
+def test_build036_earlier_file_wins_over_fileless_later(tmp_path: Path) -> None:
+    """Active phase with a file is returned even when a later planned phase has no file."""
+    _write_phase_index_4col(
+        tmp_path,
+        [
+            ("5", "Has file", "planned"),
+            ("99", "No file yet", "planned"),
+        ],
+    )
+    # Only phase-5.md exists; phase-99.md does NOT.
+    _write_phase_file(tmp_path, 5, "RAIL-005")
+
+    result = _run("current-phase", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "phase-5.md" in result.stdout.strip()
+
+
+def test_build036_deferred_row_is_skipped(tmp_path: Path) -> None:
+    """A deferred row is never returned even when it is the only non-complete row."""
+    _write_phase_index_4col(
+        tmp_path,
+        [
+            ("3", "Done", "complete"),
+            ("64", "Deferred phase", "deferred"),
+        ],
+    )
+    # Provide the file so the guard does not mask a missing-file scenario.
+    _write_phase_file(tmp_path, 64, "RAIL-064")
+
+    result = _run("current-phase", "--project-dir", str(tmp_path))
+    assert result.returncode == 1
+    assert "all stories complete" in result.stderr.lower()
+
+
+def test_build036_complete_partial_is_terminal(tmp_path: Path) -> None:
+    """``complete (partial)`` is treated as terminal, not active."""
+    _write_phase_index_4col(
+        tmp_path,
+        [
+            ("23", "Partial done", "complete (partial)"),
+        ],
+    )
+    _write_phase_file(tmp_path, 23, "RAIL-023")
+
+    result = _run("current-phase", "--project-dir", str(tmp_path))
+    assert result.returncode == 1
+    assert "all stories complete" in result.stderr.lower()
+
+
+def test_build036_single_active_phase_resolves(tmp_path: Path) -> None:
+    """Regression: a single normal active phase still resolves correctly."""
+    _write_phase_index_4col(
+        tmp_path,
+        [
+            ("7", "Active", "in-progress"),
+        ],
+    )
+    _write_phase_file(tmp_path, 7, "RAIL-007")
+
+    result = _run("current-phase", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "phase-7.md" in result.stdout.strip()
+
+
+def test_build036_five_column_layout(tmp_path: Path) -> None:
+    """5-column seeded layout resolves identically to 4-column layout."""
+    _write_phase_index_5col(
+        tmp_path,
+        [
+            ("11", "Complete", "complete"),
+            ("12", "Active 5col", "planned"),
+        ],
+    )
+    _write_phase_file(tmp_path, 12, "RAIL-012")
+
+    result = _run("current-phase", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "phase-12.md" in result.stdout.strip()
