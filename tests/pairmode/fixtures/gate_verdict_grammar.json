@@ -1,0 +1,68 @@
+{
+  "valid": [
+    {
+      "label": "all-clean",
+      "map": {"auth": "clean", "schema": "clean"}
+    },
+    {
+      "label": "single-block-schema",
+      "map": {"schema": "block:introduces sessions table, no mgmt UI story in phase"}
+    },
+    {
+      "label": "single-flag-auth",
+      "map": {"auth": "flag:story sets auth_gated but no Classification recorded in architecture.md"}
+    },
+    {
+      "label": "mixed-auth-clean-schema-block",
+      "map": {"auth": "clean", "schema": "block:no management surface story found for new table"}
+    },
+    {
+      "label": "single-clean-schema",
+      "map": {"schema": "clean"}
+    },
+    {
+      "label": "single-clean-auth",
+      "map": {"auth": "clean"}
+    },
+    {
+      "label": "flag-reason-contains-colon",
+      "map": {"schema": "flag:missing UI story: see phase doc section 3: step 2"}
+    },
+    {
+      "label": "empty-map",
+      "map": {}
+    }
+  ],
+  "invalid": [
+    {
+      "label": "unknown-verb",
+      "map": {"schema": "warn:something"},
+      "expected_violation_substring": "unknown verb"
+    },
+    {
+      "label": "unknown-gate-key",
+      "map": {"stub": "clean"},
+      "expected_violation_substring": "unknown gate key"
+    },
+    {
+      "label": "empty-block-reason",
+      "map": {"schema": "block:"},
+      "expected_violation_substring": "requires a non-empty reason"
+    },
+    {
+      "label": "empty-flag-reason",
+      "map": {"auth": "flag:"},
+      "expected_violation_substring": "requires a non-empty reason"
+    },
+    {
+      "label": "clean-with-reason",
+      "map": {"auth": "clean:should not have a payload"},
+      "expected_violation_substring": "must carry no reason payload"
+    },
+    {
+      "label": "multiple-violations",
+      "map": {"stub": "clean", "schema": "block:"},
+      "expected_violation_count_min": 2
+    }
+  ]
+}
