@@ -2,7 +2,7 @@
 id: BUILD-038
 rail: BUILD
 title: "reviewer FAIL-revert: drop git clean -fd"
-status: planned
+status: complete
 phase: "79"
 story_class: doc
 primary_files:

@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp79-era002-index-tooling-maintenance
+
+**Phase:** 79 — era-002 index-tooling maintenance (current-phase, mark-phase-complete, reviewer revert)
+**Tag command:** `git tag cp79-era002-index-tooling-maintenance && git push origin cp79-era002-index-tooling-maintenance`
+**Acceptance:** Three stories. **BUILD-036**: `current-phase` first-incomplete selection + terminal/parked status classification (`_is_terminal_status`/`_is_active_status` helpers; forward-scan replaces last-wins; fileless-phase guard folded in). **BUILD-037**: `mark-phase-complete` column-count-preserving status rewrite (`cells[1:-1]` inner-cell extraction; 4- and 5-column layouts both preserved). **BUILD-038**: dropped `git clean -fd` from the FAIL-revert block in `.claude/agents/reviewer.md` (tracked files restored via `git checkout .`; untracked files intentionally left in place). Doc update: `architecture.md` revert-path description corrected. Surfaced CER-060 (template `reviewer.md.j2` still carries `git clean -fd` — follow-up story needed). Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: ALIGNED. 2266 tests pass.
+
+---
+
 ## cp-HARNESS001-ante1
 
 **Phase:** HARNESS001-ante1 — Versioning & upstream compatibility (Era 003 preflight)
