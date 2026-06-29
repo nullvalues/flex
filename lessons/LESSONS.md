@@ -87,3 +87,8 @@ or use `/flex:pairmode lesson` to capture a new lesson.
 **Date:** 2026-05-26
 **Status:** captured
 **Learning:** A git-tracked permission-config file is part of the working tree the reviewer reverts. Authorized changes to it must be committed BEFORE the reviewer fires (the same protection Step 1.5 gives methodology files), or they are silently destroyed on any FAIL. Two corollaries: (1) maintain an EXPLICIT allow block for the files in active scope rather than relying on absence-from-deny ('implicit approval'), so authorizations are legible in the diff and reviewable; (2) when the harness self-modification guard bars the agent from editing a permission file, write the proposed valid file to a tmp path for the operator to mv into place instead of abandoning the change.
+
+## L018 — Orchestrator post-build note from meander INFRA-008: the pre-reviewer git add docs/phases/ swept up a story deliverable whose primary_file lived under docs/phases/, committing it unreviewed under the chore(orchestrator) message.
+**Date:** 2026-06-29
+**Status:** captured
+**Learning:** The pre-reviewer git add must exclude files declared as primary_files (and touches) in the active story's spec. Correct pattern: (1) blanket 'git add docs/phases/ docs/cer/', then (2) 'git reset HEAD -- <file>' for each primary_file/touch that falls under a staged directory. This preserves the reviewer's ability to diff the story deliverable while still protecting methodology files. Applies any time a story's deliverable lives under a directory covered by the blanket add.

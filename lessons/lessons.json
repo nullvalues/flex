@@ -319,6 +319,25 @@
       ],
       "status": "captured",
       "validation_phase": "2"
+    },
+    {
+      "id": "L018",
+      "date": "2026-06-29",
+      "source_project": "meander",
+      "trigger": "Orchestrator post-build note from meander INFRA-008: the pre-reviewer git add docs/phases/ swept up a story deliverable whose primary_file lived under docs/phases/, committing it unreviewed under the chore(orchestrator) message.",
+      "problem": "The blanket 'git add docs/phases/ docs/cer/' in the pre-reviewer step is intentionally broad. But when a story's declared primary_file is also under docs/phases/ \u2014 common for doc and spec stories \u2014 the blanket add silently commits that deliverable before the reviewer fires. The reviewer then diffs an empty working tree, cannot verify the story output, and the commit lands under the wrong message and without review.",
+      "learning": "The pre-reviewer git add must exclude files declared as primary_files (and touches) in the active story's spec. Correct pattern: (1) blanket 'git add docs/phases/ docs/cer/', then (2) 'git reset HEAD -- <file>' for each primary_file/touch that falls under a staged directory. This preserves the reviewer's ability to diff the story deliverable while still protecting methodology files. Applies any time a story's deliverable lives under a directory covered by the blanket add.",
+      "methodology_change": {
+        "affects": [
+          "orchestrator",
+          "build-loop"
+        ],
+        "description": "In CLAUDE.build.md Step 1.5: after the blanket git add, add a 'git reset HEAD -- <primary_files>' pass using the active story's declared primary_files and touches. Add a comment explaining why \u2014 the reviewer must see the builder's deliverable in the diff, not find it already committed under the chore message."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured"
     }
   ]
 }
