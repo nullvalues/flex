@@ -299,10 +299,14 @@ the reviewer and loop-breaker; security-auditor includes it for consistency). Th
 prevents the reviewer from backdooring a fix into the code instead of reverting it; the
 orchestrator's pre-reviewer commit discipline (committing story files and running
 `git checkout -- lessons/` before the reviewer fires) prevents accidental erasure of
-uncommitted methodology files. Both commit and revert paths in the reviewer template
-are Bash-mediated (`git add`, `git commit`, `git checkout .`). The FAIL-revert no
-longer calls `git clean -fd` — tracked files are restored via `git checkout .`;
-untracked files are intentionally left in place (BUILD-038).
+uncommitted methodology files. Both commit and revert paths in the reviewer agent
+are Bash-mediated (`git add`, `git commit`, `git checkout .`). BUILD-038 dropped
+`git clean -fd` from the FAIL-revert in the live `.claude/agents/reviewer.md` —
+tracked files are restored via `git checkout .`; untracked files are intentionally
+left in place. The canonical template
+`skills/pairmode/templates/agents/reviewer.md.j2` still carries the old
+`git clean -fd` line; propagating the drop (and updating its guardrail test) is
+tracked as CER-060.
 
 This document describes pairmode's internals: the scaffold it generates, the rails/eras
 model, the schema validators, and the non-negotiables that keep its bootstraps repeatable.
