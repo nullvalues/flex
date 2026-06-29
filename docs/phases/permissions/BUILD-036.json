@@ -1,0 +1,10 @@
+{
+  "story_id": "BUILD-036",
+  "story_spec": "docs/stories/BUILD/BUILD-036.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/flex_build.py",
+    "tests/pairmode/test_flex_build_current_phase.py",
+    "docs/stories/BUILD/BUILD-036.md"
+  ],
+  "generated_at": "2026-06-29T03:40:06Z"
+}
