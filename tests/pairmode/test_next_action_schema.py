@@ -156,16 +156,25 @@ class TestConstructor:
 
 
 class TestEnumClosure:
-    def test_actions_contains_exactly_five_values(self):
-        assert len(ACTIONS) == 5
+    def test_actions_contains_exactly_six_values(self):
+        # RESOLVER-005 added spawn-gate-worker (was five before HARNESS002-main).
+        assert len(ACTIONS) == 6
 
     def test_actions_contains_all_documented_values(self):
-        expected = {"spawn-builder", "spawn-loop-breaker", "checkpoint", "await-user", "done"}
+        expected = {
+            "spawn-builder",
+            "spawn-loop-breaker",
+            "spawn-gate-worker",
+            "checkpoint",
+            "await-user",
+            "done",
+        }
         assert ACTIONS == expected
 
     def test_named_constants_match_actions(self):
         """Each named constant must be in ACTIONS and the set must equal constants."""
-        named = {SPAWN_BUILDER, SPAWN_LOOP_BREAKER, CHECKPOINT, AWAIT_USER, DONE}
+        from next_action import SPAWN_GATE_WORKER  # noqa: PLC0415
+        named = {SPAWN_BUILDER, SPAWN_LOOP_BREAKER, SPAWN_GATE_WORKER, CHECKPOINT, AWAIT_USER, DONE}
         assert named == ACTIONS
 
 

@@ -2,7 +2,7 @@
 id: WORKER-001
 rail: WORKER
 title: Gate verdict grammar + fixture (DP3)
-status: planned
+status: complete
 phase: "HARNESS002-main"
 story_class: code
 auth_gated: false

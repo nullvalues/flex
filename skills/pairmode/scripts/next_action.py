@@ -1,6 +1,6 @@
 """
 next_action.py — Action grammar and position-inference read-model for the
-next-action resolver (RESOLVER-001, RESOLVER-002).
+next-action resolver (RESOLVER-001, RESOLVER-002, RESOLVER-003, RESOLVER-005).
 
 RESOLVER-001 (grammar layer):
   Defines the versioned action vocabulary, the canonical dict constructor,
@@ -18,6 +18,20 @@ RESOLVER-002 (read-model layer):
   - No subprocess/os.system shelling-out to other CLIs.
   - Composes sibling modules as a library (``next_story``, ``story_resolver``,
     ``model_selector``, ``flex_build`` extractions).
+
+RESOLVER-005 (gate-worker wiring):
+  Adds ``spawn-gate-worker`` to the action vocabulary (DP4) and splits Row 4
+  along the DP2 boundary: stub is mechanical (``await-user`` directly); schema/
+  auth are judged gates (``spawn-gate-worker``).
+
+  ``spawn-gate-worker`` is the **safe-clear seam** (DP4.5): budget hooks fire
+  here (``pre_tool_use``/``post_tool_use``) before any mutation.  Re-emission
+  across a ``/clear`` is idempotent (DP4.3) — the worker's inputs are durable
+  and unchanged, so the resolver simply re-emits the same action.
+
+  The verdict arrives as data (orchestrator-held re-entry, DP4.3).  No API
+  call is made from this module; tests inject verdict maps directly into
+  ``route_gate_verdict``.
 """
 
 from __future__ import annotations
@@ -42,15 +56,18 @@ SCHEMA_VERSION: int = 1
 
 SPAWN_BUILDER: str = "spawn-builder"
 SPAWN_LOOP_BREAKER: str = "spawn-loop-breaker"
+SPAWN_GATE_WORKER: str = "spawn-gate-worker"
 CHECKPOINT: str = "checkpoint"
 AWAIT_USER: str = "await-user"
 DONE: str = "done"
 
 ACTIONS: frozenset[str] = frozenset(
-    {SPAWN_BUILDER, SPAWN_LOOP_BREAKER, CHECKPOINT, AWAIT_USER, DONE}
+    {SPAWN_BUILDER, SPAWN_LOOP_BREAKER, SPAWN_GATE_WORKER, CHECKPOINT, AWAIT_USER, DONE}
 )
 
 # Actions for which model may be non-null (auto-resolved spawn actions only).
+# spawn-gate-worker carries no builder model (the gate worker tier is not a
+# builder-model decision), so it is NOT in _SPAWN_ACTIONS — model must be None.
 _SPAWN_ACTIONS: frozenset[str] = frozenset({SPAWN_BUILDER, SPAWN_LOOP_BREAKER})
 
 # Top-level keys that every action object must carry.
@@ -471,26 +488,46 @@ def resolve_next_action(position: dict, *, warnings: "list[str] | None" = None) 
         )
 
     # ------------------------------------------------------------------
-    # Row 4 — any pre-flight gate blocked
-    # Gate verdict is a judgment handoff (DP4) — emit await-user, no verdict.
-    # Check gates in order: stub, schema, auth.
+    # Row 4 — pre-flight gate blocked (DP2 split by DP2 boundary)
+    #
+    # stub  — mechanical gate: emit await-user directly (no worker).
+    # schema / auth — judged gates: emit spawn-gate-worker so the gate worker
+    #   can evaluate and return a verdict.  The safe-clear seam (DP4.5) fires
+    #   here — budget hooks fire before any mutation.  Re-emission is
+    #   idempotent across /clear (DP4.3).
     # ------------------------------------------------------------------
-    for gate_name, gate_dict in (
-        ("stub", gate_stub),
-        ("schema", gate_schema),
-        ("auth", gate_auth),
-    ):
-        if not gate_dict.get("ok", True):
-            meta = dict(meta_base)
-            meta["gate"] = gate_name
-            meta["gate_reason"] = gate_dict.get("blocked_reason", "")
-            return make_action(
-                AWAIT_USER,
-                scalar="",
-                model=None,
-                reason=f"gate-blocked:{gate_name}",
-                meta=meta,
-            )
+    # 4a. stub (mechanical — await-user directly)
+    if not gate_stub.get("ok", True):
+        meta = dict(meta_base)
+        meta["gate"] = "stub"
+        meta["gate_reason"] = gate_stub.get("blocked_reason", "")
+        return make_action(
+            AWAIT_USER,
+            scalar="",
+            model=None,
+            reason="gate-blocked:stub",
+            meta=meta,
+        )
+
+    # 4b. schema / auth (judged gates — spawn-gate-worker)
+    judged_tripped = [
+        name for name, gate_dict in (("schema", gate_schema), ("auth", gate_auth))
+        if not gate_dict.get("ok", True)
+    ]
+    if judged_tripped:
+        meta = dict(meta_base)
+        meta["gates_tripped"] = judged_tripped
+        meta["gate_reasons"] = {
+            name: (gate_schema if name == "schema" else gate_auth).get("blocked_reason", "")
+            for name in judged_tripped
+        }
+        return make_action(
+            SPAWN_GATE_WORKER,
+            scalar=next_story_id,
+            model=None,
+            reason="judged-gate-tripped",
+            meta=meta,
+        )
 
     # ------------------------------------------------------------------
     # Row 3 — model selection requires user judgment (prompted-upgrade)
@@ -563,4 +600,138 @@ def resolve_next_action(position: dict, *, warnings: "list[str] | None" = None) 
         model=None,
         reason="build-paused",
         meta=meta,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Gate-worker verdict helpers (RESOLVER-005, DP3 / DP6.2)
+#
+# These are module-level pure functions (no I/O).  The resolver state machine
+# decides *whether* to spawn the gate worker; these helpers decide *what the
+# verdict means* once the worker returns.  The separation mirrors HARNESS001's
+# grammar/state-machine boundary.
+# ---------------------------------------------------------------------------
+
+
+def parse_worker_verdict_text(text: str) -> dict:
+    """Parse a worker's text return into a per-gate verdict map (DP6.2).
+
+    The worker returns one ``gate: verdict`` line per judged gate.  Lines not
+    matching that pattern are ignored so the format is forward-compatible.
+
+    Example input::
+
+        schema: block:missing management surface story
+        auth: clean
+
+    Returns a dict ``{"schema": "block:missing management surface story",
+    "auth": "clean"}``.
+
+    Imports ``gate_verdict.JUDGED_GATES`` to constrain which keys are accepted;
+    unknown gate names are silently skipped.  The returned dict is suitable for
+    direct use with :func:`route_gate_verdict` and
+    ``gate_verdict.validate_verdict_map``.
+    """
+    from gate_verdict import JUDGED_GATES  # type: ignore[import]
+
+    result: dict = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        gate_name, _, verdict = line.partition(":")
+        gate_name = gate_name.strip()
+        # Re-attach the colon separator for block/flag payloads.
+        verdict_str = verdict.strip()
+        if gate_name in JUDGED_GATES:
+            result[gate_name] = verdict_str
+    return result
+
+
+def route_gate_verdict(
+    verdict_map: dict,
+    next_story_id: str,
+    *,
+    meta_base: "dict | None" = None,
+) -> dict:
+    """Apply the DP3.2 aggregation rule to a verdict map and return an action.
+
+    DP3.2 precedence:
+    - Any ``block`` verdict → ``await-user`` with ``reason="gate-blocked:<gate(s)>"``
+      and the worker reason(s) carried in ``meta.gate_block_reasons``.
+    - Else any ``flag`` verdict → ``spawn-builder`` (proceed) with the flag
+      reason(s) appended to ``meta.warnings[]``.
+    - Else all ``clean`` → ``spawn-builder`` (proceed).
+
+    Parameters
+    ----------
+    verdict_map:
+        Per-gate verdict dict as returned by :func:`parse_worker_verdict_text`
+        or injected directly in tests.
+    next_story_id:
+        The story ID to use as ``scalar`` for spawn-builder actions.
+    meta_base:
+        Optional base meta dict (e.g. carrying existing ``warnings``).
+
+    Returns
+    -------
+    dict
+        A canonical action dict produced by :func:`make_action`; always passes
+        :func:`validate_action` (returns ``[]``).
+    """
+    from gate_verdict import parse_verdict, VERBS  # type: ignore[import]  # noqa: F401
+
+    _meta: dict = dict(meta_base) if meta_base is not None else {}
+    _meta["verdict_map"] = dict(verdict_map)
+
+    # Collect block and flag verdicts.
+    block_gates: list[str] = []
+    block_reasons: dict[str, str] = {}
+    flag_gates: list[str] = []
+    flag_reasons: dict[str, str] = {}
+
+    for gate, verdict_str in verdict_map.items():
+        verb, reason = parse_verdict(verdict_str)
+        if verb == "block":
+            block_gates.append(gate)
+            block_reasons[gate] = reason
+        elif verb == "flag":
+            flag_gates.append(gate)
+            flag_reasons[gate] = reason
+
+    # Any block → await-user.
+    if block_gates:
+        gate_label = ":".join(sorted(block_gates))
+        meta = dict(_meta)
+        meta["gate_block_reasons"] = block_reasons
+        return make_action(
+            AWAIT_USER,
+            scalar="",
+            model=None,
+            reason=f"gate-blocked:{gate_label}",
+            meta=meta,
+        )
+
+    # Any flag → spawn-builder, flag reasons in warnings[].
+    if flag_gates:
+        meta = dict(_meta)
+        existing_warnings: list = list(meta.get("warnings") or [])
+        for gate in sorted(flag_gates):
+            existing_warnings.append(f"gate-flag:{gate}:{flag_reasons[gate]}")
+        meta["warnings"] = existing_warnings
+        return make_action(
+            SPAWN_BUILDER,
+            scalar=next_story_id,
+            model=None,
+            reason="gate-flag-proceed",
+            meta=meta,
+        )
+
+    # All clean → spawn-builder.
+    return make_action(
+        SPAWN_BUILDER,
+        scalar=next_story_id,
+        model=None,
+        reason="gate-clean-proceed",
+        meta=_meta,
     )

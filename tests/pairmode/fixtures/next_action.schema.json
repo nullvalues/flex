@@ -13,6 +13,7 @@
       "enum": [
         "spawn-builder",
         "spawn-loop-breaker",
+        "spawn-gate-worker",
         "checkpoint",
         "await-user",
         "done"

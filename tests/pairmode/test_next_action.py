@@ -496,8 +496,11 @@ from next_action import (  # noqa: E402
     DONE,
     SPAWN_BUILDER,
     SPAWN_LOOP_BREAKER,
+    SPAWN_GATE_WORKER,
     CHECKPOINT,
     AWAIT_USER,
+    parse_worker_verdict_text,
+    route_gate_verdict,
 )
 
 
@@ -942,3 +945,218 @@ class TestNextActionCLISurfaceFreeze:
         assert "next-action" in flex_build.commands, (
             "next-action command missing from flex_build CLI group"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests — RESOLVER-005: Row-4 DP2 split
+# ---------------------------------------------------------------------------
+
+
+def _make_phase_file(tmp_path: "Any") -> "Path":
+    """Create a minimal phase file and return its Path."""
+    phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+    phase_file.parent.mkdir(parents=True, exist_ok=True)
+    phase_file.write_text("# Phase 1\n", encoding="utf-8")
+    return phase_file
+
+
+class TestResolveNextActionRow4Split:
+    """Row 4 splits by DP2 boundary: stub → await-user; schema/auth → spawn-gate-worker."""
+
+    def test_schema_tripped_emits_spawn_gate_worker(self, tmp_path: "Any") -> None:
+        """schema blocked (stub clean) → spawn-gate-worker with scalar=story_id."""
+        phase_file = _make_phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="RESOLVER-001",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+            gate_stub={"ok": True, "blocked_reason": ""},
+            gate_schema={"ok": False, "blocked_reason": "no management surface"},
+            gate_auth={"ok": True, "blocked_reason": ""},
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_GATE_WORKER
+        assert action["scalar"] == "RESOLVER-001"
+        assert action["model"] is None
+        assert validate_action(action) == []
+        assert "schema" in action["meta"]["gates_tripped"]
+
+    def test_auth_tripped_emits_spawn_gate_worker(self, tmp_path: "Any") -> None:
+        """auth blocked (stub clean, schema ok) → spawn-gate-worker."""
+        phase_file = _make_phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="RESOLVER-002",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+            gate_stub={"ok": True, "blocked_reason": ""},
+            gate_schema={"ok": True, "blocked_reason": ""},
+            gate_auth={"ok": False, "blocked_reason": "no classification in architecture.md"},
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_GATE_WORKER
+        assert action["scalar"] == "RESOLVER-002"
+        assert action["model"] is None
+        assert validate_action(action) == []
+        assert "auth" in action["meta"]["gates_tripped"]
+
+    def test_stub_tripped_emits_await_user_directly(self, tmp_path: "Any") -> None:
+        """stub blocked → await-user with reason=gate-blocked:stub (no worker)."""
+        phase_file = _make_phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="RESOLVER-003",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+            gate_stub={"ok": False, "blocked_reason": "stub delegation detected"},
+            gate_schema={"ok": True, "blocked_reason": ""},
+            gate_auth={"ok": True, "blocked_reason": ""},
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == AWAIT_USER
+        assert action["reason"] == "gate-blocked:stub"
+        assert action["model"] is None
+        assert validate_action(action) == []
+
+    def test_no_gate_trips_falls_through_to_spawn_builder(self, tmp_path: "Any") -> None:
+        """No gates tripped → falls through Row 2 → spawn-builder."""
+        phase_file = _make_phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="RESOLVER-004",
+            attempt_count=0,
+            builder_model="sonnet",
+            builder_model_reason="auto-baseline",
+            last_attempt_outcome=OUTCOME_NONE,
+            gate_stub={"ok": True, "blocked_reason": ""},
+            gate_schema={"ok": True, "blocked_reason": ""},
+            gate_auth={"ok": True, "blocked_reason": ""},
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["scalar"] == "RESOLVER-004"
+        assert validate_action(action) == []
+
+    def test_spawn_gate_worker_validate_passes(self, tmp_path: "Any") -> None:
+        """spawn-gate-worker with model=None passes validate_action."""
+        action = make_action(SPAWN_GATE_WORKER, scalar="TEST-001", model=None, reason="test")
+        assert validate_action(action) == []
+
+    def test_spawn_gate_worker_with_model_fails_validate(self, tmp_path: "Any") -> None:
+        """spawn-gate-worker must not carry a model; validate catches violations."""
+        action = make_action(SPAWN_GATE_WORKER, scalar="TEST-001", model="sonnet", reason="test")
+        violations = validate_action(action)
+        assert len(violations) > 0
+        assert any("model" in v for v in violations)
+
+
+# ---------------------------------------------------------------------------
+# Tests — RESOLVER-005: route_gate_verdict aggregation helper (DP3.2)
+# ---------------------------------------------------------------------------
+
+
+class TestRouteGateVerdict:
+    """Injected-verdict routing via the aggregation helper (DP3.2 table)."""
+
+    def test_single_block_emits_await_user(self) -> None:
+        """{"schema": "block:..."} → await-user with reason containing gate-blocked."""
+        verdict_map = {"schema": "block:missing management surface"}
+        action = route_gate_verdict(verdict_map, "TEST-001")
+        assert action["action"] == AWAIT_USER
+        assert "gate-blocked" in action["reason"]
+        assert "schema" in action["reason"]
+        assert action["model"] is None
+        assert validate_action(action) == []
+        assert "schema" in action["meta"]["gate_block_reasons"]
+        assert action["meta"]["gate_block_reasons"]["schema"] == "missing management surface"
+
+    def test_any_block_wins_over_clean(self) -> None:
+        """{"auth": "clean", "schema": "block:..."} → await-user (block wins)."""
+        verdict_map = {"auth": "clean", "schema": "block:no surface story in phase"}
+        action = route_gate_verdict(verdict_map, "TEST-002")
+        assert action["action"] == AWAIT_USER
+        assert "gate-blocked" in action["reason"]
+        assert validate_action(action) == []
+
+    def test_flag_emits_spawn_builder_with_warning(self) -> None:
+        """{"auth": "flag:..."} → spawn-builder with flag reason in meta.warnings[]."""
+        verdict_map = {"auth": "flag:auth check advisory only"}
+        action = route_gate_verdict(verdict_map, "TEST-003")
+        assert action["action"] == SPAWN_BUILDER
+        assert action["scalar"] == "TEST-003"
+        warnings = action["meta"].get("warnings", [])
+        assert any("gate-flag:auth" in w for w in warnings)
+        assert validate_action(action) == []
+
+    def test_all_clean_emits_spawn_builder(self) -> None:
+        """{"schema": "clean", "auth": "clean"} → spawn-builder (proceed)."""
+        verdict_map = {"schema": "clean", "auth": "clean"}
+        action = route_gate_verdict(verdict_map, "TEST-004")
+        assert action["action"] == SPAWN_BUILDER
+        assert action["scalar"] == "TEST-004"
+        assert validate_action(action) == []
+
+    def test_empty_verdict_map_emits_spawn_builder(self) -> None:
+        """Empty map (no judged gates) → spawn-builder (all-clean path)."""
+        action = route_gate_verdict({}, "TEST-005")
+        assert action["action"] == SPAWN_BUILDER
+        assert validate_action(action) == []
+
+    def test_block_reason_carried_in_meta(self) -> None:
+        """Block worker reason is accessible in meta.gate_block_reasons."""
+        verdict_map = {"schema": "block:schema not resolved"}
+        action = route_gate_verdict(verdict_map, "TEST-006")
+        assert action["meta"]["gate_block_reasons"]["schema"] == "schema not resolved"
+
+
+# ---------------------------------------------------------------------------
+# Tests — RESOLVER-005: parse_worker_verdict_text helper (DP6.2)
+# ---------------------------------------------------------------------------
+
+
+class TestParseWorkerVerdictText:
+    """parse_worker_verdict_text turns worker text into a per-gate verdict map."""
+
+    def test_parse_block_and_clean(self) -> None:
+        """schema block + auth clean round-trips correctly."""
+        text = "schema: block:missing management surface\nauth: clean"
+        result = parse_worker_verdict_text(text)
+        assert result["schema"] == "block:missing management surface"
+        assert result["auth"] == "clean"
+
+    def test_parse_flag(self) -> None:
+        """flag verdict round-trips."""
+        text = "auth: flag:auth check advisory"
+        result = parse_worker_verdict_text(text)
+        assert result["auth"] == "flag:auth check advisory"
+
+    def test_unknown_gate_skipped(self) -> None:
+        """Lines with non-judged gate names are silently skipped."""
+        text = "stub: block:stub delegation\nschema: clean"
+        result = parse_worker_verdict_text(text)
+        assert "stub" not in result
+        assert result.get("schema") == "clean"
+
+    def test_empty_text_returns_empty_map(self) -> None:
+        """Empty worker output returns an empty dict."""
+        result = parse_worker_verdict_text("")
+        assert result == {}
+
+    def test_extra_lines_ignored(self) -> None:
+        """Non-gate lines (e.g. blank lines, prose) are ignored."""
+        text = (
+            "Gate worker verdict:\n"
+            "\n"
+            "schema: block:no surface story\n"
+            "auth: clean\n"
+            "Note: review required\n"
+        )
+        result = parse_worker_verdict_text(text)
+        assert result == {"schema": "block:no surface story", "auth": "clean"}
+
+    def test_verdict_with_colon_in_reason_round_trips(self) -> None:
+        """Reason may contain colons and still round-trips."""
+        text = "schema: block:reason:with:colons"
+        result = parse_worker_verdict_text(text)
+        assert result["schema"] == "block:reason:with:colons"

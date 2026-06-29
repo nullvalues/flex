@@ -32,6 +32,17 @@
     }
   },
   {
+    "action": "spawn-gate-worker",
+    "scalar": "RESOLVER-005",
+    "model": null,
+    "reason": "judged-gate-tripped",
+    "meta": {
+      "schema_version": 1,
+      "gates_tripped": ["schema"],
+      "gate_reasons": {"schema": "no management surface story in phase"}
+    }
+  },
+  {
     "action": "checkpoint",
     "scalar": "",
     "model": null,
