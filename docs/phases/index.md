@@ -79,7 +79,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 78 | orchestrator pre-flight gate CLI offload | complete | [phase-78.md](phase-78.md) |
 | HARNESS001-ante1 | Versioning & upstream compatibility | complete | [phase-HARNESS001-ante1.md](phase-HARNESS001-ante1.md) |
 | HARNESS001-main | Resolver foundation (deterministic skeleton) | complete | [phase-HARNESS001-main.md](phase-HARNESS001-main.md) |
-| HARNESS002-main | Gate verdict extraction | planned | [phase-HARNESS002-main.md](phase-HARNESS002-main.md) |
+| HARNESS002-main | Gate verdict extraction | complete | [phase-HARNESS002-main.md](phase-HARNESS002-main.md) |
 
 ---
 

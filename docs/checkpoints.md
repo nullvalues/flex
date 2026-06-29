@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp-HARNESS002-main
+
+**Phase:** HARNESS002-main — Gate verdict extraction (Era 003)
+**Tag command:** `git tag cp-HARNESS002-main && git push origin cp-HARNESS002-main`
+**Acceptance:** Five stories. **WORKER-001** (DP3): `gate_verdict.py` grammar contract — `VERBS`, `JUDGED_GATES` (stub excluded), `parse_verdict`, `validate_verdict_map`; stdlib-only, no I/O; 58 tests + `gate_verdict_grammar.json` fixture. **RESOLVER-005** (DP4, DP6): `spawn-gate-worker` added to `ACTIONS`, Row-4 DP2 split (stub→`await-user` directly; schema/auth→`spawn-gate-worker`), `parse_worker_verdict_text` + `route_gate_verdict` pure helpers for DP3.2 aggregation; resolver stays pure-read. **WORKER-002** (DP1, DP2, DP5, DP6): `skills/pairmode/gate_worker/SKILL.md` plugin-versioned procedure skill + `templates/agents/gate-worker.md.j2` thin agent shell; no inline gate-detection logic. **RESOLVER-006** (DP7 / CF-1 / CER-060): `infer_position` selects builder model at `attempt_count+1` on FAIL; Row 5 emits `position.builder_model`/`builder_model_reason`; selector is now the single source of retry tier. **WORKER-003** (DP8): `test_gate_worker_isolation.py` + `gate_signals.json` — full DP8.1 matrix (signal collection, injected-verdict routing, grammar round-trip, DP1.3 input-bound guard, CF-1 regression). All advisory-only — gate worker not wired into live `CLAUDE.build.md` (HARNESS006 does the flip). Security audit: pending. Intent review: ALIGNED (5 LOW/MEDIUM findings resolved pre-tag). 2516 tests pass.
+
+---
+
 ## cp-HARNESS001-main
 
 **Phase:** HARNESS001-main — Resolver foundation (deterministic skeleton, Era 003)

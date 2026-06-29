@@ -2,7 +2,7 @@
 id: WORKER-002
 rail: WORKER
 title: Gate worker — thin shell + plugin procedure skill (DP1, DP2, DP5, DP6)
-status: planned
+status: complete
 phase: "HARNESS002-main"
 story_class: code
 auth_gated: false

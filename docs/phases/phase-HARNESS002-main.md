@@ -26,7 +26,7 @@ into the live `CLAUDE.build.md` (HARNESS006 does the flip). Agreements input:
 | RESOLVER-005 | `spawn-gate-worker` action + Row-4 split + verdict routing (DP4, DP6) | complete |
 | WORKER-002 | Gate worker — thin shell + plugin procedure skill (DP1, DP2, DP5, DP6) | complete |
 | RESOLVER-006 | CF-1/CER-060 — retry-path model composition fix (DP7) | complete |
-| WORKER-003 | Isolation test suite (DP8) | planned |
+| WORKER-003 | Isolation test suite (DP8) | complete |
 
 ## Schema delivery
 

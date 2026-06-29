@@ -2,7 +2,7 @@
 id: RESOLVER-005
 rail: RESOLVER
 title: spawn-gate-worker action + Row-4 split + verdict routing (DP4, DP6)
-status: planned
+status: complete
 phase: "HARNESS002-main"
 story_class: code
 auth_gated: false

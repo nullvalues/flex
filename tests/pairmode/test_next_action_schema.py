@@ -6,7 +6,7 @@ Tests for the next_action action grammar module (RESOLVER-001).
 Coverage:
 - Round-trip: every sample in next_action_samples.json validates and survives json round-trip.
 - Constructor: make_action(DONE) shape; meta mutation safety.
-- Enum closure: ACTIONS contains exactly the five documented values.
+- Enum closure: ACTIONS contains exactly the six documented values (RESOLVER-005 added spawn-gate-worker).
 - Negative cases: unknown action, missing key, model on non-spawn, bad/missing schema_version.
 - Schema/validator agreement: enum and key set in next_action.schema.json match Python module.
 """
