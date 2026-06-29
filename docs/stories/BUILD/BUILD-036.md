@@ -2,7 +2,7 @@
 id: BUILD-036
 rail: BUILD
 title: "current-phase: first-incomplete selection + status classification"
-status: planned
+status: complete
 phase: "79"
 story_class: code
 primary_files:
