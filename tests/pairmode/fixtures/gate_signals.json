@@ -1,0 +1,89 @@
+{
+  "version": "1",
+  "description": "Reference gate-signal expectations for the DP8.1 signal-collection matrix (WORKER-003). Each scenario records the story configuration and the expected {ok, blocked_reason} signal set the gate worker is handed, plus the expected action per DP2.",
+  "dp_note": "DP2 spawn boundary: judged gates (schema, auth) trip spawn-gate-worker; mechanical gate (stub) trips await-user directly without spawning a worker; all-clean trips spawn-builder.",
+  "scenarios": [
+    {
+      "label": "auth-gated-no-classification",
+      "auth_gated": true,
+      "schema_introduces": false,
+      "stub_story": false,
+      "classification_in_arch": false,
+      "exception_in_body": false,
+      "expected_gate_stub_ok": true,
+      "expected_gate_schema_ok": true,
+      "expected_gate_auth_ok": false,
+      "expected_action": "spawn-gate-worker",
+      "expected_action_reason": "judged-gate-tripped",
+      "dp2_note": "auth is a judged gate — tripped without classification → spawn-gate-worker (no worker bypass)"
+    },
+    {
+      "label": "auth-gated-with-classification",
+      "auth_gated": true,
+      "schema_introduces": false,
+      "stub_story": false,
+      "classification_in_arch": true,
+      "exception_in_body": false,
+      "expected_gate_stub_ok": true,
+      "expected_gate_schema_ok": true,
+      "expected_gate_auth_ok": true,
+      "expected_action": "spawn-builder",
+      "dp2_note": "classification present → auth gate passes → all clean → spawn-builder (Row 2)"
+    },
+    {
+      "label": "schema-introduces-no-exception",
+      "auth_gated": false,
+      "schema_introduces": true,
+      "stub_story": false,
+      "classification_in_arch": false,
+      "exception_in_body": false,
+      "expected_gate_stub_ok": true,
+      "expected_gate_schema_ok": false,
+      "expected_gate_auth_ok": true,
+      "expected_action": "spawn-gate-worker",
+      "expected_action_reason": "judged-gate-tripped",
+      "dp2_note": "schema is a judged gate — no mgmt story or exception → spawn-gate-worker"
+    },
+    {
+      "label": "schema-introduces-with-exception",
+      "auth_gated": false,
+      "schema_introduces": true,
+      "stub_story": false,
+      "classification_in_arch": false,
+      "exception_in_body": true,
+      "expected_gate_stub_ok": true,
+      "expected_gate_schema_ok": true,
+      "expected_gate_auth_ok": true,
+      "expected_action": "spawn-builder",
+      "dp2_note": "exception phrase in body → schema gate passes → all clean → spawn-builder (Row 2)"
+    },
+    {
+      "label": "stub-story",
+      "auth_gated": false,
+      "schema_introduces": false,
+      "stub_story": true,
+      "classification_in_arch": false,
+      "exception_in_body": false,
+      "expected_gate_stub_ok": false,
+      "expected_gate_schema_ok": true,
+      "expected_gate_auth_ok": true,
+      "expected_action": "await-user",
+      "expected_action_reason": "gate-blocked:stub",
+      "dp2_note": "stub is mechanical — tripped → await-user directly, no gate worker spawned"
+    },
+    {
+      "label": "clean-story",
+      "auth_gated": false,
+      "schema_introduces": false,
+      "stub_story": false,
+      "classification_in_arch": false,
+      "exception_in_body": false,
+      "expected_gate_stub_ok": true,
+      "expected_gate_schema_ok": true,
+      "expected_gate_auth_ok": true,
+      "expected_action": "spawn-builder",
+      "dp2_note": "all gates clean → spawn-builder (Row 2)"
+    }
+  ],
+  "golden_evals_note": "Non-gating golden eval fixtures (story + signals → expected verdict) are deliberately omitted from this file to avoid gating the build on LLM judgment. Judgment quality is validated by the worker procedure prompt + manual review (DP8.2)."
+}
