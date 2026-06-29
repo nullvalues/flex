@@ -1,0 +1,9 @@
+{
+  "story_id": "BUILD-038",
+  "story_spec": "docs/stories/BUILD/BUILD-038.md",
+  "allowed_paths": [
+    ".claude/agents/reviewer.md",
+    "docs/stories/BUILD/BUILD-038.md"
+  ],
+  "generated_at": "2026-06-29T13:44:04Z"
+}
