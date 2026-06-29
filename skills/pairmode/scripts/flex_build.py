@@ -602,17 +602,14 @@ def cmd_mark_phase_complete(phase_key: str, project_dir: str) -> None:
     for line in text.splitlines(keepends=True):
         stripped = line.strip()
         if not replaced and stripped.startswith("|"):
-            parts = stripped.split("|")
-            # parts[0] is '' (before first |), parts[-1] is '' (after last |)
-            # columns: parts[1]=phase, parts[2]=title, parts[3]=status, parts[4]=tag
-            if len(parts) >= 5:
-                cell_phase = parts[1].strip()
-                cell_status = parts[3].strip()
-                if cell_phase == phase_key and cell_status != "complete":
-                    new_row = (
-                        f"| {parts[1].strip()} | {parts[2].strip()} | complete |"
-                        f" {parts[4].strip()} |\n"
-                    )
+            # inner cells: drop the leading/trailing empty strings produced by
+            # splitting "| a | b | c |" on "|"
+            cells = [p.strip() for p in stripped.split("|")[1:-1]]
+            # cells[0]=phase, cells[1]=title, cells[2]=status, cells[3:]=rest
+            if len(cells) >= 3:
+                if cells[0] == phase_key and cells[2] != "complete":
+                    cells[2] = "complete"
+                    new_row = "| " + " | ".join(cells) + " |\n"
                     new_lines.append(new_row)
                     replaced = True
                     continue
