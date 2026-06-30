@@ -539,3 +539,9 @@ CER-031). All docs follow the catalog template verbatim with real "What Broke" i
 **Phase:** 78
 **Stories:** INFRA-184, BUILD-034, BUILD-035
 **Acceptance:** Orchestrator pre-flight gates (auth, schema, stub) offloaded from inline LLM judgment to `flex_build.py` CLI calls. New story frontmatter fields `auth_gated` + `schema_introduces` scaffolded by `story_new.py`. CLAUDE.build.md.j2 template updated so `sync-build --apply` propagates to upstream repos. 2232 tests pass.
+
+## cp80-prereview-blanket-stage-exclusion
+**Tag command:** `git tag cp80-prereview-blanket-stage-exclusion && git push origin cp80-prereview-blanket-stage-exclusion`
+**Phase:** 80
+**Stories:** BUILD-039
+**Acceptance:** `git reset HEAD` exclusion loop added to Step 1.5 of `CLAUDE.build.md` (and its `.j2` template) — the orchestrator now unstages any story `primary_files`/`touches` swept up by the blanket `git add docs/phases/ docs/cer/` before the pre-reviewer commit fires. Prevents story deliverables whose primary_file lives under `docs/phases/` from being silently committed unreviewed under the chore message (L018). 2266 tests pass.
