@@ -27,7 +27,7 @@ action). Agreements input: `docs/agreements/HARNESS004-main.md` (all 6 DPs AGREE
 
 | ID | Title | Status |
 |----|-------|--------|
-| RESOLVER-007 | Checkpoint step tracker — `checkpoint_step` Position field + action vocabulary | planned |
+| RESOLVER-007 | Checkpoint step tracker — `checkpoint_step` Position field + action vocabulary | complete |
 | WORKER-011 | Checkpoint docs-review leaf worker | planned |
 | RESOLVER-008 | Checkpoint action routing — pre-checkpoint guards + step sequencing | planned |
 | WORKER-012 | HARNESS004 isolation suite | planned |

@@ -1,0 +1,11 @@
+{
+  "story_id": "WORKER-011",
+  "story_spec": "docs/stories/WORKER/WORKER-011.md",
+  "allowed_paths": [
+    "skills/pairmode/skills/checkpoint-docs/procedure.md",
+    "tests/pairmode/test_checkpoint_docs_worker.py",
+    "skills/pairmode/scripts/worker_result.py",
+    "docs/stories/WORKER/WORKER-011.md"
+  ],
+  "generated_at": "2026-06-30T18:56:04Z"
+}
