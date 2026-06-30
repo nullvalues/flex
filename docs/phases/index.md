@@ -79,6 +79,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 78 | orchestrator pre-flight gate CLI offload | complete | [phase-78.md](phase-78.md) |
 | 79 | era-002 index-tooling maintenance (current-phase, mark-phase-complete, reviewer revert) | complete | [phase-79.md](phase-79.md) |
 | 80 | pre-reviewer blanket-stage exclusion fix | complete | [phase-80.md](phase-80.md) |
+| 81 | write-permissions + clear-permissions wired into build loop | planned | [phase-81.md](phase-81.md) |
 | HARNESS001-ante1 | Versioning & upstream compatibility | complete | [phase-HARNESS001-ante1.md](phase-HARNESS001-ante1.md) |
 
 ---
