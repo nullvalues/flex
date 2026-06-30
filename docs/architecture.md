@@ -42,6 +42,8 @@ flex/
           procedure.md            ← plugin-versioned security-audit procedure (WORKER-008, HARNESS003-main): CRITICAL/HIGH/MEDIUM/LOW checklist, REVIEW-RESULT return schema; advisory-only until the flip (HARNESS006)
         intent-reviewer/
           procedure.md            ← plugin-versioned intent-review procedure (WORKER-009, HARNESS003-main): story-alignment scale, design-pivot detection, doc-edit recommendations, REVIEW-RESULT with ALIGNED verdict; advisory-only until the flip (HARNESS006)
+        checkpoint-docs/
+          procedure.md            ← plugin-versioned docs-review procedure (WORKER-011, HARNESS004-main): documentation currency checklist, bounded inputs (phase doc, era doc, index.md, architecture.md, cer/backlog.md, story files, CHANGELOG.md), REVIEW-RESULT return schema; advisory-only until the flip (HARNESS006)
       scripts/
         bootstrap.py              ← generate pairmode scaffold from spec
         audit.py                  ← diff project against canonical templates
@@ -67,7 +69,7 @@ flex/
         next_story.py             ← find next unbuilt story from a phase file; CLI: uv run next_story.py <phase-file> [--json] [--project-dir DIR]
         gate_verdict.py           ← WORKER-001 gate verdict grammar: VERBS (clean/block/flag), JUDGED_GATES (schema/auth; stub excluded), parse_verdict (string → (verb, reason)), validate_verdict_map (dict → violation list); stdlib-only, no I/O; the WORKER-rail contract analogue of next_action.py's action grammar
         worker_result.py          ← generalized worker return contract (WORKER-004, HARNESS003-main): four result types (BUILD-RESULT, REVIEW-RESULT, ADVICE, SPEC-RESULT), parse_worker_result (text → dict, validated), validate_worker_result (dict → violation list); stdlib-only, no I/O; parallel to gate_verdict.py for all non-gate workers
-        next_action.py            ← next-action resolver: action grammar (make_action, validate_action, ACTIONS), position read-model (infer_position), 9-state DP2 machine (resolve_next_action); HARNESS002-main adds spawn-gate-worker to ACTIONS, Row-4 DP2 split (stub→await-user directly; schema/auth→spawn-gate-worker), parse_worker_verdict_text (worker text return → per-gate verdict map), route_gate_verdict (DP3.2 aggregation: block→await-user, flag→proceed+warnings, clean→proceed); advisory-only, pure-read; HARNESS003-main adds spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer to ACTIONS and _SPAWN_ACTIONS; SCHEMA_VERSION bumped to 2
+        next_action.py            ← next-action resolver: action grammar (make_action, validate_action, ACTIONS), position read-model (infer_position), 9-state DP2 machine (resolve_next_action); HARNESS002-main adds spawn-gate-worker to ACTIONS, Row-4 DP2 split (stub→await-user directly; schema/auth→spawn-gate-worker), parse_worker_verdict_text (worker text return → per-gate verdict map), route_gate_verdict (DP3.2 aggregation: block→await-user, flag→proceed+warnings, clean→proceed); advisory-only, pure-read; HARNESS003-main adds spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer to ACTIONS and _SPAWN_ACTIONS; SCHEMA_VERSION bumped to 2; HARNESS004-main adds checkpoint-security, checkpoint-intent, checkpoint-docs, checkpoint-tag to ACTIONS; removes monolithic checkpoint from ACTIONS (constant retained for import compat); adds check_checkpoint_guards (pre-checkpoint guards: phase-completion, CER Do Now, build-gate via injectable gate_fn); checkpoint step sequencing via _CHECKPOINT_SEQUENCE; SCHEMA_VERSION bumped to 3
         pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all three sync operations in fixed order (sync-all subcommand); also registers register/unregister/list-projects in the top-level CLI group
         pairmode_register.py      ← manage registered_projects in .companion/state.json (register/unregister/list-projects subcommands)
         pairmode_migrate.py       ← one-shot migration of an anchor-bootstrapped sibling project to flex naming (migrate-from-anchor subcommand)
@@ -244,9 +246,14 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    malformed JSON) so non-story orchestrator work (checkpointing, spec mode) is
    never blocked. Introduced in Phase 55 (INFRA-138, INFRA-139).
 
-10. **Checkpoint** — at phase end, the intent-reviewer and security-auditor run across all stories.
-    Documentation is updated, all planned stories are verified complete or deferred, and the phase
-    is tagged.
+10. **Checkpoint** — at phase end, the checkpoint sequence runs:
+    `checkpoint-security` (security-auditor, WORKER-008) → `checkpoint-intent` (intent-reviewer,
+    WORKER-009) → `checkpoint-docs` (docs-reviewer, WORKER-011) → `checkpoint-tag` (inline git
+    operation). Pre-checkpoint guards (phase-completion, CER Do Now, build gate) must pass before
+    the sequence starts. Step state persists in `state.json["checkpoint_step"]`; the resolver emits
+    one action per call, and the harness applies the checkpoint-agent model override (model_selector)
+    when spawning each leaf worker. Documentation is updated, all planned stories are verified
+    complete or deferred, and the phase is tagged. Advisory-only until the flip (HARNESS006).
 
 ---
 
@@ -797,7 +804,10 @@ Scoped to the window `HARNESS001-main … HARNESS005-main`:
 2. **Resolver is pure-read.** `next-action` reads `state.json`, `effort.db`, the era/phase/story
    index, story status, and attempt counters; it writes nothing authoritative (any cache is
    disposable and never read back by the orchestrator). The orchestrator remains the sole writer
-   of all shared state during the additive window.
+   of all shared state during the additive window. Note: `check_checkpoint_guards` (introduced in
+   RESOLVER-008) calls `_run_build_gate_subprocess` when `gate_fn` is not injected — this is a
+   subprocess call, not a state write. The pure-read constraint refers to `state.json`; the
+   subprocess invocation is advisory-only and fails open on timeout or error.
 
 3. **Fleet-facing surface frozen on `main`.** Consumer-facing templates (`CLAUDE.build.md.j2`,
    `agents/*.md.j2`), global hooks, and agent files do not change on `main` until the flip — a
