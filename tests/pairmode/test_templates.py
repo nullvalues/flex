@@ -1392,12 +1392,14 @@ import re
 
 
 class TestClaudeBuildMdPermissionScopeCommands:
-    """Story BUILD-002 / INFRA-131 / BUILD-024: CLAUDE.build.md.j2 must contain
-    explicit bash commands that exercise the story-scoped permission lifecycle and
-    the story-status update.  After BUILD-024 replaced write-permissions /
-    clear-permissions with permissions-create + story_context.py, the assertions
-    reference the new CLI surface while ``story_update.py`` continues to be
-    invoked directly."""
+    """Story BUILD-002 / INFRA-131 / BUILD-024 / BUILD-040: CLAUDE.build.md.j2 must
+    contain explicit bash commands that exercise the story-scoped permission lifecycle
+    and the story-status update.  BUILD-024 replaced write-permissions /
+    clear-permissions with permissions-create + story_context.py for the scope_guard
+    (Layer 1) hook.  BUILD-040 re-adds write-permissions (Step 1) and
+    clear-permissions (Step 3) as Layer 2 — suppressing Claude Code UI permission
+    prompts for the story's declared files.  Both layers are now present
+    simultaneously."""
 
     def setup_method(self):
         self.output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
@@ -1412,11 +1414,11 @@ class TestClaudeBuildMdPermissionScopeCommands:
     def test_story_context_clear_present(self):
         assert "--clear" in self.output
 
-    def test_write_permissions_absent(self):
-        assert "flex_build.py write-permissions" not in self.output
+    def test_write_permissions_present(self):
+        assert "flex_build.py write-permissions" in self.output
 
-    def test_clear_permissions_absent(self):
-        assert "flex_build.py clear-permissions" not in self.output
+    def test_clear_permissions_present(self):
+        assert "flex_build.py clear-permissions" in self.output
 
     def test_story_update_py_present(self):
         assert "story_update.py" in self.output

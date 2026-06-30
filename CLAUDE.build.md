@@ -415,12 +415,20 @@ PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts
 Use the printed integer as the starting attempt number. If it prints `0`,
 this is a fresh story and the attempt number is `1`.
 
-Before spawning the builder, generate the story's scope-enforcement permissions file
-and stamp the active story into state.json:
+Before spawning the builder, set up the two-layer permission model and stamp the
+active story into state.json:
+
+- Layer 1 (`permissions-create`): generates `docs/phases/permissions/<story_id>.json`
+  used by the `scope_guard` hook to enforce file-write scope at the hook level.
+- Layer 2 (`write-permissions`): writes `Edit`/`Write` allow rules into
+  `.claude/settings.local.json` to suppress Claude Code permission prompts for the
+  story's declared files before writes even reach the hook.
 
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py permissions-create \
   STORY-ID --project-dir .
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py write-permissions \
+  --story-id STORY-ID --project-dir .  # Layer 2: suppress Claude Code prompt for declared files
 PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_context.py --set RAIL-NNN --project-dir .
 ```
 
@@ -617,9 +625,13 @@ Story commits use the format: `feat(story-RAIL-NNN)` (e.g., `feat(story-BOOTSTRA
 
 After the reviewer commits or reverts:
 
-1. Clear the active story context:
+1. Clear the active story context and Claude Code permission allow rules
+   (`clear-permissions` runs regardless of PASS/FAIL outcome, restoring the default
+   deny posture before the next story begins):
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/story_context.py --clear --project-dir .
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py clear-permissions \
+  --project-dir .  # Layer 2 cleanup: remove story allow rules from settings.local.json
 ```
 
 2. If the reviewer committed (PASS): update the story status to complete:
