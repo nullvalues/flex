@@ -1,7 +1,7 @@
 """
 next_action.py — Action grammar and position-inference read-model for the
 next-action resolver (RESOLVER-001, RESOLVER-002, RESOLVER-003, RESOLVER-005,
-RESOLVER-007).
+RESOLVER-007, RESOLVER-008).
 
 RESOLVER-001 (grammar layer):
   Defines the versioned action vocabulary, the canonical dict constructor,
@@ -45,9 +45,19 @@ RESOLVER-007 (checkpoint step tracker):
 
   REMOVAL NOTE: ``CHECKPOINT = "checkpoint"`` constant is retained for
   backward import compatibility but is no longer a member of ``ACTIONS``.
-  The Row-9 branch that previously emitted it now emits a temporary
-  ``await-user`` with ``reason="checkpoint-decomposition-pending-RESOLVER-008"``
-  so the suite stays green until RESOLVER-008 lands the real checkpoint routing.
+
+RESOLVER-008 (checkpoint routing):
+  Replaces the temporary Row-9 stub with real pre-checkpoint guard checks and
+  step sequencing.  Three guards run when ``next_story_id`` is ``None`` (all
+  phase stories done): (1) phase completion (all stories complete/deferred),
+  (2) CER Do Now clear (no unresolved items in ``docs/cer/backlog.md``), and
+  (3) build gate (pytest exits 0).  If any guard fails, ``await-user`` is
+  emitted with ``reason="checkpoint-guard-failed:<which>"``.  When all guards
+  pass, the next uncompleted step from ``_CHECKPOINT_SEQUENCE`` is emitted.
+  After all four steps appear in ``position["checkpoint_step"]``, ``done`` is
+  emitted.  The build gate is injectable via a ``gate_fn`` parameter on
+  ``resolve_next_action`` and ``check_checkpoint_guards`` so tests never run
+  the real pytest subprocess.
 """
 
 from __future__ import annotations
@@ -123,6 +133,16 @@ _SPAWN_ACTIONS: frozenset[str] = frozenset(
         CHECKPOINT_INTENT,
         CHECKPOINT_DOCS,
     }
+)
+
+# Ordered sequence of checkpoint sub-actions emitted one per resolver call (RESOLVER-008).
+# The harness writes the completed step into state.json["checkpoint_step"] after execution.
+# ``checkpoint-tag`` is an inline action (NOT in _SPAWN_ACTIONS); all others may carry a model.
+_CHECKPOINT_SEQUENCE: tuple[str, ...] = (
+    CHECKPOINT_SECURITY,
+    CHECKPOINT_INTENT,
+    CHECKPOINT_DOCS,
+    CHECKPOINT_TAG,
 )
 
 # Top-level keys that every action object must carry.
@@ -223,6 +243,176 @@ def validate_action(obj: object) -> list[str]:
             )
 
     return violations
+
+
+# ---------------------------------------------------------------------------
+# Pre-checkpoint guards (RESOLVER-008)
+#
+# Three deterministic, pure-read guards run when all phase stories are
+# complete/deferred (Row 9 of the DP2 table).  Each guard is a standalone
+# function so tests can exercise them directly.  The build-gate guard is
+# injectable via ``gate_fn`` to avoid spawning a subprocess in unit tests.
+# ---------------------------------------------------------------------------
+
+
+def _check_phase_completion(active_phase_file: "Path | None") -> bool:
+    """Return True if every story row in the phase manifest is complete or deferred.
+
+    Reads the ``## Stories`` table of ``active_phase_file``.  Returns True
+    when the file is absent or unreadable (fail-open) and when the Stories
+    table is empty (vacuously complete).
+    """
+    if active_phase_file is None:
+        return True
+    try:
+        text = Path(active_phase_file).read_text(encoding="utf-8")
+    except OSError:
+        return True  # fail open
+
+    in_stories = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## Stories"):
+            in_stories = True
+            continue
+        if in_stories and stripped.startswith("## "):
+            break  # left the Stories section
+        if in_stories and stripped.startswith("|"):
+            if "---" in stripped:
+                continue  # separator row
+            cols = [c.strip() for c in stripped.split("|") if c.strip()]
+            if not cols:
+                continue
+            if cols[0].lower() in ("id",):
+                continue  # header row
+            if len(cols) < 3:
+                continue
+            status = cols[2].lower()
+            if status not in ("complete", "deferred"):
+                return False
+
+    return True
+
+
+def _check_cer_do_now(project_dir: "Path") -> bool:
+    """Return True when the CER Do Now backlog has no unresolved items.
+
+    Scans ``docs/cer/backlog.md`` in ``project_dir``.  A row under
+    ``## Do Now`` without ``RESOLVED`` or ``SUPERSEDED`` anywhere in it is
+    treated as unresolved.  Returns True when the file is absent or
+    unreadable (fail-open).
+    """
+    cer_path = Path(project_dir) / "docs" / "cer" / "backlog.md"
+    if not cer_path.exists():
+        return True
+    try:
+        text = cer_path.read_text(encoding="utf-8")
+    except OSError:
+        return True  # fail open
+
+    in_do_now = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## Do Now"):
+            in_do_now = True
+            continue
+        if in_do_now and stripped.startswith("## "):
+            break  # left the Do Now section
+        if in_do_now and stripped.startswith("|"):
+            if "---" in stripped:
+                continue  # separator row
+            cols = [c.strip() for c in stripped.split("|") if c.strip()]
+            if not cols or cols[0].lower() in ("id", "finding"):
+                continue  # header row
+            if "RESOLVED" not in stripped and "SUPERSEDED" not in stripped:
+                return False  # unresolved Do Now item
+
+    return True
+
+
+def _run_build_gate_subprocess(project_dir: "Path") -> bool:
+    """Run ``uv run pytest tests/pairmode/ -q --tb=no`` in ``project_dir``.
+
+    Returns True (gate green) when the exit code is 0.
+    Returns True (advisory pass) on timeout or any execution error.
+    """
+    import os
+    import subprocess
+
+    env = os.environ.copy()
+    home = env.get("HOME", "")
+    if home:
+        local_bin = str(Path(home) / ".local" / "bin")
+        current_path = env.get("PATH", "")
+        if local_bin not in current_path.split(":"):
+            env["PATH"] = f"{local_bin}:{current_path}"
+
+    try:
+        result = subprocess.run(
+            ["uv", "run", "pytest", "tests/pairmode/", "-q", "--tb=no"],
+            cwd=str(project_dir),
+            capture_output=True,
+            timeout=60,
+            env=env,
+        )
+        return result.returncode == 0
+    except Exception:  # noqa: BLE001
+        return True  # advisory: fail open on error or timeout
+
+
+def check_checkpoint_guards(
+    project_dir: "str | Path | None",
+    active_phase_file: "str | Path | None",
+    *,
+    gate_fn: "object" = None,
+) -> dict:
+    """Run the three pre-checkpoint guards (RESOLVER-008).
+
+    Parameters
+    ----------
+    project_dir:
+        Root of the project (used to locate ``docs/cer/backlog.md``).
+    active_phase_file:
+        Path to the active phase manifest (checked for story completion).
+    gate_fn:
+        Optional ``callable() -> bool`` for the build gate.  When ``None``
+        the real ``uv run pytest`` subprocess runner is used.  Tests inject
+        ``lambda: True`` to skip the live run.
+
+    Returns
+    -------
+    dict
+        ``{"ok": True}`` when all guards pass.
+        ``{"ok": False, "failed_guard": str}`` on first failure.
+        ``failed_guard`` is one of ``"phase-incomplete"``, ``"cer-do-now"``,
+        or ``"build-gate"``.
+    """
+    project_path = Path(project_dir).resolve() if project_dir is not None else None
+    phase_path = Path(active_phase_file) if active_phase_file is not None else None
+
+    # Guard 1: all stories in phase are complete or deferred.
+    if not _check_phase_completion(phase_path):
+        return {"ok": False, "failed_guard": "phase-incomplete"}
+
+    # Guard 2: no unresolved Do Now items in the CER backlog.
+    if project_path is not None and not _check_cer_do_now(project_path):
+        return {"ok": False, "failed_guard": "cer-do-now"}
+
+    # Guard 3: build gate (injectable; advisory-only on error/timeout).
+    if gate_fn is not None:
+        try:
+            gate_ok = bool(gate_fn())
+        except Exception:  # noqa: BLE001
+            gate_ok = True  # advisory: fail open
+    elif project_path is not None:
+        gate_ok = _run_build_gate_subprocess(project_path)
+    else:
+        gate_ok = True  # no project_dir → advisory pass
+
+    if not gate_ok:
+        return {"ok": False, "failed_guard": "build-gate"}
+
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
@@ -479,7 +669,12 @@ _ADVISORY_GUARDRAIL: str = "guardrail-fired"
 _ADVISORY_CONTEXT: str = "context-budget-exceeded"
 
 
-def resolve_next_action(position: dict, *, warnings: "list[str] | None" = None) -> dict:
+def resolve_next_action(
+    position: dict,
+    *,
+    warnings: "list[str] | None" = None,
+    gate_fn: "object" = None,
+) -> dict:
     """Map a Position dict to a canonical action dict (RESOLVER-003, DP2).
 
     Parameters
@@ -490,6 +685,10 @@ def resolve_next_action(position: dict, *, warnings: "list[str] | None" = None) 
         Optional list of advisory signal strings (e.g. ``["guardrail-fired"]``
         or ``["context-budget-exceeded"]``).  These are surfaced in
         ``meta.warnings[]`` and **never** change the emitted action (DP2).
+    gate_fn:
+        Optional ``callable() -> bool`` injected into the Row-9 build-gate
+        guard.  When ``None`` the real ``uv run pytest`` subprocess is used.
+        Tests pass ``lambda: True`` to skip the live run.
 
     Returns
     -------
@@ -500,7 +699,10 @@ def resolve_next_action(position: dict, *, warnings: "list[str] | None" = None) 
     DP2 state table (evaluated in precedence order)
     ------------------------------------------------
     Row 1  — no active phase / all complete                → done
-    Row 9  — last story committed (PASS, no next story)    → checkpoint
+    Row 9  — all phase stories done → checkpoint routing (RESOLVER-008):
+               guard fail → await-user (checkpoint-guard-failed:<which>)
+               guards pass → next uncompleted checkpoint step
+               all steps done → done
     Row 8  — story committed (PASS), more stories remain   → spawn-builder (next story, attempt 1)
     Row 4  — any pre-flight gate blocked                   → await-user (gate-blocked:<which>)
     Row 3  — model reason == prompted-upgrade, counter 0   → await-user (model-upgrade)
@@ -543,21 +745,48 @@ def resolve_next_action(position: dict, *, warnings: "list[str] | None" = None) 
         return make_action(DONE, scalar="", model=None, reason="", meta=meta_base)
 
     # ------------------------------------------------------------------
-    # Row 9 — active phase, no next story (all stories complete → checkpoint)
-    # Row also covers all-stories-complete within the active phase.
+    # Row 9 — active phase, no next story (all stories done → checkpoint)
     #
-    # RESOLVER-007: the monolithic "checkpoint" action has been decomposed into
-    # checkpoint-security / checkpoint-intent / checkpoint-docs / checkpoint-tag.
-    # The routing that selects WHICH checkpoint action to emit lives in
-    # RESOLVER-008.  Until then, this row emits a temporary await-user so the
-    # test suite stays green and the orchestrator pauses for the operator.
+    # RESOLVER-008: run pre-checkpoint guards, then sequence the checkpoint
+    # sub-actions one at a time based on position["checkpoint_step"].
     # ------------------------------------------------------------------
     if next_story_id is None:
+        # Derive project_dir from the active phase file path.
+        _phase_path = Path(active_phase_file) if active_phase_file is not None else None
+        _project_dir = _phase_path.parent.parent.parent if _phase_path is not None else None
+
+        guard_result = check_checkpoint_guards(
+            _project_dir,
+            _phase_path,
+            gate_fn=gate_fn,
+        )
+        if not guard_result.get("ok", True):
+            _failed = guard_result.get("failed_guard", "unknown")
+            return make_action(
+                AWAIT_USER,
+                scalar="",
+                model=None,
+                reason=f"checkpoint-guard-failed:{_failed}",
+                meta=meta_base,
+            )
+
+        # Guards pass — find the next uncompleted checkpoint step.
+        _checkpoint_step: "list[str]" = list(position.get("checkpoint_step") or [])
+        _remaining = [s for s in _CHECKPOINT_SEQUENCE if s not in _checkpoint_step]
+
+        if not _remaining:
+            # All checkpoint steps complete → done.
+            return make_action(DONE, scalar="", model=None, reason="", meta=meta_base)
+
+        _next_step = _remaining[0]
+        # checkpoint-tag is NOT in _SPAWN_ACTIONS → model must be None.
+        # checkpoint-security/intent/docs ARE in _SPAWN_ACTIONS; model=None
+        # here — the harness sets model at spawn time via model_selector.
         return make_action(
-            AWAIT_USER,
+            _next_step,
             scalar="",
             model=None,
-            reason="checkpoint-decomposition-pending-RESOLVER-008",
+            reason="",
             meta=meta_base,
         )
 

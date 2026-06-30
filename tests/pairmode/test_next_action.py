@@ -543,6 +543,7 @@ from next_action import (  # noqa: E402
     SPAWN_LOOP_BREAKER,
     SPAWN_GATE_WORKER,
     CHECKPOINT,
+    CHECKPOINT_SECURITY,
     AWAIT_USER,
     parse_worker_verdict_text,
     route_gate_verdict,
@@ -601,20 +602,22 @@ class TestResolveNextActionDone:
 
 
 class TestResolveNextActionCheckpoint:
-    """Row 9: active phase, no next story → await-user (RESOLVER-007 decomposition pending)."""
+    """Row 9: active phase, no next story → checkpoint routing (RESOLVER-008)."""
 
     def test_checkpoint_when_phase_complete(self, tmp_path: Any) -> None:
-        # RESOLVER-007: the monolithic "checkpoint" action is replaced by four
-        # decomposed checkpoint-* actions (routing in RESOLVER-008).  Until then,
-        # Row 9 emits await-user with reason="checkpoint-decomposition-pending-RESOLVER-008".
+        # RESOLVER-008: Row 9 now runs pre-checkpoint guards and emits the first
+        # uncompleted checkpoint step.  Phase file has no Stories table →
+        # phase-completion guard passes vacuously; CER backlog absent → passes;
+        # gate_fn injected → passes.  checkpoint_step is empty → emits
+        # checkpoint-security.
         from pathlib import Path
         phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
         phase_file.parent.mkdir(parents=True)
         phase_file.write_text("# Phase 1\n", encoding="utf-8")
         pos = _make_position(active_phase_file=phase_file, next_story_id=None)
-        action = resolve_next_action(pos)
-        assert action["action"] == AWAIT_USER
-        assert action["reason"] == "checkpoint-decomposition-pending-RESOLVER-008"
+        action = resolve_next_action(pos, gate_fn=lambda: True)
+        assert action["action"] == CHECKPOINT_SECURITY
+        assert action["scalar"] == ""
         assert action["model"] is None
         assert validate_action(action) == []
 
@@ -835,7 +838,7 @@ class TestResolveNextActionWarnings:
     def test_context_budget_warning_does_not_change_action(self, tmp_path: Any) -> None:
         """context-budget-exceeded advisory in meta.warnings[], action unchanged.
 
-        RESOLVER-007: Row 9 now emits await-user (checkpoint-decomposition-pending-RESOLVER-008).
+        RESOLVER-008: Row 9 now emits checkpoint-security (first checkpoint step).
         The warning still propagates to meta.warnings[] regardless of which action is emitted.
         """
         from pathlib import Path
@@ -844,10 +847,14 @@ class TestResolveNextActionWarnings:
         phase_file.write_text("# Phase 1\n", encoding="utf-8")
         pos = _make_position(
             active_phase_file=phase_file,
-            next_story_id=None,  # → await-user (checkpoint-decomposition-pending-RESOLVER-008)
+            next_story_id=None,  # → checkpoint-security (all guards pass)
         )
-        action = resolve_next_action(pos, warnings=["context-budget-exceeded"])
-        assert action["action"] == AWAIT_USER
+        action = resolve_next_action(
+            pos,
+            warnings=["context-budget-exceeded"],
+            gate_fn=lambda: True,
+        )
+        assert action["action"] == CHECKPOINT_SECURITY
         assert "context-budget-exceeded" in action["meta"].get("warnings", [])
         assert validate_action(action) == []
 

@@ -38,6 +38,7 @@ for _d in (_TESTS_DIR, _SCRIPTS_DIR):
 from next_action import (  # noqa: E402
     AWAIT_USER,
     CHECKPOINT,
+    CHECKPOINT_SECURITY,
     DONE,
     OUTCOME_FAIL,
     OUTCOME_NONE,
@@ -107,6 +108,7 @@ _DP2_PARAMS = [
         "",           # scalar
         "",           # reason
         {},           # meta subset
+        None,         # gate_fn: not needed (Row 1 exits before guards)
         id="row1-all-phases-complete",
     ),
 
@@ -127,6 +129,7 @@ _DP2_PARAMS = [
         "RESOLVER-001",
         "auto-baseline",
         {"attempt": 1},
+        None,         # gate_fn: not needed (next_story_id is set)
         id="row2-first-attempt-auto-model",
     ),
 
@@ -155,6 +158,7 @@ _DP2_PARAMS = [
         "",
         "model-upgrade",
         {"attempt": 1},
+        None,         # gate_fn: not needed (next_story_id is set)
         id="row3-prompted-upgrade",
     ),
 
@@ -176,6 +180,7 @@ _DP2_PARAMS = [
         "",
         "gate-blocked:stub",
         {"gate": "stub"},
+        None,         # gate_fn: not needed (next_story_id is set)
         id="row4-stub-gate-blocked",
     ),
 
@@ -196,6 +201,7 @@ _DP2_PARAMS = [
         "RESOLVER-001",
         "retry-upgrade",
         {"attempt": 2, "fail_rung": "single-fail"},
+        None,         # gate_fn: not needed (next_story_id is set)
         id="row5-retry-attempt2",
     ),
 
@@ -216,6 +222,7 @@ _DP2_PARAMS = [
         "RESOLVER-001",
         "",
         {"attempt": 3, "fail_rung": "double-fail"},
+        None,         # gate_fn: not needed (next_story_id is set)
         id="row6-double-fail-loop-breaker",
     ),
 
@@ -236,6 +243,7 @@ _DP2_PARAMS = [
         "",
         "build-paused",
         {"fail_rung": "triple-fail-or-pause"},
+        None,         # gate_fn: not needed (next_story_id is set)
         id="row7-triple-fail-paused",
     ),
 
@@ -256,12 +264,14 @@ _DP2_PARAMS = [
         "RESOLVER-002",
         "auto-baseline",
         {"attempt": 1},
+        None,         # gate_fn: not needed (next_story_id is set)
         id="row8-pass-more-stories",
     ),
 
     # ------------------------------------------------------------------
-    # Row 9 — last story of phase committed → await-user
-    # (RESOLVER-007: checkpoint decomposed; routing in RESOLVER-008)
+    # Row 9 — all phase stories complete → checkpoint routing (RESOLVER-008)
+    # All stories complete, CER backlog absent (clear), gate injected True.
+    # Expects first checkpoint step: checkpoint-security.
     # ------------------------------------------------------------------
     pytest.param(
         9,
@@ -273,10 +283,11 @@ _DP2_PARAMS = [
             "git_commits": ["feat(story-RESOLVER-001): done"],
         },
         None,  # real git log
-        AWAIT_USER,
-        "",   # scalar is empty for await-user
-        "checkpoint-decomposition-pending-RESOLVER-008",
+        CHECKPOINT_SECURITY,
+        "",   # scalar is empty for checkpoint actions
+        "",   # reason is empty (step emitted directly)
         {},
+        lambda: True,  # gate_fn: inject passing build gate
         id="row9-checkpoint",
     ),
 ]
@@ -284,7 +295,7 @@ _DP2_PARAMS = [
 
 @pytest.mark.parametrize(
     "dp_row,label,fixture_cfg,git_log_override,"
-    "expected_action,expected_scalar,expected_reason,expected_meta_subset",
+    "expected_action,expected_scalar,expected_reason,expected_meta_subset,gate_fn",
     _DP2_PARAMS,
 )
 def test_dp2_state(
@@ -298,6 +309,7 @@ def test_dp2_state(
     expected_scalar: str,
     expected_reason: str,
     expected_meta_subset: dict,
+    gate_fn: "Any",
 ) -> None:
     """Assert that the resolver emits the correct action for each DP2 state."""
 
@@ -308,7 +320,7 @@ def test_dp2_state(
         _patch_git_log(monkeypatch, git_log_override)
 
     position = infer_position(project)
-    action = resolve_next_action(position)
+    action = resolve_next_action(position, gate_fn=gate_fn)
 
     # --- Core assertions ---
     assert action["action"] == expected_action, (
@@ -431,7 +443,9 @@ def test_dp1_schema_roundtrip_all_action_types(tmp_path: Path) -> None:
     ]
 
     for i, pos in enumerate(positions):
-        action = resolve_next_action(pos)
+        # Pass gate_fn=lambda: True to prevent the real pytest subprocess from
+        # running during schema validation tests (which use synthetic tmp dirs).
+        action = resolve_next_action(pos, gate_fn=lambda: True)
         violations = validate_action(action)
         assert violations == [], (
             f"Position {i} ({action['action']!r}) produced invalid action: "
