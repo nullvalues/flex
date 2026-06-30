@@ -1,0 +1,10 @@
+{
+  "story_id": "BUILD-040",
+  "story_spec": "docs/stories/BUILD/BUILD-040.md",
+  "allowed_paths": [
+    "CLAUDE.build.md",
+    "skills/pairmode/templates/CLAUDE.build.md.j2",
+    "docs/stories/BUILD/BUILD-040.md"
+  ],
+  "generated_at": "2026-06-30T19:06:19Z"
+}
