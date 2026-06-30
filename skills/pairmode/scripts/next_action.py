@@ -1,6 +1,7 @@
 """
 next_action.py — Action grammar and position-inference read-model for the
-next-action resolver (RESOLVER-001, RESOLVER-002, RESOLVER-003, RESOLVER-005).
+next-action resolver (RESOLVER-001, RESOLVER-002, RESOLVER-003, RESOLVER-005,
+RESOLVER-007).
 
 RESOLVER-001 (grammar layer):
   Defines the versioned action vocabulary, the canonical dict constructor,
@@ -32,6 +33,21 @@ RESOLVER-005 (gate-worker wiring):
   The verdict arrives as data (orchestrator-held re-entry, DP4.3).  No API
   call is made from this module; tests inject verdict maps directly into
   ``route_gate_verdict``.
+
+RESOLVER-007 (checkpoint step tracker):
+  Adds four checkpoint actions (``checkpoint-security``, ``checkpoint-intent``,
+  ``checkpoint-docs``, ``checkpoint-tag``) to replace the monolithic
+  ``checkpoint`` action (removed in RESOLVER-007, routing added in
+  RESOLVER-008).  ``infer_position`` now reads
+  ``state.json["checkpoint_step"]`` (list of completed step-ID strings) and
+  exposes it as ``position["checkpoint_step"]``.  ``SCHEMA_VERSION`` bumped
+  from 2 to 3.
+
+  REMOVAL NOTE: ``CHECKPOINT = "checkpoint"`` constant is retained for
+  backward import compatibility but is no longer a member of ``ACTIONS``.
+  The Row-9 branch that previously emitted it now emits a temporary
+  ``await-user`` with ``reason="checkpoint-decomposition-pending-RESOLVER-008"``
+  so the suite stays green until RESOLVER-008 lands the real checkpoint routing.
 """
 
 from __future__ import annotations
@@ -48,7 +64,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 # Schema version
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION: int = 2
+SCHEMA_VERSION: int = 3
 
 # ---------------------------------------------------------------------------
 # Action vocabulary (closed set for Era 003; designed to be extended later)
@@ -60,7 +76,14 @@ SPAWN_GATE_WORKER: str = "spawn-gate-worker"
 SPAWN_REVIEWER: str = "spawn-reviewer"
 SPAWN_SECURITY_AUDITOR: str = "spawn-security-auditor"
 SPAWN_INTENT_REVIEWER: str = "spawn-intent-reviewer"
+# CHECKPOINT ("checkpoint") was removed from ACTIONS in RESOLVER-007.
+# The constant is retained for backward import compatibility only.
+# Routing to the decomposed checkpoint actions lands in RESOLVER-008.
 CHECKPOINT: str = "checkpoint"
+CHECKPOINT_SECURITY: str = "checkpoint-security"
+CHECKPOINT_INTENT: str = "checkpoint-intent"
+CHECKPOINT_DOCS: str = "checkpoint-docs"
+CHECKPOINT_TAG: str = "checkpoint-tag"  # inline action — NOT in _SPAWN_ACTIONS
 AWAIT_USER: str = "await-user"
 DONE: str = "done"
 
@@ -72,7 +95,10 @@ ACTIONS: frozenset[str] = frozenset(
         SPAWN_REVIEWER,
         SPAWN_SECURITY_AUDITOR,
         SPAWN_INTENT_REVIEWER,
-        CHECKPOINT,
+        CHECKPOINT_SECURITY,
+        CHECKPOINT_INTENT,
+        CHECKPOINT_DOCS,
+        CHECKPOINT_TAG,
         AWAIT_USER,
         DONE,
     }
@@ -83,6 +109,9 @@ ACTIONS: frozenset[str] = frozenset(
 # builder-model decision), so it is NOT in _SPAWN_ACTIONS — model must be None.
 # spawn-reviewer, spawn-security-auditor, and spawn-intent-reviewer carry a
 # model override (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS.
+# checkpoint-security, checkpoint-intent, checkpoint-docs carry a model override
+# (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS.
+# checkpoint-tag is an inline action and is NOT in _SPAWN_ACTIONS.
 _SPAWN_ACTIONS: frozenset[str] = frozenset(
     {
         SPAWN_BUILDER,
@@ -90,6 +119,9 @@ _SPAWN_ACTIONS: frozenset[str] = frozenset(
         SPAWN_REVIEWER,
         SPAWN_SECURITY_AUDITOR,
         SPAWN_INTENT_REVIEWER,
+        CHECKPOINT_SECURITY,
+        CHECKPOINT_INTENT,
+        CHECKPOINT_DOCS,
     }
 )
 
@@ -399,6 +431,27 @@ def infer_position(project_dir: "str | Path") -> dict:
         gate_schema = dict(_no_gate)
         gate_auth = dict(_no_gate)
 
+    # ------------------------------------------------------------------
+    # 6. Checkpoint step (RESOLVER-007)
+    #
+    # Reads state.json["checkpoint_step"] — a list of completed step-ID
+    # strings.  Defaults to [] when the key is absent or the state.json
+    # cannot be read.  Pure read: this module never writes checkpoint_step.
+    # ------------------------------------------------------------------
+    checkpoint_step: "list[str]" = []
+    try:
+        import json as _json_cs
+
+        state_path = project_path / ".companion" / "state.json"
+        if state_path.exists():
+            raw_state = _json_cs.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(raw_state, dict):
+                raw_cs = raw_state.get("checkpoint_step")
+                if isinstance(raw_cs, list):
+                    checkpoint_step = [s for s in raw_cs if isinstance(s, str)]
+    except Exception:  # noqa: BLE001
+        pass
+
     return {
         "active_phase_file": active_phase_file,
         "next_story_id": next_story_id,
@@ -410,6 +463,7 @@ def infer_position(project_dir: "str | Path") -> dict:
         "gate_schema": gate_schema,
         "gate_auth": gate_auth,
         "last_attempt_outcome": last_attempt_outcome,
+        "checkpoint_step": checkpoint_step,
     }
 
 
@@ -489,16 +543,21 @@ def resolve_next_action(position: dict, *, warnings: "list[str] | None" = None) 
         return make_action(DONE, scalar="", model=None, reason="", meta=meta_base)
 
     # ------------------------------------------------------------------
-    # Row 9 — active phase, no next story (last story committed → checkpoint)
+    # Row 9 — active phase, no next story (all stories complete → checkpoint)
     # Row also covers all-stories-complete within the active phase.
+    #
+    # RESOLVER-007: the monolithic "checkpoint" action has been decomposed into
+    # checkpoint-security / checkpoint-intent / checkpoint-docs / checkpoint-tag.
+    # The routing that selects WHICH checkpoint action to emit lives in
+    # RESOLVER-008.  Until then, this row emits a temporary await-user so the
+    # test suite stays green and the orchestrator pauses for the operator.
     # ------------------------------------------------------------------
     if next_story_id is None:
-        phase_key = active_phase_file.stem if hasattr(active_phase_file, "stem") else str(active_phase_file)
         return make_action(
-            CHECKPOINT,
-            scalar=phase_key,
+            AWAIT_USER,
+            scalar="",
             model=None,
-            reason="",
+            reason="checkpoint-decomposition-pending-RESOLVER-008",
             meta=meta_base,
         )
 

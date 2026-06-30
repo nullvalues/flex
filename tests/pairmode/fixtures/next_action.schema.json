@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://flex.halfhorse.com/schemas/next_action/v2",
+  "$id": "https://flex.halfhorse.com/schemas/next_action/v3",
   "title": "NextAction",
-  "description": "Versioned action grammar emitted by the next-action resolver (Era 003). Schema version 2 (WORKER-004 adds spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer).",
+  "description": "Versioned action grammar emitted by the next-action resolver (Era 003). Schema version 3 (RESOLVER-007 adds checkpoint-security/intent/docs/tag; removes monolithic checkpoint).",
   "type": "object",
   "required": ["action", "scalar", "model", "reason", "meta"],
   "additionalProperties": false,
@@ -17,7 +17,10 @@
         "spawn-reviewer",
         "spawn-security-auditor",
         "spawn-intent-reviewer",
-        "checkpoint",
+        "checkpoint-security",
+        "checkpoint-intent",
+        "checkpoint-docs",
+        "checkpoint-tag",
         "await-user",
         "done"
       ]
@@ -27,7 +30,7 @@
       "type": "string"
     },
     "model": {
-      "description": "Model override for auto-resolved spawn actions only. Null for checkpoint, await-user, done, and spawn-gate-worker.",
+      "description": "Model override for auto-resolved spawn actions only. Null for checkpoint-tag, await-user, done, and spawn-gate-worker.",
       "oneOf": [
         {"type": "string"},
         {"type": "null"}
@@ -43,9 +46,9 @@
       "required": ["schema_version"],
       "properties": {
         "schema_version": {
-          "description": "Integer version of this action grammar. Must equal 2 for Era 003 HARNESS003+.",
+          "description": "Integer version of this action grammar. Must equal 3 for Era 003 HARNESS004+.",
           "type": "integer",
-          "const": 2
+          "const": 3
         },
         "attempt": {
           "description": "Builder attempt number (1-based).",

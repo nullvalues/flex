@@ -260,7 +260,8 @@ _DP2_PARAMS = [
     ),
 
     # ------------------------------------------------------------------
-    # Row 9 — last story of phase committed → checkpoint
+    # Row 9 — last story of phase committed → await-user
+    # (RESOLVER-007: checkpoint decomposed; routing in RESOLVER-008)
     # ------------------------------------------------------------------
     pytest.param(
         9,
@@ -272,9 +273,9 @@ _DP2_PARAMS = [
             "git_commits": ["feat(story-RESOLVER-001): done"],
         },
         None,  # real git log
-        CHECKPOINT,
-        "phase-1",   # stem of phase file
-        "",
+        AWAIT_USER,
+        "",   # scalar is empty for await-user
+        "checkpoint-decomposition-pending-RESOLVER-008",
         {},
         id="row9-checkpoint",
     ),

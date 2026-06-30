@@ -6,7 +6,8 @@ Tests for the next_action action grammar module (RESOLVER-001).
 Coverage:
 - Round-trip: every sample in next_action_samples.json validates and survives json round-trip.
 - Constructor: make_action(DONE) shape; meta mutation safety.
-- Enum closure: ACTIONS contains exactly the six documented values (RESOLVER-005 added spawn-gate-worker).
+- Enum closure: ACTIONS contains exactly the documented values (RESOLVER-007 adds four
+  checkpoint-* actions and removes monolithic checkpoint).
 - Negative cases: unknown action, missing key, model on non-spawn, bad/missing schema_version.
 - Schema/validator agreement: enum and key set in next_action.schema.json match Python module.
 """
@@ -37,6 +38,10 @@ from next_action import (  # noqa: E402
     ACTIONS,
     AWAIT_USER,
     CHECKPOINT,
+    CHECKPOINT_DOCS,
+    CHECKPOINT_INTENT,
+    CHECKPOINT_SECURITY,
+    CHECKPOINT_TAG,
     DONE,
     SCHEMA_VERSION,
     SPAWN_BUILDER,
@@ -128,7 +133,8 @@ class TestConstructor:
         assert caller_meta == original_meta, "make_action must not mutate the caller's meta dict"
 
     def test_make_action_stamps_schema_version_even_if_caller_omits(self):
-        result = make_action(CHECKPOINT, meta={"gate": "context-budget"})
+        # Use CHECKPOINT_TAG (a valid action) to test that schema_version is stamped.
+        result = make_action(CHECKPOINT_TAG, meta={"gate": "context-budget"})
         assert result["meta"]["schema_version"] == SCHEMA_VERSION
 
     def test_make_action_stamps_schema_version_overrides_caller_value(self):
@@ -156,10 +162,11 @@ class TestConstructor:
 
 
 class TestEnumClosure:
-    def test_actions_contains_exactly_nine_values(self):
+    def test_actions_contains_exactly_twelve_values(self):
         # RESOLVER-005 added spawn-gate-worker (was five before HARNESS002-main).
         # WORKER-004 added spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer (was six).
-        assert len(ACTIONS) == 9
+        # RESOLVER-007 removed monolithic checkpoint and added four checkpoint-* actions (net +3).
+        assert len(ACTIONS) == 12
 
     def test_actions_contains_all_documented_values(self):
         expected = {
@@ -169,7 +176,10 @@ class TestEnumClosure:
             "spawn-reviewer",
             "spawn-security-auditor",
             "spawn-intent-reviewer",
-            "checkpoint",
+            "checkpoint-security",
+            "checkpoint-intent",
+            "checkpoint-docs",
+            "checkpoint-tag",
             "await-user",
             "done",
         }
@@ -190,11 +200,19 @@ class TestEnumClosure:
             SPAWN_REVIEWER,
             SPAWN_SECURITY_AUDITOR,
             SPAWN_INTENT_REVIEWER,
-            CHECKPOINT,
+            CHECKPOINT_SECURITY,
+            CHECKPOINT_INTENT,
+            CHECKPOINT_DOCS,
+            CHECKPOINT_TAG,
             AWAIT_USER,
             DONE,
         }
         assert named == ACTIONS
+
+    def test_checkpoint_constant_not_in_actions(self):
+        """CHECKPOINT constant is retained for backward compatibility but removed from ACTIONS."""
+        assert CHECKPOINT == "checkpoint"
+        assert CHECKPOINT not in ACTIONS
 
 
 # ---------------------------------------------------------------------------
@@ -254,11 +272,12 @@ class TestValidateActionNegative:
         assert violations
         assert any("await-user" in v for v in violations)
 
-    def test_model_set_on_checkpoint_rejected(self):
-        obj = make_action(CHECKPOINT, model="sonnet")
+    def test_model_set_on_checkpoint_tag_rejected(self):
+        # checkpoint-tag is an inline action (not in _SPAWN_ACTIONS); model must be null.
+        obj = make_action(CHECKPOINT_TAG, model="sonnet")
         violations = validate_action(obj)
         assert violations
-        assert any("checkpoint" in v for v in violations)
+        assert any("checkpoint-tag" in v for v in violations)
 
     def test_model_set_on_done_rejected(self):
         obj = make_action(DONE, model="haiku")

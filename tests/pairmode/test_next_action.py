@@ -601,17 +601,20 @@ class TestResolveNextActionDone:
 
 
 class TestResolveNextActionCheckpoint:
-    """Row 9: active phase, no next story → checkpoint."""
+    """Row 9: active phase, no next story → await-user (RESOLVER-007 decomposition pending)."""
 
     def test_checkpoint_when_phase_complete(self, tmp_path: Any) -> None:
+        # RESOLVER-007: the monolithic "checkpoint" action is replaced by four
+        # decomposed checkpoint-* actions (routing in RESOLVER-008).  Until then,
+        # Row 9 emits await-user with reason="checkpoint-decomposition-pending-RESOLVER-008".
         from pathlib import Path
         phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
         phase_file.parent.mkdir(parents=True)
         phase_file.write_text("# Phase 1\n", encoding="utf-8")
         pos = _make_position(active_phase_file=phase_file, next_story_id=None)
         action = resolve_next_action(pos)
-        assert action["action"] == CHECKPOINT
-        assert action["scalar"] == "phase-1"  # stem of phase file
+        assert action["action"] == AWAIT_USER
+        assert action["reason"] == "checkpoint-decomposition-pending-RESOLVER-008"
         assert action["model"] is None
         assert validate_action(action) == []
 
@@ -830,17 +833,21 @@ class TestResolveNextActionWarnings:
         assert validate_action(action_warn) == []
 
     def test_context_budget_warning_does_not_change_action(self, tmp_path: Any) -> None:
-        """context-budget-exceeded advisory in meta.warnings[], action unchanged."""
+        """context-budget-exceeded advisory in meta.warnings[], action unchanged.
+
+        RESOLVER-007: Row 9 now emits await-user (checkpoint-decomposition-pending-RESOLVER-008).
+        The warning still propagates to meta.warnings[] regardless of which action is emitted.
+        """
         from pathlib import Path
         phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
         phase_file.parent.mkdir(parents=True)
         phase_file.write_text("# Phase 1\n", encoding="utf-8")
         pos = _make_position(
             active_phase_file=phase_file,
-            next_story_id=None,  # → checkpoint
+            next_story_id=None,  # → await-user (checkpoint-decomposition-pending-RESOLVER-008)
         )
         action = resolve_next_action(pos, warnings=["context-budget-exceeded"])
-        assert action["action"] == CHECKPOINT
+        assert action["action"] == AWAIT_USER
         assert "context-budget-exceeded" in action["meta"].get("warnings", [])
         assert validate_action(action) == []
 

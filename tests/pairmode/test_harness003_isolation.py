@@ -411,10 +411,10 @@ class TestInjectedResultRouting:
 
 
 class TestSchemaVersion:
-    def test_schema_version_is_2(self):
-        """SCHEMA_VERSION must equal 2 (WORKER-004 bump)."""
-        assert next_action.SCHEMA_VERSION == 2, (
-            f"Expected next_action.SCHEMA_VERSION == 2, got {next_action.SCHEMA_VERSION}"
+    def test_schema_version_is_3(self):
+        """SCHEMA_VERSION must equal 3 (RESOLVER-007 bump: checkpoint action decomposition)."""
+        assert next_action.SCHEMA_VERSION == 3, (
+            f"Expected next_action.SCHEMA_VERSION == 3, got {next_action.SCHEMA_VERSION}"
         )
 
 
