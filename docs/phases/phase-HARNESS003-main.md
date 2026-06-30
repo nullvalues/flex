@@ -30,7 +30,7 @@ precede all worker conversions. All advisory-only.
 |----|-------|--------|
 | WORKER-004 | Generalized worker return contract (`worker_result.py` + grammar fixture) | complete |
 | WORKER-005 | Builder leaf worker — thin shell + plugin procedure skill | complete |
-| WORKER-006 | Reviewer leaf worker — thin shell + plugin procedure skill | planned |
+| WORKER-006 | Reviewer leaf worker — thin shell + plugin procedure skill | complete |
 | WORKER-007 | Loop-breaker leaf worker — thin shell + plugin procedure skill | planned |
 | WORKER-008 | Security-auditor leaf worker — thin shell + plugin procedure skill | planned |
 | WORKER-009 | Intent-reviewer leaf worker — thin shell + plugin procedure skill | planned |
