@@ -545,3 +545,9 @@ CER-031). All docs follow the catalog template verbatim with real "What Broke" i
 **Phase:** 80
 **Stories:** BUILD-039
 **Acceptance:** `git reset HEAD` exclusion loop added to Step 1.5 of `CLAUDE.build.md` (and its `.j2` template) — the orchestrator now unstages any story `primary_files`/`touches` swept up by the blanket `git add docs/phases/ docs/cer/` before the pre-reviewer commit fires. Prevents story deliverables whose primary_file lives under `docs/phases/` from being silently committed unreviewed under the chore message (L018). 2266 tests pass.
+
+## cp81-write-clear-permissions-build-loop
+**Tag command:** `git tag cp81-write-clear-permissions-build-loop && git push origin cp81-write-clear-permissions-build-loop`
+**Phase:** 81
+**Stories:** BUILD-040
+**Acceptance:** `flex_build.py write-permissions` and `clear-permissions` wired into `CLAUDE.build.md` Step 1 and Step 3 respectively (and matching `.j2` template). Layer 2 allow-rule writes now suppress Claude Code permission prompts for story-declared files on every build, eliminating the manual auto-mode toggle requirement in upstream era-002 projects. `docs/architecture.md` updated to describe the two-layer permission model. 2266 tests pass.

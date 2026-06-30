@@ -164,12 +164,22 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    test, missing live-rendered template counterpart); it is informational only and
    never blocks. (Phase 78 BUILD-034/BUILD-035)
 
-2. **Permission pre-write** — `flex_build.py permissions-create` generates
+2. **Permission pre-write** — Two layers run before the builder spawns:
+   Layer 1 (`permissions-create`): `flex_build.py permissions-create` generates
    `docs/phases/permissions/<story_id>.json` from the story's `primary_files` and `touches`
-   frontmatter. `story_context.py --set` stamps the active story into `.companion/state.json`.
-   The `pre_tool_use.py` hook then enforces the declared scope via `scope_guard.py` on every
-   Edit/Write call during the builder session. (Phase 55 replaced the old `permission_scope.py`
-   / `settings.local.json` allow-rule cycle; see step 9.5 and § Hook architecture.)
+   frontmatter. The `pre_tool_use.py` hook enforces the declared scope via `scope_guard.py` on
+   every Edit/Write call during the builder session. (Phase 55, INFRA-138, INFRA-139.)
+   Layer 2 (`write-permissions`): `flex_build.py write-permissions` calls
+   `write_story_permissions()` to write `Edit`/`Write` allow rules into
+   `.claude/settings.local.json` for every declared file. These rules suppress the Claude Code
+   permission prompt before writes even reach the hook, eliminating the auto-mode toggle symptom
+   in upstream projects. (Phase 81, BUILD-040.)
+   `story_context.py --set` stamps the active story into `.companion/state.json`. After the
+   reviewer returns, `story_context.py --clear` runs first, then `flex_build.py
+   clear-permissions` removes the Layer 2 allow rules from `settings.local.json`, restoring the
+   default deny posture before the next story starts — regardless of PASS/FAIL outcome. (Phase 55
+   replaced the old allow-rule-only cycle; Phase 81 reintroduced allow-rule writes as a second
+   layer alongside the hook layer. See step 9.5 and § Hook architecture.)
 
 3. **Builder spawn** — `model_selector.select_builder_model()` picks the model (haiku for
    doc/lesson, sonnet baseline for code, opus on high-scope signals or retry). The builder
@@ -436,9 +446,13 @@ CLI: `uv run python skills/pairmode/scripts/story_update.py --story-id RAIL-NNN 
 Orchestrators must call this after a successful reviewer commit (see CLAUDE.build.md Step 3).
 Valid statuses: `draft`, `planned`, `in-progress`, `complete`, `backlog`.
 
-**Note (Phase 55):** The pairmode build loop no longer calls `write_story_permissions` for
-routine story builds; `flex_build.py permissions-create` + `scope_guard.py` replaces it.
-The `permission_scope.py` functions remain for backward compatibility and manual use.
+**Note (Phase 55 / Phase 81):** Phase 55 replaced the allow-rule-only cycle with
+`flex_build.py permissions-create` + `scope_guard.py` (Layer 1 hook enforcement). Phase 81
+(BUILD-040) re-introduced `flex_build.py write-permissions` (which calls
+`write_story_permissions()`) as Layer 2, running alongside Layer 1 to suppress Claude Code
+permission prompts for the story's declared files. Both layers are now active in the build loop
+simultaneously. The `permission_scope.py` functions remain for backward compatibility and manual
+use.
 
 **`permission_scope.py` path containment:** `write_story_permissions` validates every path
 from `primary_files` and `touches` against `project_dir` using `Path.resolve().relative_to()`
