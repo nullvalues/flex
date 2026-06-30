@@ -2,8 +2,8 @@
 id: INFRA-166
 rail: INFRA
 title: "Fastify API route hardening — null project_dir crash, 0-token divergence, NaN threshold, flex_factor live read"
-status: backlog
-phase: "64"
+status: planned
+phase: "HARNESS007-main"
 story_class: code
 primary_files:
   - skills/observability/api/src/routes/repos.ts

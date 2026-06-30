@@ -2,8 +2,8 @@
 id: INFRA-164
 rail: INFRA
 title: "`flex_observability.py` CLI hardening — subprocess exit, atomic write, ID uniqueness"
-status: backlog
-phase: "64"
+status: planned
+phase: "HARNESS007-main"
 story_class: code
 primary_files:
   - skills/observability/scripts/flex_observability.py

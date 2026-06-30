@@ -2,7 +2,7 @@
 id: RESOLVER-006
 rail: RESOLVER
 title: CF-1 / CER-060 — retry-path model composition fix (DP7)
-status: planned
+status: complete
 phase: "HARNESS002-main"
 story_class: code
 auth_gated: false

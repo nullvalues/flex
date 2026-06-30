@@ -2,7 +2,7 @@
 id: WORKER-003
 rail: WORKER
 title: Isolation test suite (DP8)
-status: planned
+status: complete
 phase: "HARNESS002-main"
 story_class: code
 auth_gated: false

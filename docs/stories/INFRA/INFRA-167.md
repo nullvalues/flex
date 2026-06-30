@@ -2,8 +2,8 @@
 id: INFRA-167
 rail: INFRA
 title: "TypeScript parser robustness — phaseIndex blank-line, MODULE_FILENAME_RE, era leading zeros, flex_factor NaN"
-status: backlog
-phase: "64"
+status: planned
+phase: "HARNESS007-main"
 story_class: code
 primary_files:
   - skills/observability/api/src/parsers/phaseIndex.ts

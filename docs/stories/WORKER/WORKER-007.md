@@ -2,7 +2,7 @@
 id: WORKER-007
 rail: WORKER
 title: Loop-breaker leaf worker — thin shell + plugin procedure skill
-status: planned
+status: complete
 phase: "HARNESS003-main"
 story_class: code
 auth_gated: false
