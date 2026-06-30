@@ -82,7 +82,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | HARNESS002-main | Gate verdict extraction | complete | [phase-HARNESS002-main.md](phase-HARNESS002-main.md) |
 | HARNESS003-main | Builder/reviewer/loop-breaker/security-auditor/intent-reviewer as leaf workers | complete | [phase-HARNESS003-main.md](phase-HARNESS003-main.md) |
 | HARNESS004-main | Checkpoint as an action sequence | complete | [phase-HARNESS004-main.md](phase-HARNESS004-main.md) |
-| HARNESS005-main | Spec-writer as a leaf worker | planned | [phase-HARNESS005-main.md](phase-HARNESS005-main.md) |
+| HARNESS005-main | Spec-writer as a leaf worker | complete | [phase-HARNESS005-main.md](phase-HARNESS005-main.md) |
 | HARNESS006-main | Harness reduction — the flip | planned | [phase-HARNESS006-main.md](phase-HARNESS006-main.md) |
 | HARNESS007-main | Observability refactor (Phase G) | planned | [phase-HARNESS007-main.md](phase-HARNESS007-main.md) |
 | HARNESS008-main | Housekeeper consolidation | planned | [phase-HARNESS008-main.md](phase-HARNESS008-main.md) |
