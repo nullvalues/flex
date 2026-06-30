@@ -28,7 +28,7 @@ precede all worker conversions. All advisory-only.
 
 | ID | Title | Status |
 |----|-------|--------|
-| WORKER-004 | Generalized worker return contract (`worker_result.py` + grammar fixture) | planned |
+| WORKER-004 | Generalized worker return contract (`worker_result.py` + grammar fixture) | complete |
 | WORKER-005 | Builder leaf worker — thin shell + plugin procedure skill | planned |
 | WORKER-006 | Reviewer leaf worker — thin shell + plugin procedure skill | planned |
 | WORKER-007 | Loop-breaker leaf worker — thin shell + plugin procedure skill | planned |
