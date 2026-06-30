@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp-HARNESS003-main
+
+**Phase:** HARNESS003-main — Builder/reviewer/loop-breaker/security-auditor/intent-reviewer as leaf workers (Era 003)
+**Tag command:** `git tag cp-HARNESS003-main && git push origin cp-HARNESS003-main`
+**Acceptance:** Seven stories. **WORKER-004**: `worker_result.py` generalized return contract — four result types (`BUILD-RESULT`, `REVIEW-RESULT`, `ADVICE`, `SPEC-RESULT`), `parse_worker_result`/`validate_worker_result`; `SCHEMA_VERSION` bumped to 2; three new spawn actions (`spawn-reviewer`, `spawn-security-auditor`, `spawn-intent-reviewer`) added to `ACTIONS` and `_SPAWN_ACTIONS` in `next_action.py`. **WORKER-005**: `skills/pairmode/skills/builder/procedure.md` — DP1.3 input-bound builder procedure, `BUILD-RESULT` return format. **WORKER-006**: `skills/pairmode/skills/reviewer/procedure.md` — 10-item review checklist, `REVIEW-RESULT` return format. **WORKER-007**: `skills/pairmode/skills/loop-breaker/procedure.md` — cold-eyes analysis, one-alternative approach, `ADVICE` return format. **WORKER-008**: `skills/pairmode/skills/security-auditor/procedure.md` — CRITICAL/HIGH/MEDIUM/LOW checklist, `REVIEW-RESULT` return format. **WORKER-009**: `skills/pairmode/skills/intent-reviewer/procedure.md` — story-alignment scale, pivot detection, `REVIEW-RESULT` with `ALIGNED` verdict; verdict restricted to closed enum `{"PASS","FAIL","ALIGNED"}` (stricter than spec's open-string note — correct design). **WORKER-010**: `test_harness003_isolation.py` — deterministic acceptance backbone: grammar round-trips for all four result types, parametrized DP1.3 input-bound guard for all five workers, injected-result routing assertions, `SCHEMA_VERSION==2`, new ACTIONS vocabulary. All advisory-only — per-project agent files not removed until HARNESS006 flip. Security audit: 0 CRITICAL/HIGH. Intent review: ALIGNED (1 PIVOT on WORKER-009 verdict enum — implementation is stricter and correct; spec note updated). 2770 tests pass.
+
+---
+
 ## cp-HARNESS002-main
 
 **Phase:** HARNESS002-main — Gate verdict extraction (Era 003)

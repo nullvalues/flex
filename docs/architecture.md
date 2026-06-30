@@ -31,6 +31,17 @@ flex/
       SKILL.md
       gate_worker/
         SKILL.md                  ← plugin-versioned gate judgment procedure (WORKER-002, HARNESS002-main): single source of schema+auth verdict evaluation; instructs the worker to self-check via check-* CLIs, judge schema/auth only, treat stub as mechanical, and return the WORKER-001 per-gate verdict map; advisory-only until the flip (HARNESS006)
+      skills/
+        builder/
+          procedure.md            ← plugin-versioned builder procedure (WORKER-005, HARNESS003-main): bounded inputs, BUILDER STUCK format, BUILD-RESULT return schema; advisory-only until the flip (HARNESS006)
+        reviewer/
+          procedure.md            ← plugin-versioned reviewer procedure (WORKER-006, HARNESS003-main): review checklist, REVIEW-RESULT return schema; advisory-only until the flip (HARNESS006)
+        loop-breaker/
+          procedure.md            ← plugin-versioned loop-breaker procedure (WORKER-007, HARNESS003-main): cold-eyes analysis, one-alternative approach, ADVICE return schema; advisory-only until the flip (HARNESS006)
+        security-auditor/
+          procedure.md            ← plugin-versioned security-audit procedure (WORKER-008, HARNESS003-main): CRITICAL/HIGH/MEDIUM/LOW checklist, REVIEW-RESULT return schema; advisory-only until the flip (HARNESS006)
+        intent-reviewer/
+          procedure.md            ← plugin-versioned intent-review procedure (WORKER-009, HARNESS003-main): story-alignment scale, design-pivot detection, doc-edit recommendations, REVIEW-RESULT with ALIGNED verdict; advisory-only until the flip (HARNESS006)
       scripts/
         bootstrap.py              ← generate pairmode scaffold from spec
         audit.py                  ← diff project against canonical templates
@@ -55,7 +66,8 @@ flex/
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
         next_story.py             ← find next unbuilt story from a phase file; CLI: uv run next_story.py <phase-file> [--json] [--project-dir DIR]
         gate_verdict.py           ← WORKER-001 gate verdict grammar: VERBS (clean/block/flag), JUDGED_GATES (schema/auth; stub excluded), parse_verdict (string → (verb, reason)), validate_verdict_map (dict → violation list); stdlib-only, no I/O; the WORKER-rail contract analogue of next_action.py's action grammar
-        next_action.py            ← next-action resolver: action grammar (make_action, validate_action, ACTIONS), position read-model (infer_position), 9-state DP2 machine (resolve_next_action); HARNESS002-main adds spawn-gate-worker to ACTIONS, Row-4 DP2 split (stub→await-user directly; schema/auth→spawn-gate-worker), parse_worker_verdict_text (worker text return → per-gate verdict map), route_gate_verdict (DP3.2 aggregation: block→await-user, flag→proceed+warnings, clean→proceed); advisory-only, pure-read
+        worker_result.py          ← generalized worker return contract (WORKER-004, HARNESS003-main): four result types (BUILD-RESULT, REVIEW-RESULT, ADVICE, SPEC-RESULT), parse_worker_result (text → dict, validated), validate_worker_result (dict → violation list); stdlib-only, no I/O; parallel to gate_verdict.py for all non-gate workers
+        next_action.py            ← next-action resolver: action grammar (make_action, validate_action, ACTIONS), position read-model (infer_position), 9-state DP2 machine (resolve_next_action); HARNESS002-main adds spawn-gate-worker to ACTIONS, Row-4 DP2 split (stub→await-user directly; schema/auth→spawn-gate-worker), parse_worker_verdict_text (worker text return → per-gate verdict map), route_gate_verdict (DP3.2 aggregation: block→await-user, flag→proceed+warnings, clean→proceed); advisory-only, pure-read; HARNESS003-main adds spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer to ACTIONS and _SPAWN_ACTIONS; SCHEMA_VERSION bumped to 2
         pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all three sync operations in fixed order (sync-all subcommand); also registers register/unregister/list-projects in the top-level CLI group
         pairmode_register.py      ← manage registered_projects in .companion/state.json (register/unregister/list-projects subcommands)
         pairmode_migrate.py       ← one-shot migration of an anchor-bootstrapped sibling project to flex naming (migrate-from-anchor subcommand)
