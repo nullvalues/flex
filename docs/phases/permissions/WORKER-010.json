@@ -1,0 +1,11 @@
+{
+  "story_id": "WORKER-010",
+  "story_spec": "docs/stories/WORKER/WORKER-010.md",
+  "allowed_paths": [
+    "tests/pairmode/test_harness003_isolation.py",
+    "tests/pairmode/test_worker_result.py",
+    "tests/pairmode/resolver_fixtures.py",
+    "docs/stories/WORKER/WORKER-010.md"
+  ],
+  "generated_at": "2026-06-30T15:50:42Z"
+}
