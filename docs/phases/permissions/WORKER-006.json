@@ -1,0 +1,11 @@
+{
+  "story_id": "WORKER-006",
+  "story_spec": "docs/stories/WORKER/WORKER-006.md",
+  "allowed_paths": [
+    "skills/pairmode/skills/reviewer/procedure.md",
+    "tests/pairmode/test_reviewer_worker.py",
+    "skills/pairmode/scripts/worker_result.py",
+    "docs/stories/WORKER/WORKER-006.md"
+  ],
+  "generated_at": "2026-06-30T14:55:33Z"
+}
