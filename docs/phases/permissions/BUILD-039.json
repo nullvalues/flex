@@ -1,0 +1,9 @@
+{
+  "story_id": "BUILD-039",
+  "story_spec": "docs/stories/BUILD/BUILD-039.md",
+  "allowed_paths": [
+    "CLAUDE.build.md",
+    "docs/stories/BUILD/BUILD-039.md"
+  ],
+  "generated_at": "2026-06-30T14:54:03Z"
+}
