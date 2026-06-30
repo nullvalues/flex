@@ -1,0 +1,168 @@
+{
+  "BUILD-RESULT": {
+    "valid": [
+      {
+        "label": "build-pass",
+        "obj": {
+          "type": "BUILD-RESULT",
+          "outcome": "PASS",
+          "story_id": "WORKER-004",
+          "reason": "All tests passed; diff matches spec."
+        }
+      },
+      {
+        "label": "build-fail",
+        "obj": {
+          "type": "BUILD-RESULT",
+          "outcome": "FAIL",
+          "story_id": "WORKER-003",
+          "reason": "pytest reported 3 failures in test_gate_worker_isolation.py"
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "label": "missing-outcome",
+        "obj": {
+          "type": "BUILD-RESULT",
+          "story_id": "WORKER-004",
+          "reason": "no outcome field"
+        },
+        "expected_violation_substring": "missing required field 'outcome'"
+      },
+      {
+        "label": "bad-outcome-value",
+        "obj": {
+          "type": "BUILD-RESULT",
+          "outcome": "ERROR",
+          "story_id": "WORKER-004",
+          "reason": "outcome must be PASS or FAIL"
+        },
+        "expected_violation_substring": "must be one of"
+      }
+    ]
+  },
+  "REVIEW-RESULT": {
+    "valid": [
+      {
+        "label": "review-pass-no-findings",
+        "obj": {
+          "type": "REVIEW-RESULT",
+          "verdict": "PASS",
+          "findings": [],
+          "reason": "Diff matches all Ensures; test suite green."
+        }
+      },
+      {
+        "label": "review-fail-with-findings",
+        "obj": {
+          "type": "REVIEW-RESULT",
+          "verdict": "FAIL",
+          "findings": [
+            "test_worker_result.py missing; story class is code",
+            "SCHEMA_VERSION not bumped to 2"
+          ],
+          "reason": "Two HIGH findings block completion."
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "label": "missing-verdict",
+        "obj": {
+          "type": "REVIEW-RESULT",
+          "findings": [],
+          "reason": "no verdict field"
+        },
+        "expected_violation_substring": "missing required field 'verdict'"
+      },
+      {
+        "label": "findings-not-a-list",
+        "obj": {
+          "type": "REVIEW-RESULT",
+          "verdict": "PASS",
+          "findings": "should be a list",
+          "reason": "findings must be list"
+        },
+        "expected_violation_substring": "'findings' must be a list"
+      }
+    ]
+  },
+  "ADVICE": {
+    "valid": [
+      {
+        "label": "advice-simple",
+        "obj": {
+          "type": "ADVICE",
+          "approach": "Rewrite the import chain in worker_result.py to use lazy imports.",
+          "rationale": "The previous approach caused a circular import at test collection time."
+        }
+      },
+      {
+        "label": "advice-detailed",
+        "obj": {
+          "type": "ADVICE",
+          "approach": "Split validate_worker_result into a type-dispatch table so each type owns its rules.",
+          "rationale": "Easier to extend and less error-prone than the current inline chain."
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "label": "missing-approach",
+        "obj": {
+          "type": "ADVICE",
+          "rationale": "no approach field"
+        },
+        "expected_violation_substring": "missing required field 'approach'"
+      },
+      {
+        "label": "missing-rationale",
+        "obj": {
+          "type": "ADVICE",
+          "approach": "Do the thing"
+        },
+        "expected_violation_substring": "missing required field 'rationale'"
+      }
+    ]
+  },
+  "SPEC-RESULT": {
+    "valid": [
+      {
+        "label": "spec-done",
+        "obj": {
+          "type": "SPEC-RESULT",
+          "story_id": "RESOLVER-009",
+          "status": "done"
+        }
+      },
+      {
+        "label": "spec-revised",
+        "obj": {
+          "type": "SPEC-RESULT",
+          "story_id": "WORKER-009",
+          "status": "revised"
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "label": "missing-status",
+        "obj": {
+          "type": "SPEC-RESULT",
+          "story_id": "RESOLVER-009"
+        },
+        "expected_violation_substring": "missing required field 'status'"
+      },
+      {
+        "label": "bad-status-value",
+        "obj": {
+          "type": "SPEC-RESULT",
+          "story_id": "RESOLVER-009",
+          "status": "pending"
+        },
+        "expected_violation_substring": "must be one of"
+      }
+    ]
+  }
+}

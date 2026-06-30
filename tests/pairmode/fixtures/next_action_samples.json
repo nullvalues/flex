@@ -5,7 +5,7 @@
     "model": "sonnet",
     "reason": "Next unbuilt story; attempt 1; sonnet baseline.",
     "meta": {
-      "schema_version": 1,
+      "schema_version": 2,
       "attempt": 1
     }
   },
@@ -15,7 +15,7 @@
     "model": "opus",
     "reason": "Retry — second attempt; upgrading to opus.",
     "meta": {
-      "schema_version": 1,
+      "schema_version": 2,
       "attempt": 2,
       "warnings": ["previous attempt failed reviewer check"]
     }
@@ -26,7 +26,7 @@
     "model": "opus",
     "reason": "Story failed twice; escalating to loop-breaker.",
     "meta": {
-      "schema_version": 1,
+      "schema_version": 2,
       "attempt": 3,
       "fail_rung": "double-fail"
     }
@@ -37,9 +37,37 @@
     "model": null,
     "reason": "judged-gate-tripped",
     "meta": {
-      "schema_version": 1,
+      "schema_version": 2,
       "gates_tripped": ["schema"],
       "gate_reasons": {"schema": "no management surface story in phase"}
+    }
+  },
+  {
+    "action": "spawn-reviewer",
+    "scalar": "WORKER-004",
+    "model": "sonnet",
+    "reason": "Builder completed; spawning reviewer for story WORKER-004.",
+    "meta": {
+      "schema_version": 2,
+      "attempt": 1
+    }
+  },
+  {
+    "action": "spawn-security-auditor",
+    "scalar": "HARNESS003-main",
+    "model": "opus",
+    "reason": "Checkpoint: phase_class=production; security-auditor upgrades to opus.",
+    "meta": {
+      "schema_version": 2
+    }
+  },
+  {
+    "action": "spawn-intent-reviewer",
+    "scalar": "HARNESS003-main",
+    "model": "sonnet",
+    "reason": "Checkpoint: intent-reviewer reviews all stories in phase.",
+    "meta": {
+      "schema_version": 2
     }
   },
   {
@@ -48,7 +76,7 @@
     "model": null,
     "reason": "All stories in phase complete; initiating checkpoint.",
     "meta": {
-      "schema_version": 1
+      "schema_version": 2
     }
   },
   {
@@ -57,7 +85,7 @@
     "model": null,
     "reason": "Context budget exceeded; waiting for operator acknowledgement.",
     "meta": {
-      "schema_version": 1,
+      "schema_version": 2,
       "gate": "context-budget",
       "warnings": ["context_current_tokens is stale"]
     }
@@ -68,7 +96,7 @@
     "model": null,
     "reason": "Phase complete and checkpointed.",
     "meta": {
-      "schema_version": 1
+      "schema_version": 2
     }
   }
 ]

@@ -156,15 +156,19 @@ class TestConstructor:
 
 
 class TestEnumClosure:
-    def test_actions_contains_exactly_six_values(self):
+    def test_actions_contains_exactly_nine_values(self):
         # RESOLVER-005 added spawn-gate-worker (was five before HARNESS002-main).
-        assert len(ACTIONS) == 6
+        # WORKER-004 added spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer (was six).
+        assert len(ACTIONS) == 9
 
     def test_actions_contains_all_documented_values(self):
         expected = {
             "spawn-builder",
             "spawn-loop-breaker",
             "spawn-gate-worker",
+            "spawn-reviewer",
+            "spawn-security-auditor",
+            "spawn-intent-reviewer",
             "checkpoint",
             "await-user",
             "done",
@@ -173,8 +177,23 @@ class TestEnumClosure:
 
     def test_named_constants_match_actions(self):
         """Each named constant must be in ACTIONS and the set must equal constants."""
-        from next_action import SPAWN_GATE_WORKER  # noqa: PLC0415
-        named = {SPAWN_BUILDER, SPAWN_LOOP_BREAKER, SPAWN_GATE_WORKER, CHECKPOINT, AWAIT_USER, DONE}
+        from next_action import (  # noqa: PLC0415
+            SPAWN_GATE_WORKER,
+            SPAWN_REVIEWER,
+            SPAWN_SECURITY_AUDITOR,
+            SPAWN_INTENT_REVIEWER,
+        )
+        named = {
+            SPAWN_BUILDER,
+            SPAWN_LOOP_BREAKER,
+            SPAWN_GATE_WORKER,
+            SPAWN_REVIEWER,
+            SPAWN_SECURITY_AUDITOR,
+            SPAWN_INTENT_REVIEWER,
+            CHECKPOINT,
+            AWAIT_USER,
+            DONE,
+        }
         assert named == ACTIONS
 
 

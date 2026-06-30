@@ -48,7 +48,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 # Schema version
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION: int = 1
+SCHEMA_VERSION: int = 2
 
 # ---------------------------------------------------------------------------
 # Action vocabulary (closed set for Era 003; designed to be extended later)
@@ -57,18 +57,41 @@ SCHEMA_VERSION: int = 1
 SPAWN_BUILDER: str = "spawn-builder"
 SPAWN_LOOP_BREAKER: str = "spawn-loop-breaker"
 SPAWN_GATE_WORKER: str = "spawn-gate-worker"
+SPAWN_REVIEWER: str = "spawn-reviewer"
+SPAWN_SECURITY_AUDITOR: str = "spawn-security-auditor"
+SPAWN_INTENT_REVIEWER: str = "spawn-intent-reviewer"
 CHECKPOINT: str = "checkpoint"
 AWAIT_USER: str = "await-user"
 DONE: str = "done"
 
 ACTIONS: frozenset[str] = frozenset(
-    {SPAWN_BUILDER, SPAWN_LOOP_BREAKER, SPAWN_GATE_WORKER, CHECKPOINT, AWAIT_USER, DONE}
+    {
+        SPAWN_BUILDER,
+        SPAWN_LOOP_BREAKER,
+        SPAWN_GATE_WORKER,
+        SPAWN_REVIEWER,
+        SPAWN_SECURITY_AUDITOR,
+        SPAWN_INTENT_REVIEWER,
+        CHECKPOINT,
+        AWAIT_USER,
+        DONE,
+    }
 )
 
 # Actions for which model may be non-null (auto-resolved spawn actions only).
 # spawn-gate-worker carries no builder model (the gate worker tier is not a
 # builder-model decision), so it is NOT in _SPAWN_ACTIONS — model must be None.
-_SPAWN_ACTIONS: frozenset[str] = frozenset({SPAWN_BUILDER, SPAWN_LOOP_BREAKER})
+# spawn-reviewer, spawn-security-auditor, and spawn-intent-reviewer carry a
+# model override (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS.
+_SPAWN_ACTIONS: frozenset[str] = frozenset(
+    {
+        SPAWN_BUILDER,
+        SPAWN_LOOP_BREAKER,
+        SPAWN_REVIEWER,
+        SPAWN_SECURITY_AUDITOR,
+        SPAWN_INTENT_REVIEWER,
+    }
+)
 
 # Top-level keys that every action object must carry.
 _REQUIRED_KEYS: frozenset[str] = frozenset({"action", "scalar", "model", "reason", "meta"})
