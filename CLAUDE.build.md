@@ -528,7 +528,9 @@ Before spawning the reviewer:
 `docs/stories/` is intentionally excluded from the blanket stage: the
 reviewer's "Before reviewing" step diffs `HEAD` to identify what the
 builder changed, including builder edits to story files. Pre-committing
-them would hide the diff.
+them would hide the diff. Similarly, the story's `primary_files` and
+`touches` are excluded — the reviewer must see the story's deliverable
+in the diff, not find it already committed under the chore message.
 
 ```bash
 # Commit any orchestrator-side methodology file changes
@@ -537,6 +539,10 @@ them would hide the diff.
 # must commit an individual story file it edited during session setup,
 # stage only that file with `git add docs/stories/<RAIL>/<ID>.md`.
 git add docs/phases/ docs/cer/ 2>/dev/null
+# L018: exclude story primary_files/touches — reviewer must see them in the diff
+for f in <primary_files> <touches>; do
+  git reset HEAD -- "$f" 2>/dev/null
+done
 git diff --cached --quiet || git commit -m "chore(orchestrator): pre-reviewer methodology file commit"
 
 # Drop any uncommitted lesson edits — lessons.json/LESSONS.md should only
