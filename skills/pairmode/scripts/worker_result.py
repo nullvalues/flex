@@ -52,7 +52,12 @@ _SCHEMAS: dict[str, dict] = {
     REVIEW_RESULT: {
         "required": ["verdict", "findings", "reason"],
         "allowed": {"type", "verdict", "findings", "reason"},
-        "enums": {"verdict": {"PASS", "FAIL"}},
+        # ALIGNED is the canonical intent-review verdict (WORKER-009): the
+        # checkpoint-intent action relies on the "ALIGNED/[findings]" output
+        # format. The grammar admits string verdicts beyond PASS/FAIL for
+        # clarity; PASS, FAIL, and ALIGNED are the recognised members. Any
+        # other verdict string (e.g. "MAYBE") remains a violation.
+        "enums": {"verdict": {"PASS", "FAIL", "ALIGNED"}},
     },
     ADVICE: {
         "required": ["approach", "rationale"],
