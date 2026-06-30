@@ -113,7 +113,18 @@ def _write_story(
         pf_yaml = "\nprimary_files:\n" + "".join(f"  - {f}\n" for f in pf_list)
     else:
         pf_yaml = "\nprimary_files: []\n"
-    body = "## Ensures\n\n- It works.\n" if not stub else "See phase doc for details.\n"
+    if stub:
+        body = "See phase doc for details.\n"
+    else:
+        # Use >= 5 non-blank Ensures lines so needs_spec = False (RESOLVER-009).
+        body = (
+            "## Ensures\n\n"
+            "- It works as designed.\n"
+            "- All inputs are validated.\n"
+            "- The output format is correct.\n"
+            "- Tests pass.\n"
+            "- No regressions introduced.\n"
+        )
     content = (
         f"---\n"
         f"id: {story_id}\n"

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://flex.halfhorse.com/schemas/next_action/v3",
+  "$id": "https://flex.halfhorse.com/schemas/next_action/v4",
   "title": "NextAction",
-  "description": "Versioned action grammar emitted by the next-action resolver (Era 003). Schema version 3 (RESOLVER-007 adds checkpoint-security/intent/docs/tag; removes monolithic checkpoint).",
+  "description": "Versioned action grammar emitted by the next-action resolver (Era 003). Schema version 4 (RESOLVER-009 adds spawn-spec-writer + needs_spec flag).",
   "type": "object",
   "required": ["action", "scalar", "model", "reason", "meta"],
   "additionalProperties": false,
@@ -17,6 +17,7 @@
         "spawn-reviewer",
         "spawn-security-auditor",
         "spawn-intent-reviewer",
+        "spawn-spec-writer",
         "checkpoint-security",
         "checkpoint-intent",
         "checkpoint-docs",
@@ -46,9 +47,9 @@
       "required": ["schema_version"],
       "properties": {
         "schema_version": {
-          "description": "Integer version of this action grammar. Must equal 3 for Era 003 HARNESS004+.",
+          "description": "Integer version of this action grammar. Must equal 4 for Era 003 HARNESS005+.",
           "type": "integer",
-          "const": 3
+          "const": 4
         },
         "attempt": {
           "description": "Builder attempt number (1-based).",

@@ -58,6 +58,15 @@ RESOLVER-008 (checkpoint routing):
   emitted.  The build gate is injectable via a ``gate_fn`` parameter on
   ``resolve_next_action`` and ``check_checkpoint_guards`` so tests never run
   the real pytest subprocess.
+
+RESOLVER-009 (spec-writer action + needs_spec flag):
+  Adds ``spawn-spec-writer`` to the action vocabulary and ``_SPAWN_ACTIONS``.
+  ``infer_position`` now sets ``position["needs_spec"] = True`` when the next
+  story file has ``status: planned`` AND the ``## Ensures`` section is absent
+  or contains fewer than 5 non-blank lines (stub heuristic).  Row 2 in
+  ``resolve_next_action`` is split: when ``needs_spec`` is True the resolver
+  emits ``spawn-spec-writer`` (model="opus", reason="needs-spec") instead of
+  proceeding to ``spawn-builder``.  ``SCHEMA_VERSION`` bumped from 3 to 4.
 """
 
 from __future__ import annotations
@@ -74,7 +83,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 # Schema version
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION: int = 3
+SCHEMA_VERSION: int = 4
 
 # ---------------------------------------------------------------------------
 # Action vocabulary (closed set for Era 003; designed to be extended later)
@@ -86,6 +95,7 @@ SPAWN_GATE_WORKER: str = "spawn-gate-worker"
 SPAWN_REVIEWER: str = "spawn-reviewer"
 SPAWN_SECURITY_AUDITOR: str = "spawn-security-auditor"
 SPAWN_INTENT_REVIEWER: str = "spawn-intent-reviewer"
+SPAWN_SPEC_WRITER: str = "spawn-spec-writer"
 # CHECKPOINT ("checkpoint") was removed from ACTIONS in RESOLVER-007.
 # The constant is retained for backward import compatibility only.
 # Routing to the decomposed checkpoint actions lands in RESOLVER-008.
@@ -105,6 +115,7 @@ ACTIONS: frozenset[str] = frozenset(
         SPAWN_REVIEWER,
         SPAWN_SECURITY_AUDITOR,
         SPAWN_INTENT_REVIEWER,
+        SPAWN_SPEC_WRITER,
         CHECKPOINT_SECURITY,
         CHECKPOINT_INTENT,
         CHECKPOINT_DOCS,
@@ -122,6 +133,8 @@ ACTIONS: frozenset[str] = frozenset(
 # checkpoint-security, checkpoint-intent, checkpoint-docs carry a model override
 # (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS.
 # checkpoint-tag is an inline action and is NOT in _SPAWN_ACTIONS.
+# spawn-spec-writer carries a model override (opus, for spec elaboration) and
+# IS in _SPAWN_ACTIONS.
 _SPAWN_ACTIONS: frozenset[str] = frozenset(
     {
         SPAWN_BUILDER,
@@ -129,6 +142,7 @@ _SPAWN_ACTIONS: frozenset[str] = frozenset(
         SPAWN_REVIEWER,
         SPAWN_SECURITY_AUDITOR,
         SPAWN_INTENT_REVIEWER,
+        SPAWN_SPEC_WRITER,
         CHECKPOINT_SECURITY,
         CHECKPOINT_INTENT,
         CHECKPOINT_DOCS,
@@ -416,6 +430,36 @@ def check_checkpoint_guards(
 
 
 # ---------------------------------------------------------------------------
+# Spec-stub heuristic (RESOLVER-009)
+# ---------------------------------------------------------------------------
+
+
+def _count_ensures_nonblank_lines(text: str) -> "int | None":
+    """Count non-blank content lines inside the ``## Ensures`` section.
+
+    Scans the text for a line beginning with ``## Ensures`` (case-sensitive),
+    then counts non-blank lines until the next ``## `` heading or end of file.
+    Returns ``None`` when the ``## Ensures`` section is absent entirely.
+
+    Pure function: no I/O, no global state.  Used only by ``infer_position``
+    to compute the ``needs_spec`` flag (RESOLVER-009).
+    """
+    in_ensures = False
+    count = 0
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## Ensures"):
+            in_ensures = True
+            continue
+        if in_ensures:
+            if stripped.startswith("## "):
+                break  # left the Ensures section
+            if stripped:
+                count += 1
+    return count if in_ensures else None
+
+
+# ---------------------------------------------------------------------------
 # Position read-model (RESOLVER-002)
 # ---------------------------------------------------------------------------
 
@@ -461,6 +505,11 @@ def infer_position(project_dir: "str | Path") -> dict:
         - ``"FAIL"``    — no commit, status still ``planned``, attempt_count > 0.
         - ``"none"``    — attempt_count == 0 (no attempt has been made).
         - ``"unknown"`` — state is ambiguous (e.g. story file unresolvable).
+    needs_spec : bool
+        True when the next story file's ``## Ensures`` section is absent or
+        contains fewer than 5 non-blank lines (stub heuristic, RESOLVER-009).
+        False when the section is present and sufficiently detailed.
+        Defaults to False when ``next_story_id`` is None.
     """
     from next_story import find_next_story  # type: ignore[import]
     from model_selector import select_builder_model  # type: ignore[import]
@@ -487,6 +536,7 @@ def infer_position(project_dir: "str | Path") -> dict:
     next_story_file: "str | None" = None
     story_class: str = "code"
     primary_files: "list[str]" = []
+    needs_spec: bool = False  # RESOLVER-009: set below when story file is read
 
     if active_phase_file is not None:
         try:
@@ -498,15 +548,18 @@ def infer_position(project_dir: "str | Path") -> dict:
             next_story_id = result.get("story_id")
             next_story_file = result.get("story_file")
 
-            # Read story frontmatter to get story_class and primary_files.
+            # Read story frontmatter to get story_class, primary_files, and
+            # the needs_spec flag (RESOLVER-009).
             if next_story_file and next_story_file != "UNRESOLVED":
                 try:
                     story_text = Path(next_story_file).read_text(encoding="utf-8")
                     fm = _parse_frontmatter(story_text) or {}
                     story_class = fm.get("story_class") or "code"
                     primary_files = fm.get("primary_files") or []
+                    ensures_count = _count_ensures_nonblank_lines(story_text)
+                    needs_spec = ensures_count is None or ensures_count < 5
                 except OSError:
-                    pass
+                    needs_spec = True  # fail-safe: unreadable file → treat as stub
 
     # ------------------------------------------------------------------
     # 3. Attempt count
@@ -654,6 +707,7 @@ def infer_position(project_dir: "str | Path") -> dict:
         "gate_auth": gate_auth,
         "last_attempt_outcome": last_attempt_outcome,
         "checkpoint_step": checkpoint_step,
+        "needs_spec": needs_spec,
     }
 
 
@@ -706,7 +760,9 @@ def resolve_next_action(
     Row 8  — story committed (PASS), more stories remain   → spawn-builder (next story, attempt 1)
     Row 4  — any pre-flight gate blocked                   → await-user (gate-blocked:<which>)
     Row 3  — model reason == prompted-upgrade, counter 0   → await-user (model-upgrade)
-    Row 2  — counter 0, auto model                         → spawn-builder (attempt 1)
+    Row 2  — counter 0, auto model (RESOLVER-009 branch):
+               needs_spec True                             → spawn-spec-writer (model=opus)
+               needs_spec False                            → spawn-builder (attempt 1)
     Row 5  — counter 1, FAIL                               → spawn-builder (attempt 2, retry-upgrade)
     Row 6  — counter 2, FAIL                               → spawn-loop-breaker
     Row 7  — counter ≥ 3 or any other pause condition      → await-user (build-paused)
@@ -869,8 +925,20 @@ def resolve_next_action(
 
     # ------------------------------------------------------------------
     # Row 2 — first attempt, auto model (counter 0, no gate blocked, auto reason)
+    #
+    # Row-2 branch (RESOLVER-009): story is a spec stub → spawn-spec-writer.
+    # The spec-writer elaborates the story before a builder is spawned.
     # ------------------------------------------------------------------
     if attempt_count == 0:
+        needs_spec: bool = bool(position.get("needs_spec", False))
+        if needs_spec:
+            return make_action(
+                SPAWN_SPEC_WRITER,
+                scalar=next_story_id,
+                model="opus",
+                reason="needs-spec",
+                meta=meta_base,
+            )
         meta = dict(meta_base)
         meta["attempt"] = 1
         return make_action(

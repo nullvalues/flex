@@ -162,11 +162,12 @@ class TestConstructor:
 
 
 class TestEnumClosure:
-    def test_actions_contains_exactly_twelve_values(self):
+    def test_actions_contains_exactly_thirteen_values(self):
         # RESOLVER-005 added spawn-gate-worker (was five before HARNESS002-main).
         # WORKER-004 added spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer (was six).
         # RESOLVER-007 removed monolithic checkpoint and added four checkpoint-* actions (net +3).
-        assert len(ACTIONS) == 12
+        # RESOLVER-009 added spawn-spec-writer (was twelve).
+        assert len(ACTIONS) == 13
 
     def test_actions_contains_all_documented_values(self):
         expected = {
@@ -176,6 +177,7 @@ class TestEnumClosure:
             "spawn-reviewer",
             "spawn-security-auditor",
             "spawn-intent-reviewer",
+            "spawn-spec-writer",
             "checkpoint-security",
             "checkpoint-intent",
             "checkpoint-docs",
@@ -192,6 +194,7 @@ class TestEnumClosure:
             SPAWN_REVIEWER,
             SPAWN_SECURITY_AUDITOR,
             SPAWN_INTENT_REVIEWER,
+            SPAWN_SPEC_WRITER,
         )
         named = {
             SPAWN_BUILDER,
@@ -200,6 +203,7 @@ class TestEnumClosure:
             SPAWN_REVIEWER,
             SPAWN_SECURITY_AUDITOR,
             SPAWN_INTENT_REVIEWER,
+            SPAWN_SPEC_WRITER,
             CHECKPOINT_SECURITY,
             CHECKPOINT_INTENT,
             CHECKPOINT_DOCS,

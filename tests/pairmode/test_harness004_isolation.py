@@ -103,17 +103,17 @@ def _make_position(
 
 
 # ===========================================================================
-# Section 1 — SCHEMA_VERSION == 3
+# Section 1 — SCHEMA_VERSION == 4
 # ===========================================================================
 
 
 class TestSchemaVersion:
-    """SCHEMA_VERSION must equal 3 after the RESOLVER-007 bump."""
+    """SCHEMA_VERSION must equal 4 after the RESOLVER-009 bump."""
 
-    def test_schema_version_is_3(self) -> None:
-        """next_action.SCHEMA_VERSION must be 3 (RESOLVER-007 checkpoint decomposition bump)."""
-        assert SCHEMA_VERSION == 3, (
-            f"Expected SCHEMA_VERSION == 3; got {SCHEMA_VERSION!r}"
+    def test_schema_version_is_4(self) -> None:
+        """next_action.SCHEMA_VERSION must be 4 (RESOLVER-009 spawn-spec-writer + needs_spec bump)."""
+        assert SCHEMA_VERSION == 4, (
+            f"Expected SCHEMA_VERSION == 4; got {SCHEMA_VERSION!r}"
         )
 
     def test_make_action_embeds_schema_version(self) -> None:

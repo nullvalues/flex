@@ -143,9 +143,9 @@ class TestCheckpointStepInPosition:
 
 
 class TestCheckpointActionVocabulary:
-    def test_schema_version_is_3(self) -> None:
-        """SCHEMA_VERSION must be 3 after RESOLVER-007."""
-        assert SCHEMA_VERSION == 3
+    def test_schema_version_is_4(self) -> None:
+        """SCHEMA_VERSION must be 4 after RESOLVER-009."""
+        assert SCHEMA_VERSION == 4
 
     def test_checkpoint_security_in_actions(self) -> None:
         assert CHECKPOINT_SECURITY == "checkpoint-security"

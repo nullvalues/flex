@@ -38,7 +38,11 @@ git_commits     : list[str]   Commit messages to inject (as empty commits in a
                                seeded git repo).  Use "story-<ID>" patterns to
                                simulate reviewer commits.
 stub_story      : bool        If True, the first story body uses delegation
-                               language ("See phase doc for details").
+                               language ("See phase doc for details") and has
+                               no ## Ensures section → needs_spec = True.
+stub_ensures    : bool        If True, the first story has a ## Ensures section
+                               with fewer than 5 non-blank lines (3 lines) →
+                               needs_spec = True.  Ignored when stub_story=True.
 auth_gated      : bool        auth_gated: true in the first story's frontmatter.
 schema_introduces: bool       schema_introduces: true in the first story's
                                frontmatter.
@@ -76,6 +80,7 @@ def make_resolver_project(tmp_path: Path, cfg: dict) -> Path:
     attempt_count: int = cfg.get("attempt_count", 0)
     git_commits: list[str] = cfg.get("git_commits", [])
     stub_story: bool = cfg.get("stub_story", False)
+    stub_ensures: bool = cfg.get("stub_ensures", False)
     auth_gated: bool = cfg.get("auth_gated", False)
     schema_introduces: bool = cfg.get("schema_introduces", False)
     state_extra: dict = cfg.get("state_json") or {}
@@ -151,6 +156,7 @@ def make_resolver_project(tmp_path: Path, cfg: dict) -> Path:
         story_auth_gated = auth_gated if is_first else False
         story_schema_introduces = schema_introduces if is_first else False
         story_stub = stub_story if is_first else False
+        story_stub_ensures = stub_ensures if is_first else False
 
         if primary_files:
             pf_yaml = "primary_files:\n" + "".join(
@@ -160,9 +166,21 @@ def make_resolver_project(tmp_path: Path, cfg: dict) -> Path:
             pf_yaml = "primary_files: []\n"
 
         if story_stub:
+            # No ## Ensures section → needs_spec = True
             body = "See phase doc for details.\n"
+        elif story_stub_ensures:
+            # ## Ensures with < 5 non-blank lines → needs_spec = True
+            body = "## Ensures\n\n- Line 1.\n- Line 2.\n- Line 3.\n"
         else:
-            body = "## Ensures\n\n- It works.\n"
+            # Default: ≥ 5 non-blank lines → needs_spec = False
+            body = (
+                "## Ensures\n\n"
+                "- It works as designed.\n"
+                "- All inputs are validated.\n"
+                "- The output format is correct.\n"
+                "- Tests pass.\n"
+                "- No regressions introduced.\n"
+            )
 
         content = (
             f"---\n"
