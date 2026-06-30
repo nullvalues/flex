@@ -1,7 +1,7 @@
 # Phase 80 — pre-reviewer blanket-stage exclusion fix
 
 **Era:** era-002
-**Status:** planned
+**Status:** complete
 
 ## Goal
 
@@ -16,7 +16,7 @@ Single-story phase. See L018 for the lesson that surfaced this.
 
 | ID | Title | Status |
 |----|-------|--------|
-| BUILD-039 | pre-reviewer git add: exclude story primary_files from blanket stage | planned |
+| BUILD-039 | pre-reviewer git add: exclude story primary_files from blanket stage | complete |
 
 ## Schema delivery
 
