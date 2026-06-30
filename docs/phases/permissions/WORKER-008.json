@@ -1,0 +1,11 @@
+{
+  "story_id": "WORKER-008",
+  "story_spec": "docs/stories/WORKER/WORKER-008.md",
+  "allowed_paths": [
+    "skills/pairmode/skills/security-auditor/procedure.md",
+    "tests/pairmode/test_security_auditor_worker.py",
+    "skills/pairmode/scripts/worker_result.py",
+    "docs/stories/WORKER/WORKER-008.md"
+  ],
+  "generated_at": "2026-06-30T15:15:30Z"
+}
