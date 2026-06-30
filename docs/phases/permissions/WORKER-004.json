@@ -1,0 +1,12 @@
+{
+  "story_id": "WORKER-004",
+  "story_spec": "docs/stories/WORKER/WORKER-004.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/worker_result.py",
+    "tests/pairmode/fixtures/worker_result_grammar.json",
+    "tests/pairmode/test_worker_result.py",
+    "skills/pairmode/scripts/next_action.py",
+    "docs/stories/WORKER/WORKER-004.md"
+  ],
+  "generated_at": "2026-06-30T02:56:41Z"
+}
