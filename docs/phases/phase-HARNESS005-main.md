@@ -27,7 +27,7 @@ resolver proceeds normally. `SCHEMA_VERSION` bumped to 4. Advisory-only — NOT 
 | ID | Title | Status |
 |----|-------|--------|
 | RESOLVER-009 | `spawn-spec-writer` action + `needs_spec` Position flag | complete |
-| WORKER-013 | Spec-writer leaf worker — thin shell + plugin procedure skill | planned |
+| WORKER-013 | Spec-writer leaf worker — thin shell + plugin procedure skill | complete |
 | WORKER-014 | HARNESS005 isolation suite | planned |
 
 ## Schema delivery
