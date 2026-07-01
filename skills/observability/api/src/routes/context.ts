@@ -9,6 +9,7 @@ import {
   queryMisses,
 } from '../readers/effortDb.js';
 import { readResolverState, type ResolverStateDoc } from '../readers/resolverState.js';
+import { parseStoryFrontmatter } from '../parsers/storyFrontmatter.js';
 
 // ---------------------------------------------------------------------------
 // Threshold definitions
@@ -127,7 +128,8 @@ function buildCurrentField(
   resolverState: ResolverStateDoc | null,
 ): CurrentOut {
   const tokens =
-    typeof state['context_current_tokens'] === 'number'
+    typeof state['context_current_tokens'] === 'number' &&
+    (state['context_current_tokens'] as number) > 0
       ? state['context_current_tokens']
       : null;
 
@@ -158,15 +160,42 @@ function buildCurrentField(
   return { tokens, recorded_at, age_seconds, stale, story_id, phase };
 }
 
-function buildThresholds(state: Record<string, unknown>): ThresholdOut[] {
+async function buildThresholds(
+  projectDir: string,
+  stateObj: Record<string, unknown>,
+): Promise<ThresholdOut[]> {
+  // Resolve flex_factor from current story frontmatter (INFRA-166 fix 2)
+  let flexFactorValue = 1.0;
+  let flexFactorSource = 'default';
+
+  const currentStory = stateObj['current_story'];
+  if (currentStory && typeof currentStory === 'object') {
+    const cs = currentStory as Record<string, unknown>;
+    const id = cs['id'];
+    const rail = cs['rail'];
+    if (typeof id === 'string' && typeof rail === 'string') {
+      const relPath = `docs/stories/${rail}/${id}.md`;
+      try {
+        const fm = await parseStoryFrontmatter(projectDir, relPath);
+        if (fm && fm !== 'missing') {
+          flexFactorValue = fm.flex_factor;
+          flexFactorSource = 'story-frontmatter';
+        }
+      } catch {
+        flexFactorValue = 1.0;
+        flexFactorSource = 'story-frontmatter (fallback)';
+      }
+    }
+  }
+
   return THRESHOLD_DEFS.map((def) => {
     if (def.source_override) {
-      // flex_factor — always "story-frontmatter", always default value
+      // flex_factor — live read from story frontmatter (INFRA-166)
       return {
         name: def.name,
-        value: def.default,
+        value: flexFactorValue,
         default: def.default,
-        source: def.source_override,
+        source: flexFactorSource,
         editable_via: def.editable_via,
         phase2_writable: def.phase2_writable,
         provenance: def.provenance ?? null,
@@ -174,9 +203,13 @@ function buildThresholds(state: Record<string, unknown>): ThresholdOut[] {
     }
 
     const stateKey = def.stateKey!;
-    const hasKey = Object.prototype.hasOwnProperty.call(state, stateKey);
-    const rawValue = state[stateKey];
-    const value = typeof rawValue === 'number' ? rawValue : def.default;
+    const hasKey = Object.prototype.hasOwnProperty.call(stateObj, stateKey);
+    const rawValue = stateObj[stateKey];
+    // NaN guard: typeof NaN === 'number', so check explicitly (INFRA-166 fix 4)
+    const value =
+      typeof rawValue === 'number' && !Number.isNaN(rawValue)
+        ? rawValue
+        : def.default;
     const source = hasKey ? 'state.json' : 'default';
 
     return {
@@ -212,8 +245,8 @@ async function buildContextPayload(
   // 4. Build current field from token state + resolver position
   const current = buildCurrentField(state, ttlMinutes, resolver_state);
 
-  // 5. Build thresholds
-  const thresholds = buildThresholds(state);
+  // 5. Build thresholds (async — reads story frontmatter for flex_factor)
+  const thresholds = await buildThresholds(projectDir, state);
 
   // 6. Determine context_budget_threshold value for waypoints/misses queries
   const thresholdValue =

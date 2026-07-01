@@ -25,14 +25,19 @@ export async function registerReposRoutes(app: FastifyInstance): Promise<void> {
     const registry = await readRegistry();
     const repos: RepoOut[] = [];
     for (const r of registry.repos) {
-      const statePath = path.join(r.project_dir, '.companion', 'state.json');
-      const present = await fileReadable(statePath);
+      let stateJsonPresent = false;
+      try {
+        const statePath = path.join(r.project_dir, '.companion', 'state.json');
+        stateJsonPresent = await fileReadable(statePath);
+      } catch {
+        console.error(`[repos] failed to probe state.json for ${r.id}`);
+      }
       repos.push({
         id: r.id,
         project_dir: r.project_dir,
         color: r.color,
         registered: true,
-        state_json_present: present,
+        state_json_present: stateJsonPresent,
       });
     }
     reply.header('Content-Type', 'application/json');

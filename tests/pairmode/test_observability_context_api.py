@@ -196,3 +196,67 @@ def test_context_route_has_cache() -> None:
     assert "cache" in content.lower(), (
         "routes/context.ts does not appear to implement a cache"
     )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-166: Route hardening — null crash, 0-token, NaN, flex_factor live read
+# ---------------------------------------------------------------------------
+
+def test_repos_null_project_dir_try_catch_present() -> None:
+    """repos.ts must wrap the state.json probe in try/catch (INFRA-166 fix 1)."""
+    content = (ROUTES / "repos.ts").read_text()
+    assert "stateJsonPresent = false" in content, (
+        "repos.ts missing let stateJsonPresent = false initialiser"
+    )
+    assert "try {" in content, "repos.ts missing try block around state.json probe"
+    assert "console.error" in content, (
+        "repos.ts missing console.error on catch for probe failure"
+    )
+    assert "failed to probe state.json" in content, (
+        "repos.ts error message for probe failure missing"
+    )
+
+
+def test_context_zero_tokens_treated_as_absent() -> None:
+    """context.ts must require context_current_tokens > 0 to treat as valid (INFRA-166 fix 3)."""
+    content = (ROUTES / "context.ts").read_text()
+    # The guard must now include > 0 check
+    assert "(state['context_current_tokens'] as number) > 0" in content, (
+        "context.ts missing > 0 guard for context_current_tokens (INFRA-166 fix 3)"
+    )
+
+
+def test_context_nan_threshold_guard_present() -> None:
+    """context.ts must use Number.isNaN guard when extracting threshold values (INFRA-166 fix 4)."""
+    content = (ROUTES / "context.ts").read_text()
+    assert "!Number.isNaN(rawValue)" in content, (
+        "context.ts missing !Number.isNaN(rawValue) guard in buildThresholds (INFRA-166 fix 4)"
+    )
+
+
+def test_context_flex_factor_live_read_present() -> None:
+    """context.ts must read flex_factor from story frontmatter via parseStoryFrontmatter (INFRA-166 fix 2)."""
+    content = (ROUTES / "context.ts").read_text()
+    assert "parseStoryFrontmatter" in content, (
+        "context.ts does not import/call parseStoryFrontmatter (INFRA-166 fix 2)"
+    )
+    assert "storyFrontmatter.js" in content, (
+        "context.ts does not import from storyFrontmatter.js"
+    )
+    assert "current_story" in content, (
+        "context.ts does not read current_story from state for flex_factor live read"
+    )
+    assert "story-frontmatter" in content, (
+        "context.ts does not set source to 'story-frontmatter' for flex_factor"
+    )
+
+
+def test_context_flex_factor_fallback_when_no_story() -> None:
+    """context.ts must fall back to value=1.0, source='default' when no current_story (INFRA-166 fix 2)."""
+    content = (ROUTES / "context.ts").read_text()
+    assert "flexFactorSource = 'default'" in content, (
+        "context.ts missing flexFactorSource = 'default' fallback for absent story"
+    )
+    assert "flexFactorValue = 1.0" in content, (
+        "context.ts missing flexFactorValue = 1.0 default"
+    )
