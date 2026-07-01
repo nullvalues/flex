@@ -2,7 +2,7 @@
 id: INFRA-164
 rail: INFRA
 title: "`flex_observability.py` CLI hardening — subprocess exit, atomic write, ID uniqueness"
-status: planned
+status: complete
 phase: "HARNESS007-main"
 story_class: code
 primary_files:

@@ -2,7 +2,7 @@
 id: INFRA-168
 rail: INFRA
 title: "`effortDb.ts` p90 off-by-one + in-flight promise dedup for route cache thundering herd"
-status: planned
+status: complete
 phase: "HARNESS007-main"
 story_class: code
 primary_files:

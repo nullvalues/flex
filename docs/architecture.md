@@ -53,7 +53,7 @@ flex/
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
-        flex_build.py             ← CLI wrapping 25 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stub, check-schema-gate, check-auth-gate, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope, next-action); next-action added in HARNESS001-main (advisory-only, not wired into CLAUDE.build.md); replaces inline python -c blocks in CLAUDE.build.md.j2
+        flex_build.py             ← CLI wrapping 26 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stub, check-schema-gate, check-auth-gate, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope, next-action, resolver-state); next-action added in HARNESS001-main (advisory-only, not wired into CLAUDE.build.md); resolver-state added in HARNESS007-main (pure-read resolver state dump); replaces inline python -c blocks in CLAUDE.build.md.j2
         refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
@@ -1221,22 +1221,37 @@ makes the final promotion decision.
 
 ## Observability surface
 
-Phase 63 ships a read-only observability SPA surfacing pairmode data from `.companion/state.json`
-and `.companion/effort.db`. Multi-repo support is first-class: one instance shows N registered
-repos in side-by-side panels.
+Phase 63 ships a read-only observability SPA. Phase G (HARNESS007-main) refactors it to read
+the **resolver state model** as the primary data source alongside `.companion/state.json` and
+`.companion/effort.db`. Multi-repo support is first-class: one instance shows N registered repos.
 
 **Architecture:** `skills/observability/` is a pnpm monorepo with `api/` (Fastify 5) and
 `ui/` (Vite + React 19) workspaces. Registry at `~/.config/flex-observability/registry.json`.
 
-**API:** Six GET endpoints (read-only): `/api/repos`, `/api/repos/:id/system` (era → phase →
-story tree), `/api/repos/:id/context` (tokens, thresholds, effort.db), `/api/repos/:id/lessons`,
-`/api/user/memories`, `/api/user/policies`. Phase 64 adds PUT/POST routes.
+**Resolver state model** (`flex_build.py resolver-state --json`): pure-read subcommand added
+in HARNESS007/OBS-001. Returns `{action, position, effort_by_role, index}`. The TS reader
+`readers/resolverState.ts` calls it via `child_process.spawnSync` and parses the JSON. The SPA
+renders next-action, position fields, per-role effort, and the resolver-owned phase index from
+this model — not from orchestrator-written keys like `current_story` (retired as display source).
 
-**Read-only contract:** All routes are GET; no write handlers. Phase 64 will add routes that
-shell out to `flex_build.py` subcommands.
+**API:** Six GET endpoints (read-only): `/api/repos`, `/api/repos/:id/system` (era → phase →
+story tree), `/api/repos/:id/context` (tokens, thresholds, effort.db, resolver_state),
+`/api/repos/:id/lessons`, `/api/user/memories`, `/api/user/policies`. All three payload routes
+(`system`, `context`, `lessons`) use an in-flight promise dedup map to prevent thundering-herd
+double-builds on concurrent cache misses (HARNESS007/INFRA-168).
+
+**Read-only contract:** All routes are GET; no write handlers.
 
 **`flex_factor`:** Story frontmatter field (default 1.0) overrides the effective context
-ceiling: `threshold × (1 + overrun_pct) × flex_factor`. Phase 63 reads it; Phase 64 adds UI controls.
+ceiling: `threshold × (1 + overrun_pct) × flex_factor`. The `/context` route live-reads the
+active story's frontmatter via `parseStoryFrontmatter` (HARNESS007/INFRA-166); source is
+`"story-frontmatter"` when a story is active, `"default"` otherwise.
+
+**Defect fixes shipped in HARNESS007:** D1 — `expected_step_tokens` shows provenance label
+`"thin-harness return-block growth"` (OBS-003). D2 — `context_current_tokens: 0` treated as
+absent; stale-badge surfaces genuinely idle projects (OBS-004). D3 — waypoints now return all
+roles and outcomes, not only reviewer-FAIL rows; NULL outcome is passed through as null, not
+mapped to FAIL (OBS-005/CER-055).
 
 **CLI entry point:** `skills/observability/scripts/flex_observability.py` provides `register`,
 `unregister`, `list`, `serve`. Before first `serve`, run

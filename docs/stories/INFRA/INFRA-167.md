@@ -2,7 +2,7 @@
 id: INFRA-167
 rail: INFRA
 title: "TypeScript parser robustness — phaseIndex blank-line, MODULE_FILENAME_RE, era leading zeros, flex_factor NaN"
-status: planned
+status: complete
 phase: "HARNESS007-main"
 story_class: code
 primary_files:
