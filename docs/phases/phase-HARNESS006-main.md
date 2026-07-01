@@ -41,4 +41,20 @@ step, and RELEASE-002 reconciliation AC land in RELEASE-007. Agreements input:
 
 ### CP-HARNESS006-main Cold-eyes checklist
 
-— developer fills in after phase completion —
+**Build gate:** 2747 passed, 203 skipped, 1 xpassed — PASS
+
+**Phase completion check:** All 4 planned stories complete (HARNESS-001, HARNESS-002, HARNESS-003, RELEASE-007). No deferred stories.
+
+**Security audit:** Agent type unavailable; manual review found no new attack surface. Hook remains a thin dispatcher; no secrets in new files; `context_model.py` is a single constant.
+
+**Intent review:** Agent type unavailable; manual review confirms all stories match their acceptance criteria. The try/except import fallback in `context_budget.py` is the minimal correct fix — the hook's flat-import context cannot load the package import.
+
+**Documentation review:**
+- `context_model.py` docstring documents the separation from effort.db
+- `test_fold_preparation.py` documents Signal-1 diagnosis finding (accurate, not a bug)
+- Runbook Signal-1 verification step added at CER-059b
+- RELEASE-002 reconciliation AC documented in test
+
+**CER backlog review:** HARNESS007 OBS-003 (CER-053 display half) remains correctly sequenced in HARNESS007; it depends on the SPA refactor that lands in OBS-002. No backlog items pulled forward.
+
+**Dogfood verification:** flex builds on the thin loop (HARNESS-002 dogfood arc). `pairmode_version` == `0.3.0` after self-sync (this phase). The pre-fold discovery gate (DP8) and final fold sequence remain operator actions per the runbook.
