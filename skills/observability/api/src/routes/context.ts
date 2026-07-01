@@ -8,6 +8,7 @@ import {
   queryEffortSummary,
   queryMisses,
 } from '../readers/effortDb.js';
+import { readResolverState, type ResolverStateDoc } from '../readers/resolverState.js';
 
 // ---------------------------------------------------------------------------
 // Threshold definitions
@@ -98,6 +99,7 @@ interface ContextOut {
   waypoints: ReturnType<typeof queryWaypoints>;
   effort_summary: ReturnType<typeof queryEffortSummary>;
   misses: ReturnType<typeof queryMisses>;
+  resolver_state: ResolverStateDoc | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +236,8 @@ async function buildContextPayload(
     }
   }
 
+  const resolver_state = readResolverState(projectDir);
+
   return {
     repo_id: repoId,
     generated_at,
@@ -242,6 +246,7 @@ async function buildContextPayload(
     waypoints,
     effort_summary,
     misses,
+    resolver_state,
   };
 }
 

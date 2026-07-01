@@ -1552,5 +1552,128 @@ def cmd_next_action(project_dir: str, as_json: bool, warnings: tuple) -> None:
         click.echo("  ".join(parts))
 
 
+# ---------------------------------------------------------------------------
+# OBS-001 helpers — resolver state model
+# ---------------------------------------------------------------------------
+
+def _query_effort_by_role(db_path: Path) -> dict:
+    """Per-agent-role effort rollup from effort.db (OBS-001).
+
+    Returns a dict keyed by agent_role with count and median_tokens.
+    Returns {} when the db is absent or unreadable.
+    """
+    import sqlite3 as _sqlite3
+    import statistics as _stats
+
+    if not db_path.exists():
+        return {}
+
+    try:
+        conn = _sqlite3.connect(str(db_path))
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT agent_role, tokens_total
+                FROM attempts
+                WHERE tokens_total IS NOT NULL AND tokens_total > 0
+                ORDER BY agent_role
+                """
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        return {}
+
+    by_role: dict[str, list[int]] = {}
+    for role, tokens in rows:
+        by_role.setdefault(role, []).append(int(tokens))
+
+    return {
+        role: {
+            "count": len(vals),
+            "median_tokens": int(_stats.median(vals)) if vals else None,
+        }
+        for role, vals in by_role.items()
+    }
+
+
+def _build_resolver_index(project_dir: Path) -> list:
+    """Build the resolver-owned phase index from docs/phases/index.md (OBS-001).
+
+    Deferred and backlog phases are reported as inactive (CER-056 rule:
+    deferred/backlog phases must not be treated as active work).
+    """
+    index_path = project_dir / "docs" / "phases" / "index.md"
+    if not index_path.exists():
+        return []
+
+    try:
+        index_text = index_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+
+    phase_rows = _parse_index_phases(index_text)
+
+    result = []
+    for phase_ref, status in phase_rows:
+        active = status not in ("complete", "deferred", "backlog")
+        result.append({
+            "phase_ref": phase_ref,
+            "status": status,
+            "active": active,
+        })
+    return result
+
+
+@flex_build.command("resolver-state")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_resolver_state(project_dir: str) -> None:
+    """Emit the pure-read resolver state model as JSON (OBS-001).
+
+    Output contains:
+      action     — the current next-action dict
+      position   — the infer_position Position dict
+      effort_by_role — per-agent-role effort rollup from effort.db
+      index      — phase index (deferred/backlog reported as inactive, CER-056)
+
+    Pure-read: no file is written.
+    """
+    from next_action import infer_position, resolve_next_action  # noqa: PLC0415
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+
+    position = infer_position(project_path)
+    action = resolve_next_action(position)
+
+    # Serialize position: convert Path objects to strings for JSON.
+    serialized_position: dict = {}
+    for k, v in position.items():
+        if isinstance(v, Path):
+            serialized_position[k] = str(v)
+        else:
+            serialized_position[k] = v
+
+    db_path = project_path / ".companion" / "effort.db"
+    effort_by_role = _query_effort_by_role(db_path)
+    index = _build_resolver_index(project_path)
+
+    doc = {
+        "schema_version": 1,
+        "action": action,
+        "position": serialized_position,
+        "effort_by_role": effort_by_role,
+        "index": index,
+    }
+    click.echo(json.dumps(doc))
+
+
 if __name__ == "__main__":
     flex_build()

@@ -3,6 +3,7 @@ import { readRegistry } from '../registry.js';
 import { parsePhaseIndex } from '../parsers/phaseIndex.js';
 import { parsePhaseDoc } from '../parsers/phaseDoc.js';
 import { parseStoryFrontmatter } from '../parsers/storyFrontmatter.js';
+import { readResolverState, type ResolverStateDoc } from '../readers/resolverState.js';
 
 // ---------------------------------------------------------------------------
 // Output shapes
@@ -34,6 +35,7 @@ interface SystemOut {
   repo_id: string;
   generated_at: string;
   phases: PhaseOut[];
+  resolver_state: ResolverStateDoc | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +80,8 @@ async function buildSystemPayload(projectDir: string, repoId: string): Promise<S
   const indexRows = await parsePhaseIndex(projectDir);
 
   if (indexRows.length === 0) {
-    return { repo_id: repoId, generated_at, phases: [] };
+    const resolver_state = readResolverState(projectDir);
+    return { repo_id: repoId, generated_at, phases: [], resolver_state };
   }
 
   // 2. Sort by numeric phase_ref ascending, non-numeric refs sort to end
@@ -185,7 +188,8 @@ async function buildSystemPayload(projectDir: string, repoId: string): Promise<S
     }),
   );
 
-  return { repo_id: repoId, generated_at, phases };
+  const resolver_state = readResolverState(projectDir);
+  return { repo_id: repoId, generated_at, phases, resolver_state };
 }
 
 // ---------------------------------------------------------------------------
