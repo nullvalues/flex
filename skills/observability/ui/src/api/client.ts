@@ -141,6 +141,7 @@ export interface Threshold {
   source: string;
   editable_via: string | null;
   phase2_writable: boolean;
+  provenance: string | null;
 }
 
 export interface CurrentContext {

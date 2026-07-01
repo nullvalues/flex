@@ -21,6 +21,7 @@ interface ThresholdDef {
   editable_via: string | null;
   phase2_writable: boolean;
   source_override?: string; // used for flex_factor
+  provenance?: string; // human-readable origin label (OBS-003)
 }
 
 const THRESHOLD_DEFS: ThresholdDef[] = [
@@ -41,9 +42,10 @@ const THRESHOLD_DEFS: ThresholdDef[] = [
   {
     name: 'expected_step_tokens',
     stateKey: 'expected_step_tokens',
-    default: 53000,
-    editable_via: 'flex_build.py refresh-effort-baseline',
-    phase2_writable: true,
+    default: 5000,
+    editable_via: null,
+    phase2_writable: false,
+    provenance: 'thin-harness return-block growth',
   },
   {
     name: 'context_budget_reprompt_margin',
@@ -80,6 +82,7 @@ interface ThresholdOut {
   source: string;
   editable_via: string | null;
   phase2_writable: boolean;
+  provenance: string | null;
 }
 
 interface CurrentOut {
@@ -166,6 +169,7 @@ function buildThresholds(state: Record<string, unknown>): ThresholdOut[] {
         source: def.source_override,
         editable_via: def.editable_via,
         phase2_writable: def.phase2_writable,
+        provenance: def.provenance ?? null,
       };
     }
 
@@ -182,6 +186,7 @@ function buildThresholds(state: Record<string, unknown>): ThresholdOut[] {
       source,
       editable_via: def.editable_via,
       phase2_writable: def.phase2_writable,
+      provenance: def.provenance ?? null,
     };
   });
 }

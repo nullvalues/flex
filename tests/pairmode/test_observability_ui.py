@@ -324,3 +324,37 @@ def test_api_build_still_compiles_after_static_changes() -> None:
     assert result.returncode == 0, (
         f"API build failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
+
+
+# ---------------------------------------------------------------------------
+# OBS-003: expected_step_tokens provenance label (CER-053 display half)
+# ---------------------------------------------------------------------------
+
+def test_context_route_expected_step_tokens_provenance() -> None:
+    """context.ts must declare provenance 'thin-harness return-block growth' for expected_step_tokens."""
+    context_ts = OBS_API / "src" / "routes" / "context.ts"
+    assert context_ts.is_file(), "context.ts not found"
+    src = context_ts.read_text(encoding="utf-8")
+    assert "thin-harness return-block growth" in src, (
+        "context.ts missing provenance label 'thin-harness return-block growth' for expected_step_tokens"
+    )
+
+
+def test_context_route_no_effort_derived_default() -> None:
+    """context.ts must not use 53000 as expected_step_tokens default (CER-053)."""
+    context_ts = OBS_API / "src" / "routes" / "context.ts"
+    assert context_ts.is_file(), "context.ts not found"
+    src = context_ts.read_text(encoding="utf-8")
+    assert "53000" not in src, (
+        "context.ts still contains 53000 — effort-derived default must be removed (CER-053)"
+    )
+
+
+def test_context_metrics_renders_provenance_label() -> None:
+    """ContextMetrics.tsx must render provenance from threshold data (OBS-003)."""
+    metrics_tsx = UI_COMPONENTS / "ContextMetrics.tsx"
+    assert metrics_tsx.is_file(), "ContextMetrics.tsx not found"
+    src = metrics_tsx.read_text(encoding="utf-8")
+    assert "provenance" in src, (
+        "ContextMetrics.tsx does not reference threshold provenance field"
+    )

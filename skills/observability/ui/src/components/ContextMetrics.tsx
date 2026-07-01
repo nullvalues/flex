@@ -314,9 +314,9 @@ export function ContextMetrics({ repoId }: Props) {
             <table className="w-full table-fixed text-xs">
               <thead>
                 <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
-                  <th className="w-1/2 py-1">name</th>
-                  <th className="w-1/4 py-1 text-right">value</th>
-                  <th className="w-1/4 py-1 text-right">source</th>
+                  <th className="w-5/12 py-1">name</th>
+                  <th className="w-2/12 py-1 text-right">value</th>
+                  <th className="w-5/12 py-1 text-right">source</th>
                 </tr>
               </thead>
               <tbody>
@@ -329,7 +329,11 @@ export function ContextMetrics({ repoId }: Props) {
                       {t.value}
                     </td>
                     <td className="py-1 text-right">
-                      <Badge tone={t.source === 'state.json' ? 'info' : 'muted'}>{t.source}</Badge>
+                      {t.provenance ? (
+                        <span className="text-[10px] text-slate-500 italic">{t.provenance}</span>
+                      ) : (
+                        <Badge tone={t.source === 'state.json' ? 'info' : 'muted'}>{t.source}</Badge>
+                      )}
                     </td>
                   </tr>
                 ))}
