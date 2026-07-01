@@ -298,6 +298,22 @@ The output is an authoritative list of bound projects. For each bound project:
 **No partial folds:** the fold either proceeds with all migrated projects, or is deferred until remaining
 projects are handled.
 
+### Signal-1 verification step (CER-059b)
+
+After syncing each project to 0.3.0 (running `pairmode sync --apply` in the project), re-run
+fleet discovery and confirm `binding: scripts` appears in the output for that project. A newly-synced
+project's `CLAUDE.build.md` should contain a `pairmode_scripts_dir` declaration pointing to the
+0.3.0 scripts directory; if `Signal 1 (scripts path): absent` persists after sync, the project's
+`CLAUDE.build.md` was not updated by sync and the bind is incomplete.
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python \
+  /mnt/work/flex/skills/pairmode/scripts/fleet_discovery.py \
+  --candidate-dir /path/to/project
+```
+
+Confirm the output shows `Signal 1 (scripts path): present` before proceeding to the next project.
+
 ---
 
 ## Final fold sequence
