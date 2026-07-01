@@ -1284,9 +1284,9 @@ class TestSyncBuildDryRun:
             ["sync-build", "--project-dir", str(tmp_path), "--dry-run"],
         )
         assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
-        # The Checkpoint sequence section is in the template but missing from the stale file
-        assert "Checkpoint sequence" in result.output, (
-            f"Expected 'Checkpoint sequence' in diff output, got: {result.output[:500]}"
+        # The ## Checkpoint section is in the thin template but missing from the stale file
+        assert "## Checkpoint" in result.output, (
+            f"Expected '## Checkpoint' in diff output, got: {result.output[:500]}"
         )
 
     def test_dry_run_does_not_modify_file(self, tmp_path: Path) -> None:
@@ -1335,9 +1335,9 @@ class TestSyncBuildApply:
 
         build_file = tmp_path / "CLAUDE.build.md"
         content = build_file.read_text(encoding="utf-8")
-        # The rendered template must contain the Checkpoint sequence section
-        assert "Checkpoint sequence" in content, (
-            "Rendered CLAUDE.build.md should contain 'Checkpoint sequence'"
+        # The rendered template must contain the ## Checkpoint section (thin dispatch loop)
+        assert "## Checkpoint" in content, (
+            "Rendered CLAUDE.build.md should contain '## Checkpoint'"
         )
 
     def test_apply_yes_produces_updated_message(self, tmp_path: Path) -> None:
@@ -1406,8 +1406,8 @@ class TestSyncBuildApply:
 
         assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
         content = (tmp_path / "CLAUDE.build.md").read_text(encoding="utf-8")
-        assert "Checkpoint sequence" in content, (
-            "Rendered template should contain 'Checkpoint sequence' after accepting prompt"
+        assert "## Checkpoint" in content, (
+            "Rendered template should contain '## Checkpoint' after accepting prompt"
         )
 
 

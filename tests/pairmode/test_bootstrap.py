@@ -128,7 +128,9 @@ class TestBootstrapCreatesFiles:
     def test_build_command_rendered_in_claude_build_md(self, tmp_path):
         run_bootstrap(tmp_path)
         content = (tmp_path / "CLAUDE.build.md").read_text()
-        assert "uv run pytest" in content
+        # The thin dispatch-loop template (HARNESS-001) no longer embeds the build command
+        # in CLAUDE.build.md; it delegates to flex_build.py next-action and leaf workers.
+        assert "next-action" in content
 
     def test_agent_builder_frontmatter(self, tmp_path):
         run_bootstrap(tmp_path)
@@ -465,7 +467,9 @@ class TestBuildCommandInference:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        content = (tmp_path / "CLAUDE.build.md").read_text()
+        # The thin dispatch-loop template (HARNESS-001) no longer embeds the build command
+        # in CLAUDE.build.md; verify the inferred value landed in CLAUDE.md instead.
+        content = (tmp_path / "CLAUDE.md").read_text()
         assert "uv run pytest" in content
 
     def test_infers_pnpm_from_pnpm_lockfile(self, tmp_path):
@@ -483,7 +487,9 @@ class TestBuildCommandInference:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        content = (tmp_path / "CLAUDE.build.md").read_text()
+        # The thin dispatch-loop template (HARNESS-001) no longer embeds the build command
+        # in CLAUDE.build.md; verify the inferred value landed in CLAUDE.md instead.
+        content = (tmp_path / "CLAUDE.md").read_text()
         assert "pnpm build" in content
 
 

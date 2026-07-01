@@ -242,12 +242,12 @@ def test_missing_entire_file(tmp_path: Path) -> None:
 
 def test_missing_section_in_existing_file(tmp_path: Path) -> None:
     """A file that exists but is missing a canonical section produces a MISSING item."""
-    # Create CLAUDE.build.md without the "## Session modes" section
+    # Create CLAUDE.build.md without the "## Build loop" section
     canonical = _canonical_build_md("testproj")
-    # Remove the "## Session modes" block
+    # Remove the "## Build loop" block (thin dispatch loop template, HARNESS-001)
     import re
     truncated = re.sub(
-        r"## Session modes\n.*?(?=^##|\Z)",
+        r"## Build loop\n.*?(?=^##|\Z)",
         "",
         canonical,
         flags=re.MULTILINE | re.DOTALL,
@@ -260,11 +260,11 @@ def test_missing_section_in_existing_file(tmp_path: Path) -> None:
     missing_sections = {
         (item["file"], item["section"]) for item in project_data["missing"]
     }
-    # "## session modes" (normalised) should appear as MISSING
+    # "## build loop" (normalised) should appear as MISSING
     assert any(
-        item["file"] == "CLAUDE.build.md" and "session modes" in item["section"]
+        item["file"] == "CLAUDE.build.md" and "build loop" in item["section"]
         for item in project_data["missing"]
-    ), f"Expected session modes MISSING; got: {project_data['missing']}"
+    ), f"Expected build loop MISSING; got: {project_data['missing']}"
 
 
 # ---------------------------------------------------------------------------
@@ -316,7 +316,7 @@ def test_drift_detected_in_claude_build(tmp_path: Path) -> None:
     # Replace a known section body with different content
     import re
     drifted = re.sub(
-        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
         r"\g<1>CUSTOM SESSION MODES CONTENT\g<3>",
         canonical,
         count=1,
@@ -329,8 +329,8 @@ def test_drift_detected_in_claude_build(tmp_path: Path) -> None:
 
     drift_sections = {item["section"] for item in project_data["drift"]}
     assert any(
-        "session modes" in s for s in drift_sections
-    ), f"Expected session modes DRIFT; got: {project_data['drift']}"
+        "build loop" in s for s in drift_sections
+    ), f"Expected build loop DRIFT; got: {project_data['drift']}"
 
 
 def test_no_drift_for_identical_file(tmp_path: Path) -> None:
@@ -399,10 +399,11 @@ def test_convergent_identifies_shared_drift(tmp_path: Path) -> None:
     """Drift appearing identically in 2+ projects must appear as a convergence candidate."""
     canonical = _canonical_build_md("testproj")
 
-    # Replace the "## Session modes" section with the same custom content in both projects
+    # Replace the "## Build loop" section with the same custom content in both projects
+    # (thin dispatch loop template, HARNESS-001)
     import re
     drifted = re.sub(
-        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
         r"\g<1>IDENTICAL CUSTOM CONTENT\g<3>",
         canonical,
         count=1,
@@ -417,16 +418,16 @@ def test_convergent_identifies_shared_drift(tmp_path: Path) -> None:
     candidates = result["convergence_candidates"]
     assert len(candidates) > 0, "Expected at least one convergence candidate"
 
-    # The shared drift in "## session modes" should surface
+    # The shared drift in "## build loop" should surface
     candidate_keys = {(c["file"], c["section"]) for c in candidates}
     assert any(
-        f == "CLAUDE.build.md" and "session modes" in s
+        f == "CLAUDE.build.md" and "build loop" in s
         for f, s in candidate_keys
-    ), f"Expected session modes as convergence candidate; got: {candidates}"
+    ), f"Expected build loop as convergence candidate; got: {candidates}"
 
     # Count must be 2
     for c in candidates:
-        if c["file"] == "CLAUDE.build.md" and "session modes" in c["section"]:
+        if c["file"] == "CLAUDE.build.md" and "build loop" in c["section"]:
             assert c["count"] == 2
             assert set(c["projects"]) == {"convergent_a", "convergent_b"}
             break
@@ -442,10 +443,10 @@ def test_convergent_excludes_unique_drift(tmp_path: Path) -> None:
     canonical_a = _canonical_build_md("unique_a")
     canonical_b = _canonical_build_md("unique_b")
 
-    # Project A: drift in Session modes (unique content)
+    # Project A: drift in Build loop (unique content; thin dispatch loop, HARNESS-001)
     import re
     drifted_a = re.sub(
-        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
         r"\g<1>UNIQUE CONTENT FOR A ONLY\g<3>",
         canonical_a,
         count=1,
@@ -471,7 +472,7 @@ def test_convergent_false_returns_empty_candidates(tmp_path: Path) -> None:
 
     import re
     drifted = re.sub(
-        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
         r"\g<1>SHARED DRIFT CONTENT\g<3>",
         canonical,
         count=1,
@@ -544,7 +545,7 @@ def test_text_output_convergence_section(tmp_path: Path) -> None:
 
     import re
     drifted = re.sub(
-        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
         r"\g<1>SHARED FOR CONVERGENCE\g<3>",
         canonical,
         count=1,
@@ -683,10 +684,11 @@ def test_intentional_drift_section_reclassified(tmp_path: Path) -> None:
     """A DRIFT section declared in .pairmode-overrides is reclassified as INTENTIONAL."""
     canonical = _canonical_build_md("testproj")
 
-    # Replace the "## Session modes" section body with custom content → would be DRIFT
+    # Replace the "## Build loop" section body with custom content → would be DRIFT
+    # (thin dispatch loop template, HARNESS-001)
     import re
     drifted = re.sub(
-        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
         r"\g<1>INTENTIONAL CUSTOM SESSION CONTENT\g<3>",
         canonical,
         count=1,
@@ -699,7 +701,7 @@ def test_intentional_drift_section_reclassified(tmp_path: Path) -> None:
     overrides_file = project_dir / ".pairmode-overrides"
     overrides_file.write_text(
         "# Intentional overrides\n"
-        "CLAUDE.build.md: ## Session modes\n",
+        "CLAUDE.build.md: ## Build loop\n",
         encoding="utf-8",
     )
 
@@ -709,13 +711,13 @@ def test_intentional_drift_section_reclassified(tmp_path: Path) -> None:
     # The section must NOT appear in drift
     drift_sections = {item["section"] for item in project_data["drift"]}
     assert not any(
-        "session modes" in s for s in drift_sections
+        "build loop" in s for s in drift_sections
     ), f"Declared override must not appear in drift; drift={project_data['drift']}"
 
     # The section MUST appear in intentional
     intentional_sections = {item["section"] for item in project_data["intentional"]}
     assert any(
-        "session modes" in s for s in intentional_sections
+        "build loop" in s for s in intentional_sections
     ), f"Declared override must appear in intentional; intentional={project_data['intentional']}"
 
 
@@ -753,10 +755,10 @@ def test_intentional_excluded_from_convergence_candidates(tmp_path: Path) -> Non
     """INTENTIONAL items must not appear as convergence candidates."""
     canonical = _canonical_build_md("testproj")
 
-    # Create identical drift in both projects
+    # Create identical drift in both projects (thin dispatch loop, HARNESS-001)
     import re
     drifted = re.sub(
-        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
         r"\g<1>SHARED INTENTIONAL CONTENT\g<3>",
         canonical,
         count=1,
@@ -767,7 +769,7 @@ def test_intentional_excluded_from_convergence_candidates(tmp_path: Path) -> Non
     proj_b = _make_project(tmp_path, "intl_b", claude_build_content=drifted)
 
     # Declare the drifted section as intentional in both projects
-    override_content = "CLAUDE.build.md: ## Session modes\n"
+    override_content = "CLAUDE.build.md: ## Build loop\n"
     (proj_a / ".pairmode-overrides").write_text(override_content, encoding="utf-8")
     (proj_b / ".pairmode-overrides").write_text(override_content, encoding="utf-8")
 
@@ -776,7 +778,7 @@ def test_intentional_excluded_from_convergence_candidates(tmp_path: Path) -> Non
     # No convergence candidates — the drift was reclassified as intentional in both
     candidates = result["convergence_candidates"]
     assert not any(
-        c["file"] == "CLAUDE.build.md" and "session modes" in c["section"]
+        c["file"] == "CLAUDE.build.md" and "build loop" in c["section"]
         for c in candidates
     ), f"INTENTIONAL items must not appear as convergence candidates; candidates={candidates}"
 
@@ -787,7 +789,7 @@ def test_intentional_count_in_json_output(tmp_path: Path) -> None:
 
     import re
     drifted = re.sub(
-        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
         r"\g<1>INTENTIONAL DRIFT CONTENT\g<3>",
         canonical,
         count=1,
@@ -796,7 +798,7 @@ def test_intentional_count_in_json_output(tmp_path: Path) -> None:
 
     project_dir = _make_project(tmp_path, "testproj", claude_build_content=drifted)
     (project_dir / ".pairmode-overrides").write_text(
-        "CLAUDE.build.md: ## Session modes\n",
+        "CLAUDE.build.md: ## Build loop\n",
         encoding="utf-8",
     )
 
@@ -805,7 +807,7 @@ def test_intentional_count_in_json_output(tmp_path: Path) -> None:
 
     assert "intentional" in entry
     assert len(entry["intentional"]) == 1
-    assert any("session modes" in item["section"] for item in entry["intentional"])
+    assert any("build loop" in item["section"] for item in entry["intentional"])
 
 
 def test_intentional_shown_in_text_output(tmp_path: Path) -> None:
@@ -817,7 +819,7 @@ def test_intentional_shown_in_text_output(tmp_path: Path) -> None:
 
     import re
     drifted = re.sub(
-        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
         r"\g<1>INTENTIONAL TEXT OUTPUT CONTENT\g<3>",
         canonical,
         count=1,
@@ -826,7 +828,7 @@ def test_intentional_shown_in_text_output(tmp_path: Path) -> None:
 
     project_dir = _make_project(tmp_path, "testproj", claude_build_content=drifted)
     (project_dir / ".pairmode-overrides").write_text(
-        "CLAUDE.build.md: ## Session modes\n",
+        "CLAUDE.build.md: ## Build loop\n",
         encoding="utf-8",
     )
 
@@ -846,7 +848,7 @@ def test_undeclared_drift_not_reclassified(tmp_path: Path) -> None:
 
     import re
     drifted = re.sub(
-        r"(## Session modes\n\n)(.*?)(\n\n---|\n\n##)",
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
         r"\g<1>UNDECLARED DRIFT CONTENT\g<3>",
         canonical,
         count=1,
@@ -866,12 +868,12 @@ def test_undeclared_drift_not_reclassified(tmp_path: Path) -> None:
 
     drift_sections = {item["section"] for item in project_data["drift"]}
     assert any(
-        "session modes" in s for s in drift_sections
+        "build loop" in s for s in drift_sections
     ), f"Undeclared drift must remain DRIFT; drift={project_data['drift']}"
 
     intentional_sections = {item["section"] for item in project_data["intentional"]}
     assert not any(
-        "session modes" in s for s in intentional_sections
+        "build loop" in s for s in intentional_sections
     ), f"Undeclared section must not appear in intentional; intentional={project_data['intentional']}"
 
 

@@ -108,13 +108,14 @@ class TestRenderBuildTemplate:
                 )
 
     def test_rendered_template_contains_absolute_scripts_path(self, tmp_path: pathlib.Path) -> None:
-        """The rendered build template must contain the absolute scripts directory path."""
-        ctx = self._make_context(tmp_path)
-        rendered = _render_build_template(ctx)
-        expected = ctx["pairmode_scripts_dir"]
-        assert expected in rendered, (
-            f"Rendered CLAUDE.build.md does not contain the absolute scripts path {expected!r}."
-        )
+        """The rendered build template must contain the absolute scripts directory path.
+
+        HARNESS-001: the thin dispatch loop template no longer embeds pairmode_scripts_dir
+        inline (all bash commands with explicit script paths are removed). This test is
+        skipped until a post-flip template reintroduces the path reference.
+        """
+        import pytest
+        pytest.skip("HARNESS-001: thin dispatch loop removed pairmode_scripts_dir from CLAUDE.build.md.j2")
 
 
 class TestMergeBodySections:
@@ -896,12 +897,14 @@ def test_sync_build_dry_run_detects_old_gate_sections(tmp_path: pathlib.Path) ->
 
 
 def test_sync_build_apply_replaces_old_gate_sections(tmp_path: pathlib.Path) -> None:
-    """sync-build --apply --yes rewrites CLAUDE.build.md: contains check-stub, not old prose.
+    """sync-build --apply --yes rewrites CLAUDE.build.md with the thin dispatch loop.
 
-    After applying the template, the written file must:
-    - Contain 'check-stub' (the new CLI subcommand name).
+    HARNESS-001: the thin dispatch loop template no longer contains check-stub or old
+    gate-section prose. After applying, the file must:
+    - Contain 'next-action' (the resolver CLI call in the thin dispatch loop).
     - Not contain the old delegation-language prose ('See phase doc').
     """
+    import pytest
     from click.testing import CliRunner
 
     project_dir = _make_old_gate_build_md(tmp_path)
@@ -920,8 +923,9 @@ def test_sync_build_apply_replaces_old_gate_sections(tmp_path: pathlib.Path) -> 
 
     written = build_file.read_text(encoding="utf-8")
 
-    assert "check-stub" in written, (
-        "Expected 'check-stub' CLI call in written CLAUDE.build.md, but not found."
+    # HARNESS-001: check-stub is no longer in the thin template; verify dispatch loop instead.
+    assert "next-action" in written, (
+        "Expected 'next-action' dispatch call in written CLAUDE.build.md, but not found."
     )
     assert "See phase doc" not in written, (
         "Old delegation-language prose ('See phase doc') still present in written file."

@@ -493,11 +493,15 @@ class TestBootstrapIntegration:
         assert state["pairmode_version"] == PAIRMODE_VERSION
 
     def test_build_command_in_claude_build_md(self, tmp_path):
-        """Provided build command appears in CLAUDE.build.md."""
+        """Rendered CLAUDE.build.md contains the thin dispatch loop (HARNESS-001).
+
+        The thin template no longer embeds the build command inline; verify the
+        dispatch loop content instead.
+        """
         _build_full_companion(tmp_path)
         self._run(tmp_path)
         content = (tmp_path / "CLAUDE.build.md").read_text()
-        assert "uv run pytest tests/ -x -q" in content
+        assert "next-action" in content
 
     def test_payments_module_no_deny_rules(self, tmp_path):
         """payments module has no non_negotiables → no deny rules for payments paths."""
