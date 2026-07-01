@@ -1218,3 +1218,90 @@ def test_compute_context_tokens_does_not_find_entry_beyond_500_line_bound(tmp_pa
     assert result is None, (
         f"Expected None (assistant outside 500-line bound), got {result!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-165: NaN clamp + render_alert_prompt factored ceiling
+# ---------------------------------------------------------------------------
+
+
+def test_flex_factor_nan_clamped(tmp_path):
+    """decide() with flex_factor=NaN must clamp to 1.0 and print a warning (INFRA-165)."""
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 1_000,
+            "context_budget_reprompt_margin": 10_000,
+            "context_current_tokens": 10_000,
+        },
+    )
+    import io
+    captured = io.StringIO()
+    import sys as _sys
+    old_stderr = _sys.stderr
+    _sys.stderr = captured
+    try:
+        result = context_budget.decide(project_dir, flex_factor=float("nan"))
+    finally:
+        _sys.stderr = old_stderr
+
+    assert result is None, (
+        "NaN flex_factor clamped to 1.0; 10k tokens well under 132k ceiling → should pass"
+    )
+    assert "NaN" in captured.getvalue(), (
+        f"Expected NaN warning on stderr; got: {captured.getvalue()!r}"
+    )
+
+
+def test_render_alert_prompt_factored_ceiling(tmp_path):
+    """render_alert_prompt uses ceiling = threshold * (1+overrun) * flex_factor (INFRA-165).
+
+    With threshold=120000, overrun=0.10, flex_factor=0.5:
+        ceiling = int(120000 * 1.10 * 0.5) = 66000
+        remaining = 66000 - 70000 = -4000
+    """
+    result = context_budget.render_alert_prompt(
+        story_id="S",
+        tokens=70000,
+        threshold=120000,
+        overrun_pct=0.10,
+        expected_next=1000,
+        flex_factor=0.5,
+    )
+    assert "-4,000" in result or "-4000" in result, (
+        f"Expected remaining -4000 in prompt (factored ceiling=66000 − tokens=70000); "
+        f"got: {result!r}"
+    )
+    # Confirm un-factored ceiling (132000) is NOT used as the cutoff
+    assert "62,000" not in result and "62000" not in result, (
+        "Un-factored remaining (132k-70k=62k) found — ceiling is not being factored"
+    )
+
+
+def test_decide_alert_uses_factored_ceiling(tmp_path):
+    """decide() block prompt contains factored [R] when flex_factor < 1.0 (INFRA-165).
+
+    threshold=120000, overrun=0.10, flex_factor=0.5 → ceiling=66000.
+    current_tokens=70000 > ceiling → blocked; [R] = 66000-70000 = -4000.
+    """
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 1_000,
+            "context_budget_reprompt_margin": 10_000,
+            "context_current_tokens": 70_000,
+        },
+    )
+    result = context_budget.decide(project_dir, flex_factor=0.5)
+    assert result is not None, (
+        "70k tokens > factored ceiling (66k); decide should block"
+    )
+    assert result["block"] is True
+    output = result.get("reason", "")
+    assert "-4,000" in output or "-4000" in output, (
+        f"Factored [R] (-4000) not found in block prompt; got: {output!r}"
+    )

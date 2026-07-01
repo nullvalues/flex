@@ -41,6 +41,7 @@ remains untouched.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import statistics
 from datetime import datetime, timezone
@@ -370,6 +371,7 @@ def render_alert_prompt(
     threshold: int,
     overrun_pct: float,
     expected_next: int,
+    flex_factor: float = 1.0,
 ) -> str:
     """Template the verbatim prompt body from
     ``tests/pairmode/fixtures/context_budget_prompt.txt`` with
@@ -377,11 +379,11 @@ def render_alert_prompt(
     substituted. ``story_id`` falls back to ``"current"`` when ``None``.
 
     ``[E]`` is ``expected_next``; ``[R]`` is ``ceiling - tokens`` where
-    ``ceiling = int(threshold * (1 + overrun_pct))``.
+    ``ceiling = int(threshold * (1 + overrun_pct) * flex_factor)`` (INFRA-165).
     """
     template = _FIXTURE_PATH.read_text(encoding="utf-8")
     story_label = story_id if story_id else "current"
-    ceiling = int(threshold * (1.0 + overrun_pct))
+    ceiling = int(threshold * (1.0 + overrun_pct) * flex_factor)
     remaining = ceiling - tokens
     rendered = template.replace("[story RAIL-NNN]", f"[story {story_label}]")
     rendered = rendered.replace("[N]", f"{tokens:,}")
@@ -478,7 +480,13 @@ def decide(
     if not isinstance(project_dir, Path):
         project_dir = Path(project_dir)
 
-    # Clamp flex_factor to a safe range.
+    # Clamp flex_factor to a safe range (NaN check first — IEEE-754 NaN fails all comparisons).
+    if math.isnan(flex_factor):
+        print(
+            "context_budget.decide: flex_factor is NaN; clamped to 1.0",
+            file=_sys.stderr,
+        )
+        flex_factor = 1.0
     if flex_factor <= 0:
         print(
             f"context_budget.decide: flex_factor={flex_factor!r} is <= 0; clamped to 1.0",
@@ -563,6 +571,7 @@ def decide(
         threshold=threshold,
         overrun_pct=overrun_pct,
         expected_next=expected_next,
+        flex_factor=flex_factor,
     )
     return {
         "block": True,
