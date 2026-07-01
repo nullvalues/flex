@@ -1,0 +1,10 @@
+{
+  "story_id": "HARNESS-001",
+  "story_spec": "docs/stories/HARNESS/HARNESS-001.md",
+  "allowed_paths": [
+    "skills/pairmode/templates/CLAUDE.build.md.j2",
+    "tests/pairmode/test_template_reduction.py",
+    "docs/stories/HARNESS/HARNESS-001.md"
+  ],
+  "generated_at": "2026-07-01T17:09:14Z"
+}
