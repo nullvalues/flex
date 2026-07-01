@@ -24,6 +24,7 @@ from skills.pairmode.scripts import spec_reader as _spec_reader
 from skills.pairmode.scripts import checklist_deriver as _checklist_deriver
 from skills.pairmode.scripts import denylist_deriver as _denylist_deriver
 from skills.pairmode.scripts._version import PAIRMODE_VERSION  # noqa: E402
+from skills.pairmode.scripts.context_model import THIN_HARNESS_STEP_TOKENS
 import ideology_parser as _ideology_parser
 from schema_validator import _parse_frontmatter
 
@@ -405,24 +406,13 @@ def _print_next_steps(project_dir: pathlib.Path, repo_root: pathlib.Path) -> Non
     )
 
 
-_EFFORT_BASELINE_SEED = (
-    pathlib.Path(__file__).resolve().parent.parent / "seed" / "effort_baseline.json"
-)
-
-_DEFAULT_EXPECTED_STEP_TOKENS = 53000
-
-
 def _load_seed_expected_step_tokens() -> int:
-    """Return the builder median from the effort baseline seed file.
+    """Return the thin-harness per-step context growth constant (CER-053).
 
-    Falls back to the hard-coded ~flex builder median if the seed file is
-    missing or malformed. Side-effect-free.
+    No longer reads the effort baseline seed. Returns THIN_HARNESS_STEP_TOKENS
+    — the dispatch loop's per-step context growth. Side-effect-free.
     """
-    try:
-        raw = json.loads(_EFFORT_BASELINE_SEED.read_text(encoding="utf-8"))
-        return int(raw["by_role"]["builder"]["median"])
-    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-        return _DEFAULT_EXPECTED_STEP_TOKENS
+    return THIN_HARNESS_STEP_TOKENS
 
 
 def _record_state(state_path: pathlib.Path, version: str) -> bool:

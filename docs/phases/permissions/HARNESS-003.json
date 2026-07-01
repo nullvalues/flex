@@ -1,0 +1,12 @@
+{
+  "story_id": "HARNESS-003",
+  "story_spec": "docs/stories/HARNESS/HARNESS-003.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/bootstrap.py",
+    "skills/pairmode/scripts/context_budget.py",
+    "skills/pairmode/scripts/sync.py",
+    "tests/pairmode/test_expected_step_tokens_source.py",
+    "docs/stories/HARNESS/HARNESS-003.md"
+  ],
+  "generated_at": "2026-07-01T19:07:52Z"
+}

@@ -1582,7 +1582,8 @@ class TestSyncSeedsContextBudgetDefaults:
         # Check default values
         assert state["context_budget_threshold"] == 120000
         assert state["context_budget_overrun_pct"] == 0.10
-        assert state["expected_step_tokens"] == 53000
+        from skills.pairmode.scripts.context_model import THIN_HARNESS_STEP_TOKENS
+        assert state["expected_step_tokens"] == THIN_HARNESS_STEP_TOKENS  # CER-053
         assert state["context_budget_reprompt_margin"] == 10000
 
     def test_sync_does_not_overwrite_existing_budget_values(self, tmp_path: Path) -> None:

@@ -33,6 +33,7 @@ from skills.pairmode.scripts.audit import (  # noqa: E402
     _load_overrides,
 )
 from skills.pairmode.scripts._version import PAIRMODE_VERSION  # noqa: E402
+from skills.pairmode.scripts.context_model import THIN_HARNESS_STEP_TOKENS
 from skills.pairmode.scripts.bootstrap import (  # noqa: E402
     DEFAULT_DENY,
     PAIRMODE_DEFAULT_RAILS,
@@ -591,7 +592,7 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
     for key, default in [
         ("context_budget_threshold", 120000),
         ("context_budget_overrun_pct", 0.10),
-        ("expected_step_tokens", 53000),
+        ("expected_step_tokens", THIN_HARNESS_STEP_TOKENS),
         ("context_budget_reprompt_margin", 10000),
     ]:
         existing_state.setdefault(key, default)

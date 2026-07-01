@@ -46,6 +46,11 @@ import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    from skills.pairmode.scripts.context_model import THIN_HARNESS_STEP_TOKENS
+except ImportError:
+    from context_model import THIN_HARNESS_STEP_TOKENS  # type: ignore[no-redef]  # flat import via hook sys.path
+
 
 # ---------------------------------------------------------------------------
 # Fixture location — shared with tests and the future INFRA-129 template work.
@@ -523,7 +528,7 @@ def decide(
 
     threshold = int(state.get("context_budget_threshold", 130000) or 130000)
     overrun_pct = float(state.get("context_budget_overrun_pct", 0.10) or 0.10)
-    seeded_default = int(state.get("expected_step_tokens", 53000) or 53000)
+    seeded_default = int(state.get("expected_step_tokens", THIN_HARNESS_STEP_TOKENS) or THIN_HARNESS_STEP_TOKENS)
     reprompt_margin = int(state.get("context_budget_reprompt_margin", 10000) or 10000)
     acknowledged_at_raw = state.get("context_budget_acknowledged_at")
     acknowledged_at: int | None
@@ -535,11 +540,11 @@ def decide(
         except (TypeError, ValueError):
             acknowledged_at = None
 
-    phase = state.get("current_phase") or state.get("phase")
-    db_path = project_dir / ".companion" / "effort.db"
+    # CER-053: window-growth constant must not be effort-derived.
+    # Pass db_path=None to skip the effort.db median lookup entirely.
     expected_next = estimate_next_step_tokens(
-        db_path if db_path.exists() else None,
-        str(phase) if phase is not None else None,
+        None,
+        None,
         seeded_default,
     )
 
