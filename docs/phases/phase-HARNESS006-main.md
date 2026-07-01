@@ -26,7 +26,7 @@ step, and RELEASE-002 reconciliation AC land in RELEASE-007. Agreements input:
 
 | ID | Title | Status |
 |----|-------|--------|
-| HARNESS-001 | Thin dispatch loop + `CLAUDE.build.md.j2` template reduction | planned |
+| HARNESS-001 | Thin dispatch loop + `CLAUDE.build.md.j2` template reduction | complete |
 | HARNESS-002 | Dogfood flip — apply thin loop + retire agent templates | planned |
 | HARNESS-003 | Re-source `expected_step_tokens` off effort.db (CER-053 state half) | planned |
 | RELEASE-007 | Fold preparation — version finalize, Signal-1 diagnosis, runbook gate, RELEASE-002 reconcile | planned |
