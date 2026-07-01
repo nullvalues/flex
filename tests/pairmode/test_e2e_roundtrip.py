@@ -90,8 +90,9 @@ class TestFullAdoptionJourney:
 
         assert (tmp_path / "CLAUDE.md").exists(), "CLAUDE.md must exist after bootstrap"
         assert (tmp_path / "CLAUDE.build.md").exists(), "CLAUDE.build.md must exist after bootstrap"
-        assert (tmp_path / ".claude" / "agents" / "builder.md").exists(), (
-            ".claude/agents/builder.md must exist after bootstrap"
+        # builder.md retired in HARNESS-002; reconstruction-agent is retained
+        assert (tmp_path / ".claude" / "agents" / "reconstruction-agent.md").exists(), (
+            ".claude/agents/reconstruction-agent.md must exist after bootstrap"
         )
         assert (tmp_path / ".claude" / "settings.json").exists(), (
             ".claude/settings.json must exist after bootstrap"

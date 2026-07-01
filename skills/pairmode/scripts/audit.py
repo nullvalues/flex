@@ -29,14 +29,12 @@ from skills.pairmode.scripts._version import PAIRMODE_VERSION  # noqa: E402
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
 # Canonical files to audit (dest path in project → template path relative to TEMPLATES_DIR)
+# Note: builder.md.j2, reviewer.md.j2, loop-breaker.md.j2, security-auditor.md.j2,
+# and intent-reviewer.md.j2 were retired in HARNESS-002. Their corresponding .claude/agents/
+# files are no longer canonical — they are now delivered as procedure skill shells.
 CANONICAL_FILES: list[tuple[str, str]] = [
     ("CLAUDE.md", "CLAUDE.md.j2"),
     ("CLAUDE.build.md", "CLAUDE.build.md.j2"),
-    (".claude/agents/builder.md", "agents/builder.md.j2"),
-    (".claude/agents/reviewer.md", "agents/reviewer.md.j2"),
-    (".claude/agents/loop-breaker.md", "agents/loop-breaker.md.j2"),
-    (".claude/agents/security-auditor.md", "agents/security-auditor.md.j2"),
-    (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
 ]
 
 # Scaffold files: Phase 7 docs that receive full section-level comparison.

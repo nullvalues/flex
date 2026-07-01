@@ -416,6 +416,7 @@ class TestClaudeBuildMdFallbackPolicyPointer:
         pytest.skip("HARNESS-001: thin dispatch loop removed this content from CLAUDE.build.md.j2")
     def test_rendered_template_points_at_architecture_section(self):
         pytest.skip("HARNESS-001: thin dispatch loop removed this content from CLAUDE.build.md.j2")
+@pytest.mark.skip(reason="HARNESS-002: thin dispatch loop removed pre-reviewer prose from CLAUDE.build.md")
 class TestClaudeBuildMdPreReviewerCommitDiscipline:
     """Story INFRA-042: CLAUDE.build.md.j2 (and flex's own CLAUDE.build.md)
     encode an explicit pre-reviewer step that commits any uncommitted
@@ -481,6 +482,7 @@ AGENT_CONTEXT = {
 # Builder agent template tests
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skip(reason="HARNESS-002: legacy agent .md.j2 templates retired (agents/builder.md.j2 deleted)")
 class TestBuilderAgentTemplate:
     def setup_method(self):
         self.output = render("agents/builder.md.j2", AGENT_CONTEXT)
@@ -536,6 +538,7 @@ class TestBuilderAgentTemplate:
 # Reviewer agent template tests
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skip(reason="HARNESS-002: legacy agent .md.j2 templates retired (agents/reviewer.md.j2 deleted)")
 class TestReviewerAgentTemplate:
     def setup_method(self):
         self.output = render("agents/reviewer.md.j2", AGENT_CONTEXT)
@@ -608,6 +611,7 @@ class TestReviewerAgentTemplate:
 # Loop-breaker agent template tests
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skip(reason="HARNESS-002: legacy agent .md.j2 templates retired (agents/loop-breaker.md.j2 deleted)")
 class TestLoopBreakerAgentTemplate:
     def setup_method(self):
         self.output = render("agents/loop-breaker.md.j2", AGENT_CONTEXT)
@@ -651,6 +655,7 @@ class TestLoopBreakerAgentTemplate:
 # Security-auditor agent template tests
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skip(reason="HARNESS-002: legacy agent .md.j2 templates retired (agents/security-auditor.md.j2 deleted)")
 class TestSecurityAuditorAgentTemplate:
     def setup_method(self):
         self.output = render("agents/security-auditor.md.j2", AGENT_CONTEXT)
@@ -703,6 +708,7 @@ class TestSecurityAuditorAgentTemplate:
 # Intent-reviewer agent template tests
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skip(reason="HARNESS-002: legacy agent .md.j2 templates retired (agents/intent-reviewer.md.j2 deleted)")
 class TestIntentReviewerAgentTemplate:
     def setup_method(self):
         self.output = render("agents/intent-reviewer.md.j2", AGENT_CONTEXT)
@@ -1362,6 +1368,7 @@ class TestClaudeBuildMdPhasePromptsReferences:
         pytest.skip("HARNESS-001: thin dispatch loop removed this content from CLAUDE.build.md.j2")
     def test_phase_n_md_is_primary_reference(self):
         pytest.skip("HARNESS-001: thin dispatch loop removed this content from CLAUDE.build.md.j2")
+@pytest.mark.skip(reason="HARNESS-002: legacy agent .md.j2 templates retired (agents/intent-reviewer.md.j2 deleted)")
 class TestIntentReviewerPhasePromptsReferences:
     """Assert that agents/intent-reviewer.md.j2 references phase-prompts.md only
     as a parenthetical legacy fallback, never as a standalone primary instruction."""
@@ -1458,6 +1465,7 @@ class TestIdeologyMdTemplate:
 # Story 10.2 — reviewer.md.j2: IDEOLOGY ALIGNMENT checklist item
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skip(reason="HARNESS-002: legacy agent .md.j2 templates retired (agents/reviewer.md.j2 deleted)")
 class TestReviewerAgentIdeologyAlignment:
     """Story 10.2: reviewer.md.j2 must contain IDEOLOGY ALIGNMENT as checklist item 5."""
 
@@ -1492,6 +1500,7 @@ class TestReviewerAgentIdeologyAlignment:
 # Story 10.3 — intent-reviewer.md.j2: ideology drift check
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skip(reason="HARNESS-002: intent-reviewer.md.j2 and .claude/agents/intent-reviewer.md retired")
 class TestIntentReviewerIdeologyDrift:
     """Story 10.3: intent-reviewer.md.j2 must include ideology drift checks."""
 
@@ -1778,6 +1787,7 @@ REVIEWER_CLASS_UPGRADE_COMMENTS = {
 }
 
 
+@pytest.mark.skip(reason="HARNESS-002: legacy agent .md.j2 templates retired; procedure skills replace them")
 class TestReviewerClassAgentsSonnetBaseline:
     """Story INFRA-044: reviewer-class agent templates (reviewer,
     intent-reviewer, security-auditor) carry `model: sonnet` in YAML
@@ -1906,6 +1916,7 @@ REVIEWER_CLASS_WITH_BASH = [
 ]
 
 
+@pytest.mark.skip(reason="HARNESS-002: legacy agent .md.j2 templates retired; procedure skills replace them")
 class TestReviewerClassAgentsToolRestriction:
     """Story INFRA-027: reviewer-class agent templates restrict the `tools`
     frontmatter field to read-only tools plus Bash (security-auditor: no Bash
@@ -1991,6 +2002,7 @@ class TestAgentTemplateFallbackComments:
     after `model:` declaring the fallback tier. Builder falls to haiku;
     reviewer-class agents fall to sonnet."""
 
+    @pytest.mark.skip(reason="HARNESS-002: legacy agent .md.j2 templates retired (reviewer-class .md.j2 deleted)")
     @pytest.mark.parametrize("template_name", REVIEWER_CLASS_TEMPLATES)
     def test_reviewer_class_template_has_fallback_comment(self, template_name):
         raw = (TEMPLATES_DIR / template_name).read_text(encoding="utf-8")
@@ -1999,6 +2011,7 @@ class TestAgentTemplateFallbackComments:
             f"{REVIEWER_FALLBACK_COMMENT!r} in raw template"
         )
 
+    @pytest.mark.skip(reason="HARNESS-002: legacy agent .md.j2 templates retired (reviewer-class .md.j2 deleted)")
     @pytest.mark.parametrize("template_name", REVIEWER_CLASS_TEMPLATES)
     def test_reviewer_class_rendered_has_fallback_comment(self, template_name):
         rendered = render(template_name, AGENT_CONTEXT)
@@ -2007,6 +2020,7 @@ class TestAgentTemplateFallbackComments:
             f"{REVIEWER_FALLBACK_COMMENT!r} in rendered output"
         )
 
+    @pytest.mark.skip(reason="HARNESS-002: legacy agent .md.j2 templates retired (agents/builder.md.j2 deleted)")
     def test_builder_template_has_fallback_comment(self):
         raw = (TEMPLATES_DIR / "agents/builder.md.j2").read_text(encoding="utf-8")
         assert BUILDER_FALLBACK_COMMENT in raw, (
@@ -2014,6 +2028,7 @@ class TestAgentTemplateFallbackComments:
             f"{BUILDER_FALLBACK_COMMENT!r} in raw template"
         )
 
+    @pytest.mark.skip(reason="HARNESS-002: legacy agent .md.j2 templates retired (agents/builder.md.j2 deleted)")
     def test_builder_rendered_has_fallback_comment(self):
         rendered = render("agents/builder.md.j2", AGENT_CONTEXT)
         assert BUILDER_FALLBACK_COMMENT in rendered, (
@@ -2050,6 +2065,7 @@ class TestEffortTrackingWiring:
     recording into the build loop after each builder spawn and each reviewer
     spawn, and document the data model."""
 
+    @pytest.mark.skip(reason="HARNESS-002: thin dispatch loop removed record_attempt prose from live CLAUDE.build.md")
     def test_flex_claude_build_md_records_after_builder_and_reviewer(self):
         flex_build_md = (REPO_ROOT / "CLAUDE.build.md").read_text(encoding="utf-8")
         # record_attempt.py must appear at least twice — once after the builder
@@ -2102,10 +2118,12 @@ class TestClaudeBuildMdSpecReviewStep:
         pytest.skip("HARNESS-001: thin dispatch loop removed this content from CLAUDE.build.md.j2")
     def test_raw_template_contains_spec_review_heading(self):
         pytest.skip("HARNESS-001: thin dispatch loop removed this content from CLAUDE.build.md.j2")
+    @pytest.mark.skip(reason="HARNESS-002: thin dispatch loop removed spec-review prose from live CLAUDE.build.md")
     def test_flex_claude_build_md_contains_spec_review(self):
         flex_build_md = (REPO_ROOT / "CLAUDE.build.md").read_text(encoding="utf-8")
         assert "Spec review" in flex_build_md
 
+    @pytest.mark.skip(reason="HARNESS-002: thin dispatch loop removed spec-review prose from live CLAUDE.build.md")
     def test_flex_claude_build_md_spec_review_in_before_loop_section(self):
         flex_build_md = (REPO_ROOT / "CLAUDE.build.md").read_text(encoding="utf-8")
         before_start = flex_build_md.index("## Before the first build loop")
@@ -2272,6 +2290,7 @@ class TestInfra131FlexBuildTemplate:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skip(reason="HARNESS-002: thin dispatch loop removed pre-story scope check prose from CLAUDE.build.md")
 class TestBuild025PreStoryScopeCheck:
     """Story BUILD-025: CLAUDE.build.md.j2 (and flex's own CLAUDE.build.md)
     contain a new ``### Pre-story scope check`` section between the stub gate
@@ -2325,6 +2344,7 @@ class TestBuild025PreStoryScopeCheck:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skip(reason="HARNESS-002: thin dispatch loop removed context gate prose from CLAUDE.build.md")
 class TestBuild026ContextGateReauthorization:
     """Story BUILD-026: CLAUDE.build.md.j2 (and flex's own CLAUDE.build.md)
     describe the Context gate enforcement.

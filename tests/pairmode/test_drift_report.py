@@ -358,16 +358,19 @@ def test_no_drift_for_identical_file(tmp_path: Path) -> None:
 
 
 def test_drift_detected_in_agent_file(tmp_path: Path) -> None:
-    """When an agent file body differs from the canonical template, it is DRIFT."""
-    canonical_build = _canonical_build_md("testproj")
-    canonical_builder = _canonical_agent("builder", "testproj")
+    """When an agent file body differs from the canonical template, it is DRIFT.
 
-    # Modify the builder agent's "## Before writing anything" section
+    Uses reconstruction-agent (retained after HARNESS-002 flip; builder.md.j2 retired).
+    """
+    canonical_build = _canonical_build_md("testproj")
+    canonical_agent = _canonical_agent("reconstruction-agent", "testproj")
+
+    # Modify the reconstruction-agent's "## Phase 1" section
     import re
-    drifted_builder = re.sub(
-        r"(## Before writing anything\n\n)(.*?)(\n\n##|\Z)",
+    drifted_agent = re.sub(
+        r"(## Phase 1 — Read the brief\n\n)(.*?)(\n\n##|\Z)",
         r"\g<1>DIFFERENT CONTENT HERE.\g<3>",
-        canonical_builder,
+        canonical_agent,
         count=1,
         flags=re.MULTILINE | re.DOTALL,
     )
@@ -376,17 +379,17 @@ def test_drift_detected_in_agent_file(tmp_path: Path) -> None:
         tmp_path,
         "agent_drift",
         claude_build_content=canonical_build,
-        agent_contents={"builder.md": drifted_builder},
+        agent_contents={"reconstruction-agent.md": drifted_agent},
     )
     result = drift_report([project_dir])
     project_data = result["projects"][0]
 
     drift_items = [
         item for item in project_data["drift"]
-        if item["file"] == ".claude/agents/builder.md"
+        if item["file"] == ".claude/agents/reconstruction-agent.md"
     ]
     assert len(drift_items) > 0, (
-        f"Expected drift in builder.md; drift={project_data['drift']}"
+        f"Expected drift in reconstruction-agent.md; drift={project_data['drift']}"
     )
 
 

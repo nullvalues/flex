@@ -84,11 +84,10 @@ def run_bootstrap(tmp_path: pathlib.Path, extra_args: list[str] | None = None) -
 EXPECTED_DEST_PATHS = [
     "CLAUDE.md",
     "CLAUDE.build.md",
-    ".claude/agents/builder.md",
-    ".claude/agents/reviewer.md",
-    ".claude/agents/loop-breaker.md",
-    ".claude/agents/security-auditor.md",
-    ".claude/agents/intent-reviewer.md",
+    # Note: builder.md, reviewer.md, loop-breaker.md, security-auditor.md, and
+    # intent-reviewer.md were retired in HARNESS-002 (dogfood flip). Bootstrap no
+    # longer generates these files; procedure skill shells replace them.
+    ".claude/agents/reconstruction-agent.md",
     "docs/architecture.md",
     "docs/checkpoints.md",
     "docs/phases/index.md",
@@ -132,30 +131,12 @@ class TestBootstrapCreatesFiles:
         # in CLAUDE.build.md; it delegates to flex_build.py next-action and leaf workers.
         assert "next-action" in content
 
-    def test_agent_builder_frontmatter(self, tmp_path):
+    def test_agent_reconstruction_frontmatter(self, tmp_path):
+        # builder, reviewer, loop-breaker, security-auditor, and intent-reviewer
+        # agent files were retired in HARNESS-002; reconstruction-agent is retained.
         run_bootstrap(tmp_path)
-        content = (tmp_path / ".claude/agents/builder.md").read_text()
-        assert "name: builder" in content
-
-    def test_agent_reviewer_frontmatter(self, tmp_path):
-        run_bootstrap(tmp_path)
-        content = (tmp_path / ".claude/agents/reviewer.md").read_text()
-        assert "name: reviewer" in content
-
-    def test_agent_loop_breaker_frontmatter(self, tmp_path):
-        run_bootstrap(tmp_path)
-        content = (tmp_path / ".claude/agents/loop-breaker.md").read_text()
-        assert "name: loop-breaker" in content
-
-    def test_agent_security_auditor_frontmatter(self, tmp_path):
-        run_bootstrap(tmp_path)
-        content = (tmp_path / ".claude/agents/security-auditor.md").read_text()
-        assert "name: security-auditor" in content
-
-    def test_agent_intent_reviewer_frontmatter(self, tmp_path):
-        run_bootstrap(tmp_path)
-        content = (tmp_path / ".claude/agents/intent-reviewer.md").read_text()
-        assert "name: intent-reviewer" in content
+        content = (tmp_path / ".claude/agents/reconstruction-agent.md").read_text()
+        assert "reconstruction" in content
 
     def test_docs_architecture_has_project_name(self, tmp_path):
         run_bootstrap(tmp_path)
@@ -554,8 +535,14 @@ class TestSpecDerivedChecklist:
         # Templates still render — we just verify bootstrap succeeds cleanly
         assert (tmp_path / "CLAUDE.md").exists()
 
-    def test_reviewer_checklist_contains_only_universal_items(self, tmp_path):
-        """Reviewer checklist uses only universal items; spec non-negotiables are NOT injected."""
+    def test_bootstrap_with_spec_succeeds_cleanly(self, tmp_path):
+        """Bootstrap with spec succeeds; spec non-negotiables never leaked into agent files.
+
+        Note: reviewer.md was retired in HARNESS-002 (dogfood flip). The reviewer
+        role is now delivered as skills/pairmode/skills/reviewer/procedure.md. This
+        test verifies bootstrap exits 0 with a spec present (the L005 invariant that
+        spec content must not contaminate agent shells is moot once reviewer.md is gone).
+        """
         _make_spec_structure(
             tmp_path,
             modules={
@@ -568,14 +555,14 @@ class TestSpecDerivedChecklist:
         )
         result = run_bootstrap(tmp_path)
         assert result.exit_code == 0, result.output
-        content = (tmp_path / ".claude/agents/reviewer.md").read_text()
-        # Spec text must NOT appear in reviewer checklist (L005 fix)
-        assert "Auth must never call billing directly" not in content
-        assert "All payments must be idempotent" not in content
-        # Universal items must still be present
-        assert "PROTECTED FILES" in content
-        assert "STORY SCOPE" in content
-        assert "BUILD GATE" in content
+        # Reconstruction agent is still generated; verify it exists
+        assert (tmp_path / ".claude/agents/reconstruction-agent.md").exists()
+        # Retired agent files must NOT exist
+        for retired in ["builder.md", "reviewer.md", "loop-breaker.md",
+                        "security-auditor.md", "intent-reviewer.md"]:
+            assert not (tmp_path / ".claude" / "agents" / retired).exists(), (
+                f"Retired agent file {retired} was unexpectedly created by bootstrap"
+            )
 
 
 class TestSpecDerivedDenyList:

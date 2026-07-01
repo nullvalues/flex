@@ -58,12 +58,10 @@ SCAFFOLD_FILES: list[tuple[str, str]] = [
 
 # Agent files — skipped if they already exist, unless --force-agents is passed.
 # These are treated as project-owned after first bootstrap.
+# Note: builder.md.j2, reviewer.md.j2, loop-breaker.md.j2, security-auditor.md.j2,
+# and intent-reviewer.md.j2 were retired in HARNESS-002 (dogfood flip). New projects
+# use procedure skill shells instead of rendered agent files for these roles.
 AGENT_FILES: list[tuple[str, str]] = [
-    (".claude/agents/builder.md", "agents/builder.md.j2"),
-    (".claude/agents/reviewer.md", "agents/reviewer.md.j2"),
-    (".claude/agents/loop-breaker.md", "agents/loop-breaker.md.j2"),
-    (".claude/agents/security-auditor.md", "agents/security-auditor.md.j2"),
-    (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
     (".claude/agents/reconstruction-agent.md", "agents/reconstruction-agent.md.j2"),
 ]
 
