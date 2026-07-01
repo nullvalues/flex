@@ -81,10 +81,57 @@ export interface Phase {
   deferred: string[];
 }
 
+// ---------------------------------------------------------------------------
+// Resolver state model (OBS-001/002)
+// ---------------------------------------------------------------------------
+
+export interface ResolverAction {
+  action: string;
+  scalar?: string | null;
+  model?: string | null;
+  reason?: string | null;
+  meta?: Record<string, unknown>;
+}
+
+export interface ResolverPosition {
+  active_phase_file: string | null;
+  next_story_id: string | null;
+  next_story_file: string | null;
+  attempt_count: number;
+  builder_model: string | null;
+  builder_model_reason: string | null;
+  gate_stub: { ok: boolean; blocked_reason: string };
+  gate_schema: { ok: boolean; blocked_reason: string };
+  gate_auth: { ok: boolean; blocked_reason: string };
+  last_attempt_outcome: string;
+  checkpoint_step: string[];
+  needs_spec: boolean;
+}
+
+export interface EffortRoleEntry {
+  count: number;
+  median_tokens: number | null;
+}
+
+export interface ResolverIndexEntry {
+  phase_ref: string;
+  status: string;
+  active: boolean;
+}
+
+export interface ResolverStateDoc {
+  schema_version: number;
+  action: ResolverAction;
+  position: ResolverPosition;
+  effort_by_role: Record<string, EffortRoleEntry>;
+  index: ResolverIndexEntry[];
+}
+
 export interface SystemResponse {
   repo_id: string;
   generated_at: string;
   phases: Phase[];
+  resolver_state: ResolverStateDoc | null;
 }
 
 export interface Threshold {
@@ -149,6 +196,7 @@ export interface ContextResponse {
   waypoints: Waypoint[];
   effort_summary: EffortSummary;
   misses: MissesBlock;
+  resolver_state: ResolverStateDoc | null;
 }
 
 export interface Lesson {

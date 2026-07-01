@@ -118,7 +118,11 @@ const CACHE_TTL_MS = 2000;
 // Build the context payload for one repo
 // ---------------------------------------------------------------------------
 
-function buildCurrentField(state: Record<string, unknown>, ttlMinutes: number): CurrentOut {
+function buildCurrentField(
+  state: Record<string, unknown>,
+  ttlMinutes: number,
+  resolverState: ResolverStateDoc | null,
+): CurrentOut {
   const tokens =
     typeof state['context_current_tokens'] === 'number'
       ? state['context_current_tokens']
@@ -144,17 +148,9 @@ function buildCurrentField(state: Record<string, unknown>, ttlMinutes: number): 
     }
   }
 
-  // story_id from current_story
-  let story_id: string | null = null;
-  const currentStory = state['current_story'];
-  if (currentStory !== null && typeof currentStory === 'object' && !Array.isArray(currentStory)) {
-    const cs = currentStory as Record<string, unknown>;
-    if (typeof cs['id'] === 'string') story_id = cs['id'];
-  }
-
-  // phase from current_phase
-  const phase =
-    typeof state['current_phase'] === 'string' ? state['current_phase'] : null;
+  // story_id and phase from resolver state position (OBS-002: replaced orchestrator-signal reads)
+  const story_id = resolverState?.position.next_story_id ?? null;
+  const phase = resolverState?.position.active_phase_file ?? null;
 
   return { tokens, recorded_at, age_seconds, stale, story_id, phase };
 }
@@ -205,17 +201,20 @@ async function buildContextPayload(
       ? state['context_current_tokens_ttl_minutes']
       : 60;
 
-  // 3. Build current field
-  const current = buildCurrentField(state, ttlMinutes);
+  // 3. Read resolver state first (used for current field position)
+  const resolver_state = readResolverState(projectDir);
 
-  // 4. Build thresholds
+  // 4. Build current field from token state + resolver position
+  const current = buildCurrentField(state, ttlMinutes, resolver_state);
+
+  // 5. Build thresholds
   const thresholds = buildThresholds(state);
 
-  // 5. Determine context_budget_threshold value for waypoints/misses queries
+  // 6. Determine context_budget_threshold value for waypoints/misses queries
   const thresholdValue =
     thresholds.find((t) => t.name === 'context_budget_threshold')?.value ?? 120000;
 
-  // 6. Open effort.db
+  // 7. Open effort.db
   const dbPath = path.join(projectDir, '.companion', 'effort.db');
   const db = openEffortDb(dbPath);
 
@@ -235,8 +234,6 @@ async function buildContextPayload(
       db.close();
     }
   }
-
-  const resolver_state = readResolverState(projectDir);
 
   return {
     repo_id: repoId,
