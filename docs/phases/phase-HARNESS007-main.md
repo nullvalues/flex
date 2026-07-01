@@ -35,7 +35,7 @@ flex_factor live-read calls `parseStoryFrontmatter` fixed in INFRA-167).
 | OBS-003 | D1 display half — `expected_step_tokens` provenance (CER-053) | complete |
 | OBS-004 | D2 — `context_current_tokens` live writer root-cause + fix (CER-054) | complete |
 | OBS-005 | D3 — waypoint outcome recording + render (CER-055) | complete |
-| INFRA-164 | `flex_observability.py` CLI hardening (re-homed from Phase 64) | planned |
+| INFRA-164 | `flex_observability.py` CLI hardening (re-homed from Phase 64) | complete |
 | INFRA-165 | `context_budget.py` flex_factor correctness — NaN (re-homed from Phase 64) | planned |
 | INFRA-167 | TypeScript parser robustness (re-homed from Phase 64) | planned |
 | INFRA-166 | Fastify API route hardening (re-homed from Phase 64) | planned |

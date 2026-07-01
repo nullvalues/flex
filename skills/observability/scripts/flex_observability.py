@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import click
@@ -62,9 +63,10 @@ def _read_registry(path: Path) -> dict:
 
 
 def _write_registry(path: Path, data: dict) -> None:
-    """Write registry atomically via temp file + rename."""
+    """Write registry atomically via unique temp file + rename."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(".tmp")
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False, suffix=".tmp") as f:
+        tmp_path = Path(f.name)
     tmp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
     os.replace(str(tmp_path), str(path))
 
@@ -109,11 +111,14 @@ def register(project_dir: str, name: str | None, color: str | None) -> None:
     registry = _read_registry(reg_path)
     repos: list[dict] = registry.get("repos", [])
 
-    # Idempotency check
+    # Idempotency and ID-uniqueness check
     for entry in repos:
         if entry.get("project_dir") == str(resolved):
             click.echo(f"already registered: {resolved}")
             return
+        if entry.get("id") == name:
+            click.echo(f"name already in use: {name} → {entry['project_dir']}")
+            sys.exit(1)
 
     # Assign colour from rotation if not provided
     if not color:
@@ -225,7 +230,8 @@ def serve(port: int | None, host: str | None) -> None:
     env["FLEX_OBS_REGISTRY"] = str(reg_path)
 
     try:
-        subprocess.run(["node", str(server_js)], env=env)
+        result = subprocess.run(["node", str(server_js)], env=env)
+        sys.exit(result.returncode)
     except KeyboardInterrupt:
         click.echo("Server stopped.")
         sys.exit(0)
