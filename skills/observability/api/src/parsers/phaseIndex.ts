@@ -108,8 +108,8 @@ export async function parsePhaseIndex(projectDir: string): Promise<PhaseIndexRow
 
     // Data row
     if (!trimmed.startsWith('|')) {
-      // Table ended
-      break;
+      if (trimmed === '') continue; // blank/whitespace-only divider row — skip
+      break;                        // non-pipe non-blank (heading etc.) — stop
     }
 
     // Split on | and trim
