@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp-HARNESS007-main
+
+**Phase:** HARNESS007-main — Observability refactor (Phase G, Era 003)
+**Tag command:** `git tag cp-HARNESS007-main && git push origin harness --tags`
+**Acceptance:** Ten stories. **OBS-001**: `flex_build.py resolver-state --json` pure-read subcommand + `resolverState.ts` TS reader; emits `{action, position, effort_by_role, index}`. **OBS-002**: SPA UI refactored to read resolver state model (`ContextMetrics.tsx` — BuildLoopPanel, RoleEffortPanel, ResolverIndexPanel added); orchestrator-centric `current_story`/`current_phase` reads removed from context.ts/system.ts; stale badge present. **OBS-003**: D1 fix — `expected_step_tokens` re-sourced to `THIN_HARNESS_STEP_TOKENS = 5000` with provenance label `"thin-harness return-block growth"` (CER-053). **OBS-004**: D2 diagnosis — writer (`post_tool_use.py` PostToolUse branch) is correct; 25k stale values are genuine idle; SPA staleness badge already surfaces this; 16 deterministic writer tests (CER-054). **OBS-005**: D3 fix — `queryWaypoints` removed `AND outcome='FAIL' AND agent_role='reviewer'` filters; all roles/outcomes now returned; NULL outcome preserved as null (not mapped to FAIL); `record_attempt.py` recording side confirmed correct (CER-055). **INFRA-164**: `flex_observability.py` CLI hardening — `serve()` propagates exit code, `_write_registry` uses `NamedTemporaryFile` (race-free rename), `register` checks ID uniqueness. **INFRA-165**: `context_budget.py` — NaN guard on `flex_factor` before `<= 0` clamp; `render_alert_prompt` gains `flex_factor` param for factored ceiling. **INFRA-167**: TypeScript parser robustness — `phaseIndex.ts` blank-line `continue`/`break` split; `lessons.ts` `MODULE_FILENAME_RE` broadened; `phaseDoc.ts` era `padStart(3,'0')` for numeric values; `storyFrontmatter.ts` NaN-safe + string-tolerant `flex_factor`. **INFRA-166**: Fastify route hardening — `repos.ts` null `project_dir` crash guard; `context.ts` 0-token treated as absent; NaN threshold guard; `flex_factor` live-read from story frontmatter. **INFRA-168**: `effortDb.ts` p90 off-by-one fixed (`Math.ceil(n*0.9)−1`); inflight dedup Map added to `system.ts`/`context.ts`/`lessons.ts`. Security audit: 0 CRITICAL/HIGH. Intent review: ALIGNED (5 factual corrections applied — story statuses, OBS-002/003/004/005 `primary_files` corrected). 2817 tests pass.
+
+---
+
 ## cp-HARNESS003-main
 
 **Phase:** HARNESS003-main — Builder/reviewer/loop-breaker/security-auditor/intent-reviewer as leaf workers (Era 003)
