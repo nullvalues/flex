@@ -260,3 +260,56 @@ def test_context_flex_factor_fallback_when_no_story() -> None:
     assert "flexFactorValue = 1.0" in content, (
         "context.ts missing flexFactorValue = 1.0 default"
     )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-168: p90 off-by-one fix + inflight dedup
+# ---------------------------------------------------------------------------
+
+def test_p90_formula_corrected_in_source() -> None:
+    """effortDb.ts must use Math.ceil(n * 0.9) - 1 for p90 offset (INFRA-168 fix 1)."""
+    content = (SRC / "readers" / "effortDb.ts").read_text()
+    assert "Math.ceil(n * 0.9) - 1" in content, (
+        "effortDb.ts missing corrected p90 formula Math.ceil(n * 0.9) - 1 (INFRA-168 fix 1)"
+    )
+    assert "Math.floor(n * 0.9)" not in content, (
+        "effortDb.ts still has old Math.floor p90 formula (INFRA-168 fix 1)"
+    )
+
+
+def test_p90_correct_for_round_n() -> None:
+    """For n=10 the corrected formula yields offset 8 (p90 = 9th element, not 10th)."""
+    import math
+    n = 10
+    old_offset = math.floor(n * 0.9)   # was 9 → 10th element (max, wrong)
+    new_offset = max(0, math.ceil(n * 0.9) - 1)  # 9 - 1 = 8 → 9th element
+    assert old_offset == 9, f"Expected old formula to give 9 for n=10, got {old_offset}"
+    assert new_offset == 8, f"Expected new formula to give 8 for n=10, got {new_offset}"
+    # With tokens = [10, 20, ..., 100] sorted ASC:
+    tokens = [i * 10 for i in range(1, 11)]
+    assert tokens[new_offset] == 90, f"p90 should be 90, got {tokens[new_offset]}"
+
+
+def test_p90_correct_for_odd_n() -> None:
+    """For n=11 the corrected formula yields offset 9 (p90 = 10th element = 100)."""
+    import math
+    n = 11
+    new_offset = max(0, math.ceil(n * 0.9) - 1)  # ceil(9.9) - 1 = 10 - 1 = 9
+    assert new_offset == 9, f"Expected new formula to give 9 for n=11, got {new_offset}"
+    tokens = [i * 10 for i in range(1, 12)]  # [10, 20, ..., 110]
+    assert tokens[new_offset] == 100, f"p90 should be 100, got {tokens[new_offset]}"
+
+
+def test_inflight_dedup_present_in_all_three_routes() -> None:
+    """system.ts, context.ts, and lessons.ts must all declare an inflight Map (INFRA-168 fix 2)."""
+    for route_file in ("system.ts", "context.ts", "lessons.ts"):
+        content = (ROUTES / route_file).read_text()
+        assert "inflight" in content, (
+            f"routes/{route_file} missing inflight Map for thundering-herd dedup (INFRA-168 fix 2)"
+        )
+        assert ".catch" in content, (
+            f"routes/{route_file} missing .catch to delete inflight entry on error"
+        )
+        assert "inflight.delete(id)" in content, (
+            f"routes/{route_file} missing inflight.delete(id) cleanup"
+        )

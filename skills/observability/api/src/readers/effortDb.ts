@@ -101,7 +101,7 @@ function sqliteP90(
     .get(...params) as { n: number } | undefined;
   const n = countRow?.n ?? 0;
   if (n === 0) return null;
-  const offset = Math.floor(n * 0.9);
+  const offset = Math.max(0, Math.ceil(n * 0.9) - 1);
   const row = db
     .prepare(
       `SELECT ${column} AS v FROM ${table} WHERE ${where} AND ${column} IS NOT NULL ORDER BY ${column} LIMIT 1 OFFSET ?`,

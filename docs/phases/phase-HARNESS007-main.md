@@ -39,7 +39,7 @@ flex_factor live-read calls `parseStoryFrontmatter` fixed in INFRA-167).
 | INFRA-165 | `context_budget.py` flex_factor correctness — NaN (re-homed from Phase 64) | complete |
 | INFRA-167 | TypeScript parser robustness (re-homed from Phase 64) | complete |
 | INFRA-166 | Fastify API route hardening (re-homed from Phase 64) | complete |
-| INFRA-168 | `effortDb.ts` p90 + in-flight dedup (re-homed from Phase 64) | planned |
+| INFRA-168 | `effortDb.ts` p90 + in-flight dedup (re-homed from Phase 64) | complete |
 
 ## Schema delivery
 

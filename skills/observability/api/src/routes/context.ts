@@ -116,6 +116,7 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
+const inflight = new Map<string, Promise<ContextOut>>();
 const CACHE_TTL_MS = 2000;
 
 // ---------------------------------------------------------------------------
@@ -310,11 +311,22 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       return cached.data;
     }
 
-    const data = await buildContextPayload(repo.project_dir, id);
+    // In-flight dedup: concurrent misses share one build promise
+    const existing = inflight.get(id);
+    if (existing) return existing;
 
-    cache.set(id, { ts: now, data });
+    const promise = buildContextPayload(repo.project_dir, id)
+      .then((data) => {
+        cache.set(id, { ts: Date.now(), data });
+        inflight.delete(id);
+        return data;
+      })
+      .catch((err) => {
+        inflight.delete(id);
+        throw err;
+      });
 
-    reply.header('Content-Type', 'application/json');
-    return data;
+    inflight.set(id, promise);
+    return promise;
   });
 }
