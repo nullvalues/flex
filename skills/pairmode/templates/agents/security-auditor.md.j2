@@ -28,10 +28,37 @@ Read `/docs/architecture.md` in full. Pay particular attention to:
 
 ### 1. HOOK INTEGRITY (CRITICAL if violated)
 
-Do any files in `hooks/` make network calls, import from `skills/`, or write to
-any location other than `/tmp/companion.pipe`?
+Do any files in `hooks/` make network calls, or contain domain logic beyond
+tool-name / source dispatch, one delegated module call, and one emit?
 
-A hook that does anything other than relay to the pipe is a CRITICAL violation.
+Check every import and every file write in:
+`hooks/pre_tool_use.py`, `hooks/post_tool_use.py`, `hooks/session_start.py`,
+`hooks/stop.py`, `hooks/exit_plan_mode.py`
+
+**Documented thin-delegation exceptions — do NOT flag these:**
+
+The following hooks are authorized thin dispatchers with permitted imports and
+state.json writes. They do not violate the thin-relay contract.
+
+- `hooks/pre_tool_use.py` — dispatches Task/Agent → `context_budget.py`
+  (CER-027/CER-049) and Edit/Write → `scope_guard.py` (Phase 55). Authorized
+  state.json write: `context_budget_acknowledged_at` (on block only).
+- `hooks/post_tool_use.py` — pipe relay for Write/Edit/MultiEdit; dispatches
+  Task/Agent → `context_budget.py` (INFRA-182). Authorized state.json writes:
+  `context_current_tokens`, `context_current_tokens_recorded_at`.
+- `hooks/session_start.py` — dispatches source `clear`/`startup` →
+  `session_reset.py` (CER-047/INFRA-175). Authorized state.json writes:
+  `context_current_tokens`, `context_current_tokens_recorded_at`,
+  `context_session_reset_at`.
+
+These state.json writes are the designed write path for the context-budget
+system — not pipe-contract violations. The `cwd` value used to locate
+state.json comes from the Claude Code hook payload (trusted harness input),
+not user-supplied input — do not flag it as path traversal.
+
+Any logic added to these hooks beyond dispatch + delegation + emit, any
+*other* hook importing from `skills/`, or any hook writing to spec files
+remains CRITICAL.
 
 ### 2. CREDENTIAL EXPOSURE (CRITICAL if violated)
 
@@ -63,16 +90,30 @@ is a HIGH violation.
 
 ### 5. LAYER VIOLATION (HIGH if violated)
 
-Does any hook script import from `skills/`?
+Does any hook script import from `skills/` beyond the documented thin-delegation
+exceptions in check 1?
 Does any skill script directly modify files in `hooks/`?
 
-Check all imports in `hooks/` scripts.
+Check all imports in `hooks/` scripts; the three dispatcher hooks listed in
+check 1 are explicitly excluded from this check.
 
 ### 6. SPEC FILE PROTECTION (MEDIUM if violated)
 
 Does any code in `hooks/` write directly to spec files or spec directories?
 
 Only sidebar scripts and skill scripts may write spec files.
+
+---
+
+## Audit scope
+
+Findings in installed pairmode plugin infrastructure — the plugin's `hooks/`
+directory and `skills/pairmode/` — that are **not part of this project's phase
+diff** are reported as INFORMATIONAL. They do not count toward the checkpoint's
+CRITICAL/HIGH totals and do not affect the PASS/FAIL result.
+
+Only findings in the project's own changed files determine PASS/FAIL. If plugin
+infrastructure issues are found, note them for upstream (flex) investigation.
 
 ---
 
