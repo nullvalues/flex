@@ -27,8 +27,8 @@ Advisory CLI only — no hard checkpoint gating. Agreements input:
 
 | ID | Title | Status |
 |----|-------|--------|
-| RESOLVER-010 | `check-index` graph-invariant checker (`index_integrity.py` + CLI) | planned |
-| RESOLVER-011 | Resolver read-model integration + housekeeper isolation suite | planned |
+| RESOLVER-010 | `check-index` graph-invariant checker (`index_integrity.py` + CLI) | complete |
+| RESOLVER-011 | Resolver read-model integration + housekeeper isolation suite | complete |
 
 ## Schema delivery
 
