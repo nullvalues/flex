@@ -1675,5 +1675,44 @@ def cmd_resolver_state(project_dir: str) -> None:
     click.echo(json.dumps(doc))
 
 
+@flex_build.command("check-index")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_check_index(project_dir: str) -> None:
+    """Run the graph-invariant integrity checker on the project index.
+
+    Checks four invariants:
+      1. Status drift — story with a feat(story-<ID>) commit but status not complete/deferred.
+      2. Cross-link consistency — phase files exist; story phase frontmatter valid; era tables match.
+      3. Orphan stories — story files not referenced in any phase doc.
+      4. Deferred without section — deferred story with no ## Deferred stories section naming it.
+
+    Exits 0 (silent) when the graph is clean.
+    Exits 1 and prints each violation's IDs/paths + reason when violations exist.
+    Pure-read: writes nothing.
+
+    RESOLVER-010.
+    """
+    from index_integrity import check_index  # noqa: PLC0415
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+
+    violations = check_index(project_path)
+
+    if not violations:
+        sys.exit(0)
+
+    for v in violations:
+        ids_str = ", ".join(v.ids)
+        click.echo(f"{v.kind}  [{ids_str}]  {v.path}  —  {v.reason}")
+
+    sys.exit(1)
+
+
 if __name__ == "__main__":
     flex_build()
