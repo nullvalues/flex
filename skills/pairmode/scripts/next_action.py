@@ -67,6 +67,19 @@ RESOLVER-009 (spec-writer action + needs_spec flag):
   ``resolve_next_action`` is split: when ``needs_spec`` is True the resolver
   emits ``spawn-spec-writer`` (model="opus", reason="needs-spec") instead of
   proceeding to ``spawn-builder``.  ``SCHEMA_VERSION`` bumped from 3 to 4.
+
+RESOLVER-011 (resolver read-model integration + CER-056 fix):
+  ``infer_position`` now uses ``is_phase_inactive`` from ``index_integrity``
+  (CER-056) to select the active phase.  Previously only ``complete`` phases
+  were treated as inactive; now ``deferred`` and ``backlog`` phases are also
+  skipped when searching for the active phase.  A private helper
+  ``_resolve_active_phase`` encapsulates this logic and falls back to
+  ``resolve_current_phase`` (flex_build) when no index file is present.
+
+  Invariant: the change is pure-read and does not alter ``resolve_next_action``
+  routing — only ``active_phase_file`` (and therefore ``next_story_id``) in the
+  Position dict can differ for projects where the last non-complete phase is
+  deferred or backlog.
 """
 
 from __future__ import annotations
@@ -460,6 +473,58 @@ def _count_ensures_nonblank_lines(text: str) -> "int | None":
 
 
 # ---------------------------------------------------------------------------
+# Active-phase selector (RESOLVER-011 / CER-056)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_active_phase(project_path: "Path") -> "Path | None":
+    """Return the active phase file using ``is_phase_inactive`` (CER-056 fix).
+
+    Reads ``docs/phases/index.md`` and walks the phase rows in order, keeping
+    the last row whose status is **not** inactive.  Inactive statuses are
+    ``complete``, ``deferred``, and ``backlog`` — as defined by
+    ``index_integrity.is_phase_inactive``.
+
+    Previously ``resolve_current_phase`` (flex_build) only skipped ``complete``
+    phases, so a trailing ``deferred`` or ``backlog`` row would be returned as
+    the active phase.  This helper fixes that by composing ``is_phase_inactive``
+    from the same source of truth used by the index-integrity checker.
+
+    Falls back to ``resolve_current_phase`` when no index file is present
+    (legacy layout).
+
+    Pure read: no writes.  Called only by ``infer_position``.
+    """
+    from index_integrity import is_phase_inactive as _is_phase_inactive  # type: ignore[import]
+    from flex_build import (  # type: ignore[import]
+        _parse_index_phases as _pip,
+        resolve_current_phase as _rcp,
+    )
+
+    index_path = project_path / "docs" / "phases" / "index.md"
+    if not index_path.exists():
+        return _rcp(project_path)
+
+    try:
+        index_text = index_path.read_text(encoding="utf-8")
+    except OSError:
+        return _rcp(project_path)
+
+    phase_rows = _pip(index_text)
+    active_phase_ref: "str | None" = None
+    for phase_ref, status in phase_rows:
+        if not _is_phase_inactive(status):
+            active_phase_ref = phase_ref  # last non-inactive row wins
+
+    if active_phase_ref is not None:
+        candidate = project_path / "docs" / "phases" / f"phase-{active_phase_ref}.md"
+        if candidate.exists():
+            return candidate
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Position read-model (RESOLVER-002)
 # ---------------------------------------------------------------------------
 
@@ -514,7 +579,6 @@ def infer_position(project_dir: "str | Path") -> dict:
     from next_story import find_next_story  # type: ignore[import]
     from model_selector import select_builder_model  # type: ignore[import]
     from flex_build import (  # type: ignore[import]
-        resolve_current_phase,
         read_attempt_count,
         check_stub_gate,
         check_schema_gate_result,
@@ -525,9 +589,9 @@ def infer_position(project_dir: "str | Path") -> dict:
     project_path = Path(project_dir).resolve()
 
     # ------------------------------------------------------------------
-    # 1. Active phase
+    # 1. Active phase (CER-056: uses is_phase_inactive to skip deferred/backlog)
     # ------------------------------------------------------------------
-    active_phase_file: "Path | None" = resolve_current_phase(project_path)
+    active_phase_file: "Path | None" = _resolve_active_phase(project_path)
 
     # ------------------------------------------------------------------
     # 2. Next unbuilt story

@@ -189,7 +189,12 @@ class TestResolverStateCLI:
         before = {p: p.stat().st_mtime for p in project.rglob("*") if p.is_file()}
         _run_resolver_state(project)
         after_files = set(project.rglob("*"))
-        new_files = {p for p in after_files if p.is_file() and str(p) not in {str(p) for p in before}}
+        new_files = {
+            p for p in after_files
+            if p.is_file()
+            and str(p) not in {str(p) for p in before}
+            and ".pytest_cache" not in p.parts
+        }
         assert not new_files, f"resolver-state wrote new files: {new_files}"
         for p, mtime_before in before.items():
             if p.exists():
