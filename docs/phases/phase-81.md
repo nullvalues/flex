@@ -16,7 +16,7 @@ Single-story phase.
 
 | ID | Title | Status |
 |----|-------|--------|
-| BUILD-040 | CLAUDE.build.md: add write-permissions + clear-permissions to build loop | planned |
+| BUILD-040 | CLAUDE.build.md: add write-permissions + clear-permissions to build loop | complete |
 
 ## Schema delivery
 
