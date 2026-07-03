@@ -81,7 +81,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 80 | pre-reviewer blanket-stage exclusion fix | complete | [phase-80.md](phase-80.md) |
 | 81 | write-permissions + clear-permissions wired into build loop | complete | [phase-81.md](phase-81.md) |
 | HARNESS001-ante1 | Versioning & upstream compatibility | complete | [phase-HARNESS001-ante1.md](phase-HARNESS001-ante1.md) |
-| 82 | security-auditor: document pairmode hook exceptions + audit scope rule | planned | [phase-82.md](phase-82.md) |
+| 82 | security-auditor: document pairmode hook exceptions + audit scope rule | complete | [phase-82.md](phase-82.md) |
 
 ---
 

@@ -1018,6 +1018,8 @@ baseline.
   `compact` is deliberately excluded (CER-047 — post-compact window size unknown; stale
   counter over-blocks, which is fail-safe).
 
+The remaining two registered hooks — `stop.py` and `session_end.py` — are plain pipe relays with no dispatch logic and no state.json writes. They do not require thin-delegation exception documentation.
+
 The sidebar does all heavy work asynchronously. If the sidebar is not running, the pipe write
 silently fails and the session continues normally — no data is lost because the session
 transcript is always available for later mining.

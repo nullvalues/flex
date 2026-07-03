@@ -551,3 +551,9 @@ CER-031). All docs follow the catalog template verbatim with real "What Broke" i
 **Phase:** 81
 **Stories:** BUILD-040
 **Acceptance:** `flex_build.py write-permissions` and `clear-permissions` wired into `CLAUDE.build.md` Step 1 and Step 3 respectively (and matching `.j2` template). Layer 2 allow-rule writes now suppress Claude Code permission prompts for story-declared files on every build, eliminating the manual auto-mode toggle requirement in upstream era-002 projects. `docs/architecture.md` updated to describe the two-layer permission model. 2266 tests pass.
+
+## cp82-security-auditor-hook-exceptions-audit-scope
+**Tag command:** `git tag cp82-security-auditor-hook-exceptions-audit-scope && git push origin cp82-security-auditor-hook-exceptions-audit-scope`
+**Phase:** 82
+**Stories:** BUILD-041
+**Acceptance:** Security-auditor template (`skills/pairmode/templates/agents/security-auditor.md.j2`) and live agent file (`.claude/agents/security-auditor.md`) updated to enumerate the five documented pairmode thin-delegation hook exceptions and add an Audit scope rule excluding upstream plugin infrastructure findings from downstream project checkpoint PASS/FAIL. Eliminates false CRITICAL/HIGH findings that blocked era-002 projects. `docs/architecture.md` clarified that `stop.py` and `session_end.py` are plain pipe relays requiring no thin-delegation exception documentation. Security audit: 0 findings. Intent review: ALIGNED. 2266 tests pass.
