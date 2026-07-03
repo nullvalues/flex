@@ -85,7 +85,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | HARNESS005-main | Spec-writer as a leaf worker | complete | [phase-HARNESS005-main.md](phase-HARNESS005-main.md) |
 | HARNESS006-main | Harness reduction — the flip | complete | [phase-HARNESS006-main.md](phase-HARNESS006-main.md) · cp-HARNESS006-main |
 | HARNESS007-main | Observability refactor (Phase G) | complete | [phase-HARNESS007-main.md](phase-HARNESS007-main.md) |
-| HARNESS008-main | Housekeeper consolidation | planned | [phase-HARNESS008-main.md](phase-HARNESS008-main.md) |
+| HARNESS008-main | Housekeeper consolidation | complete | [phase-HARNESS008-main.md](phase-HARNESS008-main.md) · cp-HARNESS008-main |
 
 ---
 
