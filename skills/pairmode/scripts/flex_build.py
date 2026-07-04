@@ -1675,6 +1675,92 @@ def cmd_resolver_state(project_dir: str) -> None:
     click.echo(json.dumps(doc))
 
 
+# ---------------------------------------------------------------------------
+# record-checkpoint-step (RESOLVER-012)
+# ---------------------------------------------------------------------------
+
+_CHECKPOINT_SEQUENCE: tuple[str, ...] = (
+    "checkpoint-security",
+    "checkpoint-intent",
+    "checkpoint-docs",
+    "checkpoint-tag",
+)
+
+
+def _record_checkpoint_step(step_id: str, project_dir: Path) -> int:
+    """Atomically append *step_id* to state.json["checkpoint_step"].
+
+    Returns 0 on success or when step_id is already present (idempotent).
+    Returns 1 when step_id is not in _CHECKPOINT_SEQUENCE.
+    """
+    import tempfile  # noqa: PLC0415
+
+    if step_id not in _CHECKPOINT_SEQUENCE:
+        click.echo(
+            f"record-checkpoint-step: unknown step_id {step_id!r}. "
+            f"Valid values: {', '.join(_CHECKPOINT_SEQUENCE)}",
+            err=True,
+        )
+        return 1
+
+    state_path = project_dir / ".companion" / "state.json"
+
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            if not isinstance(state, dict):
+                state = {}
+        except (json.JSONDecodeError, OSError):
+            state = {}
+    else:
+        state = {}
+
+    current: list[str] = state.get("checkpoint_step") or []
+    if not isinstance(current, list):
+        current = []
+
+    if step_id in current:
+        return 0  # idempotent — no write
+
+    current.append(step_id)
+    state["checkpoint_step"] = current
+
+    # Atomic write: temp file in same dir, then rename.
+    dir_ = state_path.parent
+    dir_.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=dir_,
+        delete=False,
+        suffix=".tmp",
+    ) as tf:
+        tf.write(json.dumps(state, indent=2))
+        tmp_path_str = tf.name
+
+    os.replace(tmp_path_str, state_path)
+    return 0
+
+
+@flex_build.command("record-checkpoint-step")
+@click.argument("step_id")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_record_checkpoint_step(step_id: str, project_dir: str) -> None:
+    """Atomically append *step_id* to state.json["checkpoint_step"].
+
+    Validates step_id against the known checkpoint sequence before writing.
+    Idempotent: if step_id is already present, exits 0 with no write.
+    """
+    project_path = Path(project_dir).resolve()
+    rc = _record_checkpoint_step(step_id, project_path)
+    sys.exit(rc)
+
+
 @flex_build.command("check-index")
 @click.option(
     "--project-dir",

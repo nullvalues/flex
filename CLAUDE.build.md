@@ -16,9 +16,9 @@ while true:
 
 ## Checkpoint
 
-The resolver emits checkpoint-security, checkpoint-intent, checkpoint-docs, checkpoint-tag in
-sequence. Execute each leaf worker as dispatched. checkpoint-tag: run
-`git tag cp-<phase-key> && git push origin harness --tags`.
+Execute each checkpoint leaf worker as dispatched. After each returns, call:
+  flex_build.py record-checkpoint-step <action> --project-dir .
+Then re-run next-action. checkpoint-tag: `git tag cp-<phase-key> && git push origin harness --tags`.
 
 ## Spec mode
 

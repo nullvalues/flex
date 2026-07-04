@@ -2,7 +2,7 @@
 id: RESOLVER-012
 rail: RESOLVER
 title: "`record-checkpoint-step` CLI + orchestrator wiring"
-status: planned
+status: complete
 phase: "HARNESS009-main"
 story_class: code
 auth_gated: false
