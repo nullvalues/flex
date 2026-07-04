@@ -22,7 +22,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 20 | PR readiness — documentation, changelog, git history | complete | [phase-20.md](phase-20.md) · cp20 |
 | 21 | Orchestrator hardening and auth-policy integration | complete | [phase-21.md](phase-21.md) · cp21 |
 | 22 | Effort tracking infrastructure | complete | [phase-22.md](phase-22.md) · cp22 |
-| 23 | Drift detection foundations (pivoted — see Phase 29) | complete (partial) | [phase-23.md](phase-23.md) · cp23 |
+| 23 | Drift detection foundations (pivoted — see Phase 29) | deferred | [phase-23.md](phase-23.md) · cp23 |
 | 24 | Data-defensible model rebalance refinement | complete | [phase-24.md](phase-24.md) · cp24-data-defensible-methodology |
 | 25 | Backlog remediation and cross-project agent sync | complete | [phase-25.md](phase-25.md) · cp25-backlog-remediation-and-agent-sync |
 | 26 | Build loop retry automation and auth policy canonization | complete | [phase-26.md](phase-26.md) · cp26-build-loop-retry-and-auth-canonization |
@@ -87,7 +87,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | HARNESS007-main | Observability refactor (Phase G) | complete | [phase-HARNESS007-main.md](phase-HARNESS007-main.md) |
 | HARNESS008-main | Housekeeper consolidation | complete | [phase-HARNESS008-main.md](phase-HARNESS008-main.md) · cp-HARNESS008-main |
 | HARNESS009-main | Write-path determinism | planned | [phase-HARNESS009-main.md](phase-HARNESS009-main.md) |
-| HARNESS010-main | Token surgery | planned | [phase-HARNESS010-main.md](phase-HARNESS010-main.md) |
+| HARNESS010-main | Token surgery | backlog | [phase-HARNESS010-main.md](phase-HARNESS010-main.md) |
 
 ---
 
