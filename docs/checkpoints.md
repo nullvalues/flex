@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp-HARNESS009-main
+
+**Phase:** HARNESS009-main — Write-path determinism (Era 003)
+**Tag command:** `git tag cp-HARNESS009-main && git push origin harness --tags`
+**Acceptance:** Three stories. **RESOLVER-014**: `_resolve_active_phase` in `next_action.py` changed from last-non-inactive-wins to first-non-inactive-wins (one-line `break`; fixes sequential phase ordering for multiple `planned` phases); `test_active_phase_selection.py` added (5 parametrized cases). **RESOLVER-012**: `flex_build.py record-checkpoint-step <step-id>` CLI — atomically appends a validated checkpoint step ID to `state.json["checkpoint_step"]`; validates against `_CHECKPOINT_SEQUENCE`; idempotent; moves checkpoint-step write authority from LLM prose to CLI (RESOLVER-012); `CLAUDE.build.md` and `CLAUDE.build.md.j2` checkpoint sections updated; `test_record_checkpoint_step.py` added. **RESOLVER-013**: `parse_worker_verdict_json(text: str) -> dict` replaces `parse_worker_verdict_text` in `next_action.py` — `json.loads()` parser; fail-closed on `JSONDecodeError` or missing key (all gates blocked with `block:malformed-verdict`); `gate-worker/procedure.md` updated to specify JSON output format; `test_parse_worker_verdict_json.py` added (7 cases). `architecture.md` updated: `record-checkpoint-step` added to CLI surface; `checkpoint_step` row added to state-ownership table (sole writer: `flex_build.py record-checkpoint-step`). Security audit: 0 CRITICAL/HIGH. Intent review: ALIGNED. 2878 tests pass.
+
+---
+
 ## cp-HARNESS007-main
 
 **Phase:** HARNESS007-main — Observability refactor (Phase G, Era 003)

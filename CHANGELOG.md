@@ -6,6 +6,13 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Added [pairmode] — HARNESS009-main (Write-path determinism)
+- `flex_build.py record-checkpoint-step <step-id>`: atomically appends a validated checkpoint step ID to `state.json["checkpoint_step"]`; validates against `_CHECKPOINT_SEQUENCE`; idempotent; moves checkpoint-step write authority from LLM prose to CLI (RESOLVER-012).
+- `parse_worker_verdict_json` in `next_action.py`: fail-closed JSON parser replacing the brittle text-split `parse_worker_verdict_text`; on `JSONDecodeError` or missing key all gates return `block:malformed-verdict` (RESOLVER-013).
+- `gate-worker/procedure.md` updated to specify JSON-only stdout output format (RESOLVER-013).
+- `_resolve_active_phase` fixed to first-non-inactive-wins, correctly sequencing multiple planned phases (RESOLVER-014).
+- `architecture.md`: `record-checkpoint-step` added to `flex_build.py` CLI surface; `checkpoint_step` state-ownership row added (sole writer: `flex_build.py record-checkpoint-step`).
+
 ### Added [pairmode]
 - Phase 17: correctness fixes across the pairmode skill — story status lifecycle,
   manifest-aware orchestration, schema_validator integration tightening.

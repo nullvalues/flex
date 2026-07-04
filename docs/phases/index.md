@@ -86,7 +86,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | HARNESS006-main | Harness reduction — the flip | complete | [phase-HARNESS006-main.md](phase-HARNESS006-main.md) · cp-HARNESS006-main |
 | HARNESS007-main | Observability refactor (Phase G) | complete | [phase-HARNESS007-main.md](phase-HARNESS007-main.md) |
 | HARNESS008-main | Housekeeper consolidation | complete | [phase-HARNESS008-main.md](phase-HARNESS008-main.md) · cp-HARNESS008-main |
-| HARNESS009-main | Write-path determinism | planned | [phase-HARNESS009-main.md](phase-HARNESS009-main.md) |
+| HARNESS009-main | Write-path determinism | complete | [phase-HARNESS009-main.md](phase-HARNESS009-main.md) · cp-HARNESS009-main |
 | HARNESS010-main | Token surgery | backlog | [phase-HARNESS010-main.md](phase-HARNESS010-main.md) |
 
 ---
