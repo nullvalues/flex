@@ -84,6 +84,7 @@ RESOLVER-011 (resolver read-model integration + CER-056 fix):
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -1074,6 +1075,7 @@ def resolve_next_action(
 # ---------------------------------------------------------------------------
 
 
+# Deprecated by RESOLVER-013 — use parse_worker_verdict_json
 def parse_worker_verdict_text(text: str) -> dict:
     """Parse a worker's text return into a per-gate verdict map (DP6.2).
 
@@ -1092,6 +1094,11 @@ def parse_worker_verdict_text(text: str) -> dict:
     unknown gate names are silently skipped.  The returned dict is suitable for
     direct use with :func:`route_gate_verdict` and
     ``gate_verdict.validate_verdict_map``.
+
+    .. deprecated:: RESOLVER-013
+        Use :func:`parse_worker_verdict_json` instead.  The text-based format
+        is fail-open (malformed lines silently appear clean); the JSON parser
+        is fail-closed.
     """
     from gate_verdict import JUDGED_GATES  # type: ignore[import]
 
@@ -1107,6 +1114,37 @@ def parse_worker_verdict_text(text: str) -> dict:
         if gate_name in JUDGED_GATES:
             result[gate_name] = verdict_str
     return result
+
+
+def parse_worker_verdict_json(text: str) -> dict:
+    """Parse gate worker JSON stdout into a per-gate verdict map (RESOLVER-013).
+
+    Workers emit a single JSON object on stdout with keys ``schema``, ``auth``,
+    and ``stub``.  Values are ``"clean"`` or ``"block:<reason>"``.  All other
+    output goes to stderr.
+
+    On :exc:`json.JSONDecodeError` or a missing required key, all gates are
+    blocked (fail-closed) with ``reason="malformed-verdict"``.
+
+    Example valid input::
+
+        {"schema": "clean", "auth": "block:no-owner-check", "stub": "clean"}
+
+    Returns a dict with exactly the keys ``schema``, ``auth``, and ``stub``.
+    """
+    _FAIL_CLOSED = {
+        "schema": "block:malformed-verdict",
+        "auth": "block:malformed-verdict",
+        "stub": "block:malformed-verdict",
+    }
+    _REQUIRED_KEYS = {"schema", "auth", "stub"}
+    try:
+        result = json.loads(text)
+    except json.JSONDecodeError:
+        return dict(_FAIL_CLOSED)
+    if not isinstance(result, dict) or not _REQUIRED_KEYS.issubset(result.keys()):
+        return dict(_FAIL_CLOSED)
+    return {k: result[k] for k in _REQUIRED_KEYS}
 
 
 def route_gate_verdict(
@@ -1127,8 +1165,9 @@ def route_gate_verdict(
     Parameters
     ----------
     verdict_map:
-        Per-gate verdict dict as returned by :func:`parse_worker_verdict_text`
-        or injected directly in tests.
+        Per-gate verdict dict as returned by :func:`parse_worker_verdict_json`
+        (or the deprecated :func:`parse_worker_verdict_text`) or injected
+        directly in tests.
     next_story_id:
         The story ID to use as ``scalar`` for spawn-builder actions.
     meta_base:

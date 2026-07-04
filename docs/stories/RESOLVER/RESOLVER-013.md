@@ -2,7 +2,7 @@
 id: RESOLVER-013
 rail: RESOLVER
 title: Gate verdict JSON schema + parser hardening
-status: planned
+status: complete
 phase: "HARNESS009-main"
 story_class: code
 auth_gated: false
