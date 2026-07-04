@@ -88,6 +88,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | HARNESS008-main | Housekeeper consolidation | complete | [phase-HARNESS008-main.md](phase-HARNESS008-main.md) · cp-HARNESS008-main |
 | HARNESS009-main | Write-path determinism | complete | [phase-HARNESS009-main.md](phase-HARNESS009-main.md) · cp-HARNESS009-main |
 | HARNESS010-main | Token surgery | backlog | [phase-HARNESS010-main.md](phase-HARNESS010-main.md) |
+| HARNESS009-post1 | HARNESS009 backlog close-out | planned | [phase-HARNESS009-post1.md](phase-HARNESS009-post1.md) |
 
 ---
 
