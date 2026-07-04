@@ -15,6 +15,7 @@ Close checkpoint_step write gap and gate verdict text-parsing gap
 
 | ID | Title | Status |
 |----|-------|--------|
+| RESOLVER-014 | Fix active-phase selection — first non-inactive wins | complete |
 | RESOLVER-012 | `record-checkpoint-step` CLI + orchestrator wiring | planned |
 | RESOLVER-013 | Gate verdict JSON schema + parser hardening | planned |
 

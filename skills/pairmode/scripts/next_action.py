@@ -481,7 +481,7 @@ def _resolve_active_phase(project_path: "Path") -> "Path | None":
     """Return the active phase file using ``is_phase_inactive`` (CER-056 fix).
 
     Reads ``docs/phases/index.md`` and walks the phase rows in order, keeping
-    the last row whose status is **not** inactive.  Inactive statuses are
+    the first row whose status is **not** inactive.  Inactive statuses are
     ``complete``, ``deferred``, and ``backlog`` — as defined by
     ``index_integrity.is_phase_inactive``.
 
@@ -514,7 +514,8 @@ def _resolve_active_phase(project_path: "Path") -> "Path | None":
     active_phase_ref: "str | None" = None
     for phase_ref, status in phase_rows:
         if not _is_phase_inactive(status):
-            active_phase_ref = phase_ref  # last non-inactive row wins
+            active_phase_ref = phase_ref  # first non-inactive row wins
+            break
 
     if active_phase_ref is not None:
         candidate = project_path / "docs" / "phases" / f"phase-{active_phase_ref}.md"
