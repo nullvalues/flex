@@ -1,6 +1,6 @@
 # flex — Cold-Eyes Review (CER) Backlog
 
-*Last updated: 2026-06-27*
+*Last updated: 2026-07-04*
 
 This file is the structured triage log for findings from external cold-eyes reviews.
 Each finding is assigned to one quadrant. Findings are not deleted — resolved findings
@@ -47,6 +47,12 @@ Important, not urgent. Quality improvements, architectural refinements.
 |----|---------|--------|------|-------|
 
 
+
+| CER-061 | `cmd_record_checkpoint_step` in `flex_build.py` (RESOLVER-012) does not call `_depth_guard` before writing `state.json`, unlike every other write-capable `--project-dir` command. The write target is always the fixed relative path `.companion/state.json` and `step_id` is whitelist-validated — no arbitrary path construction — so there is no traversal risk. But the missing guard is an inconsistency with the project convention. Fix: add `_depth_guard(project_dir)` at the entry of `cmd_record_checkpoint_step`. MEDIUM. `skills/pairmode/scripts/flex_build.py` `cmd_record_checkpoint_step`. | HARNESS009-main security audit | 2026-07-04 | HARNESS009-main |
+
+| CER-062 | `_CHECKPOINT_SEQUENCE` is defined twice: once in `next_action.py` (the authoritative location) and once inlined as literal strings in `flex_build.py`'s `record-checkpoint-step` command (RESOLVER-012). Current values match, but a future change to `next_action.py`'s tuple must also be applied manually to `flex_build.py`. Fix: import `_CHECKPOINT_SEQUENCE` from `next_action` in `flex_build.py` (or extract to a shared constants module). MEDIUM (silent divergence risk if sequence ever changes). `skills/pairmode/scripts/flex_build.py` record-checkpoint-step, `skills/pairmode/scripts/next_action.py`. | HARNESS009-main intent review | 2026-07-04 | HARNESS009-main |
+
+| CER-063 | `parse_worker_verdict_text` was marked deprecated in RESOLVER-013 but not removed. It has no live call sites in production code; tests in `test_next_action.py` still exercise it. Preferred action per story spec was removal. Remove the function and update the test file to remove or replace the tests that exercise it. LOW-MEDIUM. `skills/pairmode/scripts/next_action.py:1077`, `tests/pairmode/test_next_action.py`. | HARNESS009-main intent review | 2026-07-04 | HARNESS009-main |
 
 | CER-059 | Intent review of HARNESS001-ante1 surfaced three forward (HARNESS006-era) items from `fleet_discovery.py` (RELEASE-005): **(a)** the current `docs/fleet-snapshot.md` shows all 9 discovered projects bound via Signal 2 (`pairmode_version`) only — **zero Signal 1 (`pairmode_scripts_dir`) hits** — even though the fleet is expected to be scripts-bound to this checkout. This may be a false-negative in Signal-1 detection (`_check_signal1` `relative_to` comparison vs `_THIS_SCRIPTS_DIR`/`_FLEX_ROOT`) or it may be accurate (projects baked an absolute path that no longer resolves under this checkout). Must be diagnosed **before the pre-fold discovery gate runs**, because that gate relies on accurate Signal-1 binding to know which projects break at the fold; a false negative would under-report blast radius. **(b)** Add an explicit Signal-1 verification step to the pre-fold gate run in `docs/harness-cutover-runbook.md` ("after syncing each project, re-run discovery and confirm `binding: scripts` appears"). **(c)** When HARNESS006 is specced, its story for executing the fold must carry an explicit AC: reconcile `docs/stories/RELEASE/RELEASE-002.md` status `deferred → complete` on main after the fold merge (the runbook notes this in prose; it should be a checkable AC). MEDIUM (cutover-safety accuracy; no impact on HARNESS001-ante1 correctness — the tool is built and tested). `skills/pairmode/scripts/fleet_discovery.py` `_check_signal1`, `docs/fleet-snapshot.md`, `docs/harness-cutover-runbook.md`. | HARNESS001-ante1 intent review | 2026-06-26 | HARNESS006 |
 
