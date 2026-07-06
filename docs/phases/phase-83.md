@@ -19,7 +19,7 @@ Reduce the 18.5% fleet-wide retry rate by improving spec accuracy and completene
 | ID | Title | Status |
 |----|-------|--------|
 | BUILD-042 | Enable effort_tracking on flex itself | complete |
-| BUILD-043 | Reviewer FAIL reason capture via --notes | planned |
+| BUILD-043 | Reviewer FAIL reason capture via --notes | complete |
 | INFRA-186 | architecture.md template prompt in story_new.py and check-story-scope | planned |
 | INFRA-187 | Body-section enforcement: non-pointer Ensures required for code and methodology stories | planned |
 | INFRA-188 | Scope budget warning in check-story-scope | planned |
