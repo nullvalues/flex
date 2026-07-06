@@ -10,7 +10,8 @@ schema_introduces: false
 primary_files:
   - skills/pairmode/scripts/next_action.py
   - tests/pairmode/test_next_action.py
-touches: []
+touches:
+  - tests/pairmode/test_parse_worker_verdict_json.py
 ---
 
 ## Context
