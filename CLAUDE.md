@@ -114,6 +114,10 @@ Run every item on every review invocation.
    no corresponding test file in `tests/pairmode/`?
    Missing tests for logic modules are HIGH.
 
+   Also verify: `effort_tracking` in `.companion/state.json` must remain `true`.
+   If any diff sets it to `false` or removes it without a BUILD-rail story
+   explicitly authorising the change: HIGH.
+
 7. PROTECTED FILES
    Were any protected files modified without a stated reason?
    Protected: `hooks/` (all scripts and hooks.json), `skills/seed/scripts/`,
