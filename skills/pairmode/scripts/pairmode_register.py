@@ -150,6 +150,7 @@ def register(project_dir: str, companion_dir: str | None) -> None:
         return
 
     projects.append(path_str)
+    # intentional direct write: this IS the canonical register entry point (CER-058)
     state["registered_projects"] = projects
     _write_state_atomic(cdir, state)
     click.echo(f"registered: {path_str}")
@@ -187,6 +188,7 @@ def unregister(project_dir: str, companion_dir: str | None) -> None:
         return
 
     projects.remove(path_str)
+    # intentional direct write: this IS the canonical unregister entry point (CER-058)
     state["registered_projects"] = projects
     _write_state_atomic(cdir, state)
     click.echo(f"unregistered: {path_str}")
