@@ -23,7 +23,7 @@ Reduce the 18.5% fleet-wide retry rate by improving spec accuracy and completene
 | INFRA-186 | architecture.md template prompt in story_new.py and check-story-scope | complete |
 | INFRA-187 | Body-section enforcement: non-pointer Ensures required for code and methodology stories | complete |
 | INFRA-188 | Scope budget warning in check-story-scope | complete |
-| INFRA-189 | test_gate frontmatter annotation | planned |
+| INFRA-189 | test_gate frontmatter annotation | complete |
 
 ## Schema delivery
 
