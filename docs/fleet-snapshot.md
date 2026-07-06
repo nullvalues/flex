@@ -13,6 +13,17 @@ across the era, so the pre-fold run is what licenses the fold.
 `registered_projects` stays drift-opt-in (distinct purpose; optionally seeded
 from the discovered fleet, never forced).
 
+## Signal-1 zero-hit note (CER-059a)
+
+All 9 bound projects show `Signal 1 (scripts path): absent`. This is **accurate, not a
+false-negative**. Signal-1 fires only for projects whose `CLAUDE.build.md` contains an
+explicit `pairmode_scripts_dir` key-value declaration — the marker written by
+`pairmode_sync.py sync-all --apply` when a project is migrated to the 0.3.0 thin loop.
+Pre-migration projects (all currently on 0.2.x) embed the scripts path only in inline
+shell commands, not as a key-value line, so `_check_signal1`'s regex correctly returns no
+match. After each project is synced, Signal-1 will fire for that project. The detection
+logic requires no fix.
+
 ## Discovered fleet
 
 Found **9** bound project(s):

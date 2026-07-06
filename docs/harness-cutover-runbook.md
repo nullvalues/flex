@@ -117,24 +117,34 @@ dogfood removes risk from canary selection.
    ```
    This stages the changes (does not commit yet).
 
-3. **Verify a build round:** run one complete pairmode story through the canary project's migrated loop
+3. **Verify Signal-1 binding:** re-run fleet discovery targeting the canary project and confirm
+   `binding: scripts` appears in the output before proceeding:
+   ```bash
+   PATH=$HOME/.local/bin:$PATH uv run python \
+     /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
+     --candidate-dir /path/to/canary-project --no-snapshot
+   ```
+   If `Signal 1 (scripts path): absent` persists after sync, the project's `CLAUDE.build.md` was not
+   updated by `sync-all`; do not proceed until this is resolved.
+
+4. **Verify a build round:** run one complete pairmode story through the canary project's migrated loop
    (any story). Confirm that the build completes with no regressions. The resolver and agents are
    exercised.
 
-4. **Confirm `pairmode_version`:** check the canary project's `.companion/state.json`:
+5. **Confirm `pairmode_version`:** check the canary project's `.companion/state.json`:
    ```bash
    cat /path/to/canary-project/.companion/state.json | grep pairmode_version
    ```
    Should read `"pairmode_version": "0.3.0"`.
 
-5. **Commit the changes (canary project repo):**
+6. **Commit the changes (canary project repo):**
    ```bash
    cd /path/to/canary-project
    git add -A
    git commit -m "sync: migrate to pairmode 0.3.0 thin-harness loop"
    ```
 
-6. **Document the result:** record in the HARNESS006 era doc or release notes which project was
+7. **Document the result:** record in the HARNESS006 era doc or release notes which project was
    the canary, what dates, and any findings.
 
 **Acceptance:** canary project builds successfully; confidence in the harness is high; migration sequence is proven.
@@ -162,16 +172,26 @@ No deadline, no forced cutover — this is "opt-in."
      sync-all --project-dir /path/to/P --apply --yes
    ```
 
-3. **Verify a build round:** run one story.
+3. **Verify Signal-1 binding:** re-run fleet discovery and confirm `binding: scripts` appears for
+   this project before continuing to the next:
+   ```bash
+   PATH=$HOME/.local/bin:$PATH uv run python \
+     /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
+     --candidate-dir /path/to/P --no-snapshot
+   ```
+   Confirm `Signal 1 (scripts path): present` in the output. If absent, `sync-all` did not update
+   the project's `CLAUDE.build.md`; do not proceed to the next project until resolved.
 
-4. **Confirm `pairmode_version` == 0.3.0:**
+4. **Verify a build round:** run one story.
+
+5. **Confirm `pairmode_version` == 0.3.0:**
    ```bash
    cat /path/to/P/.companion/state.json | grep pairmode_version
    ```
 
-5. **Commit & push.**
+6. **Commit & push.**
 
-6. **Optional: repoint `FLEX_DIR`** (project's own environment config, if used). This is optional because
+7. **Optional: repoint `FLEX_DIR`** (project's own environment config, if used). This is optional because
    the binding is already baked into the `CLAUDE.build.md` `pairmode_scripts_dir`. The version-nag hook
    will stop complaining once `FLEX_DIR` points at the new 0.3.0 unified line (after the fold). Until
    then, the nag is harmless.
@@ -197,15 +217,22 @@ PATH=$HOME/.local/bin:$PATH uv run python \
   /mnt/work/flex-harness/skills/pairmode/scripts/pairmode_sync.py \
   sync-all --project-dir /path/to/P --apply --yes
 
-# Step 3: Verify a build round (run one story)
+# Step 3: Verify Signal-1 binding — re-run discovery and confirm binding: scripts
+PATH=$HOME/.local/bin:$PATH uv run python \
+  /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
+  --candidate-dir /path/to/P --no-snapshot
+# Expected: binding: scripts  (Signal 1 (scripts path): present)
+# Do not proceed to next project if Signal-1 is absent.
+
+# Step 4: Verify a build round (run one story)
 cd /path/to/P
 uv run pytest tests/pairmode/ -x -q  # or run a single story per project's CLAUDE.build.md
 
-# Step 4: Confirm pairmode_version advanced to 0.3.0
+# Step 5: Confirm pairmode_version advanced to 0.3.0
 cat .companion/state.json | grep pairmode_version
 # Expected: "pairmode_version": "0.3.0"
 
-# Step 5: Commit the changes
+# Step 6: Commit the changes
 git add -A
 git commit -m "sync: migrate to pairmode 0.3.0 thin-harness loop"
 git push
@@ -362,6 +389,17 @@ Confirm the output shows `Signal 1 (scripts path): present` before proceeding to
    ```bash
    git branch -d harness  # or keep as a historical ref; team decision
    ```
+
+7. **Reconcile RELEASE-002 status (CER-059c):** The fold merge brings the harness branch (where
+   `docs/stories/RELEASE/RELEASE-002.md` carries `status: complete`) into `main`. After the merge,
+   confirm the story file on `main` shows `status: complete` (not `deferred`):
+   ```bash
+   grep "^status:" docs/stories/RELEASE/RELEASE-002.md
+   # Expected: status: complete
+   ```
+   **Acceptance criterion:** `docs/stories/RELEASE/RELEASE-002.md` must read `status: complete` on
+   `main` after the fold merge. If it still reads `status: deferred`, the merge did not bring the
+   correct version; investigate and correct before tagging v0.3.0.
 
 **Final state:** `/mnt/work/flex` is 0.3.0, all migrated projects are using the unified line,
 the harness development worktree is gone, and the version nag hook on migrated projects is satisfied.

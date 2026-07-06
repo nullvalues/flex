@@ -103,6 +103,15 @@ def _check_signal1(project_dir: Path) -> tuple[bool, Optional[str]]:
     """Signal 1: CLAUDE.build.md contains a pairmode_scripts_dir under THIS checkout.
 
     Returns (matched, scripts_dir_value_or_none).
+
+    Zero-hit diagnosis (CER-059a): pre-migration projects (0.2.x) embed their scripts
+    path only in inline shell commands (e.g. ``uv run python /path/scripts/flex_build.py``),
+    NOT as an explicit ``pairmode_scripts_dir = <path>`` key-value line.  The regex
+    ``_SCRIPTS_DIR_PATTERN`` matches only the key-value form, which is written by
+    ``pairmode_sync.py sync-all --apply`` when a project migrates to the 0.3.0 thin loop.
+    Consequently, zero Signal-1 hits across the 0.2.x fleet is the **correct result** —
+    no false-negative.  After each project is synced to 0.3.0, its new ``CLAUDE.build.md``
+    will carry the ``pairmode_scripts_dir`` declaration and Signal-1 will fire.
     """
     build_md = project_dir / "CLAUDE.build.md"
     if not build_md.exists():
