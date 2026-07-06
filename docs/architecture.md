@@ -321,12 +321,10 @@ sidebar still captures decisions; the spec still grows).
 (`reviewer`, `intent-reviewer`, `loop-breaker`, `security-auditor`) are restricted to
 read-only tools plus `Bash` (all four reviewer-class agents declare
 `tools: [Read, Bash, Glob, Grep]`; Bash is needed for test runs and git operations in
-the reviewer and loop-breaker; security-auditor includes it for consistency). This is one of two layers protecting the working tree: tool restriction
-prevents the reviewer from backdooring a fix into the code instead of reverting it; the
-orchestrator's pre-reviewer commit discipline (committing story files and running
-`git checkout -- lessons/` before the reviewer fires) prevents accidental erasure of
-uncommitted methodology files. Both commit and revert paths in the reviewer template
-are Bash-mediated (`git add`, `git commit`, `git checkout .`, `git clean -fd`).
+the reviewer and loop-breaker; security-auditor includes it for consistency). Tool
+restriction prevents the reviewer from backdooring a fix into the code instead of
+reverting it. Both commit and revert paths in the reviewer template are Bash-mediated
+(`git add`, `git commit`, `git checkout .`, `git clean -fd`).
 
 This document describes pairmode's internals: the scaffold it generates, the rails/eras
 model, the schema validators, and the non-negotiables that keep its bootstraps repeatable.
