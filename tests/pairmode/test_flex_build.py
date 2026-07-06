@@ -881,3 +881,104 @@ def test_check_story_scope_methodology_no_hint(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "Scope hint" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Scope budget warning tests (INFRA-188)
+# ---------------------------------------------------------------------------
+
+
+def test_scope_budget_warning_emitted_when_over_limit(tmp_path: Path) -> None:
+    """Story with 5 primary_files + 5 touches (10 total) emits scope budget warning."""
+    _write_story_with_touches(
+        tmp_path,
+        "TEST-010",
+        story_class="code",
+        primary_files=[
+            "skills/pairmode/scripts/a.py",
+            "skills/pairmode/scripts/b.py",
+            "skills/pairmode/scripts/c.py",
+            "skills/pairmode/scripts/d.py",
+            "skills/pairmode/scripts/e.py",
+        ],
+        touches=[
+            "tests/pairmode/test_a.py",
+            "tests/pairmode/test_b.py",
+            "tests/pairmode/test_c.py",
+            "tests/pairmode/test_d.py",
+            "tests/pairmode/test_e.py",
+        ],
+    )
+    result = _run(
+        "check-story-scope",
+        "TEST-010",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Scope budget" in result.stdout
+    assert "10 files" in result.stdout
+    assert "consider splitting" in result.stdout
+
+
+def test_scope_budget_no_warning_at_limit(tmp_path: Path) -> None:
+    """Story with exactly 8 declared files does NOT emit scope budget warning."""
+    _write_story_with_touches(
+        tmp_path,
+        "TEST-011",
+        story_class="code",
+        primary_files=[
+            "skills/pairmode/scripts/a.py",
+            "skills/pairmode/scripts/b.py",
+            "skills/pairmode/scripts/c.py",
+            "skills/pairmode/scripts/d.py",
+        ],
+        touches=[
+            "tests/pairmode/test_a.py",
+            "tests/pairmode/test_b.py",
+            "tests/pairmode/test_c.py",
+            "tests/pairmode/test_d.py",
+        ],
+    )
+    result = _run(
+        "check-story-scope",
+        "TEST-011",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Scope budget" not in result.stdout
+
+
+def test_scope_budget_no_warning_when_empty(tmp_path: Path) -> None:
+    """Story with both lists empty does NOT emit scope budget warning."""
+    _write_story_with_touches(
+        tmp_path,
+        "TEST-012",
+        story_class="doc",
+        primary_files=[],
+        touches=[],
+    )
+    result = _run(
+        "check-story-scope",
+        "TEST-012",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Scope budget" not in result.stdout
+
+
+def test_scope_budget_exit_code_zero(tmp_path: Path) -> None:
+    """Over-limit story still exits 0 (informational, not blocking)."""
+    _write_story_with_touches(
+        tmp_path,
+        "TEST-013",
+        story_class="code",
+        primary_files=[f"skills/pairmode/scripts/file{i}.py" for i in range(9)],
+        touches=[],
+    )
+    result = _run(
+        "check-story-scope",
+        "TEST-013",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0
+    assert "Scope budget" in result.stdout

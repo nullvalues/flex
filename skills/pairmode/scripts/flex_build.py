@@ -1100,6 +1100,14 @@ def cmd_check_story_scope(story_id: str, project_dir: str) -> None:
                 "add docs/architecture.md to touches."
             )
 
+    # Scope budget warning.
+    total_declared = len(list(primary_files)) + len(list(touches))
+    if total_declared > 8:
+        click.echo(
+            f"Scope budget: story declares {total_declared} files — "
+            f"consider splitting if stories are independently reviewable."
+        )
+
     sys.exit(0)
 
 
