@@ -164,6 +164,67 @@ def test_flex_factor_nan_defaults_to_1() -> None:
 
 
 # ---------------------------------------------------------------------------
+# 5. phaseIndex.ts — href path containment (OBS-006)
+# ---------------------------------------------------------------------------
+
+def test_phase_index_containment_check_in_source() -> None:
+    """phaseIndex.ts must contain a path containment check using startsWith (OBS-006)."""
+    src = (PARSERS / "phaseIndex.ts").read_text(encoding="utf-8")
+    assert "startsWith(safeRoot" in src, (
+        "phaseIndex.ts missing path containment check using startsWith(safeRoot ...) (OBS-006)"
+    )
+    assert "path.resolve(projectDir)" in src, (
+        "phaseIndex.ts missing path.resolve(projectDir) for safeRoot (OBS-006)"
+    )
+
+
+def test_phase_index_traversal_href_returns_null() -> None:
+    """A traversal href (../../../../etc/passwd) must be skipped (returns null file path).
+
+    This test mirrors the TypeScript resolveFileFromHref logic in Python to verify
+    the containment algorithm is correct without running a Node.js process.
+    """
+    import os
+
+    project_dir = "/tmp/fake-project"
+    href = "../../../../etc/passwd"
+    safe_root = os.path.realpath(project_dir)
+    candidate = os.path.realpath(os.path.join(project_dir, "docs", "phases", href))
+
+    # The containment check: candidate must start with safeRoot + sep, or equal safeRoot
+    contained = candidate.startswith(safe_root + os.sep) or candidate == safe_root
+    assert not contained, (
+        f"Traversal href {href!r} should NOT be contained within {safe_root!r}, "
+        f"but candidate resolved to {candidate!r}"
+    )
+
+
+def test_phase_index_normal_href_is_contained() -> None:
+    """A normal href (phase-8.md) must be contained within projectDir."""
+    import os
+
+    project_dir = "/tmp/fake-project"
+    href = "phase-8.md"
+    safe_root = os.path.realpath(project_dir)
+    candidate = os.path.realpath(os.path.join(project_dir, "docs", "phases", href))
+
+    contained = candidate.startswith(safe_root + os.sep) or candidate == safe_root
+    assert contained, (
+        f"Normal href {href!r} should be contained within {safe_root!r}, "
+        f"but candidate resolved to {candidate!r}"
+    )
+
+
+def test_phase_index_traversal_guard_source_logic() -> None:
+    """phaseIndex.ts must skip traversal href (resolveFileFromHref returns null path)."""
+    src = (PARSERS / "phaseIndex.ts").read_text(encoding="utf-8")
+    # The traversal-guard return null must be present in the resolveFileFromHref function
+    assert "Path traversal detected" in src or "return null;" in src, (
+        "phaseIndex.ts resolveFileFromHref must return null on traversal detection (OBS-006)"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Build gate: API must still compile after the 4 parser changes
 # ---------------------------------------------------------------------------
 

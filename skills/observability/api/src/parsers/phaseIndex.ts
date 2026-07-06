@@ -34,18 +34,33 @@ function extractCheckpointTag(tagRaw: string): string | null {
 }
 
 /**
- * Extract the file name from the Tag column, if present.
+ * Extract the href from the Tag column, if present.
  * Looks for markdown link text like "[phase-8.md](phase-8.md)".
  */
-function extractFileFromTag(tagRaw: string): string | null {
+function extractHrefFromTag(tagRaw: string): string | null {
   // Match [anything](phase-NNN.md) pattern
   const linkMatch = tagRaw.match(/\[([^\]]+)\]\(([^)]+)\)/);
   if (linkMatch) {
-    const href = linkMatch[2];
-    // href is a relative link like "phase-8.md"
-    return `docs/phases/${href}`;
+    return linkMatch[2];
   }
   return null;
+}
+
+/**
+ * Resolve an href from the Tag column to a project-relative file path,
+ * enforcing that the resolved path stays within projectDir (path containment).
+ * Returns null if the href is absent or resolves outside projectDir.
+ */
+function resolveFileFromHref(tagRaw: string, projectDir: string): string | null {
+  const href = extractHrefFromTag(tagRaw);
+  if (!href) return null;
+  const safeRoot = path.resolve(projectDir);
+  const candidatePath = path.resolve(projectDir, 'docs', 'phases', href);
+  if (!candidatePath.startsWith(safeRoot + path.sep) && candidatePath !== safeRoot) {
+    // Path traversal detected — skip this entry
+    return null;
+  }
+  return `docs/phases/${href}`;
 }
 
 /**
@@ -131,8 +146,8 @@ export async function parsePhaseIndex(projectDir: string): Promise<PhaseIndexRow
     // Determine checkpoint_tag
     const checkpoint_tag = extractCheckpointTag(tagRaw);
 
-    // Determine file: prefer link in tag column, otherwise derive from phase_ref
-    const fileFromTag = extractFileFromTag(tagRaw);
+    // Determine file: prefer link in tag column (with path containment), otherwise derive from phase_ref
+    const fileFromTag = resolveFileFromHref(tagRaw, projectDir);
     const file = fileFromTag ?? deriveFileFromPhaseRef(phaseRef);
 
     rows.push({
