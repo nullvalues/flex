@@ -84,15 +84,16 @@ def test_session_end_includes_last_session_closed_in_pipe_event():
 
 # ── _resolve_pipe_path validation (CER-009) ──────────────────────────────────
 #
-# Each of stop.py / post_tool_use.py / session_end.py exposes the same helper
+# stop.py / session_end.py / exit_plan_mode.py expose the helper
 # function `_resolve_pipe_path(raw_path) -> str | None` which validates that a
 # pipe_path read from .companion/state.json resolves under tempfile.gettempdir().
-# Out-of-bounds or malformed paths return None so the caller keeps the legacy
-# "/tmp/companion.pipe" fallback.
+# Out-of-bounds or malformed paths return None so the caller keeps the fallback.
+#
+# post_tool_use.py no longer reads pipe_path from state.json (CER-009 / INFRA-195)
+# so it is excluded from this list.
 
 HOOKS_WITH_PIPE_VALIDATION = [
     "stop.py",
-    "post_tool_use.py",
     "session_end.py",
     "exit_plan_mode.py",
 ]
