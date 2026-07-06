@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# thin dispatcher — clear/startup → session_reset.py
 """SessionStart hook — injects pairmode context into Claude's session.
 
 Thin-delegation exception: when Claude Code passes a stdin payload containing

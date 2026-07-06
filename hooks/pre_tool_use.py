@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# thin dispatcher — Edit/Write → scope_guard.py; Task/Agent → context_budget.py
 """
 PreToolUse hook — dispatches to context_budget (Task/Agent) and scope_guard (Edit/Write).
 

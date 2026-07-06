@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# thin dispatcher — Write/Edit/MultiEdit → sidebar pipe relay; Task/Agent → context_budget.py
 """
 PostToolUse hook — Pair Partner + Validator roles.
 

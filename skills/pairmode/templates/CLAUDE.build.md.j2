@@ -20,11 +20,6 @@ Execute each checkpoint leaf worker as dispatched. After each returns, call:
   flex_build.py record-checkpoint-step <action> --project-dir .
 Then re-run next-action. checkpoint-tag: `git tag cp-<phase-key> && git push origin harness --tags`.
 
-## Spec mode
-
-The resolver emits spawn-spec-writer when the next story is a stub. Spawn the spec-writer leaf
-worker. On SPEC-RESULT{status: "revised"}, surface to user. On "done", re-run next-action.
-
 ## All other input
 
 Read `CLAUDE.md` and apply the reviewer role.

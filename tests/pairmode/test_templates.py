@@ -82,17 +82,13 @@ class TestClaudeMdTemplate:
         assert "docs/architecture.md" in self.output
 
     def test_session_modes_section_present(self):
-        assert "## Session modes" in self.output
+        pytest.skip("HARNESS-004: Session modes section removed from CLAUDE.md.j2")
 
     def test_build_mode_present(self):
-        assert "**Build mode**" in self.output
-        assert "Build Phase N" in self.output
-        assert "Build next story" in self.output
-        assert "Continue building" in self.output
+        pytest.skip("HARNESS-004: Session modes section removed from CLAUDE.md.j2")
 
     def test_review_mode_present(self):
-        assert "**Review mode**" in self.output
-        assert "adversarial checker" in self.output
+        pytest.skip("HARNESS-004: Session modes section removed from CLAUDE.md.j2")
 
     def test_review_checklist_header(self):
         assert "## Review checklist" in self.output
@@ -104,14 +100,13 @@ class TestClaudeMdTemplate:
         assert "SKILL ISOLATION" not in self.output
 
     def test_universal_protected_files_item(self):
-        assert "PROTECTED FILES" in self.output
+        pytest.skip("HARNESS-004: checklist replaced by reference to reviewer procedure")
 
     def test_universal_story_scope_item(self):
-        assert "STORY SCOPE" in self.output
+        pytest.skip("HARNESS-004: checklist replaced by reference to reviewer procedure")
 
     def test_universal_build_gate_item(self):
-        assert "BUILD GATE" in self.output
-        assert "uv run pytest" in self.output
+        pytest.skip("HARNESS-004: checklist replaced by reference to reviewer procedure")
 
     def test_review_output_format_section(self):
         assert "## Review output format" in self.output
@@ -150,23 +145,10 @@ class TestClaudeMdDocCurrencyPointer:
         self.output = render("CLAUDE.md.j2", CLAUDE_MD_CONTEXT)
 
     def test_rendered_contains_dotclaude_agents_reviewer_md(self):
-        assert ".claude/agents/reviewer.md" in self.output
+        pytest.skip("HARNESS-004: DOCUMENTATION CURRENCY item removed from CLAUDE.md.j2 checklist")
 
     def test_doc_currency_pointer_line_starts_with_dotclaude(self):
-        # Find the line containing the DOC CURRENCY pointer reference.
-        pointer_line = None
-        for line in self.output.splitlines():
-            if "agents/reviewer.md" in line and "§ 4" in line:
-                pointer_line = line
-                break
-        assert pointer_line is not None, (
-            "Could not find the DOC CURRENCY pointer line "
-            "(expected a line containing 'agents/reviewer.md' and '§ 4')"
-        )
-        stripped = pointer_line.lstrip()
-        assert stripped.startswith("See `.claude/agents/reviewer.md`"), (
-            f"DOC CURRENCY pointer line does not start with the .claude/ prefix: {pointer_line!r}"
-        )
+        pytest.skip("HARNESS-004: DOCUMENTATION CURRENCY item removed from CLAUDE.md.j2 checklist")
 
 
 # ---------------------------------------------------------------------------
@@ -2180,19 +2162,7 @@ class TestInfra129ContextBudgetMechanicalEnforcementDocs:
         )
 
     def test_flex_claude_md_contains_thin_delegation_exception(self):
-        flex_claude_md = (
-            REPO_ROOT / "CLAUDE.md"
-        ).read_text(encoding="utf-8")
-        assert "Documented thin-delegation exceptions:" in flex_claude_md
-        assert "hooks/pre_tool_use.py" in flex_claude_md
-        assert (
-            "skills/pairmode/scripts/context_budget.py" in flex_claude_md
-        )
-        assert "hooks/session_start.py" in flex_claude_md
-        assert (
-            "skills/pairmode/scripts/session_reset.py" in flex_claude_md
-        )
-        assert "remains CRITICAL" in flex_claude_md
+        pytest.skip("HARNESS-004: hook footnotes removed from CLAUDE.md; thin-dispatcher comments now live in each hook script")
 
     def test_architecture_md_step_9_names_hook_and_module(self):
         arch_path = REPO_ROOT / "docs" / "architecture.md"
