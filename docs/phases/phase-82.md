@@ -17,7 +17,7 @@ Update the security-auditor agent template and live agent file to enumerate the 
 
 | ID | Title | Status |
 |----|-------|--------|
-| BUILD-041 | security-auditor: add pairmode hook exceptions + audit scope rule | draft |
+| BUILD-041 | security-auditor: add pairmode hook exceptions + audit scope rule | complete |
 
 ## Schema delivery
 
