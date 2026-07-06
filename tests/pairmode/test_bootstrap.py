@@ -2836,14 +2836,105 @@ class TestBootstrapEffortTrackingNote:
         """Bootstrap output contains the transparency note when effort_tracking was not set."""
         result = self._run_bootstrap(tmp_path)
         assert result.exit_code == 0, result.output
-        assert "Effort tracking: enabled" in result.output
-        assert ".companion/effort.db" in result.output
+        assert "effort tracking enabled" in result.output
+        assert "local sqlite only" in result.output
+        assert "no data leaves the host" in result.output
 
     def test_transparency_note_suppressed_when_effort_tracking_already_set(self, tmp_path):
         """Bootstrap output does NOT contain the transparency note when effort_tracking was already present."""
         result = self._run_bootstrap(tmp_path, extra_state={"effort_tracking": True})
         assert result.exit_code == 0, result.output
-        assert "Effort tracking: enabled" not in result.output
+        assert "effort tracking enabled" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# INFRA-194: --yes auto-overwrite and effort_tracking transparency note
+# ---------------------------------------------------------------------------
+
+
+class TestCer002YesFlagOverwrite:
+    """CER-002: --yes flag causes file-overwrite confirmation to be auto-accepted."""
+
+    def test_yes_flag_auto_accepts_file_overwrite(self, tmp_path):
+        """--yes on an existing project overwrites files without prompting (no stdin required)."""
+        # First bootstrap to create files
+        run_bootstrap(tmp_path)
+
+        # Write sentinel into CLAUDE.md
+        (tmp_path / "CLAUDE.md").write_text("sentinel overwrite content", encoding="utf-8")
+
+        # Second bootstrap with --yes and no stdin input at all
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+            ],
+            input=None,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+        assert "sentinel overwrite content" not in content, (
+            "--yes should auto-confirm overwrite of CLAUDE.md without reading stdin"
+        )
+        assert "testproject" in content
+
+
+class TestCer017EffortTrackingNote:
+    """CER-017: effort_tracking note printed to stdout when _record_state writes effort_tracking: true."""
+
+    def _run_bootstrap_fresh(self, tmp_path):
+        """Run bootstrap on a fresh directory (no prior state.json) with --yes."""
+        runner = CliRunner()
+        return runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproj",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+            ],
+            catch_exceptions=False,
+        )
+
+    def test_effort_tracking_note_in_stdout_on_first_bootstrap(self, tmp_path):
+        """On first bootstrap (effort_tracking absent), note appears in stdout."""
+        result = self._run_bootstrap_fresh(tmp_path)
+        assert result.exit_code == 0, result.output
+        assert (
+            "effort tracking enabled (local sqlite only — no data leaves the host)"
+            in result.output
+        ), (
+            "Expected effort tracking transparency note in stdout.\n"
+            f"Output:\n{result.output}"
+        )
+
+    def test_effort_tracking_note_absent_on_rebootstrap(self, tmp_path):
+        """On re-bootstrap (effort_tracking already set), note is NOT printed."""
+        # First run sets effort_tracking
+        self._run_bootstrap_fresh(tmp_path)
+
+        # Verify effort_tracking is now in state.json
+        state_path = tmp_path / ".companion" / "state.json"
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        assert data.get("effort_tracking") is True
+
+        # Second run — note must NOT appear
+        result = self._run_bootstrap_fresh(tmp_path)
+        assert result.exit_code == 0, result.output
+        assert (
+            "effort tracking enabled (local sqlite only — no data leaves the host)"
+            not in result.output
+        ), (
+            "Effort tracking note must not appear when effort_tracking was already set.\n"
+            f"Output:\n{result.output}"
+        )
 
 
 class TestBootstrapNextSteps:

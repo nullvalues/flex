@@ -1152,8 +1152,7 @@ def bootstrap(
         effort_newly_enabled = _record_state(state_path, PAIRMODE_VERSION)
         if effort_newly_enabled:
             click.echo(
-                "Effort tracking: enabled"
-                " (records build token costs to .companion/effort.db)"
+                "  effort tracking enabled (local sqlite only — no data leaves the host)"
             )
 
     # ------------------------------------------------------------------
