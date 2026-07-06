@@ -982,3 +982,58 @@ def test_scope_budget_exit_code_zero(tmp_path: Path) -> None:
     )
     assert result.returncode == 0
     assert "Scope budget" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# spec-preflight (INFRA-191)
+# ---------------------------------------------------------------------------
+
+
+def test_spec_preflight_subcommand_exits_0_with_clean_story(tmp_path: Path) -> None:
+    """A story with no route/constant references exits 0 with empty stdout."""
+    _write_stub_story_fm(
+        tmp_path,
+        "TEST-800",
+        body="## Ensures\n\n- The widget is green.\n",
+    )
+    result = _run("spec-preflight", "--story-id", "TEST-800", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert result.stdout.strip() == ""
+
+
+def test_spec_preflight_subcommand_missing_story_exits_0(tmp_path: Path) -> None:
+    """A nonexistent story ID exits 0 (informational, not blocking)."""
+    result = _run("spec-preflight", "--story-id", "INFRA-999", "--project-dir", str(tmp_path))
+    assert result.returncode == 0
+
+
+def test_spec_preflight_subcommand_help_shows_story_id_flag() -> None:
+    """spec-preflight --help output must mention --story-id."""
+    result = _run("spec-preflight", "--help")
+    assert result.returncode == 0, result.stderr
+    assert "--story-id" in result.stdout
+
+
+def test_build_template_contains_spec_preflight_step() -> None:
+    """CLAUDE.build.md.j2 must have spec-preflight between check-stub and check-story-scope."""
+    text = _BUILD_TEMPLATE.read_text(encoding="utf-8")
+    assert "spec-preflight" in text, "spec-preflight not found in CLAUDE.build.md.j2"
+    assert "SPEC PREFLIGHT" in text, "SPEC PREFLIGHT header not found in CLAUDE.build.md.j2"
+
+    lines = text.splitlines()
+    stub_line = next(
+        (i for i, ln in enumerate(lines) if "check-stub" in ln), None
+    )
+    preflight_line = next(
+        (i for i, ln in enumerate(lines) if "spec-preflight" in ln), None
+    )
+    scope_line = next(
+        (i for i, ln in enumerate(lines) if "check-story-scope" in ln), None
+    )
+    assert stub_line is not None, "check-stub not found in template"
+    assert preflight_line is not None, "spec-preflight not found in template"
+    assert scope_line is not None, "check-story-scope not found in template"
+    assert stub_line < preflight_line < scope_line, (
+        f"Expected check-stub ({stub_line}) < spec-preflight ({preflight_line}) "
+        f"< check-story-scope ({scope_line})"
+    )

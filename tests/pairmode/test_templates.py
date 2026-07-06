@@ -2459,8 +2459,10 @@ class TestBuild025PreStoryScopeCheck:
     def test_rendered_template_contains_scope_check_banner(self):
         assert "SCOPE CHECK" in self.output
 
-    def test_rendered_template_stub_gate_points_to_scope_check(self):
-        assert "proceed to the **Pre-story scope check**" in self.output
+    def test_rendered_template_stub_gate_points_to_spec_preflight(self):
+        # INFRA-191: spec-preflight step was inserted between stub gate and scope check;
+        # the stub gate now points to the Spec preflight step, not directly to scope check.
+        assert "proceed to the **Spec preflight**" in self.output
 
     def test_rendered_template_states_check_does_not_block(self):
         assert "does not block" in self.output

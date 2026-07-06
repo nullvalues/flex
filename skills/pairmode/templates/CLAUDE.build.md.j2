@@ -377,7 +377,28 @@ Replace `RAIL-NNN` with the current story ID.
 - Exit 1: gate blocked — surface the printed message to the user and stop.
   When resolved, say: "Continue building"
 
-If the gate passes: proceed to the **Pre-story scope check**.
+If the gate passes: proceed to the **Spec preflight**.
+
+### Spec preflight
+
+Run once per story, after the stub gate, before the scope check.
+
+  preflight_output=$(PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py \
+    spec-preflight --story-id RAIL-NNN --project-dir .)
+
+Replace `RAIL-NNN` with the current story ID.
+
+If `preflight_output` is non-empty, surface it to the developer:
+
+  SPEC PREFLIGHT — Story RAIL-NNN
+
+  [preflight_output verbatim]
+
+  These are informational. Review before proceeding.
+
+If `preflight_output` is empty, print nothing and continue silently.
+
+The check does not block. Continue to the Pre-story scope check regardless of output.
 
 ### Pre-story scope check
 

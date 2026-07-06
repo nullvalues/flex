@@ -1111,6 +1111,32 @@ def cmd_check_story_scope(story_id: str, project_dir: str) -> None:
     sys.exit(0)
 
 
+@flex_build.command("spec-preflight")
+@click.option("--story-id", required=True, help="Story ID (e.g. INFRA-190).")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_spec_preflight(story_id: str, project_dir: str) -> None:
+    """Scan a story's body sections for unverifiable routes and constants.
+
+    Always exits 0. Non-empty output = informational warnings.
+    """
+    import spec_preflight as _sp  # noqa: PLC0415
+
+    project_path = Path(project_dir).resolve()
+    story_path = _story_path(story_id, project_path)
+
+    if not story_path.exists():
+        click.echo(f"spec-preflight: story file not found: {story_path}", err=True)
+        sys.exit(0)
+
+    for w in _sp.run_preflight(story_path, project_path):
+        click.echo(w)
+
+
 # ---------------------------------------------------------------------------
 # Pre-flight gate CLIs (BUILD-034)
 # ---------------------------------------------------------------------------
