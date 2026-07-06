@@ -1087,6 +1087,19 @@ def cmd_check_story_scope(story_id: str, project_dir: str) -> None:
                 # Only emit for the first matching candidate.
                 break
 
+    # Rule: architecture.md prompt for code stories with no docs/ touches.
+    story_class = fm.get("story_class") or "code"
+    if story_class == "code":
+        all_files = list(primary_files) + list(touches)
+        has_docs_path = any(
+            str(p).startswith("docs/") for p in all_files
+        )
+        if not has_docs_path:
+            click.echo(
+                "Scope hint: if this story affects documented architecture, "
+                "add docs/architecture.md to touches."
+            )
+
     sys.exit(0)
 
 

@@ -58,7 +58,11 @@ def _story_frontmatter(
     lines += ["auth_gated: false", "schema_introduces: false"]
     if source is not None:
         lines.append(f"source: {source}")
-    lines += ["primary_files:", "touches:", "---"]
+    lines += [
+        "primary_files:",
+        "touches:  # If this story changes any documented architecture, add docs/architecture.md to this list.",
+        "---",
+    ]
     return "\n".join(lines) + "\n"
 
 

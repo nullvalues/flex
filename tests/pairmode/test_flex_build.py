@@ -784,3 +784,100 @@ def test_live_reviewer_contains_fail_cause_instruction() -> None:
     assert "Before reverting, emit one line" in text, (
         ".claude/agents/reviewer.md missing 'Before reverting, emit one line' instruction"
     )
+
+
+# ---------------------------------------------------------------------------
+# check-story-scope: architecture.md hint
+# ---------------------------------------------------------------------------
+
+
+def _write_story_with_touches(
+    project_dir: Path,
+    story_id: str,
+    *,
+    story_class: str = "code",
+    primary_files: list[str] | None = None,
+    touches: list[str] | None = None,
+    phase: str = "83",
+) -> Path:
+    """Write a minimal story spec with explicit touches list."""
+    rail = story_id.split("-", 1)[0]
+    story_dir = project_dir / "docs" / "stories" / rail
+    story_dir.mkdir(parents=True, exist_ok=True)
+    story_path = story_dir / f"{story_id}.md"
+
+    def _yaml_list(items: list[str] | None) -> str:
+        if not items:
+            return "[]"
+        entries = "\n".join(f"  - {p}" for p in items)
+        return f"\n{entries}"
+
+    frontmatter = (
+        "---\n"
+        f"id: {story_id}\n"
+        f"rail: {rail}\n"
+        f"phase: '{phase}'\n"
+        f"story_class: {story_class}\n"
+        "status: planned\n"
+        f"primary_files: {_yaml_list(primary_files)}\n"
+        f"touches: {_yaml_list(touches)}\n"
+        "---\n\n"
+        "## Acceptance criterion\n\n_(fill in)_\n"
+    )
+    story_path.write_text(frontmatter, encoding="utf-8")
+    return story_path
+
+
+def test_check_story_scope_code_no_docs_emits_architecture_hint(tmp_path: Path) -> None:
+    """code story with no docs/ paths emits 'Scope hint' and 'docs/architecture.md'."""
+    _write_story_with_touches(
+        tmp_path,
+        "TEST-001",
+        story_class="code",
+        primary_files=["skills/pairmode/scripts/foo.py"],
+        touches=[],
+    )
+    result = _run(
+        "check-story-scope",
+        "TEST-001",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Scope hint" in result.stdout
+    assert "docs/architecture.md" in result.stdout
+
+
+def test_check_story_scope_code_with_docs_path_no_hint(tmp_path: Path) -> None:
+    """code story that already touches a docs/ path does NOT emit the architecture hint."""
+    _write_story_with_touches(
+        tmp_path,
+        "TEST-002",
+        story_class="code",
+        primary_files=["skills/pairmode/scripts/foo.py"],
+        touches=["docs/architecture.md"],
+    )
+    result = _run(
+        "check-story-scope",
+        "TEST-002",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Scope hint" not in result.stdout
+
+
+def test_check_story_scope_methodology_no_hint(tmp_path: Path) -> None:
+    """methodology story does NOT emit the architecture hint."""
+    _write_story_with_touches(
+        tmp_path,
+        "TEST-003",
+        story_class="methodology",
+        primary_files=["skills/pairmode/templates/agents/builder.md.j2"],
+        touches=[],
+    )
+    result = _run(
+        "check-story-scope",
+        "TEST-003",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Scope hint" not in result.stdout
