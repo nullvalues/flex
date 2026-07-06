@@ -556,7 +556,6 @@ from next_action import (  # noqa: E402
     CHECKPOINT,
     CHECKPOINT_SECURITY,
     AWAIT_USER,
-    parse_worker_verdict_text,
     route_gate_verdict,
 )
 
@@ -1207,55 +1206,3 @@ class TestRouteGateVerdict:
         verdict_map = {"schema": "block:schema not resolved"}
         action = route_gate_verdict(verdict_map, "TEST-006")
         assert action["meta"]["gate_block_reasons"]["schema"] == "schema not resolved"
-
-
-# ---------------------------------------------------------------------------
-# Tests — RESOLVER-005: parse_worker_verdict_text helper (DP6.2)
-# ---------------------------------------------------------------------------
-
-
-class TestParseWorkerVerdictText:
-    """parse_worker_verdict_text turns worker text into a per-gate verdict map."""
-
-    def test_parse_block_and_clean(self) -> None:
-        """schema block + auth clean round-trips correctly."""
-        text = "schema: block:missing management surface\nauth: clean"
-        result = parse_worker_verdict_text(text)
-        assert result["schema"] == "block:missing management surface"
-        assert result["auth"] == "clean"
-
-    def test_parse_flag(self) -> None:
-        """flag verdict round-trips."""
-        text = "auth: flag:auth check advisory"
-        result = parse_worker_verdict_text(text)
-        assert result["auth"] == "flag:auth check advisory"
-
-    def test_unknown_gate_skipped(self) -> None:
-        """Lines with non-judged gate names are silently skipped."""
-        text = "stub: block:stub delegation\nschema: clean"
-        result = parse_worker_verdict_text(text)
-        assert "stub" not in result
-        assert result.get("schema") == "clean"
-
-    def test_empty_text_returns_empty_map(self) -> None:
-        """Empty worker output returns an empty dict."""
-        result = parse_worker_verdict_text("")
-        assert result == {}
-
-    def test_extra_lines_ignored(self) -> None:
-        """Non-gate lines (e.g. blank lines, prose) are ignored."""
-        text = (
-            "Gate worker verdict:\n"
-            "\n"
-            "schema: block:no surface story\n"
-            "auth: clean\n"
-            "Note: review required\n"
-        )
-        result = parse_worker_verdict_text(text)
-        assert result == {"schema": "block:no surface story", "auth": "clean"}
-
-    def test_verdict_with_colon_in_reason_round_trips(self) -> None:
-        """Reason may contain colons and still round-trips."""
-        text = "schema: block:reason:with:colons"
-        result = parse_worker_verdict_text(text)
-        assert result["schema"] == "block:reason:with:colons"

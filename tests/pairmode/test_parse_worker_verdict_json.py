@@ -109,3 +109,11 @@ class TestParseWorkerVerdictJson:
         )
         result = parse_worker_verdict_json(payload)
         assert result["schema"] == "block:reason:with:colons"
+
+    def test_flag_value_passes_through(self) -> None:
+        """Flag verdict values are returned unchanged (e.g. 'flag:advisory')."""
+        payload = json.dumps(
+            {"schema": "clean", "auth": "flag:auth-check-advisory", "stub": "clean"}
+        )
+        result = parse_worker_verdict_json(payload)
+        assert result["auth"] == "flag:auth-check-advisory"

@@ -1075,47 +1075,6 @@ def resolve_next_action(
 # ---------------------------------------------------------------------------
 
 
-# Deprecated by RESOLVER-013 — use parse_worker_verdict_json
-def parse_worker_verdict_text(text: str) -> dict:
-    """Parse a worker's text return into a per-gate verdict map (DP6.2).
-
-    The worker returns one ``gate: verdict`` line per judged gate.  Lines not
-    matching that pattern are ignored so the format is forward-compatible.
-
-    Example input::
-
-        schema: block:missing management surface story
-        auth: clean
-
-    Returns a dict ``{"schema": "block:missing management surface story",
-    "auth": "clean"}``.
-
-    Imports ``gate_verdict.JUDGED_GATES`` to constrain which keys are accepted;
-    unknown gate names are silently skipped.  The returned dict is suitable for
-    direct use with :func:`route_gate_verdict` and
-    ``gate_verdict.validate_verdict_map``.
-
-    .. deprecated:: RESOLVER-013
-        Use :func:`parse_worker_verdict_json` instead.  The text-based format
-        is fail-open (malformed lines silently appear clean); the JSON parser
-        is fail-closed.
-    """
-    from gate_verdict import JUDGED_GATES  # type: ignore[import]
-
-    result: dict = {}
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or ":" not in line:
-            continue
-        gate_name, _, verdict = line.partition(":")
-        gate_name = gate_name.strip()
-        # Re-attach the colon separator for block/flag payloads.
-        verdict_str = verdict.strip()
-        if gate_name in JUDGED_GATES:
-            result[gate_name] = verdict_str
-    return result
-
-
 def parse_worker_verdict_json(text: str) -> dict:
     """Parse gate worker JSON stdout into a per-gate verdict map (RESOLVER-013).
 
@@ -1166,8 +1125,7 @@ def route_gate_verdict(
     ----------
     verdict_map:
         Per-gate verdict dict as returned by :func:`parse_worker_verdict_json`
-        (or the deprecated :func:`parse_worker_verdict_text`) or injected
-        directly in tests.
+        or injected directly in tests.
     next_story_id:
         The story ID to use as ``scalar`` for spawn-builder actions.
     meta_base:
