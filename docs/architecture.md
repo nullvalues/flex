@@ -160,10 +160,14 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    (c) the **stub gate** (`check-stub`) checks whether the story file contains delegation
    language ("See phase doc") or is missing an acceptance surface section.
    A story that fails any gate is blocked until the operator resolves it.
-   After all gates pass, the **pre-story scope check** runs `flex_build.py
-   check-story-scope` to surface likely-missing file declarations (missing sibling
-   test, missing live-rendered template counterpart); it is informational only and
-   never blocks. (Phase 78 BUILD-034/BUILD-035)
+   After all gates pass, `flex_build.py spec-preflight` scans the story's
+   Ensures/Instructions/Implementation-notes sections for API route references and
+   SCREAMING_SNAKE constants and warns when none are found in the source tree;
+   informational only, always exits 0. (Phase 84 INFRA-190/191)
+   Then the **pre-story scope check** runs `flex_build.py check-story-scope` to
+   surface likely-missing file declarations (missing sibling test, missing
+   live-rendered template counterpart); it is informational only and never blocks.
+   (Phase 78 BUILD-034/BUILD-035)
 
 2. **Permission pre-write** — Two layers run before the builder spawns:
    Layer 1 (`permissions-create`): `flex_build.py permissions-create` generates

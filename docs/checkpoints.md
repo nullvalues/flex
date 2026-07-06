@@ -552,6 +552,12 @@ CER-031). All docs follow the catalog template verbatim with real "What Broke" i
 **Stories:** BUILD-040
 **Acceptance:** `flex_build.py write-permissions` and `clear-permissions` wired into `CLAUDE.build.md` Step 1 and Step 3 respectively (and matching `.j2` template). Layer 2 allow-rule writes now suppress Claude Code permission prompts for story-declared files on every build, eliminating the manual auto-mode toggle requirement in upstream era-002 projects. `docs/architecture.md` updated to describe the two-layer permission model. 2266 tests pass.
 
+## cp84-spec-preflight-verification
+**Tag command:** `git tag cp84-spec-preflight-verification && git push origin cp84-spec-preflight-verification`
+**Phase:** 84
+**Stories:** INFRA-190, INFRA-191
+**Acceptance:** `spec_preflight.py` created — scans story Ensures/Instructions/Implementation-notes for `/api/` routes and SCREAMING_SNAKE constants, warns when none are found in source tree, always exits 0, 12 tests (INFRA-190). `flex_build.py spec-preflight` subcommand registered, inserted into `CLAUDE.build.md.j2` between stub gate and scope check with informational surface block, `docs/architecture.md` updated with module entry and build-loop prose (INFRA-191). Security audit: 0 CRITICAL/HIGH (1 LOW — CER-061 filed Do Later). Intent review: ALIGNED. 2310 tests pass.
+
 ## cp83-spec-quality-gates
 **Tag command:** `git tag cp83-spec-quality-gates && git push origin cp83-spec-quality-gates`
 **Phase:** 83

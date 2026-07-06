@@ -1,6 +1,6 @@
 # flex — Cold-Eyes Review (CER) Backlog
 
-*Last updated: 2026-06-25*
+*Last updated: 2026-07-06*
 
 This file is the structured triage log for findings from external cold-eyes reviews.
 Each finding is assigned to one quadrant. Findings are not deleted — resolved findings
@@ -45,6 +45,8 @@ Important, not urgent. Quality improvements, architectural refinements.
 
 | ID | Finding | Source | Date | Phase |
 |----|---------|--------|------|-------|
+
+| CER-061 | `spec_preflight.py` and `flex_build.py` `spec-preflight` subcommand construct `story_path` by splitting `--story-id` on `-` and building `docs/stories/<rail>/<story_id>.md` without a `Path.resolve().relative_to(project_dir)` containment check. The path is read-only (`read_text` / `.exists()`) over trusted orchestrator input — not exploitable in practice — but the sibling guard pattern from `permission_scope.py` is not applied here. Fix: add `path.resolve().relative_to(project_path)` guard before any `story_path` I/O in both `spec_preflight.py:_story_path_for` and `flex_build.py cmd_spec_preflight`. LOW severity (defense-in-depth; read-only, trusted input). `skills/pairmode/scripts/spec_preflight.py:128-129`, `skills/pairmode/scripts/flex_build.py:65-71,138-139`. | Phase 84 checkpoint security audit | 2026-07-06 | 84 |
 
 | CER-060 | BUILD-038 dropped `git clean -fd` from the FAIL-revert block in `.claude/agents/reviewer.md`, but the canonical template `skills/pairmode/templates/agents/reviewer.md.j2:237` still carries `git clean -fd`. The story spec deliberately scoped the template out (template propagation gets its own spec). **Re-introduction vector is bootstrap, not sync-agents:** `bootstrap.py` (`:63,:1014`) renders the full `reviewer.md.j2` into every *fresh* project, so any newly-bootstrapped project gets `git clean -fd` back. `sync-agents` does **not** re-add it — `_merge_body_sections` (`pairmode_sync.py:216`) is additive and leaves existing target sections (the `## Decision` H2 that holds this line) untouched. **Fix must also update the guardrail test:** `tests/pairmode/test_templates.py:677-679` (`test_revert_on_fail`) currently asserts `"git clean -fd" in self.output` — dropping the line from the template makes this assertion fail. The follow-up `doc`-class story must: (a) drop `git clean -fd` from `reviewer.md.j2` FAIL-revert + update surrounding prose to mirror BUILD-038; (b) replace the line-679 positive assertion with a negative assertion (`git clean -fd` absent) so the build lands green. primary_files: `skills/pairmode/templates/agents/reviewer.md.j2`, `tests/pairmode/test_templates.py`. MEDIUM (fresh bootstraps re-introduce the deleted blast radius; the live reviewer.md fix is not durable across bootstraps until propagated). Carried forward into HARNESS002-main as CF-1 (harness branch). `skills/pairmode/templates/agents/reviewer.md.j2:237`, `tests/pairmode/test_templates.py:677-679`. | Phase 79 build summary + intent + cold-eyes review | 2026-06-29 | 79 |
 
