@@ -114,10 +114,9 @@ def validate_story_file(path: Path) -> list[str]:
         return ["Missing or malformed YAML frontmatter block"]
 
     for field in REQUIRED_STORY_FIELDS:
-        # primary_files emptiness is checked separately with status awareness
+        # primary_files presence and emptiness are checked separately with status awareness
         if field == "primary_files":
-            if field not in fm or fm[field] is None:
-                errors.append(f"Missing required field: '{field}'")
+            pass  # handled below in the status-aware block
         else:
             if field not in fm or fm[field] in (None, "", []):
                 errors.append(f"Missing required field: '{field}'")
@@ -143,11 +142,14 @@ def validate_story_file(path: Path) -> list[str]:
     if "schema_introduces" in fm and fm["schema_introduces"] not in ("true", "false", True, False):
         errors.append("Field 'schema_introduces' must be a boolean (true/false)")
 
-    if "primary_files" in fm and not isinstance(fm["primary_files"], list):
-        errors.append("Field 'primary_files' must be a list")
-
     status = fm.get("status", "")
-    if status not in ("draft", "backlog"):
+    if status in ("draft", "backlog"):
+        # primary_files absent or empty is acceptable for draft/backlog stories
+        if "primary_files" in fm and fm["primary_files"] is not None and not isinstance(fm["primary_files"], list):
+            errors.append("Field 'primary_files' must be a list")
+    else:
+        if "primary_files" in fm and fm["primary_files"] is not None and not isinstance(fm["primary_files"], list):
+            errors.append("Field 'primary_files' must be a list")
         if not fm.get("primary_files"):
             errors.append("primary_files must be non-empty for non-draft stories "
                           "(status is not 'draft' or 'backlog')")

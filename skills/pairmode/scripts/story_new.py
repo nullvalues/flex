@@ -58,7 +58,7 @@ def _story_frontmatter(
     lines += ["auth_gated: false", "schema_introduces: false"]
     if source is not None:
         lines.append(f"source: {source}")
-    lines += ["primary_files:", "touches:", "---"]
+    lines += ["---"]
     return "\n".join(lines) + "\n"
 
 
@@ -269,6 +269,15 @@ def story_new(rail: str, title: str, phase: str | None, story_class: str | None,
 
     # Normalize rail
     rail = rail.upper()
+
+    # CER-010 — validate rail name against strict identifier pattern
+    _RAIL_RE = re.compile(r"[A-Z][A-Z0-9_]*")
+    if not _RAIL_RE.fullmatch(rail):
+        click.echo(
+            f"Error: invalid rail name '{rail}' — must match [A-Z][A-Z0-9_]*",
+            err=True,
+        )
+        sys.exit(1)
 
     rail_dir = resolved / "docs" / "stories" / rail
 

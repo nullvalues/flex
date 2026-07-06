@@ -135,6 +135,63 @@ def test_story_complete_with_primary_files_no_error(tmp_path):
     assert errors == [], f"Expected no errors for complete story with files, got: {errors}"
 
 
+def test_draft_story_with_no_primary_files_key_validates(tmp_path):
+    """Draft story with no primary_files key at all validates successfully (CER-006)."""
+    content = """\
+---
+id: DRAFT-001
+rail: DRAFT
+title: Draft story without primary_files
+status: draft
+phase: "001"
+---
+
+## Requires
+<!-- preconditions -->
+
+## Ensures
+<!-- assertions -->
+
+## Instructions
+
+## Tests
+"""
+    p = tmp_path / "DRAFT-001.md"
+    p.write_text(content, encoding="utf-8")
+    errors = validate_story_file(p)
+    pf_errors = [e for e in errors if "primary_files" in e]
+    assert pf_errors == [], f"Expected no primary_files errors for draft story, got: {pf_errors}"
+
+
+def test_non_draft_story_with_no_primary_files_key_fails(tmp_path):
+    """Non-draft story with no primary_files key fails validation (CER-006)."""
+    content = """\
+---
+id: PLANNED-001
+rail: PLANNED
+title: Planned story without primary_files
+status: planned
+phase: "001"
+---
+
+## Requires
+<!-- preconditions -->
+
+## Ensures
+<!-- assertions -->
+
+## Instructions
+
+## Tests
+"""
+    p = tmp_path / "PLANNED-001.md"
+    p.write_text(content, encoding="utf-8")
+    errors = validate_story_file(p)
+    assert any("primary_files" in e for e in errors), (
+        f"Expected primary_files error for non-draft story missing the key, got: {errors}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # story_class field tests
 # ---------------------------------------------------------------------------

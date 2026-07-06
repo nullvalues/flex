@@ -68,16 +68,15 @@ class TestCreateStoryFile:
         assert "title: Build story" in content
         assert "status: draft" in content
 
-    def test_primary_files_defaults_to_empty_list(self, tmp_path: pathlib.Path) -> None:
-        """primary_files must appear as an empty list in frontmatter, not omitted."""
+    def test_primary_files_omitted_when_empty(self, tmp_path: pathlib.Path) -> None:
+        """primary_files must be omitted from frontmatter for a new story (CER-006)."""
         invoke(["--rail", "TEMPLATE", "--title", "Template story", "--project-dir", str(tmp_path)])
         story_file = tmp_path / "docs" / "stories" / "TEMPLATE" / "TEMPLATE-001.md"
         content = story_file.read_text()
-        # primary_files: followed by nothing (empty list) must be present
-        assert "primary_files:" in content
-        # It should NOT be missing entirely — verify the key is in the frontmatter block
+        # primary_files: [] must NOT appear — the key should be absent entirely
+        assert "primary_files: []" not in content
         fm_block = content.split("---")[1]
-        assert "primary_files:" in fm_block
+        assert "primary_files: []" not in fm_block
 
 
 class TestSequenceIncrement:
@@ -456,6 +455,45 @@ class TestSourceFlag:
         assert "story_class" not in content
 
 
+class TestRailValidation:
+    """CER-010 — --rail regex validation and normalization."""
+
+    def test_traversal_rail_rejected_by_regex(self, tmp_path: pathlib.Path) -> None:
+        """--rail '../../../etc' is rejected with exit 1 and an error message."""
+        runner = CliRunner()
+        result = runner.invoke(
+            story_new,
+            ["--rail", "../../../etc", "--title", "Traversal", "--project-dir", str(tmp_path)],
+            input="Y\n",
+            catch_exceptions=False,
+        )
+        assert result.exit_code != 0, f"Expected non-zero exit for traversal rail, got: {result.output}"
+        assert "invalid rail name" in result.output.lower() or "invalid rail" in result.output.lower(), (
+            f"Expected error message about invalid rail, got: {result.output}"
+        )
+
+    def test_lowercase_rail_accepted_after_normalization(self, tmp_path: pathlib.Path) -> None:
+        """--rail 'infra' (lowercase) is normalized to INFRA and accepted."""
+        result = invoke(
+            ["--rail", "infra", "--title", "Lowercase rail", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        assert story_file.exists()
+
+    def test_scaffolded_story_does_not_contain_primary_files_empty_list(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """Scaffolded story file does not contain 'primary_files: []' (CER-006)."""
+        result = invoke(
+            ["--rail", "INFRA", "--title", "No empty primary_files", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        assert "primary_files: []" not in content
+
+
 class TestRailContainmentGuard:
     """--rail values that escape docs/stories/ are rejected."""
 
@@ -471,7 +509,7 @@ class TestRailContainmentGuard:
         assert result.exit_code != 0, f"Expected non-zero exit, got: {result.output}"
 
     def test_traversal_rail_error_message(self, tmp_path: pathlib.Path) -> None:
-        """Error message explains the rejection."""
+        """Error message explains the rejection (either regex or containment guard)."""
         runner = CliRunner()
         result = runner.invoke(
             story_new,
@@ -479,7 +517,11 @@ class TestRailContainmentGuard:
             input="Y\n",
             catch_exceptions=False,
         )
-        assert "resolves outside docs/stories/" in result.output
+        # The traversal is caught by the regex guard first (CER-010) or containment guard
+        assert (
+            "resolves outside docs/stories/" in result.output
+            or "invalid rail name" in result.output.lower()
+        ), f"Expected rejection message, got: {result.output}"
 
     def test_traversal_rail_no_files_created(self, tmp_path: pathlib.Path) -> None:
         """No story file or directory is created on a traversal attempt."""
@@ -569,18 +611,17 @@ class TestAuthGatedSchemaIntroducesFields:
         assert "schema_introduces: false" in output
 
     def test_story_frontmatter_field_order(self) -> None:
-        """auth_gated and schema_introduces appear after story_class and before primary_files."""
+        """auth_gated and schema_introduces appear after story_class."""
         output = _story_frontmatter(
             "INFRA-001", "INFRA", "Test story", "78", story_class="code"
         )
         sc_pos = output.index("story_class: code")
         ag_pos = output.index("auth_gated: false")
         si_pos = output.index("schema_introduces: false")
-        pf_pos = output.index("primary_files:")
         assert sc_pos < ag_pos, "auth_gated must appear after story_class"
         assert sc_pos < si_pos, "schema_introduces must appear after story_class"
-        assert ag_pos < pf_pos, "auth_gated must appear before primary_files"
-        assert si_pos < pf_pos, "schema_introduces must appear before primary_files"
+        # primary_files is omitted for new stories (CER-006)
+        assert "primary_files:" not in output
 
     def test_story_frontmatter_fields_in_frontmatter_block_not_body(
         self, tmp_path: pathlib.Path
