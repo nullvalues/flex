@@ -763,12 +763,18 @@ def test_decide_returns_none_when_state_absent(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_decide_no_state_file_passthrough(tmp_path):
-    """`.companion/` directory exists but state.json is absent → None (fail-open)."""
+def test_decide_no_state_file_with_companion_dir_context_check_required(tmp_path):
+    """`.companion/` directory exists but state.json is absent → CONTEXT CHECK REQUIRED.
+
+    CER-040: a pairmode project (has .companion/) with a missing state.json should
+    surface the gate as needing attention, not silently pass.
+    """
     companion = tmp_path / ".companion"
     companion.mkdir(parents=True, exist_ok=True)
     result = context_budget.decide(tmp_path)
-    assert result is None
+    assert result is not None
+    assert result["block"] is True
+    assert "CONTEXT CHECK REQUIRED" in result["reason"]
 
 
 def test_decide_malformed_state_file_context_check_required(tmp_path):
@@ -1305,3 +1311,108 @@ def test_decide_alert_uses_factored_ceiling(tmp_path):
     assert "-4,000" in output or "-4000" in output, (
         f"Factored [R] (-4000) not found in block prompt; got: {output!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-192: CER-040 — decide() pairmode-aware fail-closed
+# ---------------------------------------------------------------------------
+
+
+def test_decide_companion_dir_absent_state_absent_returns_none(tmp_path):
+    """No .companion/ directory → non-pairmode project → decide() returns None.
+
+    CER-040: absence of .companion/ means this is not a pairmode project;
+    decide() must fail-open (return None).
+    """
+    # tmp_path has no .companion/ at all
+    result = context_budget.decide(tmp_path)
+    assert result is None
+
+
+def test_decide_companion_dir_present_state_absent_returns_check_required(tmp_path):
+    """`.companion/` present but state.json absent → CONTEXT CHECK REQUIRED.
+
+    CER-040: pairmode project (has .companion/) with missing state.json should
+    surface the gate as needing attention, not silently pass.
+    """
+    (tmp_path / ".companion").mkdir(parents=True)
+    result = context_budget.decide(tmp_path)
+    assert result is not None
+    assert result["block"] is True
+    assert "CONTEXT CHECK REQUIRED" in result["reason"]
+
+
+# ---------------------------------------------------------------------------
+# INFRA-192: CER-041 — recorded_at TTL staleness
+# ---------------------------------------------------------------------------
+
+
+def test_read_context_tokens_stale_at_exactly_60_minutes(tmp_path):
+    """recorded_at exactly 60 minutes old is NOT stale (boundary: age > TTL, not >=)."""
+    now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    recorded_at = (now - timedelta(minutes=60)).isoformat()
+    state = {
+        "context_current_tokens": 50_000,
+        "context_current_tokens_recorded_at": recorded_at,
+    }
+    # age_minutes == ttl_minutes (60 == 60) → NOT stale (>) → value returned
+    assert context_budget.read_context_tokens_from_state(state, _now=now) == 50_000
+
+
+def test_read_context_tokens_stale_at_61_minutes(tmp_path):
+    """recorded_at 61 minutes old is stale → returns None."""
+    now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    recorded_at = (now - timedelta(minutes=61)).isoformat()
+    state = {
+        "context_current_tokens": 50_000,
+        "context_current_tokens_recorded_at": recorded_at,
+    }
+    assert context_budget.read_context_tokens_from_state(state, _now=now) is None
+
+
+def test_read_context_tokens_backward_compat_no_recorded_at():
+    """recorded_at absent → TTL not enforced; value returned (backward-compat).
+
+    CER-041: existing state.json files without context_current_tokens_recorded_at
+    must continue to work as before.
+    """
+    state = {"context_current_tokens": 77_777}
+    assert context_budget.read_context_tokens_from_state(state) == 77_777
+
+
+# ---------------------------------------------------------------------------
+# INFRA-192: CER-051 — session_id traversal guard in _derive_transcript_path
+# ---------------------------------------------------------------------------
+
+
+def test_derive_transcript_path_rejects_session_id_with_slash(tmp_path):
+    """_derive_transcript_path returns None for session_id containing '/'.
+
+    CER-051: slash in session_id could be used to escape the transcript directory.
+    """
+    result = context_budget._derive_transcript_path(
+        tmp_path / "proj", "abc/def", home=tmp_path
+    )
+    assert result is None
+
+
+def test_derive_transcript_path_rejects_session_id_with_dotdot(tmp_path):
+    """_derive_transcript_path returns None for session_id containing '..'.
+
+    CER-051: '..' in session_id could be used for path traversal.
+    """
+    result = context_budget._derive_transcript_path(
+        tmp_path / "proj", "abc..def", home=tmp_path
+    )
+    assert result is None
+
+
+def test_derive_transcript_path_rejects_dotdot_slash(tmp_path):
+    """_derive_transcript_path returns None for session_id with '../' traversal.
+
+    CER-051: combined '..' and '/' must both be rejected.
+    """
+    result = context_budget._derive_transcript_path(
+        tmp_path / "proj", "../../../etc/passwd", home=tmp_path
+    )
+    assert result is None

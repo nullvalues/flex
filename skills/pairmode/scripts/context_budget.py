@@ -78,6 +78,9 @@ _CONTEXT_CHECK_REQUIRED_MSG = (
     "after the next tool call completes.\n"
 )
 
+# CER-041: named constant for the staleness TTL (minutes).
+_CONTEXT_TOKEN_STALE_MINUTES = 60
+
 
 # ---------------------------------------------------------------------------
 # 0. JSONL transcript reading (PostToolUse writer path)
@@ -107,6 +110,9 @@ def _derive_transcript_path(
     """
     try:
         if not session_id or not isinstance(session_id, str):
+            return None
+        # CER-051: reject session_id values that could escape the transcript dir.
+        if "/" in session_id or ".." in session_id:
             return None
         if home is None:
             home = Path.home()
@@ -254,9 +260,12 @@ def read_context_tokens_from_state(
 
     now = _now if _now is not None else datetime.now(timezone.utc)
     try:
-        ttl_minutes = int(state.get("context_current_tokens_ttl_minutes", 60) or 60)
+        ttl_minutes = int(
+            state.get("context_current_tokens_ttl_minutes", _CONTEXT_TOKEN_STALE_MINUTES)
+            or _CONTEXT_TOKEN_STALE_MINUTES
+        )
     except (TypeError, ValueError):
-        ttl_minutes = 60
+        ttl_minutes = _CONTEXT_TOKEN_STALE_MINUTES
 
     age_minutes = (now - recorded_at_dt).total_seconds() / 60
     if age_minutes > ttl_minutes:
@@ -502,7 +511,17 @@ def decide(
 
     state = _read_state(project_dir)
     if state is None:
-        # No state.json — non-pairmode project, fail-open.
+        # _read_state returns None when state.json is absent.
+        # CER-040: check whether this is a pairmode project (has .companion/ dir).
+        # If .companion/ exists, state.json should be present → surface as needing attention.
+        # If .companion/ is absent, this is a non-pairmode project → fail-open.
+        if (project_dir / ".companion").is_dir():
+            return {
+                "block": True,
+                "reason": _CONTEXT_CHECK_REQUIRED_MSG,
+                "tokens": 0,
+                "acknowledged_at": 0,
+            }
         return None
 
     # Read context_current_tokens directly (bypass TTL; session-reset check below).
