@@ -193,6 +193,12 @@ If the story included logic and has no test file: HIGH finding.
 
 Record exact output. A story with failing tests does not pass review.
 
+**test_gate behaviour** — read the `test_gate` field from the story's frontmatter before running tests:
+
+- `test_gate` absent or `test_gate: story` (default): run the full suite (`{{ test_command }}`). Whole-suite green required for PASS.
+- `test_gate: phase_checkpoint`: run only tests whose file path or test name matches the story's primary module (derive from `primary_files` stems, e.g. `INFRA-189` with `schema_validator.py` → run `test_schema_validator`). Whole-suite green is deferred to the phase checkpoint; only story-related tests must pass. If no story-specific tests are identified, run the full suite.
+- `test_gate: none`: skip the test run. Note: a `code` story with `test_gate: none` is a HIGH finding.
+
 ---
 
 ## Decision

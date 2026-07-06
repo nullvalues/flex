@@ -660,3 +660,65 @@ def test_missing_acceptance_surface_exempt_for_draft(tmp_path):
     assert not any("body section" in e for e in errors), (
         f"Expected no body section error for draft story, got: {errors}"
     )
+
+
+# ---------------------------------------------------------------------------
+# test_gate field
+# ---------------------------------------------------------------------------
+
+_VALID_STORY_WITH_TEST_GATE = """\
+    ---
+    id: FEAT-001
+    rail: FEAT
+    title: Test gate story
+    status: planned
+    phase: "001"
+    test_gate: {test_gate}
+    primary_files:
+      - src/main.py
+    ---
+
+    ## Acceptance criterion
+
+    It works.
+"""
+
+
+class TestTestGateField:
+    """test_gate frontmatter field validation."""
+
+    def test_test_gate_absent_is_valid(self, tmp_path):
+        """A story with no test_gate field is valid."""
+        p = _write(tmp_path, "FEAT-001.md", VALID_STORY)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors, got: {errors}"
+
+    def test_test_gate_story_is_valid(self, tmp_path):
+        """test_gate: story is a valid value."""
+        content = _VALID_STORY_WITH_TEST_GATE.format(test_gate="story")
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors for test_gate: story, got: {errors}"
+
+    def test_test_gate_phase_checkpoint_is_valid(self, tmp_path):
+        """test_gate: phase_checkpoint is a valid value."""
+        content = _VALID_STORY_WITH_TEST_GATE.format(test_gate="phase_checkpoint")
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors for test_gate: phase_checkpoint, got: {errors}"
+
+    def test_test_gate_none_is_valid(self, tmp_path):
+        """test_gate: none is a valid value."""
+        content = _VALID_STORY_WITH_TEST_GATE.format(test_gate="none")
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors for test_gate: none, got: {errors}"
+
+    def test_test_gate_invalid_value_is_error(self, tmp_path):
+        """test_gate: always is not a valid value — expect an Invalid test_gate error."""
+        content = _VALID_STORY_WITH_TEST_GATE.format(test_gate="always")
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert any("Invalid test_gate" in e for e in errors), (
+            f"Expected 'Invalid test_gate' error, got: {errors}"
+        )

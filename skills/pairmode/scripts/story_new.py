@@ -42,6 +42,7 @@ def _story_frontmatter(
     phase: str | None,
     story_class: str | None = None,
     source: str | None = None,
+    test_gate: str | None = None,
 ) -> str:
     """Return YAML frontmatter block for a new story file."""
     phase_val = phase if phase is not None else "backlog"
@@ -58,6 +59,8 @@ def _story_frontmatter(
     lines += ["auth_gated: false", "schema_introduces: false"]
     if source is not None:
         lines.append(f"source: {source}")
+    if test_gate is not None:
+        lines.append(f"test_gate: {test_gate}")
     lines += [
         "primary_files:",
         "touches:  # If this story changes any documented architecture, add docs/architecture.md to this list.",
@@ -180,6 +183,7 @@ def create_story(
     phase: str | None = None,
     story_class: str | None = None,
     source: str | None = None,
+    test_gate: str | None = None,
 ) -> Path:
     """Create a new story file programmatically without interactive prompts.
 
@@ -221,7 +225,7 @@ def create_story(
 
     story_path = rail_dir / f"{story_id}.md"
     content = (
-        _story_frontmatter(story_id, rail, title, phase, story_class, source)
+        _story_frontmatter(story_id, rail, title, phase, story_class, source, test_gate)
         + _story_body()
     )
     story_path.write_text(content, encoding="utf-8")
@@ -253,12 +257,18 @@ def create_story(
     help="Originating project slug (set by drift promotion). Omit to leave the field absent.",
 )
 @click.option(
+    "--test-gate",
+    default=None,
+    type=click.Choice(["story", "phase_checkpoint", "none"], case_sensitive=True),
+    help="Optional test gate override. Omit to use default (story-level suite green).",
+)
+@click.option(
     "--project-dir",
     default=".",
     type=click.Path(exists=True, file_okay=False),
     help="Root directory of the target project.",
 )
-def story_new(rail: str, title: str, phase: str | None, story_class: str | None, source: str | None, project_dir: str) -> None:
+def story_new(rail: str, title: str, phase: str | None, story_class: str | None, source: str | None, test_gate: str | None, project_dir: str) -> None:
     """Create a new story file on the specified rail."""
 
     resolved = Path(project_dir).resolve()
@@ -311,7 +321,7 @@ def story_new(rail: str, title: str, phase: str | None, story_class: str | None,
 
     # Write story file
     story_path = rail_dir / f"{story_id}.md"
-    content = _story_frontmatter(story_id, rail, title, phase, story_class, source) + _story_body()
+    content = _story_frontmatter(story_id, rail, title, phase, story_class, source, test_gate) + _story_body()
     story_path.write_text(content, encoding="utf-8")
 
     click.echo(f"  Created {story_id}: {title}")

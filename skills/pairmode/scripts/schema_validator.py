@@ -106,6 +106,7 @@ VALID_STORY_CLASSES = {"code", "doc", "lesson", "methodology"}
 DEFAULT_STORY_CLASS = "code"
 VALID_PHASE_CLASSES = {"production", "docs-only", "pre-pr"}
 DEFAULT_PHASE_CLASS = "production"
+VALID_TEST_GATES = {"story", "phase_checkpoint", "none"}
 
 REQUIRED_STORY_FIELDS = ("id", "rail", "title", "status", "phase", "primary_files")
 REQUIRED_ERA_FIELDS = ("id", "name", "status")
@@ -153,6 +154,12 @@ def validate_story_file(path: Path) -> list[str]:
 
     if "schema_introduces" in fm and fm["schema_introduces"] not in ("true", "false", True, False):
         errors.append("Field 'schema_introduces' must be a boolean (true/false)")
+
+    if "test_gate" in fm and fm["test_gate"] not in VALID_TEST_GATES:
+        errors.append(
+            f"Invalid test_gate '{fm['test_gate']}'; must be one of "
+            f"{sorted(VALID_TEST_GATES)} when present"
+        )
 
     if "primary_files" in fm and not isinstance(fm["primary_files"], list):
         errors.append("Field 'primary_files' must be a list")
