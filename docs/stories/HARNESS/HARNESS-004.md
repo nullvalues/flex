@@ -2,7 +2,7 @@
 id: HARNESS-004
 rail: HARNESS
 title: "`CLAUDE.md` + `CLAUDE.build.md` token surgery"
-status: planned
+status: complete
 phase: "HARNESS010-main"
 story_class: documentation
 auth_gated: false

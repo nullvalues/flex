@@ -2,7 +2,7 @@
 id: WORKER-015
 rail: WORKER
 title: Builder + reviewer procedure Non-negotiables removal
-status: planned
+status: complete
 phase: "HARNESS010-main"
 story_class: documentation
 auth_gated: false

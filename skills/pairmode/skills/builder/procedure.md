@@ -161,12 +161,4 @@ Fields:
 
 Return only the JSON object. No preamble, no commentary, no usage block.
 
----
-
-## Non-negotiables
-
-- Never read beyond the four declared input categories (DP1.3).
-- Never include prior-attempt transcripts, orchestrator state, or effort DB data.
-- Never commit — the reviewer does that.
-- Never advance to the next story — the orchestrator drives sequencing.
-- Return value must be valid `BUILD-RESULT` JSON (parseable by `worker_result.py`).
+Deviating from this format invalidates the result.

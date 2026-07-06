@@ -331,12 +331,4 @@ Fields:
 
 Return only the JSON object. No preamble, no commentary, no usage block.
 
----
-
-## Non-negotiables
-
-- Never read beyond the four declared input categories (DP1.3).
-- Never write, edit, or fix code — report findings only.
-- Never commit a failing story — revert instead.
-- Never revert a passing story.
-- Return value must be valid `REVIEW-RESULT` JSON (parseable by `worker_result.py`).
+Deviating from this format invalidates the result.
