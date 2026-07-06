@@ -230,6 +230,20 @@ EOF
 
 Any CRITICAL finding, any HIGH finding, or any failing test.
 
+Before reverting, emit one line summarising the blocking cause in this exact format:
+
+FAIL-CAUSE: [concise reason — 10 words or fewer]
+
+Examples:
+  FAIL-CAUSE: undeclared file: docs/architecture.md
+  FAIL-CAUSE: hallucinated route: /api/portal/treatment-plans
+  FAIL-CAUSE: suite red: downstream breakage from prior story
+  FAIL-CAUSE: missing ## Ensures section
+  FAIL-CAUSE: CRITICAL hook violation in hooks/pre_tool_use.py
+
+Emit the FAIL-CAUSE line before the revert command below. The orchestrator
+parses this line to record the reason in the effort DB.
+
 On FAIL, revert:
 
 ```bash

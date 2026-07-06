@@ -596,12 +596,17 @@ and record the attempt with `--agent-role reviewer`. Pass `--outcome PASS` if
 builder step, `record_attempt.py` is a silent no-op when effort tracking is
 disabled, so the call is unconditional.
 
+On FAIL: also extract the `FAIL-CAUSE:` line from the reviewer output — the value
+after the `FAIL-CAUSE:` prefix (stripped of leading/trailing whitespace), or empty
+string if absent. Pass it as `--notes "$fail_cause"` in the FAIL record_attempt call.
+
 Capture the reason printed by `select_reviewer_model` (second output line) into a
 shell variable before spawning the reviewer so you can pass it here:
 
 ```bash
 # After running select_reviewer_model, capture both lines:
 # model=$(first line); reason=$(second line)
+# On PASS:
 PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/record_attempt.py \
   --story-file docs/stories/RAIL/RAIL-NNN.md \
   --agent-role reviewer \
@@ -615,6 +620,25 @@ PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/record_atte
   --tool-uses 6 \
   --duration-ms 95000 \
   --outcome PASS \
+  --model-selection-reason $reason \
+  --project-dir .
+
+# On FAIL: capture FAIL-CAUSE and pass as --notes
+# fail_cause=$(line starting with "FAIL-CAUSE:" from reviewer output, stripped of prefix, or "")
+PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/record_attempt.py \
+  --story-file docs/stories/RAIL/RAIL-NNN.md \
+  --agent-role reviewer \
+  --model claude-sonnet-4-6 \
+  --attempt-number 1 \
+  --tokens-total 22000 \
+  --tokens-in 18000 \       # omit flag if runtime did not emit input_tokens
+  --tokens-out 4000 \       # omit flag if runtime did not emit output_tokens
+  --cache-read-tokens 0 \   # omit flag if runtime did not emit cache_read_tokens
+  --cache-write-tokens 0 \  # omit flag if runtime did not emit cache_write_tokens
+  --tool-uses 6 \
+  --duration-ms 95000 \
+  --outcome FAIL \
+  --notes "$fail_cause" \
   --model-selection-reason $reason \
   --project-dir .
 ```

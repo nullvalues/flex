@@ -714,3 +714,73 @@ def test_current_phase_finds_active_in_second_era(tmp_path: Path) -> None:
     result = _run("current-phase", "--project-dir", str(tmp_path))
     assert result.returncode == 0, f"stderr: {result.stderr}"
     assert "phase-20" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# BUILD-043: Reviewer FAIL reason capture via --notes
+# ---------------------------------------------------------------------------
+
+_REVIEWER_TEMPLATE = (
+    _REPO_ROOT / "skills" / "pairmode" / "templates" / "agents" / "reviewer.md.j2"
+)
+_BUILD_TEMPLATE = (
+    _REPO_ROOT / "skills" / "pairmode" / "templates" / "CLAUDE.build.md.j2"
+)
+_LIVE_REVIEWER = _REPO_ROOT / ".claude" / "agents" / "reviewer.md"
+
+
+def test_reviewer_template_contains_fail_cause_instruction() -> None:
+    """reviewer.md.j2 must emit FAIL-CAUSE before git checkout on FAIL."""
+    text = _REVIEWER_TEMPLATE.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    assert "Before reverting, emit one line" in text, (
+        "reviewer.md.j2 missing 'Before reverting, emit one line' instruction"
+    )
+    assert "FAIL-CAUSE:" in text, "reviewer.md.j2 missing FAIL-CAUSE: marker"
+
+    # FAIL-CAUSE: must appear before git checkout
+    fail_cause_line = next(
+        (i for i, ln in enumerate(lines) if "FAIL-CAUSE:" in ln), None
+    )
+    git_checkout_line = next(
+        (i for i, ln in enumerate(lines) if "git checkout" in ln), None
+    )
+    assert fail_cause_line is not None, "FAIL-CAUSE: not found in reviewer.md.j2"
+    assert git_checkout_line is not None, "git checkout not found in reviewer.md.j2"
+    assert fail_cause_line < git_checkout_line, (
+        f"FAIL-CAUSE: (line {fail_cause_line}) must appear before "
+        f"git checkout (line {git_checkout_line}) in reviewer.md.j2"
+    )
+
+
+def test_build_template_passes_notes_on_reviewer_fail() -> None:
+    """CLAUDE.build.md.j2 must pass --notes near --outcome FAIL in record_attempt."""
+    text = _BUILD_TEMPLATE.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    # Find all lines containing --outcome FAIL
+    fail_lines = [i for i, ln in enumerate(lines) if "--outcome FAIL" in ln]
+    assert fail_lines, "No '--outcome FAIL' found in CLAUDE.build.md.j2"
+
+    # For at least one --outcome FAIL occurrence, --notes must appear within 30 lines
+    found_notes_near_fail = False
+    for fail_idx in fail_lines:
+        window_start = max(0, fail_idx - 30)
+        window_end = min(len(lines), fail_idx + 30)
+        window = "\n".join(lines[window_start:window_end])
+        if "--notes" in window:
+            found_notes_near_fail = True
+            break
+
+    assert found_notes_near_fail, (
+        "--notes flag not found within 30 lines of '--outcome FAIL' in CLAUDE.build.md.j2"
+    )
+
+
+def test_live_reviewer_contains_fail_cause_instruction() -> None:
+    """The live .claude/agents/reviewer.md must contain the FAIL-CAUSE instruction."""
+    text = _LIVE_REVIEWER.read_text(encoding="utf-8")
+    assert "Before reverting, emit one line" in text, (
+        ".claude/agents/reviewer.md missing 'Before reverting, emit one line' instruction"
+    )
