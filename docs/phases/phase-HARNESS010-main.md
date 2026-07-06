@@ -15,8 +15,8 @@ Remove ~1800 tokens/cycle of dead weight from always-loaded policy files
 
 | ID | Title | Status |
 |----|-------|--------|
-| HARNESS-004 | `CLAUDE.md` + `CLAUDE.build.md` token surgery | planned |
-| WORKER-015 | Builder + reviewer procedure Non-negotiables removal | planned |
+| HARNESS-004 | `CLAUDE.md` + `CLAUDE.build.md` token surgery | complete |
+| WORKER-015 | Builder + reviewer procedure Non-negotiables removal | complete |
 
 ## Schema delivery
 
