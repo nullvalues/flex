@@ -12,7 +12,7 @@ primary_files:
 touches: []
 ---
 
-## Acceptance criterion
+## Ensures
 
 - **CER-013, CER-015, CER-032, CER-033, CER-052** each have a `**RESOLVED ...**` note
   appended to their backlog entry explaining why they are resolved by Era 3 work.

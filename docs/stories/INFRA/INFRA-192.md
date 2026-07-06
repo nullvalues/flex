@@ -14,7 +14,7 @@ touches:
   - tests/pairmode/test_context_budget.py
 ---
 
-## Acceptance criterion
+## Ensures
 
 - **CER-040** — `context_budget.decide()` no longer fails open silently when `state.json`
   is absent or contains malformed JSON. When `_read_state()` returns `None`:

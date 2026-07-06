@@ -13,7 +13,7 @@ touches:
   - hooks/pre_tool_use.py
 ---
 
-## Acceptance criterion
+## Ensures
 
 - **CER-048 (partial)** — `scope_guard.py` has a `PROTECTED_GLOBS` constant containing
   the same glob patterns as the static deny entries in `.claude/settings.json`

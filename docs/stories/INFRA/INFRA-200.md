@@ -14,7 +14,7 @@ primary_files:
 touches: []
 ---
 
-## Acceptance criterion
+## Ensures
 
 - **CER-050** — All three `state.json` writers use atomic write (temp file + `os.replace()`):
   - `hooks/session_start.py` (INFRA-175 reset write)

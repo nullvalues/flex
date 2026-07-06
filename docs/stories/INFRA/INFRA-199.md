@@ -14,7 +14,7 @@ touches:
   - docs/fleet-snapshot.md
 ---
 
-## Acceptance criterion
+## Ensures
 
 - **CER-059(a)** — `fleet_discovery.py` `_check_signal1` correctly detects projects that
   resolve their scripts path to the flex repo's scripts directory. The root cause of the

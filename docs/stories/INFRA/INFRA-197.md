@@ -13,7 +13,7 @@ touches:
   - skills/pairmode/templates/CLAUDE.build.md.j2
 ---
 
-## Acceptance criterion
+## Ensures
 
 - **CER-014** — `docs/architecture.md` § "Reviewer-class agent tool restriction
   (build-loop safety)" is updated to accurately describe the current protection model.

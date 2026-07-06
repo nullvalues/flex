@@ -13,7 +13,7 @@ primary_files:
 touches: []
 ---
 
-## Acceptance criterion
+## Ensures
 
 - **CER-058** — Every code path that writes to `registered_projects` in
   `.companion/state.json` is identified and either:

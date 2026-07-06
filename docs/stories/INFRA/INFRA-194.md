@@ -13,7 +13,7 @@ touches:
   - tests/pairmode/test_bootstrap.py
 ---
 
-## Acceptance criterion
+## Ensures
 
 - **CER-002** — `bootstrap.py` accepts `--yes` / `-y` flag. When set, all interactive
   confirmation prompts (file overwrites, rail confirmation, ideology capture) are

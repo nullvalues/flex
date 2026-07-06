@@ -15,7 +15,7 @@ touches:
   - tests/pairmode/test_schema_validator.py
 ---
 
-## Acceptance criterion
+## Ensures
 
 - **CER-010** — `story_new.py --rail` is validated against `re.fullmatch(r"[A-Z][A-Z0-9_]*", rail)`
   before any path construction. Invalid values (including traversal payloads like

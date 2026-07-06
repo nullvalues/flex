@@ -12,7 +12,7 @@ primary_files:
 touches: []
 ---
 
-## Acceptance criterion
+## Ensures
 
 - **CER-009** — `hooks/post_tool_use.py` no longer reads `pipe_path` from `state.json`
   to override `PIPE_PATH`. The pipe path is fixed to the default
