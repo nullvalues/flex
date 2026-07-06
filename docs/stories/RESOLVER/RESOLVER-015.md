@@ -2,7 +2,7 @@
 id: RESOLVER-015
 rail: RESOLVER
 title: "`flex_build.py` hygiene — depth guard, single-source `_CHECKPOINT_SEQUENCE`, `_story_path` containment"
-status: planned
+status: complete
 phase: "HARNESS009-post1"
 story_class: code
 auth_gated: false

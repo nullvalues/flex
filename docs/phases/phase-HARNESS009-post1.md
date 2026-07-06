@@ -20,8 +20,8 @@ forward CER-034 (same file, forcing function arrived). All four items are in the
 
 | ID | Title | Status |
 |----|-------|--------|
-| RESOLVER-015 | `flex_build.py` hygiene — depth guard, single-source `_CHECKPOINT_SEQUENCE`, `_story_path` containment | planned |
-| RESOLVER-016 | Remove `parse_worker_verdict_text` + test cleanup | planned |
+| RESOLVER-015 | `flex_build.py` hygiene — depth guard, single-source `_CHECKPOINT_SEQUENCE`, `_story_path` containment | complete |
+| RESOLVER-016 | Remove `parse_worker_verdict_text` + test cleanup | complete |
 
 
 

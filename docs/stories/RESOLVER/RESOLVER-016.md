@@ -2,7 +2,7 @@
 id: RESOLVER-016
 rail: RESOLVER
 title: Remove `parse_worker_verdict_text` + test cleanup
-status: planned
+status: complete
 phase: "HARNESS009-post1"
 story_class: code
 auth_gated: false
