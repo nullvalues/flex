@@ -169,3 +169,17 @@ class TestRecordCheckpointStep:
             "checkpoint-docs",
             "checkpoint-tag",
         ]
+
+    def test_depth_guard_rejects_shallow_project_dir(self, tmp_path: Path) -> None:
+        """A project_dir with fewer than 3 path components → exits non-zero (CER-061)."""
+        runner = CliRunner()
+        result = runner.invoke(
+            flex_build,
+            [
+                "record-checkpoint-step",
+                "checkpoint-security",
+                "--project-dir",
+                "/tmp",
+            ],
+        )
+        assert result.exit_code != 0

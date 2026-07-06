@@ -49,6 +49,7 @@ from permission_scope import (  # noqa: E402
 )
 from effort_db import check_guardrail, resolve_effort_db_path  # noqa: E402
 from context_health import check_context_health  # noqa: E402
+from next_action import _CHECKPOINT_SEQUENCE  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -66,9 +67,18 @@ def _story_path(story_id: str, project_dir: Path) -> Path:
     """Return ``docs/stories/<RAIL>/<STORY_ID>.md`` for ``story_id``.
 
     Rail is the substring before the first ``-`` in ``story_id``.
+
+    Raises ``ValueError`` when the resolved path escapes the stories root
+    (e.g. a story_id containing path-traversal sequences).
     """
     rail = story_id.split("-", 1)[0]
-    return project_dir / "docs" / "stories" / rail / f"{story_id}.md"
+    resolved = (project_dir / "docs" / "stories" / rail / f"{story_id}.md").resolve()
+    stories_root = (project_dir / "docs" / "stories").resolve()
+    try:
+        resolved.relative_to(stories_root)
+    except ValueError:
+        raise ValueError(f"story ID escapes stories root: {story_id}")
+    return resolved
 
 
 def _read_story_frontmatter(story_path: Path) -> dict:
@@ -1679,13 +1689,6 @@ def cmd_resolver_state(project_dir: str) -> None:
 # record-checkpoint-step (RESOLVER-012)
 # ---------------------------------------------------------------------------
 
-_CHECKPOINT_SEQUENCE: tuple[str, ...] = (
-    "checkpoint-security",
-    "checkpoint-intent",
-    "checkpoint-docs",
-    "checkpoint-tag",
-)
-
 
 def _record_checkpoint_step(step_id: str, project_dir: Path) -> int:
     """Atomically append *step_id* to state.json["checkpoint_step"].
@@ -1757,6 +1760,7 @@ def cmd_record_checkpoint_step(step_id: str, project_dir: str) -> None:
     Idempotent: if step_id is already present, exits 0 with no write.
     """
     project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
     rc = _record_checkpoint_step(step_id, project_path)
     sys.exit(rc)
 
