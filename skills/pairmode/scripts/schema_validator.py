@@ -25,6 +25,17 @@ _FRONTMATTER_RE = re.compile(
 _YAML_SCALAR_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$')
 _YAML_LIST_ITEM_RE = re.compile(r'^\s+-\s+(.+)$')
 
+# L018-style enforcement: detect pointer-only acceptance sections.
+_POINTER_ONLY_RE = re.compile(
+    r"^\s*See\s+(docs|phase)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+_SECTION_BODY_RE = re.compile(
+    r"^##\s+(?:Ensures|Acceptance criteria|Acceptance criterion|Acceptance)\s*\n(.*?)(?=^##|\Z)",
+    re.IGNORECASE | re.MULTILINE | re.DOTALL,
+)
+
 
 def _parse_frontmatter(text: str) -> dict[str, Any] | None:
     """
@@ -163,6 +174,43 @@ def validate_story_file(path: Path) -> list[str]:
             "Story body must contain either '## Acceptance criterion' (legacy) "
             "or both '## Requires' and '## Ensures' sections"
         )
+
+    # Pointer-only enforcement for code and methodology stories (non-draft/backlog).
+    # L018: exclude pointer-only acceptance sections — reviewer must see real assertions.
+    story_class = fm.get("story_class") or DEFAULT_STORY_CLASS
+    _ENFORCED_CLASSES = {"code", "methodology"}
+    _EXEMPT_STATUSES = {"draft", "backlog"}
+
+    if story_class in _ENFORCED_CLASSES and status not in _EXEMPT_STATUSES:
+        has_body_section = any([
+            "## Ensures" in text,
+            "## Acceptance criteria" in text,
+            "## Acceptance criterion" in text,
+            "## Acceptance" in text,
+        ])
+        if not has_body_section:
+            errors.append(
+                f"Story class '{story_class}' requires at least one of "
+                "## Ensures, ## Acceptance criteria, or ## Acceptance "
+                "(body section missing for non-draft story)"
+            )
+        else:
+            section_bodies = _SECTION_BODY_RE.findall(text)
+            if section_bodies:
+                all_pointer = all(
+                    _POINTER_ONLY_RE.search(body) and not any(
+                        line.strip() and not _POINTER_ONLY_RE.match(line)
+                        for line in body.splitlines()
+                    )
+                    for body in section_bodies
+                )
+                if all_pointer:
+                    errors.append(
+                        f"Story class '{story_class}': ## Ensures / ## Acceptance "
+                        "body section is pointer-only (contains only 'See docs/phase' "
+                        "delegation). Add binary-verifiable assertions. "
+                        "(pointer-only body section is not a valid acceptance surface)"
+                    )
 
     return errors
 
