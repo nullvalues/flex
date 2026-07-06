@@ -552,6 +552,12 @@ CER-031). All docs follow the catalog template verbatim with real "What Broke" i
 **Stories:** BUILD-040
 **Acceptance:** `flex_build.py write-permissions` and `clear-permissions` wired into `CLAUDE.build.md` Step 1 and Step 3 respectively (and matching `.j2` template). Layer 2 allow-rule writes now suppress Claude Code permission prompts for story-declared files on every build, eliminating the manual auto-mode toggle requirement in upstream era-002 projects. `docs/architecture.md` updated to describe the two-layer permission model. 2266 tests pass.
 
+## cp83-spec-quality-gates
+**Tag command:** `git tag cp83-spec-quality-gates && git push origin cp83-spec-quality-gates`
+**Phase:** 83
+**Stories:** BUILD-042, BUILD-043, INFRA-186, INFRA-187, INFRA-188, INFRA-189
+**Acceptance:** Six targeted interventions to reduce fleet-wide retry rate: `effort_tracking` enabled on flex itself (BUILD-042); reviewer FAIL-CAUSE emission + `--notes` capture in effort DB (BUILD-043); `docs/architecture.md` touches hint in `story_new.py` and `check-story-scope` (INFRA-186); pointer-only Ensures rejection for `code`/`methodology` stories in `schema_validator.py` (INFRA-187); scope budget warning at >8 declared files in `check-story-scope` (INFRA-188); `test_gate` frontmatter field with `story`/`phase_checkpoint`/`none` values validated by schema_validator and scaffolded by `story_new.py` (INFRA-189). Security audit: 0 findings. Intent review: ALIGNED (2 doc edits applied to `docs/architecture.md`). 2294 tests pass.
+
 ## cp82-security-auditor-hook-exceptions-audit-scope
 **Tag command:** `git tag cp82-security-auditor-hook-exceptions-audit-scope && git push origin cp82-security-auditor-hook-exceptions-audit-scope`
 **Phase:** 82

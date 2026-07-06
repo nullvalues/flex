@@ -377,6 +377,7 @@ Story frontmatter fields summary:
 | `auth_gated` | no | Boolean; `false` if absent; read by `flex_build.py check-auth-gate` — when `true`, the auth gate checks `docs/architecture.md` for a recorded `**Classification:**` before building |
 | `schema_introduces` | no | Boolean; `false` if absent; read by `flex_build.py check-schema-gate` — when `true`, the schema gate requires a management surface story in the phase or a documented exception |
 | `source` | no | Set by drift promotion to record the originating project |
+| `test_gate` | no | One of `story`, `phase_checkpoint`, `none`; absent = `story` (default). `phase_checkpoint` defers whole-suite green to the phase checkpoint; only story-scoped tests must pass. `none` skips the test run (HIGH finding when `story_class: code`). Read by the reviewer agent before running tests. |
 
 **Story body contract sections** follow the frontmatter block. Every story must contain either
 the canonical new-format sections or the legacy alias:
@@ -392,6 +393,8 @@ the canonical new-format sections or the legacy alias:
 A story body that contains neither `## Acceptance criterion` nor both `## Requires` and
 `## Ensures` is rejected by `schema_validator.py`. A story containing both the legacy and new
 sections is also valid (transition stories written mid-migration).
+
+**Body-section enforcement:** `validate_story_file` rejects `code` and `methodology` stories (non-`draft`, non-`backlog`) whose Ensures/Acceptance section consists entirely of pointer-delegation lines matching `See (docs|phase)` — these are not binary-verifiable assertions. Doc and lesson stories are exempt. Introduced in Phase 83 (INFRA-187).
 
 **Era files** live at `docs/eras/NNN-kebab-name.md` with frontmatter: `id`, `name`, `status`.
 
