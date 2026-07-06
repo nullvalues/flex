@@ -87,7 +87,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | HARNESS007-main | Observability refactor (Phase G) | complete | [phase-HARNESS007-main.md](phase-HARNESS007-main.md) |
 | HARNESS008-main | Housekeeper consolidation | complete | [phase-HARNESS008-main.md](phase-HARNESS008-main.md) · cp-HARNESS008-main |
 | HARNESS009-main | Write-path determinism | complete | [phase-HARNESS009-main.md](phase-HARNESS009-main.md) · cp-HARNESS009-main |
-| HARNESS010-main | Token surgery | planned | [phase-HARNESS010-main.md](phase-HARNESS010-main.md) |
+| HARNESS010-main | Token surgery | complete | [phase-HARNESS010-main.md](phase-HARNESS010-main.md) · cp-HARNESS010-main |
 | HARNESS009-post1 | HARNESS009 backlog close-out | complete | [phase-HARNESS009-post1.md](phase-HARNESS009-post1.md) · cp-HARNESS009-post1 |
 
 ---
