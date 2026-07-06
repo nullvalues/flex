@@ -1,0 +1,12 @@
+{
+  "story_id": "INFRA-191",
+  "story_spec": "docs/stories/INFRA/INFRA-191.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/flex_build.py",
+    "skills/pairmode/templates/CLAUDE.build.md.j2",
+    "tests/pairmode/test_flex_build.py",
+    "docs/architecture.md",
+    "docs/stories/INFRA/INFRA-191.md"
+  ],
+  "generated_at": "2026-07-06T01:38:03Z"
+}
