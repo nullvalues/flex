@@ -131,3 +131,34 @@ def test_scope_guard_empty_allowed_paths_allows(tmp_path: Path) -> None:
     allowed, reason = scope_guard.check_path("skills/foo.py", tmp_path)
     assert allowed is True
     assert "empty allowed_paths" in reason
+
+
+# ---------------------------------------------------------------------------
+# PROTECTED_GLOBS / fail-closed tests (INFRA-196)
+# ---------------------------------------------------------------------------
+
+
+def test_scope_guard_blocks_protected_path_with_no_active_story(tmp_path: Path) -> None:
+    """Write to hooks/pre_tool_use.py with no active story — blocked by PROTECTED_GLOBS."""
+    _write_state(tmp_path, story_id=None)
+    allowed, reason = scope_guard.check_path("hooks/pre_tool_use.py", tmp_path)
+    assert allowed is False
+    assert "protected path" in reason
+    assert "primary_files" in reason
+
+
+def test_scope_guard_allows_protected_path_with_active_story_that_declares_it(tmp_path: Path) -> None:
+    """Write to hooks/pre_tool_use.py with an active story that declares it — allowed."""
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions(tmp_path, STORY_ID, ["hooks/pre_tool_use.py"])
+    allowed, reason = scope_guard.check_path("hooks/pre_tool_use.py", tmp_path)
+    assert allowed is True
+    assert reason == "allowed"
+
+
+def test_scope_guard_allows_non_protected_path_with_no_active_story(tmp_path: Path) -> None:
+    """Write to src/app.py with no active story — allowed (not protected)."""
+    _write_state(tmp_path, story_id=None)
+    allowed, reason = scope_guard.check_path("src/app.py", tmp_path)
+    assert allowed is True
+    assert "no active story" in reason

@@ -4,11 +4,27 @@ scope_guard.py — Story file-scope enforcement for the pre_tool_use hook.
 check_path(file_path, project_dir) -> (allowed: bool, reason: str)
 
 Fails open: when state, permissions file, or any read fails, returns (True, reason).
+Protected paths (PROTECTED_GLOBS) are blocked even with no active story.
 """
 from __future__ import annotations
 
+import fnmatch
 import json
 from pathlib import Path
+
+PROTECTED_GLOBS = [
+    "hooks/**",
+    ".claude-plugin/**",
+    "skills/seed/**",
+    "skills/companion/**",
+    "lessons/**",
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+]
+
+
+def _is_protected(path_str: str) -> bool:
+    return any(fnmatch.fnmatch(path_str, g) for g in PROTECTED_GLOBS)
 
 
 def check_path(
@@ -19,6 +35,12 @@ def check_path(
 
     story_id = _read_current_story(project)
     if not story_id:
+        relative_path = _normalise(file_path, project)
+        if relative_path is not None and _is_protected(relative_path):
+            return (
+                False,
+                f"{relative_path} is a protected path — requires an active story with this file in primary_files",
+            )
         return True, "no active story — allowing"
 
     allowed_paths = _read_allowed_paths(project, story_id)
