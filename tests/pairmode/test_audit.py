@@ -2184,3 +2184,43 @@ class TestAuditOverridesSuppress:
         assert len(claude_missing) > 0, (
             "Expected MISSING items for CLAUDE.md when no .pairmode-overrides file"
         )
+
+
+# ---------------------------------------------------------------------------
+# CANONICAL_FILES / AGENT_FILES consistency (RELEASE-010)
+# ---------------------------------------------------------------------------
+
+class TestCanonicalFilesAgentFilesConsistency:
+    """CANONICAL_FILES in audit.py must account for every entry in AGENT_FILES in bootstrap.py.
+
+    This invariant ensures audit/sync keep agent shells current after template
+    changes, and prevents silent dispatch breakage when the orchestrator relies
+    on an agent shell that drifts or disappears.
+    """
+
+    def test_gate_worker_in_canonical_files(self) -> None:
+        """gate-worker.md must appear in CANONICAL_FILES (RELEASE-010)."""
+        from skills.pairmode.scripts import audit as _a
+        canonical_dests = {dest for dest, _ in _a.CANONICAL_FILES}
+        assert ".claude/agents/gate-worker.md" in canonical_dests, (
+            "gate-worker.md missing from CANONICAL_FILES; audit/sync will not track it"
+        )
+
+    def test_agent_files_subset_of_canonical_files(self) -> None:
+        """Every AGENT_FILES entry must appear in CANONICAL_FILES.
+
+        bootstrap.py writes agent shells; audit.py must track them so sync can
+        keep them current.  A shell in AGENT_FILES but not CANONICAL_FILES drifts
+        silently after template changes.
+        """
+        from skills.pairmode.scripts import audit as _a
+        from skills.pairmode.scripts import bootstrap as _b
+
+        canonical_dests = {dest for dest, _ in _a.CANONICAL_FILES}
+        agent_dests = {dest for dest, _ in _b.AGENT_FILES}
+
+        missing_from_canonical = agent_dests - canonical_dests
+        assert not missing_from_canonical, (
+            f"AGENT_FILES entries not tracked by CANONICAL_FILES: {missing_from_canonical}. "
+            "Add them to CANONICAL_FILES in audit.py so sync keeps them current."
+        )

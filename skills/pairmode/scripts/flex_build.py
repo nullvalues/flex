@@ -1865,5 +1865,28 @@ def cmd_check_index(project_dir: str) -> None:
     sys.exit(1)
 
 
+@flex_build.command("record-attempt")
+@click.pass_context
+def cmd_record_attempt(ctx: click.Context, **kwargs: object) -> None:
+    """Delegate to record_attempt.py's CLI with all forwarded arguments.
+
+    This alias exists so the orchestrator template can call
+    ``flex_build.py record-attempt ...`` without knowing the path to
+    ``record_attempt.py`` directly.  All options accepted by
+    ``record_attempt.py`` are forwarded unchanged.
+
+    RELEASE-009.
+    """
+    import subprocess  # noqa: PLC0415
+
+    _scripts_dir = Path(__file__).parent
+    record_script = _scripts_dir / "record_attempt.py"
+    result = subprocess.run(
+        [sys.executable, str(record_script)] + sys.argv[sys.argv.index("record-attempt") + 1 :],
+        check=False,
+    )
+    sys.exit(result.returncode)
+
+
 if __name__ == "__main__":
     flex_build()

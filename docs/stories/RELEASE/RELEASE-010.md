@@ -2,7 +2,7 @@
 id: RELEASE-010
 rail: RELEASE
 title: Wire gate-worker into bootstrap/sync and verify leaf-worker dispatch
-status: draft
+status: complete
 phase: "HARNESS012-main"
 story_class: code
 auth_gated: false

@@ -32,9 +32,14 @@ TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 # Note: builder.md.j2, reviewer.md.j2, loop-breaker.md.j2, security-auditor.md.j2,
 # and intent-reviewer.md.j2 were retired in HARNESS-002. Their corresponding .claude/agents/
 # files are no longer canonical — they are now delivered as procedure skill shells.
+#
+# reconstruction-agent.md and gate-worker.md are canonical (RELEASE-010): must mirror
+# AGENT_FILES in bootstrap.py so audit/sync keep these shells current after template changes.
 CANONICAL_FILES: list[tuple[str, str]] = [
     ("CLAUDE.md", "CLAUDE.md.j2"),
     ("CLAUDE.build.md", "CLAUDE.build.md.j2"),
+    (".claude/agents/reconstruction-agent.md", "agents/reconstruction-agent.md.j2"),
+    (".claude/agents/gate-worker.md", "agents/gate-worker.md.j2"),
 ]
 
 # Scaffold files: Phase 7 docs that receive full section-level comparison.

@@ -88,6 +88,9 @@ EXPECTED_DEST_PATHS = [
     # intent-reviewer.md were retired in HARNESS-002 (dogfood flip). Bootstrap no
     # longer generates these files; procedure skill shells replace them.
     ".claude/agents/reconstruction-agent.md",
+    # gate-worker.md is deployed so the orchestrator has a dispatch path for
+    # spawn-gate-worker (stories with schema_introduces/auth_gated true).
+    ".claude/agents/gate-worker.md",
     "docs/architecture.md",
     "docs/checkpoints.md",
     "docs/phases/index.md",
@@ -156,6 +159,33 @@ class TestBootstrapCreatesFiles:
         run_bootstrap(tmp_path)
         content = (tmp_path / "docs/checkpoints.md").read_text()
         assert "testproject" in content
+
+
+# ---------------------------------------------------------------------------
+# Gate-worker dispatch tests (RELEASE-010)
+# ---------------------------------------------------------------------------
+
+class TestGateWorkerDispatch:
+    """Bootstrap deploys gate-worker so the orchestrator can dispatch spawn-gate-worker."""
+
+    def test_gate_worker_agent_shell_created(self, tmp_path):
+        """Bootstrap must create .claude/agents/gate-worker.md."""
+        run_bootstrap(tmp_path)
+        assert (tmp_path / ".claude/agents/gate-worker.md").exists(), (
+            "gate-worker.md missing; orchestrator has no dispatch path for spawn-gate-worker"
+        )
+
+    def test_gate_worker_contains_project_name(self, tmp_path):
+        """Gate-worker shell must be rendered with project_name substituted."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / ".claude/agents/gate-worker.md").read_text()
+        assert "testproject" in content
+
+    def test_gate_worker_references_procedure_skill(self, tmp_path):
+        """Gate-worker shell must reference the gate_worker procedure skill path."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / ".claude/agents/gate-worker.md").read_text()
+        assert "gate_worker" in content or "gate-worker" in content
 
 
 # ---------------------------------------------------------------------------

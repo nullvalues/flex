@@ -62,8 +62,14 @@ SCAFFOLD_FILES: list[tuple[str, str]] = [
 # Note: builder.md.j2, reviewer.md.j2, loop-breaker.md.j2, security-auditor.md.j2,
 # and intent-reviewer.md.j2 were retired in HARNESS-002 (dogfood flip). New projects
 # use procedure skill shells instead of rendered agent files for these roles.
+#
+# gate-worker.md.j2 is included (RELEASE-010): the resolver emits spawn-gate-worker for
+# stories with schema_introduces/auth_gated true; without this shell the orchestrator has
+# no dispatch path for that action.  The shell references skills/pairmode/gate_worker/SKILL.md
+# (relative to project root) which is present in any project bootstrapped from this harness.
 AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/reconstruction-agent.md", "agents/reconstruction-agent.md.j2"),
+    (".claude/agents/gate-worker.md", "agents/gate-worker.md.j2"),
 ]
 
 # Default deny list written into .claude/settings.json.
