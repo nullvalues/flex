@@ -90,6 +90,8 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | HARNESS010-main | Token surgery | complete | [phase-HARNESS010-main.md](phase-HARNESS010-main.md) · cp-HARNESS010-main |
 | HARNESS009-post1 | HARNESS009 backlog close-out | complete | [phase-HARNESS009-post1.md](phase-HARNESS009-post1.md) · cp-HARNESS009-post1 |
 | HARNESS011-main | Era 3 closeout remediation | planned | [phase-HARNESS011-main.md](phase-HARNESS011-main.md) |
+| HARNESS012-main | Era 3 Fold Prep | planned | [phase-HARNESS012-main.md](phase-HARNESS012-main.md) |
+| HARNESS013-main | Era 3 Fleet Migration | planned | [phase-HARNESS013-main.md](phase-HARNESS013-main.md) |
 
 ---
 
