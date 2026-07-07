@@ -65,7 +65,8 @@ flex/
         era_transition.py         ← formally close the current active era and open the next; CLI: uv run era_transition.py --project-dir DIR [--name NAME] [--intent INTENT] [--yes]; also registered as flex_build.py transition-era
         schema_validator.py       ← validate story/era/phase manifest frontmatter
         permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json (legacy; Phase 55 replaces runtime use with scope_guard.py + permissions-create for new projects)
-        scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json and fails open (Phase 55, INFRA-138)
+        scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json; fails open on non-protected paths when no active story, but fails closed (blocks) on PROTECTED_GLOBS paths even without an active story (INFRA-196)
+        state_utils.py            ← shared helper for atomic state.json writes (`_atomic_write_json`)
         session_reset.py          ← pure decision logic for SessionStart counter reset; no I/O (mirrors context_budget.py D11 boundary); CER-047 / Phase 68 INFRA-175
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
         next_story.py             ← find next unbuilt story from a phase file; CLI: uv run next_story.py <phase-file> [--json] [--project-dir DIR]
@@ -244,9 +245,12 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    `<project_dir>/docs/phases/permissions/<story_id>.json` to verify the target
    path is declared in the active story's `primary_files` or `touches`. If the
    path is not declared, the hook emits `{"decision": "block", "reason": "..."}`.
-   The check fails open on any error (missing state, missing permissions file,
-   malformed JSON) so non-story orchestrator work (checkpointing, spec mode) is
-   never blocked. Introduced in Phase 55 (INFRA-138, INFRA-139).
+   On any error (missing state, missing permissions file, malformed JSON), the
+   check fails open for non-protected paths so non-story orchestrator work
+   (checkpointing, spec mode) is never blocked. However, paths matching
+   PROTECTED_GLOBS fail closed even without an active story (INFRA-196), so
+   protected paths are always blocked outside an active story context.
+   Introduced in Phase 55 (INFRA-138, INFRA-139).
 
 10. **Checkpoint** — at phase end, the checkpoint sequence runs:
     `checkpoint-security` (security-auditor, WORKER-008) → `checkpoint-intent` (intent-reviewer,
@@ -974,7 +978,7 @@ project root. The helper `skills/pairmode/scripts/story_context.py` provides:
 **Non-negotiable: hooks are thin relays.**
 
 Hooks must:
-- Write a JSON message to `/tmp/companion.pipe` (or the project-scoped pipe path from `state.json["pipe_path"]`)
+- Write a JSON message to `/tmp/companion.pipe`
 - Exit in milliseconds
 - Never make API calls
 - Never write to spec files directly
