@@ -288,12 +288,19 @@ def _build_template_context(project_dir: Path) -> dict:
     else:
         project_name = project_name.strip().replace("\n", "").replace("\r", "")
 
+    default_branch = (
+        state.get("default_branch")
+        or pctx.get("default_branch")
+        or "main"
+    )
+
     return {
         "project_name": project_name,
         "build_command": pctx.get("build_command") or state.get("build_command") or "",
         "test_command": pctx.get("test_command") or state.get("test_command") or "",
         "migration_command": pctx.get("migration_command") or state.get("migration_command") or "",
         "pairmode_scripts_dir": str(Path(__file__).parent),
+        "default_branch": default_branch,
         "domain_isolation_rule": pctx.get("domain_isolation_rule") or state.get("domain_isolation_rule") or "",
         "protected_paths": pctx.get("protected_paths") or state.get("protected_paths") or [],
     }

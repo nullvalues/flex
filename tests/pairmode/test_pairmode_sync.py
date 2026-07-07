@@ -110,12 +110,85 @@ class TestRenderBuildTemplate:
     def test_rendered_template_contains_absolute_scripts_path(self, tmp_path: pathlib.Path) -> None:
         """The rendered build template must contain the absolute scripts directory path.
 
-        HARNESS-001: the thin dispatch loop template no longer embeds pairmode_scripts_dir
-        inline (all bash commands with explicit script paths are removed). This test is
-        skipped until a post-flip template reintroduces the path reference.
+        RELEASE-009: pairmode_scripts_dir is now explicitly embedded in the template.
         """
-        import pytest
-        pytest.skip("HARNESS-001: thin dispatch loop removed pairmode_scripts_dir from CLAUDE.build.md.j2")
+        ctx = self._make_context(tmp_path)
+        rendered = _render_build_template(ctx)
+        absolute_scripts = ctx["pairmode_scripts_dir"]
+        assert absolute_scripts in rendered, (
+            f"Rendered CLAUDE.build.md does not contain absolute scripts path {absolute_scripts!r}"
+        )
+
+    def test_rendered_template_has_pairmode_scripts_dir_line(self, tmp_path: pathlib.Path) -> None:
+        """Rendered CLAUDE.build.md must contain a 'pairmode_scripts_dir = <path>' line.
+
+        Signal-1 detection in fleet_discovery.py uses _SCRIPTS_DIR_PATTERN which
+        matches exactly this key-value form.  RELEASE-009 defect 1.
+        """
+        import re
+        ctx = self._make_context(tmp_path)
+        rendered = _render_build_template(ctx)
+        pattern = re.compile(r"pairmode_scripts_dir\s*=\s*\S+")
+        assert pattern.search(rendered), (
+            "Rendered CLAUDE.build.md does not contain a 'pairmode_scripts_dir = <path>' line"
+        )
+
+    def test_rendered_template_has_no_bare_flex_build_invocations(self, tmp_path: pathlib.Path) -> None:
+        """All flex_build.py invocations in the rendered template must use absolute paths.
+
+        RELEASE-009 defect 2: bare 'flex_build.py' references must not appear.
+        """
+        ctx = self._make_context(tmp_path)
+        rendered = _render_build_template(ctx)
+        absolute_scripts = ctx["pairmode_scripts_dir"]
+        for lineno, line in enumerate(rendered.splitlines(), 1):
+            # A bare invocation is one that contains 'flex_build.py' but NOT
+            # the absolute scripts path prefix.
+            if "flex_build.py" in line and absolute_scripts not in line:
+                raise AssertionError(
+                    f"Line {lineno} contains bare 'flex_build.py' without absolute path prefix:\n  {line}"
+                )
+
+    def test_rendered_template_does_not_hardcode_harness_branch(self, tmp_path: pathlib.Path) -> None:
+        """The rendered template must not contain the literal string 'harness' as a branch name.
+
+        RELEASE-009 defect 3: the tag-push line must use the project's default_branch variable.
+        """
+        ctx = self._make_context(tmp_path)
+        rendered = _render_build_template(ctx)
+        # Look for patterns like 'git push origin harness' that hardcode the branch
+        import re
+        pattern = re.compile(r"git push origin harness")
+        assert not pattern.search(rendered), (
+            "Rendered CLAUDE.build.md hardcodes 'harness' as the push branch — "
+            "should use default_branch variable"
+        )
+
+    def test_rendered_template_record_attempt_uses_absolute_path(self, tmp_path: pathlib.Path) -> None:
+        """The record-attempt invocation in the rendered template must use the absolute path.
+
+        RELEASE-009 defect 4: record-attempt must be dispatched via the absolute
+        flex_build.py path, not a bare subcommand reference.
+        """
+        ctx = self._make_context(tmp_path)
+        rendered = _render_build_template(ctx)
+        absolute_scripts = ctx["pairmode_scripts_dir"]
+        # The record-attempt line should reference absolute path/flex_build.py record-attempt
+        for lineno, line in enumerate(rendered.splitlines(), 1):
+            if "record-attempt" in line and "flex_build.py" in line:
+                if absolute_scripts not in line:
+                    raise AssertionError(
+                        f"Line {lineno} has record-attempt via flex_build.py but not absolute path:\n  {line}"
+                    )
+                return  # found and it's correct
+        # Also acceptable: no flex_build.py on the record-attempt line — means it's using
+        # record_attempt.py directly or the line format differs; check for absolute path
+        for lineno, line in enumerate(rendered.splitlines(), 1):
+            if "record-attempt" in line:
+                if absolute_scripts not in line:
+                    raise AssertionError(
+                        f"Line {lineno} has record-attempt without absolute scripts path:\n  {line}"
+                    )
 
 
 class TestMergeBodySections:
