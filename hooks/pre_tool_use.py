@@ -29,6 +29,8 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN_ROOT / "skills" / "pairmode" / "scripts"))
 
+from state_utils import _atomic_write_json  # noqa: E402
+
 
 def main():
     try:
@@ -53,7 +55,7 @@ def main():
                 if state_path.exists():
                     state = json.loads(state_path.read_text())
                     state["context_budget_acknowledged_at"] = result["acknowledged_at"]
-                    state_path.write_text(json.dumps(state, indent=2))
+                    _atomic_write_json(state_path, state)
             except Exception:
                 pass
             print(json.dumps({"decision": "block", "reason": result["reason"]}))

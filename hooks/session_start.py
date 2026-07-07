@@ -19,6 +19,8 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN_ROOT / "skills" / "pairmode" / "scripts"))
 
+from state_utils import _atomic_write_json  # noqa: E402
+
 
 def _pipe_active(pipe_path: str) -> bool:
     return bool(pipe_path) and Path(pipe_path).exists()
@@ -75,9 +77,7 @@ def main() -> None:
                 "context_current_tokens_recorded_at"
             ]
             state["context_session_reset_at"] = reset_result["context_session_reset_at"]
-            state_path.write_text(
-                json.dumps(state, indent=2), encoding="utf-8"
-            )
+            _atomic_write_json(state_path, state)
             reset_notice = (
                 f"Context counter reset to {baseline} "
                 f"(session source: {source})."

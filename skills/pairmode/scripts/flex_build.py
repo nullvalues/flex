@@ -50,6 +50,7 @@ from permission_scope import (  # noqa: E402
 from effort_db import check_guardrail, resolve_effort_db_path  # noqa: E402
 from context_health import check_context_health  # noqa: E402
 from next_action import _CHECKPOINT_SEQUENCE  # noqa: E402
+from state_utils import _atomic_write_json  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -943,7 +944,7 @@ def cmd_set_context_tokens(tokens: int, project_dir: str) -> None:
     state["context_current_tokens"] = tokens
     state["context_current_tokens_recorded_at"] = now_iso
 
-    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    _atomic_write_json(state_path, state)
     click.echo(f"context: recorded {tokens:,} tokens")
 
 
@@ -993,7 +994,7 @@ def cmd_bump_context_tokens(cost: int, project_dir: str) -> None:
 
     state["context_current_tokens"] = base + cost
     state["context_current_tokens_recorded_at"] = datetime.now(timezone.utc).isoformat()
-    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    _atomic_write_json(state_path, state)
     click.echo(f"context: bumped by {cost:,} → total {state['context_current_tokens']:,} tokens")
 
 
