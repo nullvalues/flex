@@ -45,6 +45,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp79-era002-index-tooling-maintenance
+
+**Phase:** 79 — era-002 index-tooling maintenance (current-phase, mark-phase-complete, reviewer revert)
+**Tag command:** `git tag cp79-era002-index-tooling-maintenance && git push origin cp79-era002-index-tooling-maintenance`
+**Acceptance:** Three stories. **BUILD-036**: `current-phase` first-incomplete selection + terminal/parked status classification (`_is_terminal_status`/`_is_active_status` helpers; forward-scan replaces last-wins; fileless-phase guard folded in). **BUILD-037**: `mark-phase-complete` column-count-preserving status rewrite (`cells[1:-1]` inner-cell extraction; 4- and 5-column layouts both preserved). **BUILD-038**: dropped `git clean -fd` from the FAIL-revert block in `.claude/agents/reviewer.md` (tracked files restored via `git checkout .`; untracked files intentionally left in place). Doc update: `architecture.md` revert-path description corrected. Surfaced CER-060 (template `reviewer.md.j2` still carries `git clean -fd` — follow-up story needed). Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: ALIGNED. 2266 tests pass.
+
+---
+
 ## cp-HARNESS001-ante1
 
 **Phase:** HARNESS001-ante1 — Versioning & upstream compatibility (Era 003 preflight)
@@ -571,3 +579,33 @@ CER-031). All docs follow the catalog template verbatim with real "What Broke" i
 **Phase:** 78
 **Stories:** INFRA-184, BUILD-034, BUILD-035
 **Acceptance:** Orchestrator pre-flight gates (auth, schema, stub) offloaded from inline LLM judgment to `flex_build.py` CLI calls. New story frontmatter fields `auth_gated` + `schema_introduces` scaffolded by `story_new.py`. CLAUDE.build.md.j2 template updated so `sync-build --apply` propagates to upstream repos. 2232 tests pass.
+
+## cp80-prereview-blanket-stage-exclusion
+**Tag command:** `git tag cp80-prereview-blanket-stage-exclusion && git push origin cp80-prereview-blanket-stage-exclusion`
+**Phase:** 80
+**Stories:** BUILD-039
+**Acceptance:** `git reset HEAD` exclusion loop added to Step 1.5 of `CLAUDE.build.md` (and its `.j2` template) — the orchestrator now unstages any story `primary_files`/`touches` swept up by the blanket `git add docs/phases/ docs/cer/` before the pre-reviewer commit fires. Prevents story deliverables whose primary_file lives under `docs/phases/` from being silently committed unreviewed under the chore message (L018). 2266 tests pass.
+
+## cp81-write-clear-permissions-build-loop
+**Tag command:** `git tag cp81-write-clear-permissions-build-loop && git push origin cp81-write-clear-permissions-build-loop`
+**Phase:** 81
+**Stories:** BUILD-040
+**Acceptance:** `flex_build.py write-permissions` and `clear-permissions` wired into `CLAUDE.build.md` Step 1 and Step 3 respectively (and matching `.j2` template). Layer 2 allow-rule writes now suppress Claude Code permission prompts for story-declared files on every build, eliminating the manual auto-mode toggle requirement in upstream era-002 projects. `docs/architecture.md` updated to describe the two-layer permission model. 2266 tests pass.
+
+## cp84-spec-preflight-verification
+**Tag command:** `git tag cp84-spec-preflight-verification && git push origin cp84-spec-preflight-verification`
+**Phase:** 84
+**Stories:** INFRA-190, INFRA-191
+**Acceptance:** `spec_preflight.py` created — scans story Ensures/Instructions/Implementation-notes for `/api/` routes and SCREAMING_SNAKE constants, warns when none are found in source tree, always exits 0, 12 tests (INFRA-190). `flex_build.py spec-preflight` subcommand registered, inserted into `CLAUDE.build.md.j2` between stub gate and scope check with informational surface block, `docs/architecture.md` updated with module entry and build-loop prose (INFRA-191). Security audit: 0 CRITICAL/HIGH (1 LOW — CER-061 filed Do Later). Intent review: ALIGNED. 2310 tests pass.
+
+## cp83-spec-quality-gates
+**Tag command:** `git tag cp83-spec-quality-gates && git push origin cp83-spec-quality-gates`
+**Phase:** 83
+**Stories:** BUILD-042, BUILD-043, INFRA-186, INFRA-187, INFRA-188, INFRA-189
+**Acceptance:** Six targeted interventions to reduce fleet-wide retry rate: `effort_tracking` enabled on flex itself (BUILD-042); reviewer FAIL-CAUSE emission + `--notes` capture in effort DB (BUILD-043); `docs/architecture.md` touches hint in `story_new.py` and `check-story-scope` (INFRA-186); pointer-only Ensures rejection for `code`/`methodology` stories in `schema_validator.py` (INFRA-187); scope budget warning at >8 declared files in `check-story-scope` (INFRA-188); `test_gate` frontmatter field with `story`/`phase_checkpoint`/`none` values validated by schema_validator and scaffolded by `story_new.py` (INFRA-189). Security audit: 0 findings. Intent review: ALIGNED (2 doc edits applied to `docs/architecture.md`). 2294 tests pass.
+
+## cp82-security-auditor-hook-exceptions-audit-scope
+**Tag command:** `git tag cp82-security-auditor-hook-exceptions-audit-scope && git push origin cp82-security-auditor-hook-exceptions-audit-scope`
+**Phase:** 82
+**Stories:** BUILD-041
+**Acceptance:** Security-auditor template (`skills/pairmode/templates/agents/security-auditor.md.j2`) and live agent file (`.claude/agents/security-auditor.md`) updated to enumerate the five documented pairmode thin-delegation hook exceptions and add an Audit scope rule excluding upstream plugin infrastructure findings from downstream project checkpoint PASS/FAIL. Eliminates false CRITICAL/HIGH findings that blocked era-002 projects. `docs/architecture.md` clarified that `stop.py` and `session_end.py` are plain pipe relays requiring no thin-delegation exception documentation. Security audit: 0 findings. Intent review: ALIGNED. 2266 tests pass.

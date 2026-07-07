@@ -25,3 +25,6 @@ Thumbs.db
 # Flex runtime
 .companion/
 .claude/story_scope.json
+
+# Ephemeral notes and screenshots (not record-keeping)
+flex_eph/

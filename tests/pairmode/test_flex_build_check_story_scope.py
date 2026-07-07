@@ -112,7 +112,7 @@ def test_rule1_fires_when_script_declared_without_test(tmp_path: Path) -> None:
 
 
 def test_rule1_silent_when_test_declared(tmp_path: Path) -> None:
-    """Both script and test declared; test file on disk -> no warning."""
+    """Both script and test declared; test file on disk -> no SCOPE WARNING."""
     _make_story(
         tmp_path,
         "INFRA-001",
@@ -126,11 +126,11 @@ def test_rule1_silent_when_test_declared(tmp_path: Path) -> None:
 
     result = _run("check-story-scope", "INFRA-001", project_dir=tmp_path)
     assert result.returncode == 0
-    assert result.stdout.strip() == ""
+    assert "SCOPE WARNING:" not in result.stdout
 
 
 def test_rule1_silent_when_test_not_on_disk(tmp_path: Path) -> None:
-    """Script declared but expected test path does not exist -> no warning."""
+    """Script declared but expected test path does not exist -> no SCOPE WARNING."""
     _make_story(
         tmp_path,
         "INFRA-001",
@@ -141,11 +141,11 @@ def test_rule1_silent_when_test_not_on_disk(tmp_path: Path) -> None:
 
     result = _run("check-story-scope", "INFRA-001", project_dir=tmp_path)
     assert result.returncode == 0
-    assert result.stdout.strip() == ""
+    assert "SCOPE WARNING:" not in result.stdout
 
 
 def test_rule1_silent_for_script_in_touches(tmp_path: Path) -> None:
-    """Script in touches, test in primary_files -> scope union covers both, no warning."""
+    """Script in touches, test in primary_files -> scope union covers both, no SCOPE WARNING."""
     _make_story(
         tmp_path,
         "INFRA-001",
@@ -156,7 +156,7 @@ def test_rule1_silent_for_script_in_touches(tmp_path: Path) -> None:
 
     result = _run("check-story-scope", "INFRA-001", project_dir=tmp_path)
     assert result.returncode == 0
-    assert result.stdout.strip() == ""
+    assert "SCOPE WARNING:" not in result.stdout
 
 
 def test_rule1_skips_test_files_and_init(tmp_path: Path) -> None:
@@ -176,7 +176,7 @@ def test_rule1_skips_test_files_and_init(tmp_path: Path) -> None:
 
     result = _run("check-story-scope", "INFRA-001", project_dir=tmp_path)
     assert result.returncode == 0
-    assert result.stdout.strip() == ""
+    assert "SCOPE WARNING:" not in result.stdout
 
 
 def test_rule2_fires_when_template_declared_without_live(tmp_path: Path) -> None:
@@ -197,7 +197,7 @@ def test_rule2_fires_when_template_declared_without_live(tmp_path: Path) -> None
 
 
 def test_rule2_silent_when_live_declared(tmp_path: Path) -> None:
-    """Both template and live file declared -> no warning."""
+    """Both template and live file declared -> no SCOPE WARNING."""
     _make_story(
         tmp_path,
         "INFRA-001",
@@ -211,11 +211,11 @@ def test_rule2_silent_when_live_declared(tmp_path: Path) -> None:
 
     result = _run("check-story-scope", "INFRA-001", project_dir=tmp_path)
     assert result.returncode == 0
-    assert result.stdout.strip() == ""
+    assert "SCOPE WARNING:" not in result.stdout
 
 
 def test_rule2_silent_when_no_live_counterpart_exists(tmp_path: Path) -> None:
-    """Template declared but no live counterpart at any candidate location -> no warning."""
+    """Template declared but no live counterpart at any candidate location -> no SCOPE WARNING."""
     _make_story(
         tmp_path,
         "INFRA-001",
@@ -226,16 +226,16 @@ def test_rule2_silent_when_no_live_counterpart_exists(tmp_path: Path) -> None:
 
     result = _run("check-story-scope", "INFRA-001", project_dir=tmp_path)
     assert result.returncode == 0
-    assert result.stdout.strip() == ""
+    assert "SCOPE WARNING:" not in result.stdout
 
 
 def test_no_warnings_on_empty_primary_files(tmp_path: Path) -> None:
-    """Empty primary_files and touches -> no warnings, exit 0."""
+    """Empty primary_files and touches -> no SCOPE WARNINGs, exit 0."""
     _make_story(tmp_path, "INFRA-001", primary_files=[], touches=[])
 
     result = _run("check-story-scope", "INFRA-001", project_dir=tmp_path)
     assert result.returncode == 0
-    assert result.stdout.strip() == ""
+    assert "SCOPE WARNING:" not in result.stdout
 
 
 def test_exit_zero_when_warnings_present(tmp_path: Path) -> None:

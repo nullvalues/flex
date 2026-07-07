@@ -714,3 +714,322 @@ def test_current_phase_finds_active_in_second_era(tmp_path: Path) -> None:
     result = _run("current-phase", "--project-dir", str(tmp_path))
     assert result.returncode == 0, f"stderr: {result.stderr}"
     assert "phase-20" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# BUILD-043: Reviewer FAIL reason capture via FAIL-CAUSE / --notes
+#
+# RELEASE-008 fold note: the retired agent template `reviewer.md.j2` and live
+# agent `.claude/agents/reviewer.md` were deleted at the Era 3 fold merge. The
+# FAIL-CAUSE instruction was ported into the plugin-versioned reviewer
+# procedure skill, which is now the single live reviewer surface. These tests
+# were retargeted accordingly.
+# ---------------------------------------------------------------------------
+
+_REVIEWER_PROCEDURE = (
+    _REPO_ROOT / "skills" / "pairmode" / "skills" / "reviewer" / "procedure.md"
+)
+
+
+def test_reviewer_procedure_contains_fail_cause_instruction() -> None:
+    """reviewer procedure.md must emit FAIL-CAUSE before git checkout on FAIL."""
+    text = _REVIEWER_PROCEDURE.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    assert "Before reverting, emit one line" in text, (
+        "reviewer procedure.md missing 'Before reverting, emit one line' instruction"
+    )
+    assert "FAIL-CAUSE:" in text, "reviewer procedure.md missing FAIL-CAUSE: marker"
+
+    # FAIL-CAUSE: must appear before the FAIL-revert git checkout command.
+    fail_cause_line = next(
+        (i for i, ln in enumerate(lines) if "FAIL-CAUSE:" in ln), None
+    )
+    git_checkout_line = next(
+        (
+            i
+            for i, ln in enumerate(lines)
+            if ln.strip() == "git checkout ."
+        ),
+        None,
+    )
+    assert fail_cause_line is not None, "FAIL-CAUSE: not found in reviewer procedure.md"
+    assert git_checkout_line is not None, (
+        "git checkout . not found in reviewer procedure.md"
+    )
+    assert fail_cause_line < git_checkout_line, (
+        f"FAIL-CAUSE: (line {fail_cause_line}) must appear before "
+        f"git checkout . (line {git_checkout_line}) in reviewer procedure.md"
+    )
+
+
+def test_reviewer_procedure_passes_notes_on_reviewer_fail() -> None:
+    """The reviewer procedure must document --notes near --outcome FAIL."""
+    text = _REVIEWER_PROCEDURE.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    fail_lines = [i for i, ln in enumerate(lines) if "--outcome FAIL" in ln]
+    assert fail_lines, "No '--outcome FAIL' found in reviewer procedure.md"
+
+    found_notes_near_fail = False
+    for fail_idx in fail_lines:
+        window_start = max(0, fail_idx - 30)
+        window_end = min(len(lines), fail_idx + 30)
+        window = "\n".join(lines[window_start:window_end])
+        if "--notes" in window:
+            found_notes_near_fail = True
+            break
+
+    assert found_notes_near_fail, (
+        "--notes not found within 30 lines of '--outcome FAIL' in reviewer procedure.md"
+    )
+
+
+# ---------------------------------------------------------------------------
+# check-story-scope: architecture.md hint
+# ---------------------------------------------------------------------------
+
+
+def _write_story_with_touches(
+    project_dir: Path,
+    story_id: str,
+    *,
+    story_class: str = "code",
+    primary_files: list[str] | None = None,
+    touches: list[str] | None = None,
+    phase: str = "83",
+) -> Path:
+    """Write a minimal story spec with explicit touches list."""
+    rail = story_id.split("-", 1)[0]
+    story_dir = project_dir / "docs" / "stories" / rail
+    story_dir.mkdir(parents=True, exist_ok=True)
+    story_path = story_dir / f"{story_id}.md"
+
+    def _yaml_list(items: list[str] | None) -> str:
+        if not items:
+            return "[]"
+        entries = "\n".join(f"  - {p}" for p in items)
+        return f"\n{entries}"
+
+    frontmatter = (
+        "---\n"
+        f"id: {story_id}\n"
+        f"rail: {rail}\n"
+        f"phase: '{phase}'\n"
+        f"story_class: {story_class}\n"
+        "status: planned\n"
+        f"primary_files: {_yaml_list(primary_files)}\n"
+        f"touches: {_yaml_list(touches)}\n"
+        "---\n\n"
+        "## Acceptance criterion\n\n_(fill in)_\n"
+    )
+    story_path.write_text(frontmatter, encoding="utf-8")
+    return story_path
+
+
+def test_check_story_scope_code_no_docs_emits_architecture_hint(tmp_path: Path) -> None:
+    """code story with no docs/ paths emits 'Scope hint' and 'docs/architecture.md'."""
+    _write_story_with_touches(
+        tmp_path,
+        "TEST-001",
+        story_class="code",
+        primary_files=["skills/pairmode/scripts/foo.py"],
+        touches=[],
+    )
+    result = _run(
+        "check-story-scope",
+        "TEST-001",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Scope hint" in result.stdout
+    assert "docs/architecture.md" in result.stdout
+
+
+def test_check_story_scope_code_with_docs_path_no_hint(tmp_path: Path) -> None:
+    """code story that already touches a docs/ path does NOT emit the architecture hint."""
+    _write_story_with_touches(
+        tmp_path,
+        "TEST-002",
+        story_class="code",
+        primary_files=["skills/pairmode/scripts/foo.py"],
+        touches=["docs/architecture.md"],
+    )
+    result = _run(
+        "check-story-scope",
+        "TEST-002",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Scope hint" not in result.stdout
+
+
+def test_check_story_scope_methodology_no_hint(tmp_path: Path) -> None:
+    """methodology story does NOT emit the architecture hint."""
+    _write_story_with_touches(
+        tmp_path,
+        "TEST-003",
+        story_class="methodology",
+        primary_files=["skills/pairmode/templates/agents/builder.md.j2"],
+        touches=[],
+    )
+    result = _run(
+        "check-story-scope",
+        "TEST-003",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Scope hint" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Scope budget warning tests (INFRA-188)
+# ---------------------------------------------------------------------------
+
+
+def test_scope_budget_warning_emitted_when_over_limit(tmp_path: Path) -> None:
+    """Story with 5 primary_files + 5 touches (10 total) emits scope budget warning."""
+    _write_story_with_touches(
+        tmp_path,
+        "TEST-010",
+        story_class="code",
+        primary_files=[
+            "skills/pairmode/scripts/a.py",
+            "skills/pairmode/scripts/b.py",
+            "skills/pairmode/scripts/c.py",
+            "skills/pairmode/scripts/d.py",
+            "skills/pairmode/scripts/e.py",
+        ],
+        touches=[
+            "tests/pairmode/test_a.py",
+            "tests/pairmode/test_b.py",
+            "tests/pairmode/test_c.py",
+            "tests/pairmode/test_d.py",
+            "tests/pairmode/test_e.py",
+        ],
+    )
+    result = _run(
+        "check-story-scope",
+        "TEST-010",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Scope budget" in result.stdout
+    assert "10 files" in result.stdout
+    assert "consider splitting" in result.stdout
+
+
+def test_scope_budget_no_warning_at_limit(tmp_path: Path) -> None:
+    """Story with exactly 8 declared files does NOT emit scope budget warning."""
+    _write_story_with_touches(
+        tmp_path,
+        "TEST-011",
+        story_class="code",
+        primary_files=[
+            "skills/pairmode/scripts/a.py",
+            "skills/pairmode/scripts/b.py",
+            "skills/pairmode/scripts/c.py",
+            "skills/pairmode/scripts/d.py",
+        ],
+        touches=[
+            "tests/pairmode/test_a.py",
+            "tests/pairmode/test_b.py",
+            "tests/pairmode/test_c.py",
+            "tests/pairmode/test_d.py",
+        ],
+    )
+    result = _run(
+        "check-story-scope",
+        "TEST-011",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Scope budget" not in result.stdout
+
+
+def test_scope_budget_no_warning_when_empty(tmp_path: Path) -> None:
+    """Story with both lists empty does NOT emit scope budget warning."""
+    _write_story_with_touches(
+        tmp_path,
+        "TEST-012",
+        story_class="doc",
+        primary_files=[],
+        touches=[],
+    )
+    result = _run(
+        "check-story-scope",
+        "TEST-012",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Scope budget" not in result.stdout
+
+
+def test_scope_budget_exit_code_zero(tmp_path: Path) -> None:
+    """Over-limit story still exits 0 (informational, not blocking)."""
+    _write_story_with_touches(
+        tmp_path,
+        "TEST-013",
+        story_class="code",
+        primary_files=[f"skills/pairmode/scripts/file{i}.py" for i in range(9)],
+        touches=[],
+    )
+    result = _run(
+        "check-story-scope",
+        "TEST-013",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0
+    assert "Scope budget" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# spec-preflight (INFRA-191)
+# ---------------------------------------------------------------------------
+
+
+def test_spec_preflight_subcommand_exits_0_with_clean_story(tmp_path: Path) -> None:
+    """A story with no route/constant references exits 0 with empty stdout."""
+    _write_stub_story_fm(
+        tmp_path,
+        "TEST-800",
+        body="## Ensures\n\n- The widget is green.\n",
+    )
+    result = _run("spec-preflight", "--story-id", "TEST-800", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert result.stdout.strip() == ""
+
+
+def test_spec_preflight_subcommand_missing_story_exits_0(tmp_path: Path) -> None:
+    """A nonexistent story ID exits 0 (informational, not blocking)."""
+    result = _run("spec-preflight", "--story-id", "INFRA-999", "--project-dir", str(tmp_path))
+    assert result.returncode == 0
+
+
+def test_spec_preflight_subcommand_help_shows_story_id_flag() -> None:
+    """spec-preflight --help output must mention --story-id."""
+    result = _run("spec-preflight", "--help")
+    assert result.returncode == 0, result.stderr
+    assert "--story-id" in result.stdout
+
+
+def test_spec_writer_procedure_references_spec_preflight() -> None:
+    """INFRA-191 fold location (RELEASE-008): the fat CLAUDE.build.md.j2 step was
+    superseded by the thin harness; spec-preflight is wired as a
+    `flex_build.py spec-preflight` subcommand and referenced from the
+    spec-writer procedure skill instead."""
+    procedure = (
+        _REPO_ROOT
+        / "skills"
+        / "pairmode"
+        / "skills"
+        / "spec-writer"
+        / "procedure.md"
+    )
+    text = procedure.read_text(encoding="utf-8")
+    assert "spec-preflight" in text, (
+        "spec-preflight not referenced in spec-writer procedure.md"
+    )
+    assert "flex_build.py" in text, (
+        "flex_build.py invocation not referenced in spec-writer procedure.md"
+    )

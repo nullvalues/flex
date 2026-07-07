@@ -1,0 +1,12 @@
+{
+  "story_id": "BUILD-043",
+  "story_spec": "docs/stories/BUILD/BUILD-043.md",
+  "allowed_paths": [
+    "skills/pairmode/templates/agents/reviewer.md.j2",
+    "skills/pairmode/templates/CLAUDE.build.md.j2",
+    ".claude/agents/reviewer.md",
+    "tests/pairmode/test_flex_build.py",
+    "docs/stories/BUILD/BUILD-043.md"
+  ],
+  "generated_at": "2026-07-06T02:59:39Z"
+}

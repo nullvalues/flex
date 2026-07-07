@@ -7,7 +7,7 @@ import pathlib
 import pytest
 from click.testing import CliRunner
 
-from skills.pairmode.scripts.story_new import story_new, _story_frontmatter
+from skills.pairmode.scripts.story_new import story_new, _story_frontmatter, create_story
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +623,24 @@ class TestAuthGatedSchemaIntroducesFields:
         # primary_files is omitted for new stories (CER-006)
         assert "primary_files:" not in output
 
+
+class TestTouchesArchitectureComment:
+    """The touches: line in generated frontmatter carries an architecture.md hint comment."""
+
+    def test_story_frontmatter_touches_has_architecture_comment(self) -> None:
+        """_story_frontmatter() includes 'docs/architecture.md' comment on the touches: line."""
+        output = _story_frontmatter("TEST-001", "TEST", "foo", None, story_class="code")
+        assert "docs/architecture.md" in output
+        # The comment must appear on the touches: line specifically
+        for line in output.splitlines():
+            if line.startswith("touches:"):
+                assert "docs/architecture.md" in line, (
+                    f"docs/architecture.md comment not on touches: line. Line was: {line!r}"
+                )
+                break
+        else:
+            raise AssertionError("touches: line not found in frontmatter output")
+
     def test_story_frontmatter_fields_in_frontmatter_block_not_body(
         self, tmp_path: pathlib.Path
     ) -> None:
@@ -674,3 +692,33 @@ class TestPathTraversalGuard:
         else:
             # On some systems /tmp resolves to more parts — skip this check gracefully
             pytest.skip("/tmp resolves to >= 3 parts on this system")
+
+
+class TestTestGateFlag:
+    """--test-gate writes test_gate into generated frontmatter."""
+
+    def test_story_new_with_test_gate_writes_field(self, tmp_path: pathlib.Path) -> None:
+        """create_story with test_gate='phase_checkpoint' writes test_gate: phase_checkpoint."""
+        story_path = create_story(
+            rail="INFRA",
+            title="Test gate story",
+            project_dir=tmp_path,
+            test_gate="phase_checkpoint",
+        )
+        content = story_path.read_text()
+        assert "test_gate: phase_checkpoint" in content
+        # Verify it is in the frontmatter block, not the body
+        parts = content.split("---")
+        assert len(parts) >= 3, "Expected frontmatter delimiters"
+        frontmatter_block = parts[1]
+        assert "test_gate: phase_checkpoint" in frontmatter_block
+
+    def test_story_new_without_test_gate_omits_field(self, tmp_path: pathlib.Path) -> None:
+        """create_story without test_gate omits the test_gate field entirely."""
+        story_path = create_story(
+            rail="INFRA",
+            title="No test gate story",
+            project_dir=tmp_path,
+        )
+        content = story_path.read_text()
+        assert "test_gate" not in content

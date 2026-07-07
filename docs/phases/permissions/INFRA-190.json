@@ -1,0 +1,10 @@
+{
+  "story_id": "INFRA-190",
+  "story_spec": "docs/stories/INFRA/INFRA-190.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/spec_preflight.py",
+    "tests/pairmode/test_spec_preflight.py",
+    "docs/stories/INFRA/INFRA-190.md"
+  ],
+  "generated_at": "2026-07-06T13:25:46Z"
+}

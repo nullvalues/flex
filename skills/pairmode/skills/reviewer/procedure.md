@@ -238,6 +238,19 @@ PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q 2>&1 | tail -30
 
 Report the result as part of your review output. A story with failing tests is not complete.
 
+**test_gate behaviour (INFRA-189)** — read the `test_gate` field from the story's
+frontmatter before running tests:
+
+- `test_gate` absent or `test_gate: story` (default): run the full suite. Whole-suite
+  green required for PASS.
+- `test_gate: phase_checkpoint`: run only tests whose file path or test name matches
+  the story's primary module (derive from `primary_files` stems, e.g. a story with
+  `schema_validator.py` → run `test_schema_validator`). Whole-suite green is deferred
+  to the phase checkpoint; only story-related tests must pass. If no story-specific
+  tests are identified, run the full suite.
+- `test_gate: none`: skip the test run. Note: a `code` story with `test_gate: none`
+  is a HIGH finding.
+
 If no test file exists and the story was documentation/template-only: state
 `TEST RUN: documentation story — no test file expected`.
 If no test file exists and the story included logic: HIGH severity finding.
@@ -275,6 +288,23 @@ EOF
 ### FAIL conditions
 
 Any CRITICAL finding, any HIGH finding, or any failing test.
+
+#### Notes on FAIL (FAIL-CAUSE capture — BUILD-043)
+
+Before reverting, emit one line summarising the blocking cause in this exact format:
+
+FAIL-CAUSE: [concise reason — 10 words or fewer]
+
+Examples:
+  FAIL-CAUSE: undeclared file: docs/architecture.md
+  FAIL-CAUSE: hallucinated route: /api/portal/treatment-plans
+  FAIL-CAUSE: suite red: downstream breakage from prior story
+  FAIL-CAUSE: missing ## Ensures section
+  FAIL-CAUSE: CRITICAL hook violation in hooks/pre_tool_use.py
+
+Emit the FAIL-CAUSE line before the revert command below. The orchestrator
+parses this line and passes it as `--notes` to `record_attempt.py` (alongside
+`--outcome FAIL`) to record the reason in the effort DB.
 
 On FAIL, revert:
 

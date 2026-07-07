@@ -69,26 +69,30 @@ operations that take more than a few milliseconds?
 
 Hooks are thin relays only. Any blocking logic in a hook is CRITICAL.
 
-**Documented thin-delegation exceptions:**
+**Documented thin-delegation exceptions — do NOT flag these (BUILD-041):**
 
-`hooks/pre_tool_use.py` is a thin dispatcher for two tool types:
+The following hooks are authorized thin dispatchers with permitted imports and
+state.json writes. They do not violate the thin-relay contract.
 
-- `Task` / `Agent` → `skills/pairmode/scripts/context_budget.py`
-  (CER-027 context-budget enforcement)
-- `Edit` / `Write` → `skills/pairmode/scripts/scope_guard.py`
-  (Phase 55 story file-scope enforcement)
+- `hooks/pre_tool_use.py` — dispatches Task/Agent → `context_budget.py`
+  (CER-027/CER-049) and Edit/Write → `scope_guard.py` (Phase 55). Authorized
+  state.json write: `context_budget_acknowledged_at` (on block only).
+- `hooks/post_tool_use.py` — pipe relay for Write/Edit/MultiEdit; dispatches
+  Task/Agent → `context_budget.py` (INFRA-182). Authorized state.json writes:
+  the live context-token count and its recorded-at timestamp.
+- `hooks/session_start.py` — dispatches source `clear`/`startup` →
+  `session_reset.py` (CER-047/INFRA-175). Authorized state.json writes:
+  the context-token count baseline, its recorded-at timestamp, and the
+  session-reset timestamp.
 
-`hooks/post_tool_use.py` is a thin dispatcher for two tool types:
+These state.json writes are the designed write path for the context-budget
+system — not pipe-contract violations. The `cwd` value used to locate
+state.json comes from the Claude Code hook payload (trusted harness input),
+not user-supplied input — do not flag it as path traversal.
 
-- `Write` / `Edit` / `MultiEdit` → companion sidebar pipe relay
-- `Task` / `Agent` → `skills/pairmode/scripts/context_budget.py`
-  (INFRA-182 PostToolUse context-token writer)
-
-`hooks/session_start.py` dispatches `source` ∈ {`clear`, `startup`} →
-`skills/pairmode/scripts/session_reset.py`.
-
-Any logic inside these hooks beyond tool-name / source dispatch + module delegation
-+ emit is CRITICAL. Any other hook that emits a decision-block response is CRITICAL.
+Any logic added to these hooks beyond dispatch + delegation + emit, any
+*other* hook importing from `skills/`, or any hook writing to spec files
+remains CRITICAL. Any other hook that emits a decision-block response is CRITICAL.
 
 ### 2. PIPE CONTRACT (CRITICAL if violated)
 
@@ -127,11 +131,25 @@ without sanitization, `..` traversal opportunities.
 
 ### 6. LAYER VIOLATION (HIGH if violated)
 
-Does any hook script import from `skills/`?
+Does any hook script import from `skills/` beyond the documented thin-delegation
+exceptions in check 1?
 Does any skill script directly modify files in `hooks/`?
 
 Hooks may not import from skills. The boundary in `hooks/` is import-free from
-the skills layer. Check all `import` statements in `hooks/` scripts.
+the skills layer. Check all `import` statements in `hooks/` scripts; the three
+dispatcher hooks listed in check 1 are explicitly excluded from this check.
+
+---
+
+## Audit scope (BUILD-041)
+
+Findings in installed pairmode plugin infrastructure — the plugin's `hooks/`
+directory and `skills/pairmode/` — that are **not part of this project's phase
+diff** are reported as INFORMATIONAL. They do not count toward the checkpoint's
+CRITICAL/HIGH totals and do not affect the PASS/FAIL result.
+
+Only findings in the project's own changed files determine PASS/FAIL. If plugin
+infrastructure issues are found, note them for upstream (flex) investigation.
 
 ---
 

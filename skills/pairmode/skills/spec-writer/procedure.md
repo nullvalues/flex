@@ -141,7 +141,24 @@ Write the complete story spec to `docs/stories/<RAIL>/<scalar>.md`.
   followed by the complete body sections.
 - Do not write to the phase doc, architecture.md, or any other file.
 
-### Step 7 — Return SPEC-RESULT
+### Step 7 — Self-check with spec-preflight (INFRA-190/191)
+
+After writing the story file, run the spec preflight scan against it via the
+`flex_build.py spec-preflight` subcommand (INFRA-190/191):
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python <pairmode-scripts-dir>/flex_build.py \
+  spec-preflight --story-id <scalar> --project-dir .
+```
+
+The scan flags unverifiable route and constant references in the story body
+(e.g. API routes or named constants that do not exist in the codebase). It is
+informational only — it always exits 0 and never blocks. If it reports
+findings, revise the story body to remove or correct the hallucinated
+references before returning; if a finding is intentional (the route/constant
+is created by this story), leave it and note it in the story body.
+
+### Step 8 — Return SPEC-RESULT
 
 After writing the story file, return the result JSON (see § Return format below).
 

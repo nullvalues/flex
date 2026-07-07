@@ -432,6 +432,14 @@ def resolve_current_phase(project_dir: Path) -> Path | None:
 
     Extracted from ``cmd_current_phase`` as a module-level helper so that
     ``next_action.infer_position`` can compose it as a library call (RESOLVER-002).
+
+    Index walk semantics (Era 3 fold — RELEASE-008): rows are walked in index
+    order (build order) and the FIRST row whose status is active per
+    ``index_integrity.is_phase_inactive`` AND whose phase file exists is
+    returned.  Inactive statuses (``complete``, ``complete (partial)``,
+    ``deferred``, ``backlog``) are skipped; an active-but-fileless row is
+    skipped rather than terminating the walk, so a planned future row without
+    a file never masks a later active phase that has one.
     """
     # Import lazily to avoid issues in environments where next_story isn't on
     # sys.path at module load time.
@@ -443,20 +451,28 @@ def resolve_current_phase(project_dir: Path) -> Path | None:
         index_text = index_path.read_text(encoding="utf-8")
         phase_rows = _parse_index_phases(index_text)
 
-        # Walk rows in order and keep track of the last phase that is not
-        # 'complete'. The last such row wins (most recent active phase).
-        active_phase_ref: str | None = None
-        for phase_ref, status in phase_rows:
-            if status != "complete":
-                active_phase_ref = phase_ref
+        # Walk rows in index order (build order) and return the FIRST active
+        # phase whose phase file exists.  Skip terminal statuses
+        # (``complete``, ``complete (partial)``, …) and parked phases
+        # (``deferred``).  A planned-but-fileless future row must never mask
+        # an earlier active phase that has a file.
+        from index_integrity import is_phase_inactive  # noqa: PLC0415
 
-        if active_phase_ref is not None:
-            candidate = project_dir / "docs" / "phases" / f"phase-{active_phase_ref}.md"
+        for phase_ref, status in phase_rows:
+            normalised = status.strip().lower()
+            # is_phase_inactive covers complete/deferred/backlog; the
+            # startswith check adds main's terminal semantics for annotated
+            # statuses like "complete (partial)".
+            if is_phase_inactive(normalised) or normalised.startswith("complete"):
+                continue
+            candidate = project_dir / "docs" / "phases" / f"phase-{phase_ref}.md"
             if candidate.exists():
                 return candidate
+            # Active row but no file yet — keep scanning for a later
+            # active row that does have a file (fileless-phase guard).
 
-        # Index exists but all phases are complete (or the active phase file is
-        # missing) — authoritative signal that no active phase remains.
+        # Index exists but no active phase with an existing file was found —
+        # authoritative signal that no active phase remains.
         return None
 
     # No index file — fallback: scan phase files directly for one with an
@@ -599,17 +615,14 @@ def cmd_mark_phase_complete(phase_key: str, project_dir: str) -> None:
     for line in text.splitlines(keepends=True):
         stripped = line.strip()
         if not replaced and stripped.startswith("|"):
-            parts = stripped.split("|")
-            # parts[0] is '' (before first |), parts[-1] is '' (after last |)
-            # columns: parts[1]=phase, parts[2]=title, parts[3]=status, parts[4]=tag
-            if len(parts) >= 5:
-                cell_phase = parts[1].strip()
-                cell_status = parts[3].strip()
-                if cell_phase == phase_key and cell_status != "complete":
-                    new_row = (
-                        f"| {parts[1].strip()} | {parts[2].strip()} | complete |"
-                        f" {parts[4].strip()} |\n"
-                    )
+            # inner cells: drop the leading/trailing empty strings produced by
+            # splitting "| a | b | c |" on "|"
+            cells = [p.strip() for p in stripped.split("|")[1:-1]]
+            # cells[0]=phase, cells[1]=title, cells[2]=status, cells[3:]=rest
+            if len(cells) >= 3:
+                if cells[0] == phase_key and cells[2] != "complete":
+                    cells[2] = "complete"
+                    new_row = "| " + " | ".join(cells) + " |\n"
                     new_lines.append(new_row)
                     replaced = True
                     continue
@@ -1097,7 +1110,54 @@ def cmd_check_story_scope(story_id: str, project_dir: str) -> None:
                 # Only emit for the first matching candidate.
                 break
 
+    # Rule: architecture.md prompt for code stories with no docs/ touches.
+    story_class = fm.get("story_class") or "code"
+    if story_class == "code":
+        all_files = list(primary_files) + list(touches)
+        has_docs_path = any(
+            str(p).startswith("docs/") for p in all_files
+        )
+        if not has_docs_path:
+            click.echo(
+                "Scope hint: if this story affects documented architecture, "
+                "add docs/architecture.md to touches."
+            )
+
+    # Scope budget warning.
+    total_declared = len(list(primary_files)) + len(list(touches))
+    if total_declared > 8:
+        click.echo(
+            f"Scope budget: story declares {total_declared} files — "
+            f"consider splitting if stories are independently reviewable."
+        )
+
     sys.exit(0)
+
+
+@flex_build.command("spec-preflight")
+@click.option("--story-id", required=True, help="Story ID (e.g. INFRA-190).")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_spec_preflight(story_id: str, project_dir: str) -> None:
+    """Scan a story's body sections for unverifiable routes and constants.
+
+    Always exits 0. Non-empty output = informational warnings.
+    """
+    import spec_preflight as _sp  # noqa: PLC0415
+
+    project_path = Path(project_dir).resolve()
+    story_path = _story_path(story_id, project_path)
+
+    if not story_path.exists():
+        click.echo(f"spec-preflight: story file not found: {story_path}", err=True)
+        sys.exit(0)
+
+    for w in _sp.run_preflight(story_path, project_path):
+        click.echo(w)
 
 
 # ---------------------------------------------------------------------------

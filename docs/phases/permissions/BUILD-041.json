@@ -1,0 +1,10 @@
+{
+  "story_id": "BUILD-041",
+  "story_spec": "docs/stories/BUILD/BUILD-041.md",
+  "allowed_paths": [
+    "skills/pairmode/templates/agents/security-auditor.md.j2",
+    ".claude/agents/security-auditor.md",
+    "docs/stories/BUILD/BUILD-041.md"
+  ],
+  "generated_at": "2026-07-02T02:01:37Z"
+}

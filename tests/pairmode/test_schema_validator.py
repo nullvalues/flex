@@ -551,3 +551,231 @@ def test_story_fails_validation_schema_introduces_non_boolean(tmp_path):
     assert any("schema_introduces" in e for e in errors), (
         f"Expected schema_introduces error for non-boolean value, got: {errors}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Pointer-only and body-section enforcement tests (INFRA-187)
+# ---------------------------------------------------------------------------
+
+def _code_story_with_ensures(ensures_body: str, story_class: str = "code", status: str = "planned") -> str:
+    """Return a story with ## Requires + ## Ensures whose body is *ensures_body*."""
+    return textwrap.dedent(f"""\
+        ---
+        id: FEAT-010
+        rail: FEAT
+        title: Pointer-only test
+        status: {status}
+        phase: "083"
+        story_class: {story_class}
+        primary_files:
+          - src/main.py
+        ---
+
+        ## Requires
+
+        Prior story complete.
+
+        ## Ensures
+
+        {ensures_body}
+
+        ## Instructions
+
+        Do the thing.
+    """)
+
+
+def test_code_story_pointer_only_ensures_is_invalid(tmp_path):
+    """code/planned story with pointer-only Ensures should produce a pointer-only error."""
+    content = _code_story_with_ensures("See docs/phases/phase-83.md")
+    p = _write(tmp_path, "FEAT-010.md", content)
+    errors = validate_story_file(p)
+    assert any("pointer-only" in e for e in errors), (
+        f"Expected pointer-only error for code story, got: {errors}"
+    )
+
+
+def test_methodology_story_pointer_only_ensures_is_invalid(tmp_path):
+    """methodology/planned story with pointer-only Ensures should produce a pointer-only error."""
+    content = _code_story_with_ensures("See phase doc for details.", story_class="methodology")
+    p = _write(tmp_path, "FEAT-010.md", content)
+    errors = validate_story_file(p)
+    assert any("pointer-only" in e for e in errors), (
+        f"Expected pointer-only error for methodology story, got: {errors}"
+    )
+
+
+def test_code_story_ensures_with_real_assertion_is_valid(tmp_path):
+    """code story with a real assertion in Ensures should not produce a pointer-only error."""
+    content = _code_story_with_ensures("- File foo.py exists and contains the expected function.")
+    p = _write(tmp_path, "FEAT-010.md", content)
+    errors = validate_story_file(p)
+    assert not any("pointer-only" in e for e in errors), (
+        f"Expected no pointer-only error for story with real assertion, got: {errors}"
+    )
+
+
+def test_pointer_only_exempt_for_doc_class(tmp_path):
+    """doc class story with pointer-only Ensures should not produce a pointer-only error."""
+    content = _code_story_with_ensures("See docs/phases/phase-83.md", story_class="doc")
+    p = _write(tmp_path, "FEAT-010.md", content)
+    errors = validate_story_file(p)
+    assert not any("pointer-only" in e for e in errors), (
+        f"Expected no pointer-only error for doc class story, got: {errors}"
+    )
+
+
+def test_pointer_only_exempt_for_lesson_class(tmp_path):
+    """lesson class story with pointer-only Ensures should not produce a pointer-only error."""
+    content = _code_story_with_ensures("See docs/phases/phase-83.md", story_class="lesson")
+    p = _write(tmp_path, "FEAT-010.md", content)
+    errors = validate_story_file(p)
+    assert not any("pointer-only" in e for e in errors), (
+        f"Expected no pointer-only error for lesson class story, got: {errors}"
+    )
+
+
+def test_pointer_only_exempt_for_draft_status(tmp_path):
+    """code/draft story with pointer-only Ensures should not produce a pointer-only error."""
+    content = _code_story_with_ensures(
+        "See docs/phases/phase-83.md",
+        story_class="code",
+        status="draft",
+    ).replace("  - src/main.py\n", "")  # draft allows empty primary_files
+    p = _write(tmp_path, "FEAT-010.md", content)
+    errors = validate_story_file(p)
+    assert not any("pointer-only" in e for e in errors), (
+        f"Expected no pointer-only error for draft story, got: {errors}"
+    )
+
+
+def test_pointer_only_exempt_for_backlog_status(tmp_path):
+    """code/backlog story with pointer-only Ensures should not produce a pointer-only error."""
+    content = _code_story_with_ensures(
+        "See docs/phases/phase-83.md",
+        story_class="code",
+        status="backlog",
+    ).replace("  - src/main.py\n", "")  # backlog allows empty primary_files
+    p = _write(tmp_path, "FEAT-010.md", content)
+    errors = validate_story_file(p)
+    assert not any("pointer-only" in e for e in errors), (
+        f"Expected no pointer-only error for backlog story, got: {errors}"
+    )
+
+
+def _code_story_missing_acceptance_section(story_class: str = "code", status: str = "planned") -> str:
+    """Return a story that has ## Requires but NO Ensures/Acceptance heading."""
+    return textwrap.dedent(f"""\
+        ---
+        id: FEAT-011
+        rail: FEAT
+        title: Missing acceptance section
+        status: {status}
+        phase: "083"
+        story_class: {story_class}
+        primary_files:
+          - src/main.py
+        ---
+
+        ## Requires
+
+        Prior story complete.
+
+        ## Instructions
+
+        Do the thing.
+    """)
+
+
+def test_code_story_missing_acceptance_surface_is_invalid(tmp_path):
+    """code/planned story with ## Requires but no Ensures/Acceptance heading is invalid."""
+    content = _code_story_missing_acceptance_section(story_class="code", status="planned")
+    p = _write(tmp_path, "FEAT-011.md", content)
+    errors = validate_story_file(p)
+    assert any("body section" in e for e in errors), (
+        f"Expected body section error for code story missing acceptance, got: {errors}"
+    )
+
+
+def test_methodology_story_missing_acceptance_surface_is_invalid(tmp_path):
+    """methodology/planned story with no Ensures/Acceptance heading is invalid."""
+    content = _code_story_missing_acceptance_section(story_class="methodology", status="planned")
+    p = _write(tmp_path, "FEAT-011.md", content)
+    errors = validate_story_file(p)
+    assert any("body section" in e for e in errors), (
+        f"Expected body section error for methodology story missing acceptance, got: {errors}"
+    )
+
+
+def test_missing_acceptance_surface_exempt_for_draft(tmp_path):
+    """draft story with no Ensures/Acceptance heading should not produce a body section error."""
+    content = _code_story_missing_acceptance_section(
+        story_class="code", status="draft"
+    ).replace("  - src/main.py\n", "")  # draft allows empty primary_files
+    p = _write(tmp_path, "FEAT-011.md", content)
+    errors = validate_story_file(p)
+    assert not any("body section" in e for e in errors), (
+        f"Expected no body section error for draft story, got: {errors}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# test_gate field
+# ---------------------------------------------------------------------------
+
+_VALID_STORY_WITH_TEST_GATE = """\
+    ---
+    id: FEAT-001
+    rail: FEAT
+    title: Test gate story
+    status: planned
+    phase: "001"
+    test_gate: {test_gate}
+    primary_files:
+      - src/main.py
+    ---
+
+    ## Acceptance criterion
+
+    It works.
+"""
+
+
+class TestTestGateField:
+    """test_gate frontmatter field validation."""
+
+    def test_test_gate_absent_is_valid(self, tmp_path):
+        """A story with no test_gate field is valid."""
+        p = _write(tmp_path, "FEAT-001.md", VALID_STORY)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors, got: {errors}"
+
+    def test_test_gate_story_is_valid(self, tmp_path):
+        """test_gate: story is a valid value."""
+        content = _VALID_STORY_WITH_TEST_GATE.format(test_gate="story")
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors for test_gate: story, got: {errors}"
+
+    def test_test_gate_phase_checkpoint_is_valid(self, tmp_path):
+        """test_gate: phase_checkpoint is a valid value."""
+        content = _VALID_STORY_WITH_TEST_GATE.format(test_gate="phase_checkpoint")
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors for test_gate: phase_checkpoint, got: {errors}"
+
+    def test_test_gate_none_is_valid(self, tmp_path):
+        """test_gate: none is a valid value."""
+        content = _VALID_STORY_WITH_TEST_GATE.format(test_gate="none")
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors for test_gate: none, got: {errors}"
+
+    def test_test_gate_invalid_value_is_error(self, tmp_path):
+        """test_gate: always is not a valid value — expect an Invalid test_gate error."""
+        content = _VALID_STORY_WITH_TEST_GATE.format(test_gate="always")
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert any("Invalid test_gate" in e for e in errors), (
+            f"Expected 'Invalid test_gate' error, got: {errors}"
+        )

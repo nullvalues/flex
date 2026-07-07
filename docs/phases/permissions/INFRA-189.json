@@ -1,0 +1,14 @@
+{
+  "story_id": "INFRA-189",
+  "story_spec": "docs/stories/INFRA/INFRA-189.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/schema_validator.py",
+    "skills/pairmode/scripts/story_new.py",
+    "skills/pairmode/templates/agents/reviewer.md.j2",
+    ".claude/agents/reviewer.md",
+    "tests/pairmode/test_schema_validator.py",
+    "tests/pairmode/test_story_new.py",
+    "docs/stories/INFRA/INFRA-189.md"
+  ],
+  "generated_at": "2026-07-06T03:40:21Z"
+}

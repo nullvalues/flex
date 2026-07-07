@@ -1,0 +1,10 @@
+{
+  "story_id": "BUILD-042",
+  "story_spec": "docs/stories/BUILD/BUILD-042.md",
+  "allowed_paths": [
+    ".companion/state.json",
+    "CLAUDE.md",
+    "docs/stories/BUILD/BUILD-042.md"
+  ],
+  "generated_at": "2026-07-06T02:51:59Z"
+}

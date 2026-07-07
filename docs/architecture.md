@@ -68,6 +68,7 @@ flex/
         scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json; fails open on non-protected paths when no active story, but fails closed (blocks) on PROTECTED_GLOBS paths even without an active story (INFRA-196)
         state_utils.py            ← shared helper for atomic state.json writes (`_atomic_write_json`)
         session_reset.py          ← pure decision logic for SessionStart counter reset; no I/O (mirrors context_budget.py D11 boundary); CER-047 / Phase 68 INFRA-175
+        spec_preflight.py         ← INFRA-190/191 — scans story body sections for unverifiable route and constant references; informational only (always exits 0)
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
         next_story.py             ← find next unbuilt story from a phase file; CLI: uv run next_story.py <phase-file> [--json] [--project-dir DIR]
         gate_verdict.py           ← WORKER-001 gate verdict grammar: VERBS (clean/block/flag), JUDGED_GATES (schema/auth; stub excluded), parse_verdict (string → (verb, reason)), validate_verdict_map (dict → violation list); stdlib-only, no I/O; the WORKER-rail contract analogue of next_action.py's action grammar
@@ -181,17 +182,31 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    (c) the **stub gate** (`check-stub`) checks whether the story file contains delegation
    language ("See phase doc") or is missing an acceptance surface section.
    A story that fails any gate is blocked until the operator resolves it.
-   After all gates pass, the **pre-story scope check** runs `flex_build.py
-   check-story-scope` to surface likely-missing file declarations (missing sibling
-   test, missing live-rendered template counterpart); it is informational only and
-   never blocks. (Phase 78 BUILD-034/BUILD-035)
+   After all gates pass, `flex_build.py spec-preflight` scans the story's
+   Ensures/Instructions/Implementation-notes sections for API route references and
+   SCREAMING_SNAKE constants and warns when none are found in the source tree;
+   informational only, always exits 0. (Phase 84 INFRA-190/191)
+   Then the **pre-story scope check** runs `flex_build.py check-story-scope` to
+   surface likely-missing file declarations (missing sibling test, missing
+   live-rendered template counterpart); it is informational only and never blocks.
+   (Phase 78 BUILD-034/BUILD-035)
 
-2. **Permission pre-write** — `flex_build.py permissions-create` generates
+2. **Permission pre-write** — Two layers run before the builder spawns:
+   Layer 1 (`permissions-create`): `flex_build.py permissions-create` generates
    `docs/phases/permissions/<story_id>.json` from the story's `primary_files` and `touches`
-   frontmatter. `story_context.py --set` stamps the active story into `.companion/state.json`.
-   The `pre_tool_use.py` hook then enforces the declared scope via `scope_guard.py` on every
-   Edit/Write call during the builder session. (Phase 55 replaced the old `permission_scope.py`
-   / `settings.local.json` allow-rule cycle; see step 9.5 and § Hook architecture.)
+   frontmatter. The `pre_tool_use.py` hook enforces the declared scope via `scope_guard.py` on
+   every Edit/Write call during the builder session. (Phase 55, INFRA-138, INFRA-139.)
+   Layer 2 (`write-permissions`): `flex_build.py write-permissions` calls
+   `write_story_permissions()` to write `Edit`/`Write` allow rules into
+   `.claude/settings.local.json` for every declared file. These rules suppress the Claude Code
+   permission prompt before writes even reach the hook, eliminating the auto-mode toggle symptom
+   in upstream projects. (Phase 81, BUILD-040.)
+   `story_context.py --set` stamps the active story into `.companion/state.json`. After the
+   reviewer returns, `story_context.py --clear` runs first, then `flex_build.py
+   clear-permissions` removes the Layer 2 allow rules from `settings.local.json`, restoring the
+   default deny posture before the next story starts — regardless of PASS/FAIL outcome. (Phase 55
+   replaced the old allow-rule-only cycle; Phase 81 reintroduced allow-rule writes as a second
+   layer alongside the hook layer. See step 9.5 and § Hook architecture.)
 
 3. **Builder spawn** — `model_selector.select_builder_model()` picks the model (haiku for
    doc/lesson, sonnet baseline for code, opus on high-scope signals or retry). The builder
@@ -389,6 +404,7 @@ Story frontmatter fields summary:
 | `auth_gated` | no | Boolean; `false` if absent; read by `flex_build.py check-auth-gate` — when `true`, the auth gate checks `docs/architecture.md` for a recorded `**Classification:**` before building |
 | `schema_introduces` | no | Boolean; `false` if absent; read by `flex_build.py check-schema-gate` — when `true`, the schema gate requires a management surface story in the phase or a documented exception |
 | `source` | no | Set by drift promotion to record the originating project |
+| `test_gate` | no | One of `story`, `phase_checkpoint`, `none`; absent = `story` (default). `phase_checkpoint` defers whole-suite green to the phase checkpoint; only story-scoped tests must pass. `none` skips the test run (HIGH finding when `story_class: code`). Read by the reviewer agent before running tests. |
 
 **Story body contract sections** follow the frontmatter block. Every story must contain either
 the canonical new-format sections or the legacy alias:
@@ -404,6 +420,8 @@ the canonical new-format sections or the legacy alias:
 A story body that contains neither `## Acceptance criterion` nor both `## Requires` and
 `## Ensures` is rejected by `schema_validator.py`. A story containing both the legacy and new
 sections is also valid (transition stories written mid-migration).
+
+**Body-section enforcement:** `validate_story_file` rejects `code` and `methodology` stories (non-`draft`, non-`backlog`) whose Ensures/Acceptance section consists entirely of pointer-delegation lines matching `See (docs|phase)` — these are not binary-verifiable assertions. Doc and lesson stories are exempt. Introduced in Phase 83 (INFRA-187).
 
 **Era files** live at `docs/eras/NNN-kebab-name.md` with frontmatter: `id`, `name`, `status`.
 
@@ -458,9 +476,13 @@ CLI: `uv run python skills/pairmode/scripts/story_update.py --story-id RAIL-NNN 
 Orchestrators must call this after a successful reviewer commit (see CLAUDE.build.md Step 3).
 Valid statuses: `draft`, `planned`, `in-progress`, `complete`, `backlog`.
 
-**Note (Phase 55):** The pairmode build loop no longer calls `write_story_permissions` for
-routine story builds; `flex_build.py permissions-create` + `scope_guard.py` replaces it.
-The `permission_scope.py` functions remain for backward compatibility and manual use.
+**Note (Phase 55 / Phase 81):** Phase 55 replaced the allow-rule-only cycle with
+`flex_build.py permissions-create` + `scope_guard.py` (Layer 1 hook enforcement). Phase 81
+(BUILD-040) re-introduced `flex_build.py write-permissions` (which calls
+`write_story_permissions()`) as Layer 2, running alongside Layer 1 to suppress Claude Code
+permission prompts for the story's declared files. Both layers are now active in the build loop
+simultaneously. The `permission_scope.py` functions remain for backward compatibility and manual
+use.
 
 **`permission_scope.py` path containment:** `write_story_permissions` validates every path
 from `primary_files` and `touches` against `project_dir` using `Path.resolve().relative_to()`
@@ -1029,6 +1051,8 @@ baseline.
   (INFRA-180 changed the return type from `int | None` to `dict | None`.)
   `compact` is deliberately excluded (CER-047 — post-compact window size unknown; stale
   counter over-blocks, which is fail-safe).
+
+The remaining two registered hooks — `stop.py` and `session_end.py` — are plain pipe relays with no dispatch logic and no state.json writes. They do not require thin-delegation exception documentation.
 
 The sidebar does all heavy work asynchronously. If the sidebar is not running, the pipe write
 silently fails and the session continues normally — no data is lost because the session
