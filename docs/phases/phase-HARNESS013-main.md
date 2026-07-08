@@ -15,9 +15,9 @@ Migrate all 9 bound fleet projects from pairmode 0.2.x to 0.3.0 with the migrati
 
 | ID | Title | Status |
 |----|-------|--------|
-| RELEASE-011 | pairmode_migrate.py to-030: state.json normalizer and stale-agent cleanup | draft |
-| RELEASE-012 | Per-project sync-all to Era 3 with Signal-1 verification | draft |
-| RELEASE-013 | Mid-build seam selection and pre-migration gate for Era 2 projects | draft |
+| RELEASE-011 | pairmode_migrate.py to-030: state.json normalizer and stale-agent cleanup | complete |
+| RELEASE-012 | Per-project sync-all to Era 3 with Signal-1 verification | complete |
+| RELEASE-013 | Mid-build seam selection and pre-migration gate for Era 2 projects | complete |
 
 ## Schema delivery
 
