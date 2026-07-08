@@ -1,5 +1,5 @@
 """
-Comprehensive tests for pairmode_migrate.py — INFRA-093.
+Comprehensive tests for pairmode_migrate.py — INFRA-093 and RELEASE-011.
 
 Tests run against a synthetic anchor-bootstrapped project fixture.
 Rules 1 and 2 (subprocess-based sync-build and sync-agents) are mocked
@@ -8,6 +8,7 @@ to avoid real subprocess calls on synthetic fixtures.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -740,3 +741,249 @@ def test_migrate_apply_rejects_non_project_dir(tmp_path: Path) -> None:
     project.mkdir(parents=True)
     with pytest.raises(SystemExit):
         _mod.migrate(project, apply=True, yes=True, migrate_lessons=False)
+
+
+# ===========================================================================
+# to-030 tests (RELEASE-011)
+# ===========================================================================
+
+
+def _build_030_project(tmp_path: Path, **state_overrides: object) -> Path:
+    """Build a minimal project for to-030 tests.
+
+    Creates .companion/state.json with the given state dict.
+    """
+    root = tmp_path
+    companion_dir = root / ".companion"
+    companion_dir.mkdir(parents=True, exist_ok=True)
+    state: dict = {"pairmode_version": "0.2.0", "expected_step_tokens": _mod.ERA2_STAMP}
+    state.update(state_overrides)
+    (companion_dir / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    return root
+
+
+def _invoke_030(project_dir: Path, *, apply: bool = False) -> tuple[int, str]:
+    """Invoke cmd_to_030 via the Click test runner; return (exit_code, output)."""
+    from click.testing import CliRunner
+
+    runner = CliRunner()
+    args = ["to-030", "--project-dir", str(project_dir)]
+    if apply:
+        args.append("--apply")
+    # Mock subprocess.run so git log doesn't depend on the project being a real repo.
+    with patch("pairmode_migrate.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = runner.invoke(_mod.cli, args, catch_exceptions=False)
+    return result.exit_code, result.output
+
+
+# ---------------------------------------------------------------------------
+# B6: expected_step_tokens rewrite
+# ---------------------------------------------------------------------------
+
+
+def test_to030_rewrites_era2_stamp_with_apply(tmp_path: Path) -> None:
+    """to-030 --apply must overwrite expected_step_tokens 53000 → 5000."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.ERA2_STAMP)
+    state_path = project / ".companion" / "state.json"
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0, f"Non-zero exit: {output}"
+    state = json.loads(state_path.read_text())
+    assert state["expected_step_tokens"] == _mod.THIN_HARNESS_STEP_TOKENS, (
+        f"expected_step_tokens not rewritten: {state['expected_step_tokens']!r}"
+    )
+    assert "[apply]" in output
+
+
+def test_to030_dryrun_does_not_rewrite_era2_stamp(tmp_path: Path) -> None:
+    """to-030 dry-run must print [would] but not change state.json."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.ERA2_STAMP)
+    state_path = project / ".companion" / "state.json"
+    before = state_path.read_bytes()
+
+    exit_code, output = _invoke_030(project, apply=False)
+
+    assert exit_code == 0
+    assert state_path.read_bytes() == before, "Dry-run modified state.json"
+    assert "[would]" in output
+
+
+def test_to030_keeps_custom_expected_step_tokens(tmp_path: Path) -> None:
+    """to-030 must leave a non-Era2 custom value unchanged and emit a WARN."""
+    custom_val = 25000
+    project = _build_030_project(tmp_path, expected_step_tokens=custom_val)
+    state_path = project / ".companion" / "state.json"
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    state = json.loads(state_path.read_text())
+    assert state["expected_step_tokens"] == custom_val, (
+        "Custom expected_step_tokens was changed."
+    )
+    assert "[WARN]" in output and "custom" in output.lower()
+
+
+# ---------------------------------------------------------------------------
+# B4: pipe_path removal
+# ---------------------------------------------------------------------------
+
+
+def test_to030_removes_pipe_path_with_apply(tmp_path: Path) -> None:
+    """to-030 --apply must remove the pipe_path key from state.json."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS,
+        pipe_path="/tmp/old.pipe",
+    )
+    state_path = project / ".companion" / "state.json"
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    state = json.loads(state_path.read_text())
+    assert "pipe_path" not in state, "pipe_path was not removed"
+    assert "deprecation" in output.lower() or "deprecated" in output.lower()
+
+
+def test_to030_dryrun_does_not_remove_pipe_path(tmp_path: Path) -> None:
+    """to-030 dry-run must print a notice about pipe_path but not remove it."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS,
+        pipe_path="/tmp/old.pipe",
+    )
+    state_path = project / ".companion" / "state.json"
+    before = state_path.read_bytes()
+
+    exit_code, output = _invoke_030(project, apply=False)
+
+    assert exit_code == 0
+    assert state_path.read_bytes() == before, "Dry-run modified state.json"
+    assert "pipe_path" in output
+
+
+# ---------------------------------------------------------------------------
+# B5: state.json seed
+# ---------------------------------------------------------------------------
+
+
+def test_to030_seeds_missing_state_json_with_apply(tmp_path: Path) -> None:
+    """to-030 --apply must write a minimal state.json when .companion/ exists but state.json is absent."""
+    root = tmp_path
+    companion_dir = root / ".companion"
+    companion_dir.mkdir(parents=True)
+    state_path = companion_dir / "state.json"
+    assert not state_path.exists()
+
+    exit_code, output = _invoke_030(root, apply=True)
+
+    assert exit_code == 0
+    assert state_path.exists(), "state.json was not seeded"
+    state = json.loads(state_path.read_text())
+    assert state["pairmode_version"] == "0.3.0"
+    assert state["expected_step_tokens"] == _mod.THIN_HARNESS_STEP_TOKENS
+
+
+def test_to030_dryrun_does_not_seed_missing_state_json(tmp_path: Path) -> None:
+    """to-030 dry-run must not create state.json when it is absent."""
+    root = tmp_path
+    companion_dir = root / ".companion"
+    companion_dir.mkdir(parents=True)
+    state_path = companion_dir / "state.json"
+
+    exit_code, output = _invoke_030(root, apply=False)
+
+    assert exit_code == 0
+    assert not state_path.exists(), "Dry-run created state.json"
+    assert "[would]" in output
+
+
+# ---------------------------------------------------------------------------
+# Idempotency
+# ---------------------------------------------------------------------------
+
+
+def test_to030_idempotent(tmp_path: Path) -> None:
+    """Running to-030 --apply twice produces no additional changes on second run."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.ERA2_STAMP,
+        pipe_path="/tmp/old.pipe",
+    )
+    state_path = project / ".companion" / "state.json"
+
+    _invoke_030(project, apply=True)
+
+    # Snapshot after first run
+    after_first = state_path.read_bytes()
+
+    _invoke_030(project, apply=True)
+
+    assert state_path.read_bytes() == after_first, "Second run changed state.json"
+
+
+# ---------------------------------------------------------------------------
+# B7: stale agent cleanup
+# ---------------------------------------------------------------------------
+
+
+def test_to030_deletes_stale_agent_matching_hash(tmp_path: Path) -> None:
+    """to-030 --apply must delete an agent file whose hash is in _ERA2_AGENT_HASHES."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS)
+    agents_dir = project / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+
+    # Write a builder.md with known content and register its hash in the allowlist
+    content = b"# builder agent v0.2.x stale template\n"
+    builder_file = agents_dir / "builder.md"
+    builder_file.write_bytes(content)
+    known_hash = hashlib.sha256(content).hexdigest()
+
+    with patch.dict(_mod._ERA2_AGENT_HASHES, {"builder": known_hash}):
+        exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    assert not builder_file.exists(), "Stale agent file was not deleted"
+    assert "[apply]" in output and "deleted" in output.lower()
+
+
+def test_to030_dryrun_does_not_delete_stale_agent(tmp_path: Path) -> None:
+    """to-030 dry-run must print [would] delete but not remove the stale agent file."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS)
+    agents_dir = project / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+
+    content = b"# builder agent v0.2.x stale template\n"
+    builder_file = agents_dir / "builder.md"
+    builder_file.write_bytes(content)
+    known_hash = hashlib.sha256(content).hexdigest()
+
+    with patch.dict(_mod._ERA2_AGENT_HASHES, {"builder": known_hash}):
+        exit_code, output = _invoke_030(project, apply=False)
+
+    assert exit_code == 0
+    assert builder_file.exists(), "Dry-run deleted the agent file"
+    assert "[would]" in output and "delete" in output.lower()
+
+
+def test_to030_defers_customized_agent(tmp_path: Path) -> None:
+    """to-030 must defer a customized agent (hash not in allowlist) with instructions."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS)
+    agents_dir = project / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+
+    custom_content = b"# Highly customized builder - do not delete!\nCustom instruction here.\n"
+    builder_file = agents_dir / "builder.md"
+    builder_file.write_bytes(custom_content)
+
+    # _ERA2_AGENT_HASHES is empty by default — no match expected
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    assert builder_file.exists(), "Customized agent file was incorrectly deleted"
+    assert "manual" in output.lower() or "port" in output.lower(), (
+        "Expected porting instructions in output"
+    )

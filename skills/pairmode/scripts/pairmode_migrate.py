@@ -15,6 +15,9 @@ that --apply produces, except no files are written and no backups are created.
 
 from __future__ import annotations
 
+import difflib
+import fnmatch
+import hashlib
 import json
 import re
 import subprocess
@@ -719,11 +722,99 @@ def _print_report(report: MigrationReport, apply: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# to-030 constants and helpers
+# ---------------------------------------------------------------------------
+
+THIN_HARNESS_STEP_TOKENS = 5000
+ERA2_STAMP = 53000
+
+# Agent stems that the to-030 command inspects.
+_AGENT_STEMS = [
+    "builder",
+    "reviewer",
+    "loop-breaker",
+    "security-auditor",
+    "intent-reviewer",
+]
+
+# Known 0.2.x rendered-template content hashes (SHA-256).
+# Keys are agent filename stems; values are hex digests of the Era 2 rendered
+# template content.  An empty dict means no file will be recognised as a
+# "stale known template" — all will go through the manual-porting path.
+# Populate this dict with actual 0.2.x hashes when the renders are available.
+_ERA2_AGENT_HASHES: dict[str, str] = {}
+
+
+def _sha256_of_file(path: Path) -> str:
+    """Return the hex SHA-256 digest of *path*'s content."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _load_state(companion_dir: Path) -> dict:
+    """Read .companion/state.json; return empty dict on missing/unreadable."""
+    state_path = companion_dir / "state.json"
+    if not state_path.exists():
+        return {}
+    try:
+        return json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _protected_path_preview(project_dir: Path) -> None:
+    """Print any recent git-touched files that match PROTECTED_GLOBS."""
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+    try:
+        import scope_guard  # noqa: PLC0415
+    except ImportError:
+        click.echo(
+            "[WARN] scope_guard not importable — skipping protected-path preview.",
+            err=True,
+        )
+        return
+
+    try:
+        result = subprocess.run(
+            ["git", "log", "--name-only", "-20", "--pretty=format:"],
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        click.echo("[WARN] git not found — skipping protected-path preview.", err=True)
+        return
+
+    hits: list[str] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if any(fnmatch.fnmatch(line, g) for g in scope_guard.PROTECTED_GLOBS):
+            hits.append(line)
+
+    if hits:
+        click.echo("\n[Protected-path preview] Recent commits touched protected files:")
+        for h in sorted(set(hits)):
+            click.echo(f"  * {h}")
+        click.echo(
+            "  These paths now require an active story to edit."
+            " This is informational only — no blocking.\n"
+        )
+    else:
+        click.echo("[Protected-path preview] No protected files found in last 20 commits.\n")
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
 
-@click.command("pairmode-migrate")
+@click.group("pairmode-migrate")
+def cli() -> None:
+    """pairmode_migrate — project migration subcommands."""
+
+
+@cli.command("anchor-to-flex")
 @click.option(
     "--project-dir",
     required=True,
@@ -756,7 +847,7 @@ def _print_report(report: MigrationReport, apply: bool) -> None:
     show_default=True,
     help="Suffix appended to each file before modification.",
 )
-def cli(
+def cmd_anchor_to_flex(
     project_dir: str,
     do_apply: bool,
     yes: bool,
@@ -777,6 +868,159 @@ def cli(
         backup_suffix=backup_suffix,
     )
     _print_report(report, apply=do_apply)
+
+
+@cli.command("to-030")
+@click.option(
+    "--project-dir",
+    required=True,
+    type=click.Path(file_okay=False),
+    help="Root of the 0.2.x-bootstrapped project to normalise.",
+)
+@click.option(
+    "--apply",
+    is_flag=True,
+    default=False,
+    help="Actually write changes. Default is dry-run (--dry-run).",
+)
+def cmd_to_030(project_dir: str, apply: bool) -> None:
+    """Normalise a 0.2.x project to the 0.3.0 schema.
+
+    Dry-run by default — pass --apply to write changes.
+    Actions labelled [would] are only performed when --apply is passed.
+    """
+    project_path = Path(project_dir).resolve()
+    companion_dir = project_path / ".companion"
+    state_path = companion_dir / "state.json"
+
+    # -----------------------------------------------------------------------
+    # B5: state.json seed — if .companion/ exists but state.json is absent/
+    #     unreadable, write a minimal valid seed.
+    # -----------------------------------------------------------------------
+    if companion_dir.exists() and (
+        not state_path.exists()
+        or not _try_parse_json(state_path)
+    ):
+        seed = {"pairmode_version": "0.3.0", "expected_step_tokens": THIN_HARNESS_STEP_TOKENS}
+        if apply:
+            sys.path.insert(0, str(_SCRIPTS_DIR))
+            from state_utils import _atomic_write_json  # noqa: PLC0415
+            _atomic_write_json(state_path, seed)
+            click.echo(f"[apply] seeded missing state.json at {state_path}")
+        else:
+            click.echo(f"[would] seed missing state.json at {state_path} with {seed}")
+        # After seeding, nothing more to do for state fields — they're already correct.
+        # Skip into the rest of the checks.
+        state: dict = seed
+    else:
+        state = _load_state(companion_dir)
+
+    # -----------------------------------------------------------------------
+    # B6: expected_step_tokens — rewrite Era 2 fleet-wide stamp (53000 → 5000)
+    # -----------------------------------------------------------------------
+    est = state.get("expected_step_tokens")
+    if est == ERA2_STAMP:
+        if apply:
+            state["expected_step_tokens"] = THIN_HARNESS_STEP_TOKENS
+            sys.path.insert(0, str(_SCRIPTS_DIR))
+            from state_utils import _atomic_write_json  # noqa: PLC0415
+            _atomic_write_json(state_path, state)
+            click.echo(
+                f"[apply] rewrote expected_step_tokens: {ERA2_STAMP} → {THIN_HARNESS_STEP_TOKENS}"
+            )
+        else:
+            click.echo(
+                f"[would] rewrite expected_step_tokens: {ERA2_STAMP} → {THIN_HARNESS_STEP_TOKENS}"
+            )
+    elif est is not None and est != THIN_HARNESS_STEP_TOKENS:
+        click.echo(
+            f"[WARN] custom expected_step_tokens={est!r} — value kept (not the Era 2 stamp)."
+        )
+
+    # -----------------------------------------------------------------------
+    # B4: pipe_path — deprecation notice and removal
+    # -----------------------------------------------------------------------
+    if "pipe_path" in state:
+        click.echo(
+            "[deprecation] state.json contains 'pipe_path' — "
+            "this key is deprecated. The companion pipe now lives at "
+            "$TMPDIR/companion.pipe (fixed location). "
+        )
+        if apply:
+            state.pop("pipe_path")
+            sys.path.insert(0, str(_SCRIPTS_DIR))
+            from state_utils import _atomic_write_json  # noqa: PLC0415
+            _atomic_write_json(state_path, state)
+            click.echo("[apply] removed 'pipe_path' key from state.json")
+        else:
+            click.echo("[would] remove 'pipe_path' key from state.json")
+
+    # -----------------------------------------------------------------------
+    # B3: Protected-path preview — recent commits touching PROTECTED_GLOBS
+    # -----------------------------------------------------------------------
+    _protected_path_preview(project_path)
+
+    # -----------------------------------------------------------------------
+    # B7: Stale agent cleanup
+    # -----------------------------------------------------------------------
+    agents_dir = project_path / ".claude" / "agents"
+    if agents_dir.is_dir():
+        click.echo("[agent-cleanup] Checking .claude/agents/ for stale 0.2.x renders...")
+        for stem in _AGENT_STEMS:
+            agent_file = agents_dir / f"{stem}.md"
+            if not agent_file.exists():
+                continue
+            content_hash = _sha256_of_file(agent_file)
+            known_hash = _ERA2_AGENT_HASHES.get(stem)
+            if known_hash is not None and content_hash == known_hash:
+                # Matches a known stale template — safe to delete
+                if apply:
+                    agent_file.unlink()
+                    click.echo(
+                        f"[apply] deleted stale agent {agent_file.name} "
+                        f"(matched Era 2 hash)"
+                    )
+                else:
+                    click.echo(
+                        f"[would] delete stale agent {agent_file.name} "
+                        f"(matched Era 2 hash)"
+                    )
+            else:
+                # Not in the hash allowlist — treat as project-customised
+                era2_placeholder = f"# 0.2.x template for {stem} (not available)\n"
+                actual_lines = agent_file.read_text(encoding="utf-8").splitlines(keepends=True)
+                diff = list(
+                    difflib.unified_diff(
+                        [era2_placeholder],
+                        actual_lines,
+                        fromfile=f"{stem}.md (0.2.x template)",
+                        tofile=f"{stem}.md (current)",
+                        lineterm="",
+                    )
+                )
+                click.echo(
+                    f"[agent-cleanup] {agent_file.name}: content differs from known 0.2.x "
+                    f"template (or allowlist not populated). Manual porting required.\n"
+                    f"  Port any customisations from {agent_file} into the relevant "
+                    f"procedure skill under skills/pairmode/skills/."
+                )
+                if diff:
+                    click.echo("  Diff (0.2.x template → current):")
+                    for line in diff[:30]:
+                        click.echo(f"    {line}")
+    else:
+        click.echo("[agent-cleanup] No .claude/agents/ directory found — skipping.")
+
+    click.echo("\nto-030 complete.")
+
+
+def _try_parse_json(path: Path) -> bool:
+    """Return True if *path* can be read and parsed as JSON, False otherwise."""
+    try:
+        json.loads(path.read_text(encoding="utf-8"))
+        return True
+    except (json.JSONDecodeError, OSError):
+        return False
 
 
 if __name__ == "__main__":
