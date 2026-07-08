@@ -2,7 +2,7 @@
 id: RELEASE-009
 rail: RELEASE
 title: Fix thin CLAUDE.build.md.j2 binding and dispatch defects
-status: draft
+status: complete
 phase: "HARNESS012-main"
 story_class: code
 auth_gated: false

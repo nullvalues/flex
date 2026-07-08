@@ -2,7 +2,7 @@
 id: RELEASE-008
 rail: RELEASE
 title: Reconcile 46 main-only commits into Era 3 at the fold merge
-status: draft
+status: complete
 phase: "HARNESS012-main"
 story_class: code
 auth_gated: false

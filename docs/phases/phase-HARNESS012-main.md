@@ -15,8 +15,8 @@ Fix flex-side blockers before harness→main fold: reconcile 46 main-only commit
 
 | ID | Title | Status |
 |----|-------|--------|
-| RELEASE-008 | Reconcile 46 main-only commits into Era 3 at the fold merge | draft |
-| RELEASE-009 | Fix thin CLAUDE.build.md.j2 binding and dispatch defects | draft |
+| RELEASE-008 | Reconcile 46 main-only commits into Era 3 at the fold merge | complete |
+| RELEASE-009 | Fix thin CLAUDE.build.md.j2 binding and dispatch defects | complete |
 | RELEASE-010 | Wire gate-worker into bootstrap/sync and verify leaf-worker dispatch | complete |
 
 ## Schema delivery
