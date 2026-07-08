@@ -2,7 +2,7 @@
 id: RELEASE-012
 rail: RELEASE
 title: Per-project sync-all to Era 3 with Signal-1 verification
-status: draft
+status: complete
 phase: "HARNESS013-main"
 story_class: documentation
 auth_gated: false
