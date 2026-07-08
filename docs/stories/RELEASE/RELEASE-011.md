@@ -2,7 +2,7 @@
 id: RELEASE-011
 rail: RELEASE
 title: "pairmode_migrate.py to-030: state.json normalizer and stale-agent cleanup"
-status: draft
+status: complete
 phase: "HARNESS013-main"
 story_class: code
 auth_gated: false
