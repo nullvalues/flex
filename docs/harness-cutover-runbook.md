@@ -215,6 +215,20 @@ No deadline, no forced cutover — this is "opt-in."
 
 ---
 
+## § Seam gate (run before each project migration)
+
+Before beginning migration on any project P, confirm all five conditions below. **If any item fails, do not proceed.** A story in flight must be completed or formally deferred (status set to `deferred` in the phase doc) before migrating.
+
+- [ ] **Working tree clean.** `git -C /path/to/P status --porcelain` returns no output; all story work is committed and pushed.
+- [ ] **No attempt counter pending.** `PATH=$HOME/.local/bin:$PATH uv run python flex_build.py read-attempt-count` (run from the project directory) returns `0`. A non-zero value means the orchestrator is mid-attempt; complete or abandon the attempt before migrating.
+- [ ] **At a phase boundary.** The project is either sitting on a checkpoint tag, or every story in the current phase doc has `status: complete`. A phase with any `status: planned` or `status: in_progress` story is not a valid seam.
+- [ ] **No stub primary_files in non-draft stories.** `PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py check-stubs --project-dir /path/to/P` returns clean. Any non-draft story with `primary_files: []` will fail the Era 3 schema gate; fill in the list before migrating.
+- [ ] **Project is registered in fleet discovery.** `PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py list-projects` includes the project path. Unregistered projects cannot be verified against the pre-fold discovery gate (DP8).
+
+Era 2 story specs remain valid after migration — the story/phase/era schema is unchanged except for relaxations (draft and backlog stories now accept `primary_files: []`). No spec rewrites are required unless a non-draft story has an empty `primary_files` list, in which case the operator must populate it before the gate above will pass. If a project has customized agent body files in `.claude/agents/{builder,reviewer,...}.md` beyond what `sync-agents` preserves (procedure skill `procedure.md` files are plugin-owned and restored on every sync), those customizations should be ported to a project-specific addendum in the relevant procedure skill's documentation directory before `sync-all` overwrites the stale agent file.
+
+---
+
 ## Per-project mechanic (DP5)
 
 Each project's sync **must run from the harness worktree's scripts** to bake the correct `pairmode_scripts_dir`.
