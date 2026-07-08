@@ -2,7 +2,7 @@
 id: RELEASE-013
 rail: RELEASE
 title: Mid-build seam selection and pre-migration gate for Era 2 projects
-status: draft
+status: complete
 phase: "HARNESS013-main"
 story_class: documentation
 auth_gated: false
