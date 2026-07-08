@@ -5,6 +5,14 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp-HARNESS012-main
+
+**Phase:** HARNESS012-main — Era 3 Fold Prep
+**Tag command:** `git tag cp-HARNESS012-main && git push origin fold-prep --tags`
+**Acceptance:** Three stories. **RELEASE-008**: Reconcile 46 main-only commits into Era 3 at the fold merge — `_resolve_active_phase` deferred+planned-fileless regression test added; BUILD-043 FAIL-CAUSE port verified. **RELEASE-009**: Fix thin CLAUDE.build.md.j2 binding and dispatch defects — added `pairmode_scripts_dir = {{ pairmode_scripts_dir }}` key-value declaration; all flex_build.py invocations use absolute path variable; replaced hardcoded `harness` branch with `{{ default_branch | default('main') }}`; added `record-attempt` Click alias to `flex_build.py` delegating to `record_attempt.py` via subprocess; `pairmode_sync.py` passes `pairmode_scripts_dir` and `default_branch` in sync-build template context; `test_pairmode_sync.py` updated. **RELEASE-010**: Wire gate-worker into bootstrap/sync and verify leaf-worker dispatch — verification finding: no agent shell existed for `spawn-gate-worker`, making dispatch broken; `gate-worker.md.j2` added to `AGENT_FILES` in `bootstrap.py`; `gate-worker.md` and `reconstruction-agent.md` added to `CANONICAL_FILES` in `audit.py` (latter was a pre-existing gap); `TestGateWorkerDispatch` (3 tests) in `test_bootstrap.py`; `TestCanonicalFilesAgentFilesConsistency` (2 tests, including `AGENT_FILES⊆CANONICAL_FILES` invariant) in `test_audit.py`. `architecture.md` updated: `record-attempt` added to flex_build.py CLI surface. Security audit: 0 CRITICAL/HIGH (1 LOW — `sys.argv.index` argument-truncation in `cmd_record_attempt`; narrow window given story-ID regex validation upstream; filed as CER). Intent review: ALIGNED. 2952 tests pass.
+
+---
+
 ## cp-HARNESS009-main
 
 **Phase:** HARNESS009-main — Write-path determinism (Era 003)
