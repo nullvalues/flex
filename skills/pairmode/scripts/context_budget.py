@@ -339,19 +339,53 @@ def should_block(
     overrun_pct: float,
     acknowledged_at: int | None,
     reprompt_margin: int = 0,
+    user_turn_seq: int = 0,
+    acknowledged_user_turn_seq: int | None = None,
 ) -> bool:
-    """Pure decision. Block iff:
+    """Pure decision. Block iff the ceiling is exceeded AND acknowledgment does
+    not clear the gate. Acknowledgment clearing has three distinct branches
+    (INFRA-193):
 
-      current + expected > threshold * (1 + overrun_pct)
-      AND (acknowledged_at is None OR
-           current_tokens >= acknowledged_at + reprompt_margin).
+      - ``acknowledged_at is None``: no prior acknowledgment — always block.
+      - ``acknowledged_user_turn_seq is None`` (pre-INFRA-192 state.json,
+        one-time upgrade grace period): no turn tracking is available for
+        this acknowledgment, so behave exactly as the pre-INFRA-193
+        contract — block iff ``current_tokens < acknowledged_at +
+        reprompt_margin`` (i.e. suppress once the token margin is crossed,
+        turn-blind).
+      - ``acknowledged_user_turn_seq`` is set but no ``UserPromptSubmit``
+        event has occurred since the block (``user_turn_seq <=
+        acknowledged_user_turn_seq``): always block. This closes the
+        self-clearing bug — a bare identical retry with no human
+        involvement (``current_tokens == acknowledged_at`` on a blocked
+        call that never completed) must not silently clear the gate.
+      - ``acknowledged_user_turn_seq`` is set and a genuine turn has
+        occurred (``user_turn_seq > acknowledged_user_turn_seq``):
+        suppress once the token margin is crossed
+        (``current_tokens >= acknowledged_at + reprompt_margin``).
+
+    Collapsing the last two branches into a single boolean (`turn happened
+    or turn-tracking absent`) is intentionally avoided — the "no turn yet"
+    branch and the "no turn tracking at all" branch require opposite
+    outcomes when the token margin has not yet been crossed, so they must
+    be evaluated as separate branches, not merged.
     """
     ceiling = threshold * (1.0 + overrun_pct)
     if (current_tokens + expected_next) <= ceiling:
         return False
     if acknowledged_at is None:
         return True
-    return current_tokens >= acknowledged_at + reprompt_margin
+    token_ok = current_tokens >= acknowledged_at + reprompt_margin
+    if acknowledged_user_turn_seq is None:
+        # Backward-compat upgrade path: no turn tracking recorded for this
+        # acknowledgment — fall back to the pre-INFRA-193 token-only check
+        # (block iff the token margin has been crossed since ack).
+        return token_ok
+    if user_turn_seq <= acknowledged_user_turn_seq:
+        # No UserPromptSubmit event since the block was written — a human
+        # has not yet had a turn to see and respond to the prompt.
+        return True
+    return not token_ok
 
 
 # ---------------------------------------------------------------------------
@@ -535,6 +569,12 @@ def decide(
         except (TypeError, ValueError):
             acknowledged_at = None
 
+    user_turn_seq = int(state.get("context_budget_user_turn_seq", 0) or 0)
+    ack_turn_seq_raw = state.get("context_budget_acknowledged_user_turn_seq")
+    acknowledged_user_turn_seq = (
+        int(ack_turn_seq_raw) if ack_turn_seq_raw is not None else None
+    )
+
     phase = state.get("current_phase") or state.get("phase")
     db_path = project_dir / ".companion" / "effort.db"
     expected_next = estimate_next_step_tokens(
@@ -543,12 +583,19 @@ def decide(
         seeded_default,
     )
 
-    # Apply flex_factor to the effective ceiling.
-    ceiling = threshold * (1.0 + overrun_pct) * flex_factor
-    blocked = (current_tokens + expected_next) > ceiling
+    # Apply flex_factor to the effective threshold, then delegate to the
+    # pure should_block() decision (which applies the overrun_pct itself).
+    blocked = should_block(
+        current_tokens=current_tokens,
+        expected_next=expected_next,
+        threshold=threshold * flex_factor,
+        overrun_pct=overrun_pct,
+        acknowledged_at=acknowledged_at,
+        reprompt_margin=reprompt_margin,
+        user_turn_seq=user_turn_seq,
+        acknowledged_user_turn_seq=acknowledged_user_turn_seq,
+    )
     if not blocked:
-        return None
-    if acknowledged_at is not None and current_tokens < acknowledged_at + reprompt_margin:
         return None
 
     state_story_id = state.get("current_story") or state.get("story_id")
@@ -564,4 +611,5 @@ def decide(
         "reason": prompt,
         "tokens": current_tokens,
         "acknowledged_at": current_tokens,
+        "user_turn_seq_at_block": user_turn_seq,
     }

@@ -191,6 +191,64 @@ def test_decide_raises_degrades_safely(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Test 7 (INFRA-193): user-turn acknowledgment gate
+# ---------------------------------------------------------------------------
+
+
+def test_bare_retry_without_user_turn_blocks_again(tmp_path):
+    """External-report repro: tokens over ceiling, acknowledged_at ==
+    context_current_tokens, and no intervening UserPromptSubmit event
+    (acknowledged_user_turn_seq == user_turn_seq) → still blocked, not
+    silently suppressed.
+
+    NOTE: overrun_pct and reprompt_margin are intentionally non-zero here —
+    ``decide()``'s ``state.get(key, default) or default`` reads treat an
+    explicit ``0``/``0.0`` in state.json as falsy and silently substitute
+    the default, a pre-existing quirk unrelated to this story; using
+    non-zero values keeps this test's assertions independent of that quirk.
+    """
+    _seed_state(
+        tmp_path,
+        {
+            "context_budget_threshold": 1000,
+            "context_budget_overrun_pct": 0.5,
+            "expected_step_tokens": 10,
+            "context_budget_reprompt_margin": 100,
+            "context_current_tokens": 1600,
+            "context_budget_acknowledged_at": 1600,
+            "context_budget_user_turn_seq": 2,
+            "context_budget_acknowledged_user_turn_seq": 2,
+        },
+    )
+    result = _run_hook({"tool_name": "Task", "cwd": str(tmp_path)})
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+
+
+def test_retry_after_user_prompt_submit_suppresses(tmp_path):
+    """A genuine UserPromptSubmit event since the block (user_turn_seq
+    incremented past acknowledged_user_turn_seq) with the token margin
+    satisfied → suppressed (empty stdout)."""
+    _seed_state(
+        tmp_path,
+        {
+            "context_budget_threshold": 1000,
+            "context_budget_overrun_pct": 0.5,
+            "expected_step_tokens": 10,
+            "context_budget_reprompt_margin": 100,
+            "context_current_tokens": 1700,
+            "context_budget_acknowledged_at": 1600,
+            "context_budget_user_turn_seq": 3,
+            "context_budget_acknowledged_user_turn_seq": 2,
+        },
+    )
+    result = _run_hook({"tool_name": "Task", "cwd": str(tmp_path)})
+    assert result.returncode == 0
+    assert result.stdout.strip() == b""
+
+
 def test_performance_100_runs_under_5_seconds(tmp_path):
     """100 hook invocations (decide returns None) must complete in under 5 seconds."""
     # No state.json → decide returns None → pass-through.

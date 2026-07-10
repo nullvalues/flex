@@ -51,7 +51,9 @@ Run every item on every review invocation.
    scalar from state.json, written by `post_tool_use.py` after each completed
    Task/Agent spawn), one stdout emit. All domain logic lives in the named module,
    NOT in the hook. The Task branch has one state-write path:
-   `context_budget_acknowledged_at` when blocking (single `write_text()` call).
+   `context_budget_acknowledged_at` and (INFRA-193)
+   `context_budget_acknowledged_user_turn_seq` when blocking (single
+   `write_text()` call covering both keys).
    `post_tool_use.py` (PostToolUse Task/Agent branch, INFRA-182) is the sole live
    writer of `context_current_tokens`.
 

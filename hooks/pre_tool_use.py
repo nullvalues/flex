@@ -3,12 +3,14 @@
 PreToolUse hook — dispatches to context_budget (Task/Agent) and scope_guard (Edit/Write).
 
 Thin dispatcher. Domain logic lives in the named modules:
-  - Task/Agent → skills/pairmode/scripts/context_budget.py  (CER-027, CER-049, INFRA-182)
+  - Task/Agent → skills/pairmode/scripts/context_budget.py  (CER-027, CER-049, INFRA-182, INFRA-193)
     One delegated module call:
       decide(project_dir) — reads context_current_tokens from state.json
       (written by post_tool_use.py after each completed spawn, or by the
       SessionStart baseline on /clear); the hook writes
-      context_budget_acknowledged_at to state.json when result["block"] is True.
+      context_budget_acknowledged_at and (INFRA-193)
+      context_budget_acknowledged_user_turn_seq to state.json in a single
+      read-modify-write when result["block"] is True.
     No story_id lookup; no live-count write (PostToolUse handles that).
   - Edit/Write → skills/pairmode/scripts/scope_guard.py (Phase 55)
     Read-only; no state writes.
@@ -52,6 +54,10 @@ def main():
                 if state_path.exists():
                     state = json.loads(state_path.read_text())
                     state["context_budget_acknowledged_at"] = result["acknowledged_at"]
+                    if "user_turn_seq_at_block" in result:
+                        state["context_budget_acknowledged_user_turn_seq"] = result[
+                            "user_turn_seq_at_block"
+                        ]
                     state_path.write_text(json.dumps(state, indent=2))
             except Exception:
                 pass
