@@ -1,0 +1,13 @@
+{
+  "story_id": "INFRA-193",
+  "story_spec": "docs/stories/INFRA/INFRA-193.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/context_budget.py",
+    "hooks/pre_tool_use.py",
+    "CLAUDE.md",
+    "tests/pairmode/test_context_budget.py",
+    "tests/pairmode/test_pre_tool_use_hook.py",
+    "docs/stories/INFRA/INFRA-193.md"
+  ],
+  "generated_at": "2026-07-10T15:30:21Z"
+}
