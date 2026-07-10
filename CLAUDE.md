@@ -83,10 +83,18 @@ Run every item on every review invocation.
    three keys returned by `decide_reset()` as a dict — see INFRA-180, INFRA-182),
    one emit. All decision logic lives in `session_reset.py`, NOT in the hook.
 
-   Any logic added inside `pre_tool_use.py`, `post_tool_use.py`, or
-   `session_start.py` beyond tool-name / source dispatch + module delegation
-   + emit remains CRITICAL. Any *other* hook that emits a decision-block
-   response remains CRITICAL.
+   `hooks/user_prompt_submit.py` (INFRA-192) is a thin dispatcher for the
+   `UserPromptSubmit` event:
+
+   - Every event → one state.json read-modify-write incrementing
+     `context_budget_user_turn_seq`. No decision logic, no block/reason
+     emission. This is the sole source of the human-turn signal consumed by
+     `context_budget.should_block()` (INFRA-193).
+
+   Any logic added inside `pre_tool_use.py`, `post_tool_use.py`,
+   `session_start.py`, or `user_prompt_submit.py` beyond tool-name / source
+   dispatch + module delegation + emit remains CRITICAL. Any *other* hook
+   that emits a decision-block response remains CRITICAL.
 
 2. PIPE CONTRACT
    Do all hook scripts write only to the project-scoped pipe (e.g. `/tmp/companion-<hash>.pipe`)?
