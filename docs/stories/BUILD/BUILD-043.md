@@ -2,7 +2,7 @@
 id: BUILD-043
 rail: BUILD
 title: "Reviewer FAIL reason capture via --notes"
-status: planned
+status: complete
 phase: "83"
 story_class: code
 auth_gated: false

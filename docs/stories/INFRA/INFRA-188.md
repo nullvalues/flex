@@ -2,7 +2,7 @@
 id: INFRA-188
 rail: INFRA
 title: "Scope budget warning in check-story-scope"
-status: planned
+status: complete
 phase: "83"
 story_class: code
 auth_gated: false

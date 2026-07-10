@@ -2,7 +2,7 @@
 id: INFRA-187
 rail: INFRA
 title: "Body-section enforcement: non-pointer Ensures required for code and methodology stories"
-status: planned
+status: complete
 phase: "83"
 story_class: code
 auth_gated: false

@@ -19,7 +19,7 @@ Actively verify spec content against the live codebase before the builder fires,
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-190 | spec_preflight.py — route and constant reference checker | complete |
-| INFRA-191 | Orchestrator integration of spec_preflight via flex_build.py spec-preflight subcommand | planned |
+| INFRA-191 | Orchestrator integration of spec_preflight via flex_build.py spec-preflight subcommand | complete |
 
 ## Schema delivery
 

@@ -2,7 +2,7 @@
 id: INFRA-189
 rail: INFRA
 title: "test_gate frontmatter annotation for deferred whole-suite green"
-status: planned
+status: complete
 phase: "83"
 story_class: code
 auth_gated: false

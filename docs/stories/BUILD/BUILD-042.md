@@ -2,7 +2,7 @@
 id: BUILD-042
 rail: BUILD
 title: "Enable effort_tracking on flex itself"
-status: planned
+status: complete
 phase: "83"
 story_class: methodology
 auth_gated: false

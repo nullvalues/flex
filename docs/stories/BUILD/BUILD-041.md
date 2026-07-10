@@ -2,7 +2,7 @@
 id: BUILD-041
 rail: BUILD
 title: "security-auditor: add pairmode hook exceptions + audit scope rule"
-status: draft
+status: complete
 phase: "82"
 story_class: doc
 auth_gated: false

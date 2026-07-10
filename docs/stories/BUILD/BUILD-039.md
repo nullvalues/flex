@@ -2,7 +2,7 @@
 id: BUILD-039
 rail: BUILD
 title: "pre-reviewer git add: exclude story primary_files from blanket stage"
-status: draft
+status: complete
 phase: "80"
 story_class: doc
 primary_files:
