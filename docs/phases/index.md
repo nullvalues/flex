@@ -84,7 +84,8 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 82 | security-auditor: document pairmode hook exceptions + audit scope rule | complete | [phase-82.md](phase-82.md) |
 | 83 | Spec quality gates | complete | [phase-83.md](phase-83.md) |
 | 84 | Spec preflight verification | complete | [phase-84.md](phase-84.md) |
-| 85 | Context budget acknowledgment integrity fix | planned | [phase-85.md](phase-85.md) |
+| 85 | Context budget acknowledgment integrity fix | complete | [phase-85.md](phase-85.md) |
+| 86 | permissions-create idempotency | planned | [phase-86.md](phase-86.md) |
 
 ---
 

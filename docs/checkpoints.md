@@ -558,6 +558,12 @@ CER-031). All docs follow the catalog template verbatim with real "What Broke" i
 **Stories:** INFRA-190, INFRA-191
 **Acceptance:** `spec_preflight.py` created — scans story Ensures/Instructions/Implementation-notes for `/api/` routes and SCREAMING_SNAKE constants, warns when none are found in source tree, always exits 0, 12 tests (INFRA-190). `flex_build.py spec-preflight` subcommand registered, inserted into `CLAUDE.build.md.j2` between stub gate and scope check with informational surface block, `docs/architecture.md` updated with module entry and build-loop prose (INFRA-191). Security audit: 0 CRITICAL/HIGH (1 LOW — CER-061 filed Do Later). Intent review: ALIGNED. 2310 tests pass.
 
+## cp85-context-budget-acknowledgment-integrity-fix
+**Tag command:** `git tag cp85-context-budget-acknowledgment-integrity-fix && git push origin cp85-context-budget-acknowledgment-integrity-fix`
+**Phase:** 85
+**Stories:** INFRA-192, INFRA-193
+**Acceptance:** Closes a self-clearing bug in the context-budget gate (external report): `hooks/user_prompt_submit.py` added as a thin `UserPromptSubmit` dispatcher incrementing `context_budget_user_turn_seq` (INFRA-192); `context_budget.should_block()`/`decide()` and `hooks/pre_tool_use.py` now require a genuine `UserPromptSubmit` event (not just token progress) since the last block before suppressing a re-prompt, closing the bare-retry self-clear path, with a backward-compatible grace period for pre-INFRA-192 state.json (INFRA-193). D11 read-only boundary on `decide()` preserved. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: both stories ALIGNED (INFRA-193 shipped a benign implementation restructure vs. the story's literal code sample); flagged `docs/architecture.md` and `docs/pairmode/context-gate-flow.md` doc-currency gap, applied at checkpoint. 2324 tests pass.
+
 ## cp83-spec-quality-gates
 **Tag command:** `git tag cp83-spec-quality-gates && git push origin cp83-spec-quality-gates`
 **Phase:** 83
