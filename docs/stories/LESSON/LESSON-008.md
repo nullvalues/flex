@@ -2,7 +2,7 @@
 id: LESSON-008
 rail: LESSON
 title: Repoint _AFFECTS_TO_TEMPLATE map to procedure.md files
-status: planned
+status: complete
 phase: "HARNESS014-main"
 story_class: code
 auth_gated: false
