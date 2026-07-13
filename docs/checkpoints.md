@@ -5,6 +5,15 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp86-permissions-create-idempotency
+
+**Tag command:** `git tag cp86-permissions-create-idempotency && git push origin cp86-permissions-create-idempotency`
+**Phase:** 86
+**Stories:** INFRA-194
+**Acceptance:** Closes a methodology bug found via external report (meander): `permissions-create` (Layer 1 of the two-layer permission model) unconditionally rewrote `docs/phases/permissions/<story_id>.json` — including a fresh `generated_at` — on every invocation, even when the computed `allowed_paths` were unchanged, re-triggering the auto-mode re-authorization gate on every story despite no scope drift. `cmd_permissions_create` now reads the existing file (if present and parseable) and no-ops when `allowed_paths` match; writes with a fresh `generated_at` only on genuine drift, absence, or corruption. `docs/architecture.md` updated to describe the no-op behavior. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: ALIGNED. 2327 tests pass.
+
+---
+
 ## cp79-era002-index-tooling-maintenance
 
 **Phase:** 79 — era-002 index-tooling maintenance (current-phase, mark-phase-complete, reviewer revert)
