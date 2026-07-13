@@ -39,7 +39,7 @@ progress AND a new user turn since the block.
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-192 | UserPromptSubmit hook — user-turn sequence counter | complete |
-| INFRA-193 | context_budget acknowledgment gate — require genuine user turn since block | planned |
+| INFRA-193 | context_budget acknowledgment gate — require genuine user turn since block | complete |
 
 ## Schema delivery
 

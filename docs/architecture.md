@@ -940,6 +940,15 @@ Fields:
   counter reset (Phase 68 INFRA-175). Read by `session_reset.decide_reset()`; when absent,
   non-numeric, or non-positive, the default `25_000` is used. Opt-in only — not seeded by
   `bootstrap.py`.
+- `context_budget_user_turn_seq` — **optional**; integer; monotonic counter incremented by
+  `hooks/user_prompt_submit.py` on every `UserPromptSubmit` event (treated as `0` when
+  absent). The sole signal that a genuine human turn has occurred since a context-budget
+  block. INFRA-192.
+- `context_budget_acknowledged_user_turn_seq` — **optional**; integer; the value of
+  `context_budget_user_turn_seq` at the moment `hooks/pre_tool_use.py` last wrote a block,
+  written alongside `context_budget_acknowledged_at` in the same `write_text()` call.
+  `None`/absent is treated as a pre-INFRA-192 upgrade grace period by `should_block()` and
+  does not itself force a block. INFRA-193.
 - `registered_projects` — **optional**; list of absolute paths to pairmode-scaffolded
   projects to include in cross-project drift detection. When present and non-empty,
   `/flex:pairmode review` runs `pairmode_drift_report --convergent` across all listed
@@ -986,8 +995,9 @@ Hooks must:
   the hook makes one delegated call: `decide(project_dir)` — reads
   `context_current_tokens` from state.json (written by `post_tool_use.py` after each
   completed Task/Agent spawn, or by the SessionStart baseline); the hook writes
-  `context_budget_acknowledged_at` to state.json when `result["block"]` is True
-  (single `write_text()` call). `decide()` itself is strictly read-only (D11).
+  `context_budget_acknowledged_at` and `context_budget_acknowledged_user_turn_seq`
+  (INFRA-193) to state.json in a single `write_text()` call when `result["block"]` is
+  True. `decide()` itself is strictly read-only (D11).
   `post_tool_use.py` (PostToolUse Task/Agent branch) is the sole live writer of
   `context_current_tokens`; `set-context-tokens` remains as a manual override.
   Blocks with `CONTEXT CHECK REQUIRED` when `context_current_tokens` is absent or
@@ -1025,6 +1035,14 @@ baseline.
   (INFRA-180 changed the return type from `int | None` to `dict | None`.)
   `compact` is deliberately excluded (CER-047 — post-compact window size unknown; stale
   counter over-blocks, which is fail-safe).
+
+**Documented exception — `hooks/user_prompt_submit.py` (INFRA-192):**
+`user_prompt_submit.py` is a thin dispatcher for the `UserPromptSubmit` event:
+
+- Every event → one state.json read-modify-write incrementing
+  `context_budget_user_turn_seq`. No decision logic, no block/reason emission.
+  This is the sole source of the human-turn signal consumed by
+  `context_budget.should_block()` (INFRA-193).
 
 The remaining two registered hooks — `stop.py` and `session_end.py` — are plain pipe relays with no dispatch logic and no state.json writes. They do not require thin-delegation exception documentation.
 
