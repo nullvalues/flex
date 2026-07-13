@@ -298,7 +298,7 @@
       "applies_to": [
         "pairmode"
       ],
-      "status": "captured"
+      "status": "reviewed"
     },
     {
       "id": "L017",
@@ -317,7 +317,7 @@
       "applies_to": [
         "all"
       ],
-      "status": "captured",
+      "status": "reviewed",
       "validation_phase": "2"
     },
     {
@@ -337,7 +337,7 @@
       "applies_to": [
         "all"
       ],
-      "status": "captured"
+      "status": "applied"
     },
     {
       "id": "L019",
@@ -356,7 +356,26 @@
       "applies_to": [
         "all"
       ],
-      "status": "captured"
+      "status": "reviewed"
+    },
+    {
+      "id": "L020",
+      "date": "2026-07-13",
+      "source_project": "forqsite.help",
+      "trigger": "Reviewer noticed docs/phases/phase-2.md existed with 5 stories but docs/phases/index.md still showed only Phase 1 (title stale as '\u2014 fill in \u2014', 'Next to build' pointing at Phase 1), and the active era's Phases table in docs/eras/001-initial.md was empty",
+      "problem": "Phase docs were hand-authored by copying the phase.md.j2 template format closely instead of running phase_new.py. The hand-authored file matched the template's content conventions exactly (frontmatter, planning-surface comment, section structure) but skipped the script's side-effect writes: appending a row to docs/phases/index.md and to the active era's Phases table. Because the content itself looked correct, the drift wasn't visible from reading the phase file alone \u2014 only from cross-referencing it against index.md and the era file.",
+      "learning": "Faithfully reproducing a template's content format does not guarantee the side effects that the generating script performs. Phase registration (index.md row, era Phases table row) is a script side effect, not something derivable from a phase file's own content, so an agent that hand-writes a phase doc \u2014 even a well-formed one \u2014 will silently leave the index and era tracking stale. This class of drift is only caught by explicitly diffing phase-N.md files against index.md/era rows, not by reviewing the phase file in isolation.",
+      "methodology_change": {
+        "affects": [
+          "orchestrator",
+          "checkpoint_sequence"
+        ],
+        "description": "Add a phase-registration consistency check to audit.py (or as a step in CLAUDE.build.md's phase completion check): for every docs/phases/phase-*.md file, verify a matching row exists in docs/phases/index.md and in the active era's Phases table; flag any phase file missing either as drift. Also strengthen the phase-new SKILL.md guidance from a 'when to use' note into an explicit 'never hand-author phase-N.md \u2014 always run phase_new.py, even for a phase you plan to fill in later' rule surfaced at bootstrap time."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "applied"
     }
   ]
 }

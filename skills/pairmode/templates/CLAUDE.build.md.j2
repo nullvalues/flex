@@ -1054,3 +1054,7 @@ Stop. Do not begin the next phase until the user says to.
 - Do not advance past a checkpoint until build gate + security audit + intent review all pass.
 - The deny list in `.claude/settings.json` protects certain files at the permission level.
   If any step tries to modify a protected file, it will be blocked. Report this to the user.
+
+{# LESSON L020: Add a phase-registration consistency check to audit.py (or as a step in CLAUDE.build.md's phase completion check): for every docs/phases/phase-*.md file, verify a matching row exists in docs/phases/index.md and in the active era's Phases table; flag any phase file missing either as drift. Also strengthen the phase-new SKILL.md guidance from a 'when to use' note into an explicit 'never hand-author phase-N.md — always run phase_new.py, even for a phase you plan to fill in later' rule surfaced at bootstrap time. #}
+
+{# LESSON L020: Add a phase-registration consistency check to audit.py (or as a step in CLAUDE.build.md's phase completion check): for every docs/phases/phase-*.md file, verify a matching row exists in docs/phases/index.md and in the active era's Phases table; flag any phase file missing either as drift. Also strengthen the phase-new SKILL.md guidance from a 'when to use' note into an explicit 'never hand-author phase-N.md — always run phase_new.py, even for a phase you plan to fill in later' rule surfaced at bootstrap time. #}

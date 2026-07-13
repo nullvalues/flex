@@ -80,20 +80,25 @@ or use `/flex:pairmode lesson` to capture a new lesson.
 
 ## L016 — Reviewing L005 marker hygiene during forqsite session 2026-05-18. Found that L005's marker in CLAUDE.md.j2 points at the wrong file — the actual implementation correctly landed in agents/reviewer.md.j2. Also realized L015 was implemented directly (template edits written outside the /flex:pairmode review flow), leaving its status as 'captured' despite the change being live in the canonical templates.
 **Date:** 2026-05-18
-**Status:** captured
+**Status:** reviewed
 **Learning:** Markers are 'pending work' signals and must be lifecycle-managed. When a lesson flips to 'applied' the marker should either be removed entirely or transformed into a brief breadcrumb ({# LESSON LNNN APPLIED YYYY-MM-DD in <file> #}). Affects keys should be granular enough that markers land near where the actual change is most likely to happen. And there must be a clean path to declare a lesson applied when the change was implemented directly without going through review's annotation step.
 
 ## L017 — Reviewer FAIL-revert wiped the operator's uncommitted, git-tracked .claude/settings.json permission change mid-build, re-blocking all subsequent stories.
 **Date:** 2026-05-26
-**Status:** captured
+**Status:** reviewed
 **Learning:** A git-tracked permission-config file is part of the working tree the reviewer reverts. Authorized changes to it must be committed BEFORE the reviewer fires (the same protection Step 1.5 gives methodology files), or they are silently destroyed on any FAIL. Two corollaries: (1) maintain an EXPLICIT allow block for the files in active scope rather than relying on absence-from-deny ('implicit approval'), so authorizations are legible in the diff and reviewable; (2) when the harness self-modification guard bars the agent from editing a permission file, write the proposed valid file to a tmp path for the operator to mv into place instead of abandoning the change.
 
 ## L018 — Orchestrator post-build note from meander INFRA-008: the pre-reviewer git add docs/phases/ swept up a story deliverable whose primary_file lived under docs/phases/, committing it unreviewed under the chore(orchestrator) message.
 **Date:** 2026-06-29
-**Status:** captured
+**Status:** applied
 **Learning:** The pre-reviewer git add must exclude files declared as primary_files (and touches) in the active story's spec. Correct pattern: (1) blanket 'git add docs/phases/ docs/cer/', then (2) 'git reset HEAD -- <file>' for each primary_file/touch that falls under a staged directory. This preserves the reviewer's ability to diff the story deliverable while still protecting methodology files. Applies any time a story's deliverable lives under a directory covered by the blanket add.
 
 ## L019 — sync-all on aab surfaced a stale pytest test_command despite a TypeScript/pnpm stack
 **Date:** 2026-07-09
-**Status:** captured
+**Status:** reviewed
 **Learning:** Fallback defaults for build_command/test_command in templates must never assume a language/toolchain; they should force explicit configuration (e.g. a NOT CONFIGURED placeholder that fails loudly) rather than defaulting to a Python-specific command.
+
+## L020 — Reviewer noticed docs/phases/phase-2.md existed with 5 stories but docs/phases/index.md still showed only Phase 1 (title stale as '— fill in —', 'Next to build' pointing at Phase 1), and the active era's Phases table in docs/eras/001-initial.md was empty
+**Date:** 2026-07-13
+**Status:** applied
+**Learning:** Faithfully reproducing a template's content format does not guarantee the side effects that the generating script performs. Phase registration (index.md row, era Phases table row) is a script side effect, not something derivable from a phase file's own content, so an agent that hand-writes a phase doc — even a well-formed one — will silently leave the index and era tracking stale. This class of drift is only caught by explicitly diffing phase-N.md files against index.md/era rows, not by reviewing the phase file in isolation.
