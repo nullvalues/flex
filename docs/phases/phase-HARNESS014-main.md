@@ -39,7 +39,7 @@ Signal-2-style lessons-currency check in `fleet_discovery.py` are explicitly
 
 | ID | Title | Status |
 |----|-------|--------|
-| LESSON-007 | enforced_by field on lesson schema and unenforced-backlog query | planned |
+| LESSON-007 | enforced_by field on lesson schema and unenforced-backlog query | complete |
 | LESSON-008 | Repoint _AFFECTS_TO_TEMPLATE map to procedure.md files | planned |
 
 ## Schema delivery

@@ -2,7 +2,7 @@
 id: LESSON-007
 rail: LESSON
 title: enforced_by field on lesson schema and unenforced-backlog query
-status: planned
+status: complete
 phase: "HARNESS014-main"
 story_class: methodology
 auth_gated: false
