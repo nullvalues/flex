@@ -44,7 +44,7 @@ warranted.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-194 | permissions-create idempotency — skip write when allowed_paths unchanged | planned |
+| INFRA-194 | permissions-create idempotency — skip write when allowed_paths unchanged | complete |
 
 ## Schema delivery
 

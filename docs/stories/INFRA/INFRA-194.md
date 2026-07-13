@@ -2,7 +2,7 @@
 id: INFRA-194
 rail: INFRA
 title: "permissions-create idempotency — skip write when allowed_paths unchanged"
-status: planned
+status: complete
 phase: "86"
 story_class: code
 auth_gated: false
