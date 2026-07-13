@@ -21,9 +21,13 @@ def load_lessons() -> dict:
 def save_lessons(data: dict) -> None:
     """Write lessons.json, enforcing the append-only invariant.
 
-    Existing entries may only have their ``status`` field changed.
-    Any attempt to modify other fields of an existing entry raises ValueError.
-    New entries may be freely appended.
+    Existing entries may only have their ``status`` field changed. The
+    ``enforced_by`` field is a one-time exception: it may be *added* to an
+    entry that predates the field (i.e. ``"enforced_by" not in original``),
+    but once an entry has an ``enforced_by`` value on disk, it becomes
+    append-only like any other field (only ``status`` may change after that).
+    Any other attempt to modify a field of an existing entry raises
+    ValueError. New entries may be freely appended.
     """
     existing = load_lessons()
     existing_by_id = {entry["id"]: entry for entry in existing.get("lessons", [])}
@@ -42,6 +46,10 @@ def save_lessons(data: dict) -> None:
             original = existing_by_id[entry_id]
             for key, value in entry.items():
                 if key == "status":
+                    continue
+                if key == "enforced_by" and "enforced_by" not in original:
+                    # One-time migration exception: field addition to an
+                    # entry that predates it is allowed.
                     continue
                 if original.get(key) != value:
                     raise ValueError(
@@ -90,10 +98,12 @@ def generate_lessons_md(data: dict) -> str:
             date = lesson.get("date", "")
             learning = lesson.get("learning", "")
             status = lesson.get("status", "")
+            enforced_by = lesson.get("enforced_by", "")
 
             lines.append(f"## {lid} — {trigger}")
             lines.append(f"**Date:** {date}")
             lines.append(f"**Status:** {status}")
+            lines.append(f"**Enforced by:** {enforced_by}")
             lines.append(f"**Learning:** {learning}")
             lines.append("")
 

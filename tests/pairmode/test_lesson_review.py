@@ -20,10 +20,11 @@ def _make_lesson(
     affects: list[str] | None = None,
     status: str = "captured",
     description: str = "some change",
+    enforced_by: str | None = None,
 ) -> dict:
     if affects is None:
         affects = ["reviewer_checklist"]
-    return {
+    lesson = {
         "id": lid,
         "date": "2026-01-01",
         "source_project": "test-project",
@@ -37,6 +38,9 @@ def _make_lesson(
         "applies_to": ["all"],
         "status": status,
     }
+    if enforced_by is not None:
+        lesson["enforced_by"] = enforced_by
+    return lesson
 
 
 def _make_data(*lessons: dict) -> dict:
@@ -163,6 +167,90 @@ class TestLoadReviewableLessons:
         lr, _, _ = patched_review
         result = lr.load_reviewable_lessons()
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# list_unenforced_lessons
+# ---------------------------------------------------------------------------
+
+class TestListUnenforcedLessons:
+    def test_returns_applied_and_unenforced(self, patched_review):
+        lr, lessons_json, _ = patched_review
+        data = _make_data(
+            _make_lesson("L001", status="applied", enforced_by="none"),
+        )
+        lessons_json.write_text(json.dumps(data) + "\n")
+
+        result = lr.list_unenforced_lessons()
+        assert len(result) == 1
+        assert result[0]["id"] == "L001"
+
+    def test_excludes_applied_and_enforced(self, patched_review):
+        lr, lessons_json, _ = patched_review
+        data = _make_data(
+            _make_lesson("L001", status="applied", enforced_by="hook"),
+        )
+        lessons_json.write_text(json.dumps(data) + "\n")
+
+        result = lr.list_unenforced_lessons()
+        assert result == []
+
+    def test_excludes_non_applied_statuses(self, patched_review):
+        lr, lessons_json, _ = patched_review
+        data = _make_data(
+            _make_lesson("L001", status="captured", enforced_by="none"),
+            _make_lesson("L002", status="reviewed", enforced_by="none"),
+        )
+        lessons_json.write_text(json.dumps(data) + "\n")
+
+        result = lr.list_unenforced_lessons()
+        assert result == []
+
+    def test_mixed_lessons_only_correct_returned(self, patched_review):
+        lr, lessons_json, _ = patched_review
+        data = _make_data(
+            _make_lesson("L001", status="applied", enforced_by="none"),
+            _make_lesson("L002", status="applied", enforced_by="lint"),
+            _make_lesson("L003", status="captured", enforced_by="none"),
+        )
+        lessons_json.write_text(json.dumps(data) + "\n")
+
+        result = lr.list_unenforced_lessons()
+        ids = [l["id"] for l in result]
+        assert ids == ["L001"]
+
+    def test_empty_lessons(self, patched_review):
+        lr, _, _ = patched_review
+        result = lr.list_unenforced_lessons()
+        assert result == []
+
+    def test_list_unenforced_cli_flag_prints_hits(self, patched_review):
+        from click.testing import CliRunner
+
+        lr, lessons_json, _ = patched_review
+        data = _make_data(
+            _make_lesson("L001", status="applied", enforced_by="none",
+                         trigger="Some trigger", description="Some change"),
+        )
+        lessons_json.write_text(json.dumps(data) + "\n")
+
+        runner = CliRunner()
+        result = runner.invoke(lr.cli, ["--list-unenforced"])
+
+        assert result.exit_code == 0, result.output
+        assert "L001" in result.output
+        assert "Some trigger" in result.output
+        assert "Some change" in result.output
+
+    def test_list_unenforced_cli_flag_empty(self, patched_review):
+        from click.testing import CliRunner
+
+        lr, _, _ = patched_review
+        runner = CliRunner()
+        result = runner.invoke(lr.cli, ["--list-unenforced"])
+
+        assert result.exit_code == 0, result.output
+        assert "no unenforced applied lessons" in result.output
 
 
 # ---------------------------------------------------------------------------

@@ -295,3 +295,86 @@ class TestCaptureLessonOptionalFields:
         assert "validation_phase" not in lesson
         assert lesson.get("value_framing") is None  # confirms absence, not explicit null
         assert lesson.get("validation_phase") is None
+
+
+class TestCaptureLessonEnforcedBy:
+    def test_default_is_none(self, patched_lesson):
+        lm, lessons_json, _ = patched_lesson
+        lesson = lm.capture_lesson(
+            trigger="T",
+            problem="P",
+            learning="L",
+            methodology_change_description="C",
+            affects=["all"],
+            applies_to=["all"],
+        )
+        assert lesson["enforced_by"] == "none"
+        data = json.loads(lessons_json.read_text())
+        assert data["lessons"][0]["enforced_by"] == "none"
+
+    def test_explicit_value_stored(self, patched_lesson):
+        lm, lessons_json, _ = patched_lesson
+        lesson = lm.capture_lesson(
+            trigger="T",
+            problem="P",
+            learning="L",
+            methodology_change_description="C",
+            affects=["all"],
+            applies_to=["all"],
+            enforced_by="hook",
+        )
+        assert lesson["enforced_by"] == "hook"
+        data = json.loads(lessons_json.read_text())
+        assert data["lessons"][0]["enforced_by"] == "hook"
+
+    def test_cli_default_is_none(self, patched_lesson):
+        from click.testing import CliRunner
+        lm, lessons_json, _ = patched_lesson
+
+        runner = CliRunner()
+        result = runner.invoke(lm.cli, [
+            "--trigger", "T",
+            "--problem", "P",
+            "--learning", "L",
+            "--methodology-change", "C",
+            "--affects", "all",
+            "--applies-to", "all",
+        ])
+        assert result.exit_code == 0, result.output
+        data = json.loads(lessons_json.read_text())
+        assert data["lessons"][0]["enforced_by"] == "none"
+
+    def test_cli_explicit_value_stored(self, patched_lesson):
+        from click.testing import CliRunner
+        lm, lessons_json, _ = patched_lesson
+
+        runner = CliRunner()
+        result = runner.invoke(lm.cli, [
+            "--trigger", "T",
+            "--problem", "P",
+            "--learning", "L",
+            "--methodology-change", "C",
+            "--affects", "all",
+            "--applies-to", "all",
+            "--enforced-by", "hook",
+        ])
+        assert result.exit_code == 0, result.output
+        data = json.loads(lessons_json.read_text())
+        assert data["lessons"][0]["enforced_by"] == "hook"
+
+    def test_cli_invalid_value_rejected(self, patched_lesson):
+        from click.testing import CliRunner
+        lm, _, _ = patched_lesson
+
+        runner = CliRunner()
+        result = runner.invoke(lm.cli, [
+            "--trigger", "T",
+            "--problem", "P",
+            "--learning", "L",
+            "--methodology-change", "C",
+            "--affects", "all",
+            "--applies-to", "all",
+            "--enforced-by", "bogus",
+        ])
+        assert result.exit_code != 0
+        assert "Invalid value" in result.output or "invalid choice" in result.output.lower()

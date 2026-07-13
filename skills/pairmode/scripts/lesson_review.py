@@ -62,6 +62,20 @@ def load_reviewable_lessons() -> list[dict]:
     ]
 
 
+def list_unenforced_lessons() -> list[dict]:
+    """Return all lessons with status 'applied' and enforced_by 'none'.
+
+    This is the queryable unenforced-lessons backlog: applied lessons whose
+    methodology change has not been folded into a lint/hook/skill gate.
+    """
+    data = lesson_utils.load_lessons()
+    return [
+        lesson
+        for lesson in data.get("lessons", [])
+        if lesson.get("status") == "applied" and lesson.get("enforced_by") == "none"
+    ]
+
+
 def group_lessons_by_affects(lessons: list[dict]) -> dict[str, list[dict]]:
     """Group lesson list by methodology_change.affects values.
 
@@ -418,12 +432,20 @@ def drift_promotion_step(project_dir: Path, **kwargs) -> None:
     default=False,
     help="Skip lesson processing and run only drift promotion.",
 )
+@click.option(
+    "--list-unenforced",
+    "list_unenforced",
+    is_flag=True,
+    default=False,
+    help="Print applied lessons with enforced_by 'none' (the unenforced backlog) and exit.",
+)
 def cli(
     approve_ids: tuple[str, ...],
     reject_ids: tuple[str, ...],
     project_dir: str,
     skip_drift: bool,
     drift_only: bool,
+    list_unenforced: bool,
 ) -> None:
     """Process lesson approvals and rejections, then regenerate LESSONS.md.
 
@@ -435,6 +457,18 @@ def cli(
 
     Rejected lessons: status is set to 'reviewed'.
     """
+    if list_unenforced:
+        unenforced = list_unenforced_lessons()
+        if not unenforced:
+            click.echo("no unenforced applied lessons")
+        else:
+            for lesson in unenforced:
+                lid = lesson.get("id", "")
+                trigger = lesson.get("trigger", "")
+                description = lesson.get("methodology_change", {}).get("description", "")
+                click.echo(f"{lid}: {trigger} — {description}")
+        return
+
     if drift_only and skip_drift:
         raise click.UsageError("--drift-only and --skip-drift are mutually exclusive")
 

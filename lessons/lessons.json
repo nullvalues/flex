@@ -17,7 +17,8 @@
       "applies_to": [
         "all"
       ],
-      "status": "applied"
+      "status": "applied",
+      "enforced_by": "lint"
     },
     {
       "id": "L002",
@@ -35,7 +36,8 @@
       "applies_to": [
         "all"
       ],
-      "status": "applied"
+      "status": "applied",
+      "enforced_by": "lint"
     },
     {
       "id": "L003",
@@ -53,7 +55,8 @@
       "applies_to": [
         "all"
       ],
-      "status": "applied"
+      "status": "applied",
+      "enforced_by": "lint"
     },
     {
       "id": "L004",
@@ -71,7 +74,8 @@
       "applies_to": [
         "all"
       ],
-      "status": "applied"
+      "status": "applied",
+      "enforced_by": "hook"
     },
     {
       "id": "L005",
@@ -89,7 +93,8 @@
       "applies_to": [
         "all"
       ],
-      "status": "applied"
+      "status": "applied",
+      "enforced_by": "hook"
     },
     {
       "id": "L006",
@@ -107,7 +112,8 @@
       "applies_to": [
         "all"
       ],
-      "status": "applied"
+      "status": "applied",
+      "enforced_by": "lint"
     },
     {
       "id": "L007",
@@ -127,7 +133,8 @@
       "applies_to": [
         "all"
       ],
-      "status": "applied"
+      "status": "applied",
+      "enforced_by": "hook"
     },
     {
       "id": "L008",
@@ -146,7 +153,8 @@
       "applies_to": [
         "all"
       ],
-      "status": "applied"
+      "status": "applied",
+      "enforced_by": "skill"
     },
     {
       "id": "L009",
@@ -164,7 +172,8 @@
       "applies_to": [
         "all"
       ],
-      "status": "applied"
+      "status": "applied",
+      "enforced_by": "hook"
     },
     {
       "id": "L010",
@@ -182,7 +191,8 @@
       "applies_to": [
         "all"
       ],
-      "status": "applied"
+      "status": "applied",
+      "enforced_by": "hook"
     },
     {
       "id": "L011",
@@ -200,7 +210,8 @@
       "applies_to": [
         "all"
       ],
-      "status": "applied"
+      "status": "applied",
+      "enforced_by": "hook"
     },
     {
       "id": "L012",
@@ -220,7 +231,8 @@
         "all"
       ],
       "status": "applied",
-      "validation_phase": "24"
+      "validation_phase": "24",
+      "enforced_by": "none"
     },
     {
       "id": "L013",
@@ -241,7 +253,8 @@
         "all"
       ],
       "status": "applied",
-      "validation_phase": "25"
+      "validation_phase": "25",
+      "enforced_by": "hook"
     },
     {
       "id": "L014",
@@ -260,7 +273,8 @@
       "applies_to": [
         "all"
       ],
-      "status": "applied"
+      "status": "applied",
+      "enforced_by": "none"
     },
     {
       "id": "L015",
@@ -280,7 +294,8 @@
       "applies_to": [
         "all"
       ],
-      "status": "applied"
+      "status": "applied",
+      "enforced_by": "skill"
     },
     {
       "id": "L016",
@@ -298,7 +313,8 @@
       "applies_to": [
         "pairmode"
       ],
-      "status": "captured"
+      "status": "captured",
+      "enforced_by": "none"
     },
     {
       "id": "L017",
@@ -318,7 +334,8 @@
         "all"
       ],
       "status": "captured",
-      "validation_phase": "2"
+      "validation_phase": "2",
+      "enforced_by": "none"
     },
     {
       "id": "L018",
@@ -337,7 +354,8 @@
       "applies_to": [
         "all"
       ],
-      "status": "captured"
+      "status": "captured",
+      "enforced_by": "none"
     }
   ]
 }

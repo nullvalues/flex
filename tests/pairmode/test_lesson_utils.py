@@ -137,6 +137,30 @@ class TestAppendOnlyInvariant:
         with pytest.raises(ValueError, match="L001"):
             lu.save_lessons({"version": "1.0.0", "lessons": []})
 
+    def test_adding_enforced_by_to_entry_missing_it_allowed(self, lessons_file):
+        """One-time migration exception: adding enforced_by to a legacy entry is allowed."""
+        lu, _ = lessons_file
+        lu.save_lessons(_make_data(_make_lesson("L001")))
+
+        migrated = _make_lesson("L001")
+        migrated["enforced_by"] = "hook"
+        lu.save_lessons(_make_data(migrated))  # should not raise
+
+        loaded = lu.load_lessons()
+        assert loaded["lessons"][0]["enforced_by"] == "hook"
+
+    def test_modifying_enforced_by_after_migration_raises(self, lessons_file):
+        """Once enforced_by exists on disk, it becomes append-only like any other field."""
+        lu, _ = lessons_file
+        migrated = _make_lesson("L001")
+        migrated["enforced_by"] = "hook"
+        lu.save_lessons(_make_data(migrated))
+
+        changed = _make_lesson("L001")
+        changed["enforced_by"] = "lint"
+        with pytest.raises(ValueError, match="enforced_by"):
+            lu.save_lessons(_make_data(changed))
+
 
 # ---------------------------------------------------------------------------
 # LESSONS.md generation
@@ -149,6 +173,15 @@ class TestGenerateLessonsMd:
         assert "# Flex Methodology Lessons" in md
         assert "auto-generated" in md
         assert "No lessons captured yet." in md
+
+    def test_includes_enforced_by(self):
+        from skills.pairmode.scripts.lesson_utils import generate_lessons_md
+        lesson = _make_lesson("L001", trigger="Builder skipped tests",
+                              learning="Always run tests first.", date="2026-04-19",
+                              status="applied")
+        lesson["enforced_by"] = "hook"
+        md = generate_lessons_md(_make_data(lesson))
+        assert "**Enforced by:** hook" in md
 
     def test_empty_produces_placeholder(self):
         """Empty lessons list produces the standard placeholder line."""
