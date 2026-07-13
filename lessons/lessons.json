@@ -338,6 +338,25 @@
         "all"
       ],
       "status": "captured"
+    },
+    {
+      "id": "L019",
+      "date": "2026-07-09",
+      "source_project": "aab",
+      "trigger": "sync-all on aab surfaced a stale pytest test_command despite a TypeScript/pnpm stack",
+      "problem": "product.json/pairmode_context.json retained a bootstrap-default Python pytest test_command for a non-Python project; CLAUDE.build.md.j2's fallback for build_command/test_command is a hardcoded pytest invocation instead of a stack-agnostic placeholder, so an unset value silently renders a wrong-language command instead of surfacing as unconfigured.",
+      "learning": "Fallback defaults for build_command/test_command in templates must never assume a language/toolchain; they should force explicit configuration (e.g. a NOT CONFIGURED placeholder that fails loudly) rather than defaulting to a Python-specific command.",
+      "methodology_change": {
+        "affects": [
+          "orchestrator",
+          "checkpoint_sequence"
+        ],
+        "description": "Update CLAUDE.build.md.j2's build_command/test_command fallbacks (lines ~824 and ~1034) to match the pattern already used in CLAUDE.md.j2 \u2014 a stack-agnostic 'NOT CONFIGURED \u2014 run flex bootstrap' placeholder instead of the hardcoded pytest command."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured"
     }
   ]
 }

@@ -92,3 +92,8 @@ or use `/flex:pairmode lesson` to capture a new lesson.
 **Date:** 2026-06-29
 **Status:** captured
 **Learning:** The pre-reviewer git add must exclude files declared as primary_files (and touches) in the active story's spec. Correct pattern: (1) blanket 'git add docs/phases/ docs/cer/', then (2) 'git reset HEAD -- <file>' for each primary_file/touch that falls under a staged directory. This preserves the reviewer's ability to diff the story deliverable while still protecting methodology files. Applies any time a story's deliverable lives under a directory covered by the blanket add.
+
+## L019 — sync-all on aab surfaced a stale pytest test_command despite a TypeScript/pnpm stack
+**Date:** 2026-07-09
+**Status:** captured
+**Learning:** Fallback defaults for build_command/test_command in templates must never assume a language/toolchain; they should force explicit configuration (e.g. a NOT CONFIGURED placeholder that fails loudly) rather than defaulting to a Python-specific command.
