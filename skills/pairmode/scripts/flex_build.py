@@ -287,6 +287,20 @@ def cmd_permissions_create(story_id: str, project_dir: str) -> None:
         click.echo("permissions-create: output path escapes permissions dir", err=True)
         sys.exit(1)
 
+    existing_allowed: list[str] | None = None
+    if out_path.exists():
+        try:
+            existing_payload = json.loads(out_path.read_text(encoding="utf-8"))
+            existing_allowed = existing_payload.get("allowed_paths")
+        except (json.JSONDecodeError, OSError):
+            existing_allowed = None
+
+    if existing_allowed == allowed:
+        click.echo(
+            f"permissions: docs/phases/permissions/{story_id}.json unchanged ({len(allowed)} paths)"
+        )
+        return
+
     payload = {
         "story_id": story_id,
         "story_spec": story_spec_rel,

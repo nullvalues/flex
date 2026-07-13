@@ -158,6 +158,66 @@ def test_permissions_create_idempotent(tmp_path):
     assert data1["story_id"] == data2["story_id"]
     assert data1["allowed_paths"] == data2["allowed_paths"]
     assert data1["story_spec"] == data2["story_spec"]
+    assert data1["generated_at"] == data2["generated_at"]
+
+
+def test_permissions_create_noop_prints_unchanged_message(tmp_path):
+    runner = CliRunner()
+    _make_story(tmp_path, "INFRA-999", primary_files=["a.py"], touches=["b.py"])
+    r1 = runner.invoke(
+        flex_build,
+        ["permissions-create", "INFRA-999", "--project-dir", str(tmp_path)],
+    )
+    assert r1.exit_code == 0
+    r2 = runner.invoke(
+        flex_build,
+        ["permissions-create", "INFRA-999", "--project-dir", str(tmp_path)],
+    )
+    assert r2.exit_code == 0
+    assert "unchanged" in r2.output
+    assert "wrote" not in r2.output
+
+
+def test_permissions_create_rewrites_when_touches_changes(tmp_path):
+    runner = CliRunner()
+    _make_story(tmp_path, "INFRA-999", primary_files=["a.py"], touches=["b.py"])
+    r1 = runner.invoke(
+        flex_build,
+        ["permissions-create", "INFRA-999", "--project-dir", str(tmp_path)],
+    )
+    assert r1.exit_code == 0
+    out_path = tmp_path / "docs" / "phases" / "permissions" / "INFRA-999.json"
+    data1 = json.loads(out_path.read_text())
+
+    # Rewrite the story spec with an added touches entry.
+    _make_story(tmp_path, "INFRA-999", primary_files=["a.py"], touches=["b.py", "c.py"])
+    r2 = runner.invoke(
+        flex_build,
+        ["permissions-create", "INFRA-999", "--project-dir", str(tmp_path)],
+    )
+    assert r2.exit_code == 0
+    assert "wrote" in r2.output
+    data2 = json.loads(out_path.read_text())
+    assert "c.py" in data2["allowed_paths"]
+    assert data2["allowed_paths"] != data1["allowed_paths"]
+
+
+def test_permissions_create_rewrites_when_existing_file_is_corrupt(tmp_path):
+    runner = CliRunner()
+    _make_story(tmp_path, "INFRA-999", primary_files=["a.py"], touches=["b.py"])
+    out_dir = tmp_path / "docs" / "phases" / "permissions"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "INFRA-999.json"
+    out_path.write_text("not json", encoding="utf-8")
+
+    result = runner.invoke(
+        flex_build,
+        ["permissions-create", "INFRA-999", "--project-dir", str(tmp_path)],
+    )
+    assert result.exit_code == 0
+    data = json.loads(out_path.read_text())
+    assert data["allowed_paths"]
+    assert "generated_at" in data
 
 
 def test_permissions_create_registered_on_flex_build_cli():
