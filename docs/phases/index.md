@@ -98,6 +98,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | HARNESS011-main | Era 3 closeout remediation | complete | [phase-HARNESS011-main.md](phase-HARNESS011-main.md) |
 | HARNESS012-main | Era 3 Fold Prep | complete | [phase-HARNESS012-main.md](phase-HARNESS012-main.md) · cp-HARNESS012-main |
 | HARNESS013-main | Era 3 Fleet Migration | planned | [phase-HARNESS013-main.md](phase-HARNESS013-main.md) |
+| HARNESS014-main | Lessons enforcement instrumentation | planned | [phase-HARNESS014-main.md](phase-HARNESS014-main.md) |
 
 ---
 
