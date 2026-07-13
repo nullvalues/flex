@@ -87,6 +87,8 @@ def patched_review_with_templates(tmp_path, monkeypatch):
     templates_root = tmp_path
     (templates_root / "skills" / "pairmode" / "templates").mkdir(parents=True)
     (templates_root / "skills" / "pairmode" / "templates" / "agents").mkdir(parents=True)
+    (templates_root / "skills" / "pairmode" / "skills" / "builder").mkdir(parents=True)
+    (templates_root / "skills" / "pairmode" / "skills" / "reviewer").mkdir(parents=True)
 
     (templates_root / "skills" / "pairmode" / "templates" / "CLAUDE.md.j2").write_text(
         "# CLAUDE.md template\n", encoding="utf-8"
@@ -96,6 +98,12 @@ def patched_review_with_templates(tmp_path, monkeypatch):
     )
     (templates_root / "skills" / "pairmode" / "templates" / "agents" / "builder.md.j2").write_text(
         "# builder.md template\n", encoding="utf-8"
+    )
+    (templates_root / "skills" / "pairmode" / "skills" / "builder" / "procedure.md").write_text(
+        "# builder procedure\n", encoding="utf-8"
+    )
+    (templates_root / "skills" / "pairmode" / "skills" / "reviewer" / "procedure.md").write_text(
+        "# reviewer procedure\n", encoding="utf-8"
     )
 
     monkeypatch.setattr(lu, "LESSONS_FILE", lessons_json)
@@ -320,12 +328,19 @@ class TestProposeTemplateChange:
         assert len(proposals) == 1
         assert proposals[0]["template_file"] == "skills/pairmode/templates/CLAUDE.md.j2"
 
-    def test_builder_agent_maps_to_builder_md(self, patched_review):
+    def test_builder_agent_maps_to_builder_procedure(self, patched_review):
         lr, _, _ = patched_review
         lesson = _make_lesson("L001", affects=["builder_agent"])
         proposals = lr.propose_template_change(lesson)
         assert len(proposals) == 1
-        assert proposals[0]["template_file"] == "skills/pairmode/templates/agents/builder.md.j2"
+        assert proposals[0]["template_file"] == "skills/pairmode/skills/builder/procedure.md"
+
+    def test_reviewer_maps_to_reviewer_procedure(self, patched_review):
+        lr, _, _ = patched_review
+        lesson = _make_lesson("L001", affects=["reviewer"])
+        proposals = lr.propose_template_change(lesson)
+        assert len(proposals) == 1
+        assert proposals[0]["template_file"] == "skills/pairmode/skills/reviewer/procedure.md"
 
     def test_orchestrator_maps_to_claude_build_md(self, patched_review):
         lr, _, _ = patched_review
@@ -354,7 +369,7 @@ class TestProposeTemplateChange:
         template_files = {p["template_file"] for p in proposals}
         expected = {
             "skills/pairmode/templates/CLAUDE.md.j2",
-            "skills/pairmode/templates/agents/builder.md.j2",
+            "skills/pairmode/skills/builder/procedure.md",
             "skills/pairmode/templates/CLAUDE.build.md.j2",
         }
         assert template_files == expected
@@ -439,6 +454,55 @@ class TestApplyTemplateChange:
         content = template_path.read_text(encoding="utf-8")
         assert "{# LESSON L001: First change #}" in content
         assert "{# LESSON L002: Second change #}" in content
+
+    def test_builder_agent_procedure_md_target_succeeds(self, patched_review_with_templates):
+        """apply_template_change() targeting the builder procedure.md succeeds."""
+        lr, _, _, templates_root = patched_review_with_templates
+        lesson = _make_lesson("L001", affects=["builder_agent"])
+        proposals = lr.propose_template_change(lesson)
+        proposal = proposals[0]
+        assert proposal["template_file"] == "skills/pairmode/skills/builder/procedure.md"
+
+        lr.apply_template_change(proposal, "Some change", templates_root=templates_root)
+
+        template_path = templates_root / proposal["template_file"]
+        content = template_path.read_text(encoding="utf-8")
+        assert "# builder procedure" in content
+        assert "{# LESSON L001: Some change #}" in content
+
+    def test_empty_template_file_raises_file_not_found(self, patched_review_with_templates):
+        """A proposal with template_file: '' raises FileNotFoundError and writes nothing."""
+        lr, _, _, templates_root = patched_review_with_templates
+        proposal = {
+            "lesson_id": "L001",
+            "affects": "unmapped_affects",
+            "template_file": "",
+            "description": "some change",
+            "lesson_trigger": "t",
+            "lesson_learning": "l",
+        }
+        with pytest.raises(FileNotFoundError):
+            lr.apply_template_change(proposal, "Some change", templates_root=templates_root)
+
+    def test_nonexistent_mapped_path_raises_and_creates_no_file(self, patched_review_with_templates):
+        """A mapped path that doesn't exist raises FileNotFoundError instead of
+        silently recreating the file (regression test for the silent-recreate bug)."""
+        lr, _, _, templates_root = patched_review_with_templates
+        proposal = {
+            "lesson_id": "L001",
+            "affects": "builder_agent",
+            "template_file": "skills/pairmode/skills/builder/does_not_exist.md",
+            "description": "some change",
+            "lesson_trigger": "t",
+            "lesson_learning": "l",
+        }
+        missing_path = templates_root / proposal["template_file"]
+        assert not missing_path.exists()
+
+        with pytest.raises(FileNotFoundError):
+            lr.apply_template_change(proposal, "Some change", templates_root=templates_root)
+
+        assert not missing_path.exists()
 
     def test_path_traversal_raises(self, patched_review_with_templates):
         lr, _, _, templates_root = patched_review_with_templates

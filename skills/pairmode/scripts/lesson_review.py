@@ -36,14 +36,15 @@ from skills.pairmode.scripts import lesson_utils  # noqa: E402
 
 _AFFECTS_TO_TEMPLATE: dict[str, str] = {
     "reviewer_checklist": "skills/pairmode/templates/CLAUDE.md.j2",
-    "builder_agent": "skills/pairmode/templates/agents/builder.md.j2",
+    "builder_agent": "skills/pairmode/skills/builder/procedure.md",
+    "reviewer": "skills/pairmode/skills/reviewer/procedure.md",
     "orchestrator": "skills/pairmode/templates/CLAUDE.build.md.j2",
     "checkpoint_sequence": "skills/pairmode/templates/CLAUDE.build.md.j2",
 }
 
 _ALL_TEMPLATE_FILES: list[str] = [
     "skills/pairmode/templates/CLAUDE.md.j2",
-    "skills/pairmode/templates/agents/builder.md.j2",
+    "skills/pairmode/skills/builder/procedure.md",
     "skills/pairmode/templates/CLAUDE.build.md.j2",
 ]
 
@@ -162,15 +163,36 @@ def apply_template_change(proposal: dict, change_text: str, templates_root: Path
         change_text: The text describing the change to embed.
         templates_root: Optional override for the repo root (used in tests).
     """
+    if not proposal.get("template_file"):
+        raise FileNotFoundError(
+            f"No template mapping for affects={proposal.get('affects')!r} "
+            f"(lesson {proposal.get('lesson_id')}) — add an _AFFECTS_TO_TEMPLATE "
+            f"entry or fold this lesson manually."
+        )
+
     root = templates_root if templates_root is not None else _REPO_ROOT
     template_path = (root / proposal["template_file"]).resolve()
     templates_boundary = (root / "skills" / "pairmode" / "templates").resolve()
-    try:
-        template_path.resolve().relative_to(templates_boundary.resolve())
-    except ValueError:
+    procedures_boundary = (root / "skills" / "pairmode" / "skills").resolve()
+    in_boundary = False
+    for boundary in (templates_boundary, procedures_boundary):
+        try:
+            template_path.relative_to(boundary)
+            in_boundary = True
+            break
+        except ValueError:
+            continue
+    if not in_boundary:
         raise ValueError(
             f"Template path {template_path} is outside templates directory"
         )
+
+    if not template_path.exists():
+        raise FileNotFoundError(
+            f"Mapped template file does not exist: {template_path} "
+            f"(lesson {proposal.get('lesson_id')}, affects={proposal.get('affects')!r})"
+        )
+
     lesson_id = proposal["lesson_id"]
 
     comment_block = f"\n{{# LESSON {lesson_id}: {change_text} #}}\n"
