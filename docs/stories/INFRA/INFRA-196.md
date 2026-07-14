@@ -2,7 +2,7 @@
 id: INFRA-196
 rail: INFRA
 title: "Cold-read enforcement hook — block orchestrator Read of story/agent files"
-status: planned
+status: complete
 phase: "87"
 story_class: code
 auth_gated: false
