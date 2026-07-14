@@ -5,6 +5,15 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp87-checklist-item-override-granularity
+
+**Tag command:** `git tag cp87-checklist-item-override-granularity && git push origin cp87-checklist-item-override-granularity`
+**Phase:** 87
+**Stories:** INFRA-195, INFRA-196, INFRA-197, INFRA-198
+**Acceptance:** Four stories. INFRA-195 extends `audit.py`/`sync.py` section-boundary detection to bold-marker checklist items (`**N[.letter][.sub]. LABEL**`), allowing overrides at item granularity rather than only whole `##` sections. INFRA-196 adds a `Read`-dispatch branch to `hooks/pre_tool_use.py` delegating to a new `cold_read_guard.py`, blocking orchestrator-level (non-subagent) reads of `docs/stories/**` and `.claude/agents/**` so the orchestrator passes story IDs to subagents instead of reading specs cold itself. INFRA-197 adds a third glob shape (`phase-{phase}-*.md`) to `story_new.py`'s phase-manifest lookup so suffixed phase filenames resolve (CER-062). INFRA-198 reframes `permissions-create`-related prose in `INFRA-194.md`/`architecture.md` to drop "protected path / deny rule" language that caused a builder to self-block a sanctioned Bash call, adds explicit `Bash` allow entries for `permissions-create`/`write-permissions`/`clear-permissions` in `.claude/settings.json`, and adds an orchestrator skip-check to `CLAUDE.build.md` (and its template) to avoid re-invoking `permissions-create` when scope hasn't drifted. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: ALIGNED (4/4); one MEDIUM-risk open question noted — whether the new `Bash` allow-pattern for `permissions-create`/`write-permissions`/`clear-permissions` actually prefix-matches Claude Code's runtime permission classifier given the leading `PATH=...` env-assignment token on the emitted command (unverified; not a new failure mode — mirrors a pre-existing untouched pattern in `settings.local.json`). 2348 tests pass.
+
+---
+
 ## cp86-permissions-create-idempotency
 
 **Tag command:** `git tag cp86-permissions-create-idempotency && git push origin cp86-permissions-create-idempotency`

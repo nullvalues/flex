@@ -2,7 +2,7 @@
 id: INFRA-198
 rail: INFRA
 title: "Stop self-blocking permissions-create — clarify it's not a protected-path write, add orchestrator skip-check"
-status: planned
+status: complete
 phase: "87"
 story_class: doc
 auth_gated: false
