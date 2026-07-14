@@ -2,7 +2,7 @@
 id: INFRA-195
 rail: INFRA
 title: "Checklist-item-level section granularity in audit/sync"
-status: planned
+status: complete
 phase: "87"
 story_class: code
 auth_gated: false
