@@ -127,12 +127,18 @@ def _add_rail_to_era(era_path: Path, rail: str) -> None:
 def _append_to_phase(project_dir: Path, phase: str, story_id: str, title: str) -> bool:
     """Append a story row to the phase manifest.  Returns True if successful."""
     phase_glob = str(project_dir / "docs" / "phases" / f"{phase}-*.md")
-    matches = glob.glob(phase_glob)
+    matches = sorted(glob.glob(phase_glob))
     # Also try plain phase-N.md format
     if not matches:
         phase_glob2 = str(project_dir / "docs" / "phases" / f"phase-{phase}.md")
         if Path(phase_glob2).exists():
             matches = [phase_glob2]
+    # Also try suffixed phase-N-<suffix>.md format (CER-062, INFRA-197).
+    # Sorted glob results give a deterministic first match if more than one
+    # suffixed manifest exists for the same phase id.
+    if not matches:
+        phase_glob3 = str(project_dir / "docs" / "phases" / f"phase-{phase}-*.md")
+        matches = sorted(glob.glob(phase_glob3))
     if not matches:
         return False
 
