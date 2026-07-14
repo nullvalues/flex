@@ -90,12 +90,54 @@ break sanctioned behavior, not just the violation. `docs/stories/**` and
 every documented interaction with them is either a subagent's own cold read
 or an orchestrator-side CLI/`git add` call that never opens their content.
 
+A third, unrelated finding, surfaced via an external report from the radar
+project (fable-orchestrated): `story_new.py --phase MU020` failed to
+auto-register the new story into the phase's Stories table. `_append_to_phase`
+(`skills/pairmode/scripts/story_new.py:127-137`) only recognizes two filename
+shapes for the target phase manifest — `{phase}-*.md` (phase arg as filename
+prefix) and exact `phase-{phase}.md`. Suffixed phase manifests, of the form
+`phase-<phase_id>-<suffix>.md` (the convention `phase_new.py --phase-id
+--suffix` produces — see CER-038), match neither glob. `_append_to_phase`
+falls through to `return False` with no error surfaced to the caller, so the
+story file is still created correctly but the phase manifest's Stories table
+silently fails to get the new row — the radar operator had to add the row by
+hand. Logged as CER-062 (Do Later) and pulled forward into this phase since
+it's a low-effort, directly-related tooling fix alongside the other two
+stories in this phase.
+
+A fourth finding, surfaced live on story EDGE-001 (pre-Phase-87): the
+builder refused to run `flex_build.py permissions-create` via `Bash`,
+reporting it as blocked by "an explicit Edit/Write deny rule protecting
+`docs/phases/permissions/**`." Investigation (this session) confirmed no
+such rule exists in `.claude/settings.json` or `.claude/settings.local.json`
+— the only configured deny entries are `skills/companion/**`, `lessons/**`,
+`.claude-plugin/**`, `skills/seed/**`. `docs/phases/permissions/**` is also
+absent from CLAUDE.md's Protected Files list (item 7). The block was the
+model's own permission classifier self-enforcing prose in
+`docs/stories/INFRA/INFRA-194.md`, which describes the path as "a Layer 1
+protected path under the orchestrator's auto-mode deny rules" — a design
+narrative, not a machine-enforced rule — and treating the trusted script's
+`Bash` invocation as equivalent to a raw `Write` to that path.
+
+Separately (and compounding it): `CLAUDE.build.md` invokes
+`permissions-create` unconditionally at Step 1 of every build-loop entry
+(lines ~427-430), with no check for whether the story's declared scope
+(`primary_files`/`touches`) has changed since the permissions file was last
+generated. The script itself is already idempotent (Phase 86/INFRA-194 —
+`cmd_permissions_create` reads the existing file and returns before writing
+if `allowed_paths` is unchanged), but that idempotency never gets a chance
+to prove itself when the invocation is blocked before the script runs, and
+the orchestrator has no reason to skip the call in the first place even
+when nothing changed.
+
 ## Stories
 
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-195 | Checklist-item-level section granularity in audit/sync | planned |
 | INFRA-196 | Cold-read enforcement hook — block orchestrator Read of story/agent files | planned |
+| INFRA-197 | `story_new.py` phase-manifest glob — support suffixed phase filenames (CER-062) | planned |
+| INFRA-198 | Stop self-blocking `permissions-create` — clarify it's not a protected-path write, add orchestrator skip-check | planned |
 
 ## Schema delivery
 
@@ -104,4 +146,7 @@ section-boundary detection and the section-replace/append logic used by
 `audit.py` and `sync.py`. INFRA-196 adds a new hook-dispatch branch and a
 new stateless guard module; it introduces no persistent schema — the
 `agent_type` field it reads is a runtime hook-payload field, not project
-state.
+state. INFRA-197 changes a glob pattern in `story_new.py`'s existing
+phase-manifest lookup; no new schema, no new files. INFRA-198 changes
+prose (`INFRA-194.md`, `architecture.md`) and orchestrator instructions
+(`CLAUDE.build.md`), plus a permissions config entry; no schema change.
