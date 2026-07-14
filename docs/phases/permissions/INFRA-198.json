@@ -1,0 +1,13 @@
+{
+  "story_id": "INFRA-198",
+  "story_spec": "docs/stories/INFRA/INFRA-198.md",
+  "allowed_paths": [
+    "CLAUDE.build.md",
+    "docs/stories/INFRA/INFRA-194.md",
+    "docs/architecture.md",
+    ".claude/settings.json",
+    "skills/pairmode/templates/CLAUDE.build.md.j2",
+    "docs/stories/INFRA/INFRA-198.md"
+  ],
+  "generated_at": "2026-07-14T14:37:40Z"
+}
