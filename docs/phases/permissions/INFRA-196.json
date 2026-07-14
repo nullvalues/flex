@@ -1,0 +1,14 @@
+{
+  "story_id": "INFRA-196",
+  "story_spec": "docs/stories/INFRA/INFRA-196.md",
+  "allowed_paths": [
+    "hooks/pre_tool_use.py",
+    "skills/pairmode/scripts/cold_read_guard.py",
+    "CLAUDE.md",
+    "skills/pairmode/templates/CLAUDE.md.j2",
+    "tests/pairmode/test_pre_tool_use_hook.py",
+    "tests/pairmode/test_cold_read_guard.py",
+    "docs/stories/INFRA/INFRA-196.md"
+  ],
+  "generated_at": "2026-07-14T14:20:55Z"
+}

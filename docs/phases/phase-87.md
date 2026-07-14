@@ -134,7 +134,7 @@ when nothing changed.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-195 | Checklist-item-level section granularity in audit/sync | planned |
+| INFRA-195 | Checklist-item-level section granularity in audit/sync | complete |
 | INFRA-196 | Cold-read enforcement hook — block orchestrator Read of story/agent files | planned |
 | INFRA-197 | `story_new.py` phase-manifest glob — support suffixed phase filenames (CER-062) | planned |
 | INFRA-198 | Stop self-blocking `permissions-create` — clarify it's not a protected-path write, add orchestrator skip-check | planned |
