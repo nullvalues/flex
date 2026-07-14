@@ -2,7 +2,7 @@
 id: INFRA-197
 rail: INFRA
 title: "story_new.py phase-manifest glob — support suffixed phase filenames (CER-062)"
-status: planned
+status: complete
 phase: "87"
 story_class: code
 primary_files:
