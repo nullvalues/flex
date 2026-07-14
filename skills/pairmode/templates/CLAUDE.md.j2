@@ -32,6 +32,15 @@ Run every item on every review invocation.
    Were any protected files modified without a stated reason?
    Unexplained modification is HIGH.
 
+   **Documented thin-delegation exception:** `hooks/pre_tool_use.py`'s `Read`
+   dispatch delegates to `skills/pairmode/scripts/cold_read_guard.py`
+   (INFRA-196). This is read-only — no state writes. It blocks a top-level
+   orchestrator `Read` (no `agent_type` in the PreToolUse payload) of
+   `docs/stories/**` or `.claude/agents/**` — the orchestrator must instead
+   pass the story ID to the builder/reviewer subagent and let it read cold.
+   Subagent reads (`agent_type` present) are always allowed. `docs/phases/**`
+   and `docs/architecture.md` reads are never blocked.
+
 2. STORY SCOPE
    Did the builder touch files outside the stated story scope?
    Unexplained out-of-scope changes are MEDIUM.

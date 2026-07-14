@@ -249,6 +249,48 @@ def test_retry_after_user_prompt_submit_suppresses(tmp_path):
     assert result.stdout.strip() == b""
 
 
+# ---------------------------------------------------------------------------
+# Test 8 (INFRA-196): Read dispatch → cold_read_guard.check_path
+# ---------------------------------------------------------------------------
+
+
+def test_read_orchestrator_story_path_blocks(tmp_path):
+    """Read of docs/stories/** with no agent_type key (orchestrator) blocks."""
+    result = _run_hook({
+        "tool_name": "Read",
+        "tool_input": {"file_path": "docs/stories/INFRA/INFRA-196.md"},
+        "cwd": str(tmp_path),
+    })
+    assert result.returncode == 0
+    assert result.stdout.strip() != b""
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+    assert "reason" in payload
+
+
+def test_read_subagent_story_path_allowed(tmp_path):
+    """Read of docs/stories/** WITH an agent_type key (subagent) does not block."""
+    result = _run_hook({
+        "tool_name": "Read",
+        "tool_input": {"file_path": "docs/stories/INFRA/INFRA-196.md"},
+        "cwd": str(tmp_path),
+        "agent_type": "builder",
+    })
+    assert result.returncode == 0
+    assert result.stdout.strip() == b""
+
+
+def test_read_unrelated_path_allowed(tmp_path):
+    """Read of an unrelated path never blocks, agent_type absent or not."""
+    result = _run_hook({
+        "tool_name": "Read",
+        "tool_input": {"file_path": "docs/phases/phase-1.md"},
+        "cwd": str(tmp_path),
+    })
+    assert result.returncode == 0
+    assert result.stdout.strip() == b""
+
+
 def test_performance_100_runs_under_5_seconds(tmp_path):
     """100 hook invocations (decide returns None) must complete in under 5 seconds."""
     # No state.json → decide returns None → pass-through.

@@ -39,12 +39,14 @@ Run every item on every review invocation.
 
    **Documented thin-delegation exceptions:**
 
-   `hooks/pre_tool_use.py` is a thin dispatcher for two tool types:
+   `hooks/pre_tool_use.py` is a thin dispatcher for three tool types:
 
    - `Task` / `Agent` → `skills/pairmode/scripts/context_budget.py`
      (CER-027 context-budget enforcement; both tool names accepted — CER-049)
    - `Edit` / `Write` → `skills/pairmode/scripts/scope_guard.py`
      (Phase 55 story file-scope enforcement)
+   - `Read` → `skills/pairmode/scripts/cold_read_guard.py`
+     (INFRA-196 cold-read enforcement)
 
    For the `Task`/`Agent` dispatch: one tool-name check, one delegated module call
    (`decide(project_dir)` for the block decision — reads `context_current_tokens`
@@ -59,6 +61,15 @@ Run every item on every review invocation.
 
    For the `Edit`/`Write` dispatch: one tool-name check, one delegated module call,
    one stdout emit. The Edit/Write branch is read-only.
+
+   For the `Read` dispatch: one tool-name check, one delegated module call
+   (`cold_read_guard.check_path(file_path, agent_type, project_dir)`), one
+   stdout emit. The Read branch is read-only — no state writes. It blocks
+   when `agent_type` is absent from the payload (a top-level orchestrator
+   Read, not a subagent Read) AND the target path falls under
+   `docs/stories/**` or `.claude/agents/**`; the orchestrator must instead
+   pass the story ID to the builder/reviewer subagent and let it read cold.
+   `docs/phases/**` and `docs/architecture.md` reads are never blocked.
 
    `hooks/post_tool_use.py` is a thin dispatcher for two tool types:
 

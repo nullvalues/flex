@@ -14,6 +14,11 @@ Thin dispatcher. Domain logic lives in the named modules:
     No story_id lookup; no live-count write (PostToolUse handles that).
   - Edit/Write → skills/pairmode/scripts/scope_guard.py (Phase 55)
     Read-only; no state writes.
+  - Read → skills/pairmode/scripts/cold_read_guard.py (INFRA-196)
+    Read-only; no state writes. Blocks orchestrator (no agent_type in the
+    payload) Reads of docs/stories/** and .claude/agents/** — these must be
+    handed to the builder/reviewer subagent as a story ID, not read cold by
+    the orchestrator itself.
 
 CER-049: Current Claude Code harnesses name the agent-spawn tool `Agent`
 (was `Task` in earlier harnesses). The matcher in hooks.json and the
@@ -70,6 +75,21 @@ def main():
             file_path = data.get("tool_input", {}).get("file_path", "")
             allowed, reason = scope_guard.check_path(
                 file_path=file_path,
+                project_dir=Path(data.get("cwd") or "."),
+            )
+        except Exception:
+            sys.exit(0)
+        if not allowed:
+            print(json.dumps({"decision": "block", "reason": reason}))
+        sys.exit(0)
+
+    elif tool_name == "Read":
+        try:
+            import cold_read_guard
+
+            allowed, reason = cold_read_guard.check_path(
+                file_path=data.get("tool_input", {}).get("file_path", ""),
+                agent_type=data.get("agent_type"),
                 project_dir=Path(data.get("cwd") or "."),
             )
         except Exception:
