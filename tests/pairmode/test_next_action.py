@@ -631,6 +631,82 @@ class TestResolveNextActionCheckpoint:
         assert action["model"] is None
         assert validate_action(action) == []
 
+    def test_prior_phase_completed_sequence_no_longer_short_circuits_new_phase(
+        self, tmp_path: Any
+    ) -> None:
+        """CER-066 regression: a prior phase's completed checkpoint sequence
+        must not short-circuit a new phase's checkpoint to `done`.
+
+        Before RESOLVER-017, ``_record_checkpoint_step`` never cleared
+        ``state.json["checkpoint_step"]`` after recording the terminal
+        ``checkpoint-tag`` step, so the list stayed at all four step names
+        forever. A later phase reaching Row 9 (active phase, no next story)
+        would then read that stale 4-item list and Row 9's read-only
+        ``_remaining`` computation (unchanged by this story) would see no
+        remaining steps and return ``done`` instead of ``checkpoint-security``.
+
+        This test drives the real ``record-checkpoint-step`` CLI through a
+        full sequence (simulating a prior phase's completed checkpoint),
+        confirms the fixed write side leaves ``checkpoint_step == []``
+        afterward, then feeds that (correctly reset) state into
+        ``resolve_next_action`` for a new phase and asserts it returns
+        ``checkpoint-security`` — not ``done``.
+        """
+        import json
+        import subprocess
+        import sys as _sys
+        from pathlib import Path
+
+        # Project layout with a real .companion/state.json, matching the
+        # write-side CLI's expectations.
+        project_dir = tmp_path / "sub" / "project"
+        companion = project_dir / ".companion"
+        companion.mkdir(parents=True)
+        state_path = companion / "state.json"
+        state_path.write_text(json.dumps({"checkpoint_step": []}), encoding="utf-8")
+
+        scripts_dir = (
+            Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts"
+        )
+
+        for step in [
+            "checkpoint-security",
+            "checkpoint-intent",
+            "checkpoint-docs",
+            "checkpoint-tag",
+        ]:
+            result = subprocess.run(
+                [
+                    _sys.executable,
+                    str(scripts_dir / "flex_build.py"),
+                    "record-checkpoint-step",
+                    step,
+                    "--project-dir",
+                    str(project_dir),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0, result.stderr
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert state["checkpoint_step"] == [], (
+            "prior phase's checkpoint-tag did not reset checkpoint_step — "
+            "stale carryover would short-circuit the next phase's checkpoint"
+        )
+
+        # A new phase reaches Row 9 with the now-correctly-reset checkpoint_step.
+        phase_file = project_dir / "docs" / "phases" / "phase-2.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 2\n", encoding="utf-8")
+        pos = _make_position(active_phase_file=phase_file, next_story_id=None)
+        pos["checkpoint_step"] = state["checkpoint_step"]
+
+        action = resolve_next_action(pos, gate_fn=lambda: True)
+        assert action["action"] == CHECKPOINT_SECURITY
+        assert action["action"] != DONE
+        assert validate_action(action) == []
+
 
 class TestResolveNextActionSpawnBuilder:
     """Rows 2/5/8: various spawn-builder conditions."""

@@ -117,12 +117,17 @@ class TestRecordCheckpointStep:
         ],
     )
     def test_all_four_step_ids_accepted(self, tmp_path: Path, step_id: str) -> None:
-        """All four known step IDs are accepted (exit 0, appended)."""
+        """All four known step IDs are accepted and exit 0. checkpoint-tag, the
+        terminal step, resets the list to [] instead of appending (CER-066);
+        the other three steps append normally."""
         project_dir = _setup_project(tmp_path, {"checkpoint_step": []})
         result = _invoke(project_dir, step_id)
         assert result.exit_code == 0, result.output
         state = _read_state(project_dir)
-        assert step_id in state["checkpoint_step"]
+        if step_id == "checkpoint-tag":
+            assert state["checkpoint_step"] == []
+        else:
+            assert step_id in state["checkpoint_step"]
 
     def test_creates_checkpoint_step_key_when_missing(self, tmp_path: Path) -> None:
         """checkpoint_step key absent from state.json → created with [step_id]."""
@@ -150,14 +155,16 @@ class TestRecordCheckpointStep:
         assert state["context_budget_threshold"] == 120_000
         assert state["checkpoint_step"] == ["checkpoint-docs"]
 
-    def test_sequential_appends_accumulate(self, tmp_path: Path) -> None:
-        """Multiple sequential calls build up the list in order."""
+    def test_sequential_appends_accumulate_then_reset_on_terminal_step(
+        self, tmp_path: Path
+    ) -> None:
+        """Recording the full sequence accumulates non-terminal steps, then the
+        terminal step (checkpoint-tag) resets the list to [] (CER-066)."""
         project_dir = _setup_project(tmp_path, {"checkpoint_step": []})
         for step in [
             "checkpoint-security",
             "checkpoint-intent",
             "checkpoint-docs",
-            "checkpoint-tag",
         ]:
             result = _invoke(project_dir, step)
             assert result.exit_code == 0
@@ -167,8 +174,13 @@ class TestRecordCheckpointStep:
             "checkpoint-security",
             "checkpoint-intent",
             "checkpoint-docs",
-            "checkpoint-tag",
         ]
+
+        result = _invoke(project_dir, "checkpoint-tag")
+        assert result.exit_code == 0
+
+        state = _read_state(project_dir)
+        assert state["checkpoint_step"] == []
 
     def test_depth_guard_rejects_shallow_project_dir(self, tmp_path: Path) -> None:
         """A project_dir with fewer than 3 path components → exits non-zero (CER-061)."""

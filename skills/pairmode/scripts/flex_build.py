@@ -1787,6 +1787,8 @@ def _record_checkpoint_step(step_id: str, project_dir: Path) -> int:
         return 0  # idempotent — no write
 
     current.append(step_id)
+    if step_id == _CHECKPOINT_SEQUENCE[-1]:
+        current = []
     state["checkpoint_step"] = current
 
     # Atomic write: temp file in same dir, then rename.
