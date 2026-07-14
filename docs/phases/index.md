@@ -86,6 +86,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 84 | Spec preflight verification | complete | [phase-84.md](phase-84.md) |
 | 85 | Context budget acknowledgment integrity fix | complete | [phase-85.md](phase-85.md) |
 | 86 | permissions-create idempotency | complete | [phase-86.md](phase-86.md) |
+| 87 | checklist-item-level override granularity for sync/audit | planned | [phase-87.md](phase-87.md) |
 
 ---
 
