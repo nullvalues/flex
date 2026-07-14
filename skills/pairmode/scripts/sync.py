@@ -31,6 +31,7 @@ from skills.pairmode.scripts.audit import (  # noqa: E402
     _enrich_scaffold_context,
     _load_project_context as _audit_load_project_context,
     _load_overrides,
+    _SECTION_RE,
 )
 from skills.pairmode.scripts._version import PAIRMODE_VERSION  # noqa: E402
 from skills.pairmode.scripts.bootstrap import (  # noqa: E402
@@ -133,6 +134,40 @@ def _reconstruct_from_parts(parts: list[tuple[str, str]]) -> str:
     return "".join(chunks)
 
 
+def _find_bold_marker_range(project_text: str, section_key: str) -> tuple[int, int] | None:
+    """Locate a bold-marker checklist item (e.g. ``**3. BUILD GATE**``) by section_key.
+
+    Uses the same ``_SECTION_RE`` boundary pattern as audit.py's ``_split_sections``
+    so audit and sync agree on where a bold-marker section starts and ends. This
+    lets a bold-marker item nested inside a larger ``##`` section be located and
+    patched independently of its enclosing section and of sibling bold-marker items.
+
+    Returns (header_idx, end_idx) line-index range (end_idx exclusive), or None
+    if no line matches section_key. end_idx is either the next line that matches
+    _SECTION_RE (of any boundary kind: ``##``, ``---``, or another bold marker),
+    or len(lines) when the matched section runs to the end of the file.
+    """
+    lines = project_text.splitlines(keepends=True)
+    header_idx: int | None = None
+    for i, line in enumerate(lines):
+        stripped = line.rstrip("\n").rstrip("\r")
+        if _SECTION_RE.fullmatch(stripped) and _normalise(stripped) == section_key:
+            header_idx = i
+            break
+
+    if header_idx is None:
+        return None
+
+    end_idx = len(lines)
+    for i in range(header_idx + 1, len(lines)):
+        stripped = lines[i].rstrip("\n").rstrip("\r")
+        if _SECTION_RE.fullmatch(stripped):
+            end_idx = i
+            break
+
+    return header_idx, end_idx
+
+
 def _replace_section_in_file(project_text: str, section_key: str, canonical_body: str) -> str:
     """Locate the section identified by section_key in project_text and replace its body.
 
@@ -169,23 +204,34 @@ def _replace_section_in_file(project_text: str, section_key: str, canonical_body
             header_idx = i
             break
 
-    if header_idx is None:
-        return project_text  # not found
+    if header_idx is not None:
+        # Find end of section: next header at same or shallower depth
+        end_idx = len(lines)
+        for i in range(header_idx + 1, len(lines)):
+            stripped = lines[i].rstrip("\n").rstrip("\r")
+            if stripped.startswith("#"):
+                level = len(stripped) - len(stripped.lstrip("#"))
+                if level <= heading_hashes:
+                    end_idx = i
+                    break
 
-    # Find end of section: next header at same or shallower depth
-    end_idx = len(lines)
-    for i in range(header_idx + 1, len(lines)):
-        stripped = lines[i].rstrip("\n").rstrip("\r")
-        if stripped.startswith("#"):
-            level = len(stripped) - len(stripped.lstrip("#"))
-            if level <= heading_hashes:
-                end_idx = i
-                break
+        # Preserve the original header line; replace the body (lines after it)
+        new_body = canonical_body if canonical_body.endswith("\n") else canonical_body + "\n"
+        result_lines = lines[: header_idx + 1] + ["\n", new_body] + lines[end_idx:]
+        return "".join(result_lines)
 
-    # Preserve the original header line; replace the body (lines after it)
-    new_body = canonical_body if canonical_body.endswith("\n") else canonical_body + "\n"
-    result_lines = lines[: header_idx + 1] + ["\n", new_body] + lines[end_idx:]
-    return "".join(result_lines)
+    # Fallback: bold-marker checklist item (e.g. **3. BUILD GATE**), which does
+    # not start with a literal "#" so the H3+ scan above never matches it.
+    bold_range = _find_bold_marker_range(project_text, section_key)
+    if bold_range is not None:
+        bold_header_idx, bold_end_idx = bold_range
+        new_body = canonical_body if canonical_body.endswith("\n") else canonical_body + "\n"
+        result_lines = (
+            lines[: bold_header_idx + 1] + ["\n", new_body] + lines[bold_end_idx:]
+        )
+        return "".join(result_lines)
+
+    return project_text  # not found
 
 
 def _append_section_to_file(project_text: str, header_key: str, canonical_body: str) -> str:

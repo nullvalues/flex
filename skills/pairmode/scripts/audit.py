@@ -250,7 +250,19 @@ def _load_project_context(project_dir: Path) -> tuple[dict, bool]:
 # Section splitting helpers
 # ---------------------------------------------------------------------------
 
-_SECTION_RE = re.compile(r"^(##+ .+|---)$", re.MULTILINE)
+# Bold numbered checklist markers used by canonical agent templates, e.g.:
+#   **1. PROTECTED FILES**
+#   **2.5 STORY SPEC**
+#   **5a. Conviction consistency**
+#   **3. BUILD GATE**
+# Bold, starts with one or more digits, optional single trailing letter,
+# optional ``.`` + digits sub-number, optional literal ``.`` before the
+# label, arbitrary label text, closing ``**``, nothing else on the line.
+_BOLD_MARKER_PATTERN = r"\*\*\d+(?:[a-z]|\.\d+)?\.?\s+.+\*\*"
+
+_SECTION_RE = re.compile(
+    r"^(##+ .+|---|" + _BOLD_MARKER_PATTERN + r")$", re.MULTILINE
+)
 
 
 def _split_sections(text: str) -> dict[str, str]:
