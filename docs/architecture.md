@@ -174,7 +174,7 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    `docs/phases/permissions/<story_id>.json` from the story's `primary_files` and `touches`
    frontmatter, no-op'ing (no write, no `generated_at` change) when the computed `allowed_paths`
    already match the file on disk — so that only genuine scope drift re-triggers the Layer 1
-   protected-path write and its associated auto-mode re-authorization. (Phase 86, INFRA-194.)
+   file write. (Phase 86, INFRA-194.)
    The `pre_tool_use.py` hook enforces the declared scope via `scope_guard.py` on
    every Edit/Write call during the builder session. (Phase 55, INFRA-138, INFRA-139.)
    Layer 2 (`write-permissions`): `flex_build.py write-permissions` calls

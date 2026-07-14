@@ -24,14 +24,13 @@ touches:
     `generated_at` timestamp on every invocation, regardless of whether
     `allowed_paths` differs from what is already on disk at
     `docs/phases/permissions/<STORY_ID>.json`.
-  - `docs/phases/permissions/**` is a Layer 1 protected path under the
-    orchestrator's auto-mode deny rules (documented in `CLAUDE.build.md`'s
-    two-layer permission model, established INFRA-137 / Phase 81). The
-    unconditional write means every story build re-triggers a write to a
-    protected path, re-opening the auto-mode authorization gate even when
-    the story's scope hasn't changed since phase inception — defeating the
-    "one toggle covers the whole phase" design intent and forcing
-    unnecessary re-authorization on every story.
+  - `docs/phases/permissions/**` is generated and updated by the orchestrator
+    as part of the two-layer permission model (established INFRA-137 / Phase 81,
+    documented in `CLAUDE.build.md`). There is no config-level deny rule on this
+    path — `permissions-create` is a sanctioned, idempotent orchestrator script.
+    The unconditional write means every story build re-triggers the script even
+    when the story's scope hasn't changed since phase inception, adding an
+    unnecessary subprocess call on each story/attempt.
   - `tests/pairmode/test_flex_build_permissions_create.py` already has a
     `test_permissions_create_idempotent` test, but it only asserts
     `allowed_paths`/`story_id`/`story_spec` equality across two runs — it

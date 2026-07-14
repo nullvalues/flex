@@ -445,6 +445,19 @@ active story into state.json:
   `.claude/settings.local.json` to suppress Claude Code permission prompts for the
   story's declared files before writes even reach the hook.
 
+**Permissions file skip-check.** Before invoking `permissions-create`, check
+whether the permissions file for this story is up-to-date: If
+`docs/phases/permissions/<story_id>.json` exists, read its `allowed_paths`
+array and compare it against the story's current `primary_files` + `touches`
+frontmatter (concatenated in order). If they match exactly, the permissions file
+is current and the `permissions-create` invocation can be skipped — proceed
+directly to `write-permissions` below. Only invoke `permissions-create` when
+the file is absent or the `allowed_paths` differ from the current frontmatter.
+
+(Note: `permissions-create` has its own idempotency check and will no-op on
+write if the computed scope matches the file on disk. This orchestrator-side
+check is a read-only optimization to avoid the subprocess call entirely.)
+
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python {{ pairmode_scripts_dir }}/flex_build.py permissions-create \
   STORY-ID --project-dir .
