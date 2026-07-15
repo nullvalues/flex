@@ -149,7 +149,7 @@ The orchestrator is the only participant that persists across the full loop. The
 
 13. **FAIL path, attempt 3:** BUILD PAUSED — loop stops, working tree is clean at HEAD, and the user resolves manually before saying "Continue building."
 
-14. **Context budget check (between stories).** Mechanically enforced by a `pre_tool_use` hook that intercepts every sub-agent Task spawn. The hook calls `context_budget.py`, which queries the effort DB for the current session's projected next-step token cost. If the projection exceeds the threshold (default: 120k tokens × 1.10 overrun factor), the spawn is blocked and the orchestrator presents the budget prompt verbatim. The user chooses to proceed or to `/clear` and resume in a fresh session.
+14. **Context budget check (between stories).** Mechanically enforced by a `pre_tool_use` hook that intercepts sub-agent Task/Agent spawns whose `subagent_type` is a pairmode build-cycle agent (`builder`, `reviewer`, `loop-breaker`, `security-auditor`, `intent-reviewer` — INFRA-199; general-purpose/Plan/Explore spawns pass through ungated). The hook calls `context_budget.py`, which queries the effort DB for the current session's projected next-step token cost. If the projection exceeds the threshold (default: 120k tokens × 1.10 overrun factor), the spawn is blocked and the orchestrator presents the budget prompt verbatim. The user chooses to proceed or to `/clear` and resume in a fresh session.
 
 ### Configuration Example
 

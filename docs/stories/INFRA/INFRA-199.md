@@ -2,7 +2,7 @@
 id: INFRA-199
 rail: INFRA
 title: "Scope context-budget PreToolUse gate to pairmode build-cycle agent spawns via tool_input.subagent_type allowlist"
-status: planned
+status: complete
 phase: "88"
 story_class: code
 auth_gated: false

@@ -17,7 +17,7 @@ Scope the context_budget PreToolUse gate so it fires only for pairmode build-cyc
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-199 | Scope context-budget PreToolUse gate to pairmode build-cycle agent spawns via tool_input.subagent_type allowlist | planned |
+| INFRA-199 | Scope context-budget PreToolUse gate to pairmode build-cycle agent spawns via tool_input.subagent_type allowlist | complete |
 
 ## Schema delivery
 

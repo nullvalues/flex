@@ -62,6 +62,13 @@ PRE_TOOL_USE HOOK — fires on every Task / Agent spawn
     No  ──► pass (not an agent spawn)
     Yes ──►
 
+  tool_input.subagent_type ∈ BUILD_CYCLE_SUBAGENTS?
+    (INFRA-199: {"builder", "reviewer", "loop-breaker",
+                 "security-auditor", "intent-reviewer"})
+    No  ──► pass (general-purpose / Plan / Explore / other spawn —
+                   never gated by context budget)
+    Yes ──►
+
   context_budget.decide(project_dir)
     └─► Read state.json
           tokens     = state.get("context_current_tokens")

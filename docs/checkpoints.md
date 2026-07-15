@@ -5,6 +5,15 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp88-context-budget-subagent-scoping
+
+**Tag command:** `git tag cp88-context-budget-subagent-scoping && git push origin cp88-context-budget-subagent-scoping`
+**Phase:** 88
+**Stories:** INFRA-199
+**Acceptance:** Closes a methodology bug found via live operator observation: `hooks/pre_tool_use.py`'s Task/Agent branch called `context_budget.decide()` for every agent spawn regardless of subagent type, so a general-purpose spawn (Plan, Explore, general-purpose) could be wedged by the CONTEXT BUDGET gate exactly as a builder spawn would — and because the gate's turn-tracking acknowledgment (INFRA-192/193) only clears on a genuine new `UserPromptSubmit`, a same-turn retry could never satisfy it. Fix: a module-level `BUILD_CYCLE_SUBAGENTS` frozenset ({`builder`, `reviewer`, `loop-breaker`, `security-auditor`, `intent-reviewer`}) gates the dispatch on `tool_input.subagent_type`; non-allowlisted or absent `subagent_type` passes through with no `context_budget` call, no block, no state write. `context_budget.py`'s internal decide/should_block/turn-tracking logic is unchanged; CER-049's dual `Task`/`Agent` tool-name acceptance is preserved. `CLAUDE.md` and `docs/architecture.md` updated; `docs/pairmode/context-gate-flow.md` and `docs/patterns/agentic-architecture/builder-reviewer-sub-agent-loop.md` doc-currency gaps fixed at checkpoint. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: ALIGNED, no pivots. 2359 tests pass.
+
+---
+
 ## cp87-checklist-item-override-granularity
 
 **Tag command:** `git tag cp87-checklist-item-override-granularity && git push origin cp87-checklist-item-override-granularity`
