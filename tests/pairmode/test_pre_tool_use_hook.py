@@ -73,7 +73,11 @@ def test_spawn_tool_no_block_exits_cleanly(tmp_path, spawn_tool):
             "context_current_tokens": 500,
         },
     )
-    result = _run_hook({"tool_name": spawn_tool, "cwd": str(tmp_path)})
+    result = _run_hook({
+        "tool_name": spawn_tool,
+        "tool_input": {"subagent_type": "builder"},
+        "cwd": str(tmp_path),
+    })
     assert result.returncode == 0
     assert result.stdout.strip() == b""
 
@@ -97,7 +101,11 @@ def test_spawn_tool_block_emits_decision(tmp_path, spawn_tool):
             "context_current_tokens": 1200,
         },
     )
-    result = _run_hook({"tool_name": spawn_tool, "cwd": str(tmp_path)})
+    result = _run_hook({
+        "tool_name": spawn_tool,
+        "tool_input": {"subagent_type": "builder"},
+        "cwd": str(tmp_path),
+    })
     assert result.returncode == 0
     assert result.stdout.strip() != b""
     payload = json.loads(result.stdout)
@@ -125,7 +133,11 @@ def test_spawn_tool_block_when_no_context_tokens_recorded(tmp_path, spawn_tool):
             "expected_step_tokens": 53_000,
         },
     )
-    result = _run_hook({"tool_name": spawn_tool, "cwd": str(tmp_path)})
+    result = _run_hook({
+        "tool_name": spawn_tool,
+        "tool_input": {"subagent_type": "builder"},
+        "cwd": str(tmp_path),
+    })
     assert result.returncode == 0
     assert result.stdout.strip() != b""
     payload = json.loads(result.stdout)
@@ -150,7 +162,11 @@ def test_import_failure_degrades_safely(tmp_path):
 
     result = subprocess.run(
         [sys.executable, str(HOOK_PATH)],
-        input=json.dumps({"tool_name": "Task", "cwd": str(tmp_path)}).encode(),
+        input=json.dumps({
+            "tool_name": "Task",
+            "tool_input": {"subagent_type": "builder"},
+            "cwd": str(tmp_path),
+        }).encode(),
         capture_output=True,
         env=env,
     )
@@ -178,7 +194,11 @@ def test_decide_raises_degrades_safely(tmp_path):
 
     result = subprocess.run(
         [sys.executable, str(HOOK_PATH)],
-        input=json.dumps({"tool_name": "Task", "cwd": str(tmp_path)}).encode(),
+        input=json.dumps({
+            "tool_name": "Task",
+            "tool_input": {"subagent_type": "builder"},
+            "cwd": str(tmp_path),
+        }).encode(),
         capture_output=True,
         env=env,
     )
@@ -221,7 +241,11 @@ def test_bare_retry_without_user_turn_blocks_again(tmp_path):
             "context_budget_acknowledged_user_turn_seq": 2,
         },
     )
-    result = _run_hook({"tool_name": "Task", "cwd": str(tmp_path)})
+    result = _run_hook({
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder"},
+        "cwd": str(tmp_path),
+    })
     assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert payload["decision"] == "block"
@@ -244,7 +268,11 @@ def test_retry_after_user_prompt_submit_suppresses(tmp_path):
             "context_budget_acknowledged_user_turn_seq": 2,
         },
     )
-    result = _run_hook({"tool_name": "Task", "cwd": str(tmp_path)})
+    result = _run_hook({
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder"},
+        "cwd": str(tmp_path),
+    })
     assert result.returncode == 0
     assert result.stdout.strip() == b""
 
@@ -294,7 +322,11 @@ def test_read_unrelated_path_allowed(tmp_path):
 def test_performance_100_runs_under_5_seconds(tmp_path):
     """100 hook invocations (decide returns None) must complete in under 5 seconds."""
     # No state.json → decide returns None → pass-through.
-    stdin_data = json.dumps({"tool_name": "Task", "cwd": str(tmp_path)}).encode()
+    stdin_data = json.dumps({
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder"},
+        "cwd": str(tmp_path),
+    }).encode()
     import subprocess
     start = time.monotonic()
     for _ in range(100):
@@ -306,3 +338,98 @@ def test_performance_100_runs_under_5_seconds(tmp_path):
         assert result.returncode == 0
     elapsed = time.monotonic() - start
     assert elapsed < 15.0, f"100 hook runs took {elapsed:.2f}s (limit: 15s)"
+
+
+# ---------------------------------------------------------------------------
+# Test 9 (INFRA-199): subagent_type allowlist gate on the Task/Agent branch.
+# ---------------------------------------------------------------------------
+
+
+_OVER_CEILING_STATE = {
+    "context_budget_threshold": 1000,
+    "context_budget_overrun_pct": 0.0,
+    "expected_step_tokens": 100,
+    "context_budget_reprompt_margin": 0,
+    "context_current_tokens": 1200,
+}
+
+
+@pytest.mark.parametrize(
+    "subagent_type",
+    ["builder", "reviewer", "loop-breaker", "security-auditor", "intent-reviewer"],
+)
+def test_allowlisted_subagent_type_still_gates(tmp_path, subagent_type):
+    """Each build-cycle subagent type over the ceiling still emits a block."""
+    _seed_state(tmp_path, dict(_OVER_CEILING_STATE))
+    result = _run_hook({
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": subagent_type},
+        "cwd": str(tmp_path),
+    })
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+    assert "CONTEXT BUDGET" in payload["reason"]
+
+
+@pytest.mark.parametrize("spawn_tool", ["Task", "Agent"])
+def test_allowlisted_subagent_type_gates_under_both_tool_names(tmp_path, spawn_tool):
+    """An allowlisted subagent_type gates identically under Task and Agent."""
+    _seed_state(tmp_path, dict(_OVER_CEILING_STATE))
+    result = _run_hook({
+        "tool_name": spawn_tool,
+        "tool_input": {"subagent_type": "builder"},
+        "cwd": str(tmp_path),
+    })
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+
+
+@pytest.mark.parametrize(
+    "tool_input",
+    [
+        {"subagent_type": "general-purpose"},
+        {"subagent_type": "Plan"},
+        {"subagent_type": "Explore"},
+        {},  # subagent_type absent entirely
+    ],
+)
+def test_non_allowlisted_subagent_type_passes_through_without_calling_decide(
+    tmp_path, tool_input
+):
+    """Non-build-cycle spawns over the ceiling do NOT block, do NOT call
+    context_budget.decide (proven via a stub whose decide raises), and do NOT
+    write the acknowledgment keys to state.json."""
+    import subprocess, os
+
+    _seed_state(tmp_path, dict(_OVER_CEILING_STATE))
+
+    # Spy stub: if the branch ever imports+calls decide(), it raises. Because
+    # the branch short-circuits on the subagent_type check before importing,
+    # decide() is never reached — so stdout is empty and no exception path runs.
+    spy_scripts = tmp_path / "spy_scripts"
+    spy_scripts.mkdir()
+    (spy_scripts / "context_budget.py").write_text(
+        "def decide(*args, **kwargs):\n"
+        "    raise AssertionError('decide must not be called for non-allowlisted subagent_type')\n"
+    )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(spy_scripts)
+
+    result = subprocess.run(
+        [sys.executable, str(HOOK_PATH)],
+        input=json.dumps({
+            "tool_name": "Task",
+            "tool_input": tool_input,
+            "cwd": str(tmp_path),
+        }).encode(),
+        capture_output=True,
+        env=env,
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == b""
+
+    state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+    assert "context_budget_acknowledged_at" not in state
+    assert "context_budget_acknowledged_user_turn_seq" not in state

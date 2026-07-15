@@ -23,7 +23,7 @@ flex/
     exit_plan_mode.py             ← relay plan content for impact analysis
     post_tool_use.py              ← pair partner: relay file changes; Task/Agent branch: reads JSONL via context_budget.read_current_tokens() and writes context_current_tokens to state.json (INFRA-182)
     session_end.py                ← signal sidebar to summarize and exit
-    pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement)
+    pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename; INFRA-199 scoped to tool_input.subagent_type ∈ build-cycle agents only); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement)
     session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write (context_current_tokens + context_current_tokens_recorded_at + context_session_reset_at on clear/startup — INFRA-180)
 
   skills/
@@ -994,7 +994,14 @@ Hooks must:
 **Documented exception — `hooks/pre_tool_use.py` (dual thin-delegate):**
 `pre_tool_use.py` dispatches to two modules:
 
-- **`Task`/`Agent` → `context_budget.py` (CER-027, CER-039, CER-040, CER-049, INFRA-182):**
+- **`Task`/`Agent` → `context_budget.py` (CER-027, CER-039, CER-040, CER-049, INFRA-182, INFRA-199):**
+  the dispatch is additionally scoped (INFRA-199) to
+  `tool_input.subagent_type` ∈ {`builder`, `reviewer`, `loop-breaker`,
+  `security-auditor`, `intent-reviewer`} — the five build-cycle subagent types.
+  When `subagent_type` is absent or any other value (general-purpose / Plan /
+  Explore / other spawns), the branch falls straight through to `sys.exit(0)`
+  with no `context_budget` import/call, no block emission, and no state write.
+  For an allowlisted `subagent_type`,
   the hook makes one delegated call: `decide(project_dir)` — reads
   `context_current_tokens` from state.json (written by `post_tool_use.py` after each
   completed Task/Agent spawn, or by the SessionStart baseline); the hook writes

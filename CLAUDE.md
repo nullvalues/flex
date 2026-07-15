@@ -42,13 +42,22 @@ Run every item on every review invocation.
    `hooks/pre_tool_use.py` is a thin dispatcher for three tool types:
 
    - `Task` / `Agent` → `skills/pairmode/scripts/context_budget.py`
-     (CER-027 context-budget enforcement; both tool names accepted — CER-049)
+     (CER-027 context-budget enforcement; both tool names accepted — CER-049).
+     Additionally scoped (INFRA-199) to `tool_input.subagent_type` ∈
+     {`builder`, `reviewer`, `loop-breaker`, `security-auditor`,
+     `intent-reviewer`}: general-purpose / Plan / Explore / other spawns are
+     never gated.
    - `Edit` / `Write` → `skills/pairmode/scripts/scope_guard.py`
      (Phase 55 story file-scope enforcement)
    - `Read` → `skills/pairmode/scripts/cold_read_guard.py`
      (INFRA-196 cold-read enforcement)
 
-   For the `Task`/`Agent` dispatch: one tool-name check, one delegated module call
+   For the `Task`/`Agent` dispatch: one tool-name check, one
+   `tool_input.subagent_type` allowlist check (INFRA-199 — the gate is scoped to
+   `subagent_type` ∈ {`builder`, `reviewer`, `loop-breaker`, `security-auditor`,
+   `intent-reviewer`}; general-purpose / Plan / Explore / other spawns fall
+   straight through to `sys.exit(0)` with no `context_budget` import/call, no
+   block emission, and no state write), one delegated module call
    (`decide(project_dir)` for the block decision — reads `context_current_tokens`
    scalar from state.json, written by `post_tool_use.py` after each completed
    Task/Agent spawn), one stdout emit. All domain logic lives in the named module,

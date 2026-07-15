@@ -156,6 +156,7 @@ def test_task_branch_unaffected(tmp_path):
          patch.object(scope_guard, "check_path") as mock_check:
         exit_code, stdout = _run_main({
             "tool_name": "Task",
+            "tool_input": {"subagent_type": "builder"},
             "cwd": str(tmp_path),
             "transcript_path": "",
         })
