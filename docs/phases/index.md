@@ -87,6 +87,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 85 | Context budget acknowledgment integrity fix | complete | [phase-85.md](phase-85.md) |
 | 86 | permissions-create idempotency | complete | [phase-86.md](phase-86.md) |
 | 87 | checklist-item-level override granularity for sync/audit | complete | [phase-87.md](phase-87.md) |
+| 88 | Scope context-budget gate to pairmode build-cycle agents | planned | [phase-88.md](phase-88.md) |
 
 ---
 
