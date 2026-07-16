@@ -377,7 +377,28 @@ Replace `RAIL-NNN` with the current story ID.
 - Exit 1: gate blocked — surface the printed message to the user and stop.
   When resolved, say: "Continue building"
 
-If the gate passes: proceed to the **Pre-story scope check**.
+If the gate passes: proceed to the **Spec preflight**.
+
+### Spec preflight
+
+Run once per story, after the stub gate, before the scope check.
+
+  preflight_output=$(PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/flex_build.py \
+    spec-preflight --story-id RAIL-NNN --project-dir .)
+
+Replace `RAIL-NNN` with the current story ID.
+
+If `preflight_output` is non-empty, surface it to the developer:
+
+  SPEC PREFLIGHT — Story RAIL-NNN
+
+  [preflight_output verbatim]
+
+  These are informational. Review before proceeding.
+
+If `preflight_output` is empty, print nothing and continue silently.
+
+The check does not block. Continue to the Pre-story scope check regardless of output.
 
 ### Pre-story scope check
 
@@ -425,16 +446,16 @@ active story into state.json:
   story's declared files before writes even reach the hook.
 
 **Permissions file skip-check.** Before invoking `permissions-create`, check
-whether the permissions file for this story is up-to-date: If 
-`docs/phases/permissions/<story_id>.json` exists, read its `allowed_paths` 
-array and compare it against the story's current `primary_files` + `touches` 
-frontmatter (concatenated in order). If they match exactly, the permissions file 
-is current and the `permissions-create` invocation can be skipped — proceed 
-directly to `write-permissions` below. Only invoke `permissions-create` when 
+whether the permissions file for this story is up-to-date: If
+`docs/phases/permissions/<story_id>.json` exists, read its `allowed_paths`
+array and compare it against the story's current `primary_files` + `touches`
+frontmatter (concatenated in order). If they match exactly, the permissions file
+is current and the `permissions-create` invocation can be skipped — proceed
+directly to `write-permissions` below. Only invoke `permissions-create` when
 the file is absent or the `allowed_paths` differ from the current frontmatter.
 
-(Note: `permissions-create` has its own idempotency check and will no-op on 
-write if the computed scope matches the file on disk. This orchestrator-side 
+(Note: `permissions-create` has its own idempotency check and will no-op on
+write if the computed scope matches the file on disk. This orchestrator-side
 check is a read-only optimization to avoid the subprocess call entirely.)
 
 ```bash
@@ -609,12 +630,17 @@ and record the attempt with `--agent-role reviewer`. Pass `--outcome PASS` if
 builder step, `record_attempt.py` is a silent no-op when effort tracking is
 disabled, so the call is unconditional.
 
+On FAIL: also extract the `FAIL-CAUSE:` line from the reviewer output — the value
+after the `FAIL-CAUSE:` prefix (stripped of leading/trailing whitespace), or empty
+string if absent. Pass it as `--notes "$fail_cause"` in the FAIL record_attempt call.
+
 Capture the reason printed by `select_reviewer_model` (second output line) into a
 shell variable before spawning the reviewer so you can pass it here:
 
 ```bash
 # After running select_reviewer_model, capture both lines:
 # model=$(first line); reason=$(second line)
+# On PASS:
 PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/record_attempt.py \
   --story-file docs/stories/RAIL/RAIL-NNN.md \
   --agent-role reviewer \
@@ -628,6 +654,25 @@ PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts
   --tool-uses 6 \
   --duration-ms 95000 \
   --outcome PASS \
+  --model-selection-reason $reason \
+  --project-dir .
+
+# On FAIL: capture FAIL-CAUSE and pass as --notes
+# fail_cause=$(line starting with "FAIL-CAUSE:" from reviewer output, stripped of prefix, or "")
+PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/record_attempt.py \
+  --story-file docs/stories/RAIL/RAIL-NNN.md \
+  --agent-role reviewer \
+  --model claude-sonnet-4-6 \
+  --attempt-number 1 \
+  --tokens-total 22000 \
+  --tokens-in 18000 \       # omit flag if runtime did not emit input_tokens
+  --tokens-out 4000 \       # omit flag if runtime did not emit output_tokens
+  --cache-read-tokens 0 \   # omit flag if runtime did not emit cache_read_tokens
+  --cache-write-tokens 0 \  # omit flag if runtime did not emit cache_write_tokens
+  --tool-uses 6 \
+  --duration-ms 95000 \
+  --outcome FAIL \
+  --notes "$fail_cause" \
   --model-selection-reason $reason \
   --project-dir .
 ```
@@ -1015,3 +1060,7 @@ PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q
 - Do not advance past a checkpoint until build gate + security audit + intent review all pass.
 - The deny list in `.claude/settings.json` protects certain files at the permission level.
   If any step tries to modify a protected file, it will be blocked. Report this to the user.
+
+
+
+

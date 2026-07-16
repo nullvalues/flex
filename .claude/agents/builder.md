@@ -1,6 +1,6 @@
 ---
 name: builder
-description: Story implementation agent. Receives a story spec, implements it completely, verifies tests pass, and stops without committing.
+description: Story implementation agent for flex. Receives a story spec, implements it completely, verifies tests pass, and stops without committing.
 tools: [Read, Write, Edit, Glob, Grep, Bash]
 model: sonnet
 # fallback: haiku  (never below)
