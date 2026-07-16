@@ -2484,8 +2484,11 @@ class TestBuild025PreStoryScopeCheck:
     def test_flex_claude_build_md_contains_scope_check_banner(self):
         assert "SCOPE CHECK" in self.flex_build_md
 
-    def test_flex_claude_build_md_stub_gate_points_to_scope_check(self):
-        assert "proceed to the **Pre-story scope check**" in self.flex_build_md
+    def test_flex_claude_build_md_stub_gate_points_to_spec_preflight(self):
+        # INFRA-191: spec-preflight step was inserted between stub gate and
+        # scope check on flex's own CLAUDE.build.md too, not just the
+        # rendered template.
+        assert "proceed to the **Spec preflight**" in self.flex_build_md
 
     def test_flex_claude_build_md_scope_check_appears_between_stub_gate_and_step1(self):
         stub_idx = self.flex_build_md.index("### Pre-story stub gate")

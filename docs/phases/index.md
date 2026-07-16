@@ -88,7 +88,8 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 86 | permissions-create idempotency | complete | [phase-86.md](phase-86.md) |
 | 87 | checklist-item-level override granularity for sync/audit | complete | [phase-87.md](phase-87.md) |
 | 88 | Scope context-budget gate to pairmode build-cycle agents | complete | [phase-88.md](phase-88.md) |
-| 89 | Remove flex-specific hook paragraph from canonical CLAUDE.md.j2 template | planned | [phase-89.md](phase-89.md) |
+| 89 | Remove flex-specific hook paragraph from canonical CLAUDE.md.j2 template | complete | [phase-89.md](phase-89.md) |
+| 90 | Fix stale pre-INFRA-191 assertion in CLAUDE.build.md test | complete | [phase-90.md](phase-90.md) |
 
 ---
 
@@ -100,3 +101,6 @@ until sequenced. When sequenced, their stories are absorbed into the next
 available phase and the proposed file is deleted (git history records the transit).
 
 *(none — `phase-proposed-observability-spa-20260602-001.md` absorbed into Phase 63)*
+
+## backlog promotions
+_(List items promoted from the Do-Later / Do-Much-Later backlog into active phases here, with a one-line reason and the target phase.)_
