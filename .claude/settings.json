@@ -27,20 +27,14 @@
   "permissions": {
     "defaultMode": "auto",
     "allow": [
-      "Edit(.claude/agents/**)",
-      "Write(.claude/agents/**)"
+      "Edit(.claude/agents/**)"
     ],
     "deny": [
       "Edit(skills/companion/**)",
-      "Write(skills/companion/**)",
       "Edit(lessons/**)",
-      "Write(lessons/**)",
       "Edit(.claude-plugin/**)",
-      "Write(.claude-plugin/**)",
       "Edit(skills/seed/**)",
-      "Write(skills/seed/**)",
-      "Edit(docs/phases/permissions/**)",
-      "Write(docs/phases/permissions/**)"
+      "Edit(docs/phases/permissions/**)"
     ]
   }
 }
