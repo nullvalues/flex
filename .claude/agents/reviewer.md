@@ -118,6 +118,105 @@ b. Does the story file have no `## Ensures` AND no `## Acceptance criterion`
 
 c. If the story file is not found (legacy story): PASS with LOW note.
 
+**11. BUILD GATE**
+Does `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q` pass cleanly?
+A failing build gate blocks story completion regardless of checklist outcome. CRITICAL.
+
+**12. DOCUMENTATION CURRENCY**
+
+Documentation reliability across builds is what preserves project context across
+sessions, agent handoffs, and compactions. Stale docs actively mislead any agent
+reading them cold.
+
+**Discover the documentation surface:**
+
+If `docs/documentation-surface.md` exists, treat each path listed inside it as
+a surface doc. Otherwise, use the default surface — discover via:
+
+```bash
+find docs -type f -name '*.md' \
+  -not -path 'docs/phases/*' \
+  -not -path 'docs/stories/*' \
+  -not -path 'docs/cer/*' \
+  -not -path 'docs/eras/*'
+```
+
+Always include `README.md` at the project root in the surface, whether discovered
+by the find above or listed in the manifest.
+
+The excluded paths are append-only history (phase specs, story specs, CER backlog,
+era records) — they describe what happened, not what currently is, so they are
+not subject to currency checks.
+
+**For each file in the surface, check:**
+
+1. Does any code path in `git diff HEAD` (file paths or symbol names) appear in
+   this doc? Grep the doc for changed file paths, changed function/class names,
+   changed configuration keys, or changed numeric/textual claims that the diff
+   alters.
+2. If a match exists AND the diff does not also update this doc: candidate for
+   DOC CURRENCY failure.
+3. Read the matched section. Judge whether the doc's statement is now factually
+   wrong given the diff (a number changed, a function signature changed, a
+   constraint changed, behaviour changed, a referenced file moved).
+4. If the doc references the code area but the statement is still factually
+   correct (the doc is structural, the diff is internal): PASS for that file.
+
+**Result severity:**
+- Any doc statement now factually wrong, not updated by the diff:
+  FAIL — DOC CURRENCY (HIGH)
+- README user-facing change (new commands, flags, workflow) not reflected:
+  FAIL — DOC CURRENCY (MEDIUM)
+- Internal refactor with no doc-described impact: PASS
+
+**Resolution path:**
+
+DOC CURRENCY failures are builder-remediable inline. The builder updates the
+affected doc in the same story commit. Do not require a new phase or follow-on
+story. On retry, the builder should treat the doc update as part of the original
+story's scope.
+
+**13. IDEOLOGY ALIGNMENT**
+
+Before running this check, read `docs/ideology.md` in full. If the file does not exist,
+skip this check and record: `IDEOLOGY ALIGNMENT — SKIPPED: docs/ideology.md not found (LOW)`.
+
+Check three things in sequence:
+
+**13a. Conviction consistency**
+For each conviction in `## Core convictions`: does the diff introduce any pattern that
+contradicts it?
+- PASS: Diff is neutral or aligned with all stated convictions.
+- FAIL (MEDIUM): Diff contradicts a conviction without justification in the story spec.
+
+**13b. Constraint rationale preservation**
+For each constraint in `## Accepted constraints` touched or adjacently affected by the diff:
+does the implementation respect the rationale, not just the rule letter?
+- PASS: Constrained areas respected. If modified, story spec stated a reason.
+- FAIL (HIGH): Diff creates a path that routes around the constraint's intent.
+
+**13c. Fingerprint awareness**
+For each entry in `## Prototype fingerprints` marked "No" or "Conditional" under
+"Free to change?": is any such pattern altered by this diff?
+- PASS: No fingerprint-marked patterns changed, or change matches stated changeability.
+- FAIL (LOW): Pattern marked "No" changed without acknowledgment in story spec.
+
+**Result:**
+- Any HIGH (13b) → FAIL — IDEOLOGY ALIGNMENT (HIGH)
+- Any MEDIUM (13a), no HIGH → FAIL — IDEOLOGY ALIGNMENT (MEDIUM)
+- Only LOW (13c) → PASS with note
+- `docs/ideology.md` absent → PASS with note (LOW)
+
+**14. RAIL SCOPE (new stories only — skip if story has no story file)**
+Read story `primary_files` and `touches` from `docs/stories/<RAIL>/<RAIL>-NNN.md`.
+- Any file in the diff NOT listed in `primary_files` or `touches`: MEDIUM (undeclared
+  file touched — possible scope creep).
+- Any file in the diff whose path falls under a different rail's primary domain AND is
+  not in `touches`: HIGH (rail violation — architectural boundary crossed without explicit
+  declaration).
+- If the story file is not found (legacy story): fall back to the story description text.
+  Flag undeclared out-of-scope changes MEDIUM.
+
 ---
 
 ## Test run
@@ -232,123 +331,3 @@ SUMMARY: [one sentence — what blocked, e.g. which test failed or which check]
 total_tokens: N
 ...
 </usage>
-
-**2. story scope**
-Did the builder touch files outside the stated story scope?
-An unexplained out-of-scope change is MEDIUM.
-
-**4. documentation currency**
-Documentation reliability across builds is what preserves project context across
-sessions, agent handoffs, and compactions. Stale docs actively mislead any agent
-reading them cold.
-
-**Discover the documentation surface:**
-
-If `docs/documentation-surface.md` exists, treat each path listed inside it as
-a surface doc. Otherwise, use the default surface — discover via:
-
-```bash
-find docs -type f -name '*.md' \
-  -not -path 'docs/phases/*' \
-  -not -path 'docs/stories/*' \
-  -not -path 'docs/cer/*' \
-  -not -path 'docs/eras/*'
-```
-
-Always include `README.md` at the project root in the surface, whether discovered
-by the find above or listed in the manifest.
-
-The excluded paths are append-only history (phase specs, story specs, CER backlog,
-era records) — they describe what happened, not what currently is, so they are
-not subject to currency checks.
-
-**For each file in the surface, check:**
-
-1. Does any code path in `git diff HEAD` (file paths or symbol names) appear in
-   this doc? Grep the doc for changed file paths, changed function/class names,
-   changed configuration keys, or changed numeric/textual claims that the diff
-   alters.
-2. If a match exists AND the diff does not also update this doc: candidate for
-   DOC CURRENCY failure.
-3. Read the matched section. Judge whether the doc's statement is now factually
-   wrong given the diff (a number changed, a function signature changed, a
-   constraint changed, behaviour changed, a referenced file moved).
-4. If the doc references the code area but the statement is still factually
-   correct (the doc is structural, the diff is internal): PASS for that file.
-
-**Result severity:**
-- Any doc statement now factually wrong, not updated by the diff:
-  FAIL — DOC CURRENCY (HIGH)
-- README user-facing change (new commands, flags, workflow) not reflected:
-  FAIL — DOC CURRENCY (MEDIUM)
-- Internal refactor with no doc-described impact: PASS
-
-**Resolution path:**
-
-DOC CURRENCY failures are builder-remediable inline. The builder updates the
-affected doc in the same story commit. Do not require a new phase or follow-on
-story. On retry, the builder should treat the doc update as part of the original
-story's scope.
-
-**5a. conviction consistency**
-For each conviction in `## Core convictions`: does the diff introduce any pattern that
-contradicts it?
-- PASS: Diff is neutral or aligned with all stated convictions.
-- FAIL (MEDIUM): Diff contradicts a conviction without justification in the story spec.
-
-**1. protected files**
-Were any protected files modified without the story spec explicitly naming them?
-If yes and the story spec does not explicitly name the file with a reason: HIGH.
-
-**6. rail scope (new stories only — skip if story has no story file)**
-Read story `primary_files` and `touches` from `docs/stories/<RAIL>/<RAIL>-NNN.md`.
-- Any file in the diff NOT listed in `primary_files` or `touches`: MEDIUM (undeclared
-  file touched — possible scope creep).
-- Any file in the diff whose path falls under a different rail's primary domain AND is
-  not in `touches`: HIGH (rail violation — architectural boundary crossed without explicit
-  declaration).
-- If the story file is not found (legacy story): fall back to the story description text.
-  Flag undeclared out-of-scope changes MEDIUM.
-
-**5b. constraint rationale preservation**
-For each constraint in `## Accepted constraints` touched or adjacently affected by the diff:
-does the implementation respect the rationale, not just the rule letter?
-- PASS: Constrained areas respected. If modified, story spec stated a reason.
-- FAIL (HIGH): Diff creates a path that routes around the constraint's intent.
-
-**5c. fingerprint awareness**
-For each entry in `## Prototype fingerprints` marked "No" or "Conditional" under
-"Free to change?": is any such pattern altered by this diff?
-- PASS: No fingerprint-marked patterns changed, or change matches stated changeability.
-- FAIL (LOW): Pattern marked "No" changed without acknowledgment in story spec.
-
-**Result:**
-- Any HIGH (5b) → FAIL — IDEOLOGY ALIGNMENT (HIGH)
-- Any MEDIUM (5a), no HIGH → FAIL — IDEOLOGY ALIGNMENT (MEDIUM)
-- Only LOW (5c) → PASS with note
-- `docs/ideology.md` absent → PASS with note (LOW)
-
-**2.5 story spec**
-Read `docs/stories/<RAIL>/<RAIL>-NNN.md` (the story file for this story).
-
-a. Does the story body contain delegation language — "See phase doc",
-   "See docs/phases/", or "See phase-"? If yes: FAIL — STORY SPEC (HIGH).
-   The story file must be the builder's complete contract; phase doc references
-   in a story spec are a methodology violation.
-
-b. Does the story file have no `## Ensures` AND no `## Acceptance criterion`
-   AND no `## Acceptance criteria` section? If yes: FAIL — STORY SPEC (HIGH).
-   A story without an acceptance surface cannot be verified.
-
-c. If the story file is not found (legacy story predating the story-file
-   convention): PASS with LOW note ("legacy story — no story file").
-
-**3. build gate**
-Does `` pass cleanly?
-A failing build gate blocks story completion regardless of checklist outcome. CRITICAL.
-
-**5. ideology alignment**
-Before running this check, read `docs/ideology.md` in full. If the file does not exist,
-skip this check and record: `IDEOLOGY ALIGNMENT — SKIPPED: docs/ideology.md not found (LOW)`.
-
-Check three things in sequence:

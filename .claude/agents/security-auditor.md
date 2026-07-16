@@ -101,6 +101,11 @@ Does any code in `hooks/` write directly to `spec.json` files or to
 
 Only `sidebar.py` and skill scripts may write spec files.
 
+**Domain isolation:** flex has no domain-isolation data model — there are no
+tenant/domain boundaries to enforce, so no domain-isolation check applies to
+this project. (The canonical pairmode template includes one for projects that
+declare a `domain_isolation_rule`; flex declares none.)
+
 ---
 
 ## Audit scope
@@ -140,17 +145,3 @@ PASS = zero CRITICAL and zero HIGH findings.
 The checkpoint cannot be tagged if the result is FAIL.
 
 If no findings: `SECURITY AUDIT PASS — no findings at any severity level.`
-
-### 2. credential exposure (critical if violated)
-Does any code log, print, write to a file, or return in a response the contents of:
-- `$HOME/.flex/auth.json`
-- `CLAUDE_CODE_OAUTH_TOKEN` environment variable
-- Any string matching `sk-ant-oat01-`
-
-Check all scripts.
-
-### 4. domain isolation violation (high if violated)
-Does any data access code fail to enforce: ?
-
-Any query or data operation that could return results across isolation boundaries
-is a HIGH violation.
