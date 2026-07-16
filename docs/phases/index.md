@@ -88,6 +88,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 86 | permissions-create idempotency | complete | [phase-86.md](phase-86.md) |
 | 87 | checklist-item-level override granularity for sync/audit | complete | [phase-87.md](phase-87.md) |
 | 88 | Scope context-budget gate to pairmode build-cycle agents | complete | [phase-88.md](phase-88.md) |
+| 89 | Remove flex-specific hook paragraph from canonical CLAUDE.md.j2 template | planned | [phase-89.md](phase-89.md) |
 
 ---
 
