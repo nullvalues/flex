@@ -642,13 +642,15 @@ Behaviour:
   the context passed to `sync-agents` includes all variables used by the canonical agent
   templates (`build_command`, `test_command`, `domain_isolation_rule`, `protected_paths`).
   For projects whose `pairmode_context.json` and `state.json` supply these values, body
-  propagation now works as intended. For sibling projects that were bootstrapped before
-  those keys were written to `pairmode_context.json`, or that use templates referencing
-  project-specific variables beyond the known set, the full-template render will still fail
-  with `StrictUndefined` and the body-merge step will silently fall back to no-op for that
-  file. In that case, new body sections must be applied manually during deployment stories.
-  When rendering fails, `sync-agents` now surfaces an explicit error to stderr and exits 1
-  rather than silently reporting "No changes to apply."
+  propagation now works as intended. Since INFRA-203, a body render that fails — whether
+  by `StrictUndefined` on a truly-missing variable, or because an empty-valued variable
+  (a graceful `""`/`[]` fallback from `_build_template_context`) feeds a section that would
+  be newly appended to the target — is surfaced as an explicit `"error: failed to render
+  {filename}: {reason}"` line on stderr, the file is skipped entirely (not written, on-disk
+  content byte-for-byte unchanged), and `sync-agents` exits 1 when no other file produced a
+  clean change. Sections whose empty variable only appears inside content already present in
+  the target (and therefore not appended) do not trigger this failure. In either failure
+  case, new body sections must be applied manually during deployment stories.
 - Prints a unified diff (`difflib.unified_diff`) for each changed file before writing.
 - `--dry-run`: exits after printing diffs without writing any files.
 - `--yes`: writes without prompting.
@@ -685,9 +687,14 @@ heading style is now a no-op, never a tail append; genuinely new template
 sections are still appended additively (INFRA-202). Additionally, a template
 context key absent from a project's `pairmode_context.json`/`state.json`
 (e.g. `domain_isolation_rule` for flex itself, which has no domain-isolation
-model) renders to `""` rather than raising `StrictUndefined`, so a
-broken/empty checklist line can be merged in silently with no sync-time
-warning — this remains open, tracked separately (INFRA-203).
+model) renders to `""` rather than raising `StrictUndefined` on the loose
+full-template render. As of INFRA-203, `_collect_changes` re-renders, in
+isolation, the raw template source of every section that would be newly
+appended under a stricter context with all empty-valued keys removed; if that
+stricter render raises `UndefinedError`, the file is surfaced as a render
+error (naming the offending variable) and skipped rather than merged, so a
+broken/empty checklist line (e.g. `` Does `` pass cleanly? ``) can no longer be
+merged in silently.
 
 **`pairmode_sync.py` — `sync-build` subcommand.**
 Compares the target project's `CLAUDE.build.md` against the canonical `CLAUDE.build.md.j2`
