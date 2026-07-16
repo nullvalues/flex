@@ -5,6 +5,17 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp91-sync-agents-body-merge-hardening
+
+**Tag command:** `git tag cp91-sync-agents-body-merge-hardening && git push origin cp91-sync-agents-body-merge-hardening`
+**Phase:** 91
+**Stories:** INFRA-202, INFRA-203
+**Acceptance:** Closes a live, repeatable correctness bug found via production incident (2026-07-16, commit 85a6f52): `sync-all --apply` against flex itself appended duplicate, differently-numbered checklist content past the logical end of `.claude/agents/reviewer.md` and `.claude/agents/security-auditor.md`, and separately merged a nonsensical empty checklist line. `_heading_concept_key`/`_target_concept_keys`/`_sections_to_add` (INFRA-202) teach `_merge_body_sections` to recognize canonical sections already present under non-`##` formatting (bold-inline pseudo-headers, numbered enumerators) and never duplicate-append. `_empty_variable_in_appended_sections` (INFRA-203) makes an empty/degenerate template-variable render for a required, newly-appended section fail loudly (stderr error, non-zero exit, no write) instead of merging blank content, reusing the INFRA-202 section-scoping so already-present sections are never over-blocked. `docs/architecture.md` updated. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: both stories ALIGNED, no pivots; filed CER-063 (Do Later) for a forward-looking `INFRA-203` rail+number collision with the unmerged `fold-prep` branch, to be resolved at merge time. 2371 tests pass.
+
+*(Note: phases 89 and 90 completed but were never tagged with a checkpoint — this run picked up the sequence from cp88.)*
+
+---
+
 ## cp88-context-budget-subagent-scoping
 
 **Tag command:** `git tag cp88-context-budget-subagent-scoping && git push origin cp88-context-budget-subagent-scoping`
