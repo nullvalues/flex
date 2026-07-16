@@ -34,6 +34,7 @@ import datetime
 import difflib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -213,6 +214,82 @@ def _parse_body_sections(body: str) -> tuple[str, list[tuple[str, str]]]:
     return "".join(preamble_lines), sections
 
 
+_PSEUDO_HEADER_RE = re.compile(r"^\*\*(.+?)\*\*:?$")
+_ENUMERATOR_RE = re.compile(r"^\d+(\.\d+)?[a-z]?[.)]?\s+")
+_INLINE_EMPHASIS_CHARS = str.maketrans("", "", "*_`")
+
+
+def _heading_concept_key(line: str) -> str | None:
+    """Return a normalized concept key for a heading-like line, or ``None``.
+
+    Recognizes two heading styles:
+    - a true ``## `` (or ``#``) heading line
+    - a standalone bold-inline pseudo-header line, i.e. a line whose entire
+      stripped content is wrapped in ``**...**`` (optionally with a trailing
+      ``:``) — not a bold span embedded in a larger prose sentence.
+
+    Normalization (see INFRA-202 Ensures #1):
+    a. strip leading/trailing whitespace
+    b. remove a leading ``## `` / ``#`` marker
+    c. unwrap a line that is wholly ``**...**`` (optional trailing ``:``)
+    d. remove a leading enumerator token (``1. ``, ``2.5 ``, ``5a. ``, ``10) ``)
+    e. strip a trailing ``:``
+    f. strip remaining inline emphasis / backtick characters
+    g. lowercase and collapse internal whitespace runs to a single space
+
+    Returns ``None`` for any line that is not a recognized heading style.
+    """
+    text = line.strip()
+    if not text:
+        return None
+
+    is_heading = False
+
+    if text.startswith("## "):
+        text = text[3:].strip()
+        is_heading = True
+    elif text.startswith("#"):
+        stripped = text.lstrip("#").strip()
+        if stripped != text:
+            text = stripped
+            is_heading = True
+
+    if not is_heading:
+        match = _PSEUDO_HEADER_RE.match(text)
+        if not match:
+            return None
+        text = match.group(1).strip()
+        is_heading = True
+
+    if not is_heading:
+        return None
+
+    text = _ENUMERATOR_RE.sub("", text, count=1)
+    text = text.strip()
+    if text.endswith(":"):
+        text = text[:-1].strip()
+    text = text.translate(_INLINE_EMPHASIS_CHARS)
+    text = text.lower()
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text or None
+
+
+def _target_concept_keys(body: str) -> set[str]:
+    """Collect the set of normalized concept keys present anywhere in *body*.
+
+    Scans every line of the target body (not just ``## ``-delimited sections)
+    for both true ``## `` headings and standalone bold-inline pseudo-header
+    lines, via :func:`_heading_concept_key`.
+    """
+    keys: set[str] = set()
+    for line in body.splitlines():
+        key = _heading_concept_key(line)
+        if key is not None:
+            keys.add(key)
+    return keys
+
+
 def _merge_body_sections(template_body: str, target_body: str) -> str:
     """Merge new H2 sections from *template_body* into *target_body*, additively.
 
@@ -221,19 +298,24 @@ def _merge_body_sections(template_body: str, target_body: str) -> str:
     Sections in the target that are absent from the template are preserved
     (project-specific additions are never removed).
 
+    "Present in the target" is decided by normalized concept key (see
+    :func:`_heading_concept_key`), not exact heading-string equality, so a
+    canonical checklist item already present under a non-``## `` heading style
+    (e.g. a ``**N. TITLE**`` pseudo-header) is recognized and never
+    duplicate-appended (INFRA-202).
+
     Returns the merged target body.
     """
     _template_preamble, template_sections = _parse_body_sections(template_body)
-    _target_preamble, target_sections = _parse_body_sections(target_body)
 
-    # Build the set of heading lines already present in the target
-    target_headings: set[str] = {heading for heading, _content in target_sections}
+    # Build the set of concept keys already present anywhere in the target body.
+    target_keys: set[str] = _target_concept_keys(target_body)
 
-    # Collect template sections not present in the target
+    # Collect template sections whose concept key is not present in the target
     sections_to_add: list[tuple[str, str]] = [
         (heading, content)
         for heading, content in template_sections
-        if heading not in target_headings
+        if _heading_concept_key(heading) not in target_keys
     ]
 
     if not sections_to_add:

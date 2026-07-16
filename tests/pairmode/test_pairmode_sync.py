@@ -186,6 +186,153 @@ class TestMergeBodySections:
         assert "Target's version of contract check content." in merged
         assert contract_check_content not in merged
 
+    def test_pseudo_header_target_matches_template_h2_no_duplicate(self) -> None:
+        """A target bold-inline pseudo-header matching a template ## heading is a no-op (INFRA-202)."""
+        target_body = (
+            "\n"
+            "## Review checklist\n"
+            "\n"
+            "**1. HOOK PERFORMANCE**\n"
+            "Do any hook scripts make API calls?\n"
+        )
+        template_body = (
+            "\n"
+            "## 1. Hook performance\n"
+            "\n"
+            "Do any hook scripts make API calls?\n"
+        )
+
+        before_count = target_body.lower().count("hook performance")
+        merged = _merge_body_sections(template_body, target_body)
+        after_count = merged.lower().count("hook performance")
+
+        assert after_count == before_count, (
+            "Expected no duplicate 'Hook performance' concept after merge; "
+            f"before={before_count} after={after_count}\nmerged:\n{merged}"
+        )
+
+    def test_numbering_and_case_differences_still_match(self) -> None:
+        """Different numbering/casing between target pseudo-header and template heading still match."""
+        target_body = "\n## Review checklist\n\n**7. PROTECTED FILES**\nWere protected files touched?\n"
+        template_body = "\n## 1. Protected files\n\nWere protected files touched?\n"
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        assert "## 1. Protected files" not in merged
+        assert merged == target_body
+
+    def test_enumerated_subsection_ids_match(self) -> None:
+        """Sub-lettered enumerator ids (5b.) normalize to the same concept key."""
+        target_body = (
+            "\n## Review checklist\n\n"
+            "**5b. constraint rationale preservation**\nSome content.\n"
+        )
+        template_body = "\n## 5b. Constraint rationale preservation\n\nSome content.\n"
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        assert merged == target_body
+        assert "## 5b. Constraint rationale preservation" not in merged
+
+    def test_reviewer_md_incident_shape_is_noop(self) -> None:
+        """Reproduces the 85a6f52 corruption shape: full checklist must merge as a no-op."""
+        target_body = (
+            "\n"
+            "You are the reviewer.\n"
+            "\n"
+            "## Review checklist\n"
+            "\n"
+            "**1. HOOK PERFORMANCE**\n"
+            "Hook content.\n"
+            "\n"
+            "**2. PIPE CONTRACT**\n"
+            "Pipe content.\n"
+            "\n"
+            "**7. PROTECTED FILES**\n"
+            "Protected content.\n"
+            "\n"
+            "## Final output to orchestrator\n"
+            "\n"
+            "End here.\n"
+        )
+        template_body = (
+            "\n"
+            "## 1. Hook performance\n"
+            "\n"
+            "Hook content.\n"
+            "\n"
+            "## 2. Pipe contract\n"
+            "\n"
+            "Pipe content.\n"
+            "\n"
+            "## 9. Story scope\n"
+            "\n"
+            "Rail scope content.\n"
+            "\n"
+            "## 5b. Constraint rationale preservation\n"
+            "\n"
+            "Constraint content.\n"
+            "\n"
+            "## 2.5 Story spec\n"
+            "\n"
+            "Story spec content.\n"
+        )
+
+        # Add pseudo-headers matching the remaining template items so this is a
+        # true full-checklist no-op reproduction of the incident shape.
+        target_body = target_body.replace(
+            "**7. PROTECTED FILES**\nProtected content.\n",
+            (
+                "**7. PROTECTED FILES**\nProtected content.\n\n"
+                "**6. STORY SCOPE**\nRail scope content.\n\n"
+                "**5b. CONSTRAINT RATIONALE PRESERVATION**\nConstraint content.\n\n"
+                "**2.5 STORY SPEC**\nStory spec content.\n"
+            ),
+        )
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        # Every template concept is already present in the target under some
+        # heading style, so the merge must be a true no-op: nothing appended
+        # after the terminal section, and the target body is unchanged.
+        assert merged == target_body, (
+            "Expected a full no-op merge (85a6f52 incident shape); "
+            f"merged differs from target:\n{merged}"
+        )
+        assert merged.split("## Final output to orchestrator")[1].strip() == "End here."
+        # Each canonical heading marker for the covered concepts appears exactly
+        # once — guards against the tail-duplication shape from commit 85a6f52.
+        for marker in [
+            "**1. HOOK PERFORMANCE**",
+            "**2. PIPE CONTRACT**",
+            "**6. STORY SCOPE**",
+            "**5b. CONSTRAINT RATIONALE PRESERVATION**",
+            "**2.5 STORY SPEC**",
+        ]:
+            assert merged.count(marker) == 1, (
+                f"Marker {marker!r} does not appear exactly once in merged body:\n{merged}"
+            )
+
+    def test_genuinely_new_section_still_appended(self) -> None:
+        """A template section with no matching concept anywhere in the target is still appended."""
+        target_body = "\n## Review checklist\n\n**1. HOOK PERFORMANCE**\nHook content.\n"
+        template_body = "\n## Brand new section\n\nSome brand new content.\n"
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        assert "## Brand new section" in merged
+        assert "Some brand new content." in merged
+
+    def test_inline_bold_in_prose_is_not_a_pseudo_header(self) -> None:
+        """A bold span embedded in a prose sentence must not register as a pseudo-header concept."""
+        target_body = "\nThis is **important** context.\n"
+        template_body = "\n## Important\n\nSome content.\n"
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        assert "## Important" in merged
+        assert "Some content." in merged
+
 
 def test_sync_agents_rejects_shallow_path(tmp_path: pathlib.Path) -> None:
     """sync_agents must exit with code 1 when --project-dir resolves to fewer than 3 path components."""

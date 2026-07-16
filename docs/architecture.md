@@ -665,21 +665,29 @@ skipped with a warning.
   exits 0, with errors already printed to stderr.
 - Agent files with no frontmatter block (no opening `---`): warns and skips.
 
-**Body-merge duplication risk:** `_merge_body_sections` dedups solely by exact
-`##`-heading string match. Target files whose existing checklist items use
-bold-inline pseudo-headers (e.g. `**1. HOOK PERFORMANCE**`) rather than true
-`##` headings are not recognized as containing the canonical template's
-equivalent items, and the merge appends a second, differently-numbered copy
-of the same content after the file's terminal section instead of a clean
-no-op. Observed in `.claude/agents/reviewer.md` and
-`.claude/agents/security-auditor.md` (commit `85a6f52`, `sync-all --apply`;
-repaired by hand in `622309c`). Additionally, a template context key absent
-from a project's `pairmode_context.json`/`state.json` (e.g.
-`domain_isolation_rule` for flex itself, which has no domain-isolation model)
-renders to `""` rather than raising `StrictUndefined`, so a broken/empty
-checklist line can be merged in silently with no sync-time warning. Hardening
-`_merge_body_sections` to detect same-concept items across heading styles is
-tracked as follow-on work, not yet fixed as of this writing.
+**Body-merge duplication risk (resolved, INFRA-202):** `_merge_body_sections`
+previously deduped solely by exact `##`-heading string match. Target files
+whose existing checklist items used bold-inline pseudo-headers (e.g.
+`**1. HOOK PERFORMANCE**`) rather than true `##` headings were not recognized
+as containing the canonical template's equivalent items, and the merge
+appended a second, differently-numbered copy of the same content after the
+file's terminal section instead of a clean no-op. Observed in
+`.claude/agents/reviewer.md` and `.claude/agents/security-auditor.md`
+(commit `85a6f52`, `sync-all --apply`; repaired by hand in `622309c`).
+`_merge_body_sections` now matches on a normalized concept key
+(`_heading_concept_key`) computed identically for a true `## ` heading and a
+standalone `**N. TITLE**` pseudo-header line — stripping heading markers,
+enumerator prefixes, bold/backtick emphasis, and casing/whitespace
+differences — and builds the target's "already present" set by scanning the
+entire target body (`_target_concept_keys`), not only its `## `-delimited
+sections. A canonical checklist item already present under any covered
+heading style is now a no-op, never a tail append; genuinely new template
+sections are still appended additively (INFRA-202). Additionally, a template
+context key absent from a project's `pairmode_context.json`/`state.json`
+(e.g. `domain_isolation_rule` for flex itself, which has no domain-isolation
+model) renders to `""` rather than raising `StrictUndefined`, so a
+broken/empty checklist line can be merged in silently with no sync-time
+warning — this remains open, tracked separately (INFRA-203).
 
 **`pairmode_sync.py` — `sync-build` subcommand.**
 Compares the target project's `CLAUDE.build.md` against the canonical `CLAUDE.build.md.j2`

@@ -16,7 +16,13 @@ sys.path.insert(
     str(pathlib.Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts"),
 )
 
-from pairmode_sync import sync_agents, _split_agent_file, _extract_frontmatter_block, _get_project_name  # noqa: E402
+from pairmode_sync import (  # noqa: E402
+    sync_agents,
+    _split_agent_file,
+    _extract_frontmatter_block,
+    _get_project_name,
+    _collect_changes,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -448,6 +454,77 @@ def test_get_project_name_fallback_strips_newlines(tmp_path: pathlib.Path):
     assert "\n" not in result
     assert "\r" not in result
     assert result == project_dir.resolve().name
+
+
+def test_collect_changes_reviewer_shaped_body_no_duplicate_checklist(tmp_path: pathlib.Path):
+    """CLI-level regression for INFRA-202 (85a6f52 incident).
+
+    A synthetic reviewer-shaped agent file whose checklist items are expressed
+    as ``**N. TITLE**`` pseudo-headers, merged against a synthetic template
+    that carries the equivalent items as ``## N. Title`` sections, must not
+    produce a ``new_content`` with any duplicated canonical checklist item.
+    """
+    agents_dir = tmp_path / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+    templates_dir = tmp_path / "fake_templates"
+    templates_dir.mkdir()
+
+    agent_content = (
+        "---\n"
+        "name: reviewer\n"
+        "description: Reviewer for {{ project_name }}.\n"
+        "model: sonnet\n"
+        "---\n"
+        "\n"
+        "You are the reviewer.\n"
+        "\n"
+        "## Review checklist\n"
+        "\n"
+        "**1. HOOK PERFORMANCE**\n"
+        "Hook content.\n"
+        "\n"
+        "**7. PROTECTED FILES**\n"
+        "Protected content.\n"
+        "\n"
+        "## Final output to orchestrator\n"
+        "\n"
+        "End here.\n"
+    )
+    (agents_dir / "reviewer.md").write_text(agent_content, encoding="utf-8")
+
+    template_content = (
+        "---\n"
+        "name: reviewer\n"
+        "description: Reviewer for {{ project_name }}.\n"
+        "model: sonnet\n"
+        "---\n"
+        "\n"
+        "You are the reviewer.\n"
+        "\n"
+        "## Review checklist\n"
+        "\n"
+        "## 1. Hook performance\n"
+        "\n"
+        "Hook content.\n"
+        "\n"
+        "## 9. Protected files\n"
+        "\n"
+        "Protected content.\n"
+        "\n"
+        "## Final output to orchestrator\n"
+        "\n"
+        "End here.\n"
+    )
+    _write_template(templates_dir, "reviewer.md.j2", template_content)
+
+    context = {"project_name": "myproject"}
+    changes, render_errors = _collect_changes(agents_dir, templates_dir, context)
+
+    assert render_errors == []
+    if changes:
+        _agent_file, _old_content, new_content = changes[0]
+        assert new_content.lower().count("hook performance") <= 1
+        assert new_content.lower().count("protected files") <= 1
 
 
 def test_no_agents_dir_returns_no_changes(tmp_path: pathlib.Path):
