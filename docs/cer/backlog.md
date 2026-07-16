@@ -1,6 +1,6 @@
 # flex — Cold-Eyes Review (CER) Backlog
 
-*Last updated: 2026-07-06*
+*Last updated: 2026-07-16*
 
 This file is the structured triage log for findings from external cold-eyes reviews.
 Each finding is assigned to one quadrant. Findings are not deleted — resolved findings
@@ -45,6 +45,8 @@ Important, not urgent. Quality improvements, architectural refinements.
 
 | ID | Finding | Source | Date | Phase |
 |----|---------|--------|------|-------|
+
+| CER-063 | The `fold-prep` branch (`HARNESS011-main`, not yet merged to `main`) already owns a different `INFRA-203` ("Context gate edge cases and session_id safety") — itself the product of a prior renumbering to avoid colliding with `main`'s then-existing `INFRA-192`. Phase 91 (`main`) has now allocated a second, unrelated `INFRA-203` ("Make empty/missing-variable template renders in the sync-agents body-merge path fail loudly"). When `fold-prep`/`harness` eventually merges into `main`, this rail+number will collide again — the second time this exact pattern has occurred. Not urgent while `fold-prep` remains unmerged. Fix at merge time: renumber the incoming `fold-prep` `INFRA-203` (recommended, since it was already renumbered once and its content is less coupled to the flex-self-hosting-tool identity than the `main` story). MEDIUM severity (forward-looking; no current-branch defect). No specific files — applies to whichever phase performs the `fold-prep`/`harness` merge into `main`. | Phase 91 intent review | 2026-07-16 | HARNESS (fold-prep merge) |
 
 | CER-062 | `story_new.py`'s `_append_to_phase` phase-manifest lookup (`skills/pairmode/scripts/story_new.py:127-137`) only matches two filename shapes: `{phase}-*.md` (phase arg as filename prefix) and exact `phase-{phase}.md`. Suffixed phase manifests — filenames of the form `phase-<phase_id>-<suffix>.md`, the naming convention `phase_new.py --phase-id --suffix` produces (CER-038) — match neither glob, so `story_new.py --phase MU020` silently returns `False` from `_append_to_phase` and the new story is never added to the phase's Stories table, with no error surfaced to the caller. Confirmed on the radar project (fable-orchestrated build): the operator had to add the Stories table rows by hand. Fix: add a third glob `phase-{phase}-*.md` (or generalize to `*{phase}*.md`) alongside the existing two in `_append_to_phase`, and consider surfacing a warning when auto-registration falls through to `False` rather than failing silently. MEDIUM severity (silent auto-registration failure on suffixed phases — story files are still created correctly; only the phase manifest's Stories table drifts until manually reconciled). `skills/pairmode/scripts/story_new.py:127-137`. **Pulled forward into Phase 87 as INFRA-197.** | radar repo orchestrator (fable, external report) | 2026-07-14 | 87 |
 

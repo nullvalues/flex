@@ -90,7 +90,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 88 | Scope context-budget gate to pairmode build-cycle agents | complete | [phase-88.md](phase-88.md) |
 | 89 | Remove flex-specific hook paragraph from canonical CLAUDE.md.j2 template | complete | [phase-89.md](phase-89.md) |
 | 90 | Fix stale pre-INFRA-191 assertion in CLAUDE.build.md test | complete | [phase-90.md](phase-90.md) |
-| 91 | Harden sync-agents body-merge against silent duplication/corruption | planned | [phase-91.md](phase-91.md) |
+| 91 | Harden sync-agents body-merge against silent duplication/corruption | complete | [phase-91.md](phase-91.md) |
 
 ---
 
