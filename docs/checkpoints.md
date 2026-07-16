@@ -5,14 +5,30 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp90-fix-stale-preinfra191-assertion
+
+**Tag command:** `git tag cp90-fix-stale-preinfra191-assertion a8a7004 && git push origin cp90-fix-stale-preinfra191-assertion`
+**Phase:** 90
+**Stories:** INFRA-201
+**Acceptance:** A routine `sync-all` run caught flex's own `CLAUDE.build.md` up to the already-approved INFRA-191 spec-preflight flow, which broke `TestBuild025PreStoryScopeCheck` in `test_templates.py` — the test still asserted the pre-INFRA-191 wording. Updated the assertion to match the current, correct flow. Single-file test fix; reviewer-approved and committed at build time. **Retroactively tagged 2026-07-16** — this checkpoint was never tagged when the phase completed; tag applied directly at the phase's completion commit (`a8a7004`) rather than re-run against historical state, since the story was already reviewer-approved (tests + checklist) and is low-risk (test-assertion-only change).
+
+---
+
+## cp89-remove-flex-hook-paragraph-from-canonical-template
+
+**Tag command:** `git tag cp89-remove-flex-hook-paragraph-from-canonical-template f293f6a && git push origin cp89-remove-flex-hook-paragraph-from-canonical-template`
+**Phase:** 89
+**Stories:** INFRA-200
+**Acceptance:** A pairmode sync-attempt review on a downstream (non-flex) project surfaced that its synced `CLAUDE.md` described a "thin-delegation exception" naming `hooks/pre_tool_use.py`/`cold_read_guard.py`/INFRA-196 — flex-internal identifiers with no counterpart in that project's repo, since `bootstrap.py` never copies `hooks/` into a target project. Removed the flex-specific paragraph from the canonical `skills/pairmode/templates/CLAUDE.md.j2` PROTECTED FILES checklist item, leaving the generic instruction intact; `/mnt/work/flex/CLAUDE.md` (this repo's own file) is untouched and keeps its full paragraph. Single-template-file change; reviewer-approved and committed at build time. **Retroactively tagged 2026-07-16** — this checkpoint was never tagged when the phase completed; tag applied directly at the phase's completion commit (`f293f6a`) rather than re-run against historical state, since the story was already reviewer-approved (tests + checklist) and is low-risk (template-prose-only change).
+
+---
+
 ## cp91-sync-agents-body-merge-hardening
 
 **Tag command:** `git tag cp91-sync-agents-body-merge-hardening && git push origin cp91-sync-agents-body-merge-hardening`
 **Phase:** 91
 **Stories:** INFRA-202, INFRA-203
 **Acceptance:** Closes a live, repeatable correctness bug found via production incident (2026-07-16, commit 85a6f52): `sync-all --apply` against flex itself appended duplicate, differently-numbered checklist content past the logical end of `.claude/agents/reviewer.md` and `.claude/agents/security-auditor.md`, and separately merged a nonsensical empty checklist line. `_heading_concept_key`/`_target_concept_keys`/`_sections_to_add` (INFRA-202) teach `_merge_body_sections` to recognize canonical sections already present under non-`##` formatting (bold-inline pseudo-headers, numbered enumerators) and never duplicate-append. `_empty_variable_in_appended_sections` (INFRA-203) makes an empty/degenerate template-variable render for a required, newly-appended section fail loudly (stderr error, non-zero exit, no write) instead of merging blank content, reusing the INFRA-202 section-scoping so already-present sections are never over-blocked. `docs/architecture.md` updated. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: both stories ALIGNED, no pivots; filed CER-063 (Do Later) for a forward-looking `INFRA-203` rail+number collision with the unmerged `fold-prep` branch, to be resolved at merge time. 2371 tests pass.
-
-*(Note: phases 89 and 90 completed but were never tagged with a checkpoint — this run picked up the sequence from cp88.)*
 
 ---
 
