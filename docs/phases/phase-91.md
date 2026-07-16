@@ -18,7 +18,7 @@ Phase 91 hardens the sync-agents body-merge path in skills/pairmode/scripts/pair
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-202 | Harden `_merge_body_sections` to recognize canonical sections already present under non-`##` heading styles and never duplicate-append | complete |
-| INFRA-203 | Make empty/missing-variable template renders in the `sync-agents` body-merge path fail loudly instead of merging empty content | planned |
+| INFRA-203 | Make empty/missing-variable template renders in the `sync-agents` body-merge path fail loudly instead of merging empty content | complete |
 
 ## Schema delivery
 

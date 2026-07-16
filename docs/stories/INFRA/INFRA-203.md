@@ -2,7 +2,7 @@
 id: INFRA-203
 rail: INFRA
 title: "Make empty/missing-variable template renders in the sync-agents body-merge path fail loudly instead of merging empty content"
-status: planned
+status: complete
 phase: "91"
 story_class: code
 auth_gated: false
