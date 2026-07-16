@@ -17,20 +17,15 @@
     "defaultMode": "auto",
     "allow": [
       "Edit(.claude/agents/**)",
-      "Write(.claude/agents/**)",
       "Bash(uv run python * flex_build.py permissions-create *)",
       "Bash(uv run python * flex_build.py write-permissions *)",
       "Bash(uv run python * flex_build.py clear-permissions *)"
     ],
     "deny": [
       "Edit(skills/companion/**)",
-      "Write(skills/companion/**)",
       "Edit(lessons/**)",
-      "Write(lessons/**)",
       "Edit(.claude-plugin/**)",
-      "Write(.claude-plugin/**)",
-      "Edit(skills/seed/**)",
-      "Write(skills/seed/**)"
+      "Edit(skills/seed/**)"
     ]
   }
 }
