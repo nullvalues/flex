@@ -30,7 +30,7 @@ forward CER-034 (same file, forcing function arrived). All four items are in the
 | CER | Finding | Story |
 |-----|---------|-------|
 | CER-061 | `cmd_record_checkpoint_step` missing `_depth_guard` | RESOLVER-015 |
-| CER-062 | `_CHECKPOINT_SEQUENCE` duplicated (inlined in flex_build.py) | RESOLVER-015 |
+| CER-068 | `_CHECKPOINT_SEQUENCE` duplicated (inlined in flex_build.py) | RESOLVER-015 |
 | CER-034 | `_story_path()` missing `relative_to` containment guard | RESOLVER-015 |
 | CER-063 | Deprecated `parse_worker_verdict_text` not removed | RESOLVER-016 |
 

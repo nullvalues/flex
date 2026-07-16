@@ -2,7 +2,7 @@
 id: INFRA-191
 rail: INFRA
 title: "Orchestrator integration of spec_preflight via flex_build.py spec-preflight subcommand"
-status: planned
+status: complete
 phase: "84"
 story_class: code
 auth_gated: false

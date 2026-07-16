@@ -98,24 +98,46 @@ Hooks are thin relays only. Any blocking logic in a hook is CRITICAL.
 
 **Documented thin-delegation exceptions:**
 
-`hooks/pre_tool_use.py` is a thin dispatcher for two tool types:
+`hooks/pre_tool_use.py` is a thin dispatcher for three tool types:
 
 - `Task` / `Agent` → `skills/pairmode/scripts/context_budget.py`
-  (CER-027 context-budget enforcement; both tool names accepted — CER-049)
+  (CER-027 context-budget enforcement; both tool names accepted — CER-049).
+  Additionally scoped (INFRA-199) to `tool_input.subagent_type` ∈
+  {`builder`, `reviewer`, `loop-breaker`, `security-auditor`,
+  `intent-reviewer`}: general-purpose / Plan / Explore / other spawns are
+  never gated.
 - `Edit` / `Write` → `skills/pairmode/scripts/scope_guard.py`
   (Phase 55 story file-scope enforcement)
+- `Read` → `skills/pairmode/scripts/cold_read_guard.py`
+  (INFRA-196 cold-read enforcement)
 
-For the `Task`/`Agent` dispatch: one tool-name check, one delegated module call
+For the `Task`/`Agent` dispatch: one tool-name check, one
+`tool_input.subagent_type` allowlist check (INFRA-199 — the gate is scoped to
+`subagent_type` ∈ {`builder`, `reviewer`, `loop-breaker`, `security-auditor`,
+`intent-reviewer`}; general-purpose / Plan / Explore / other spawns fall
+straight through to `sys.exit(0)` with no `context_budget` import/call, no
+block emission, and no state write), one delegated module call
 (`decide(project_dir)` for the block decision — reads `context_current_tokens`
 scalar from state.json, written by `post_tool_use.py` after each completed
 Task/Agent spawn), one stdout emit. All domain logic lives in the named module,
 NOT in the hook. The Task branch has one state-write path:
-`context_budget_acknowledged_at` when blocking (single `write_text()` call).
+`context_budget_acknowledged_at` and (INFRA-193)
+`context_budget_acknowledged_user_turn_seq` when blocking (single
+`write_text()` call covering both keys).
 `post_tool_use.py` (PostToolUse Task/Agent branch, INFRA-182) is the sole live
 writer of `context_current_tokens`.
 
 For the `Edit`/`Write` dispatch: one tool-name check, one delegated module call,
 one stdout emit. The Edit/Write branch is read-only.
+
+For the `Read` dispatch: one tool-name check, one delegated module call
+(`cold_read_guard.check_path(file_path, agent_type, project_dir)`), one
+stdout emit. The Read branch is read-only — no state writes. It blocks
+when `agent_type` is absent from the payload (a top-level orchestrator
+Read, not a subagent Read) AND the target path falls under
+`docs/stories/**` or `.claude/agents/**`; the orchestrator must instead
+pass the story ID to the builder/reviewer subagent and let it read cold.
+`docs/phases/**` and `docs/architecture.md` reads are never blocked.
 
 `hooks/post_tool_use.py` is a thin dispatcher for two tool types:
 
@@ -142,10 +164,18 @@ one hook-owned state write (`context_current_tokens` +
 three keys returned by `decide_reset()` as a dict — see INFRA-180, INFRA-182),
 one emit. All decision logic lives in `session_reset.py`, NOT in the hook.
 
-Any logic added inside `pre_tool_use.py`, `post_tool_use.py`, or
-`session_start.py` beyond tool-name / source dispatch + module delegation
-+ emit remains CRITICAL. Any *other* hook that emits a decision-block
-response remains CRITICAL.
+`hooks/user_prompt_submit.py` (INFRA-192) is a thin dispatcher for the
+`UserPromptSubmit` event:
+
+- Every event → one state.json read-modify-write incrementing
+  `context_budget_user_turn_seq`. No decision logic, no block/reason
+  emission. This is the sole source of the human-turn signal consumed by
+  `context_budget.should_block()` (INFRA-193).
+
+Any logic added inside `pre_tool_use.py`, `post_tool_use.py`,
+`session_start.py`, or `user_prompt_submit.py` beyond tool-name / source
+dispatch + module delegation + emit remains CRITICAL. Any *other* hook
+that emits a decision-block response remains CRITICAL.
 
 ### 2. PIPE CONTRACT
 
@@ -177,6 +207,10 @@ Lessons are append-only. Any other mutation is HIGH.
 Does the diff include Python logic modules in `skills/pairmode/scripts/` with
 no corresponding test file in `tests/pairmode/`?
 Missing tests for logic modules are HIGH.
+
+Also verify: `effort_tracking` in `.companion/state.json` must remain `true`.
+If any diff sets it to `false` or removes it without a BUILD-rail story
+explicitly authorising the change: HIGH.
 
 ### 7. PROTECTED FILES
 
@@ -211,6 +245,16 @@ Read the story's `primary_files` and `touches` declarations from
 
 Does `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q` pass?
 A failing build gate blocks story completion regardless of checklist outcome.
+
+### 11. DOCUMENTATION CURRENCY
+
+Did this story touch code that any project doc describes? If yes, did the
+story also update that doc? Stale documentation that no longer matches code
+is HIGH — it actively misleads future agents reading it cold.
+The project's documentation surface is every `*.md` under `docs/` excluding
+append-only history paths (`docs/phases/**`, `docs/stories/**`, `docs/cer/**`,
+`docs/eras/**`), plus `README.md`. Projects may override with an explicit
+list in `docs/documentation-surface.md`.
 
 ---
 

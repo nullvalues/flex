@@ -25,6 +25,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import click
 
+from state_utils import _atomic_write_json
+
 
 def is_pairmode_active(project_dir: Path) -> bool:
     """Return True if the project has pairmode active.
@@ -47,9 +49,9 @@ def read_state(companion_dir: Path) -> dict:
 
 
 def write_state(companion_dir: Path, state: dict) -> None:
-    """Write state dict to .companion/state.json (pretty-printed)."""
+    """Write state dict to .companion/state.json (pretty-printed, atomic)."""
     state_path = companion_dir / "state.json"
-    state_path.write_text(json.dumps(state, indent=2))
+    _atomic_write_json(state_path, state)
 
 
 def set_current_story(

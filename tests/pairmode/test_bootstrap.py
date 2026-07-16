@@ -2878,7 +2878,7 @@ class TestBootstrapEffortTrackingNote:
 
 
 # ---------------------------------------------------------------------------
-# INFRA-194: --yes auto-overwrite and effort_tracking transparency note
+# INFRA-205: --yes auto-overwrite and effort_tracking transparency note
 # ---------------------------------------------------------------------------
 
 

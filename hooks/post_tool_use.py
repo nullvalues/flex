@@ -45,6 +45,7 @@ def main():
         # Read JSONL, write fresh count to state.json. Never blocks.
         try:
             import context_budget
+            from state_utils import _atomic_write_json
             project_dir = Path(data.get("cwd") or ".")
             session_id = data.get("session_id", "")
             live_tokens = context_budget.read_current_tokens(
@@ -60,7 +61,7 @@ def main():
                     state["context_current_tokens_recorded_at"] = (
                         datetime.now(timezone.utc).isoformat()
                     )
-                    state_path.write_text(json.dumps(state, indent=2))
+                    _atomic_write_json(state_path, state)
         except Exception:
             pass
         sys.exit(0)

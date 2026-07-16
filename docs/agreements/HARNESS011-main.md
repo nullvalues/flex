@@ -103,18 +103,28 @@ recorded as a constraint in the fold runbook. No action required in HARNESS011-m
 
 | Story ID | Title | Rail | CER(s) |
 |----------|-------|------|--------|
-| INFRA-192 | Context gate edge cases and session_id safety | INFRA | CER-040, CER-041, CER-051 |
-| INFRA-193 | story_new.py rail validation and empty primary_files | INFRA | CER-006, CER-010 |
-| INFRA-194 | bootstrap.py ergonomics: --yes flag and effort_tracking transparency | INFRA | CER-002, CER-017 |
-| INFRA-195 | PIPE_PATH redirectable via crafted state.json | INFRA | CER-009 |
+| INFRA-203 | Context gate edge cases and session_id safety | INFRA | CER-040, CER-041, CER-051 |
+| INFRA-204 | story_new.py rail validation and empty primary_files | INFRA | CER-006, CER-010 |
+| INFRA-205 | bootstrap.py ergonomics: --yes flag and effort_tracking transparency | INFRA | CER-002, CER-017 |
+| INFRA-206 | PIPE_PATH redirectable via crafted state.json | INFRA | CER-009 |
 | OBS-006 | phaseIndex.ts href path containment | OBS | CER-044 |
-| INFRA-196 | scope_guard fail-closed protected-path list | INFRA | CER-048 |
-| INFRA-197 | Architecture doc stale claims | INFRA | CER-014, CER-035 |
-| INFRA-198 | registered_projects writer audit and fix | INFRA | CER-058 |
-| INFRA-199 | Signal-1 detection fix and runbook verification step | INFRA | CER-059 |
+| INFRA-207 | scope_guard fail-closed protected-path list | INFRA | CER-048 |
+| INFRA-208 | Architecture doc stale claims | INFRA | CER-014, CER-035 |
+| INFRA-209 | registered_projects writer audit and fix | INFRA | CER-058 |
+| INFRA-210 | Signal-1 detection fix and runbook verification step | INFRA | CER-059 |
 | INFRA-200 | state.json atomic writes | INFRA | CER-050 |
 | INFRA-201 | Backlog hygiene: mark CER-013/015/032/033/052 resolved | INFRA | CER-013, CER-015, CER-032, CER-033, CER-052 |
 
-**Build order:** INFRA-192 → INFRA-193 → INFRA-194 → INFRA-195 → OBS-006 → INFRA-196 → INFRA-197 → INFRA-198 → INFRA-199 → INFRA-200 → INFRA-201
+**Build order:** INFRA-203 → INFRA-204 → INFRA-205 → INFRA-206 → OBS-006 → INFRA-207 → INFRA-208 → INFRA-209 → INFRA-210 → INFRA-200 → INFRA-201
 
 **Schema delivery:** No new database tables or persistent schema objects introduced.
+
+> **Fold note (RELEASE-014, HARNESS016-main):** despite this phase's INFRA-192+
+> numbering having been deliberately chosen to dodge main's *planned* INFRA-186–191
+> (see Decision above), main independently shipped *different, real* stories at
+> INFRA-192–199 before the fold. The collision this doc anticipated happened anyway,
+> just at a different number range. Resolution: main's INFRA-192–199 keep their IDs
+> (they're referenced by shipped commits/tests); this phase's same-numbered stories
+> were renumbered to INFRA-203–210 at merge time. Table and build order above reflect
+> the renumbered IDs; the original text elsewhere in this doc still says 192–199 for
+> historical-decision-record purposes and has not been altered.

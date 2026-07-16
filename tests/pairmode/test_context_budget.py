@@ -589,6 +589,67 @@ def test_should_block_crossed_margin_after_ack_returns_true():
 
 
 # ---------------------------------------------------------------------------
+# should_block — INFRA-193 user-turn acknowledgment gate
+# ---------------------------------------------------------------------------
+
+
+def test_should_block_bare_retry_without_user_turn_stays_blocked():
+    """Exact self-clearing repro: current_tokens == acknowledged_at and no
+    intervening UserPromptSubmit event → still blocked."""
+    assert (
+        context_budget.should_block(
+            current_tokens=140_000,
+            expected_next=15_000,
+            threshold=120_000,
+            overrun_pct=0.10,
+            acknowledged_at=140_000,
+            reprompt_margin=0,
+            user_turn_seq=3,
+            acknowledged_user_turn_seq=3,
+        )
+        is True
+    )
+
+
+def test_should_block_suppresses_after_genuine_user_turn():
+    """A genuine UserPromptSubmit event since the block (user_turn_seq
+    incremented) plus the token margin satisfied → suppressed (False)."""
+    assert (
+        context_budget.should_block(
+            current_tokens=150_000,
+            expected_next=15_000,
+            threshold=120_000,
+            overrun_pct=0.10,
+            acknowledged_at=140_000,
+            reprompt_margin=10_000,
+            user_turn_seq=4,
+            acknowledged_user_turn_seq=3,
+        )
+        is False
+    )
+
+
+def test_should_block_acknowledged_user_turn_seq_none_is_backward_compatible():
+    """acknowledged_user_turn_seq=None (pre-INFRA-192 state.json) does not
+    itself force a block when the token condition alone would have
+    suppressed under the pre-INFRA-193 contract (current_tokens within the
+    reprompt margin of acknowledged_at)."""
+    assert (
+        context_budget.should_block(
+            current_tokens=145_000,
+            expected_next=15_000,
+            threshold=120_000,
+            overrun_pct=0.10,
+            acknowledged_at=140_000,
+            reprompt_margin=10_000,
+            user_turn_seq=0,
+            acknowledged_user_turn_seq=None,
+        )
+        is False
+    )
+
+
+# ---------------------------------------------------------------------------
 # render_alert_prompt — now takes expected_next
 # ---------------------------------------------------------------------------
 
@@ -756,6 +817,55 @@ def test_decide_returns_none_when_state_absent(tmp_path):
     """No .companion/state.json: pass through (non-pairmode project)."""
     result = context_budget.decide(tmp_path)
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# decide — INFRA-193 user-turn acknowledgment gate
+# ---------------------------------------------------------------------------
+
+
+def test_decide_block_dict_includes_user_turn_seq_at_block(tmp_path):
+    """Block dict includes user_turn_seq_at_block matching state's current seq."""
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 53_000,
+            "context_budget_reprompt_margin": 10_000,
+            "current_phase": "85",
+            "current_story": "INFRA-193",
+            "context_current_tokens": 125_000,
+            "context_budget_user_turn_seq": 7,
+        },
+    )
+    result = context_budget.decide(project_dir)
+    assert result is not None
+    assert result["block"] is True
+    assert result["user_turn_seq_at_block"] == 7
+
+
+def test_decide_is_read_only_does_not_write_user_turn_ack(tmp_path):
+    """decide() never writes context_budget_acknowledged_user_turn_seq (D11)."""
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 53_000,
+            "context_budget_reprompt_margin": 10_000,
+            "current_phase": "85",
+            "current_story": "INFRA-193",
+            "context_current_tokens": 125_000,
+            "context_budget_user_turn_seq": 7,
+        },
+    )
+    result = context_budget.decide(project_dir)
+    assert result is not None
+    state_on_disk = json.loads(
+        (project_dir / ".companion" / "state.json").read_text(encoding="utf-8")
+    )
+    assert "context_budget_acknowledged_user_turn_seq" not in state_on_disk
 
 
 # ---------------------------------------------------------------------------
@@ -1314,7 +1424,7 @@ def test_decide_alert_uses_factored_ceiling(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# INFRA-192: CER-040 — decide() pairmode-aware fail-closed
+# INFRA-203: CER-040 — decide() pairmode-aware fail-closed
 # ---------------------------------------------------------------------------
 
 
@@ -1343,7 +1453,7 @@ def test_decide_companion_dir_present_state_absent_returns_check_required(tmp_pa
 
 
 # ---------------------------------------------------------------------------
-# INFRA-192: CER-041 — recorded_at TTL staleness
+# INFRA-203: CER-041 — recorded_at TTL staleness
 # ---------------------------------------------------------------------------
 
 
@@ -1381,7 +1491,7 @@ def test_read_context_tokens_backward_compat_no_recorded_at():
 
 
 # ---------------------------------------------------------------------------
-# INFRA-192: CER-051 — session_id traversal guard in _derive_transcript_path
+# INFRA-203: CER-051 — session_id traversal guard in _derive_transcript_path
 # ---------------------------------------------------------------------------
 
 

@@ -28,9 +28,9 @@ import schema_validator as _sv
 # Story ID parsing
 # ---------------------------------------------------------------------------
 
-# Valid story ID: one or more uppercase letters, a hyphen, then one or more digits.
-# e.g. BOOTSTRAP-003, AUDIT-007
-_STORY_ID_RE = re.compile(r'^([A-Z]+)-(\d+)$')
+# Valid story ID: an uppercase-letter-led alphanumeric rail, a hyphen, then digits.
+# e.g. BOOTSTRAP-003, AUDIT-007, PHASE113-001
+_STORY_ID_RE = re.compile(r'^([A-Z][A-Z0-9]*)-(\d+)$')
 
 
 def _parse_story_id(story_id: str) -> tuple[str, str]:

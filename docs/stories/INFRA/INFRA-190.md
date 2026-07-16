@@ -2,7 +2,7 @@
 id: INFRA-190
 rail: INFRA
 title: "spec_preflight.py — route and constant reference checker"
-status: planned
+status: complete
 phase: "84"
 story_class: code
 auth_gated: false

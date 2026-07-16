@@ -11,6 +11,12 @@
 # Examples:
 #   CLAUDE.md:## review checklist
 #   .claude/agents/reviewer.md:### checklist
+#   .claude/agents/reviewer.md:**3. build gate**
+#
+# Bold numbered checklist markers (e.g. `**3. BUILD GATE**`, `**5a. Conviction
+# consistency**`) are also valid, independently addressable section keys — this
+# lets you pin a single checklist item without opting the whole enclosing `##`
+# section out of future canonical updates.
 #
 # Note: `.pairmode-overrides` is honored by `pairmode sync` (scaffold sync) and
 # `audit`, but NOT by `pairmode sync-build`. `sync-build --apply` rewrites

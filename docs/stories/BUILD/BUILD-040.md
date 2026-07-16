@@ -2,7 +2,7 @@
 id: BUILD-040
 rail: BUILD
 title: "CLAUDE.build.md: add write-permissions + clear-permissions to build loop"
-status: draft
+status: complete
 phase: "81"
 story_class: doc
 primary_files:

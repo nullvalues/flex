@@ -1,0 +1,12 @@
+{
+  "story_id": "INFRA-199",
+  "story_spec": "docs/stories/INFRA/INFRA-199.md",
+  "allowed_paths": [
+    "hooks/pre_tool_use.py",
+    "tests/pairmode/test_pre_tool_use_hook.py",
+    "CLAUDE.md",
+    "docs/architecture.md",
+    "docs/stories/INFRA/INFRA-199.md"
+  ],
+  "generated_at": "2026-07-15T19:17:18Z"
+}

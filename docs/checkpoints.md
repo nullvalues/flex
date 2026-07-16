@@ -53,6 +53,33 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp88-context-budget-subagent-scoping
+
+**Tag command:** `git tag cp88-context-budget-subagent-scoping && git push origin cp88-context-budget-subagent-scoping`
+**Phase:** 88
+**Stories:** INFRA-199
+**Acceptance:** Closes a methodology bug found via live operator observation: `hooks/pre_tool_use.py`'s Task/Agent branch called `context_budget.decide()` for every agent spawn regardless of subagent type, so a general-purpose spawn (Plan, Explore, general-purpose) could be wedged by the CONTEXT BUDGET gate exactly as a builder spawn would — and because the gate's turn-tracking acknowledgment (INFRA-192/193) only clears on a genuine new `UserPromptSubmit`, a same-turn retry could never satisfy it. Fix: a module-level `BUILD_CYCLE_SUBAGENTS` frozenset ({`builder`, `reviewer`, `loop-breaker`, `security-auditor`, `intent-reviewer`}) gates the dispatch on `tool_input.subagent_type`; non-allowlisted or absent `subagent_type` passes through with no `context_budget` call, no block, no state write. `context_budget.py`'s internal decide/should_block/turn-tracking logic is unchanged; CER-049's dual `Task`/`Agent` tool-name acceptance is preserved. `CLAUDE.md` and `docs/architecture.md` updated; `docs/pairmode/context-gate-flow.md` and `docs/patterns/agentic-architecture/builder-reviewer-sub-agent-loop.md` doc-currency gaps fixed at checkpoint. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: ALIGNED, no pivots. 2359 tests pass.
+
+---
+
+## cp87-checklist-item-override-granularity
+
+**Tag command:** `git tag cp87-checklist-item-override-granularity && git push origin cp87-checklist-item-override-granularity`
+**Phase:** 87
+**Stories:** INFRA-195, INFRA-196, INFRA-197, INFRA-198
+**Acceptance:** Four stories. INFRA-195 extends `audit.py`/`sync.py` section-boundary detection to bold-marker checklist items (`**N[.letter][.sub]. LABEL**`), allowing overrides at item granularity rather than only whole `##` sections. INFRA-196 adds a `Read`-dispatch branch to `hooks/pre_tool_use.py` delegating to a new `cold_read_guard.py`, blocking orchestrator-level (non-subagent) reads of `docs/stories/**` and `.claude/agents/**` so the orchestrator passes story IDs to subagents instead of reading specs cold itself. INFRA-197 adds a third glob shape (`phase-{phase}-*.md`) to `story_new.py`'s phase-manifest lookup so suffixed phase filenames resolve (CER-062). INFRA-198 reframes `permissions-create`-related prose in `INFRA-194.md`/`architecture.md` to drop "protected path / deny rule" language that caused a builder to self-block a sanctioned Bash call, adds explicit `Bash` allow entries for `permissions-create`/`write-permissions`/`clear-permissions` in `.claude/settings.json`, and adds an orchestrator skip-check to `CLAUDE.build.md` (and its template) to avoid re-invoking `permissions-create` when scope hasn't drifted. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: ALIGNED (4/4); one MEDIUM-risk open question noted — whether the new `Bash` allow-pattern for `permissions-create`/`write-permissions`/`clear-permissions` actually prefix-matches Claude Code's runtime permission classifier given the leading `PATH=...` env-assignment token on the emitted command (unverified; not a new failure mode — mirrors a pre-existing untouched pattern in `settings.local.json`). 2348 tests pass.
+
+---
+
+## cp86-permissions-create-idempotency
+
+**Tag command:** `git tag cp86-permissions-create-idempotency && git push origin cp86-permissions-create-idempotency`
+**Phase:** 86
+**Stories:** INFRA-194
+**Acceptance:** Closes a methodology bug found via external report (meander): `permissions-create` (Layer 1 of the two-layer permission model) unconditionally rewrote `docs/phases/permissions/<story_id>.json` — including a fresh `generated_at` — on every invocation, even when the computed `allowed_paths` were unchanged, re-triggering the auto-mode re-authorization gate on every story despite no scope drift. `cmd_permissions_create` now reads the existing file (if present and parseable) and no-ops when `allowed_paths` match; writes with a fresh `generated_at` only on genuine drift, absence, or corruption. `docs/architecture.md` updated to describe the no-op behavior. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: ALIGNED. 2327 tests pass.
+
+---
+
 ## cp79-era002-index-tooling-maintenance
 
 **Phase:** 79 — era-002 index-tooling maintenance (current-phase, mark-phase-complete, reviewer revert)
@@ -605,6 +632,12 @@ CER-031). All docs follow the catalog template verbatim with real "What Broke" i
 **Phase:** 84
 **Stories:** INFRA-190, INFRA-191
 **Acceptance:** `spec_preflight.py` created — scans story Ensures/Instructions/Implementation-notes for `/api/` routes and SCREAMING_SNAKE constants, warns when none are found in source tree, always exits 0, 12 tests (INFRA-190). `flex_build.py spec-preflight` subcommand registered, inserted into `CLAUDE.build.md.j2` between stub gate and scope check with informational surface block, `docs/architecture.md` updated with module entry and build-loop prose (INFRA-191). Security audit: 0 CRITICAL/HIGH (1 LOW — CER-061 filed Do Later). Intent review: ALIGNED. 2310 tests pass.
+
+## cp85-context-budget-acknowledgment-integrity-fix
+**Tag command:** `git tag cp85-context-budget-acknowledgment-integrity-fix && git push origin cp85-context-budget-acknowledgment-integrity-fix`
+**Phase:** 85
+**Stories:** INFRA-192, INFRA-193
+**Acceptance:** Closes a self-clearing bug in the context-budget gate (external report): `hooks/user_prompt_submit.py` added as a thin `UserPromptSubmit` dispatcher incrementing `context_budget_user_turn_seq` (INFRA-192); `context_budget.should_block()`/`decide()` and `hooks/pre_tool_use.py` now require a genuine `UserPromptSubmit` event (not just token progress) since the last block before suppressing a re-prompt, closing the bare-retry self-clear path, with a backward-compatible grace period for pre-INFRA-192 state.json (INFRA-193). D11 read-only boundary on `decide()` preserved. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: both stories ALIGNED (INFRA-193 shipped a benign implementation restructure vs. the story's literal code sample); flagged `docs/architecture.md` and `docs/pairmode/context-gate-flow.md` doc-currency gap, applied at checkpoint. 2324 tests pass.
 
 ## cp83-spec-quality-gates
 **Tag command:** `git tag cp83-spec-quality-gates && git push origin cp83-spec-quality-gates`

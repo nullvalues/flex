@@ -2224,3 +2224,138 @@ class TestCanonicalFilesAgentFilesConsistency:
             f"AGENT_FILES entries not tracked by CANONICAL_FILES: {missing_from_canonical}. "
             "Add them to CANONICAL_FILES in audit.py so sync keeps them current."
         )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-195 — checklist-item-level (bold-marker) section granularity
+# ---------------------------------------------------------------------------
+
+
+class TestSplitSectionsBoldMarkers:
+    """_split_sections recognises bold numbered checklist markers as boundaries."""
+
+    def _sample_text(self) -> str:
+        return (
+            "## Review checklist\n\n"
+            "Some preamble text before any checklist item.\n\n"
+            "**1. PROTECTED FILES**\n\n"
+            "Body for item 1.\n\n"
+            "**2.5 STORY SPEC**\n\n"
+            "Body for item 2.5.\n\n"
+            "**5a. Conviction consistency**\n\n"
+            "Body for item 5a.\n\n"
+            "**3. BUILD GATE**\n\n"
+            "Body for item 3.\n\n"
+            "## Next section\n\n"
+            "Content after the checklist entirely.\n"
+        )
+
+    def test_each_bold_marker_becomes_independent_key(self) -> None:
+        sections = _audit_mod._split_sections(self._sample_text())
+        assert "**1. protected files**" in sections
+        assert "**2.5 story spec**" in sections
+        assert "**5a. conviction consistency**" in sections
+        assert "**3. build gate**" in sections
+
+    def test_bold_marker_body_is_isolated_from_siblings(self) -> None:
+        sections = _audit_mod._split_sections(self._sample_text())
+        assert sections["**1. protected files**"] == "Body for item 1."
+        assert sections["**2.5 story spec**"] == "Body for item 2.5."
+        assert sections["**5a. conviction consistency**"] == "Body for item 5a."
+        assert sections["**3. build gate**"] == "Body for item 3."
+
+    def test_enclosing_h2_section_ends_at_first_bold_marker(self) -> None:
+        sections = _audit_mod._split_sections(self._sample_text())
+        assert sections["## review checklist"] == (
+            "Some preamble text before any checklist item."
+        )
+
+    def test_next_h2_section_unaffected(self) -> None:
+        sections = _audit_mod._split_sections(self._sample_text())
+        assert sections["## next section"] == "Content after the checklist entirely."
+
+    def test_no_bold_markers_unchanged_behaviour(self) -> None:
+        """Files with no bold-marker items split identically to before this story."""
+        text = (
+            "## Session modes\n\nSome content.\n\n"
+            "## Build rules\n\nOther content.\n"
+        )
+        sections = _audit_mod._split_sections(text)
+        assert sections["## session modes"] == "Some content."
+        assert sections["## build rules"] == "Other content."
+        assert len(sections) == 2
+
+
+class TestAuditBoldMarkerIndependentInconsistency:
+    """A bold-marker checklist item audits as INCONSISTENT independently of siblings."""
+
+    def _write_reviewer_with_checklist(
+        self, project_dir: Path, build_gate_body: str
+    ) -> None:
+        agents_dir = project_dir / ".claude" / "agents"
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        content = (
+            "---\n"
+            "name: reviewer\n"
+            "---\n\n"
+            "## Review checklist\n\n"
+            "**1. PROTECTED FILES**\n\n"
+            "Check protected files were not touched.\n\n"
+            "**3. BUILD GATE**\n\n"
+            f"{build_gate_body}\n"
+        )
+        (agents_dir / "reviewer.md").write_text(content, encoding="utf-8")
+
+    def _canonical_sections(self, project_dir: Path) -> dict[str, str]:
+        # agents/reviewer.md.j2 was retired in HARNESS-002 — the reviewer role is
+        # now a procedure-skill shell, not a rendered per-project template. This
+        # fixture only needs *some* canonical bold-marker checklist text to
+        # exercise _split_sections' per-item inconsistency detection, so it is
+        # inlined here rather than rendered from a template that no longer exists.
+        canonical_text = (
+            "## Review checklist\n\n"
+            "**1. PROTECTED FILES**\n\n"
+            "Check protected files were not touched.\n\n"
+            "**3. BUILD GATE**\n\n"
+            "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q\n"
+        )
+        return _audit_mod._split_sections(canonical_text)
+
+    def test_changed_item_is_inconsistent_unchanged_sibling_is_not(
+        self, tmp_path: Path
+    ) -> None:
+        canonical = self._canonical_sections(tmp_path)
+        assert "**1. protected files**" in canonical
+        assert "**3. build gate**" in canonical
+
+        # Reproduce the sibling body verbatim, but customize the build-gate body.
+        self._write_reviewer_with_checklist(
+            tmp_path,
+            build_gate_body="pnpm -r --if-present build && pnpm -r --if-present test",
+        )
+        # Overwrite item 1's body to match canonical exactly so it is NOT inconsistent.
+        reviewer_path = tmp_path / ".claude" / "agents" / "reviewer.md"
+        text = reviewer_path.read_text(encoding="utf-8")
+        text = text.replace(
+            "Check protected files were not touched.",
+            canonical["**1. protected files**"],
+        )
+        reviewer_path.write_text(text, encoding="utf-8")
+
+        project_sections = _audit_mod._split_sections(
+            reviewer_path.read_text(encoding="utf-8")
+        )
+
+        build_gate_differs = _audit_mod._normalise(
+            project_sections["**3. build gate**"]
+        ) != _audit_mod._normalise(canonical["**3. build gate**"])
+        protected_files_matches = _audit_mod._normalise(
+            project_sections["**1. protected files**"]
+        ) == _audit_mod._normalise(canonical["**1. protected files**"])
+
+        assert build_gate_differs, (
+            "Expected the customized BUILD GATE body to differ from canonical"
+        )
+        assert protected_files_matches, (
+            "Expected the unmodified PROTECTED FILES body to match canonical"
+        )

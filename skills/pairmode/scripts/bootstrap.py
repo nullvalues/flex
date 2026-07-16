@@ -27,6 +27,7 @@ from skills.pairmode.scripts._version import PAIRMODE_VERSION  # noqa: E402
 from skills.pairmode.scripts.context_model import THIN_HARNESS_STEP_TOKENS
 import ideology_parser as _ideology_parser
 from schema_validator import _parse_frontmatter
+from state_utils import _atomic_write_json
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -470,7 +471,7 @@ def _record_state(state_path: pathlib.Path, version: str) -> bool:
         data.setdefault("context_current_tokens", 1)
 
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    _atomic_write_json(state_path, data)
     return newly_enabled
 
 

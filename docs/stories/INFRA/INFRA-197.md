@@ -1,47 +1,102 @@
 ---
 id: INFRA-197
 rail: INFRA
-title: Architecture doc stale claims
-status: draft
-phase: "HARNESS011-main"
-story_class: documentation
-auth_gated: false
-schema_introduces: false
+title: "story_new.py phase-manifest glob — support suffixed phase filenames (CER-062)"
+status: complete
+phase: "87"
+story_class: code
 primary_files:
-  - docs/architecture.md
+  - skills/pairmode/scripts/story_new.py
 touches:
-  - skills/pairmode/templates/CLAUDE.build.md.j2
+  - tests/pairmode/test_story_new.py
 ---
 
-## Ensures
+# INFRA-197 — story_new.py phase-manifest glob — support suffixed phase filenames (CER-062)
 
-- **CER-014** — `docs/architecture.md` § "Reviewer-class agent tool restriction
-  (build-loop safety)" is updated to accurately describe the current protection model.
-  The claim about a "pre-reviewer commit discipline" is either:
-  (a) removed if it no longer exists in the build loop, or
-  (b) added to `CLAUDE.build.md.j2` if it should exist.
-  After this story, the architecture doc and the template are consistent.
-- **CER-035** — `docs/architecture.md` § Agent definitions no longer states that
-  `security-auditor` has no `Bash`. The section reflects that all reviewer-class agents
-  share `tools: [Read, Bash, Glob, Grep]` (as established by Phase 53 BUILD-020).
-- `TEST RUN: documentation story — no test file expected`.
+## Context
 
-## Instructions
+Surfaced via an external report from the radar project (fable-orchestrated
+build): `story_new.py --phase MU020` created the story file correctly but
+silently failed to add the new row to the phase manifest's Stories table,
+requiring the operator to add it by hand.
 
-### CER-014 — pre-reviewer commit discipline
+`_append_to_phase` (`skills/pairmode/scripts/story_new.py:127-137`) resolves
+the target phase manifest with two glob attempts, in order:
 
-Read the current `docs/architecture.md` subsection on reviewer-class agent tool
-restriction. Read the current `CLAUDE.build.md` (harness) and `CLAUDE.build.md.j2`
-template. Determine which of these is true:
-- (a) The pre-reviewer commit discipline (committing story files + `git checkout -- lessons/`)
-  is not encoded anywhere → remove the claim from architecture.md.
-- (b) The discipline should be encoded → add it to `CLAUDE.build.md.j2` and note it in
-  architecture.md.
+1. `{phase}-*.md` — treats the `--phase` value itself as the filename prefix
+   (matches, e.g., a hypothetical `MU020-something.md`).
+2. `phase-{phase}.md` — exact match only (matches `phase-MU020.md`).
 
-Apply whichever fix is accurate. Do not invent a discipline that isn't there.
+Neither matches a **suffixed** phase manifest — filenames of the form
+`phase-<phase_id>-<suffix>.md` — which is the naming convention
+`phase_new.py --phase-id --suffix` produces (see CER-038,
+`docs/cer/backlog.md`). When no glob matches, `_append_to_phase` returns
+`False` and the caller (`cmd_new` / the CLI entry point) does not surface an
+error distinguishing "no phase manifest found" from "found but couldn't
+parse" — the operator only notices the Stories table wasn't updated by
+reading the phase doc afterward.
 
-### CER-035 — security-auditor Bash claim
+Logged as CER-062 in `docs/cer/backlog.md` (Do Later) and pulled forward into
+Phase 87 as a low-effort, directly-related fix.
 
-Find the stale line in `docs/architecture.md` (around line 248) that claims
-`security-auditor` has no `Bash`. Replace with accurate text: all reviewer-class agents
-(reviewer, security-auditor, intent-reviewer) share `tools: [Read, Bash, Glob, Grep]`.
+## Acceptance criteria
+
+1. `story_new.py --phase <phase_id>` successfully appends the new story row
+   to the Stories table of a phase manifest named `phase-<phase_id>-<suffix>.md`
+   (suffixed form), in addition to the two filename shapes already supported.
+
+2. The existing two supported shapes (`{phase}-*.md` and exact
+   `phase-{phase}.md`) continue to work unchanged — no regression on
+   `test_phase_flag_appends_row_to_existing_table` or
+   `test_phase_flag_creates_stories_section_if_absent`
+   (`tests/pairmode/test_story_new.py`).
+
+3. If multiple phase manifests match the phase id ambiguously (e.g. both a
+   suffixed and unsuffixed file exist for the same id), behavior is
+   deterministic — pick the first match from `sorted()` glob results and do
+   not crash. Document the tie-break in a code comment only if the ambiguity
+   is realistically reachable; do not add new CLI flags to resolve it.
+
+4. `story_new.py` still returns/prints the existing "added to phase X" /
+   silent-fallthrough behavior consistently — no change to caller-facing
+   output contract beyond fixing the match itself. (Surfacing a warning on
+   fallthrough is explicitly out of scope — see below.)
+
+5. New test(s) added to `tests/pairmode/test_story_new.py` covering the
+   suffixed-filename case (e.g. `phase-87-widget.md` or similar), verifying
+   the story row lands in that file's Stories table.
+
+6. Full build gate green:
+   `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q`
+
+## Implementation guidance
+
+- Add a third glob attempt in `_append_to_phase`, tried between (or after)
+  the existing two: `phase-{phase}-*.md`. Use `sorted(glob.glob(...))` for
+  determinism if more than one candidate can match.
+- Keep the existing two glob attempts and their order; only add the new one
+  — do not restructure the function's control flow beyond what's needed to
+  insert a third lookup.
+- `phase` here is the `--phase` CLI argument value (e.g. `"MU020"`, `"87"`)
+  — same variable already in scope, no new sanitization needed since this
+  story doesn't change how `phase` is validated upstream.
+
+## Tests
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/test_story_new.py -x -q
+PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q
+```
+
+### Out of scope
+
+- Surfacing a warning/error when `_append_to_phase` falls through to `False`
+  (no manifest found at all) — that's a separate, broader silent-failure
+  question not limited to the suffixed-filename case. Leave as a future
+  finding if it recurs.
+- Any change to `phase_new.py`'s `--phase-id`/`--suffix` naming convention
+  itself (CER-038) — this story only teaches `story_new.py` to recognize the
+  existing convention.
+- Ambiguity-resolution CLI flags (e.g. `--phase-file <exact path>`) — not
+  needed unless the sorted-first-match tie-break proves insufficient in
+  practice.

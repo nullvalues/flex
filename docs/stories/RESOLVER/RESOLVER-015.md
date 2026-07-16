@@ -24,7 +24,7 @@ command that takes `--project-dir`. The write destination is always the fixed re
 `.companion/state.json` and `step_id` is whitelist-validated, so there is no traversal risk
 — but the missing guard is an inconsistency with the project convention.
 
-**CER-062** — `_CHECKPOINT_SEQUENCE` is inlined as literal strings in `flex_build.py`'s
+**CER-068** — `_CHECKPOINT_SEQUENCE` is inlined as literal strings in `flex_build.py`'s
 `record-checkpoint-step` helper instead of imported from `next_action.py` where the tuple
 is the authoritative definition. A future change to `next_action.py`'s `_CHECKPOINT_SEQUENCE`
 must also be applied manually to `flex_build.py`; there is no mechanical enforcement.
@@ -41,7 +41,7 @@ discipline applied elsewhere.
   The call is placed at the entry of the command function, consistent with all other write
   commands (`cmd_write_attempt_count`, `cmd_clear_attempt_count`, etc.).
 
-- **CER-062:** `_CHECKPOINT_SEQUENCE` is imported from `next_action` in `flex_build.py`
+- **CER-068:** `_CHECKPOINT_SEQUENCE` is imported from `next_action` in `flex_build.py`
   (e.g. `from next_action import _CHECKPOINT_SEQUENCE`). The inlined tuple in the
   `_record_checkpoint_step` helper is removed. The same four values are now in exactly one
   place. If circular import is a concern, extract to a thin `checkpoint_constants.py` module
@@ -59,7 +59,7 @@ discipline applied elsewhere.
 
 ## Instructions
 
-1. **CER-062 first (import before use):** In `flex_build.py`, add
+1. **CER-068 first (import before use):** In `flex_build.py`, add
    `from next_action import _CHECKPOINT_SEQUENCE` to the imports section (near the top, with
    other `next_action` imports if any exist, otherwise with the pairmode-scripts imports).
    Remove the inlined tuple from `_record_checkpoint_step`.

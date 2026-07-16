@@ -1,0 +1,14 @@
+{
+  "story_id": "INFRA-195",
+  "story_spec": "docs/stories/INFRA/INFRA-195.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/audit.py",
+    "skills/pairmode/scripts/sync.py",
+    "tests/pairmode/test_audit.py",
+    "tests/pairmode/test_sync.py",
+    "tests/pairmode/test_sync_agents.py",
+    ".pairmode-overrides",
+    "docs/stories/INFRA/INFRA-195.md"
+  ],
+  "generated_at": "2026-07-14T14:08:58Z"
+}

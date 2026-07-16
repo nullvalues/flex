@@ -2,7 +2,7 @@
 id: INFRA-186
 rail: INFRA
 title: "architecture.md template prompt in story_new.py and check-story-scope"
-status: planned
+status: complete
 phase: "83"
 story_class: code
 auth_gated: false

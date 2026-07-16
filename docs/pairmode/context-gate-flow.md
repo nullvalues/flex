@@ -62,6 +62,13 @@ PRE_TOOL_USE HOOK — fires on every Task / Agent spawn
     No  ──► pass (not an agent spawn)
     Yes ──►
 
+  tool_input.subagent_type ∈ BUILD_CYCLE_SUBAGENTS?
+    (INFRA-199: {"builder", "reviewer", "loop-breaker",
+                 "security-auditor", "intent-reviewer"})
+    No  ──► pass (general-purpose / Plan / Explore / other spawn —
+                   never gated by context budget)
+    Yes ──►
+
   context_budget.decide(project_dir)
     └─► Read state.json
           tokens     = state.get("context_current_tokens")
@@ -83,9 +90,21 @@ PRE_TOOL_USE HOOK — fires on every Task / Agent spawn
           (default: 120,000 × 1.10 = 132,000)
           Yes ──► BLOCK: CONTEXT BUDGET prompt
                     options: Proceed (acknowledge) or /clear and resume
-                    hook writes: state["context_budget_acknowledged_at"]
+                    hook writes (single write_text() call):
+                      state["context_budget_acknowledged_at"]
+                      state["context_budget_acknowledged_user_turn_seq"]  (INFRA-193)
 
           No  ──► PASS — builder/reviewer spawn proceeds
+
+  Suppression on retry (should_block(), INFRA-193) requires BOTH:
+    1. current_tokens >= acknowledged_at + reprompt_margin   (token progress)
+    2. user_turn_seq > acknowledged_user_turn_seq             (genuine human
+       turn occurred since the block — see Diagram 4)
+  A bare identical retry with no human involvement satisfies (1) trivially
+  (current_tokens == acknowledged_at on a blocked call that never completed)
+  but not (2), so it stays blocked. `acknowledged_user_turn_seq = None`
+  (pre-INFRA-192 state.json) is treated as no turn requirement — upgrade
+  grace period.
 ```
 
 ---
@@ -135,6 +154,33 @@ over-blocks (fail-safe; deferred per CER-047).
 
 ---
 
+## Diagram 4 — User-turn signal (INFRA-192 / INFRA-193)
+
+Closes a self-clearing bug: without an independent human-turn signal, a bare
+retry with zero human involvement could satisfy the token-based suppression
+check trivially, since a blocked call never completes and `context_current_tokens`
+does not advance. `hooks/user_prompt_submit.py` provides the missing signal.
+
+```
+USER_PROMPT_SUBMIT HOOK — fires on every UserPromptSubmit event
+──────────────────────────────────────────────────────────────────
+
+  Every event (no source filtering) ──►
+
+  state.json read-modify-write:
+    context_budget_user_turn_seq += 1   (default 0 when absent)
+
+  Never emits a decision. Thin dispatcher only (INFRA-192).
+```
+
+This counter is compared against `context_budget_acknowledged_user_turn_seq`
+(written by `pre_tool_use.py` at block time — Diagram 2) inside
+`should_block()`. A retry only suppresses the re-prompt once a genuine
+`UserPromptSubmit` event — i.e. an actual human reply — has occurred since
+the block was recorded.
+
+---
+
 ## Data model
 
 The keys below live in `<project_dir>/.companion/state.json` and define the
@@ -147,6 +193,8 @@ contract between PostToolUse, PreToolUse, and the SessionStart reset path.
 | `context_session_reset_at` | UTC ISO-8601 string | `session_start.py` on `clear`/`startup` | `_is_stale()` | Boundary; values recorded before this are stale |
 | `context_budget_threshold` | int (default 120,000) | operator / bootstrap | `decide()` | Hard budget limit |
 | `context_budget_acknowledged_at` | int (token count at ack) | `pre_tool_use.py` (on block + ack) | `decide()` | Suppresses re-prompt within reprompt margin |
+| `context_budget_user_turn_seq` | int | `user_prompt_submit.py` (every UserPromptSubmit event) | `decide()` | Monotonic human-turn counter (INFRA-192) |
+| `context_budget_acknowledged_user_turn_seq` | int or `None` | `pre_tool_use.py` (on block, same write as `acknowledged_at`) | `decide()` | Turn-seq snapshot at block time; suppression requires a newer turn (INFRA-193) |
 | `context_story_tokens` | dict | `set-context-tokens` (legacy) | — | **Legacy after INFRA-182**; no longer read by `decide()` |
 
 ---
@@ -157,5 +205,7 @@ contract between PostToolUse, PreToolUse, and the SessionStart reset path.
 - `skills/pairmode/scripts/session_reset.py` — `decide_reset()` and reset rules
 - `hooks/post_tool_use.py` — Task/Agent branch: JSONL reader and sole live writer of `context_current_tokens`
 - `hooks/pre_tool_use.py` — thin dispatcher; sole writer of `context_budget_acknowledged_at`
+  and `context_budget_acknowledged_user_turn_seq`
+- `hooks/user_prompt_submit.py` — thin dispatcher; sole writer of `context_budget_user_turn_seq` (INFRA-192)
 - `docs/architecture.md` § Pairmode build loop step 9 — prose specification
 - `CLAUDE.build.md` Context gate step — orchestrator-side display procedure

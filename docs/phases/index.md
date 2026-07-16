@@ -83,6 +83,10 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 82 | security-auditor: document pairmode hook exceptions + audit scope rule | complete | [phase-82.md](phase-82.md) |
 | 83 | Spec quality gates | complete | [phase-83.md](phase-83.md) |
 | 84 | Spec preflight verification | complete | [phase-84.md](phase-84.md) |
+| 85 | Context budget acknowledgment integrity fix | complete | [phase-85.md](phase-85.md) |
+| 86 | permissions-create idempotency | complete | [phase-86.md](phase-86.md) |
+| 87 | checklist-item-level override granularity for sync/audit | complete | [phase-87.md](phase-87.md) |
+| 88 | Scope context-budget gate to pairmode build-cycle agents | complete | [phase-88.md](phase-88.md) |
 | HARNESS001-ante1 | Versioning & upstream compatibility | complete | [phase-HARNESS001-ante1.md](phase-HARNESS001-ante1.md) |
 | HARNESS001-main | Resolver foundation (deterministic skeleton) | complete | [phase-HARNESS001-main.md](phase-HARNESS001-main.md) |
 | HARNESS002-main | Gate verdict extraction | complete | [phase-HARNESS002-main.md](phase-HARNESS002-main.md) |

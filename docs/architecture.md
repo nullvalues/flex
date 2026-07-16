@@ -23,7 +23,7 @@ flex/
     exit_plan_mode.py             ← relay plan content for impact analysis
     post_tool_use.py              ← pair partner: relay file changes; Task/Agent branch: reads JSONL via context_budget.read_current_tokens() and writes context_current_tokens to state.json (INFRA-182)
     session_end.py                ← signal sidebar to summarize and exit
-    pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement)
+    pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename; INFRA-199 scoped to tool_input.subagent_type ∈ build-cycle agents only); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement)
     session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write (context_current_tokens + context_current_tokens_recorded_at + context_session_reset_at on clear/startup — INFRA-180)
 
   skills/
@@ -194,7 +194,10 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
 2. **Permission pre-write** — Two layers run before the builder spawns:
    Layer 1 (`permissions-create`): `flex_build.py permissions-create` generates
    `docs/phases/permissions/<story_id>.json` from the story's `primary_files` and `touches`
-   frontmatter. The `pre_tool_use.py` hook enforces the declared scope via `scope_guard.py` on
+   frontmatter, no-op'ing (no write, no `generated_at` change) when the computed `allowed_paths`
+   already match the file on disk — so that only genuine scope drift re-triggers the Layer 1
+   file write. (Phase 86, INFRA-194.)
+   The `pre_tool_use.py` hook enforces the declared scope via `scope_guard.py` on
    every Edit/Write call during the builder session. (Phase 55, INFRA-138, INFRA-139.)
    Layer 2 (`write-permissions`): `flex_build.py write-permissions` calls
    `write_story_permissions()` to write `Edit`/`Write` allow rules into
@@ -966,6 +969,15 @@ Fields:
   counter reset (Phase 68 INFRA-175). Read by `session_reset.decide_reset()`; when absent,
   non-numeric, or non-positive, the default `25_000` is used. Opt-in only — not seeded by
   `bootstrap.py`.
+- `context_budget_user_turn_seq` — **optional**; integer; monotonic counter incremented by
+  `hooks/user_prompt_submit.py` on every `UserPromptSubmit` event (treated as `0` when
+  absent). The sole signal that a genuine human turn has occurred since a context-budget
+  block. INFRA-192.
+- `context_budget_acknowledged_user_turn_seq` — **optional**; integer; the value of
+  `context_budget_user_turn_seq` at the moment `hooks/pre_tool_use.py` last wrote a block,
+  written alongside `context_budget_acknowledged_at` in the same `write_text()` call.
+  `None`/absent is treated as a pre-INFRA-192 upgrade grace period by `should_block()` and
+  does not itself force a block. INFRA-193.
 - `registered_projects` — **optional**; list of absolute paths to pairmode-scaffolded
   projects to include in cross-project drift detection. When present and non-empty,
   `/flex:pairmode review` runs `pairmode_drift_report --convergent` across all listed
@@ -1008,12 +1020,20 @@ Hooks must:
 **Documented exception — `hooks/pre_tool_use.py` (dual thin-delegate):**
 `pre_tool_use.py` dispatches to two modules:
 
-- **`Task`/`Agent` → `context_budget.py` (CER-027, CER-039, CER-040, CER-049, INFRA-182):**
+- **`Task`/`Agent` → `context_budget.py` (CER-027, CER-039, CER-040, CER-049, INFRA-182, INFRA-199):**
+  the dispatch is additionally scoped (INFRA-199) to
+  `tool_input.subagent_type` ∈ {`builder`, `reviewer`, `loop-breaker`,
+  `security-auditor`, `intent-reviewer`} — the five build-cycle subagent types.
+  When `subagent_type` is absent or any other value (general-purpose / Plan /
+  Explore / other spawns), the branch falls straight through to `sys.exit(0)`
+  with no `context_budget` import/call, no block emission, and no state write.
+  For an allowlisted `subagent_type`,
   the hook makes one delegated call: `decide(project_dir)` — reads
   `context_current_tokens` from state.json (written by `post_tool_use.py` after each
   completed Task/Agent spawn, or by the SessionStart baseline); the hook writes
-  `context_budget_acknowledged_at` to state.json when `result["block"]` is True
-  (single `write_text()` call). `decide()` itself is strictly read-only (D11).
+  `context_budget_acknowledged_at` and `context_budget_acknowledged_user_turn_seq`
+  (INFRA-193) to state.json in a single `write_text()` call when `result["block"]` is
+  True. `decide()` itself is strictly read-only (D11).
   `post_tool_use.py` (PostToolUse Task/Agent branch) is the sole live writer of
   `context_current_tokens`; `set-context-tokens` remains as a manual override.
   Blocks with `CONTEXT CHECK REQUIRED` when `context_current_tokens` is absent or
@@ -1051,6 +1071,14 @@ baseline.
   (INFRA-180 changed the return type from `int | None` to `dict | None`.)
   `compact` is deliberately excluded (CER-047 — post-compact window size unknown; stale
   counter over-blocks, which is fail-safe).
+
+**Documented exception — `hooks/user_prompt_submit.py` (INFRA-192):**
+`user_prompt_submit.py` is a thin dispatcher for the `UserPromptSubmit` event:
+
+- Every event → one state.json read-modify-write incrementing
+  `context_budget_user_turn_seq`. No decision logic, no block/reason emission.
+  This is the sole source of the human-turn signal consumed by
+  `context_budget.should_block()` (INFRA-193).
 
 The remaining two registered hooks — `stop.py` and `session_end.py` — are plain pipe relays with no dispatch logic and no state.json writes. They do not require thin-delegation exception documentation.
 

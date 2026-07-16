@@ -15,15 +15,15 @@ Close all open CER backlog items that touch harness-branch files before the fold
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-192 | Context gate edge cases and session_id safety | complete |
-| INFRA-193 | story_new.py rail validation and empty primary_files | complete |
-| INFRA-194 | bootstrap.py ergonomics: --yes flag and effort_tracking transparency | complete |
-| INFRA-195 | PIPE_PATH redirectable via crafted state.json | complete |
+| INFRA-203 | Context gate edge cases and session_id safety | complete |
+| INFRA-204 | story_new.py rail validation and empty primary_files | complete |
+| INFRA-205 | bootstrap.py ergonomics: --yes flag and effort_tracking transparency | complete |
+| INFRA-206 | PIPE_PATH redirectable via crafted state.json | complete |
 | OBS-006 | phaseIndex.ts href path containment | complete |
-| INFRA-196 | scope_guard fail-closed protected-path list | complete |
-| INFRA-197 | Architecture doc stale claims | complete |
-| INFRA-198 | registered_projects writer audit and fix | complete |
-| INFRA-199 | Signal-1 detection fix and runbook verification step | complete |
+| INFRA-207 | scope_guard fail-closed protected-path list | complete |
+| INFRA-208 | Architecture doc stale claims | complete |
+| INFRA-209 | registered_projects writer audit and fix | complete |
+| INFRA-210 | Signal-1 detection fix and runbook verification step | complete |
 | INFRA-200 | state.json atomic writes | complete |
 | INFRA-201 | Backlog hygiene: mark CER-013/015/032/033/052 resolved | complete |
 

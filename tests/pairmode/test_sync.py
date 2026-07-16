@@ -1603,3 +1603,149 @@ class TestSyncSeedsContextBudgetDefaults:
         assert state["context_budget_threshold"] == 99999, (
             "Existing context_budget_threshold must not be overwritten by sync"
         )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-195 — checklist-item-level (bold-marker) section granularity in sync
+# ---------------------------------------------------------------------------
+
+
+def _write_full_context(project_dir: Path) -> dict:
+    """Write a fully-populated pairmode_context.json so context_missing is False."""
+    ctx = {
+        "project_name": "testproject",
+        "project_description": "a test project",
+        "stack": "Python",
+        "build_command": "uv run pytest",
+        "test_command": "uv run pytest",
+        "migration_command": "",
+        "domain_model": "",
+        "domain_isolation_rule": "",
+        "checklist_items": [],
+        "protected_paths": [],
+        "non_negotiables": [],
+        "module_structure": [],
+        "layer_rules": [],
+    }
+    companion = project_dir / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    (companion / "pairmode_context.json").write_text(json.dumps(ctx), encoding="utf-8")
+    return ctx
+
+
+class TestSyncBoldMarkerSectionGranularity:
+    """sync_project locates and patches bold-marker checklist items independently.
+
+    agents/reviewer.md.j2 was retired in HARNESS-002 (the reviewer role is now a
+    procedure-skill shell, not a rendered per-project template) — no file in
+    fold-prep's real CANONICAL_FILES uses bold-marker (``**N. NAME**``) checklist
+    sections anymore. This class registers a synthetic bold-marker canonical
+    file for the duration of its tests so the override/sync integration path
+    (real content, not just the unit-level `_replace_section_in_file` helper)
+    stays exercised even though no production file currently needs the format.
+    """
+
+    _FIXTURE_TEMPLATE_REL = "agents/_test_bold_marker_fixture.md.j2"
+    _FIXTURE_DEST_REL = ".claude/agents/reviewer.md"
+
+    @pytest.fixture(autouse=True)
+    def _register_bold_marker_fixture(self, tmp_path_factory):
+        from skills.pairmode.scripts.audit import TEMPLATES_DIR
+        import skills.pairmode.scripts.sync as _sync_mod
+
+        fixture_path = TEMPLATES_DIR / self._FIXTURE_TEMPLATE_REL
+        fixture_path.parent.mkdir(parents=True, exist_ok=True)
+        fixture_path.write_text(
+            "## Review checklist\n\n"
+            "**1. PROTECTED FILES**\n\n"
+            "Check protected files were not touched.\n\n"
+            "**3. BUILD GATE**\n\n"
+            "Does {{ build_command }} pass?\n",
+            encoding="utf-8",
+        )
+        entry = (self._FIXTURE_DEST_REL, self._FIXTURE_TEMPLATE_REL)
+        _audit_mod.CANONICAL_FILES.append(entry)
+        assert entry in _sync_mod.CANONICAL_FILES, (
+            "sync.py's CANONICAL_FILES import does not alias audit.py's list object"
+        )
+        try:
+            yield
+        finally:
+            _audit_mod.CANONICAL_FILES.remove(entry)
+            fixture_path.unlink(missing_ok=True)
+
+    def _canonical_reviewer_sections(self, ctx: dict) -> dict[str, str]:
+        rendered = _JINJA_ENV.get_template(self._FIXTURE_TEMPLATE_REL).render(**ctx)
+        return _audit_mod._split_sections(rendered)
+
+    def test_replace_section_in_file_patches_bold_marker_only(self, tmp_path: Path) -> None:
+        """_replace_section_in_file locates a bold-marker key and replaces only its body."""
+        from skills.pairmode.scripts.sync import _replace_section_in_file
+
+        text = (
+            "## Review checklist\n\n"
+            "**1. PROTECTED FILES**\n\n"
+            "Custom protected-files body.\n\n"
+            "**3. BUILD GATE**\n\n"
+            "Old build gate body.\n\n"
+            "## Next section\n\n"
+            "Untouched trailing content.\n"
+        )
+
+        patched = _replace_section_in_file(
+            text, "**3. build gate**", "New canonical build gate body.\n"
+        )
+
+        assert "New canonical build gate body." in patched
+        assert "Old build gate body." not in patched
+        # Sibling bold-marker item untouched
+        assert "Custom protected-files body." in patched
+        # Content after the checklist entirely untouched
+        assert "Untouched trailing content." in patched
+
+    def test_sync_preserves_overridden_bold_marker_updates_sibling(
+        self, tmp_path: Path
+    ) -> None:
+        """A declared override on one bold-marker item preserves its custom body while a
+        different, non-overridden sibling bold-marker item is updated to canonical."""
+        ctx = _write_full_context(tmp_path)
+        _write_state(tmp_path)
+        _write_ideology_md(tmp_path)
+        _copy_canonical_files(tmp_path)
+
+        canonical_sections = self._canonical_reviewer_sections(ctx)
+        assert "**1. protected files**" in canonical_sections
+        assert "**3. build gate**" in canonical_sections
+
+        reviewer_path = tmp_path / ".claude" / "agents" / "reviewer.md"
+        rendered = _JINJA_ENV.get_template(self._FIXTURE_TEMPLATE_REL).render(**ctx)
+        custom_protected_body = "CUSTOM PROTECTED FILES OVERRIDE BODY"
+        custom_build_gate_body = "CUSTOM BUILD GATE BODY (undeclared, should be reverted)"
+
+        modified = rendered.replace(
+            canonical_sections["**1. protected files**"], custom_protected_body, 1
+        ).replace(
+            canonical_sections["**3. build gate**"], custom_build_gate_body, 1
+        )
+        reviewer_path.parent.mkdir(parents=True, exist_ok=True)
+        reviewer_path.write_text(modified, encoding="utf-8")
+
+        # Declare only the PROTECTED FILES item as an override
+        (tmp_path / ".pairmode-overrides").write_text(
+            ".claude/agents/reviewer.md:**1. protected files**\n",
+            encoding="utf-8",
+        )
+
+        sync_project(tmp_path, yes=True)
+
+        final_text = reviewer_path.read_text(encoding="utf-8")
+
+        assert custom_protected_body in final_text, (
+            "Overridden bold-marker item body should be preserved by sync"
+        )
+        assert custom_build_gate_body not in final_text, (
+            "Non-overridden bold-marker sibling should be synced back to canonical"
+        )
+        assert canonical_sections["**3. build gate**"].strip() in final_text, (
+            "Non-overridden bold-marker sibling body should match canonical after sync"
+        )

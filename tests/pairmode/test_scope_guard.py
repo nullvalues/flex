@@ -134,7 +134,7 @@ def test_scope_guard_empty_allowed_paths_allows(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# PROTECTED_GLOBS / fail-closed tests (INFRA-196)
+# PROTECTED_GLOBS / fail-closed tests (INFRA-207)
 # ---------------------------------------------------------------------------
 
 

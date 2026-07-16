@@ -89,7 +89,7 @@ def test_session_end_includes_last_session_closed_in_pipe_event():
 # pipe_path read from .companion/state.json resolves under tempfile.gettempdir().
 # Out-of-bounds or malformed paths return None so the caller keeps the fallback.
 #
-# post_tool_use.py no longer reads pipe_path from state.json (CER-009 / INFRA-195)
+# post_tool_use.py no longer reads pipe_path from state.json (CER-009 / INFRA-206)
 # so it is excluded from this list.
 
 HOOKS_WITH_PIPE_VALIDATION = [

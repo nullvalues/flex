@@ -191,6 +191,37 @@ class TestPhaseFlag:
         assert "AUDIT-001" in content
         assert "Audit story" in content
 
+    def test_phase_flag_appends_row_to_suffixed_phase_file(self, tmp_path: pathlib.Path) -> None:
+        """CER-062 / INFRA-197: phase-<id>-<suffix>.md manifests must also match."""
+        phases_dir = tmp_path / "docs" / "phases"
+        phases_dir.mkdir(parents=True, exist_ok=True)
+        phase_path = phases_dir / "phase-87-widget.md"
+        content = (
+            "# Phase 87\n\n"
+            "## Stories\n\n"
+            "| Story ID | Title | Status |\n"
+            "|----------|-------|--------|\n"
+        )
+        phase_path.write_text(content, encoding="utf-8")
+
+        rail_dir = tmp_path / "docs" / "stories" / "WIDGET"
+        rail_dir.mkdir(parents=True)
+
+        result = invoke(
+            [
+                "--rail", "WIDGET",
+                "--title", "Widget story",
+                "--phase", "87",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        assert "Added to Phase 87" in result.output
+
+        updated = phase_path.read_text()
+        assert "WIDGET-001" in updated
+        assert "Widget story" in updated
+
     def test_phase_flag_prints_added_to_phase(self, tmp_path: pathlib.Path) -> None:
         self._make_phase_file(tmp_path, "003", with_table=True)
         rail_dir = tmp_path / "docs" / "stories" / "LESSON"

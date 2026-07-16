@@ -1,0 +1,12 @@
+{
+  "story_id": "INFRA-192",
+  "story_spec": "docs/stories/INFRA/INFRA-192.md",
+  "allowed_paths": [
+    "hooks/user_prompt_submit.py",
+    "hooks/hooks.json",
+    "CLAUDE.md",
+    "tests/pairmode/test_hooks.py",
+    "docs/stories/INFRA/INFRA-192.md"
+  ],
+  "generated_at": "2026-07-10T15:20:34Z"
+}
