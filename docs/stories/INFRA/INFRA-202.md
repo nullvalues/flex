@@ -2,7 +2,7 @@
 id: INFRA-202
 rail: INFRA
 title: "Harden _merge_body_sections to recognize canonical sections already present under non-## heading styles and never duplicate-append"
-status: planned
+status: complete
 phase: "91"
 story_class: code
 auth_gated: false
