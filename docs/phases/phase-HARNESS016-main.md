@@ -35,7 +35,7 @@ can pass.
 
 | ID | Title | Status |
 |----|-------|--------|
-| RELEASE-014 | Pre-fold reconciliation — merge main (31 commits, incl. INFRA-192/193/195/199) into fold-prep | planned |
+| RELEASE-014 | Pre-fold reconciliation — merge main (31 commits, incl. INFRA-192/193/195/199) into fold-prep | complete |
 | RELEASE-015 | Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects | planned |
 | RELEASE-016 | Fold merge — fold-prep → main, tag v0.3.0 | planned |
 | RELEASE-017 | Post-fold re-sync of migrated projects + RELEASE-002 status reconciliation | planned |

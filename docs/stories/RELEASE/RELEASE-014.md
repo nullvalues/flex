@@ -2,7 +2,7 @@
 id: RELEASE-014
 rail: RELEASE
 title: Pre-fold reconciliation — merge main (31 commits) into fold-prep
-status: planned
+status: complete
 phase: "HARNESS016-main"
 story_class: code
 auth_gated: false
