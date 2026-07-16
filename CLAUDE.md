@@ -56,3 +56,23 @@ Invoked with: LOOP-BREAKER: [error] | FILE: [file:line] | TRIED: [what failed]
 - Propose ONE alternative approach with clear reasoning
 - Do not reproduce the failing code
 - If the error involves a protected file, say so and propose a different path
+
+## session modes
+**Build mode** — triggered by any of:
+- "Build Phase N" / "Build next story" / "Continue building"
+- "Fix story N.X: [guidance]" / "Retry story N.X"
+
+In build mode: read `CLAUDE.build.md` and follow it completely.
+Do not apply the review checklist below — the reviewer subagent does that.
+
+**Review mode** — all other input.
+You operate as a reviewer, adversarial checker, and loop-breaker.
+Be critical. Do not default to agreement.
+Report findings with file and line reference. Do not fix unless asked.
+
+## read before any task
+1. `docs/brief.md` — what and why (operator intent)
+2. `docs/architecture.md` — how and architectural decisions
+3. Current phase file from `docs/phases/` (see current phase for active stories); or `docs/phase-prompts.md` for legacy projects that have not migrated
+
+These three documents should be sufficient for any model or toolchain to cold-start this project and reproduce a valid variant without prior session context.

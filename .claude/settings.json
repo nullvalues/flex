@@ -11,6 +11,17 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python /mnt/work/flex/hooks/pre_tool_use.py"
+          }
+        ]
+      }
     ]
   },
   "permissions": {
@@ -27,7 +38,9 @@
       "Edit(.claude-plugin/**)",
       "Write(.claude-plugin/**)",
       "Edit(skills/seed/**)",
-      "Write(skills/seed/**)"
+      "Write(skills/seed/**)",
+      "Edit(docs/phases/permissions/**)",
+      "Write(docs/phases/permissions/**)"
     ]
   }
 }

@@ -111,3 +111,6 @@ until sequenced. When sequenced, their stories are absorbed into the next
 available phase and the proposed file is deleted (git history records the transit).
 
 *(none — `phase-proposed-observability-spa-20260602-001.md` absorbed into Phase 63)*
+
+## backlog promotions
+_(List items promoted from the Do-Later / Do-Much-Later backlog into active phases here, with a one-line reason and the target phase.)_

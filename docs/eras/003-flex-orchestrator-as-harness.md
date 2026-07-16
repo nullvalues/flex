@@ -90,6 +90,8 @@ These were agreed during design and frame every phase below:
 | WORKER | leaf-worker conversions — agent shell + plugin procedure skill — for gate, builder, reviewer, security-auditor, intent-reviewer, loop-breaker, spec-writer |
 | OBS | observability SPA/API refactor to read the new resolver state model instead of orchestrator-centric signals |
 | RELEASE | version increment, upstream-consumer compatibility, plugin packaging; keeping flex usable downstream throughout the refactor |
+| CORE | _(fill in primary domain)_ |
+| TEST | _(fill in primary domain)_ |
 
 ## Phases (proposed — `HARNESS` predicate, suffix scheme)
 
