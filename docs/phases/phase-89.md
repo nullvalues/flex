@@ -47,7 +47,7 @@ HIGH.") intact and unqualified for downstream projects.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-200 | Remove flex-specific hook exception paragraph from CLAUDE.md.j2 | planned |
+| INFRA-200 | Remove flex-specific hook exception paragraph from CLAUDE.md.j2 | complete |
 
 ## Schema delivery
 
