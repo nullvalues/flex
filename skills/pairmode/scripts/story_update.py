@@ -258,8 +258,12 @@ def _update_story_row_in_phase(text: str, story_id: str, status: str) -> str:
             modified_lines.append(line)
             continue
 
-        # Parse table row
-        parts = stripped.split('|')
+        # Parse table row. Split on unescaped pipes only: `\|` is a literal
+        # cell character (escaped pipe), not a column separator — a naive
+        # `str.split('|')` shreds titles like "Edit\|Write" into extra
+        # "columns", shifting parts[3] off the real status cell and
+        # corrupting the row (CER-066).
+        parts = re.split(r'(?<!\\)\|', stripped)
         # parts[0] is empty (before first |), parts[-1] may be empty (after last |)
         # Cell values are parts[1], parts[2], ...
         if len(parts) < 3:

@@ -389,6 +389,90 @@ def test_phase_scope_missing_story_file_falls_back(tmp_path):
     assert "| GHOST-001 | No story file | complete |" in text
 
 
+# ---------------------------------------------------------------------------
+# INFRA-207 — escaped-pipe row corruption regression tests (CER-066)
+# ---------------------------------------------------------------------------
+
+
+def test_escaped_pipe_in_title_updates_real_status_cell(tmp_path):
+    """The exact CER-066 reproduction: a title containing an escaped pipe
+    must not shift the status cell during a status update."""
+    project = _make_project(tmp_path)
+    _make_story(project, "INFRA", "INFRA-1", phase="1")
+    _make_phase(
+        project,
+        "phase-1.md",
+        [("INFRA-1", "Register the Edit\\|Write matcher", "planned")],
+    )
+
+    updated = update_phase_story_status("INFRA-1", project, "complete")
+    assert len(updated) == 1
+
+    text = updated[0].read_text(encoding="utf-8")
+    assert "| INFRA-1 | Register the Edit\\|Write matcher | complete |" in text
+    # The corrupted form must never appear.
+    assert "| INFRA-1 | Register the Edit\\|complete | planned |" not in text
+
+
+def test_escaped_pipe_infra205_collision_shape(tmp_path):
+    """The INFRA-205/INFRA-206 live shape: the title substring must survive
+    byte-for-byte and only the status cell should change."""
+    project = _make_project(tmp_path)
+    title = "Register the Edit\\|Write matcher in pre_tool_use.py dispatch"
+    _make_story(project, "INFRA", "INFRA-205", phase="1")
+    _make_phase(project, "phase-1.md", [("INFRA-205", title, "planned")])
+
+    phase_path = project / "docs" / "phases" / "phase-1.md"
+    pre_text = phase_path.read_text(encoding="utf-8")
+    assert title in pre_text
+
+    updated = update_phase_story_status("INFRA-205", project, "complete")
+    assert len(updated) == 1
+
+    post_text = updated[0].read_text(encoding="utf-8")
+    assert title in post_text
+    assert f"| INFRA-205 | {title} | complete |" in post_text
+    assert f"| INFRA-205 | {title} | planned |" not in post_text
+
+
+def test_multiple_escaped_pipes_in_title_preserved(tmp_path):
+    """A title with more than one escaped pipe must survive verbatim,
+    guarding against an off-by-N shift when several `\\|` are present."""
+    project = _make_project(tmp_path)
+    title = "Task\\|Agent and Edit\\|Write matchers"
+    _make_story(project, "INFRA", "INFRA-2", phase="1")
+    _make_phase(project, "phase-1.md", [("INFRA-2", title, "planned")])
+
+    updated = update_phase_story_status("INFRA-2", project, "complete")
+    assert len(updated) == 1
+
+    text = updated[0].read_text(encoding="utf-8")
+    assert f"| INFRA-2 | {title} | complete |" in text
+
+
+def test_escaped_pipe_row_status_spacing_preserved(tmp_path):
+    """Status-cell spacing preservation must still operate on the correct
+    cell when the title contains an escaped pipe."""
+    project = _make_project(tmp_path)
+    title = "Register the Edit\\|Write matcher"
+    _make_story(project, "INFRA", "INFRA-3", phase="1")
+    phase_path = project / "docs" / "phases" / "phase-1.md"
+    phase_path.write_text(
+        "---\nid: phase-1\n---\n\n"
+        "## Stories\n\n"
+        "| Story ID | Title | Status |\n"
+        "|----------|-------|--------|\n"
+        f"| INFRA-3 | {title} |  planned  |\n",
+        encoding="utf-8",
+    )
+
+    updated = update_phase_story_status("INFRA-3", project, "complete")
+    assert len(updated) == 1
+
+    text = updated[0].read_text(encoding="utf-8")
+    assert f"| INFRA-3 | {title} |  complete  |" in text
+
+
 def test_cli_no_phase_manifest_found(tmp_path):
     from click.testing import CliRunner
     from story_update import story_update
