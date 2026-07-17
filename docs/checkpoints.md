@@ -5,6 +5,17 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp93-pretooluse-matcher-wiring
+
+**Tag command:** `git tag cp93-pretooluse-matcher-wiring && git push origin cp93-pretooluse-matcher-wiring`
+**Phase:** 93
+**Stories:** INFRA-205, INFRA-206
+**Acceptance:** Closes CER-065, a critical live-reachability gap found via an external `caddy` repo session and confirmed against flex's own tree: `hooks/pre_tool_use.py` dispatches on `Task`/`Agent`, `Edit`/`Write`, and `Read`, but `hooks/hooks.json`'s `PreToolUse` array registered only a `Task|Agent` matcher — the `scope_guard.py` (Phase 55) and `cold_read_guard.py` (INFRA-196) branches were unreachable dead code in every project using this plugin, including flex itself, since the stories that added them (INFRA-139, INFRA-196) never updated the registration manifest. INFRA-205 adds `Edit|Write` and `Read` matcher blocks to `hooks/hooks.json` (mirroring the existing `PostToolUse` two-block pattern) with a regression test scanning `pre_tool_use.py`'s actual dispatch literals and asserting `hooks.json`'s registered matchers are a superset — closing the process gap that let this ship silently dead twice. INFRA-206 widens `bootstrap.py`'s `_register_pretooluse_hook` to register a canonical combined `Task|Agent|Edit|Write|Read` matcher for downstream bootstrapped projects, found/deduped by command string so a stale legacy `"Task"`-only block is migrated in place rather than orphaned. `docs/architecture.md` updated to document the third (`Read`) dispatch branch, previously undocumented since INFRA-196. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: both stories ALIGNED, no pivots — INFRA-206's single-combined-matcher design (vs. INFRA-205's three-separate-block layout) was confirmed as the story's own deliberate, documented choice, not drift. 2383 tests pass.
+
+*(Note: this checkpoint was paused mid-sequence when CER-066 — a data-corruption bug in `story_update.py`'s own row-matching — was discovered live during this phase's build. CER-066 was forked into Phase 94 and tagged first (cp94) per the user's direction to clear it before this checkpoint could tag; both CER-065 and CER-066 are now resolved.)*
+
+---
+
 ## cp94-story-update-escaped-pipe-fix
 
 **Tag command:** `git tag cp94-story-update-escaped-pipe-fix && git push origin cp94-story-update-escaped-pipe-fix`
