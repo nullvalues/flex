@@ -2,7 +2,7 @@
 id: INFRA-207
 rail: INFRA
 title: "Fix escaped-pipe row corruption in _update_story_row_in_phase: split Stories-table rows on unescaped pipes only (\\| treated as a literal cell character, not a column separator), so titles documenting matcher strings like Edit\\|Write update the real status cell instead of truncating the title"
-status: planned
+status: complete
 phase: "94"
 story_class: code
 auth_gated: false

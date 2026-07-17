@@ -17,7 +17,7 @@ _update_story_row_in_phase in skills/pairmode/scripts/story_update.py parses a S
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-207 | Fix escaped-pipe row corruption in `_update_story_row_in_phase`: split Stories-table rows on unescaped pipes only (`\|` treated as a literal cell character, not a column separator), so titles documenting matcher strings like `Edit\|Write` update the real status cell instead of truncating the title; add escaped-pipe regression tests including the INFRA-205/INFRA-206 collision shape | planned |
+| INFRA-207 | Fix escaped-pipe row corruption in `_update_story_row_in_phase`: split Stories-table rows on unescaped pipes only (`\|` treated as a literal cell character, not a column separator), so titles documenting matcher strings like `Edit\|Write` update the real status cell instead of truncating the title; add escaped-pipe regression tests including the INFRA-205/INFRA-206 collision shape | complete |
 
 ## Schema delivery
 
