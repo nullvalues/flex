@@ -34,17 +34,26 @@ def _make_project(tmp_path: Path) -> Path:
     return project
 
 
-def _make_story(project: Path, rail: str, story_id: str, status: str = "draft") -> Path:
+def _make_story(
+    project: Path,
+    rail: str,
+    story_id: str,
+    status: str = "draft",
+    phase: str | None = "001",
+) -> Path:
+    """Create a story file. `phase=None` omits the `phase:` field entirely
+    (legacy story, exercises the whole-glob fall-back path)."""
     rail_dir = project / "docs" / "stories" / rail
     rail_dir.mkdir(parents=True, exist_ok=True)
     story_path = rail_dir / f"{story_id}.md"
+    phase_line = f'phase: "{phase}"\n' if phase is not None else ""
     story_path.write_text(
         f"---\n"
         f"id: {story_id}\n"
         f"rail: {rail}\n"
         f"title: Test story\n"
         f"status: {status}\n"
-        f"phase: \"1\"\n"
+        f"{phase_line}"
         f"primary_files:\n"
         f"touches:\n"
         f"---\n"
@@ -301,6 +310,83 @@ def test_cli_updates_story_and_phase(tmp_path):
 
     story_text = (project / "docs" / "stories" / "BOOTSTRAP" / "BOOTSTRAP-001.md").read_text()
     assert "status: complete" in story_text
+
+
+# ---------------------------------------------------------------------------
+# INFRA-204 — phase-scoping regression tests (CER-064)
+# ---------------------------------------------------------------------------
+
+
+def test_phase_scope_does_not_leak_across_phases(tmp_path):
+    """Core CER-064 regression: a status update on a story scoped to phase 24
+    must not leak into an unrelated colliding row in phase 29."""
+    project = _make_project(tmp_path)
+    _make_story(project, "REF", "REF-106", phase="24")
+    _make_phase(project, "phase-24.md", [("REF-106", "Real story", "draft")])
+    _make_phase(project, "phase-29.md", [("REF-106", "Unrelated collision", "draft")])
+
+    phase29_path = project / "docs" / "phases" / "phase-29.md"
+    pre_image = phase29_path.read_text(encoding="utf-8")
+
+    updated = update_phase_story_status("REF-106", project, "complete")
+
+    assert len(updated) == 1
+    assert updated[0] == project / "docs" / "phases" / "phase-24.md"
+
+    phase24_text = updated[0].read_text(encoding="utf-8")
+    assert "| REF-106 | Real story | complete |" in phase24_text
+
+    # phase-29.md must be byte-identical to its pre-image — no leak.
+    assert phase29_path.read_text(encoding="utf-8") == pre_image
+
+
+def test_phase_scope_absent_frontmatter_falls_back_to_whole_glob(tmp_path):
+    """Legacy stories with no `phase:` field preserve today's whole-glob
+    scan-and-update-every-matching-file behavior."""
+    project = _make_project(tmp_path)
+    _make_story(project, "SHARED", "SHARED-001", phase=None)
+    _make_phase(project, "phase-001.md", [("SHARED-001", "A", "draft")])
+    _make_phase(project, "phase-002.md", [("SHARED-001", "A", "planned")])
+
+    updated = update_phase_story_status("SHARED-001", project, "in-progress")
+    assert len(updated) == 2
+
+    for p in updated:
+        text = p.read_text(encoding="utf-8")
+        assert "in-progress" in text
+
+
+def test_phase_scope_resolves_suffixed_manifest(tmp_path):
+    """A suffixed manifest filename (phase-<key>-<suffix>.md) must resolve
+    via the same glob shapes as story_new.py._append_to_phase."""
+    project = _make_project(tmp_path)
+    _make_story(project, "PM", "PM-025", phase="PM025")
+    _make_phase(project, "phase-PM025-main.md", [("PM-025", "Target story", "draft")])
+    _make_phase(project, "phase-PM025-post1.md", [("OTHER-042", "Different story", "draft")])
+
+    post1_path = project / "docs" / "phases" / "phase-PM025-post1.md"
+    pre_image = post1_path.read_text(encoding="utf-8")
+
+    updated = update_phase_story_status("PM-025", project, "complete")
+
+    assert len(updated) == 1
+    assert updated[0] == project / "docs" / "phases" / "phase-PM025-main.md"
+    assert "| PM-025 | Target story | complete |" in updated[0].read_text(encoding="utf-8")
+
+    # Unrelated suffixed manifest carrying a different story is untouched.
+    assert post1_path.read_text(encoding="utf-8") == pre_image
+
+
+def test_phase_scope_missing_story_file_falls_back(tmp_path):
+    """No story file on disk for story_id → fall back to whole-glob scan,
+    no exception raised."""
+    project = _make_project(tmp_path)
+    _make_phase(project, "phase-001.md", [("GHOST-001", "No story file", "draft")])
+
+    updated = update_phase_story_status("GHOST-001", project, "complete")
+    assert len(updated) == 1
+    text = updated[0].read_text(encoding="utf-8")
+    assert "| GHOST-001 | No story file | complete |" in text
 
 
 def test_cli_no_phase_manifest_found(tmp_path):

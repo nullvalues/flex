@@ -451,8 +451,15 @@ enables deterministic model-upgrade decisions at the checkpoint-agent level (INF
 
 **`story_update.py` is the canonical tool for updating story status.**
 `update_story_status(story_id, project_dir, status)` updates a story file's frontmatter
-`status` field. `update_phase_story_status(story_id, project_dir, status)` finds all phase
-manifests containing the story's ID in their `## Stories` table and updates the status column.
+`status` field. `update_phase_story_status(story_id, project_dir, status)` updates the status
+column in matching `## Stories`-table row(s). Since INFRA-204, the scan is scoped to the phase
+manifest(s) named by the target story's own `phase:` frontmatter — resolving exact
+(`phase-<key>.md`) and suffixed (`phase-<key>-<suffix>.md`) filename forms, mirroring
+`story_new.py`'s `_append_to_phase` glob shapes (CER-062 / INFRA-197) — and only falls back to
+scanning every `docs/phases/*.md` when the story declares no `phase:` (legacy stories predating
+the `phase:` field convention). This closes CER-064's cross-phase status-leakage bug, where an
+update to one phase's story row could leak into an unrelated phase manifest carrying a colliding
+bare story ID.
 CLI: `uv run python skills/pairmode/scripts/story_update.py --story-id RAIL-NNN --status complete --project-dir .`
 Orchestrators must call this after a successful reviewer commit (see CLAUDE.build.md Step 3).
 Valid statuses: `draft`, `planned`, `in-progress`, `complete`, `backlog`.
