@@ -2,7 +2,7 @@
 id: INFRA-204
 rail: INFRA
 title: "Scope update_phase_story_status to the story's declared phase: frontmatter (suffix-aware), fall back to whole-glob only for legacy phase-less stories, with cross-phase-leakage regression tests"
-status: planned
+status: complete
 phase: "92"
 story_class: code
 auth_gated: false

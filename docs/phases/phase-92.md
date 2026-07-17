@@ -17,7 +17,7 @@ update_phase_story_status in skills/pairmode/scripts/story_update.py scans every
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-204 | Scope `update_phase_story_status` to the story's declared `phase:` frontmatter (suffix-aware), fall back to whole-glob only for legacy phase-less stories, with cross-phase-leakage regression tests | planned |
+| INFRA-204 | Scope `update_phase_story_status` to the story's declared `phase:` frontmatter (suffix-aware), fall back to whole-glob only for legacy phase-less stories, with cross-phase-leakage regression tests | complete |
 
 ## Schema delivery
 
