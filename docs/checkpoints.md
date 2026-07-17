@@ -5,6 +5,17 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp92-story-update-phase-scoping
+
+**Tag command:** `git tag cp92-story-update-phase-scoping && git push origin cp92-story-update-phase-scoping`
+**Phase:** 92
+**Stories:** INFRA-204
+**Acceptance:** Closes CER-064, a live-reproduced data-corruption bug reported by the `ud` migration repo: `update_phase_story_status` in `story_update.py` scanned every `docs/phases/*.md` file and flipped the status column of any Stories-table row whose bare first column equalled the target story ID, with no phase/rail disambiguation — so a status update on one phase could silently corrupt an unrelated phase's row for a colliding bare story ID (demonstrated in this repo: CER-063, `INFRA-203` colliding between `main`'s phase 91 and the unmerged `fold-prep` branch). INFRA-204 scopes the update to only the phase manifest(s) named by the story's own `phase:` frontmatter, resolving both exact and suffixed filename forms (mirroring `story_new.py`'s `_append_to_phase` glob precedence), falling back to the whole-glob scan only for legacy phase-less stories. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: ALIGNED, no pivots. 2375 tests pass.
+
+*(Note: this checkpoint was paused at the CER backlog review step when CER-065 was filed as an unrelated Do Now item during the same session (a separate, critical hook-wiring gap found via an external `caddy` repo report). Per the user's direction, CER-065 — and CER-066, discovered live while fixing it — were resolved first via Phase 93 (cp93) and Phase 94 (cp94) before this checkpoint could tag. INFRA-204/CER-064 itself required no rework; the pause was purely a backlog-gate ordering issue.)*
+
+---
+
 ## cp93-pretooluse-matcher-wiring
 
 **Tag command:** `git tag cp93-pretooluse-matcher-wiring && git push origin cp93-pretooluse-matcher-wiring`
