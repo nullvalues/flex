@@ -91,6 +91,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 89 | Remove flex-specific hook paragraph from canonical CLAUDE.md.j2 template | complete | [phase-89.md](phase-89.md) |
 | 90 | Fix stale pre-INFRA-191 assertion in CLAUDE.build.md test | complete | [phase-90.md](phase-90.md) |
 | 91 | Harden sync-agents body-merge against silent duplication/corruption | complete | [phase-91.md](phase-91.md) |
+| 92 | Fix cross-phase status leakage in story_update.py | planned | [phase-92.md](phase-92.md) |
 
 ---
 
