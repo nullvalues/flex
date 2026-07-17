@@ -1,0 +1,10 @@
+{
+  "story_id": "INFRA-207",
+  "story_spec": "docs/stories/INFRA/INFRA-207.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/story_update.py",
+    "tests/pairmode/test_story_update.py",
+    "docs/stories/INFRA/INFRA-207.md"
+  ],
+  "generated_at": "2026-07-17T14:42:35Z"
+}

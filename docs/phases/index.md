@@ -93,6 +93,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 91 | Harden sync-agents body-merge against silent duplication/corruption | complete | [phase-91.md](phase-91.md) |
 | 92 | Fix cross-phase status leakage in story_update.py | planned | [phase-92.md](phase-92.md) |
 | 93 | Wire Edit/Write/Read matchers into pre_tool_use.py's PreToolUse registration | planned | [phase-93.md](phase-93.md) |
+| 94 | Fix escaped-pipe corruption in story_update.py phase-table row matching | planned | [phase-94.md](phase-94.md) |
 
 ---
 
