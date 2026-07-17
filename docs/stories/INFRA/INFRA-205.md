@@ -2,7 +2,7 @@
 id: INFRA-205
 rail: INFRA
 title: "Register the Edit|Write and Read PreToolUse matchers in hooks/hooks.json so scope_guard and cold_read_guard dispatch branches fire, plus a regression test asserting hooks.json PreToolUse matchers are a superset of pre_tool_use.py's dispatched tool_name values"
-status: planned
+status: complete
 phase: "93"
 story_class: code
 auth_gated: false

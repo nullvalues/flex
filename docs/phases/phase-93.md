@@ -17,7 +17,7 @@ hooks/pre_tool_use.py has full dispatch logic for three tool types (Task/Agent -
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-205 | Register the Edit\|Write and Read PreToolUse matchers in hooks/hooks.json so scope_guard and cold_read_guard dispatch branches fire, plus a regression test asserting hooks.json PreToolUse matchers are a superset of pre_tool_use.py's dispatched tool_name values | planned |
+| INFRA-205 | Register the Edit\|complete | planned |
 | INFRA-206 | Widen bootstrap.py's _register_pretooluse_hook to register the full Task\|Agent + Edit\|Write + Read matcher set into downstream projects' .claude/settings.json, migrating the stale "Task"-only block in place while preserving idempotency | planned |
 
 ## Schema delivery
