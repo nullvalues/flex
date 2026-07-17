@@ -1,0 +1,10 @@
+{
+  "story_id": "INFRA-205",
+  "story_spec": "docs/stories/INFRA/INFRA-205.md",
+  "allowed_paths": [
+    "hooks/hooks.json",
+    "tests/pairmode/test_hooks_json.py",
+    "docs/stories/INFRA/INFRA-205.md"
+  ],
+  "generated_at": "2026-07-17T03:13:26Z"
+}

@@ -1,0 +1,10 @@
+{
+  "story_id": "INFRA-206",
+  "story_spec": "docs/stories/INFRA/INFRA-206.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/bootstrap.py",
+    "tests/pairmode/test_bootstrap.py",
+    "docs/stories/INFRA/INFRA-206.md"
+  ],
+  "generated_at": "2026-07-17T03:13:27Z"
+}
