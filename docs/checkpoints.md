@@ -5,6 +5,17 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp94-story-update-escaped-pipe-fix
+
+**Tag command:** `git tag cp94-story-update-escaped-pipe-fix && git push origin cp94-story-update-escaped-pipe-fix`
+**Phase:** 94
+**Stories:** INFRA-207
+**Acceptance:** Closes CER-066, a live data-corruption bug found mid-build during Phase 93: `_update_story_row_in_phase` in `story_update.py` parsed Stories-table rows via a naive `stripped.split('|')`, which didn't respect markdown-escaped pipes (`\|`) inside a cell — a pattern this repo's own INFRA rail produces routinely when documenting hook matcher syntax (e.g. `Edit\|Write`). A title containing `\|` got truncated at the escaped pipe with the intended status value spliced into the fragment, leaving the real status cell unchanged; live-hit twice against `docs/phases/phase-93.md`'s INFRA-205 and INFRA-206 rows, both manually repaired by the orchestrator outside the tool. INFRA-207 replaces the split with `re.split(r'(?<!\\)\|', stripped)`, treating an escaped pipe as a literal cell character rather than a column separator, with regression tests covering the exact CER-066 fixture and the INFRA-205/INFRA-206 collision shape. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: ALIGNED, no pivots. 2383 tests pass.
+
+*(Note: this phase was built out of sequence — spec'd and shipped ahead of Phase 93's own tag, at the user's direction, because CER-066 was discovered live during Phase 93's build and needed to clear before either Phase 93 or the still-pending Phase 92 checkpoint could tag. See cp93 and cp92 for the resumed sequence.)*
+
+---
+
 ## cp90-fix-stale-preinfra191-assertion
 
 **Tag command:** `git tag cp90-fix-stale-preinfra191-assertion a8a7004 && git push origin cp90-fix-stale-preinfra191-assertion`
