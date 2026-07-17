@@ -2,7 +2,7 @@
 id: INFRA-206
 rail: INFRA
 title: "Widen bootstrap.py's _register_pretooluse_hook to register the full Task|Agent + Edit|Write + Read matcher set into downstream projects' .claude/settings.json, migrating the stale \"Task\"-only block in place while preserving idempotency"
-status: planned
+status: complete
 phase: "93"
 story_class: code
 auth_gated: false
