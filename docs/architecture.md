@@ -23,7 +23,7 @@ flex/
     exit_plan_mode.py             ← relay plan content for impact analysis
     post_tool_use.py              ← pair partner: relay file changes; Task/Agent branch: reads JSONL via context_budget.read_current_tokens() and writes context_current_tokens to state.json (INFRA-182)
     session_end.py                ← signal sidebar to summarize and exit
-    pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename; INFRA-199 scoped to tool_input.subagent_type ∈ build-cycle agents only); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement)
+    pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename; INFRA-199 scoped to tool_input.subagent_type ∈ build-cycle agents only); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement); Read → cold_read_guard.py (INFRA-196 cold-read enforcement, registered/reachable since INFRA-205/INFRA-206, CER-065)
     session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write (context_current_tokens + context_current_tokens_recorded_at + context_session_reset_at on clear/startup — INFRA-180)
 
   skills/
@@ -1029,8 +1029,8 @@ Hooks must:
 - Never make API calls
 - Never write to spec files directly
 
-**Documented exception — `hooks/pre_tool_use.py` (dual thin-delegate):**
-`pre_tool_use.py` dispatches to two modules:
+**Documented exception — `hooks/pre_tool_use.py` (triple thin-delegate):**
+`pre_tool_use.py` dispatches to three modules:
 
 - **`Task`/`Agent` → `context_budget.py` (CER-027, CER-039, CER-040, CER-049, INFRA-182, INFRA-199):**
   the dispatch is additionally scoped (INFRA-199) to
@@ -1055,6 +1055,17 @@ Hooks must:
 - **`Edit`/`Write` → `scope_guard.py` (Phase 55):** decides whether to block
   a file write based on the active story's declared `primary_files`/`touches`.
   Read-only; no state writes. Fails open when state or permissions file absent.
+- **`Read` → `cold_read_guard.py` (INFRA-196):** blocks a top-level orchestrator
+  Read (`agent_type` absent from the payload) targeting `docs/stories/**` or
+  `.claude/agents/**`, directing the orchestrator to pass the story ID to a
+  builder/reviewer subagent instead of reading it cold. Read-only; no state
+  writes. `docs/phases/**` and `docs/architecture.md` reads are never blocked.
+
+As of INFRA-205 (`hooks/hooks.json`) and INFRA-206 (`bootstrap.py`'s downstream
+registrar), all three dispatch branches above are actually reachable — prior to
+Phase 93 (CER-065), the `Edit`/`Write` and `Read` branches were registered
+nowhere in the `PreToolUse` matcher and were dead code in every project using
+this plugin, including flex itself.
 
 All decision logic lives in the named modules; the hook is a thin dispatcher.
 
