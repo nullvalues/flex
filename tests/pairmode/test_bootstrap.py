@@ -2978,7 +2978,10 @@ class TestAllowRules:
 # INFRA-133: _register_pretooluse_hook tests
 # ---------------------------------------------------------------------------
 
-from skills.pairmode.scripts.bootstrap import _register_pretooluse_hook
+from skills.pairmode.scripts.bootstrap import (
+    _register_pretooluse_hook,
+    PRETOOLUSE_MATCHER,
+)
 import pathlib as _pathlib
 
 
@@ -2989,8 +2992,16 @@ class TestRegisterPreToolUseHook:
         """Return the flex repo root (plugin root) for tests."""
         return _pathlib.Path(__file__).resolve().parent.parent.parent
 
+    def _find_block_with_command(self, pre_tool_use_list, command):
+        for block in pre_tool_use_list:
+            inner_hooks = block.get("hooks", [])
+            if any(h.get("command") == command for h in inner_hooks):
+                return block
+        return None
+
     def test_register_pretooluse_hook_writes_entry(self, tmp_path):
-        """Calling _register_pretooluse_hook on a tmp settings path writes the hook entry."""
+        """Calling _register_pretooluse_hook on a tmp settings path writes the hook entry
+        under the canonical combined matcher (INFRA-206)."""
         settings_path = tmp_path / ".claude" / "settings.json"
         plugin_root = self._plugin_root()
 
@@ -3002,23 +3013,31 @@ class TestRegisterPreToolUseHook:
         pre_tool_use_list = hooks.get("PreToolUse", [])
         assert len(pre_tool_use_list) > 0, "PreToolUse list should be non-empty"
 
-        task_block = next(
-            (b for b in pre_tool_use_list if b.get("matcher") == "Task"), None
-        )
-        assert task_block is not None, "Should have a Task matcher block"
-
-        inner_hooks = task_block.get("hooks", [])
-        assert len(inner_hooks) > 0, "Task block should have inner hooks"
-
         pre_tool_use_py = str(plugin_root / "hooks" / "pre_tool_use.py")
         expected_command = f"uv run python {pre_tool_use_py}"
+
+        block = self._find_block_with_command(pre_tool_use_list, expected_command)
+        assert block is not None, "Should have a block carrying the pre_tool_use.py command"
+        assert block.get("matcher") == PRETOOLUSE_MATCHER, (
+            f"Expected canonical combined matcher, got {block.get('matcher')!r}"
+        )
+        matcher_families = set(block["matcher"].split("|"))
+        assert {"Task", "Agent", "Edit", "Write", "Read"} <= matcher_families, (
+            f"Matcher must be a superset of the three dispatch families: {matcher_families}"
+        )
+
+        inner_hooks = block.get("hooks", [])
+        assert len(inner_hooks) > 0, "Block should have inner hooks"
+
         commands = [h.get("command") for h in inner_hooks]
         assert expected_command in commands, (
             f"Expected command {expected_command!r} not found in hook commands: {commands}"
         )
 
     def test_register_pretooluse_hook_idempotent(self, tmp_path):
-        """Calling _register_pretooluse_hook twice results in only one hook entry."""
+        """Calling _register_pretooluse_hook twice results in only one block carrying
+        the command, one copy of the command, and a matcher that is not re-widened
+        or duplicated."""
         settings_path = tmp_path / ".claude" / "settings.json"
         plugin_root = self._plugin_root()
 
@@ -3027,32 +3046,46 @@ class TestRegisterPreToolUseHook:
 
         data = json.loads(settings_path.read_text(encoding="utf-8"))
         pre_tool_use_list = data["hooks"]["PreToolUse"]
-        task_block = next(
-            (b for b in pre_tool_use_list if b.get("matcher") == "Task"), None
-        )
-        assert task_block is not None
 
         pre_tool_use_py = str(plugin_root / "hooks" / "pre_tool_use.py")
         expected_command = f"uv run python {pre_tool_use_py}"
-        inner_hooks = task_block.get("hooks", [])
+
+        blocks_with_command = [
+            b for b in pre_tool_use_list
+            if any(h.get("command") == expected_command for h in b.get("hooks", []))
+        ]
+        assert len(blocks_with_command) == 1, (
+            f"Expected exactly one block carrying the command, got {len(blocks_with_command)}"
+        )
+        block = blocks_with_command[0]
+        assert block.get("matcher") == PRETOOLUSE_MATCHER
+
+        inner_hooks = block.get("hooks", [])
         matching = [h for h in inner_hooks if h.get("command") == expected_command]
         assert len(matching) == 1, (
             f"Expected exactly one hook entry after two calls, got {len(matching)}"
         )
 
     def test_register_pretooluse_hook_preserves_other_hooks(self, tmp_path):
-        """Existing hook entries with different commands are preserved alongside the new entry."""
+        """Existing hook entries with a different command are preserved, and a stale
+        "Task"-only block carrying the pre_tool_use.py command alongside an unrelated
+        command is migrated in place to the canonical combined matcher (INFRA-206)."""
         settings_path = tmp_path / ".claude" / "settings.json"
         plugin_root = self._plugin_root()
 
-        # Pre-populate with a different PreToolUse/Task hook
+        pre_tool_use_py = str(plugin_root / "hooks" / "pre_tool_use.py")
+        expected_command = f"uv run python {pre_tool_use_py}"
+
+        # Pre-populate a legacy "Task" block that already carries the
+        # pre_tool_use.py command alongside an unrelated command.
         existing_data = {
             "hooks": {
                 "PreToolUse": [
                     {
                         "matcher": "Task",
                         "hooks": [
-                            {"type": "command", "command": "uv run python /some/other/hook.py"}
+                            {"type": "command", "command": "uv run python /some/other/hook.py"},
+                            {"type": "command", "command": expected_command},
                         ],
                     }
                 ]
@@ -3065,25 +3098,82 @@ class TestRegisterPreToolUseHook:
 
         data = json.loads(settings_path.read_text(encoding="utf-8"))
         pre_tool_use_list = data["hooks"]["PreToolUse"]
-        task_block = next(
-            (b for b in pre_tool_use_list if b.get("matcher") == "Task"), None
-        )
-        assert task_block is not None
 
-        inner_hooks = task_block.get("hooks", [])
+        # No orphaned "Task"-only sibling block remains
+        assert len(pre_tool_use_list) == 1, (
+            f"Expected the block to be migrated in place, not orphaned: {pre_tool_use_list}"
+        )
+
+        block = pre_tool_use_list[0]
+        assert block.get("matcher") == PRETOOLUSE_MATCHER, (
+            f"Stale Task matcher should be migrated in place, got {block.get('matcher')!r}"
+        )
+
+        inner_hooks = block.get("hooks", [])
         commands = [h.get("command") for h in inner_hooks]
 
-        # The existing command should still be present
+        # The existing unrelated command should still be present
         assert "uv run python /some/other/hook.py" in commands, (
             f"Existing hook command should be preserved, commands: {commands}"
         )
 
-        # The new command should also be present
+        # The pre_tool_use.py command should still be present exactly once
+        assert commands.count(expected_command) == 1, (
+            f"pre_tool_use.py command should be present exactly once, commands: {commands}"
+        )
+
+    def test_register_pretooluse_hook_migrates_stale_task_block(self, tmp_path):
+        """A legacy "Task"-only block carrying the pre_tool_use.py command is upgraded
+        in place to the canonical combined matcher, with no orphaned sibling."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
         pre_tool_use_py = str(plugin_root / "hooks" / "pre_tool_use.py")
         expected_command = f"uv run python {pre_tool_use_py}"
-        assert expected_command in commands, (
-            f"New hook command should be added, commands: {commands}"
+
+        existing_data = {
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "Task",
+                        "hooks": [
+                            {"type": "command", "command": expected_command},
+                        ],
+                    }
+                ]
+            }
+        }
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+
+        _register_pretooluse_hook(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        pre_tool_use_list = data["hooks"]["PreToolUse"]
+
+        assert len(pre_tool_use_list) == 1, (
+            f"Expected exactly one block after migration (no orphaned sibling): {pre_tool_use_list}"
         )
+
+        block = pre_tool_use_list[0]
+        assert block.get("matcher") == PRETOOLUSE_MATCHER, (
+            f"Expected canonical combined matcher, got {block.get('matcher')!r}"
+        )
+
+        commands = [h.get("command") for h in block.get("hooks", [])]
+        assert commands.count(expected_command) == 1, (
+            f"Expected command exactly once, commands: {commands}"
+        )
+
+        # Running the registrar again must not duplicate the block or command
+        _register_pretooluse_hook(settings_path, plugin_root)
+        data2 = json.loads(settings_path.read_text(encoding="utf-8"))
+        pre_tool_use_list2 = data2["hooks"]["PreToolUse"]
+        assert len(pre_tool_use_list2) == 1
+        block2 = pre_tool_use_list2[0]
+        assert block2.get("matcher") == PRETOOLUSE_MATCHER
+        commands2 = [h.get("command") for h in block2.get("hooks", [])]
+        assert commands2.count(expected_command) == 1
 
 
 # ---------------------------------------------------------------------------

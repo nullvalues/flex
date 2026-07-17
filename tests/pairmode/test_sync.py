@@ -1523,7 +1523,8 @@ class TestSyncRegistersPreToolUseHook:
     """sync_project registers the PreToolUse hook in .claude/settings.json."""
 
     def test_sync_registers_pretooluse_hook(self, tmp_path: Path) -> None:
-        """After sync, .claude/settings.json contains a PreToolUse → Task hook entry."""
+        """After sync, .claude/settings.json contains a PreToolUse hook entry
+        under the canonical combined matcher (INFRA-206)."""
         _copy_canonical_files(tmp_path)
 
         sync_project(tmp_path, yes=True)
@@ -1536,14 +1537,22 @@ class TestSyncRegistersPreToolUseHook:
         pre_tool_use_list = hooks.get("PreToolUse", [])
         assert len(pre_tool_use_list) > 0, "PreToolUse list should be non-empty after sync"
 
-        task_block = next(
-            (b for b in pre_tool_use_list if b.get("matcher") == "Task"), None
-        )
-        assert task_block is not None, "Should have a Task matcher block"
-
-        inner_hooks = task_block.get("hooks", [])
         pre_tool_use_py = str(_plugin_root() / "hooks" / "pre_tool_use.py")
         expected_command = f"uv run python {pre_tool_use_py}"
+
+        matching_block = next(
+            (
+                b for b in pre_tool_use_list
+                if any(h.get("command") == expected_command for h in b.get("hooks", []))
+            ),
+            None,
+        )
+        assert matching_block is not None, "Should have a block carrying the pre_tool_use.py command"
+        assert matching_block.get("matcher") == "Task|Agent|Edit|Write|Read", (
+            f"Expected canonical combined matcher, got {matching_block.get('matcher')!r}"
+        )
+
+        inner_hooks = matching_block.get("hooks", [])
         commands = [h.get("command") for h in inner_hooks]
         assert expected_command in commands, (
             f"Expected command {expected_command!r} in hook commands: {commands}"

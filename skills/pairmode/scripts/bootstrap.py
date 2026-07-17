@@ -306,12 +306,29 @@ def _prune_superseded_deny_entries(
     )
 
 
+# Canonical combined PreToolUse matcher for downstream (non-plugin) bootstrap
+# registration. Mirrors the three dispatch families pre_tool_use.py routes on
+# (Task|Agent → context_budget.py, Edit|Write → scope_guard.py, Read →
+# cold_read_guard.py) — see CER-065 / INFRA-205 for the hooks.json counterpart
+# and INFRA-206 for this downstream-registrar widening.
+PRETOOLUSE_MATCHER = "Task|Agent|Edit|Write|Read"
+
+
 def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> None:
-    """Merge a PreToolUse → Task hook entry into .claude/settings.json.
+    """Merge a PreToolUse hook entry into .claude/settings.json.
+
+    Registers the combined matcher PRETOOLUSE_MATCHER ("Task|Agent|Edit|Write|Read")
+    covering all three pre_tool_use.py dispatch families (CER-065 / INFRA-206).
 
     Uses the absolute resolved path of pre_tool_use.py (computed from plugin_root,
-    never from ${CLAUDE_PLUGIN_ROOT}). The merge is idempotent: if an entry with
-    the same command already exists it is not duplicated.
+    never from ${CLAUDE_PLUGIN_ROOT}). The target block is located by scanning for
+    an inner hook entry whose command already matches (not by matcher string) so
+    that a legacy "Task"-only block, a legacy "Task|Agent" block, or an
+    already-migrated combined block are all found alike. If found, that block's
+    matcher is upgraded in place to the canonical combined matcher (in-place
+    migration — never orphaned as a dead sibling); if not found, a new block is
+    appended. The command is added to the block's inner hooks only if not already
+    present (idempotent).
 
     Creates the file if it does not exist.
     """
@@ -329,18 +346,25 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
     hooks_top = data.setdefault("hooks", {})
     pre_tool_use_list: list[dict] = hooks_top.setdefault("PreToolUse", [])
 
-    # Find or create the Task matcher block
-    task_block: dict | None = None
+    # Find the block carrying our command, by command — not by matcher string.
+    # This finds a legacy "Task" block, a legacy "Task|Agent" block, or an
+    # already-migrated combined block alike, so widening the matcher never
+    # breaks idempotency on subsequent runs.
+    target_block: dict | None = None
     for block in pre_tool_use_list:
-        if block.get("matcher") == "Task":
-            task_block = block
+        inner_hooks: list[dict] = block.get("hooks", [])
+        if any(h.get("command") == command for h in inner_hooks):
+            target_block = block
             break
 
-    if task_block is None:
-        task_block = {"matcher": "Task", "hooks": []}
-        pre_tool_use_list.append(task_block)
+    if target_block is None:
+        target_block = {"matcher": PRETOOLUSE_MATCHER, "hooks": []}
+        pre_tool_use_list.append(target_block)
 
-    inner_hooks: list[dict] = task_block.setdefault("hooks", [])
+    # Migrate the matcher in place (idempotent when already canonical).
+    target_block["matcher"] = PRETOOLUSE_MATCHER
+
+    inner_hooks = target_block.setdefault("hooks", [])
 
     # Idempotency: only add if no entry with this command already exists
     already_registered = any(
