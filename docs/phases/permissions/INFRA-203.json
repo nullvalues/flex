@@ -1,0 +1,12 @@
+{
+  "story_id": "INFRA-203",
+  "story_spec": "docs/stories/INFRA/INFRA-203.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/pairmode_sync.py",
+    "tests/pairmode/test_pairmode_sync.py",
+    "tests/pairmode/test_sync_agents.py",
+    "docs/architecture.md",
+    "docs/stories/INFRA/INFRA-203.md"
+  ],
+  "generated_at": "2026-07-16T15:30:56Z"
+}

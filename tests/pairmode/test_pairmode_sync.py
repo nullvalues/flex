@@ -260,6 +260,153 @@ class TestMergeBodySections:
         assert "Target's version of contract check content." in merged
         assert contract_check_content not in merged
 
+    def test_pseudo_header_target_matches_template_h2_no_duplicate(self) -> None:
+        """A target bold-inline pseudo-header matching a template ## heading is a no-op (INFRA-202)."""
+        target_body = (
+            "\n"
+            "## Review checklist\n"
+            "\n"
+            "**1. HOOK PERFORMANCE**\n"
+            "Do any hook scripts make API calls?\n"
+        )
+        template_body = (
+            "\n"
+            "## 1. Hook performance\n"
+            "\n"
+            "Do any hook scripts make API calls?\n"
+        )
+
+        before_count = target_body.lower().count("hook performance")
+        merged = _merge_body_sections(template_body, target_body)
+        after_count = merged.lower().count("hook performance")
+
+        assert after_count == before_count, (
+            "Expected no duplicate 'Hook performance' concept after merge; "
+            f"before={before_count} after={after_count}\nmerged:\n{merged}"
+        )
+
+    def test_numbering_and_case_differences_still_match(self) -> None:
+        """Different numbering/casing between target pseudo-header and template heading still match."""
+        target_body = "\n## Review checklist\n\n**7. PROTECTED FILES**\nWere protected files touched?\n"
+        template_body = "\n## 1. Protected files\n\nWere protected files touched?\n"
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        assert "## 1. Protected files" not in merged
+        assert merged == target_body
+
+    def test_enumerated_subsection_ids_match(self) -> None:
+        """Sub-lettered enumerator ids (5b.) normalize to the same concept key."""
+        target_body = (
+            "\n## Review checklist\n\n"
+            "**5b. constraint rationale preservation**\nSome content.\n"
+        )
+        template_body = "\n## 5b. Constraint rationale preservation\n\nSome content.\n"
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        assert merged == target_body
+        assert "## 5b. Constraint rationale preservation" not in merged
+
+    def test_reviewer_md_incident_shape_is_noop(self) -> None:
+        """Reproduces the 85a6f52 corruption shape: full checklist must merge as a no-op."""
+        target_body = (
+            "\n"
+            "You are the reviewer.\n"
+            "\n"
+            "## Review checklist\n"
+            "\n"
+            "**1. HOOK PERFORMANCE**\n"
+            "Hook content.\n"
+            "\n"
+            "**2. PIPE CONTRACT**\n"
+            "Pipe content.\n"
+            "\n"
+            "**7. PROTECTED FILES**\n"
+            "Protected content.\n"
+            "\n"
+            "## Final output to orchestrator\n"
+            "\n"
+            "End here.\n"
+        )
+        template_body = (
+            "\n"
+            "## 1. Hook performance\n"
+            "\n"
+            "Hook content.\n"
+            "\n"
+            "## 2. Pipe contract\n"
+            "\n"
+            "Pipe content.\n"
+            "\n"
+            "## 9. Story scope\n"
+            "\n"
+            "Rail scope content.\n"
+            "\n"
+            "## 5b. Constraint rationale preservation\n"
+            "\n"
+            "Constraint content.\n"
+            "\n"
+            "## 2.5 Story spec\n"
+            "\n"
+            "Story spec content.\n"
+        )
+
+        # Add pseudo-headers matching the remaining template items so this is a
+        # true full-checklist no-op reproduction of the incident shape.
+        target_body = target_body.replace(
+            "**7. PROTECTED FILES**\nProtected content.\n",
+            (
+                "**7. PROTECTED FILES**\nProtected content.\n\n"
+                "**6. STORY SCOPE**\nRail scope content.\n\n"
+                "**5b. CONSTRAINT RATIONALE PRESERVATION**\nConstraint content.\n\n"
+                "**2.5 STORY SPEC**\nStory spec content.\n"
+            ),
+        )
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        # Every template concept is already present in the target under some
+        # heading style, so the merge must be a true no-op: nothing appended
+        # after the terminal section, and the target body is unchanged.
+        assert merged == target_body, (
+            "Expected a full no-op merge (85a6f52 incident shape); "
+            f"merged differs from target:\n{merged}"
+        )
+        assert merged.split("## Final output to orchestrator")[1].strip() == "End here."
+        # Each canonical heading marker for the covered concepts appears exactly
+        # once — guards against the tail-duplication shape from commit 85a6f52.
+        for marker in [
+            "**1. HOOK PERFORMANCE**",
+            "**2. PIPE CONTRACT**",
+            "**6. STORY SCOPE**",
+            "**5b. CONSTRAINT RATIONALE PRESERVATION**",
+            "**2.5 STORY SPEC**",
+        ]:
+            assert merged.count(marker) == 1, (
+                f"Marker {marker!r} does not appear exactly once in merged body:\n{merged}"
+            )
+
+    def test_genuinely_new_section_still_appended(self) -> None:
+        """A template section with no matching concept anywhere in the target is still appended."""
+        target_body = "\n## Review checklist\n\n**1. HOOK PERFORMANCE**\nHook content.\n"
+        template_body = "\n## Brand new section\n\nSome brand new content.\n"
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        assert "## Brand new section" in merged
+        assert "Some brand new content." in merged
+
+    def test_inline_bold_in_prose_is_not_a_pseudo_header(self) -> None:
+        """A bold span embedded in a prose sentence must not register as a pseudo-header concept."""
+        target_body = "\nThis is **important** context.\n"
+        template_body = "\n## Important\n\nSome content.\n"
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        assert "## Important" in merged
+        assert "Some content." in merged
+
 
 def test_sync_agents_rejects_shallow_path(tmp_path: pathlib.Path) -> None:
     """sync_agents must exit with code 1 when --project-dir resolves to fewer than 3 path components."""
@@ -447,6 +594,271 @@ def test_no_changes_message_only_when_clean(tmp_path: pathlib.Path) -> None:
     assert "No changes to apply." in result.output, (
         f"Expected 'No changes to apply.' in output, got:\n{result.output}"
     )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-203: empty/missing-variable body-merge render-failure tests
+# ---------------------------------------------------------------------------
+
+
+def test_empty_build_command_in_appended_section_fails_loudly(tmp_path: pathlib.Path) -> None:
+    """A body section appended to the target that interpolates an empty build_command fails loudly.
+
+    Reproduces the 85a6f52 corruption shape: build_command is absent from both
+    state.json and pairmode_context.json (resolves to "" via
+    _build_template_context's fallback), and the template's ## Test run section
+    -- absent from the target, so it would be newly appended -- interpolates it.
+    Asserts the file lands in render_errors (not changes), the CLI exits 1 with
+    "failed to render" on stderr, and the on-disk agent file is unchanged.
+    """
+    import unittest.mock
+
+    from click.testing import CliRunner
+
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+
+    agents_dir = project_dir / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+    original_content = "---\nmodel: sonnet\nname: reviewer\n---\n\n## Other section\n\nSome text.\n"
+    (agents_dir / "reviewer.md").write_text(original_content, encoding="utf-8")
+
+    fake_templates = project_dir / "templates"
+    fake_templates.mkdir()
+    (fake_templates / "reviewer.md.j2").write_text(
+        "---\nmodel: sonnet\nname: reviewer\n---\n\n"
+        "## Other section\n\nSome text.\n\n"
+        "## Test run\n\nDoes `{{ build_command }}` pass cleanly?\n",
+        encoding="utf-8",
+    )
+
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    (companion_dir / "state.json").write_text(
+        json.dumps({"project_name": "test"}), encoding="utf-8"
+    )
+    (companion_dir / "pairmode_context.json").write_text("{}", encoding="utf-8")
+
+    runner = CliRunner()
+    with unittest.mock.patch("pairmode_sync.TEMPLATES_DIR", fake_templates):
+        result = runner.invoke(
+            sync_agents,
+            ["--project-dir", str(project_dir), "--yes"],
+        )
+
+    assert result.exit_code == 1, (
+        f"Expected exit code 1, got {result.exit_code}. Output:\n{result.output}"
+    )
+    assert "failed to render" in result.output, (
+        f"Expected 'failed to render' in output, got:\n{result.output}"
+    )
+    assert (agents_dir / "reviewer.md").read_text(encoding="utf-8") == original_content, (
+        "Agent file on disk must be unchanged when the render fails"
+    )
+
+
+def test_empty_variable_in_existing_section_does_not_fail(tmp_path: pathlib.Path) -> None:
+    """An empty build_command inside a section already present in the target is not blocked.
+
+    The same empty build_command as above, but the target already contains an
+    equivalent '## Test run' section, so _merge_body_sections would not append
+    it. Asserts the file is NOT reported as a render error (Ensures #4).
+    """
+    import unittest.mock
+
+    from click.testing import CliRunner
+
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+
+    agents_dir = project_dir / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+    original_content = (
+        "---\nmodel: sonnet\nname: reviewer\n---\n\n"
+        "## Test run\n\nDoes the test suite pass?\n"
+    )
+    (agents_dir / "reviewer.md").write_text(original_content, encoding="utf-8")
+
+    fake_templates = project_dir / "templates"
+    fake_templates.mkdir()
+    (fake_templates / "reviewer.md.j2").write_text(
+        "---\nmodel: sonnet\nname: reviewer-updated\n---\n\n"
+        "## Test run\n\nDoes `{{ build_command }}` pass cleanly?\n",
+        encoding="utf-8",
+    )
+
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    (companion_dir / "state.json").write_text(
+        json.dumps({"project_name": "test"}), encoding="utf-8"
+    )
+    (companion_dir / "pairmode_context.json").write_text("{}", encoding="utf-8")
+
+    runner = CliRunner()
+    with unittest.mock.patch("pairmode_sync.TEMPLATES_DIR", fake_templates):
+        result = runner.invoke(
+            sync_agents,
+            ["--project-dir", str(project_dir), "--yes"],
+        )
+
+    assert result.exit_code == 0, (
+        f"Expected exit code 0, got {result.exit_code}. Output:\n{result.output}"
+    )
+    assert "failed to render" not in result.output, (
+        f"Should not report a render error when the empty variable is only inside an "
+        f"already-present section, got:\n{result.output}"
+    )
+    # The frontmatter change (name: reviewer -> reviewer-updated) must still apply.
+    new_content = (agents_dir / "reviewer.md").read_text(encoding="utf-8")
+    assert "name: reviewer-updated" in new_content
+
+
+def test_full_render_exception_populates_render_errors(tmp_path: pathlib.Path) -> None:
+    """A raised full-template render is surfaced via render_errors, not swallowed to "".
+
+    Uses a targeted mock of _render_full_template raising jinja2.TemplateError
+    to exercise the branch directly, since both renders normally share context
+    and a natural full-render-only failure is hard to construct.
+    """
+    import unittest.mock
+
+    import jinja2
+
+    from pairmode_sync import _collect_changes
+
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+
+    agents_dir = project_dir / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+    (agents_dir / "builder.md").write_text(
+        "---\nmodel: sonnet\nname: builder\n---\nbody\n", encoding="utf-8"
+    )
+
+    templates_dir = project_dir / "templates"
+    templates_dir.mkdir()
+    (templates_dir / "builder.md.j2").write_text(
+        "---\nmodel: sonnet\nname: builder-updated\n---\nbody\n", encoding="utf-8"
+    )
+
+    ctx = {"project_name": "test"}
+
+    with unittest.mock.patch(
+        "pairmode_sync._render_full_template",
+        side_effect=jinja2.TemplateError("synthetic full-render failure"),
+    ):
+        changes, render_errors = _collect_changes(agents_dir, templates_dir, ctx)
+
+    assert changes == [], f"Expected no changes when full render raises, got {changes!r}"
+    assert len(render_errors) == 1, f"Expected 1 render error, got {render_errors!r}"
+    assert render_errors[0][0] == "builder.md"
+    assert "synthetic full-render failure" in render_errors[0][1]
+    assert (agents_dir / "builder.md").read_text(encoding="utf-8") == (
+        "---\nmodel: sonnet\nname: builder\n---\nbody\n"
+    ), "Agent file must not be written when the full render raises"
+
+
+def test_undefined_variable_still_fails_via_frontmatter_path(tmp_path: pathlib.Path) -> None:
+    """A truly-undefined body variable still exits 1 via the frontmatter StrictUndefined path.
+
+    Extends coverage equivalent to test_sync_agents_exits_nonzero_on_render_failure
+    without weakening it (Ensures #5).
+    """
+    import unittest.mock
+
+    from click.testing import CliRunner
+
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+
+    agents_dir = project_dir / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+    (agents_dir / "bad-agent.md").write_text(
+        "---\nmodel: sonnet\n---\nbody\n", encoding="utf-8"
+    )
+
+    fake_templates = project_dir / "templates"
+    fake_templates.mkdir()
+    (fake_templates / "bad-agent.md.j2").write_text(
+        "---\nmodel: sonnet\nname: {{ project_name }}\n---\n{{ truly_undefined_xyz }}\n",
+        encoding="utf-8",
+    )
+
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    (companion_dir / "state.json").write_text(
+        json.dumps({"project_name": "test"}), encoding="utf-8"
+    )
+    (companion_dir / "pairmode_context.json").write_text("{}", encoding="utf-8")
+
+    runner = CliRunner()
+    with unittest.mock.patch("pairmode_sync.TEMPLATES_DIR", fake_templates):
+        result = runner.invoke(
+            sync_agents,
+            ["--project-dir", str(project_dir), "--yes"],
+        )
+
+    assert result.exit_code == 1
+    assert "failed to render" in result.output
+    assert not (agents_dir / "bad-agent.md").read_text(encoding="utf-8").startswith(
+        "---\nmodel: sonnet\nname:"
+    ), "Agent file must remain unwritten (still the original content)"
+
+
+def test_reviewer_incident_empty_build_command_not_written(tmp_path: pathlib.Path) -> None:
+    """Reproduces the 85a6f52 `` Does `` pass cleanly? `` corruption and asserts it never lands.
+
+    A reviewer-shaped fixture whose target lacks the appended checklist section;
+    the template's checklist item interpolates an empty build_command into a
+    to-be-appended section. Asserts the corrupt line is never written to the
+    agent file and the run fails loudly.
+    """
+    import unittest.mock
+
+    from click.testing import CliRunner
+
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+
+    agents_dir = project_dir / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+    original_content = (
+        "---\nname: reviewer\nmodel: sonnet\n---\n\n"
+        "## 1. HOOK PERFORMANCE\n\nDo any hooks block?\n"
+    )
+    (agents_dir / "reviewer.md").write_text(original_content, encoding="utf-8")
+
+    fake_templates = project_dir / "templates"
+    fake_templates.mkdir()
+    (fake_templates / "reviewer.md.j2").write_text(
+        "---\nname: reviewer\nmodel: sonnet\n---\n\n"
+        "## 1. HOOK PERFORMANCE\n\nDo any hooks block?\n\n"
+        "## 10. BUILD GATE\n\nDoes `{{ build_command }}` pass cleanly?\n",
+        encoding="utf-8",
+    )
+
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    (companion_dir / "state.json").write_text(
+        json.dumps({"project_name": "test"}), encoding="utf-8"
+    )
+    (companion_dir / "pairmode_context.json").write_text("{}", encoding="utf-8")
+
+    runner = CliRunner()
+    with unittest.mock.patch("pairmode_sync.TEMPLATES_DIR", fake_templates):
+        result = runner.invoke(
+            sync_agents,
+            ["--project-dir", str(project_dir), "--yes"],
+        )
+
+    assert result.exit_code == 1, (
+        f"Expected exit code 1, got {result.exit_code}. Output:\n{result.output}"
+    )
+    on_disk = (agents_dir / "reviewer.md").read_text(encoding="utf-8")
+    assert "Does `` pass cleanly?" not in on_disk, (
+        "The corrupt empty-substitution line must never be written to disk"
+    )
+    assert on_disk == original_content, "Agent file must remain byte-for-byte unchanged"
 
 
 # ---------------------------------------------------------------------------

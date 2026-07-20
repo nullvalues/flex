@@ -87,6 +87,13 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 86 | permissions-create idempotency | complete | [phase-86.md](phase-86.md) |
 | 87 | checklist-item-level override granularity for sync/audit | complete | [phase-87.md](phase-87.md) |
 | 88 | Scope context-budget gate to pairmode build-cycle agents | complete | [phase-88.md](phase-88.md) |
+| 89 | Remove flex-specific hook paragraph from canonical CLAUDE.md.j2 template | complete | [phase-89.md](phase-89.md) |
+| 90 | Fix stale pre-INFRA-191 assertion in CLAUDE.build.md test | complete | [phase-90.md](phase-90.md) |
+| 91 | Harden sync-agents body-merge against silent duplication/corruption | complete | [phase-91.md](phase-91.md) |
+| 92 | Fix cross-phase status leakage in story_update.py | complete | [phase-92.md](phase-92.md) |
+| 93 | Wire Edit/Write/Read matchers into pre_tool_use.py's PreToolUse registration | complete | [phase-93.md](phase-93.md) |
+| 94 | Fix escaped-pipe corruption in story_update.py phase-table row matching | complete | [phase-94.md](phase-94.md) |
+| 95 | Wire context-budget-gate hooks (UserPromptSubmit, SessionStart, PostToolUse Task/Agent) into downstream bootstrap registration | planned | [phase-95.md](phase-95.md) |
 | HARNESS001-ante1 | Versioning & upstream compatibility | complete | [phase-HARNESS001-ante1.md](phase-HARNESS001-ante1.md) |
 | HARNESS001-main | Resolver foundation (deterministic skeleton) | complete | [phase-HARNESS001-main.md](phase-HARNESS001-main.md) |
 | HARNESS002-main | Gate verdict extraction | complete | [phase-HARNESS002-main.md](phase-HARNESS002-main.md) |

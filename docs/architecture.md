@@ -23,7 +23,7 @@ flex/
     exit_plan_mode.py             ← relay plan content for impact analysis
     post_tool_use.py              ← pair partner: relay file changes; Task/Agent branch: reads JSONL via context_budget.read_current_tokens() and writes context_current_tokens to state.json (INFRA-182)
     session_end.py                ← signal sidebar to summarize and exit
-    pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename; INFRA-199 scoped to tool_input.subagent_type ∈ build-cycle agents only); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement)
+    pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename; INFRA-199 scoped to tool_input.subagent_type ∈ build-cycle agents only); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement); Read → cold_read_guard.py (INFRA-196 cold-read enforcement, registered/reachable since INFRA-205/INFRA-206, CER-065)
     session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write (context_current_tokens + context_current_tokens_recorded_at + context_session_reset_at on clear/startup — INFRA-180)
 
   skills/
@@ -473,8 +473,15 @@ enables deterministic model-upgrade decisions at the checkpoint-agent level (INF
 
 **`story_update.py` is the canonical tool for updating story status.**
 `update_story_status(story_id, project_dir, status)` updates a story file's frontmatter
-`status` field. `update_phase_story_status(story_id, project_dir, status)` finds all phase
-manifests containing the story's ID in their `## Stories` table and updates the status column.
+`status` field. `update_phase_story_status(story_id, project_dir, status)` updates the status
+column in matching `## Stories`-table row(s). Since INFRA-204, the scan is scoped to the phase
+manifest(s) named by the target story's own `phase:` frontmatter — resolving exact
+(`phase-<key>.md`) and suffixed (`phase-<key>-<suffix>.md`) filename forms, mirroring
+`story_new.py`'s `_append_to_phase` glob shapes (CER-062 / INFRA-197) — and only falls back to
+scanning every `docs/phases/*.md` when the story declares no `phase:` (legacy stories predating
+the `phase:` field convention). This closes CER-064's cross-phase status-leakage bug, where an
+update to one phase's story row could leak into an unrelated phase manifest carrying a colliding
+bare story ID.
 CLI: `uv run python skills/pairmode/scripts/story_update.py --story-id RAIL-NNN --status complete --project-dir .`
 Orchestrators must call this after a successful reviewer commit (see CLAUDE.build.md Step 3).
 Valid statuses: `draft`, `planned`, `in-progress`, `complete`, `backlog`.
@@ -664,13 +671,15 @@ Behaviour:
   the context passed to `sync-agents` includes all variables used by the canonical agent
   templates (`build_command`, `test_command`, `domain_isolation_rule`, `protected_paths`).
   For projects whose `pairmode_context.json` and `state.json` supply these values, body
-  propagation now works as intended. For sibling projects that were bootstrapped before
-  those keys were written to `pairmode_context.json`, or that use templates referencing
-  project-specific variables beyond the known set, the full-template render will still fail
-  with `StrictUndefined` and the body-merge step will silently fall back to no-op for that
-  file. In that case, new body sections must be applied manually during deployment stories.
-  When rendering fails, `sync-agents` now surfaces an explicit error to stderr and exits 1
-  rather than silently reporting "No changes to apply."
+  propagation now works as intended. Since INFRA-203, a body render that fails — whether
+  by `StrictUndefined` on a truly-missing variable, or because an empty-valued variable
+  (a graceful `""`/`[]` fallback from `_build_template_context`) feeds a section that would
+  be newly appended to the target — is surfaced as an explicit `"error: failed to render
+  {filename}: {reason}"` line on stderr, the file is skipped entirely (not written, on-disk
+  content byte-for-byte unchanged), and `sync-agents` exits 1 when no other file produced a
+  clean change. Sections whose empty variable only appears inside content already present in
+  the target (and therefore not appended) do not trigger this failure. In either failure
+  case, new body sections must be applied manually during deployment stories.
 - Prints a unified diff (`difflib.unified_diff`) for each changed file before writing.
 - `--dry-run`: exits after printing diffs without writing any files.
 - `--yes`: writes without prompting.
@@ -686,6 +695,35 @@ skipped with a warning.
   found. Partial success (some files changed, some errored) proceeds with the apply flow and
   exits 0, with errors already printed to stderr.
 - Agent files with no frontmatter block (no opening `---`): warns and skips.
+
+**Body-merge duplication risk (resolved, INFRA-202):** `_merge_body_sections`
+previously deduped solely by exact `##`-heading string match. Target files
+whose existing checklist items used bold-inline pseudo-headers (e.g.
+`**1. HOOK PERFORMANCE**`) rather than true `##` headings were not recognized
+as containing the canonical template's equivalent items, and the merge
+appended a second, differently-numbered copy of the same content after the
+file's terminal section instead of a clean no-op. Observed in
+`.claude/agents/reviewer.md` and `.claude/agents/security-auditor.md`
+(commit `85a6f52`, `sync-all --apply`; repaired by hand in `622309c`).
+`_merge_body_sections` now matches on a normalized concept key
+(`_heading_concept_key`) computed identically for a true `## ` heading and a
+standalone `**N. TITLE**` pseudo-header line — stripping heading markers,
+enumerator prefixes, bold/backtick emphasis, and casing/whitespace
+differences — and builds the target's "already present" set by scanning the
+entire target body (`_target_concept_keys`), not only its `## `-delimited
+sections. A canonical checklist item already present under any covered
+heading style is now a no-op, never a tail append; genuinely new template
+sections are still appended additively (INFRA-202). Additionally, a template
+context key absent from a project's `pairmode_context.json`/`state.json`
+(e.g. `domain_isolation_rule` for flex itself, which has no domain-isolation
+model) renders to `""` rather than raising `StrictUndefined` on the loose
+full-template render. As of INFRA-203, `_collect_changes` re-renders, in
+isolation, the raw template source of every section that would be newly
+appended under a stricter context with all empty-valued keys removed; if that
+stricter render raises `UndefinedError`, the file is surfaced as a render
+error (naming the offending variable) and skipped rather than merged, so a
+broken/empty checklist line (e.g. `` Does `` pass cleanly? ``) can no longer be
+merged in silently.
 
 **`pairmode_sync.py` — `sync-build` subcommand.**
 Compares the target project's `CLAUDE.build.md` against the canonical `CLAUDE.build.md.j2`
@@ -1017,8 +1055,8 @@ Hooks must:
 - Never make API calls
 - Never write to spec files directly
 
-**Documented exception — `hooks/pre_tool_use.py` (dual thin-delegate):**
-`pre_tool_use.py` dispatches to two modules:
+**Documented exception — `hooks/pre_tool_use.py` (triple thin-delegate):**
+`pre_tool_use.py` dispatches to three modules:
 
 - **`Task`/`Agent` → `context_budget.py` (CER-027, CER-039, CER-040, CER-049, INFRA-182, INFRA-199):**
   the dispatch is additionally scoped (INFRA-199) to
@@ -1043,6 +1081,17 @@ Hooks must:
 - **`Edit`/`Write` → `scope_guard.py` (Phase 55):** decides whether to block
   a file write based on the active story's declared `primary_files`/`touches`.
   Read-only; no state writes. Fails open when state or permissions file absent.
+- **`Read` → `cold_read_guard.py` (INFRA-196):** blocks a top-level orchestrator
+  Read (`agent_type` absent from the payload) targeting `docs/stories/**` or
+  `.claude/agents/**`, directing the orchestrator to pass the story ID to a
+  builder/reviewer subagent instead of reading it cold. Read-only; no state
+  writes. `docs/phases/**` and `docs/architecture.md` reads are never blocked.
+
+As of INFRA-205 (`hooks/hooks.json`) and INFRA-206 (`bootstrap.py`'s downstream
+registrar), all three dispatch branches above are actually reachable — prior to
+Phase 93 (CER-065), the `Edit`/`Write` and `Read` branches were registered
+nowhere in the `PreToolUse` matcher and were dead code in every project using
+this plugin, including flex itself.
 
 All decision logic lives in the named modules; the hook is a thin dispatcher.
 

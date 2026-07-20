@@ -53,6 +53,66 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp92-story-update-phase-scoping
+
+**Tag command:** `git tag cp92-story-update-phase-scoping && git push origin cp92-story-update-phase-scoping`
+**Phase:** 92
+**Stories:** INFRA-204
+**Acceptance:** Closes CER-064, a live-reproduced data-corruption bug reported by the `ud` migration repo: `update_phase_story_status` in `story_update.py` scanned every `docs/phases/*.md` file and flipped the status column of any Stories-table row whose bare first column equalled the target story ID, with no phase/rail disambiguation — so a status update on one phase could silently corrupt an unrelated phase's row for a colliding bare story ID (demonstrated in this repo: CER-063, `INFRA-203` colliding between `main`'s phase 91 and the unmerged `fold-prep` branch). INFRA-204 scopes the update to only the phase manifest(s) named by the story's own `phase:` frontmatter, resolving both exact and suffixed filename forms (mirroring `story_new.py`'s `_append_to_phase` glob precedence), falling back to the whole-glob scan only for legacy phase-less stories. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: ALIGNED, no pivots. 2375 tests pass.
+
+*(Note: this checkpoint was paused at the CER backlog review step when CER-065 was filed as an unrelated Do Now item during the same session (a separate, critical hook-wiring gap found via an external `caddy` repo report). Per the user's direction, CER-065 — and CER-066, discovered live while fixing it — were resolved first via Phase 93 (cp93) and Phase 94 (cp94) before this checkpoint could tag. INFRA-204/CER-064 itself required no rework; the pause was purely a backlog-gate ordering issue.)*
+
+---
+
+## cp93-pretooluse-matcher-wiring
+
+**Tag command:** `git tag cp93-pretooluse-matcher-wiring && git push origin cp93-pretooluse-matcher-wiring`
+**Phase:** 93
+**Stories:** INFRA-205, INFRA-206
+**Acceptance:** Closes CER-065, a critical live-reachability gap found via an external `caddy` repo session and confirmed against flex's own tree: `hooks/pre_tool_use.py` dispatches on `Task`/`Agent`, `Edit`/`Write`, and `Read`, but `hooks/hooks.json`'s `PreToolUse` array registered only a `Task|Agent` matcher — the `scope_guard.py` (Phase 55) and `cold_read_guard.py` (INFRA-196) branches were unreachable dead code in every project using this plugin, including flex itself, since the stories that added them (INFRA-139, INFRA-196) never updated the registration manifest. INFRA-205 adds `Edit|Write` and `Read` matcher blocks to `hooks/hooks.json` (mirroring the existing `PostToolUse` two-block pattern) with a regression test scanning `pre_tool_use.py`'s actual dispatch literals and asserting `hooks.json`'s registered matchers are a superset — closing the process gap that let this ship silently dead twice. INFRA-206 widens `bootstrap.py`'s `_register_pretooluse_hook` to register a canonical combined `Task|Agent|Edit|Write|Read` matcher for downstream bootstrapped projects, found/deduped by command string so a stale legacy `"Task"`-only block is migrated in place rather than orphaned. `docs/architecture.md` updated to document the third (`Read`) dispatch branch, previously undocumented since INFRA-196. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: both stories ALIGNED, no pivots — INFRA-206's single-combined-matcher design (vs. INFRA-205's three-separate-block layout) was confirmed as the story's own deliberate, documented choice, not drift. 2383 tests pass.
+
+*(Note: this checkpoint was paused mid-sequence when CER-066 — a data-corruption bug in `story_update.py`'s own row-matching — was discovered live during this phase's build. CER-066 was forked into Phase 94 and tagged first (cp94) per the user's direction to clear it before this checkpoint could tag; both CER-065 and CER-066 are now resolved.)*
+
+---
+
+## cp94-story-update-escaped-pipe-fix
+
+**Tag command:** `git tag cp94-story-update-escaped-pipe-fix && git push origin cp94-story-update-escaped-pipe-fix`
+**Phase:** 94
+**Stories:** INFRA-207
+**Acceptance:** Closes CER-066, a live data-corruption bug found mid-build during Phase 93: `_update_story_row_in_phase` in `story_update.py` parsed Stories-table rows via a naive `stripped.split('|')`, which didn't respect markdown-escaped pipes (`\|`) inside a cell — a pattern this repo's own INFRA rail produces routinely when documenting hook matcher syntax (e.g. `Edit\|Write`). A title containing `\|` got truncated at the escaped pipe with the intended status value spliced into the fragment, leaving the real status cell unchanged; live-hit twice against `docs/phases/phase-93.md`'s INFRA-205 and INFRA-206 rows, both manually repaired by the orchestrator outside the tool. INFRA-207 replaces the split with `re.split(r'(?<!\\)\|', stripped)`, treating an escaped pipe as a literal cell character rather than a column separator, with regression tests covering the exact CER-066 fixture and the INFRA-205/INFRA-206 collision shape. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: ALIGNED, no pivots. 2383 tests pass.
+
+*(Note: this phase was built out of sequence — spec'd and shipped ahead of Phase 93's own tag, at the user's direction, because CER-066 was discovered live during Phase 93's build and needed to clear before either Phase 93 or the still-pending Phase 92 checkpoint could tag. See cp93 and cp92 for the resumed sequence.)*
+
+---
+
+## cp90-fix-stale-preinfra191-assertion
+
+**Tag command:** `git tag cp90-fix-stale-preinfra191-assertion a8a7004 && git push origin cp90-fix-stale-preinfra191-assertion`
+**Phase:** 90
+**Stories:** INFRA-201
+**Acceptance:** A routine `sync-all` run caught flex's own `CLAUDE.build.md` up to the already-approved INFRA-191 spec-preflight flow, which broke `TestBuild025PreStoryScopeCheck` in `test_templates.py` — the test still asserted the pre-INFRA-191 wording. Updated the assertion to match the current, correct flow. Single-file test fix; reviewer-approved and committed at build time. **Retroactively tagged 2026-07-16** — this checkpoint was never tagged when the phase completed; tag applied directly at the phase's completion commit (`a8a7004`) rather than re-run against historical state, since the story was already reviewer-approved (tests + checklist) and is low-risk (test-assertion-only change).
+
+---
+
+## cp89-remove-flex-hook-paragraph-from-canonical-template
+
+**Tag command:** `git tag cp89-remove-flex-hook-paragraph-from-canonical-template f293f6a && git push origin cp89-remove-flex-hook-paragraph-from-canonical-template`
+**Phase:** 89
+**Stories:** INFRA-200
+**Acceptance:** A pairmode sync-attempt review on a downstream (non-flex) project surfaced that its synced `CLAUDE.md` described a "thin-delegation exception" naming `hooks/pre_tool_use.py`/`cold_read_guard.py`/INFRA-196 — flex-internal identifiers with no counterpart in that project's repo, since `bootstrap.py` never copies `hooks/` into a target project. Removed the flex-specific paragraph from the canonical `skills/pairmode/templates/CLAUDE.md.j2` PROTECTED FILES checklist item, leaving the generic instruction intact; `/mnt/work/flex/CLAUDE.md` (this repo's own file) is untouched and keeps its full paragraph. Single-template-file change; reviewer-approved and committed at build time. **Retroactively tagged 2026-07-16** — this checkpoint was never tagged when the phase completed; tag applied directly at the phase's completion commit (`f293f6a`) rather than re-run against historical state, since the story was already reviewer-approved (tests + checklist) and is low-risk (template-prose-only change).
+
+---
+
+## cp91-sync-agents-body-merge-hardening
+
+**Tag command:** `git tag cp91-sync-agents-body-merge-hardening && git push origin cp91-sync-agents-body-merge-hardening`
+**Phase:** 91
+**Stories:** INFRA-202, INFRA-203
+**Acceptance:** Closes a live, repeatable correctness bug found via production incident (2026-07-16, commit 85a6f52): `sync-all --apply` against flex itself appended duplicate, differently-numbered checklist content past the logical end of `.claude/agents/reviewer.md` and `.claude/agents/security-auditor.md`, and separately merged a nonsensical empty checklist line. `_heading_concept_key`/`_target_concept_keys`/`_sections_to_add` (INFRA-202) teach `_merge_body_sections` to recognize canonical sections already present under non-`##` formatting (bold-inline pseudo-headers, numbered enumerators) and never duplicate-append. `_empty_variable_in_appended_sections` (INFRA-203) makes an empty/degenerate template-variable render for a required, newly-appended section fail loudly (stderr error, non-zero exit, no write) instead of merging blank content, reusing the INFRA-202 section-scoping so already-present sections are never over-blocked. `docs/architecture.md` updated. Security audit: 0 CRITICAL/HIGH/MEDIUM/LOW. Intent review: both stories ALIGNED, no pivots; filed CER-063 (Do Later) for a forward-looking `INFRA-203` rail+number collision with the unmerged `fold-prep` branch, to be resolved at merge time. 2371 tests pass.
+
+---
+
 ## cp88-context-budget-subagent-scoping
 
 **Tag command:** `git tag cp88-context-budget-subagent-scoping && git push origin cp88-context-budget-subagent-scoping`

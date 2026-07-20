@@ -34,6 +34,7 @@ import datetime
 import difflib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -213,6 +214,101 @@ def _parse_body_sections(body: str) -> tuple[str, list[tuple[str, str]]]:
     return "".join(preamble_lines), sections
 
 
+_PSEUDO_HEADER_RE = re.compile(r"^\*\*(.+?)\*\*:?$")
+_ENUMERATOR_RE = re.compile(r"^\d+(\.\d+)?[a-z]?[.)]?\s+")
+_INLINE_EMPHASIS_CHARS = str.maketrans("", "", "*_`")
+
+
+def _heading_concept_key(line: str) -> str | None:
+    """Return a normalized concept key for a heading-like line, or ``None``.
+
+    Recognizes two heading styles:
+    - a true ``## `` (or ``#``) heading line
+    - a standalone bold-inline pseudo-header line, i.e. a line whose entire
+      stripped content is wrapped in ``**...**`` (optionally with a trailing
+      ``:``) — not a bold span embedded in a larger prose sentence.
+
+    Normalization (see INFRA-202 Ensures #1):
+    a. strip leading/trailing whitespace
+    b. remove a leading ``## `` / ``#`` marker
+    c. unwrap a line that is wholly ``**...**`` (optional trailing ``:``)
+    d. remove a leading enumerator token (``1. ``, ``2.5 ``, ``5a. ``, ``10) ``)
+    e. strip a trailing ``:``
+    f. strip remaining inline emphasis / backtick characters
+    g. lowercase and collapse internal whitespace runs to a single space
+
+    Returns ``None`` for any line that is not a recognized heading style.
+    """
+    text = line.strip()
+    if not text:
+        return None
+
+    is_heading = False
+
+    if text.startswith("## "):
+        text = text[3:].strip()
+        is_heading = True
+    elif text.startswith("#"):
+        stripped = text.lstrip("#").strip()
+        if stripped != text:
+            text = stripped
+            is_heading = True
+
+    if not is_heading:
+        match = _PSEUDO_HEADER_RE.match(text)
+        if not match:
+            return None
+        text = match.group(1).strip()
+        is_heading = True
+
+    if not is_heading:
+        return None
+
+    text = _ENUMERATOR_RE.sub("", text, count=1)
+    text = text.strip()
+    if text.endswith(":"):
+        text = text[:-1].strip()
+    text = text.translate(_INLINE_EMPHASIS_CHARS)
+    text = text.lower()
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text or None
+
+
+def _target_concept_keys(body: str) -> set[str]:
+    """Collect the set of normalized concept keys present anywhere in *body*.
+
+    Scans every line of the target body (not just ``## ``-delimited sections)
+    for both true ``## `` headings and standalone bold-inline pseudo-header
+    lines, via :func:`_heading_concept_key`.
+    """
+    keys: set[str] = set()
+    for line in body.splitlines():
+        key = _heading_concept_key(line)
+        if key is not None:
+            keys.add(key)
+    return keys
+
+
+def _sections_to_add(
+    template_sections: list[tuple[str, str]], target_body: str
+) -> list[tuple[str, str]]:
+    """Return the subset of *template_sections* that would be appended to *target_body*.
+
+    A template section is "to add" when its normalized concept key (see
+    :func:`_heading_concept_key`) is not already present anywhere in the target
+    body (see :func:`_target_concept_keys`). Shared by :func:`_merge_body_sections`
+    and the INFRA-203 empty-variable-in-appended-section guard so both use an
+    identical definition of "would be appended".
+    """
+    target_keys: set[str] = _target_concept_keys(target_body)
+    return [
+        (heading, content)
+        for heading, content in template_sections
+        if _heading_concept_key(heading) not in target_keys
+    ]
+
+
 def _merge_body_sections(template_body: str, target_body: str) -> str:
     """Merge new H2 sections from *template_body* into *target_body*, additively.
 
@@ -221,20 +317,17 @@ def _merge_body_sections(template_body: str, target_body: str) -> str:
     Sections in the target that are absent from the template are preserved
     (project-specific additions are never removed).
 
+    "Present in the target" is decided by normalized concept key (see
+    :func:`_heading_concept_key`), not exact heading-string equality, so a
+    canonical checklist item already present under a non-``## `` heading style
+    (e.g. a ``**N. TITLE**`` pseudo-header) is recognized and never
+    duplicate-appended (INFRA-202).
+
     Returns the merged target body.
     """
     _template_preamble, template_sections = _parse_body_sections(template_body)
-    _target_preamble, target_sections = _parse_body_sections(target_body)
 
-    # Build the set of heading lines already present in the target
-    target_headings: set[str] = {heading for heading, _content in target_sections}
-
-    # Collect template sections not present in the target
-    sections_to_add: list[tuple[str, str]] = [
-        (heading, content)
-        for heading, content in template_sections
-        if heading not in target_headings
-    ]
+    sections_to_add = _sections_to_add(template_sections, target_body)
 
     if not sections_to_add:
         return target_body
@@ -265,6 +358,82 @@ def _render_full_template(template_path: Path, context: dict) -> str:
     )
     template = env.get_template(template_path.name)
     return template.render(**context)
+
+
+_UNDEFINED_VAR_RE = re.compile(r"'([^']+)' is undefined")
+
+
+def _reason_for_undefined_error(heading: str, exc: jinja2.UndefinedError) -> str:
+    """Build a human-readable render_errors reason for an undefined-in-appended-section failure.
+
+    Names the offending variable when jinja2's error message follows its
+    standard "'<name>' is undefined" shape; falls back to the raw exception
+    text otherwise.
+    """
+    match = _UNDEFINED_VAR_RE.search(str(exc))
+    var_name = match.group(1) if match else str(exc)
+    heading_text = heading.strip().lstrip("#").strip()
+    return f"body section '{heading_text}' interpolates empty variable '{var_name}'"
+
+
+def _empty_variable_in_appended_sections(
+    template_path: Path,
+    sections_to_add: list[tuple[str, str]],
+    body_strict_context: dict,
+) -> str | None:
+    """Return a render-error reason if an appended section depends on an empty-valued variable.
+
+    INFRA-203: ``_build_template_context`` supplies graceful ``""``/``[]`` fallbacks
+    for several variables (``build_command``, ``domain_isolation_rule``,
+    ``protected_paths``, ...). Those fallbacks are *defined* values, so the
+    loose full-template render under ``StrictUndefined`` never raises for them
+    — the empty string is simply interpolated, producing degenerate merged
+    content (e.g. `` Does `` pass cleanly? ``). This helper re-renders, in
+    isolation, only the raw template source of each section that
+    ``_merge_body_sections`` would newly append, using *body_strict_context*
+    (the same context with every empty-valued key removed). If that stricter
+    render raises ``jinja2.UndefinedError`` for a given section, that section's
+    rendered content depends on a variable this project supplies only as an
+    empty fallback, and the file must be surfaced as a render error rather
+    than merged (Ensures #2). Sections not in *sections_to_add* — i.e. content
+    that is not newly appended — are never inspected here (Ensures #4).
+
+    Returns the first offending reason string, or ``None`` if no appended
+    section depends on an empty-valued variable.
+    """
+    if not sections_to_add:
+        return None
+
+    raw_text = template_path.read_text(encoding="utf-8")
+    raw_parts = _split_agent_file(raw_text)
+    raw_body = raw_parts[1] if raw_parts is not None else raw_text
+    _raw_preamble, raw_sections = _parse_body_sections(raw_body)
+
+    raw_by_key: dict[str, str] = {}
+    for heading, content in raw_sections:
+        key = _heading_concept_key(heading)
+        if key is not None and key not in raw_by_key:
+            raw_by_key[key] = heading + content
+
+    strict_env = jinja2.Environment(
+        undefined=jinja2.StrictUndefined,
+        keep_trailing_newline=True,
+    )
+
+    for heading, _rendered_content in sections_to_add:
+        key = _heading_concept_key(heading)
+        raw_section_source = raw_by_key.get(key) if key is not None else None
+        if raw_section_source is None:
+            # Could not locate the corresponding raw source for this appended
+            # section (e.g. a templated heading) — nothing to strictly
+            # re-render against; skip rather than false-block.
+            continue
+        try:
+            strict_env.from_string(raw_section_source).render(**body_strict_context)
+        except jinja2.UndefinedError as exc:
+            return _reason_for_undefined_error(heading, exc)
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -396,17 +565,41 @@ def _collect_changes(
             render_errors.append((agent_file.name, str(exc)))
             continue
 
-        # Render the full template and extract its body for section merging
+        # --- Path A: raised full-template render (StrictUndefined on a truly
+        # missing variable, or any other TemplateError/ValueError). INFRA-203
+        # Ensures #1: this is surfaced identically to the frontmatter-render
+        # failure above — no silent fall-back to an empty/no-op body merge.
         try:
             full_rendered = _render_full_template(template_path, context)
-            template_parts = _split_agent_file(full_rendered)
-            template_body = template_parts[1] if template_parts is not None else ""
-        except (jinja2.TemplateError, ValueError):
-            # If we can't render the full template, fall back to no body merging.
-            # The frontmatter render above is the gating check; full-body render
-            # failure does not block frontmatter sync (limitation documented in
-            # architecture.md: body propagation only works on the flex repo itself).
-            template_body = ""
+        except (jinja2.TemplateError, ValueError) as exc:
+            render_errors.append((agent_file.name, str(exc)))
+            continue
+
+        template_parts = _split_agent_file(full_rendered)
+        template_body = template_parts[1] if template_parts is not None else ""
+
+        # --- Path B: full render *succeeded*, but only because a body-referenced
+        # variable resolved to a graceful ""/[] fallback from
+        # _build_template_context (a *defined*-but-empty value, so
+        # StrictUndefined never fired). INFRA-203 Ensures #2/#4: if the
+        # section(s) that would be newly appended to the target depend on such
+        # an empty value, surface a render error instead of merging degenerate
+        # content (e.g. `` Does `` pass cleanly? ``). Sections that are empty
+        # but only appear inside content already present in the target (and
+        # therefore not appended) are never flagged.
+        _preamble, template_sections = _parse_body_sections(template_body)
+        sections_to_add = _sections_to_add(template_sections, body)
+
+        if sections_to_add:
+            body_strict_context = {
+                key: value for key, value in context.items() if value not in ("", [], None)
+            }
+            reason = _empty_variable_in_appended_sections(
+                template_path, sections_to_add, body_strict_context
+            )
+            if reason is not None:
+                render_errors.append((agent_file.name, reason))
+                continue
 
         # Merge new H2 sections from the template body into the target body
         merged_body = _merge_body_sections(template_body, body)

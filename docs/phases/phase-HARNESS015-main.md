@@ -34,7 +34,9 @@ and pulled into `fold-prep` via the RELEASE-014 reconciliation merge — its sta
 here was stale ("planned"); corrected to "complete" during the 2026-07-20 build
 pass, no code change needed.
 
-Surfaced 2026-07-18 during an INFRA-202 build attempt: `permission_scope.py`'s
+Surfaced 2026-07-18 during an INFRA-202 build attempt (renumbered INFRA-214
+during the RELEASE-019 fold merge — collided with a new main-branch
+INFRA-202): `permission_scope.py`'s
 `write-permissions` path produced a malformed allow-rule for a `touches` entry
 that carried an inline `# reason: ...` comment, because
 `schema_validator._parse_frontmatter()`'s block-sequence parsing doesn't strip
@@ -45,7 +47,7 @@ inline YAML comments from list items. Filed as INFRA-211.
 | ID | Title | Status |
 |----|-------|--------|
 | RESOLVER-017 | Reset checkpoint_step on checkpoint-tag completion (CER-066) | complete |
-| INFRA-202 | Adopt state_utils atomic write in remaining state.json writers (CER-050) | complete |
+| INFRA-214 | Adopt state_utils atomic write in remaining state.json writers (CER-050) (renumbered from INFRA-202, RELEASE-019 fold merge) | complete |
 | INFRA-211 | Strip inline YAML comments from frontmatter list items in `_parse_frontmatter` | complete |
 
 ## Schema delivery

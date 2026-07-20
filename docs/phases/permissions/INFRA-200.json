@@ -1,0 +1,12 @@
+{
+  "story_id": "INFRA-200",
+  "story_spec": "docs/stories/INFRA/INFRA-200.md",
+  "allowed_paths": [
+    "skills/pairmode/templates/CLAUDE.md.j2",
+    "tests/pairmode/test_templates.py",
+    "tests/pairmode/test_sync.py",
+    "tests/pairmode/test_audit.py",
+    "docs/stories/INFRA/INFRA-200.md"
+  ],
+  "generated_at": "2026-07-16T05:07:54Z"
+}

@@ -1,0 +1,12 @@
+{
+  "story_id": "INFRA-208",
+  "story_spec": "docs/stories/INFRA/INFRA-208.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/bootstrap.py",
+    "skills/pairmode/scripts/sync.py",
+    "tests/pairmode/test_bootstrap.py",
+    "docs/architecture.md",
+    "docs/stories/INFRA/INFRA-208.md"
+  ],
+  "generated_at": "2026-07-20T18:41:04Z"
+}

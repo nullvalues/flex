@@ -21,8 +21,14 @@ from pathlib import Path
 
 # Insert repo root so sibling imports work when run as CLI
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+# Insert this script's own directory so sibling modules (schema_validator.py)
+# can be imported when story_update.py is invoked directly or via the plugin
+# CLI entry point (mirrors record_attempt.py's sys.path setup).
+sys.path.insert(0, str(Path(__file__).parent))
 
 import click
+
+from schema_validator import _parse_frontmatter
 
 # ---------------------------------------------------------------------------
 # Story ID parsing
@@ -106,8 +112,79 @@ def update_story_status(story_id: str, project_dir: Path, status: str) -> Path:
     return story_path
 
 
+def _read_story_declared_phase(story_id: str, resolved: Path) -> str | None:
+    """Read the target story's `phase:` frontmatter value.
+
+    Returns the stripped phase key, or None when the story file is missing,
+    unreadable, outside the project directory, or has no non-empty `phase:`
+    field (INFRA-204: "no declared phase" → caller falls back to a whole-glob
+    scan). Never raises — `update_phase_story_status` must remain callable
+    independently of a valid story file existing.
+    """
+    try:
+        rail, _seq = _parse_story_id(story_id)
+    except ValueError:
+        return None
+
+    story_path = resolved / "docs" / "stories" / rail / f"{story_id}.md"
+    try:
+        story_path.resolve().relative_to(resolved)
+    except ValueError:
+        return None
+
+    if not story_path.exists():
+        return None
+
+    try:
+        text = story_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    fm = _parse_frontmatter(text)
+    if not fm:
+        return None
+
+    phase = fm.get("phase")
+    if phase is None:
+        return None
+
+    phase_str = str(phase).strip()
+    return phase_str or None
+
+
+def _resolve_phase_manifests(phases_dir: Path, phase: str) -> list[Path]:
+    """Resolve the phase manifest file(s) named by a bare `phase:` key.
+
+    Mirrors story_new.py._append_to_phase's filename-matching contract
+    (CER-062 / INFRA-197) so story_update.py and story_new.py agree on which
+    manifest(s) a phase key names. This closes CER-064: without this shared
+    contract, a status update could leak into an unrelated phase manifest
+    that happens to carry a colliding bare story ID.
+
+    Tries, in order:
+      1. `{phase}-*.md`
+      2. exact `phase-{phase}.md`
+      3. suffixed `phase-{phase}-*.md`
+    Returns the sorted matches from the first shape that matches anything.
+    """
+    matches = sorted(phases_dir.glob(f"{phase}-*.md"))
+    if matches:
+        return matches
+
+    exact = phases_dir / f"phase-{phase}.md"
+    if exact.exists():
+        return [exact]
+
+    return sorted(phases_dir.glob(f"phase-{phase}-*.md"))
+
+
 def update_phase_story_status(story_id: str, project_dir: Path, status: str) -> list[Path]:
-    """Find all phase manifests containing story_id in their Stories table.
+    """Find phase manifest(s) containing story_id in their Stories table.
+
+    Scoped (INFRA-204 / CER-064) to the phase manifest(s) named by the target
+    story's own `phase:` frontmatter, when present. Falls back to scanning
+    every `docs/phases/*.md` only when the story declares no `phase:`
+    (legacy stories predating the `phase:` field convention).
 
     Update the status column (third pipe-delimited cell) in each matching row.
     Returns list of updated phase file paths.
@@ -118,9 +195,16 @@ def update_phase_story_status(story_id: str, project_dir: Path, status: str) -> 
     if not phases_dir.is_dir():
         return []
 
+    declared_phase = _read_story_declared_phase(story_id, resolved)
+
+    if declared_phase:
+        candidate_paths = _resolve_phase_manifests(phases_dir, declared_phase)
+    else:
+        candidate_paths = sorted(phases_dir.glob("*.md"))
+
     updated: list[Path] = []
 
-    for phase_path in sorted(phases_dir.glob("*.md")):
+    for phase_path in candidate_paths:
         text = phase_path.read_text(encoding="utf-8")
         new_text = _update_story_row_in_phase(text, story_id, status)
         if new_text != text:
@@ -174,8 +258,12 @@ def _update_story_row_in_phase(text: str, story_id: str, status: str) -> str:
             modified_lines.append(line)
             continue
 
-        # Parse table row
-        parts = stripped.split('|')
+        # Parse table row. Split on unescaped pipes only: `\|` is a literal
+        # cell character (escaped pipe), not a column separator — a naive
+        # `str.split('|')` shreds titles like "Edit\|Write" into extra
+        # "columns", shifting parts[3] off the real status cell and
+        # corrupting the row (CER-066).
+        parts = re.split(r'(?<!\\)\|', stripped)
         # parts[0] is empty (before first |), parts[-1] may be empty (after last |)
         # Cell values are parts[1], parts[2], ...
         if len(parts) < 3:
