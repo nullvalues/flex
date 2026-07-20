@@ -16,6 +16,7 @@ from schema_validator import (
     validate_phase_manifest,
     VALID_STORY_CLASSES,
     DEFAULT_STORY_CLASS,
+    _parse_frontmatter,
 )
 
 
@@ -779,3 +780,61 @@ class TestTestGateField:
         assert any("Invalid test_gate" in e for e in errors), (
             f"Expected 'Invalid test_gate' error, got: {errors}"
         )
+
+
+# ---------------------------------------------------------------------------
+# _parse_frontmatter — inline comment stripping on block-sequence list items
+# (INFRA-211)
+# ---------------------------------------------------------------------------
+
+class TestParseFrontmatterListItemComments:
+    """_parse_frontmatter() list-item inline-comment handling."""
+
+    def _frontmatter(self, touches_block: str) -> str:
+        return textwrap.dedent(
+            f"""\
+            ---
+            id: FEAT-001
+            rail: FEAT
+            title: My first story
+            status: planned
+            phase: "001"
+            touches:
+            {touches_block}
+            ---
+
+            body
+            """
+        )
+
+    def test_plain_list_item_unaffected(self):
+        """A plain list item with no '#' parses identically to before."""
+        text = self._frontmatter("  - src/main.py")
+        result = _parse_frontmatter(text)
+        assert result["touches"] == ["src/main.py"]
+
+    def test_inline_comment_is_stripped(self):
+        """A '#' preceded by whitespace starts a comment and is stripped."""
+        text = self._frontmatter(
+            "  - hooks/post_tool_use.py  # protected file — reason: needed"
+        )
+        result = _parse_frontmatter(text)
+        assert result["touches"] == ["hooks/post_tool_use.py"]
+
+    def test_quoted_list_item_with_literal_hash_is_exempt(self):
+        """A '#' inside a quoted list item is literal data, not a comment."""
+        text = self._frontmatter('  - "src/main.py # not-a-comment"')
+        result = _parse_frontmatter(text)
+        assert result["touches"] == ["src/main.py # not-a-comment"]
+
+    def test_hash_glued_to_content_is_not_a_comment(self):
+        """A '#' with no preceding whitespace is not treated as a comment start."""
+        text = self._frontmatter("  - docs/notes.md#anchor-section")
+        result = _parse_frontmatter(text)
+        assert result["touches"] == ["docs/notes.md#anchor-section"]
+
+    def test_no_change_when_no_hash_present(self):
+        """Regression guard: list items without '#' are unaffected by the fix."""
+        text = self._frontmatter("  - skills/pairmode/scripts/schema_validator.py")
+        result = _parse_frontmatter(text)
+        assert result["touches"] == ["skills/pairmode/scripts/schema_validator.py"]

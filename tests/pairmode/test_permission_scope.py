@@ -95,6 +95,34 @@ def test_write_adds_read_for_touches(tmp_path):
     assert "Write(docs/readme.md)" in allow
 
 
+def test_write_strips_inline_comment_from_touches(tmp_path):
+    """INFRA-211 regression: a touches entry with an inline '# reason: ...'
+    comment must produce a clean Edit/Write/Read rule, not a malformed one
+    with the comment text baked into the path."""
+    story_content = """\
+---
+id: RAIL-003
+rail: RAIL
+title: Story with commented touches
+status: planned
+phase: 1
+primary_files:
+touches:
+  - hooks/post_tool_use.py  # protected file — reason: needed for X
+---
+
+Story body here.
+"""
+    story = _write_story(tmp_path, story_content)
+    ps.write_story_permissions(story, tmp_path)
+
+    allow = _read_settings(tmp_path)["permissions"]["allow"]
+    assert "Edit(hooks/post_tool_use.py)" in allow
+    assert "Write(hooks/post_tool_use.py)" in allow
+    assert "Read(hooks/post_tool_use.py)" in allow
+    assert not any("#" in rule for rule in allow)
+
+
 def test_write_is_idempotent(tmp_path):
     story = _write_story(tmp_path)
     ps.write_story_permissions(story, tmp_path)

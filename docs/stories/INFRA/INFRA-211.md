@@ -2,7 +2,7 @@
 id: INFRA-211
 rail: INFRA
 title: Strip inline YAML comments from frontmatter list items in _parse_frontmatter
-status: planned
+status: complete
 phase: "HARNESS015-main"
 story_class: code
 auth_gated: false

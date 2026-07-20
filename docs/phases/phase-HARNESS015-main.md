@@ -46,7 +46,7 @@ inline YAML comments from list items. Filed as INFRA-211.
 |----|-------|--------|
 | RESOLVER-017 | Reset checkpoint_step on checkpoint-tag completion (CER-066) | complete |
 | INFRA-202 | Adopt state_utils atomic write in remaining state.json writers (CER-050) | complete |
-| INFRA-211 | Strip inline YAML comments from frontmatter list items in `_parse_frontmatter` | planned |
+| INFRA-211 | Strip inline YAML comments from frontmatter list items in `_parse_frontmatter` | complete |
 
 ## Schema delivery
 

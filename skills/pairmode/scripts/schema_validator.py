@@ -25,6 +25,34 @@ _FRONTMATTER_RE = re.compile(
 _YAML_SCALAR_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$')
 _YAML_LIST_ITEM_RE = re.compile(r'^\s+-\s+(.+)$')
 
+# Matches a '#' that starts an inline comment: preceded by whitespace (or at
+# the very start of the string). A '#' glued to non-whitespace content is not
+# a comment start (real-YAML-like semantics).
+_INLINE_COMMENT_RE = re.compile(r'(?:^|\s)#.*$')
+
+
+def _strip_list_item_comment(value: str) -> str:
+    """
+    Apply quote-handling then inline-comment-stripping to a raw block-sequence
+    list item value, mirroring the scalar-value quote handling below.
+
+    Quoted values (start and end with matching quotes) are treated as
+    literal — a '#' inside quotes is data, not a comment, and is never
+    stripped. Unquoted values have a trailing inline comment removed, but
+    only when the '#' is preceded by whitespace (or starts the value); a '#'
+    glued to non-whitespace content is left alone.
+    """
+    trimmed = value.strip()
+    if (trimmed.startswith('"') and trimmed.endswith('"') and len(trimmed) >= 2) or (
+        trimmed.startswith("'") and trimmed.endswith("'") and len(trimmed) >= 2
+    ):
+        return trimmed[1:-1]
+
+    match = _INLINE_COMMENT_RE.search(trimmed)
+    if match:
+        trimmed = trimmed[: match.start()]
+    return trimmed.strip()
+
 # L018-style enforcement: detect pointer-only acceptance sections.
 _POINTER_ONLY_RE = re.compile(
     r"^\s*See\s+(docs|phase)",
@@ -65,7 +93,7 @@ def _parse_frontmatter(text: str) -> dict[str, Any] | None:
         # Check if this is a list item
         list_m = _YAML_LIST_ITEM_RE.match(line)
         if list_m and current_key is not None and current_list is not None:
-            current_list.append(list_m.group(1).strip())
+            current_list.append(_strip_list_item_comment(list_m.group(1)))
             continue
 
         # Check if this is a new scalar or list-start key
