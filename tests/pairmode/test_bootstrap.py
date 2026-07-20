@@ -3291,6 +3291,197 @@ class TestRegisterPreToolUseHook:
 
 
 # ---------------------------------------------------------------------------
+# INFRA-208: _register_context_budget_hooks tests
+# ---------------------------------------------------------------------------
+
+from skills.pairmode.scripts.bootstrap import _register_context_budget_hooks  # noqa: E402
+
+
+class TestRegisterContextBudgetHooks:
+    """Tests for _register_context_budget_hooks in bootstrap.py (INFRA-208)."""
+
+    def _plugin_root(self) -> _pathlib.Path:
+        """Return the flex repo root (plugin root) for tests."""
+        return _pathlib.Path(__file__).resolve().parent.parent.parent
+
+    def _find_block_with_command(self, block_list, command):
+        for block in block_list:
+            inner_hooks = block.get("hooks", [])
+            if any(h.get("command") == command for h in inner_hooks):
+                return block
+        return None
+
+    def test_registers_user_prompt_submit(self, tmp_path):
+        """After the call, UserPromptSubmit has a matcher-less block carrying
+        the user_prompt_submit.py command."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        event_list = data["hooks"]["UserPromptSubmit"]
+
+        expected_command = f"uv run python {plugin_root / 'hooks' / 'user_prompt_submit.py'}"
+        block = self._find_block_with_command(event_list, expected_command)
+        assert block is not None, "Should have a block carrying the user_prompt_submit.py command"
+        assert "matcher" not in block, f"UserPromptSubmit block must not carry a matcher: {block}"
+
+    def test_registers_session_start(self, tmp_path):
+        """After the call, SessionStart has a matcher-less block carrying the
+        session_start.py command."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        event_list = data["hooks"]["SessionStart"]
+
+        expected_command = f"uv run python {plugin_root / 'hooks' / 'session_start.py'}"
+        block = self._find_block_with_command(event_list, expected_command)
+        assert block is not None, "Should have a block carrying the session_start.py command"
+        assert "matcher" not in block, f"SessionStart block must not carry a matcher: {block}"
+
+    def test_registers_posttooluse_task_agent(self, tmp_path):
+        """After the call, PostToolUse has a block with matcher Task|Agent
+        carrying the post_tool_use.py command."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        event_list = data["hooks"]["PostToolUse"]
+
+        expected_command = f"uv run python {plugin_root / 'hooks' / 'post_tool_use.py'}"
+        block = self._find_block_with_command(event_list, expected_command)
+        assert block is not None, "Should have a block carrying the post_tool_use.py command"
+        assert block.get("matcher") == "Task|Agent", (
+            f"Expected matcher 'Task|Agent', got {block.get('matcher')!r}"
+        )
+
+    def test_posttooluse_task_agent_is_sibling_of_existing_block(self, tmp_path):
+        """A pre-existing local PostToolUse block (e.g. a pytest runner) is
+        preserved untouched as a separate sibling of the new Task|Agent block."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        pytest_command = "uv run python /some/pytest_runner.py"
+        existing_data = {
+            "hooks": {
+                "PostToolUse": [
+                    {
+                        "matcher": "Edit|Write",
+                        "hooks": [
+                            {"type": "command", "command": pytest_command},
+                        ],
+                    }
+                ]
+            }
+        }
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        event_list = data["hooks"]["PostToolUse"]
+
+        assert len(event_list) == 2, f"Expected two sibling blocks, got: {event_list}"
+
+        pytest_block = self._find_block_with_command(event_list, pytest_command)
+        assert pytest_block is not None
+        assert pytest_block.get("matcher") == "Edit|Write"
+        pytest_commands = [h.get("command") for h in pytest_block.get("hooks", [])]
+        assert pytest_commands.count(pytest_command) == 1
+
+        expected_command = f"uv run python {plugin_root / 'hooks' / 'post_tool_use.py'}"
+        new_block = self._find_block_with_command(event_list, expected_command)
+        assert new_block is not None
+        assert new_block.get("matcher") == "Task|Agent"
+
+    def test_context_budget_hooks_idempotent(self, tmp_path):
+        """Calling the registrar twice yields exactly one block carrying each
+        hook's command, and exactly one copy of the command inside it, for
+        each of the three events."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+
+        checks = [
+            ("UserPromptSubmit", plugin_root / "hooks" / "user_prompt_submit.py"),
+            ("SessionStart", plugin_root / "hooks" / "session_start.py"),
+            ("PostToolUse", plugin_root / "hooks" / "post_tool_use.py"),
+        ]
+        for event, hook_path in checks:
+            command = f"uv run python {hook_path}"
+            event_list = data["hooks"][event]
+            blocks_with_command = [
+                b for b in event_list
+                if any(h.get("command") == command for h in b.get("hooks", []))
+            ]
+            assert len(blocks_with_command) == 1, (
+                f"{event}: expected exactly one block carrying the command, "
+                f"got {len(blocks_with_command)}"
+            )
+            matching = [
+                h for h in blocks_with_command[0].get("hooks", [])
+                if h.get("command") == command
+            ]
+            assert len(matching) == 1, (
+                f"{event}: expected exactly one command entry after two calls, "
+                f"got {len(matching)}"
+            )
+
+    def test_does_not_register_deferred_blocks(self, tmp_path):
+        """Stop, PermissionRequest, and SessionEnd are absent, and PostToolUse
+        carries no block for the Write|Edit|MultiEdit file-change relay
+        command."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        hooks_top = data.get("hooks", {})
+
+        assert "Stop" not in hooks_top
+        assert "PermissionRequest" not in hooks_top
+        assert "SessionEnd" not in hooks_top
+
+        post_tool_use_command = f"uv run python {plugin_root / 'hooks' / 'post_tool_use.py'}"
+        event_list = hooks_top.get("PostToolUse", [])
+        for block in event_list:
+            if block.get("matcher") == "Write|Edit|MultiEdit":
+                inner_commands = [h.get("command") for h in block.get("hooks", [])]
+                assert post_tool_use_command not in inner_commands, (
+                    "Write|Edit|MultiEdit file-change relay must not be registered"
+                )
+
+    def test_pretooluse_still_registered_alongside(self, tmp_path):
+        """A single registrar invocation of both functions leaves the
+        INFRA-206 PreToolUse Task|Agent|Edit|Write|Read block intact."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_pretooluse_hook(settings_path, plugin_root)
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        pre_tool_use_list = data["hooks"]["PreToolUse"]
+
+        pre_tool_use_command = f"uv run python {plugin_root / 'hooks' / 'pre_tool_use.py'}"
+        block = self._find_block_with_command(pre_tool_use_list, pre_tool_use_command)
+        assert block is not None
+        assert block.get("matcher") == PRETOOLUSE_MATCHER
+
+
+# ---------------------------------------------------------------------------
 # BUILD-016: era strategic intent prompt
 # ---------------------------------------------------------------------------
 

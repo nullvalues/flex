@@ -385,6 +385,94 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
     )
 
 
+# Load-bearing context-budget-gate hooks that must be registered downstream
+# alongside PreToolUse (CER-067): without these three, context_budget_user_turn_seq
+# never increments (INFRA-192 UserPromptSubmit), context_current_tokens never
+# resets on /clear (SessionStart), and context_current_tokens is never written
+# from a live transcript read (INFRA-182 PostToolUse Task|Agent). Each entry is a
+# thin, safe-to-blanket-register dispatcher that no-ops when the project is not a
+# pairmode repo.
+#
+# Deliberately NOT included here (INFRA-208): Stop, PermissionRequest/
+# ExitPlanMode, PostToolUse Write|Edit|MultiEdit, SessionEnd. These four are
+# companion-sidebar relays, not part of context-budget-gate correctness; whether
+# a downstream project runs the companion sidebar is a separate product
+# decision, deferred as a future opt-in story rather than folded into this
+# correctness fix.
+CONTEXT_BUDGET_HOOK_SPECS: tuple[dict, ...] = (
+    {"event": "UserPromptSubmit", "hook_file": "hooks/user_prompt_submit.py", "matcher": None},
+    {"event": "SessionStart", "hook_file": "hooks/session_start.py", "matcher": None},
+    {"event": "PostToolUse", "hook_file": "hooks/post_tool_use.py", "matcher": "Task|Agent"},
+)
+
+
+def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> None:
+    """Merge the three load-bearing context-budget-gate hook entries into
+    .claude/settings.json (INFRA-208; see CER-067, INFRA-192, INFRA-175, INFRA-182).
+
+    Registers UserPromptSubmit and SessionStart with no matcher (they fire
+    unconditionally per event in hooks.json) and PostToolUse Task|Agent as a
+    sibling block alongside any pre-existing PostToolUse block for a different
+    command (e.g. a local pytest-runner hook) — never merged into or replacing it.
+
+    Mirrors _register_pretooluse_hook's by-command find/migrate idempotency: the
+    target block for each event is located by scanning for an inner hook entry
+    whose command already matches the computed absolute command, not by matcher
+    or event name alone. If found, that block is reused (and its matcher set in
+    place); if not found, a new block is appended. The command is added to a
+    block's inner hooks only if not already present.
+
+    Reads the file once, mutates all three events, and writes once (trailing
+    newline, json.dumps(..., indent=2)). Creates the file if it does not exist.
+    """
+    if settings_path.exists():
+        try:
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            data = {}
+    else:
+        data = {}
+
+    hooks_top = data.setdefault("hooks", {})
+
+    for spec in CONTEXT_BUDGET_HOOK_SPECS:
+        hook_path = plugin_root / spec["hook_file"]
+        command = f"uv run python {hook_path}"
+        matcher = spec["matcher"]
+
+        event_list: list[dict] = hooks_top.setdefault(spec["event"], [])
+
+        # Find the block by command, not by matcher/event alone — see
+        # _register_pretooluse_hook for the same discipline. This preserves
+        # any pre-existing sibling block for an unrelated command (e.g. a
+        # local pytest-runner PostToolUse hook) untouched.
+        target_block: dict | None = None
+        for block in event_list:
+            inner_hooks: list[dict] = block.get("hooks", [])
+            if any(h.get("command") == command for h in inner_hooks):
+                target_block = block
+                break
+
+        if target_block is None:
+            target_block = {"hooks": []}
+            if matcher is not None:
+                target_block["matcher"] = matcher
+            event_list.append(target_block)
+
+        if matcher is not None:
+            target_block["matcher"] = matcher
+
+        inner_hooks = target_block.setdefault("hooks", [])
+        already_registered = any(h.get("command") == command for h in inner_hooks)
+        if not already_registered:
+            inner_hooks.append({"type": "command", "command": command})
+
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(data, indent=2) + "\n", encoding="utf-8"
+    )
+
+
 def _merge_allow_rules(settings_path: pathlib.Path, new_entries: list[str]) -> None:
     """
     Merge *new_entries* into the permissions.allow array in settings_path.
@@ -1129,13 +1217,16 @@ def bootstrap(
         _merge_deny_list(settings_path, effective_deny)
 
     # ------------------------------------------------------------------
-    # 5b. Register PreToolUse hook into .claude/settings.json
+    # 5b. Register PreToolUse + context-budget-gate hooks into .claude/settings.json
+    #     (INFRA-206 PreToolUse; INFRA-208 UserPromptSubmit / SessionStart /
+    #     PostToolUse Task|Agent — see CER-067)
     # ------------------------------------------------------------------
     plugin_root = pathlib.Path(__file__).resolve().parent.parent.parent.parent
     if dry_run:
-        click.echo(f"  [dry-run] would register PreToolUse hook in: {settings_path}")
+        click.echo(f"  [dry-run] would register PreToolUse + context-budget-gate hooks in: {settings_path}")
     else:
         _register_pretooluse_hook(settings_path, plugin_root)
+        _register_context_budget_hooks(settings_path, plugin_root)
 
     # ------------------------------------------------------------------
     # 5a. Merge allow rules into .claude/settings.local.json

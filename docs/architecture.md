@@ -1091,7 +1091,14 @@ As of INFRA-205 (`hooks/hooks.json`) and INFRA-206 (`bootstrap.py`'s downstream
 registrar), all three dispatch branches above are actually reachable — prior to
 Phase 93 (CER-065), the `Edit`/`Write` and `Read` branches were registered
 nowhere in the `PreToolUse` matcher and were dead code in every project using
-this plugin, including flex itself.
+this plugin, including flex itself. As of INFRA-208, the downstream registrar
+(`bootstrap.py` / `sync.py`) also wires the three load-bearing context-budget-
+gate hooks — `UserPromptSubmit`, `SessionStart`, and `PostToolUse` `Task|Agent`
+— into downstream `.claude/settings.json`, using the same by-command
+find/migrate idempotency as the `PreToolUse` registrar (CER-067); the four
+remaining companion/sidebar blocks (`Stop`, `PermissionRequest`/
+`ExitPlanMode`, `PostToolUse` `Write|Edit|MultiEdit`, `SessionEnd`) remain
+opt-in.
 
 All decision logic lives in the named modules; the hook is a thin dispatcher.
 
