@@ -1,0 +1,9 @@
+{
+  "story_id": "INFRA-209",
+  "story_spec": "docs/stories/INFRA/INFRA-209.md",
+  "allowed_paths": [
+    "docs/fleet-snapshot.md",
+    "docs/stories/INFRA/INFRA-209.md"
+  ],
+  "generated_at": "2026-07-20T18:41:04Z"
+}

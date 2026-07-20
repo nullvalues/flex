@@ -1,6 +1,6 @@
 # Fleet Snapshot
 
-**Generated:** 2026-06-26 21:05:23 UTC
+**Generated:** 2026-07-17 16:37:58 UTC
 **Flex checkout:** `/mnt/work/flex`
 
 ## Pre-fold gate notice (DP8)
@@ -15,7 +15,7 @@ from the discovered fleet, never forced).
 
 ## Discovered fleet
 
-Found **9** bound project(s):
+Found **16** bound project(s):
 
 ### `/mnt/work/coherra`
 
@@ -24,6 +24,18 @@ Found **9** bound project(s):
 - **Signal 2 (pairmode_version):** present — `0.2.0`
 
 ### `/mnt/work/meander`
+
+- **Binding:** version
+- **Signal 1 (scripts path):** absent
+- **Signal 2 (pairmode_version):** present — `0.2.0`
+
+### `/mnt/work/caddy`
+
+- **Binding:** version
+- **Signal 1 (scripts path):** absent
+- **Signal 2 (pairmode_version):** present — `0.2.0`
+
+### `/mnt/work/forqsite.help`
 
 - **Binding:** version
 - **Signal 1 (scripts path):** absent
@@ -51,7 +63,7 @@ Found **9** bound project(s):
 
 - **Binding:** version
 - **Signal 1 (scripts path):** absent
-- **Signal 2 (pairmode_version):** present — `0.1.0`
+- **Signal 2 (pairmode_version):** present — `0.2.0`
 
 ### `/mnt/work/cora`
 
@@ -66,6 +78,36 @@ Found **9** bound project(s):
 - **Signal 2 (pairmode_version):** present — `0.2.0`
 
 ### `/mnt/work/halfhorse`
+
+- **Binding:** version
+- **Signal 1 (scripts path):** absent
+- **Signal 2 (pairmode_version):** present — `0.2.0`
+
+### `/mnt/work/anchor`
+
+- **Binding:** version
+- **Signal 1 (scripts path):** absent
+- **Signal 2 (pairmode_version):** present — `0.1.0`
+
+### `/mnt/work/base56`
+
+- **Binding:** version
+- **Signal 1 (scripts path):** absent
+- **Signal 2 (pairmode_version):** present — `0.2.0`
+
+### `/mnt/work/pokus`
+
+- **Binding:** version
+- **Signal 1 (scripts path):** absent
+- **Signal 2 (pairmode_version):** present — `0.2.0`
+
+### `/mnt/work/rockue`
+
+- **Binding:** version
+- **Signal 1 (scripts path):** absent
+- **Signal 2 (pairmode_version):** present — `0.2.0`
+
+### `/mnt/work/ud`
 
 - **Binding:** version
 - **Signal 1 (scripts path):** absent
