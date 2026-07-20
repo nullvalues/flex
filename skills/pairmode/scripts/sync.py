@@ -41,6 +41,7 @@ from skills.pairmode.scripts.bootstrap import (  # noqa: E402
     _infer_project_type,
     _merge_deny_list,
     _prune_superseded_deny_entries,
+    _register_context_budget_hooks,
     _register_pretooluse_hook,
     _validate_test_command,
 )
@@ -610,10 +611,12 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
                 _add_rail_to_era(era_path, rail)
             result.applied.append(f"Created rail directory docs/stories/{rail}/")
 
-    # Register PreToolUse hook in .claude/settings.json
+    # Register PreToolUse + context-budget-gate hooks (UserPromptSubmit,
+    # SessionStart, PostToolUse Task|Agent) in .claude/settings.json
     settings_path = project_dir / ".claude" / "settings.json"
     plugin_root = Path(__file__).resolve().parent.parent.parent.parent
     _register_pretooluse_hook(settings_path, plugin_root)
+    _register_context_budget_hooks(settings_path, plugin_root)
     _merge_deny_list(settings_path, DEFAULT_DENY)
     _prune_superseded_deny_entries(settings_path, _SUPERSEDED_DENY_ENTRIES)
 

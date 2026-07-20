@@ -1067,6 +1067,18 @@ Phase 93 (CER-065), the `Edit`/`Write` and `Read` branches were registered
 nowhere in the `PreToolUse` matcher and were dead code in every project using
 this plugin, including flex itself.
 
+As of INFRA-208, the downstream registrar (`_register_context_budget_hooks`,
+invoked from both `bootstrap.py` and `sync.py` alongside
+`_register_pretooluse_hook`) also wires the three load-bearing context-budget-
+gate hooks — `UserPromptSubmit` (`user_prompt_submit.py`, INFRA-192),
+`SessionStart` (`session_start.py`, INFRA-175), and `PostToolUse` matcher
+`Task|Agent` (`post_tool_use.py`, INFRA-182) — into downstream
+`.claude/settings.json`. Without these three, the `PreToolUse` context-budget
+gate read state that nothing downstream ever produced or advanced (CER-067).
+The four remaining companion/sidebar blocks (`Stop`, `PermissionRequest`/
+`ExitPlanMode`, `PostToolUse` matcher `Write|Edit|MultiEdit`, `SessionEnd`)
+remain opt-in and are not registered by this path.
+
 All decision logic lives in the named modules; the hook is a thin dispatcher.
 
 **Documented exception — `hooks/post_tool_use.py` Task/Agent branch (INFRA-182):**
