@@ -2,7 +2,7 @@
 id: RESOLVER-017
 rail: RESOLVER
 title: Reset checkpoint_step on checkpoint-tag completion (CER-066)
-status: planned
+status: complete
 phase: "HARNESS015-main"
 story_class: code
 auth_gated: false

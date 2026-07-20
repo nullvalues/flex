@@ -6,6 +6,11 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Added [pairmode] — HARNESS015-main (Checkpoint-sequence reset and state.json atomic-write adoption)
+- `record-checkpoint-step` now resets `state.json["checkpoint_step"]` to `[]` when `checkpoint-tag` is recorded, fixing a bug where the checkpoint sequence (security audit, intent review, docs review, tagging) was silently skipped for every phase after the first (RESOLVER-017, CER-066).
+- Remaining `state.json` writers (`hooks/post_tool_use.py`, `story_context.py`, `bootstrap.py`, `skills/companion/scripts/sidebar.py`) adopted the shared `state_utils._atomic_write_json` writer (INFRA-202, CER-050).
+- `schema_validator._parse_frontmatter()` now strips inline YAML comments from block-sequence list items (whitespace-preceded `#`, quote-exempt), fixing malformed `permission_scope.py` allow-rules for `touches`/`primary_files` entries with an inline `# reason: ...` comment (INFRA-211).
+
 ### Added [pairmode] — HARNESS009-main (Write-path determinism)
 - `flex_build.py record-checkpoint-step <step-id>`: atomically appends a validated checkpoint step ID to `state.json["checkpoint_step"]`; validates against `_CHECKPOINT_SEQUENCE`; idempotent; moves checkpoint-step write authority from LLM prose to CLI (RESOLVER-012).
 - `parse_worker_verdict_json` in `next_action.py`: fail-closed JSON parser replacing the brittle text-split `parse_worker_verdict_text`; on `JSONDecodeError` or missing key all gates return `block:malformed-verdict` (RESOLVER-013).

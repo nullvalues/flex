@@ -66,7 +66,7 @@ flex/
         schema_validator.py       ← validate story/era/phase manifest frontmatter
         permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json (legacy; Phase 55 replaces runtime use with scope_guard.py + permissions-create for new projects)
         scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json; fails open on non-protected paths when no active story, but fails closed (blocks) on PROTECTED_GLOBS paths even without an active story (INFRA-196)
-        state_utils.py            ← shared helper for atomic state.json writes (`_atomic_write_json`)
+        state_utils.py            ← shared helper for atomic state.json writes (`_atomic_write_json`); adopted by all remaining state.json writers as of HARNESS015-main (INFRA-202) — hooks/post_tool_use.py, story_context.py, bootstrap.py, skills/companion/scripts/sidebar.py (pairmode_sync.py/pairmode_register.py already had their own inline atomic implementation)
         session_reset.py          ← pure decision logic for SessionStart counter reset; no I/O (mirrors context_budget.py D11 boundary); CER-047 / Phase 68 INFRA-175
         spec_preflight.py         ← INFRA-190/191 — scans story body sections for unverifiable route and constant references; informational only (always exits 0)
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
@@ -856,7 +856,7 @@ is **read-only** on every row.
 | Surface | Sole writer (additive window) | Resolver access |
 |---------|-------------------------------|-----------------|
 | `state.json` `context_*` (context tokens: `context_current_tokens`, `context_current_tokens_recorded_at`, `context_session_reset_at`) | orchestrator hooks (`post_tool_use.py` / `session_start.py`), frozen | read-only |
-| `state.json` `checkpoint_step` | orchestrator (`flex_build.py record-checkpoint-step`); HARNESS009-main moved authority from LLM prose to CLI (RESOLVER-012) | read-only |
+| `state.json` `checkpoint_step` | orchestrator (`flex_build.py record-checkpoint-step`); HARNESS009-main moved authority from LLM prose to CLI (RESOLVER-012); HARNESS015-main (RESOLVER-017) added reset-to-`[]` on `checkpoint-tag` completion, fixing a silent skip of the entire checkpoint sequence on every phase after the first | read-only |
 | active story (`state.json` `current_story`) | orchestrator (`story_context.py`) | read-only |
 | `effort.db` | orchestrator (`record_attempt.py` / effort recorder) | read-only |
 | `attempt_counter.json` (attempt counters) | orchestrator (`flex_build.py write-attempt-count` / `clear-attempt-count`) | read-only |
