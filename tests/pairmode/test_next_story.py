@@ -262,6 +262,56 @@ def test_case_insensitive_commit_match(tmp_path):
     assert result["story_id"] == "INFRA-101"
 
 
+def test_bare_mention_commit_match(tmp_path):
+    """A commit that mentions the story ID without the `story-` prefix
+    (e.g. a merge suffix or status-update chore) counts as done.
+
+    This is the RELEASE-014-style completion: `find_next_story` skips the
+    story and advances to the next table row.
+    """
+    project = _make_project_layout(tmp_path)
+    phase = _write_phase(
+        project,
+        45,
+        [
+            ("RELEASE-014", "First", "complete"),
+            ("RELEASE-019", "Second", "planned"),
+        ],
+    )
+    _write_story(project, "RELEASE-014", status="complete")
+    _write_story(project, "RELEASE-019")
+    # Landing commits that never use the `story-RELEASE-014` prefix.
+    _commit(project, "merge(fold-prep): fold RELEASE work (RELEASE-014)")
+    _commit(project, "chore(orchestrator): RELEASE-014 status update")
+
+    result = find_next_story(phase, project)
+    assert result is not None
+    assert result["story_id"] == "RELEASE-019"
+
+
+def test_numeric_prefix_does_not_false_match(tmp_path):
+    """A commit mentioning a longer ID (INFRA-1001) must NOT satisfy a
+    lookup for INFRA-100 that shares its numeric prefix."""
+    project = _make_project_layout(tmp_path)
+    phase = _write_phase(
+        project,
+        45,
+        [
+            ("INFRA-100", "First", "planned"),
+            ("INFRA-101", "Second", "planned"),
+        ],
+    )
+    _write_story(project, "INFRA-100")
+    _write_story(project, "INFRA-101")
+    # Only a longer ID sharing INFRA-100's prefix is committed.
+    _commit(project, "feat(story-INFRA-1001): unrelated work")
+
+    result = find_next_story(phase, project)
+    assert result is not None
+    # INFRA-100 must still be next-up — the INFRA-1001 commit is not a match.
+    assert result["story_id"] == "INFRA-100"
+
+
 def test_unresolved_story_file(tmp_path):
     """When the story file doesn't exist, story_file is 'UNRESOLVED'."""
     project = _make_project_layout(tmp_path)

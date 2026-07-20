@@ -4,9 +4,14 @@ next_story.py — Find the next unbuilt story from a phase file.
 Reads the ## Stories table from the given phase file (using
 `_parse_stories_table` from `story_resolver`) and iterates stories in table
 order. For each story, determines completion by checking whether a git commit
-matching `story-<STORY_ID>` (case-insensitive) exists in the project
-directory's git log. A commit match is authoritative over the table's status
-column.
+message mentions the story ID as a whole token (word-boundary match,
+case-insensitive) anywhere in the project directory's git log — not only when
+prefixed with the literal `story-`. This recognizes the `story-<ID>`
+conventional-commit convention, parenthetical merge suffixes
+(`... (RELEASE-014)`), and bare mentions (`RELEASE-014 status update`) alike,
+while word boundaries keep a longer ID sharing a numeric prefix (e.g.
+`INFRA-1001`) from matching a lookup for `INFRA-100`. A commit match is
+authoritative over the table's status column.
 
 Returns the first story that:
   - has no matching git commit, AND
@@ -130,11 +135,19 @@ def _git_log_oneline(project_dir: Path) -> str:
 
 
 def _has_story_commit(story_id: str, git_log: str) -> bool:
-    """Return True if `git_log` contains a commit message matching
-    `story-<STORY_ID>` (case-insensitive)."""
+    """Return True if `git_log` mentions `story_id` as a whole token
+    (word-boundary match, case-insensitive).
+
+    Matches the story ID anywhere in a commit message — whether prefixed
+    with the `story-` conventional-commit convention
+    (`feat(story-INFRA-100): done`), as a parenthetical merge suffix
+    (`merge(fold-prep): ... (RELEASE-014)`), or as a bare mention
+    (`chore(orchestrator): RELEASE-014 status update`). The `\\b`
+    boundaries prevent a longer ID that shares a numeric prefix (e.g.
+    `INFRA-1001`) from satisfying a lookup for `INFRA-100`."""
     if not git_log:
         return False
-    pattern = re.compile(r'story-' + re.escape(story_id), re.IGNORECASE)
+    pattern = re.compile(r'\b' + re.escape(story_id) + r'\b', re.IGNORECASE)
     return bool(pattern.search(git_log))
 
 
