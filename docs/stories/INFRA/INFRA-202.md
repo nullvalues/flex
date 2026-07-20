@@ -2,7 +2,7 @@
 id: INFRA-202
 rail: INFRA
 title: Adopt state_utils atomic write in remaining state.json writers (CER-050)
-status: planned
+status: complete
 phase: "HARNESS015-main"
 story_class: code
 auth_gated: false

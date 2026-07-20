@@ -29,12 +29,24 @@ already rejects traversal sequences, INFRA-192) — the backlog entry text was
 stale; it should be marked RESOLVED as part of this phase's docs pass, no code
 story needed.
 
+RESOLVER-017 was already shipped on `main` (commit `f7d8469`, "story-RESOLVER-017")
+and pulled into `fold-prep` via the RELEASE-014 reconciliation merge — its status
+here was stale ("planned"); corrected to "complete" during the 2026-07-20 build
+pass, no code change needed.
+
+Surfaced 2026-07-18 during an INFRA-202 build attempt: `permission_scope.py`'s
+`write-permissions` path produced a malformed allow-rule for a `touches` entry
+that carried an inline `# reason: ...` comment, because
+`schema_validator._parse_frontmatter()`'s block-sequence parsing doesn't strip
+inline YAML comments from list items. Filed as INFRA-211.
+
 ## Stories
 
 | ID | Title | Status |
 |----|-------|--------|
-| RESOLVER-017 | Reset checkpoint_step on checkpoint-tag completion (CER-066) | planned |
-| INFRA-202 | Adopt state_utils atomic write in remaining state.json writers (CER-050) | planned |
+| RESOLVER-017 | Reset checkpoint_step on checkpoint-tag completion (CER-066) | complete |
+| INFRA-202 | Adopt state_utils atomic write in remaining state.json writers (CER-050) | complete |
+| INFRA-211 | Strip inline YAML comments from frontmatter list items in `_parse_frontmatter` | planned |
 
 ## Schema delivery
 
