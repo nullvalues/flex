@@ -103,7 +103,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | HARNESS012-main | Era 3 Fold Prep | complete | [phase-HARNESS012-main.md](phase-HARNESS012-main.md) · cp-HARNESS012-main |
 | HARNESS013-main | Era 3 Fleet Migration | complete | [phase-HARNESS013-main.md](phase-HARNESS013-main.md) |
 | HARNESS014-main | Lessons enforcement instrumentation | complete | [phase-HARNESS014-main.md](phase-HARNESS014-main.md) · cp-HARNESS014-main |
-| HARNESS015-main | Checkpoint-sequence reset and state.json atomic-write adoption | planned | [phase-HARNESS015-main.md](phase-HARNESS015-main.md) |
+| HARNESS015-main | Checkpoint-sequence reset and state.json atomic-write adoption | complete | [phase-HARNESS015-main.md](phase-HARNESS015-main.md) · cp-HARNESS015-main |
 | HARNESS016-main | Final fold — pre-fold gate, merge to main, re-sync | planned | [phase-HARNESS016-main.md](phase-HARNESS016-main.md) |
 
 ---
