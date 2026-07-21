@@ -10,8 +10,10 @@ prefixed with the literal `story-`. This recognizes the `story-<ID>`
 conventional-commit convention, parenthetical merge suffixes
 (`... (RELEASE-014)`), and bare mentions (`RELEASE-014 status update`) alike,
 while word boundaries keep a longer ID sharing a numeric prefix (e.g.
-`INFRA-1001`) from matching a lookup for `INFRA-100`. A commit match is
-authoritative over the table's status column.
+`INFRA-1001`) from matching a lookup for `INFRA-100`. Commits whose message
+starts with `spec(` are excluded from matching (RELEASE-041) — spec-authoring
+commits legitimately reference multiple story IDs in prose without building
+any of them. A commit match is authoritative over the table's status column.
 
 Returns the first story that:
   - has no matching git commit, AND
@@ -136,7 +138,8 @@ def _git_log_oneline(project_dir: Path) -> str:
 
 def _has_story_commit(story_id: str, git_log: str) -> bool:
     """Return True if `git_log` mentions `story_id` as a whole token
-    (word-boundary match, case-insensitive).
+    (word-boundary match, case-insensitive), in a commit that isn't
+    spec-authoring only.
 
     Matches the story ID anywhere in a commit message — whether prefixed
     with the `story-` conventional-commit convention
@@ -144,11 +147,23 @@ def _has_story_commit(story_id: str, git_log: str) -> bool:
     (`merge(fold-prep): ... (RELEASE-014)`), or as a bare mention
     (`chore(orchestrator): RELEASE-014 status update`). The `\\b`
     boundaries prevent a longer ID that shares a numeric prefix (e.g.
-    `INFRA-1001`) from satisfying a lookup for `INFRA-100`."""
+    `INFRA-1001`) from satisfying a lookup for `INFRA-100`.
+
+    Commits whose message starts with `spec(` are skipped entirely (RELEASE-041):
+    this repo's spec-authoring convention prefixes commits that create or edit
+    specs, and such a commit legitimately lists several story IDs in prose
+    (e.g. "add RELEASE-020/021/022 specs") without building any of them —
+    counting that as build evidence produced a false positive."""
     if not git_log:
         return False
     pattern = re.compile(r'\b' + re.escape(story_id) + r'\b', re.IGNORECASE)
-    return bool(pattern.search(git_log))
+    for line in git_log.splitlines():
+        message = line.split(" ", 1)[1] if " " in line else ""
+        if message.lstrip().startswith("spec("):
+            continue
+        if pattern.search(line):
+            return True
+    return False
 
 
 def find_next_story(phase_file: Path, project_dir: Path) -> dict | None:

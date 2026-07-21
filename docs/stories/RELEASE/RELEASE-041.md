@@ -2,7 +2,7 @@
 id: RELEASE-041
 rail: RELEASE
 title: Fix _has_story_commit() false-positive on spec-authoring commits
-status: planned
+status: complete
 phase: "HARNESS016-main"
 story_class: code
 auth_gated: false

@@ -312,6 +312,58 @@ def test_numeric_prefix_does_not_false_match(tmp_path):
     assert result["story_id"] == "INFRA-100"
 
 
+def test_spec_authoring_commit_does_not_false_match(tmp_path):
+    """A `spec(...)` commit that lists several story IDs in prose must NOT
+    count as build evidence for any of them (RELEASE-041).
+
+    Reproduces the live false positive: a spec-authoring commit mentioning
+    "RELEASE-020/021/022" satisfies a naive word-boundary search for
+    RELEASE-020 (the `/` is a valid boundary), even though the commit never
+    builds anything — it only adds specs.
+    """
+    project = _make_project_layout(tmp_path)
+    phase = _write_phase(
+        project,
+        45,
+        [
+            ("RELEASE-020", "First", "planned"),
+            ("RELEASE-021", "Second", "planned"),
+        ],
+    )
+    _write_story(project, "RELEASE-020")
+    _write_story(project, "RELEASE-021")
+    _commit(
+        project,
+        "spec(phase-X): correct status, add RELEASE-020/021/022 specs",
+    )
+
+    result = find_next_story(phase, project)
+    assert result is not None
+    assert result["story_id"] == "RELEASE-020"
+
+
+def test_genuine_build_commit_still_matches_after_spec_exclusion(tmp_path):
+    """A real `feat(story-<ID>):` build commit still counts as done even
+    when a `spec(...)` commit for the same story ID also exists in history."""
+    project = _make_project_layout(tmp_path)
+    phase = _write_phase(
+        project,
+        45,
+        [
+            ("RELEASE-020", "First", "planned"),
+            ("RELEASE-021", "Second", "planned"),
+        ],
+    )
+    _write_story(project, "RELEASE-020", status="complete")
+    _write_story(project, "RELEASE-021")
+    _commit(project, "spec(phase-X): add RELEASE-020 spec")
+    _commit(project, "feat(story-RELEASE-020): implement it")
+
+    result = find_next_story(phase, project)
+    assert result is not None
+    assert result["story_id"] == "RELEASE-021"
+
+
 def test_unresolved_story_file(tmp_path):
     """When the story file doesn't exist, story_file is 'UNRESOLVED'."""
     project = _make_project_layout(tmp_path)
