@@ -355,8 +355,12 @@ read-only tools plus `Bash` (all four reviewer-class agents declare
 `tools: [Read, Bash, Glob, Grep]`; Bash is needed for test runs and git operations in
 the reviewer and loop-breaker; security-auditor includes it for consistency). Tool
 restriction prevents the reviewer from backdooring a fix into the code instead of
-reverting it. Both commit and revert paths in the reviewer template are Bash-mediated
-(`git add`, `git commit`, `git checkout .`, `git clean -fd`).
+reverting it. Both commit and revert paths in the reviewer template are Bash-mediated.
+The commit path stages files via `git add` scoped to the story's declared
+`primary_files` + `touches` paths (or `git add -A` for legacy stories with no declared
+scope). The revert path runs `git checkout -- <path>` and `git clean -fd -- <path>` for
+each declared path (or `git checkout . && git clean -fd` for legacy stories with no
+declared scope), ensuring revert never touches files outside the story's scope.
 
 This document describes pairmode's internals: the scaffold it generates, the rails/eras
 model, the schema validators, and the non-negotiables that keep its bootstraps repeatable.

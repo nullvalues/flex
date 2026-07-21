@@ -26,7 +26,7 @@ A reviewer/loop-breaker revert (git checkout . && git clean -fd) currently sweep
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-223 | Scope reviewer FAIL-path revert to the story's declared primary_files/touches instead of a blanket git checkout . && git clean -fd | planned |
+| INFRA-223 | Scope reviewer FAIL-path revert to the story's declared primary_files/touches instead of a blanket git checkout . && git clean -fd | complete |
 | INFRA-224 | Per-build-cycle git worktree isolation for builder/reviewer story cycles | planned |
 
 ## Schema delivery

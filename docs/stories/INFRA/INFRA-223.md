@@ -2,14 +2,15 @@
 id: INFRA-223
 rail: INFRA
 title: Scope reviewer FAIL-path revert to the story's declared primary_files/touches instead of a blanket git checkout . && git clean -fd
-status: planned
+status: complete
 phase: "96"
 story_class: doc
 auth_gated: false
 schema_introduces: false
 primary_files:
   - skills/pairmode/skills/reviewer/procedure.md
-touches:  # If this story changes any documented architecture, add docs/architecture.md to this list.
+touches:
+  - docs/architecture.md
 ---
 
 ## Requires
