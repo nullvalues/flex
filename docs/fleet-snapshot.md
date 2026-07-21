@@ -124,3 +124,14 @@ Found **16** bound project(s):
 - **Signal 1 (scripts path):** absent
 - **Signal 2 (pairmode_version):** present — `0.2.0`
 
+## INFRA-209 rollout verification (2026-07-21)
+
+Read-only audit of the 14-project target set (16 discovered minus `anchor`
+minus the `cora` carve-out) confirmed the context-budget-gate hook
+registrations (`UserPromptSubmit`, `SessionStart`, `PostToolUse` `Task|Agent`)
+were already present in all 14, with `PreToolUse` preserved in every case. No
+`settings.json` diffs were required. `anchor` and `cora` were confirmed
+untouched. `asp`'s forged CER-067 workaround keys in `.companion/state.json`
+are still present (resetting them is a separate follow-up, out of scope here).
+See `docs/stories/INFRA/INFRA-209.md` for the full completion note.
+
