@@ -18,7 +18,7 @@ skills/pairmode/scripts/bootstrap.py has exactly one hook-registration function,
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-208 | Generalize `bootstrap.py` downstream hook registration to wire the three load-bearing context-budget-gate hooks (`UserPromptSubmit`, `SessionStart`, `PostToolUse` `Task\|Agent` block) into `.claude/settings.json` alongside the existing `PreToolUse` registration — flowing through both the `bootstrap` and `sync.py` call sites, mirroring `_register_pretooluse_hook`'s by-command find/migrate idempotency, explicitly deferring the four companion/sidebar blocks (`Stop`, `PermissionRequest`/`ExitPlanMode`, `PostToolUse` `Write\|Edit\|MultiEdit`, `SessionEnd`) as opt-in with stated reason, plus migrated/added tests | complete |
-| INFRA-209 | Re-run the fleet rollout of the newly-registered context-budget-gate hooks across every already-bootstrapped sibling repo's `.claude/settings.json` (via `pairmode sync`/`sync-all` per repo, same mechanical pattern as the manual INFRA-206 rollout), verifying each fleet project now carries the `UserPromptSubmit`/`SessionStart`/`PostToolUse` `Task\|Agent` registrations | planned |
+| INFRA-209 | Re-run the fleet rollout of the newly-registered context-budget-gate hooks across every already-bootstrapped sibling repo's `.claude/settings.json` (via `pairmode sync`/`sync-all` per repo, same mechanical pattern as the manual INFRA-206 rollout), verifying each fleet project now carries the `UserPromptSubmit`/`SessionStart`/`PostToolUse` `Task\|Agent` registrations | complete |
 
 ## Schema delivery
 

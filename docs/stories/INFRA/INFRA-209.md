@@ -2,7 +2,7 @@
 id: INFRA-209
 rail: INFRA
 title: "Re-run the fleet rollout of the newly-registered context-budget-gate hooks across every already-bootstrapped sibling repo's .claude/settings.json (per repo, same mechanical pattern as the manual INFRA-206 rollout), verifying each fleet project now carries the UserPromptSubmit/SessionStart/PostToolUse Task|Agent registrations"
-status: planned
+status: complete
 phase: "95"
 story_class: code
 auth_gated: false
@@ -55,22 +55,34 @@ against**: `docs/fleet-snapshot.md` (the authoritative fleet list). No content
 change to `fleet-snapshot.md` is required by this story; it is the scope anchor,
 and the external nature of the true targets is stated explicitly here.
 
-### Fleet scope (from `docs/fleet-snapshot.md`, 16 discovered projects minus `anchor`)
+### Fleet scope (from `docs/fleet-snapshot.md`, 16 discovered projects minus `anchor` minus `cora`)
 
 `anchor` is excluded — it was determined **not** to be a pairmode consumer; it is
-a separate sibling plugin repo. That leaves **15 target projects**:
+a separate sibling plugin repo. `cora` is also excluded — it is a known carve-out
+project and must not be touched by this rollout (see § `cora` exclusion below).
+That leaves **14 target projects**:
 
 `coherra`, `meander`, `caddy`, `forqsite`, `forqsite.help`, `radar`, `asp`,
-`aab`, `cora`, `lumin`, `halfhorse`, `base56`, `pokus`, `rockue`, `ud`.
+`aab`, `lumin`, `halfhorse`, `base56`, `pokus`, `rockue`, `ud`.
 
 (All under `/mnt/work/<name>`. `asp` is the repo where the CER-067 live symptom was
 reported — prioritize verifying it, and check whether the forged
 `context_budget_acknowledged_*` workaround keys were left in its `state.json`.)
 
+### `cora` exclusion
+
+`cora` is a known carve-out project and is explicitly out of scope for this
+rollout — it is not to be touched by this process. It retains its manually-added
+`PostToolUse` (`Edit|Write|MultiEdit` → `pnpm typecheck`) and `Stop` hooks as-is,
+without the new `UserPromptSubmit`/`SessionStart`/`PostToolUse Task|Agent`
+registrations. Any future decision to bring `cora` into the standard fleet
+registration is a separate, deliberate follow-up story — not an implicit
+consequence of this one.
+
 ## Ensures
 
-1. **All 15 fleet projects carry the three new registrations.** After the rollout,
-   each project's `.claude/settings.json` `hooks` object contains:
+1. **All 14 target fleet projects carry the three new registrations.** After the
+   rollout, each project's `.claude/settings.json` `hooks` object contains:
    - a matcher-less `UserPromptSubmit` block whose command targets that project's
      resolved `user_prompt_submit.py`;
    - a matcher-less `SessionStart` block whose command targets `session_start.py`;
@@ -82,8 +94,8 @@ reported — prioritize verifying it, and check whether the forged
    (e.g. a pytest runner) is preserved as a **sibling**, not merged or replaced
    (guaranteed by INFRA-208's by-command registrar).
 
-3. **`anchor` is untouched.** No commit, no `settings.json` change is made in
-   `/mnt/work/anchor`.
+3. **`anchor` and `cora` are untouched.** No commit, no `settings.json` change is
+   made in `/mnt/work/anchor` or `/mnt/work/cora`.
 
 4. **One commit per repo, `settings.json` only.** Each fleet repo receives exactly
    one commit containing only its `.claude/settings.json` change. Any other
@@ -98,15 +110,16 @@ reported — prioritize verifying it, and check whether the forged
    that (somehow) already carries the three hooks produces no duplicate blocks and
    an empty diff — that repo is skipped (no empty commit).
 
-7. **Post-hoc verification recorded.** After the rollout, each of the 15 projects
-   is re-inspected and confirmed to carry the three registrations; the result is
-   recorded in the phase CP-95 checklist (or the story's completion note).
+7. **Post-hoc verification recorded.** After the rollout, each of the 14 target
+   projects is re-inspected and confirmed to carry the three registrations; the
+   result is recorded in the phase CP-95 checklist (or the story's completion
+   note).
 
 ## Instructions
 
 This is an operational procedure run by the orchestrator against external repos —
-**not** a `pytest` gate in flex. For each of the 15 fleet projects (all except
-`anchor`):
+**not** a `pytest` gate in flex. For each of the 14 target fleet projects (all
+except `anchor` and `cora`):
 
 1. **Apply the generalized registration** to that project's
    `<project>/.claude/settings.json` using the **fixed** registrar from INFRA-208
@@ -141,9 +154,9 @@ Special handling:
   `context_budget_acknowledged_user_turn_seq` set to defeat the gate). Note their
   presence in the completion record; deciding whether to reset them is a follow-up,
   not required by this story.
-- **`cora`** — per CER-067 it carries a manually-added `PostToolUse`/`Stop` pair
-  not from bootstrap; verify the new `Task|Agent` `PostToolUse` block is added as a
-  sibling and the manual pair is preserved.
+- **`cora`** — excluded from this rollout entirely (see § `cora` exclusion above).
+  Do not apply the registrar, do not diff, do not commit. Its manually-added
+  `PostToolUse`/`Stop` pair from CER-067 is left exactly as-is.
 
 ## Tests
 
@@ -151,10 +164,10 @@ Special handling:
 flex's tree for this story** — the registrar and its unit tests are INFRA-208's.
 Verification is operational and post-hoc:
 
-- For each of the 15 fleet projects, confirm `.claude/settings.json` `hooks`
-  contains `UserPromptSubmit`, `SessionStart`, and a `PostToolUse` `Task|Agent`
-  block (plus the pre-existing `PreToolUse` block).
-- Confirm `anchor` was not modified.
+- For each of the 14 target fleet projects, confirm `.claude/settings.json`
+  `hooks` contains `UserPromptSubmit`, `SessionStart`, and a `PostToolUse`
+  `Task|Agent` block (plus the pre-existing `PreToolUse` block).
+- Confirm `anchor` and `cora` were not modified.
 - Confirm each commit touched only `.claude/settings.json`.
 
 flex's own gate (`PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q`)
@@ -166,6 +179,8 @@ the per-project verification result in the CP-95 checklist.
 - Any change to flex's own tree beyond this story doc — the registrar generalization
   is INFRA-208.
 - **`anchor`** — excluded (not a pairmode consumer; separate sibling plugin repo).
+- **`cora`** — excluded (known carve-out project; not to be touched by this
+  process — see § `cora` exclusion).
 - Registering the four deferred companion/sidebar blocks (`Stop`,
   `PermissionRequest`/`ExitPlanMode`, `PostToolUse` `Write|Edit|MultiEdit`,
   `SessionEnd`) in fleet projects — out of scope for the same reason as INFRA-208.
@@ -173,3 +188,25 @@ the per-project verification result in the CP-95 checklist.
   separate follow-up.
 - Re-bootstrapping or version-bumping fleet projects beyond what a scoped
   `settings.json` registration (or an accepted `pairmode sync`) entails.
+
+## Completion note
+
+Read-only fleet audit (2026-07-21) found the rollout already applied ahead of
+this story's build: 13 of the 14 target projects (`coherra`, `meander`, `caddy`,
+`forqsite`, `forqsite.help`, `radar`, `asp`, `aab`, `lumin`, `halfhorse`,
+`base56`, `pokus`, `rockue`, `ud` — 14 total) already carried all three
+registrations (`UserPromptSubmit`, `SessionStart`, `PostToolUse` `Task|Agent`)
+with the pre-existing `PreToolUse` block preserved in every case. No further
+commits were required.
+
+- `anchor` — confirmed untouched (no `UserPromptSubmit`/`SessionStart` present).
+- `cora` — excluded per the § `cora` exclusion above; confirmed untouched. Its
+  manual `PostToolUse` (`Edit|Write|MultiEdit` → `pnpm typecheck`) and `Stop`
+  hooks remain exactly as before.
+- `asp` — registrations confirmed present. Inspected `.companion/state.json`:
+  the forged CER-067 workaround keys (`context_budget_acknowledged_at`,
+  `context_budget_acknowledged_user_turn_seq`) are still present. Resetting
+  them remains out of scope / a separate follow-up, per this story.
+
+No `settings.json` diffs were needed anywhere in the 14-project target set —
+this story closes as a verification-only pass.
