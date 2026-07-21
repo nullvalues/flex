@@ -100,29 +100,29 @@ RELEASE-015's pass/fail condition — see "Deferred stories" below.
 | RELEASE-023 | Fix `_has_story_commit()` commit-message matching in `next_story.py` (resolver loop bug) | complete |
 | RELEASE-041 | Fix `_has_story_commit()` false-positive on spec-authoring commits (resolver loop bug) | complete |
 | RELEASE-019 | Second pre-fold reconciliation — merge main (36 commits, incl. INFRA-205/206/207) into fold-prep | complete |
-| RELEASE-020 | Wire `flex_factor` into the context-budget `PreToolUse` gate | planned |
-| RELEASE-021 | Fix the unacknowledgeable `CONTEXT CHECK REQUIRED` gate trap | planned |
-| RELEASE-022 | Pre-fold doc sweep — era status, post-flip staleness, reviewer input-scope contradiction | planned |
-| RELEASE-024 | Fleet migration — sync aab to pairmode 0.3.0 | planned |
-| RELEASE-026 | Fleet migration — sync asp to pairmode 0.3.0 | planned |
-| RELEASE-027 | Fleet migration — sync base56 to pairmode 0.3.0 | planned |
-| RELEASE-028 | Fleet migration — sync caddy to pairmode 0.3.0 | planned |
-| RELEASE-029 | Fleet migration — sync coherra to pairmode 0.3.0 | planned |
+| RELEASE-020 | Wire `flex_factor` into the context-budget `PreToolUse` gate | complete |
+| RELEASE-021 | Fix the unacknowledgeable `CONTEXT CHECK REQUIRED` gate trap | complete |
+| RELEASE-022 | Pre-fold doc sweep — era status, post-flip staleness, reviewer input-scope contradiction | deferred |
+| RELEASE-024 | Fleet migration — sync aab to pairmode 0.3.0 | deferred |
+| RELEASE-026 | Fleet migration — sync asp to pairmode 0.3.0 | deferred |
+| RELEASE-027 | Fleet migration — sync base56 to pairmode 0.3.0 | deferred |
+| RELEASE-028 | Fleet migration — sync caddy to pairmode 0.3.0 | deferred |
+| RELEASE-029 | Fleet migration — sync coherra to pairmode 0.3.0 | deferred |
 | RELEASE-030 | Fleet migration — sync cora to pairmode 0.3.0 (0.1.0 schema gap + artifact extraction) | backlog |
-| RELEASE-031 | Fleet migration — sync forqsite to pairmode 0.3.0 | planned |
-| RELEASE-032 | Fleet migration — sync forqsite.help to pairmode 0.3.0 | planned |
-| RELEASE-033 | Fleet migration — sync halfhorse to pairmode 0.3.0 | planned |
-| RELEASE-034 | Fleet migration — sync lumin to pairmode 0.3.0 | planned |
-| RELEASE-035 | Fleet migration — sync meander to pairmode 0.3.0 | planned |
-| RELEASE-036 | Fleet migration — sync pokus to pairmode 0.3.0 | planned |
-| RELEASE-037 | Fleet migration — sync radar to pairmode 0.3.0 | planned |
-| RELEASE-038 | Fleet migration — sync rockue to pairmode 0.3.0 | planned |
-| RELEASE-039 | Fleet migration — sync stackabid to pairmode 0.3.0 | planned |
-| RELEASE-040 | Fleet migration — sync ud to pairmode 0.3.0 | planned |
-| RELEASE-015 | Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects | planned |
-| RELEASE-016 | Fold merge — fold-prep → main, tag v0.3.0 | planned |
-| RELEASE-017 | Post-fold re-sync of migrated projects + RELEASE-002 status reconciliation | planned |
-| RELEASE-018 | Worktree and branch retirement — remove /mnt/work/flex-harness | planned |
+| RELEASE-031 | Fleet migration — sync forqsite to pairmode 0.3.0 | deferred |
+| RELEASE-032 | Fleet migration — sync forqsite.help to pairmode 0.3.0 | deferred |
+| RELEASE-033 | Fleet migration — sync halfhorse to pairmode 0.3.0 | deferred |
+| RELEASE-034 | Fleet migration — sync lumin to pairmode 0.3.0 | deferred |
+| RELEASE-035 | Fleet migration — sync meander to pairmode 0.3.0 | deferred |
+| RELEASE-036 | Fleet migration — sync pokus to pairmode 0.3.0 | deferred |
+| RELEASE-037 | Fleet migration — sync radar to pairmode 0.3.0 | deferred |
+| RELEASE-038 | Fleet migration — sync rockue to pairmode 0.3.0 | deferred |
+| RELEASE-039 | Fleet migration — sync stackabid to pairmode 0.3.0 | deferred |
+| RELEASE-040 | Fleet migration — sync ud to pairmode 0.3.0 | deferred |
+| RELEASE-015 | Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects | deferred |
+| RELEASE-016 | Fold merge — fold-prep → main, tag v0.3.0 | deferred |
+| RELEASE-017 | Post-fold re-sync of migrated projects + RELEASE-002 status reconciliation | deferred |
+| RELEASE-018 | Worktree and branch retirement — remove /mnt/work/flex-harness | deferred |
 
 ## Deferred stories
 
@@ -142,6 +142,30 @@ scoped — no target phase assigned yet.
 (`anchor`'s migration story, originally RELEASE-025, was not deferred but
 removed outright: anchor is flex's frozen predecessor and not part of the
 managed fleet, so there is nothing to resume.)
+
+**Phase paused 2026-07-21 — forked to Phase 96.** RELEASE-022's reviewer
+FAIL correctly reverted a scope violation (a forbidden new top-level section
+in `docs/brief.md`), but the revert command (`git checkout . && git clean
+-fd`) also deleted two untracked directories unrelated to the story
+(`docs/stories/CORE/`, `docs/stories/TEST/` — recovered, they were empty).
+That live-hit forced an urgent pivot to fix the build loop's revert/isolation
+safety before continuing further story builds in this phase. Deferred
+stories and reasons:
+
+- RELEASE-022 — needs a retry build (drop the forbidden `brief.md` section,
+  keep the rest) once Phase 96 lands, so the retry itself benefits from the
+  safer revert path.
+- RELEASE-024, RELEASE-026 through RELEASE-029, RELEASE-031 through
+  RELEASE-040 (fleet migration stories) and RELEASE-015 through RELEASE-018
+  (pre-fold gate / fold merge / re-sync / worktree retirement) — not yet
+  started; deferred as a block so the phase pause is clean, not because any
+  of them individually caused the pivot.
+
+Resumed in Phase 96 first (the safety fix itself), then back in a resumed
+HARNESS016-main-equivalent phase for the remaining fold-prep work — new
+story IDs will be assigned at resume time per the phase-continuity policy;
+this phase doc remains the historical record for the original RELEASE-0NN
+IDs above.
 
 ## Schema delivery
 

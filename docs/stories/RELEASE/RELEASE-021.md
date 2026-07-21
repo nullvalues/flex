@@ -2,7 +2,7 @@
 id: RELEASE-021
 rail: RELEASE
 title: Fix the unacknowledgeable CONTEXT CHECK REQUIRED gate trap
-status: planned
+status: complete
 phase: "HARNESS016-main"
 story_class: code
 auth_gated: false

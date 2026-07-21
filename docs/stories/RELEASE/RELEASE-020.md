@@ -2,7 +2,7 @@
 id: RELEASE-020
 rail: RELEASE
 title: Wire flex_factor into the context-budget PreToolUse gate
-status: planned
+status: complete
 phase: "HARNESS016-main"
 story_class: code
 auth_gated: false

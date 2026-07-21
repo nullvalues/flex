@@ -7,6 +7,14 @@ phase_class: production
 
 ← [Phase 95: Wire context-budget-gate hooks (UserPromptSubmit, SessionStart, PostToolUse Task/Agent) into downstream bootstrap registration](phase-95.md)
 
+**Parent phase:** [HARNESS016-main](phase-HARNESS016-main.md), paused
+2026-07-21 after the RELEASE-022 review incident (reviewer FAIL-path revert
+deleted two untracked, unrelated directories). HARNESS016-main left behind
+RELEASE-022 (needs a retry) plus the remaining fleet-migration and fold-gate
+stories (RELEASE-024/026-040, RELEASE-015-018), all marked `deferred` in its
+Stories table — see its `## Deferred stories` section. This phase builds the
+safety fix; HARNESS016-main resumes afterward.
+
 <!-- Phase doc = planning surface only. Story-level detail (acceptance criteria,
      file paths, implementation guidance, test instructions, codebase recon)
      belongs in docs/stories/<RAIL>/<ID>.md — not here. -->
