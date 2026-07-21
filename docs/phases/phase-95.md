@@ -34,4 +34,9 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-95 Cold-eyes checklist
 
-— developer fills in after phase completion —
+- **checkpoint-security** — PASS. No CRITICAL/HIGH findings; no `hooks/` files touched by this phase's diff; spec safety, credential exposure, path traversal, and layer-violation checks all clean (`_register_context_budget_hooks` builds hook-command paths from fixed constants, not external input).
+- **checkpoint-intent** — ALIGNED. INFRA-208, INFRA-209, INFRA-222 all built exactly to their `## Ensures`; INFRA-222's mid-phase scope addition (fixing the phase's own checkpoint-guard bug) is a legitimate live-hit, same pattern as CER-066/INFRA-207. One LOW/process note: INFRA-208 was independently built on two branches (`83bdd4e`, `66fcc87`) before reconciliation by merge `9fcef91` — final `bootstrap.py` is single-definition and fully tested, no drift.
+- **checkpoint-docs** — PASS (after one fix cycle). First pass FAILed on two gaps: `docs/architecture.md` had no explicit Phase 95 reference, and `CHANGELOG.md` had no Phase 95 entry. Both fixed (commit `24f0512`); recheck PASSed clean.
+- **CER Do Now** — CER-067 (the finding this phase was built to close) resolved with a Phase 95 note; no other unresolved Do Now items.
+- **Fleet verification (INFRA-209)** — 13 of 14 in-scope fleet projects already carried the three context-budget-gate registrations by the time of verification (read-only audit, no commits needed); `cora` formally excluded as a known carve-out; `anchor` remains excluded as a non-pairmode-consumer sibling plugin repo; `asp`'s forged CER-067 workaround keys in `state.json` are still present, reset deferred as a follow-up (out of scope for this phase).
+- **CER-069 filed** — the escaped-pipe `split("|")` bug class (CER-066 → INFRA-222 recurrence) has 6 more unaudited occurrences (`next_story.py`, `index_integrity.py`, `flex_build.py` ×3, `story_resolver.py`); filed to `docs/cer/backlog.md` Do Later for a follow-up audit, not fixed in this phase.

@@ -93,7 +93,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 92 | Fix cross-phase status leakage in story_update.py | complete | [phase-92.md](phase-92.md) |
 | 93 | Wire Edit/Write/Read matchers into pre_tool_use.py's PreToolUse registration | complete | [phase-93.md](phase-93.md) |
 | 94 | Fix escaped-pipe corruption in story_update.py phase-table row matching | complete | [phase-94.md](phase-94.md) |
-| 95 | Wire context-budget-gate hooks (UserPromptSubmit, SessionStart, PostToolUse Task/Agent) into downstream bootstrap registration | planned | [phase-95.md](phase-95.md) |
+| 95 | Wire context-budget-gate hooks (UserPromptSubmit, SessionStart, PostToolUse Task/Agent) into downstream bootstrap registration | complete | [phase-95.md](phase-95.md) |
 | HARNESS001-ante1 | Versioning & upstream compatibility | complete | [phase-HARNESS001-ante1.md](phase-HARNESS001-ante1.md) |
 | HARNESS001-main | Resolver foundation (deterministic skeleton) | complete | [phase-HARNESS001-main.md](phase-HARNESS001-main.md) |
 | HARNESS002-main | Gate verdict extraction | complete | [phase-HARNESS002-main.md](phase-HARNESS002-main.md) |
