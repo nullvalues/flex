@@ -4,13 +4,20 @@ rail: RELEASE
 title: Per-project sync-all to Era 3 with Signal-1 verification
 status: complete
 phase: "HARNESS013-main"
-story_class: documentation
+story_class: doc
 auth_gated: false
 schema_introduces: false
 primary_files:
   - docs/harness-cutover-runbook.md
 touches: []
 ---
+
+## Requires
+
+- RELEASE-008 (gate-worker/bootstrap-sync wiring), RELEASE-009
+  (`pairmode_scripts_dir` fix), RELEASE-010 (fleet discovery + Signal-1), and
+  RELEASE-011 (`to-030` normalizer) all complete — the 6-step procedure this
+  story documents assumes each of those tools already exists.
 
 ## Ensures
 

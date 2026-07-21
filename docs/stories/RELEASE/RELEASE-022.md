@@ -4,10 +4,10 @@ rail: RELEASE
 title: Pre-fold doc sweep — era status, post-flip staleness, reviewer input-scope contradiction
 status: planned
 phase: "HARNESS016-main"
-story_class: documentation
+story_class: doc
 auth_gated: false
 schema_introduces: false
-touches:
+primary_files:
   - README.md
   - docs/architecture.md
   - docs/brief.md

@@ -4,13 +4,18 @@ rail: RELEASE
 title: Mid-build seam selection and pre-migration gate for Era 2 projects
 status: complete
 phase: "HARNESS013-main"
-story_class: documentation
+story_class: doc
 auth_gated: false
 schema_introduces: false
 primary_files:
   - docs/harness-cutover-runbook.md
 touches: []
 ---
+
+## Requires
+
+- RELEASE-012 complete: the 6-step Era 3 procedure this seam gate is a
+  precondition for already exists in the runbook.
 
 ## Ensures
 

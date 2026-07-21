@@ -7,7 +7,7 @@ phase: "HARNESS016-main"
 story_class: code
 auth_gated: false
 schema_introduces: false
-touches:
+primary_files:
   - docs/harness-cutover-runbook.md
 ---
 

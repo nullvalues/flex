@@ -4,10 +4,10 @@ rail: RELEASE
 title: Post-fold re-sync of migrated projects + RELEASE-002 status reconciliation
 status: planned
 phase: "HARNESS016-main"
-story_class: documentation
+story_class: doc
 auth_gated: false
 schema_introduces: false
-touches:
+primary_files:
   - docs/cer/backlog.md
   - docs/fleet-snapshot.md
 ---

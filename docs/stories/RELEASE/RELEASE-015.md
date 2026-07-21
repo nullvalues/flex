@@ -4,10 +4,10 @@ rail: RELEASE
 title: Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects
 status: planned
 phase: "HARNESS016-main"
-story_class: documentation
+story_class: doc
 auth_gated: false
 schema_introduces: false
-touches:
+primary_files:
   - docs/fleet-snapshot.md
   - docs/harness-cutover-runbook.md
 ---
