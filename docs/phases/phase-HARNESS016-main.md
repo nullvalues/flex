@@ -61,6 +61,23 @@ worktree, with only a bare `Task` matcher) is the expected pre-self-sync
 state already covered by RELEASE-015/017's gate and re-sync work — not a new
 story.
 
+Further surfaced 2026-07-21: a fresh fleet-wide `fleet_discovery.py` run
+(the 2026-07-17 snapshot in `docs/fleet-snapshot.md` had gone stale) shows
+**0 of 18 bound projects pass DP8** — every project is still `binding:
+version`, on pairmode 0.2.0 (aab, asp, base56, caddy, coherra, forqsite,
+forqsite.help, halfhorse, lumin, meander, pokus, radar, rockue, stackabid,
+ud) or 0.1.0 (anchor, cora), with Signal-1 absent. `stackabid` is newly
+bound since the 07-17 snapshot. RELEASE-024 through RELEASE-040 spec one
+migration story per bound sibling project (17 total; `/mnt/work/flex`
+itself is out of scope here — its self-sync is RELEASE-017's concern, not
+the fleet's). anchor and cora carry an extra 0.1.0-schema-gap step:
+`pairmode_migrate.py to-030` assumes a 0.2.x-bootstrapped project and does
+not backfill the 0.2.x context-budget field set those two never had. Each
+migration story explicitly flags that its file writes land outside
+`/mnt/work/flex-harness`'s project root and are therefore invisible to
+`scope_guard`'s enforcement, so these must be executed directly, not
+dispatched to a scope-bound spawn-builder subagent.
+
 ## Stories
 
 | ID | Title | Status |
@@ -71,6 +88,23 @@ story.
 | RELEASE-020 | Wire `flex_factor` into the context-budget `PreToolUse` gate | planned |
 | RELEASE-021 | Fix the unacknowledgeable `CONTEXT CHECK REQUIRED` gate trap | planned |
 | RELEASE-022 | Pre-fold doc sweep — era status, post-flip staleness, reviewer input-scope contradiction | planned |
+| RELEASE-024 | Fleet migration — sync aab to pairmode 0.3.0 | planned |
+| RELEASE-025 | Fleet migration — sync anchor to pairmode 0.3.0 (0.1.0 schema gap) | planned |
+| RELEASE-026 | Fleet migration — sync asp to pairmode 0.3.0 | planned |
+| RELEASE-027 | Fleet migration — sync base56 to pairmode 0.3.0 | planned |
+| RELEASE-028 | Fleet migration — sync caddy to pairmode 0.3.0 | planned |
+| RELEASE-029 | Fleet migration — sync coherra to pairmode 0.3.0 | planned |
+| RELEASE-030 | Fleet migration — sync cora to pairmode 0.3.0 (0.1.0 schema gap) | planned |
+| RELEASE-031 | Fleet migration — sync forqsite to pairmode 0.3.0 | planned |
+| RELEASE-032 | Fleet migration — sync forqsite.help to pairmode 0.3.0 | planned |
+| RELEASE-033 | Fleet migration — sync halfhorse to pairmode 0.3.0 | planned |
+| RELEASE-034 | Fleet migration — sync lumin to pairmode 0.3.0 | planned |
+| RELEASE-035 | Fleet migration — sync meander to pairmode 0.3.0 | planned |
+| RELEASE-036 | Fleet migration — sync pokus to pairmode 0.3.0 | planned |
+| RELEASE-037 | Fleet migration — sync radar to pairmode 0.3.0 | planned |
+| RELEASE-038 | Fleet migration — sync rockue to pairmode 0.3.0 | planned |
+| RELEASE-039 | Fleet migration — sync stackabid to pairmode 0.3.0 | planned |
+| RELEASE-040 | Fleet migration — sync ud to pairmode 0.3.0 | planned |
 | RELEASE-015 | Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects | planned |
 | RELEASE-016 | Fold merge — fold-prep → main, tag v0.3.0 | planned |
 | RELEASE-017 | Post-fold re-sync of migrated projects + RELEASE-002 status reconciliation | planned |
