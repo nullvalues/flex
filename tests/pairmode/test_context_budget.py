@@ -781,6 +781,37 @@ def test_decide_returns_check_required_when_tokens_absent(tmp_path):
     assert "CONTEXT CHECK REQUIRED" in result["reason"]
 
 
+def test_check_required_message_names_working_escape_paths(tmp_path):
+    """RELEASE-021: the CHECK-REQUIRED message must name real, working exits.
+
+    The prior message claimed the token count "will update automatically
+    after the next tool call completes" — false for this verdict, since the
+    PreToolUse block prevents exactly the Task/Agent spawn whose PostToolUse
+    completion would perform that write. The rewritten message must not make
+    that false claim, and must name the documented manual escape hatches
+    (`set-context-tokens`, `/clear`) explicitly.
+    """
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 53_000,
+            "current_phase": "58",
+            "current_story": "RELEASE-021",
+        },
+    )
+
+    result = context_budget.decide(project_dir)
+    assert result is not None
+    assert result["block"] is True
+    reason = result["reason"]
+    assert "CONTEXT CHECK REQUIRED" in reason
+    assert "will update automatically" not in reason
+    assert "set-context-tokens" in reason
+    assert "/clear" in reason
+
+
 def test_decide_returns_none_when_acknowledged_within_margin(tmp_path):
     """Already-acknowledged budget within reprompt margin → None."""
     project_dir = _setup_project(

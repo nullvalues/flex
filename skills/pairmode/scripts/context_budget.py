@@ -74,8 +74,18 @@ _FLEX_BUILD_PATH = Path(__file__).resolve().parent / "flex_build.py"
 
 _CONTEXT_CHECK_REQUIRED_MSG = (
     "CONTEXT CHECK REQUIRED\n"
-    "Context token count is missing or stale. It will update automatically\n"
-    "after the next tool call completes.\n"
+    "Context token count is missing or stale. This blocks the exact\n"
+    "build-cycle agent spawn (builder/reviewer/loop-breaker/security-\n"
+    "auditor/intent-reviewer) that would normally refresh it, so it will\n"
+    "NOT clear on its own. To proceed, do one of:\n"
+    "1. Run /context to see the current token count, then run:\n"
+    "     set-context-tokens --tokens N\n"
+    "   (N = the token count /context reports). Then retry the spawn.\n"
+    "2. Run /clear to reset the session; this writes a fresh baseline\n"
+    "   automatically. Then resume with: \"Continue building Phase X\n"
+    "   from story RAIL-NNN\".\n"
+    "3. Spawn a non-build-cycle agent (general-purpose / Plan / Explore) —\n"
+    "   these are not gated by this check.\n"
 )
 
 # CER-041: named constant for the staleness TTL (minutes).
