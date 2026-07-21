@@ -6,6 +6,11 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Added [pairmode] — Phase 95 (Downstream context-budget-gate hook registration and fleet rollout)
+- `bootstrap.py`/`sync.py` downstream registrar generalized to wire the three load-bearing context-budget-gate hooks (`UserPromptSubmit`, `SessionStart`, `PostToolUse` `Task|Agent`) into a bootstrapped project's `.claude/settings.json`, alongside the existing `PreToolUse` block, using the same by-command find/migrate idempotency; the four companion/sidebar blocks remain opt-in (INFRA-208, CER-067).
+- Fleet rollout verified: 13 of 14 in-scope fleet projects already carried the new registrations by the time of verification (no commits required); `cora` formally excluded as a known carve-out, `anchor` remains excluded as a non-pairmode-consumer sibling plugin repo; `asp`'s forged CER-067 workaround keys in `state.json` noted, reset deferred as a follow-up (INFRA-209).
+- Fixed a CER-066 recurrence: `next_action.py`'s `_check_phase_completion` checkpoint guard split Stories-table rows on every literal `|`, so an escaped pipe in a title (e.g. `` `Task\|Agent` ``) shredded the row and shifted the status read off the real status cell, causing the guard to report `phase-incomplete` for genuinely-complete phases. Fixed with the unescaped-pipe split already proven in `story_update.py`, status still read from its known schema position — not a "last column" positional guess (INFRA-222).
+
 ### Added [pairmode] — HARNESS015-main (Checkpoint-sequence reset and state.json atomic-write adoption)
 - `record-checkpoint-step` now resets `state.json["checkpoint_step"]` to `[]` when `checkpoint-tag` is recorded, fixing a bug where the checkpoint sequence (security audit, intent review, docs review, tagging) was silently skipped for every phase after the first (RESOLVER-017, CER-066).
 - Remaining `state.json` writers (`hooks/post_tool_use.py`, `story_context.py`, `bootstrap.py`, `skills/companion/scripts/sidebar.py`) adopted the shared `state_utils._atomic_write_json` writer (INFRA-202, CER-050).

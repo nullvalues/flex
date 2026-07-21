@@ -1098,7 +1098,13 @@ gate hooks — `UserPromptSubmit`, `SessionStart`, and `PostToolUse` `Task|Agent
 find/migrate idempotency as the `PreToolUse` registrar (CER-067); the four
 remaining companion/sidebar blocks (`Stop`, `PermissionRequest`/
 `ExitPlanMode`, `PostToolUse` `Write|Edit|MultiEdit`, `SessionEnd`) remain
-opt-in.
+opt-in. Phase 95 (INFRA-208/INFRA-209) shipped this registrar generalization
+and verified the fleet rollout — 13 of 14 in-scope projects already carried
+the three registrations by the time INFRA-209 ran (no commits needed); `cora`
+is formally excluded as a known carve-out, `anchor` remains excluded as a
+non-pairmode-consumer sibling plugin repo. Phase 95's INFRA-222 additionally
+fixed an escaped-pipe parsing bug in `next_action.py`'s checkpoint guard
+(`_check_phase_completion`), a CER-066 recurrence.
 
 All decision logic lives in the named modules; the hook is a thin dispatcher.
 
