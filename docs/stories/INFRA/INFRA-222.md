@@ -2,7 +2,7 @@
 id: INFRA-222
 rail: INFRA
 title: Fix escaped-pipe corruption in next_action.py's _check_phase_completion Stories-table status parse (CER-066 recurrence)
-status: planned
+status: complete
 phase: "95"
 story_class: code
 auth_gated: false
