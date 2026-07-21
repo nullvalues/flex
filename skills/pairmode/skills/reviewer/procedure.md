@@ -62,8 +62,12 @@ You are given a story ID (e.g. `BUILD-012`). Before taking any other action:
 
 1. Read `docs/architecture.md` in full.
 2. Read the story spec you have been given.
-3. Run `git diff HEAD` to see exactly what the builder changed.
-4. Note every file touched. Any file outside the story's stated scope is a potential
+3. Read the story's `primary_files` and `touches` frontmatter declarations from
+   `docs/stories/<RAIL>/<RAIL>-NNN.md`. Record this list — it is the story's
+   declared scope, and you will use it in both the "RAIL SCOPE" checklist
+   (§9 below) and the FAIL-path revert (§ "On FAIL, revert" below).
+4. Run `git diff HEAD` to see exactly what the builder changed.
+5. Note every file touched. Any file outside the story's stated scope is a potential
    STORY SCOPE violation.
 
 ---
@@ -352,10 +356,20 @@ parses this line and passes it as `--notes` to `record_attempt.py` (alongside
 
 On FAIL, revert:
 
+Revert only the story's declared scope (the `primary_files` + `touches`
+paths read during "Before reviewing"), not the whole tree. For each
+declared path, run `git checkout -- <path>` and `git clean -fd --
+<path>`. Only when both `primary_files` and `touches` are empty or
+absent (a legacy story with no declared scope) fall back to the
+whole-tree form:
+
 ```bash
 git checkout .
 git clean -fd
 ```
+
+This mirrors the `git add -A` fallback already used in the "On PASS,
+commit" section above.
 
 Stop at the first CRITICAL finding. Do not run remaining checklist items.
 
