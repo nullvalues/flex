@@ -2,7 +2,7 @@
 id: RELEASE-030
 rail: RELEASE
 title: Fleet migration — sync cora to pairmode 0.3.0 thin-harness loop
-status: planned
+status: backlog
 phase: "HARNESS016-main"
 story_class: code
 auth_gated: false
@@ -15,11 +15,33 @@ touches:
   - docs/fleet-snapshot.md
 ---
 
+## Deferred (2026-07-21)
+
+**This story is deferred, not part of the current fold's DP8 requirement.**
+`cora` was the testbed where anchor/flex build-loop principles were
+originally proven out (anchor itself is flex's frozen predecessor — see
+the phase doc's exclusion note) and still holds artifacts worth porting
+into flex before a routine sync-all overwrites them — notably a rule
+discovered there about not allowing a
+schema-introducing story to complete without a matching UI management
+story: violations pass smoke tests but fail immediately in UAT. flex's own
+`CLAUDE.md` "Conceptual rebuild completeness" policy already codifies a
+version of this rule at the global level, but cora's specific artifacts
+(the concrete case that prompted it) have not been reviewed for anything
+flex's codified version doesn't yet cover.
+
+This is deferred rather than dropped (contrast anchor, RELEASE-025 —
+removed outright, not deferred, since anchor is a frozen predecessor with
+no further development). cora combines the 0.1.0 schema gap (below) with
+this extra artifact-extraction need, making it a larger story than the
+standard per-project migration. RELEASE-015's DP8 gate (see its Requires)
+is updated to exclude `cora` from the current fold's hard-block
+requirement; this story is resumed as its own dedicated story once the
+artifact-extraction work is scoped — track alongside the CER backlog
+(`docs/cer/backlog.md`) if extraction surfaces reusable findings.
+
 ## Requires
 
-- This story is one of the fleet migrations RELEASE-015's DP8 gate checks
-  for — it is a *prerequisite* to RELEASE-015 passing, not gated by it. Run
-  independently of RELEASE-015/016/017/018.
 - `/mnt/work/cora` is on pairmode 0.1.0 with `binding: version`
   (Signal-1 absent), confirmed via fresh `fleet_discovery.py` run 2026-07-21.
 - **0.1.0 schema gap**: `/mnt/work/cora`'s `.companion/state.json` is on

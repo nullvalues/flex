@@ -33,16 +33,33 @@ touches:
 - Live read 2026-07-16: all 9 named projects are still on pairmode
   0.2.0/0.1.0 with no `pairmode_scripts_dir` line; neither `/mnt/work/flex` nor
   `/mnt/work/flex-harness` has self-synced either. The gate currently fails.
+- **Excluded from this gate's hard-block requirement (decided 2026-07-21):**
+  - `anchor` — flex's frozen predecessor (flex was hard-forked from it); it
+    will not be developed further and is not part of the managed fleet.
+    Already absent from the 9-name hardcoded list above; the broadened
+    `--candidate-dir` scan this story adds (Ensures) must explicitly skip
+    `/mnt/work/anchor` rather than silently rediscovering and blocking on it.
+  - `cora` — present in the hardcoded list, but deferred (RELEASE-030,
+    `status: backlog`): combines the 0.1.0 schema gap with artifact-extraction
+    work (build-loop lessons proven there, worth porting into flex before a
+    routine sync overwrites them) that makes it larger than a standard
+    migration. Excluded from this gate's pass/fail condition; resumed as its
+    own dedicated story later.
+  - Every other bound project remains a hard requirement — this exclusion
+    list is deliberately narrow and must not be treated as a precedent for
+    excluding a project without an equally explicit, documented reason.
 
 ## Ensures
 
 - A fresh run of the harness checkout's `fleet_discovery.py` regenerates
   `docs/fleet-snapshot.md` with a current timestamp, committed on `fold-prep`.
-- **Hard gate (DP8):** passes only if every bound project shows
-  `pairmode_version: 0.3.0` AND `binding: scripts` (or `both`). Any project
-  showing 0.2.x/0.1.x, or Signal-1 absent, blocks this story — it completes
-  with verdict BLOCKED, and RELEASE-016/017/018 must not begin. An
-  un-migrated project is a stop, not a warning. No partial folds.
+- **Hard gate (DP8):** passes only if every bound project *other than the
+  explicitly excluded `anchor` and `cora` (see Requires)* shows
+  `pairmode_version: 0.3.0` AND `binding: scripts` (or `both`). Any
+  non-excluded project showing 0.2.x/0.1.x, or Signal-1 absent, blocks this
+  story — it completes with verdict BLOCKED, and RELEASE-016/017/018 must not
+  begin. An un-migrated project is a stop, not a warning. No partial folds
+  among the projects actually in scope.
 - flex-harness's own dogfood binding is included: `/mnt/work/flex-harness`
   itself must show `pairmode_version: 0.3.0` in `.companion/state.json`,
   reflecting the runbook's unexecuted Phase 1 self-sync.
@@ -66,9 +83,13 @@ touches:
 2. Run `fleet_discovery.py` from `/mnt/work/flex-harness`, both with `--json`
    for machine-readable output and without, to regenerate
    `docs/fleet-snapshot.md`; pass `--candidate-dir` for every `/mnt/work/*`
-   directory containing a `CLAUDE.build.md` in addition to the default list.
-3. Evaluate the gate per Ensures. If BLOCKED, list each un-migrated project by
-   name and point at the runbook's §Seam gate + §Per-project mechanic — those
+   directory containing a `CLAUDE.build.md` in addition to the default list,
+   **except `/mnt/work/anchor`** (excluded per Requires — do not pass it as a
+   candidate).
+3. Evaluate the gate per Ensures, excluding `anchor` (never scanned) and
+   `cora` (scanned and reported, but not counted toward pass/fail) from the
+   pass/fail condition. If BLOCKED on any other project, list it by name and
+   point at the runbook's §Seam gate + §Per-project mechanic — those
    migrations are operator work in other repositories, not performed by this
    story.
 4. Apply the runbook corrections (CLI drift, branch name, late-migrant
