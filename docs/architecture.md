@@ -248,6 +248,16 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    `threshold * (1 + overrun_pct) * flex_factor`; blocks when it does
    (unless acknowledged within the reprompt margin).
    The `decide()` signature is `(project_dir, flex_factor=1.0)` — no `story_id`.
+   `pre_tool_use.py` resolves `flex_factor` itself (RELEASE-020) via
+   `_resolve_flex_factor()`, which reuses `scope_guard._read_current_story`
+   (current-story lookup) and `flex_build._story_path` /
+   `flex_build._read_story_frontmatter` (frontmatter parsing) rather than
+   duplicating story-lookup logic; it fails open to `1.0` when there is no
+   active story, the story file is missing, no `flex_factor` is set, or any
+   error occurs — the no-override path is unchanged. This closes the gap
+   where a story's declared `flex_factor` raised the ceiling shown by the
+   observability SPA (see `/context` route below) but not the ceiling the
+   gate actually enforced, found via cold-eyes review 2026-07-17.
    No manual `set-context-tokens` call is required during normal operation;
    PostToolUse updates the count automatically. `set-context-tokens` remains
    available as a manual override / debugging escape hatch.
@@ -1056,7 +1066,12 @@ Hooks must:
 - Never write to spec files directly
 
 **Documented exception — `hooks/pre_tool_use.py` (triple thin-delegate):**
-`pre_tool_use.py` dispatches to three modules:
+`pre_tool_use.py` dispatches to three modules. As of RELEASE-020, the
+`Task`/`Agent` branch also makes a fourth, read-only import — `flex_build`
+(for `_story_path` / `_read_story_frontmatter`) alongside `scope_guard`
+(for `_read_current_story`) — solely to resolve `flex_factor` before
+calling `decide()`; no state is written by this resolution and no new
+dispatch branch is added.
 
 - **`Task`/`Agent` → `context_budget.py` (CER-027, CER-039, CER-040, CER-049, INFRA-182, INFRA-199):**
   the dispatch is additionally scoped (INFRA-199) to

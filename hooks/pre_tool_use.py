@@ -34,6 +34,15 @@ under either harness.
 INFRA-182: simplified Task/Agent branch — removed story_id lookup and the
 live_tokens state write (now PostToolUse's job). decide() now takes only
 project_dir.
+
+RELEASE-020: re-added a read-only story lookup, scoped strictly to
+resolving ``flex_factor`` for the ``decide()`` call. Reuses
+``scope_guard._read_current_story`` (current-story lookup) and
+``flex_build._story_path`` / ``flex_build._read_story_frontmatter``
+(frontmatter parsing) rather than duplicating story-lookup logic. This is
+distinct from the story_id lookup INFRA-182 removed (which fed a
+now-defunct live-count write) — no state.json write results from this
+resolution.
 """
 import json, sys
 from pathlib import Path
@@ -56,6 +65,32 @@ BUILD_CYCLE_SUBAGENTS = frozenset({
 })
 
 
+def _resolve_flex_factor(project_dir: Path) -> float:
+    """Resolve the current story's ``flex_factor`` for the context-budget gate.
+
+    RELEASE-020: reuses ``scope_guard._read_current_story`` (current-story
+    lookup from ``.companion/state.json``) and ``flex_build._story_path`` /
+    ``flex_build._read_story_frontmatter`` (story-frontmatter parsing) rather
+    than duplicating story-lookup logic. Fails open to ``1.0`` — the
+    pre-INFRA-160 default — when there is no active story, the story file is
+    missing, no ``flex_factor`` is set, or any error occurs.
+    """
+    try:
+        from scope_guard import _read_current_story
+        from flex_build import _read_story_frontmatter, _story_path
+
+        story_id = _read_current_story(project_dir)
+        if not story_id:
+            return 1.0
+        story_path = _story_path(story_id, project_dir)
+        if not story_path.exists():
+            return 1.0
+        fm = _read_story_frontmatter(story_path)
+        return float(fm.get("flex_factor", 1.0) or 1.0)
+    except Exception:
+        return 1.0
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -72,7 +107,8 @@ def main():
             import context_budget
 
             project_dir = Path(data.get("cwd") or ".")
-            result = context_budget.decide(project_dir=project_dir)
+            flex_factor = _resolve_flex_factor(project_dir)
+            result = context_budget.decide(project_dir=project_dir, flex_factor=flex_factor)
         except Exception:
             sys.exit(0)
 

@@ -433,3 +433,77 @@ def test_non_allowlisted_subagent_type_passes_through_without_calling_decide(
     state = json.loads((tmp_path / ".companion" / "state.json").read_text())
     assert "context_budget_acknowledged_at" not in state
     assert "context_budget_acknowledged_user_turn_seq" not in state
+
+
+# ---------------------------------------------------------------------------
+# Test: RELEASE-020 — the current story's flex_factor is threaded through to
+# decide(), exercised via the hook's real entry point (not by calling
+# decide() directly with the factor pre-supplied).
+# ---------------------------------------------------------------------------
+
+
+def _seed_story(tmp_path: Path, story_id: str, flex_factor: float) -> None:
+    """Write a minimal story spec with the given flex_factor and mark it
+    current in state.json (current_story is stored as {"id": ...} per
+    story_context.py)."""
+    rail = story_id.split("-", 1)[0]
+    stories_dir = tmp_path / "docs" / "stories" / rail
+    stories_dir.mkdir(parents=True, exist_ok=True)
+    (stories_dir / f"{story_id}.md").write_text(
+        "---\n"
+        f"id: {story_id}\n"
+        f"rail: {rail}\n"
+        "title: Test story\n"
+        "status: in_progress\n"
+        f"flex_factor: {flex_factor}\n"
+        "---\n\n## Ensures\n",
+        encoding="utf-8",
+    )
+
+
+def test_flex_factor_raises_ceiling_and_avoids_block(tmp_path):
+    """A story with flex_factor=2.0 raises the effective ceiling enough that
+    a token count which would block under the default (1.0) factor passes
+    instead — exercised through the hook's real entry point."""
+    state = {
+        "context_budget_threshold": 1000,
+        "context_budget_overrun_pct": 0.0,
+        "expected_step_tokens": 100,
+        "context_budget_reprompt_margin": 0,
+        "context_current_tokens": 1200,
+        "current_story": {"id": "RELF-001"},
+    }
+    _seed_state(tmp_path, state)
+    _seed_story(tmp_path, "RELF-001", flex_factor=2.0)
+
+    result = _run_hook({
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder"},
+        "cwd": str(tmp_path),
+    })
+    assert result.returncode == 0
+    assert result.stdout.strip() == b""
+
+
+def test_flex_factor_absent_story_still_blocks_at_default_ceiling(tmp_path):
+    """Control case: the same over-ceiling state WITHOUT a current story
+    (or with flex_factor unset) still blocks exactly as before — the
+    no-override path is unchanged."""
+    _seed_state(
+        tmp_path,
+        {
+            "context_budget_threshold": 1000,
+            "context_budget_overrun_pct": 0.0,
+            "expected_step_tokens": 100,
+            "context_budget_reprompt_margin": 0,
+            "context_current_tokens": 1200,
+        },
+    )
+    result = _run_hook({
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder"},
+        "cwd": str(tmp_path),
+    })
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
