@@ -85,6 +85,7 @@ RESOLVER-011 (resolver read-model integration + CER-056 fix):
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -308,7 +309,12 @@ def _check_phase_completion(active_phase_file: "Path | None") -> bool:
         if in_stories and stripped.startswith("|"):
             if "---" in stripped:
                 continue  # separator row
-            cols = [c.strip() for c in stripped.split("|") if c.strip()]
+            # Split on unescaped pipes only: `\|` is a literal cell character
+            # (escaped pipe), not a column separator — a naive split("|")
+            # shreds a title cell like `Task\|Agent` into extra columns and
+            # corrupts the status read at a fixed index (CER-066 recurrence).
+            raw_cols = re.split(r'(?<!\\)\|', stripped)
+            cols = [c.strip() for c in raw_cols if c.strip()]
             if not cols:
                 continue
             if cols[0].lower() in ("id",):

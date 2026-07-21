@@ -39,6 +39,7 @@ from next_action import (  # noqa: E402
     OUTCOME_NONE,
     OUTCOME_PASS,
     infer_position,
+    _check_phase_completion,
 )
 from flex_build import (  # noqa: E402
     resolve_current_phase,
@@ -1282,3 +1283,104 @@ class TestRouteGateVerdict:
         verdict_map = {"schema": "block:schema not resolved"}
         action = route_gate_verdict(verdict_map, "TEST-006")
         assert action["meta"]["gate_block_reasons"]["schema"] == "schema not resolved"
+
+
+class TestCheckPhaseCompletionEscapedPipe:
+    """INFRA-222 (CER-066 recurrence): `_check_phase_completion` must split
+    Stories-table rows on unescaped pipes only, so a title cell containing an
+    escaped pipe (e.g. `` `Task\\|Agent` ``) does not shred the row and shift
+    the status read off its known schema position.
+    """
+
+    def test_escaped_pipe_in_title_complete(self, tmp_path: Any) -> None:
+        phase_file = tmp_path / "phase-x.md"
+        phase_file.write_text(
+            "# Phase X\n\n"
+            "## Stories\n\n"
+            "| ID | Title | Status |\n"
+            "|---|---|---|\n"
+            "| INFRA-001 | Wire `Task\\|Agent` matcher | complete |\n",
+            encoding="utf-8",
+        )
+        assert _check_phase_completion(phase_file) is True
+
+    def test_escaped_pipe_in_title_planned(self, tmp_path: Any) -> None:
+        phase_file = tmp_path / "phase-x.md"
+        phase_file.write_text(
+            "# Phase X\n\n"
+            "## Stories\n\n"
+            "| ID | Title | Status |\n"
+            "|---|---|---|\n"
+            "| INFRA-001 | Wire `Task\\|Agent` matcher | planned |\n",
+            encoding="utf-8",
+        )
+        assert _check_phase_completion(phase_file) is False
+
+    def test_multiple_escaped_pipes_in_title(self, tmp_path: Any) -> None:
+        phase_file = tmp_path / "phase-x.md"
+        phase_file.write_text(
+            "# Phase X\n\n"
+            "## Stories\n\n"
+            "| ID | Title | Status |\n"
+            "|---|---|---|\n"
+            "| INFRA-002 | Register `Write\\|Edit\\|MultiEdit` block | complete |\n",
+            encoding="utf-8",
+        )
+        assert _check_phase_completion(phase_file) is True
+
+    def test_unaffected_rows_still_work(self, tmp_path: Any) -> None:
+        phase_file = tmp_path / "phase-x.md"
+        phase_file.write_text(
+            "# Phase X\n\n"
+            "## Stories\n\n"
+            "| ID | Title | Status |\n"
+            "|---|---|---|\n"
+            "| INFRA-001 | Plain title | complete |\n"
+            "| INFRA-002 | Another plain title | deferred |\n",
+            encoding="utf-8",
+        )
+        assert _check_phase_completion(phase_file) is True
+
+        phase_file.write_text(
+            "# Phase X\n\n"
+            "## Stories\n\n"
+            "| ID | Title | Status |\n"
+            "|---|---|---|\n"
+            "| INFRA-001 | Plain title | complete |\n"
+            "| INFRA-002 | Another plain title | planned |\n",
+            encoding="utf-8",
+        )
+        assert _check_phase_completion(phase_file) is False
+
+    def test_real_phase_95_live_hit(self, tmp_path: Any) -> None:
+        """Regression against this story's own live-hit: phase-95.md's real
+        Stories table has escaped-pipe titles on INFRA-208/INFRA-209, both
+        `complete`. Pulled verbatim from the on-disk file (not hand-typed)
+        so the fixture stays byte-identical to the actual triggering rows;
+        INFRA-222's own row (this story, not yet complete while it is being
+        built) is excluded — it is orthogonal to the escaped-pipe bug under
+        test and would otherwise make this assertion depend on build-loop
+        timing rather than the parsing fix.
+        """
+        phase_95_text = (
+            _REPO_ROOT / "docs" / "phases" / "phase-95.md"
+        ).read_text(encoding="utf-8")
+        story_lines = [
+            line
+            for line in phase_95_text.splitlines()
+            if line.strip().startswith("| INFRA-208")
+            or line.strip().startswith("| INFRA-209")
+        ]
+        assert len(story_lines) == 2, "expected exactly INFRA-208 and INFRA-209 rows"
+
+        phase_file = tmp_path / "phase-95-live-hit.md"
+        phase_file.write_text(
+            "# Phase 95\n\n"
+            "## Stories\n\n"
+            "| ID | Title | Status |\n"
+            "|----|-------|--------|\n"
+            + "\n".join(story_lines)
+            + "\n",
+            encoding="utf-8",
+        )
+        assert _check_phase_completion(phase_file) is True
