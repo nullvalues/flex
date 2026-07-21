@@ -4,7 +4,7 @@ rail: INFRA
 title: Architecture doc stale claims
 status: draft
 phase: "HARNESS011-main"
-story_class: documentation
+story_class: doc
 auth_gated: false
 schema_introduces: false
 primary_files:
@@ -15,6 +15,14 @@ touches:
 
 > Renumbered from INFRA-208 during the HARNESS016-main fold merge (RELEASE-019) — the ID collided with a new main-branch INFRA-208.
 > Renumbered from INFRA-197 during the HARNESS016-main fold merge (ID collision with main's INFRA-197).
+
+## Requires
+
+- CER-014 and CER-035 (the two backlog findings this story resolves) are present in
+  `docs/cer/backlog.md`.
+- Phase 53 BUILD-020 complete: reviewer-class agents (`reviewer`, `security-auditor`,
+  `intent-reviewer`) share `tools: [Read, Bash, Glob, Grep]` — the fact CER-035's fix
+  states as current and accurate.
 
 ## Ensures
 

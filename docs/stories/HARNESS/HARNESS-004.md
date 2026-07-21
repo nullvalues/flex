@@ -4,7 +4,7 @@ rail: HARNESS
 title: "`CLAUDE.md` + `CLAUDE.build.md` token surgery"
 status: complete
 phase: "HARNESS010-main"
-story_class: documentation
+story_class: doc
 auth_gated: false
 schema_introduces: false
 primary_files:
@@ -28,6 +28,13 @@ carries a "Spec mode" paragraph that duplicates what the resolver action already
 explanatory prose in the "Checkpoint" paragraph that is similarly redundant.
 
 Agreement HARNESS010-main DP1/DP2/DP4 (settled 2026-07-04).
+
+## Requires
+
+- Agreement HARNESS010-main DP1/DP2/DP4 settled.
+- `skills/pairmode/skills/reviewer/procedure.md` already holds the full 10-item review
+  checklist — this story replaces `CLAUDE.md`'s inline copy with a reference to it, so the
+  reference must point at a checklist that's actually complete.
 
 ## Ensures
 

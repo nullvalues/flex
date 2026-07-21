@@ -4,7 +4,7 @@ rail: INFRA
 title: "Backlog hygiene: mark CER-013/015/032/033/052 resolved"
 status: draft
 phase: "HARNESS011-main"
-story_class: documentation
+story_class: doc
 auth_gated: false
 schema_introduces: false
 primary_files:
@@ -13,6 +13,14 @@ touches: []
 ---
 
 > Renumbered from INFRA-201 during the HARNESS016-main fold merge (RELEASE-019) — the ID collided with a new main-branch INFRA-201.
+
+## Requires
+
+- CER-013, CER-015, CER-032, CER-033, and CER-052 each already exist as open entries in
+  `docs/cer/backlog.md`.
+- The checkpoints each resolution note cites (cp-HARNESS001-main, HARNESS006-main,
+  HARNESS002-main, cp-HARNESS009-main / Phase 75) are tagged and complete, so the
+  resolution claims can be verified against actual repo state before being written.
 
 ## Ensures
 

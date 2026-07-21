@@ -4,7 +4,7 @@ rail: WORKER
 title: Builder + reviewer procedure Non-negotiables removal
 status: complete
 phase: "HARNESS010-main"
-story_class: documentation
+story_class: doc
 auth_gated: false
 schema_introduces: false
 primary_files:
@@ -24,6 +24,13 @@ canonical checklist owner and removes the `## Session modes` section from `CLAUD
 story then removes the Non-negotiables redundancy from both procedures.
 
 Agreement HARNESS010-main DP3/DP4 (settled 2026-07-04).
+
+## Requires
+
+- HARNESS-004 complete: the reviewer procedure is the canonical checklist owner and
+  `CLAUDE.md`'s `## Session modes` section is already removed, so the Non-negotiables
+  redundancy this story removes doesn't leave either procedure as the sole source of
+  a rule that used to live in both places.
 
 ## Ensures
 
