@@ -112,6 +112,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | HARNESS014-main | Lessons enforcement instrumentation | complete | [phase-HARNESS014-main.md](phase-HARNESS014-main.md) · cp-HARNESS014-main |
 | HARNESS015-main | Checkpoint-sequence reset and state.json atomic-write adoption | complete | [phase-HARNESS015-main.md](phase-HARNESS015-main.md) · cp-HARNESS015-main |
 | HARNESS016-main | Final fold — pre-fold gate, merge to main, re-sync | planned | [phase-HARNESS016-main.md](phase-HARNESS016-main.md) |
+| 96 | Build-loop revert safety and worktree-per-cycle isolation | planned | [phase-96.md](phase-96.md) |
 
 ---
 
