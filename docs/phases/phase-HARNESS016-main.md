@@ -98,6 +98,7 @@ RELEASE-015's pass/fail condition — see "Deferred stories" below.
 |----|-------|--------|
 | RELEASE-014 | Pre-fold reconciliation — merge main (31 commits, incl. INFRA-192/193/195/199) into fold-prep | complete |
 | RELEASE-023 | Fix `_has_story_commit()` commit-message matching in `next_story.py` (resolver loop bug) | complete |
+| RELEASE-041 | Fix `_has_story_commit()` false-positive on spec-authoring commits (resolver loop bug) | planned |
 | RELEASE-019 | Second pre-fold reconciliation — merge main (36 commits, incl. INFRA-205/206/207) into fold-prep | complete |
 | RELEASE-020 | Wire `flex_factor` into the context-budget `PreToolUse` gate | planned |
 | RELEASE-021 | Fix the unacknowledgeable `CONTEXT CHECK REQUIRED` gate trap | planned |
