@@ -2,7 +2,7 @@
 id: INFRA-233
 rail: INFRA
 title: Register context-budget-gate hooks in flex-harness's own settings.json — never dogfooded on itself
-status: draft
+status: complete
 phase: "97"
 story_class: code
 auth_gated: false
