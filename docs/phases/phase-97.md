@@ -48,6 +48,7 @@ Resume HARNESS016-main's deferred tail: retry the doc sweep, migrate the fleet t
 | RELEASE-060 | Post-fold re-sync of migrated projects + RELEASE-002 status reconciliation | draft |
 | RELEASE-061 | Worktree and branch retirement — remove /mnt/work/flex-harness | draft |
 | INFRA-225 | Port startswith("complete") annotated-status fallback into next_action.py's _resolve_active_phase | complete |
+| INFRA-226 | Add fable as an escalation-tier model; document mandatory custom-model entry at model-upgrade gates | draft |
 
 ## Deferred stories
 
