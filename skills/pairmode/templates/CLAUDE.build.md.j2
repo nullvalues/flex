@@ -8,11 +8,28 @@ pairmode_scripts_dir = {{ pairmode_scripts_dir }}
 
 ## Build loop
 
+Story-build actions (`spawn-builder`, `spawn-reviewer`, and the
+reviewer-equivalent spawn actions that write and commit code) run inside a
+disposable per-story git worktree: created fresh from the current branch tip
+before the builder spawns, and on reviewer PASS rebased + fast-forward-merged
+back onto the main branch, or on reviewer FAIL discarded outright — untracked
+content and all — without ever touching the main worktree's files. The builder
+and reviewer operate inside the returned worktree path, never the main project
+directory. Checkpoint-stage workers (`checkpoint-security`, `checkpoint-intent`,
+`checkpoint-docs`) are read-mostly/advisory and never commit — they stay on the
+main worktree, unwrapped.
+
 ```
 while true:
     a = {{ pairmode_scripts_dir }}/flex_build.py next-action --json --project-dir .
     if a.action == "done": break
-    spawn leaf-worker-for(a.action) with scalar=a.scalar, model=a.model
+    if a.action is a story-build action (spawn-builder / spawn-reviewer):
+        wt = {{ pairmode_scripts_dir }}/flex_build.py create-story-worktree --story-id a.scalar --project-dir .
+        spawn leaf-worker-for(a.action) with scalar=a.scalar, model=a.model, cwd=wt
+        on reviewer PASS: {{ pairmode_scripts_dir }}/flex_build.py merge-story-worktree --story-id a.scalar --project-dir .
+        on reviewer FAIL: {{ pairmode_scripts_dir }}/flex_build.py discard-story-worktree --story-id a.scalar --project-dir .
+    else:
+        spawn leaf-worker-for(a.action) with scalar=a.scalar, model=a.model
     record result via {{ pairmode_scripts_dir }}/flex_build.py record-attempt ...
 ```
 

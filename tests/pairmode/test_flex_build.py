@@ -1013,6 +1013,246 @@ def test_spec_preflight_subcommand_help_shows_story_id_flag() -> None:
     assert "--story-id" in result.stdout
 
 
+# ---------------------------------------------------------------------------
+# create/merge/discard-story-worktree (INFRA-224)
+# ---------------------------------------------------------------------------
+
+
+def _init_git_repo(project: Path) -> None:
+    """Initialise *project* as a git repo with one commit on the default branch."""
+    subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=str(project),
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=str(project), check=True
+    )
+    (project / "README.md").write_text("init\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=str(project), check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "initial"], cwd=str(project), check=True
+    )
+
+
+def _git(project: Path, *args: str) -> subprocess.CompletedProcess:
+    """Run a git command in *project* and capture its output."""
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(project),
+        capture_output=True,
+        text=True,
+    )
+
+
+def _commit_in(worktree: Path, filename: str, content: str, msg: str) -> None:
+    """Create/overwrite *filename* in *worktree* and commit it there."""
+    (worktree / filename).write_text(content, encoding="utf-8")
+    subprocess.run(["git", "add", filename], cwd=str(worktree), check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", msg], cwd=str(worktree), check=True
+    )
+
+
+class TestStoryWorktreeLifecycle:
+    """create / merge / discard-story-worktree (INFRA-224)."""
+
+    def test_create_story_worktree_creates_branch_and_directory(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        result = _run(
+            "create-story-worktree",
+            "--story-id", "WT-001",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        wt = tmp_path / ".pairmode-worktrees" / "WT-001"
+        assert wt.is_dir()
+        # stdout is the absolute worktree path.
+        assert result.stdout.strip() == str(wt.resolve())
+        # git worktree list shows it.
+        listing = _git(tmp_path, "worktree", "list")
+        assert str(wt.resolve()) in listing.stdout
+        # the new branch exists.
+        branch = _git(
+            tmp_path, "rev-parse", "--verify", "refs/heads/pairmode/WT-001"
+        )
+        assert branch.returncode == 0
+
+    def test_create_story_worktree_fails_if_already_exists(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        first = _run(
+            "create-story-worktree",
+            "--story-id", "WT-002",
+            "--project-dir", str(tmp_path),
+        )
+        assert first.returncode == 0, first.stderr
+        second = _run(
+            "create-story-worktree",
+            "--story-id", "WT-002",
+            "--project-dir", str(tmp_path),
+        )
+        assert second.returncode != 0
+        assert "already exists" in second.stderr
+
+    def test_worktree_edits_isolated_from_main_tree(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-003",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-003"
+        (wt / "feature.txt").write_text("in-worktree\n", encoding="utf-8")
+        # Not visible in the main worktree until merged.
+        assert not (tmp_path / "feature.txt").exists()
+
+    def test_merge_story_worktree_lands_commit_on_main_branch(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-004",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-004"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-004",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        # The commit is now on the main branch and the file materialised.
+        assert (tmp_path / "feature.txt").read_text() == "done\n"
+        log = _git(tmp_path, "log", "--oneline")
+        assert "add feature" in log.stdout
+        # Worktree and branch are gone.
+        assert not wt.exists()
+        branch = _git(
+            tmp_path, "rev-parse", "--verify", "refs/heads/pairmode/WT-004"
+        )
+        assert branch.returncode != 0
+
+    def test_merge_story_worktree_rebases_past_intervening_main_commits(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-005",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-005"
+        _commit_in(wt, "feature.txt", "wt work\n", "worktree commit")
+        # Advance the main branch AFTER the worktree was created.
+        (tmp_path / "mainfile.txt").write_text("main work\n", encoding="utf-8")
+        subprocess.run(["git", "add", "mainfile.txt"], cwd=str(tmp_path), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "main commit"],
+            cwd=str(tmp_path),
+            check=True,
+        )
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-005",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        log = _git(tmp_path, "log", "--oneline").stdout
+        assert "worktree commit" in log
+        assert "main commit" in log
+        assert (tmp_path / "feature.txt").exists()
+        assert (tmp_path / "mainfile.txt").exists()
+
+    def test_merge_story_worktree_conflict_aborts_cleanly(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        # A shared file both branches will edit on the same line.
+        (tmp_path / "shared.txt").write_text("base\n", encoding="utf-8")
+        subprocess.run(["git", "add", "shared.txt"], cwd=str(tmp_path), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "add shared"],
+            cwd=str(tmp_path),
+            check=True,
+        )
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-006",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-006"
+        _commit_in(wt, "shared.txt", "worktree-change\n", "wt edit shared")
+        # Conflicting edit on the main branch.
+        (tmp_path / "shared.txt").write_text("main-change\n", encoding="utf-8")
+        subprocess.run(["git", "add", "shared.txt"], cwd=str(tmp_path), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "main edit shared"],
+            cwd=str(tmp_path),
+            check=True,
+        )
+        main_head_before = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
+
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-006",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode != 0
+        # The rebase was aborted: no lingering rebase state in the worktree gitdir.
+        wt_gitdir = _git(
+            wt, "rev-parse", "--git-dir"
+        ).stdout.strip()
+        assert not (Path(wt_gitdir) / "rebase-merge").exists()
+        assert not (Path(wt_gitdir) / "rebase-apply").exists()
+        # The main worktree is unaffected.
+        main_head_after = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
+        assert main_head_after == main_head_before
+        assert (tmp_path / "shared.txt").read_text() == "main-change\n"
+
+    def test_discard_story_worktree_removes_uncommitted_changes_only_in_worktree(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        # Untracked content in the MAIN worktree, mirroring the RELEASE-022
+        # docs/stories/CORE/-style scenario — must survive a discard.
+        main_untracked = tmp_path / "docs" / "stories" / "CORE"
+        main_untracked.mkdir(parents=True)
+        (main_untracked / "keep.md").write_text("precious\n", encoding="utf-8")
+
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-007",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-007"
+        # Uncommitted + untracked content inside the worktree (never committed).
+        (wt / "scratch.txt").write_text("throwaway\n", encoding="utf-8")
+
+        result = _run(
+            "discard-story-worktree",
+            "--story-id", "WT-007",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        # The worktree and branch are gone.
+        assert not wt.exists()
+        branch = _git(
+            tmp_path, "rev-parse", "--verify", "refs/heads/pairmode/WT-007"
+        )
+        assert branch.returncode != 0
+        # The main worktree's own untracked content is untouched.
+        assert (main_untracked / "keep.md").read_text() == "precious\n"
+
+
 def test_spec_writer_procedure_references_spec_preflight() -> None:
     """INFRA-191 fold location (RELEASE-008): the fat CLAUDE.build.md.j2 step was
     superseded by the thin harness; spec-preflight is wired as a

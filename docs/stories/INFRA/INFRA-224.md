@@ -15,7 +15,8 @@ primary_files:
   - skills/pairmode/skills/builder/procedure.md
   - skills/pairmode/skills/reviewer/procedure.md
   - tests/pairmode/test_flex_build.py
-touches:  # If this story changes any documented architecture, add docs/architecture.md to this list.
+touches:
+  - docs/architecture.md
 ---
 
 ## Requires

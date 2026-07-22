@@ -116,6 +116,62 @@ def _read_guardrail_multiplier(project_dir: Path) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Story-worktree helpers (INFRA-224)
+# ---------------------------------------------------------------------------
+
+
+def _run_git(args: list[str], cwd: Path, timeout: int = 120):
+    """Run ``git <args>`` with ``cwd`` and return the completed process.
+
+    Output is captured (text mode). Callers inspect ``returncode`` /
+    ``stdout`` / ``stderr`` themselves. No exception is raised on non-zero
+    exit — the story-worktree commands surface git's own error text.
+    """
+    import subprocess  # noqa: PLC0415
+
+    return subprocess.run(  # noqa: S603
+        ["git", *args],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _worktree_paths(story_id: str, project_dir: Path) -> tuple[Path, Path, str]:
+    """Return ``(worktree_rel, worktree_abs, branch)`` for ``story_id``.
+
+    Convention (INFRA-224): worktree at ``.pairmode-worktrees/<story-id>/``
+    (relative to the project dir), branch ``pairmode/<story-id>``.
+    """
+    wt_rel = Path(".pairmode-worktrees") / story_id
+    wt_abs = (project_dir / wt_rel).resolve()
+    branch = f"pairmode/{story_id}"
+    return wt_rel, wt_abs, branch
+
+
+def _validate_story_id_or_exit(story_id: str) -> None:
+    """Exit non-zero with a clear message if ``story_id`` is malformed.
+
+    Guards the worktree/branch path construction against traversal or
+    injection (the story ID becomes both a directory name and a branch name).
+    """
+    if not _STORY_ID_RE.match(story_id):
+        click.echo(
+            f"error: malformed story ID '{story_id}' "
+            "(expected RAIL-NNN, e.g. INFRA-224)",
+            err=True,
+        )
+        sys.exit(1)
+
+
+def _current_branch(project_dir: Path) -> str:
+    """Return the abbreviated branch name of the main worktree's HEAD."""
+    result = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], project_dir)
+    return result.stdout.strip()
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1902,6 +1958,157 @@ def cmd_record_attempt(ctx: click.Context, **kwargs: object) -> None:
         check=False,
     )
     sys.exit(result.returncode)
+
+
+@flex_build.command("create-story-worktree")
+@click.option("--story-id", required=True, help="Story ID (e.g. INFRA-224).")
+@click.option(
+    "--project-dir",
+    default=".",
+    help="Project directory (main worktree). Defaults to CWD.",
+)
+def cmd_create_story_worktree(story_id: str, project_dir: str) -> None:
+    """Create a disposable git worktree for a story's build/review cycle.
+
+    Creates ``.pairmode-worktrees/<story-id>/`` on a new branch
+    ``pairmode/<story-id>`` from the current branch's HEAD and prints the
+    absolute worktree path to stdout. Fails loudly (exit 1) if a worktree or
+    branch for that story ID already exists — never silently reuses one.
+    (INFRA-224, Ensures 1 & 2.)
+    """
+    _validate_story_id_or_exit(story_id)
+    project_path = Path(project_dir).resolve()
+    wt_rel, wt_abs, branch = _worktree_paths(story_id, project_path)
+
+    if wt_abs.exists():
+        click.echo(f"error: worktree already exists: {wt_abs}", err=True)
+        sys.exit(1)
+
+    branch_check = _run_git(
+        ["rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
+        project_path,
+    )
+    if branch_check.returncode == 0:
+        click.echo(f"error: branch already exists: {branch}", err=True)
+        sys.exit(1)
+
+    result = _run_git(
+        ["worktree", "add", "-b", branch, str(wt_rel), "HEAD"],
+        project_path,
+    )
+    if result.returncode != 0:
+        click.echo(
+            (result.stderr or result.stdout).strip()
+            or "error: git worktree add failed",
+            err=True,
+        )
+        sys.exit(1)
+
+    click.echo(str(wt_abs))
+
+
+@flex_build.command("merge-story-worktree")
+@click.option("--story-id", required=True, help="Story ID (e.g. INFRA-224).")
+@click.option(
+    "--project-dir",
+    default=".",
+    help="Project directory (main worktree). Defaults to CWD.",
+)
+def cmd_merge_story_worktree(story_id: str, project_dir: str) -> None:
+    """Land a story's worktree branch onto the main worktree's branch (PASS).
+
+    Rebases ``pairmode/<story-id>`` onto the current tip of the main
+    worktree's branch, fast-forward-merges it in, then removes the worktree
+    and deletes the branch. On any rebase conflict the rebase is aborted and
+    the command exits non-zero with git's error output — no partial state
+    change, no automatic conflict resolution. (INFRA-224, Ensures 3.)
+    """
+    _validate_story_id_or_exit(story_id)
+    project_path = Path(project_dir).resolve()
+    wt_rel, wt_abs, branch = _worktree_paths(story_id, project_path)
+
+    if not wt_abs.exists():
+        click.echo(f"error: no worktree for story: {wt_abs}", err=True)
+        sys.exit(1)
+
+    main_branch = _current_branch(project_path)
+    if not main_branch or main_branch == "HEAD":
+        click.echo(
+            "error: main worktree is not on a named branch (detached HEAD)",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Rebase the story branch onto the main branch. Run via `git -C <worktree>`
+    # because the branch is checked out in the linked worktree; the invocation
+    # itself is issued from the main worktree (cwd = project_dir), never by
+    # cd-ing into the directory that is about to be torn down.
+    rebase = _run_git(["-C", str(wt_abs), "rebase", main_branch], project_path)
+    if rebase.returncode != 0:
+        _run_git(["-C", str(wt_abs), "rebase", "--abort"], project_path)
+        click.echo(
+            (rebase.stdout + rebase.stderr).strip()
+            or f"error: rebase of {branch} onto {main_branch} failed",
+            err=True,
+        )
+        sys.exit(1)
+
+    merge = _run_git(["merge", "--ff-only", branch], project_path)
+    if merge.returncode != 0:
+        click.echo(
+            (merge.stderr or merge.stdout).strip()
+            or f"error: fast-forward merge of {branch} failed",
+            err=True,
+        )
+        sys.exit(1)
+
+    _run_git(["worktree", "remove", "--force", str(wt_rel)], project_path)
+    _run_git(["branch", "-D", branch], project_path)
+    click.echo(f"merged {branch} into {main_branch}")
+
+
+@flex_build.command("discard-story-worktree")
+@click.option("--story-id", required=True, help="Story ID (e.g. INFRA-224).")
+@click.option(
+    "--project-dir",
+    default=".",
+    help="Project directory (main worktree). Defaults to CWD.",
+)
+def cmd_discard_story_worktree(story_id: str, project_dir: str) -> None:
+    """Throw away a story's worktree and branch (reviewer FAIL).
+
+    Removes the worktree — including any uncommitted or untracked content the
+    builder created inside it — and deletes the ``pairmode/<story-id>``
+    branch. Runs no command against the main worktree's working directory:
+    a FAIL in a story's worktree cannot touch the main worktree's files,
+    tracked or untracked, regardless of the reviewer's revert logic.
+    (INFRA-224, Ensures 4.)
+    """
+    _validate_story_id_or_exit(story_id)
+    project_path = Path(project_dir).resolve()
+    wt_rel, _wt_abs, branch = _worktree_paths(story_id, project_path)
+
+    remove = _run_git(
+        ["worktree", "remove", "--force", str(wt_rel)], project_path
+    )
+    if remove.returncode != 0:
+        click.echo(
+            (remove.stderr or remove.stdout).strip()
+            or f"error: failed to remove worktree {wt_rel}",
+            err=True,
+        )
+        sys.exit(1)
+
+    delete = _run_git(["branch", "-D", branch], project_path)
+    if delete.returncode != 0:
+        click.echo(
+            (delete.stderr or delete.stdout).strip()
+            or f"error: failed to delete branch {branch}",
+            err=True,
+        )
+        sys.exit(1)
+
+    click.echo(f"discarded {branch}")
 
 
 if __name__ == "__main__":

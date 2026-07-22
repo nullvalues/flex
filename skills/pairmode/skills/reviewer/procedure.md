@@ -22,6 +22,12 @@ If you are a thin agent shell loading this procedure, your complete instruction 
 
 Where `{scalar}` is the story ID passed to you by the orchestrator (e.g. `BUILD-012`).
 
+When the orchestrator supplies a worktree path (the per-story git worktree created
+by `flex_build.py create-story-worktree`), that path is your working directory: all
+file reads, the diff you review, and your commit/revert commands happen there, not in
+the main project directory. Everything else in this procedure — the input contract,
+review checklist, and commit logic — is unchanged.
+
 ---
 
 ## Role

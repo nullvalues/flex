@@ -168,6 +168,26 @@ session_end.py → pipe → sidebar graceful shutdown signal
 
 Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) drives every step:
 
+**Per-story worktree isolation (INFRA-224).** The builder/reviewer cycle for each
+story runs inside a disposable git worktree, not directly against the main project
+directory. Before the builder spawns, `flex_build.py create-story-worktree --story-id
+<ID>` creates `.pairmode-worktrees/<ID>/` on a fresh branch `pairmode/<ID>` cut from
+the current branch tip and prints its absolute path; the orchestrator passes that path
+as the builder's and reviewer's working directory. On reviewer PASS the orchestrator
+calls `flex_build.py merge-story-worktree`, which rebases `pairmode/<ID>` onto the main
+branch's current tip, fast-forward-merges it in, then removes the worktree and deletes
+the branch (a rebase conflict aborts cleanly and surfaces to the operator — no partial
+state, no auto-resolution). On reviewer FAIL the orchestrator calls `flex_build.py
+discard-story-worktree`, which force-removes the worktree (uncommitted and untracked
+content included) and deletes the branch **without running any command against the main
+worktree's working directory**. This is the structural guarantee that a story's cycle —
+including a reviewer revert — cannot touch files outside that story's worktree, closing
+both the RELEASE-022 collateral-damage risk and the future cross-story concurrency risk.
+Only story-build actions (`spawn-builder` / `spawn-reviewer`) are worktree-wrapped;
+checkpoint-stage workers (`checkpoint-security`, `checkpoint-intent`, `checkpoint-docs`)
+are read-mostly, never commit, and stay on the main worktree unwrapped. `.pairmode-worktrees/`
+is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
+
 1. **Story spec** — the phase doc names the story; the story file at
    `docs/stories/<RAIL>/<RAIL>-NNN.md` defines `## Requires`, `## Ensures`, and
    `primary_files`/`touches`. Before the builder spawns, three pre-story gates run
@@ -213,17 +233,24 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
 
 3. **Builder spawn** — `model_selector.select_builder_model()` picks the model (haiku for
    doc/lesson, sonnet baseline for code, opus on high-scope signals or retry). The builder
-   subagent implements the story, runs the test suite, and exits.
+   subagent implements the story, runs the test suite, and exits — all inside the story's
+   worktree (`.pairmode-worktrees/<ID>/`), which the orchestrator created and passed as the
+   builder's working directory (see § Per-story worktree isolation above).
 
 4. **Tests** — the builder confirms `pytest tests/pairmode/ -x -q` passes before handing off.
 
 5. **Reviewer spawn** — `model_selector.select_reviewer_model()` picks the model (sonnet
    baseline; opus on retry for `code`-class stories). The reviewer checks the diff against
-   every `## Ensures` assertion and the review checklist, then either commits or reverts.
+   every `## Ensures` assertion and the review checklist, then either commits or reverts —
+   operating inside the same story worktree as the builder.
 
-6. **Commit or revert + retry** — on PASS the reviewer commits and story status is updated to
-   `complete`; on FAIL the reviewer reverts and the builder is respawned with attempt_number
-   incremented.
+6. **Commit / merge or discard + retry** — on PASS the reviewer commits inside the worktree
+   and story status is updated to `complete`, then the orchestrator merges the worktree back
+   onto the main branch (`merge-story-worktree`: rebase → fast-forward → teardown). On FAIL
+   the orchestrator discards the worktree (`discard-story-worktree`) — the builder's work is
+   thrown away wholesale rather than reverted in place — and respawns the builder with
+   attempt_number incremented. The reviewer's in-worktree revert is now a defense-in-depth
+   layer; the worktree discard is the structural guarantee (see § Per-story worktree isolation).
 
 7. **Effort recording** — `record_attempt.py` writes each builder and reviewer spawn to
    `.companion/effort.db` (tokens, model, duration, outcome).
