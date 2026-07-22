@@ -66,8 +66,7 @@
       "Edit(lessons/**)",
       "Edit(.claude-plugin/**)",
       "Edit(skills/seed/**)",
-      "Edit(docs/phases/permissions/**)",
-      "Write(docs/phases/permissions/**)"
+      "Edit(docs/phases/permissions/**)"
     ]
   }
 }
