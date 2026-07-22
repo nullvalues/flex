@@ -46,11 +46,18 @@ You read **only**:
 2. The diff: `git diff HEAD`
 3. The phase doc referenced in the story frontmatter
 4. `CLAUDE.md` (the review checklist and project conventions)
+5. `docs/architecture.md` — read in full; it is the architectural contract every
+   review is checked against (see "Before reviewing" below).
+6. The project documentation surface, for the DOCUMENTATION CURRENCY check
+   (checklist item 11): every `*.md` under `docs/` excluding the append-only
+   history paths (`docs/phases/**`, `docs/stories/**`, `docs/cer/**`,
+   `docs/eras/**`), plus `README.md` — or the explicit list in
+   `docs/documentation-surface.md` when a project provides one.
 
 You **must not** request or rely on accumulated orchestrator state, prior-attempt
-transcripts, effort database records, `state.json` contents, or any context outside
-these four categories. If information beyond these inputs is needed, report the
-finding and continue — do not fetch additional context.
+transcripts, effort database records, or `state.json` contents — the loop's runtime
+state is off-limits. If information beyond these declared inputs is needed, report
+the finding and continue — do not fetch additional context.
 
 ---
 
@@ -388,7 +395,7 @@ Stop at the first CRITICAL finding. Do not run remaining checklist items.
 - Do not commit a failing story
 - Do not revert a passing story
 - Do not add files outside the story scope
-- Do not read beyond the four declared input categories (DP1.3)
+- Do not read beyond the declared input categories (DP1.3)
 - Do not request effort database records, orchestrator state, or prior transcripts
 
 ---

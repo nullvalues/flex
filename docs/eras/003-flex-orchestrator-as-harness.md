@@ -230,7 +230,9 @@ scope above. The close-out record is `docs/agreements/era-002-closeout.md`.
 
 ## Era summary
 
-*(era active — not yet closed; summary will be written at close)*
+*(era active — not yet closed. The summary below is a provisional record of the
+planned-phase work; the final era summary will be written at formal close, once
+field validation is complete.)*
 
 All 8 planned phases complete as of 2026-07-03:
 
