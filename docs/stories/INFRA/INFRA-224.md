@@ -2,7 +2,7 @@
 id: INFRA-224
 rail: INFRA
 title: Per-build-cycle git worktree isolation for builder/reviewer story cycles
-status: planned
+status: complete
 phase: "96"
 story_class: code
 auth_gated: false
