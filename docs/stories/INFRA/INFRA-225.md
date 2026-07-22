@@ -2,7 +2,7 @@
 id: INFRA-225
 rail: INFRA
 title: Port startswith("complete") annotated-status fallback into next_action.py's _resolve_active_phase
-status: draft
+status: complete
 phase: "97"
 story_class: code
 auth_gated: false
