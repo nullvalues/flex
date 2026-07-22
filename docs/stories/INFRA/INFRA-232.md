@@ -2,7 +2,7 @@
 id: INFRA-232
 rail: INFRA
 title: Fix README era-status and production-readiness contradictions; remove stale duplicate readme.md
-status: draft
+status: complete
 phase: "97"
 story_class: doc
 auth_gated: false
