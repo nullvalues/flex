@@ -3289,6 +3289,55 @@ class TestRegisterPreToolUseHook:
         commands2 = [h.get("command") for h in block2.get("hooks", [])]
         assert commands2.count(expected_command) == 1
 
+    def test_register_pretooluse_hook_migrates_stale_plugin_root(self, tmp_path):
+        """INFRA-228: a PreToolUse block whose command points at a different
+        plugin_root (basename matches, full path differs — a 0.2.0 -> 0.3.0
+        migration) is migrated in place to the new plugin_root's path, leaving
+        exactly one block with one command, not a duplicate sibling."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root_a = tmp_path / "flex"          # stale 0.2.0 root
+        plugin_root_b = tmp_path / "flex-harness"  # new 0.3.0 root
+
+        stale_command = f"uv run python {plugin_root_a / 'hooks' / 'pre_tool_use.py'}"
+        new_command = f"uv run python {plugin_root_b / 'hooks' / 'pre_tool_use.py'}"
+
+        existing_data = {
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": PRETOOLUSE_MATCHER,
+                        "hooks": [
+                            {"type": "command", "command": stale_command},
+                        ],
+                    }
+                ]
+            }
+        }
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+
+        _register_pretooluse_hook(settings_path, plugin_root_b)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        pre_tool_use_list = data["hooks"]["PreToolUse"]
+
+        # Exactly one block — no duplicate sibling appended for the new root.
+        assert len(pre_tool_use_list) == 1, (
+            f"Expected the block to be migrated in place, not duplicated: {pre_tool_use_list}"
+        )
+
+        block = pre_tool_use_list[0]
+        commands = [h.get("command") for h in block.get("hooks", [])]
+
+        # Exactly one command, now pointing at plugin_root_b.
+        assert len(commands) == 1, f"Expected exactly one command, got: {commands}"
+        assert commands[0] == new_command, (
+            f"Stale command should be migrated to the new plugin_root: {commands[0]!r}"
+        )
+        assert stale_command not in commands, (
+            f"Stale plugin_root command must not survive: {commands}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # INFRA-208: _register_context_budget_hooks tests
@@ -3479,6 +3528,61 @@ class TestRegisterContextBudgetHooks:
         block = self._find_block_with_command(pre_tool_use_list, pre_tool_use_command)
         assert block is not None
         assert block.get("matcher") == PRETOOLUSE_MATCHER
+
+    def test_context_budget_hooks_migrate_stale_plugin_root(self, tmp_path):
+        """INFRA-228: UserPromptSubmit / SessionStart / PostToolUse blocks whose
+        commands point at a different plugin_root (basename matches, full path
+        differs — a 0.2.0 -> 0.3.0 migration) are each migrated in place to the
+        new plugin_root's path, leaving exactly one command per event, not a
+        duplicate."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root_a = tmp_path / "flex"          # stale 0.2.0 root
+        plugin_root_b = tmp_path / "flex-harness"  # new 0.3.0 root
+
+        specs = [
+            ("UserPromptSubmit", "user_prompt_submit.py", None),
+            ("SessionStart", "session_start.py", None),
+            ("PostToolUse", "post_tool_use.py", "Task|Agent"),
+        ]
+
+        existing_hooks: dict = {}
+        for event, hook_file, matcher in specs:
+            stale_command = f"uv run python {plugin_root_a / 'hooks' / hook_file}"
+            block: dict = {"hooks": [{"type": "command", "command": stale_command}]}
+            if matcher is not None:
+                block["matcher"] = matcher
+            existing_hooks[event] = [block]
+
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            json.dumps({"hooks": existing_hooks}, indent=2), encoding="utf-8"
+        )
+
+        _register_context_budget_hooks(settings_path, plugin_root_b)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+
+        for event, hook_file, _matcher in specs:
+            stale_command = f"uv run python {plugin_root_a / 'hooks' / hook_file}"
+            new_command = f"uv run python {plugin_root_b / 'hooks' / hook_file}"
+            event_list = data["hooks"][event]
+
+            all_commands = [
+                h.get("command")
+                for block in event_list
+                for h in block.get("hooks", [])
+            ]
+            assert all_commands.count(new_command) == 1, (
+                f"{event}: expected exactly one command at the new plugin_root, "
+                f"got: {all_commands}"
+            )
+            assert stale_command not in all_commands, (
+                f"{event}: stale plugin_root command must not survive: {all_commands}"
+            )
+            # No duplicate sibling block was appended for this event.
+            assert len(event_list) == 1, (
+                f"{event}: expected the block migrated in place, not duplicated: {event_list}"
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -320,6 +320,27 @@ def _prune_superseded_deny_entries(
 PRETOOLUSE_MATCHER = "Task|Agent|Edit|Write|Read"
 
 
+def _find_block_by_command_basename(
+    block_list: list[dict], basename: str
+) -> tuple[dict, dict] | None:
+    """Find the (block, inner-hook-entry) pair whose command's final path
+    segment equals *basename* (e.g. "pre_tool_use.py").
+
+    Matches the full final path segment (``command.rsplit("/", 1)[-1]``) rather
+    than a bare ``endswith`` so a different file sharing a suffix (e.g.
+    ``my_pre_tool_use.py``) cannot false-positive. Used to locate a stale hook
+    entry whose basename matches but whose full path points at a different
+    plugin_root (a 0.2.0 -> 0.3.0 migration), so it can be migrated in place
+    instead of duplicated. Returns None if no entry matches.
+    """
+    for block in block_list:
+        for entry in block.get("hooks", []):
+            command = entry.get("command")
+            if isinstance(command, str) and command.rsplit("/", 1)[-1] == basename:
+                return block, entry
+    return None
+
+
 def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> None:
     """Merge a PreToolUse hook entry into .claude/settings.json.
 
@@ -362,6 +383,17 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
         if any(h.get("command") == command for h in inner_hooks):
             target_block = block
             break
+
+    if target_block is None:
+        # Fallback: a stale entry whose basename matches but whose full path
+        # points at a different plugin_root (a 0.2.0 -> 0.3.0 migration). Migrate
+        # its command in place rather than appending a duplicate block.
+        basename_match = _find_block_by_command_basename(
+            pre_tool_use_list, pre_tool_use_path.name
+        )
+        if basename_match is not None:
+            target_block, stale_entry = basename_match
+            stale_entry["command"] = command
 
     if target_block is None:
         target_block = {"matcher": PRETOOLUSE_MATCHER, "hooks": []}
@@ -452,6 +484,19 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
             if any(h.get("command") == command for h in inner_hooks):
                 target_block = block
                 break
+
+        if target_block is None:
+            # Fallback: a stale entry whose basename matches but whose full path
+            # points at a different plugin_root (a 0.2.0 -> 0.3.0 migration).
+            # The basename check itself isolates this event's hook from any
+            # unrelated sibling block (a different basename entirely). Migrate
+            # the command in place rather than appending a duplicate block.
+            basename_match = _find_block_by_command_basename(
+                event_list, hook_path.name
+            )
+            if basename_match is not None:
+                target_block, stale_entry = basename_match
+                stale_entry["command"] = command
 
         if target_block is None:
             target_block = {"hooks": []}
