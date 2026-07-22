@@ -2,7 +2,7 @@
 id: RELEASE-050
 rail: RELEASE
 title: Fleet migration — sync halfhorse to pairmode 0.3.0
-status: draft
+status: backlog
 phase: "97"
 story_class: code
 auth_gated: false

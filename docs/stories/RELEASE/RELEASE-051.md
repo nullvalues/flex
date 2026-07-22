@@ -2,7 +2,7 @@
 id: RELEASE-051
 rail: RELEASE
 title: Fleet migration — sync lumin to pairmode 0.3.0
-status: draft
+status: backlog
 phase: "97"
 story_class: code
 auth_gated: false
