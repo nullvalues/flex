@@ -2,7 +2,7 @@
 id: INFRA-226
 rail: INFRA
 title: Add fable as an escalation-tier model; document mandatory custom-model entry at model-upgrade gates
-status: draft
+status: complete
 phase: "97"
 story_class: code
 auth_gated: false
