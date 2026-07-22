@@ -54,6 +54,7 @@ Resume HARNESS016-main's deferred tail: retry the doc sweep, migrate the fleet t
 | INFRA-229 | Reword Model-upgrade prompts section to avoid banned await-user phrase in CLAUDE.build.md.j2 | complete |
 | INFRA-230 | Fix CER-072 — checkpoint build-gate guard hardcodes flex-only pytest path, blocking every downstream checkpoint | draft |
 | INFRA-231 | Update fleet_discovery.py's hardcoded candidate list to include 7 missing fleet projects | draft |
+| INFRA-232 | Fix README era-status and production-readiness contradictions; remove stale duplicate readme.md | draft |
 
 ## Deferred stories
 
