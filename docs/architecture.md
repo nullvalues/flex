@@ -168,7 +168,7 @@ session_end.py → pipe → sidebar graceful shutdown signal
 
 Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) drives every step:
 
-**Per-story worktree isolation (INFRA-224).** The builder/reviewer cycle for each
+**Per-story worktree isolation (Phase 96, INFRA-223/INFRA-224).** The builder/reviewer cycle for each
 story runs inside a disposable git worktree, not directly against the main project
 directory. Before the builder spawns, `flex_build.py create-story-worktree --story-id
 <ID>` creates `.pairmode-worktrees/<ID>/` on a fresh branch `pairmode/<ID>` cut from

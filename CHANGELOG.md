@@ -6,6 +6,10 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Added [pairmode] — Phase 96 (Build-loop revert safety and worktree-per-cycle isolation)
+- The reviewer's FAIL-path revert now scopes `git checkout --`/`git clean -fd --` to the story's declared `primary_files`/`touches` paths (read once during "Before reviewing"), instead of a blanket `git checkout . && git clean -fd`, which had deleted two untracked directories unrelated to a reverted story's scope. Falls back to the whole-tree form only for legacy stories with no declared scope (INFRA-223).
+- Added `flex_build.py create-story-worktree` / `merge-story-worktree` / `discard-story-worktree`: each story's builder/reviewer cycle now runs inside a disposable `git worktree` under `.pairmode-worktrees/<story-id>/`, merged (rebase + fast-forward) into the main branch on reviewer PASS or discarded (force-removed, branch deleted) on FAIL — structurally guaranteeing a story's cycle, including a reviewer revert, cannot touch the main worktree's files. Wired into `CLAUDE.build.md.j2`'s build loop and this project's own re-synced `CLAUDE.build.md` (INFRA-224).
+
 ### Added [pairmode] — Phase 95 (Downstream context-budget-gate hook registration and fleet rollout)
 - `bootstrap.py`/`sync.py` downstream registrar generalized to wire the three load-bearing context-budget-gate hooks (`UserPromptSubmit`, `SessionStart`, `PostToolUse` `Task|Agent`) into a bootstrapped project's `.claude/settings.json`, alongside the existing `PreToolUse` block, using the same by-command find/migrate idempotency; the four companion/sidebar blocks remain opt-in (INFRA-208, CER-067).
 - Fleet rollout verified: 13 of 14 in-scope fleet projects already carried the new registrations by the time of verification (no commits required); `cora` formally excluded as a known carve-out, `anchor` remains excluded as a non-pairmode-consumer sibling plugin repo; `asp`'s forged CER-067 workaround keys in `state.json` noted, reset deferred as a follow-up (INFRA-209).
