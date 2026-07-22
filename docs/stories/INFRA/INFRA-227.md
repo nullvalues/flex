@@ -2,7 +2,7 @@
 id: INFRA-227
 rail: INFRA
 title: Port Model-upgrade prompts subsection into CLAUDE.build.md.j2 sync template
-status: draft
+status: complete
 phase: "97"
 story_class: doc
 auth_gated: false

@@ -49,7 +49,7 @@ Resume HARNESS016-main's deferred tail: retry the doc sweep, migrate the fleet t
 | RELEASE-061 | Worktree and branch retirement — remove /mnt/work/flex-harness | draft |
 | INFRA-225 | Port startswith("complete") annotated-status fallback into next_action.py's _resolve_active_phase | complete |
 | INFRA-226 | Add fable as an escalation-tier model; document mandatory custom-model entry at model-upgrade gates | complete |
-| INFRA-227 | Port Model-upgrade prompts subsection into CLAUDE.build.md.j2 sync template | draft |
+| INFRA-227 | Port Model-upgrade prompts subsection into CLAUDE.build.md.j2 sync template | complete |
 
 ## Deferred stories
 
