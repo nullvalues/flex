@@ -35,7 +35,7 @@ while true:
 
 ## Model-upgrade prompts
 
-At any `await-user` action whose reason involves a model choice (`model-upgrade`
+At any judgment-handoff pause whose reason involves a model choice (`model-upgrade`
 or future model-selection handoffs): present the suggested model(s) as named
 `AskUserQuestion` options, and **always** leave a free-text path (the "Other"
 input) so the operator can key in any model name — the `model_selector.py` tiers are not guaranteed current or exhaustive.
