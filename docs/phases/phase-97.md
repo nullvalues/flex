@@ -52,6 +52,7 @@ Resume HARNESS016-main's deferred tail: retry the doc sweep, migrate the fleet t
 | INFRA-227 | Port Model-upgrade prompts subsection into CLAUDE.build.md.j2 sync template | complete |
 | INFRA-228 | Match hook blocks by basename not full path — fix duplicate hook registration on plugin_root migration | complete |
 | INFRA-229 | Reword Model-upgrade prompts section to avoid banned await-user phrase in CLAUDE.build.md.j2 | complete |
+| INFRA-230 | Fix CER-072 — checkpoint build-gate guard hardcodes flex-only pytest path, blocking every downstream checkpoint | draft |
 
 ## Deferred stories
 
