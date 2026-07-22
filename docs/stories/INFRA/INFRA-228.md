@@ -2,7 +2,7 @@
 id: INFRA-228
 rail: INFRA
 title: Match hook blocks by basename not full path — fix duplicate hook registration on plugin_root migration
-status: draft
+status: complete
 phase: "97"
 story_class: code
 auth_gated: false

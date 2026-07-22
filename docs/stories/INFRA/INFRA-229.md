@@ -2,7 +2,7 @@
 id: INFRA-229
 rail: INFRA
 title: Reword Model-upgrade prompts section to avoid banned await-user phrase in CLAUDE.build.md.j2
-status: draft
+status: complete
 phase: "97"
 story_class: doc
 auth_gated: false
