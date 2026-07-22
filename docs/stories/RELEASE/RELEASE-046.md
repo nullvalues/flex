@@ -2,7 +2,7 @@
 id: RELEASE-046
 rail: RELEASE
 title: Fleet migration — sync caddy to pairmode 0.3.0
-status: backlog
+status: deferred
 phase: "97"
 story_class: code
 auth_gated: false

@@ -28,21 +28,21 @@ Resume HARNESS016-main's deferred tail: retry the doc sweep, migrate the fleet t
 | ID | Title | Status |
 |----|-------|--------|
 | RELEASE-042 | Pre-fold doc sweep — era status, post-flip staleness, reviewer input-scope contradiction (retry, scoped to drop forbidden brief.md section) | complete |
-| RELEASE-043 | Fleet migration — sync aab to pairmode 0.3.0 | backlog |
-| RELEASE-044 | Fleet migration — sync asp to pairmode 0.3.0 | backlog |
-| RELEASE-045 | Fleet migration — sync base56 to pairmode 0.3.0 | backlog |
-| RELEASE-046 | Fleet migration — sync caddy to pairmode 0.3.0 | backlog |
-| RELEASE-047 | Fleet migration — sync coherra to pairmode 0.3.0 | backlog |
-| RELEASE-048 | Fleet migration — sync forqsite to pairmode 0.3.0 | backlog |
-| RELEASE-049 | Fleet migration — sync forqsite.help to pairmode 0.3.0 | backlog |
-| RELEASE-050 | Fleet migration — sync halfhorse to pairmode 0.3.0 | backlog |
-| RELEASE-051 | Fleet migration — sync lumin to pairmode 0.3.0 | backlog |
-| RELEASE-052 | Fleet migration — sync meander to pairmode 0.3.0 | backlog |
-| RELEASE-053 | Fleet migration — sync pokus to pairmode 0.3.0 | backlog |
-| RELEASE-054 | Fleet migration — sync radar to pairmode 0.3.0 | backlog |
-| RELEASE-055 | Fleet migration — sync rockue to pairmode 0.3.0 | backlog |
-| RELEASE-056 | Fleet migration — sync stackabid to pairmode 0.3.0 | backlog |
-| RELEASE-057 | Fleet migration — sync ud to pairmode 0.3.0 | backlog |
+| RELEASE-043 | Fleet migration — sync aab to pairmode 0.3.0 | deferred |
+| RELEASE-044 | Fleet migration — sync asp to pairmode 0.3.0 | deferred |
+| RELEASE-045 | Fleet migration — sync base56 to pairmode 0.3.0 | deferred |
+| RELEASE-046 | Fleet migration — sync caddy to pairmode 0.3.0 | deferred |
+| RELEASE-047 | Fleet migration — sync coherra to pairmode 0.3.0 | deferred |
+| RELEASE-048 | Fleet migration — sync forqsite to pairmode 0.3.0 | deferred |
+| RELEASE-049 | Fleet migration — sync forqsite.help to pairmode 0.3.0 | deferred |
+| RELEASE-050 | Fleet migration — sync halfhorse to pairmode 0.3.0 | deferred |
+| RELEASE-051 | Fleet migration — sync lumin to pairmode 0.3.0 | deferred |
+| RELEASE-052 | Fleet migration — sync meander to pairmode 0.3.0 | deferred |
+| RELEASE-053 | Fleet migration — sync pokus to pairmode 0.3.0 | deferred |
+| RELEASE-054 | Fleet migration — sync radar to pairmode 0.3.0 | deferred |
+| RELEASE-055 | Fleet migration — sync rockue to pairmode 0.3.0 | deferred |
+| RELEASE-056 | Fleet migration — sync stackabid to pairmode 0.3.0 | deferred |
+| RELEASE-057 | Fleet migration — sync ud to pairmode 0.3.0 | deferred |
 | RELEASE-058 | Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects | draft |
 | RELEASE-059 | Fold merge — fold-prep into main, tag v0.3.0 | draft |
 | RELEASE-060 | Post-fold re-sync of migrated projects + RELEASE-002 status reconciliation | draft |
