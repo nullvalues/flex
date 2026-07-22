@@ -46,7 +46,8 @@ _THIS_SCRIPTS_DIR = _SCRIPTS_DIR
 
 # Documented candidate names under /mnt/work/ (from DP8 context; non-exhaustive)
 _DOCUMENTED_CANDIDATES = [
-    "coherra", "forqsite", "radar", "asp", "aab", "cora", "lumin", "halfhorse", "meander",
+    "aab", "asp", "base56", "caddy", "coherra", "cora", "forqsite", "forqsite.help",
+    "halfhorse", "lumin", "meander", "pokus", "radar", "rockue", "stackabid", "ud",
 ]
 
 # Pattern to find pairmode_scripts_dir in CLAUDE.build.md
