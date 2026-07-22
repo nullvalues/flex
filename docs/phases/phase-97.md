@@ -27,8 +27,8 @@ Resume HARNESS016-main's deferred tail: retry the doc sweep, migrate the fleet t
 
 | ID | Title | Status |
 |----|-------|--------|
-| RELEASE-042 | Pre-fold doc sweep — era status, post-flip staleness, reviewer input-scope contradiction (retry, scoped to drop forbidden brief.md section) | draft |
-| RELEASE-043 | Fleet migration — sync aab to pairmode 0.3.0 | draft |
+| RELEASE-042 | Pre-fold doc sweep — era status, post-flip staleness, reviewer input-scope contradiction (retry, scoped to drop forbidden brief.md section) | complete |
+| RELEASE-043 | Fleet migration — sync aab to pairmode 0.3.0 | blocked — NOT complete despite `next_story.py`'s git-commit heuristic possibly reading it as done (see note below) |
 | RELEASE-044 | Fleet migration — sync asp to pairmode 0.3.0 | draft |
 | RELEASE-045 | Fleet migration — sync base56 to pairmode 0.3.0 | draft |
 | RELEASE-046 | Fleet migration — sync caddy to pairmode 0.3.0 | draft |

@@ -2,7 +2,7 @@
 id: RELEASE-042
 rail: RELEASE
 title: Pre-fold doc sweep — era status, post-flip staleness, reviewer input-scope contradiction (retry, scoped to drop forbidden brief.md section)
-status: draft
+status: complete
 phase: "97"
 story_class: code
 auth_gated: false
