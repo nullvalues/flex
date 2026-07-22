@@ -2,7 +2,7 @@
 id: INFRA-230
 rail: INFRA
 title: Fix CER-072 — checkpoint build-gate guard hardcodes flex-only pytest path, blocking every downstream checkpoint
-status: draft
+status: complete
 phase: "97"
 story_class: code
 auth_gated: false

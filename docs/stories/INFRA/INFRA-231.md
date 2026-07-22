@@ -2,7 +2,7 @@
 id: INFRA-231
 rail: INFRA
 title: Update fleet_discovery.py's hardcoded candidate list to include 7 missing fleet projects
-status: draft
+status: complete
 phase: "97"
 story_class: code
 auth_gated: false
