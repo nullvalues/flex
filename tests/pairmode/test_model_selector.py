@@ -7,16 +7,19 @@ from pathlib import Path
 import pytest
 
 from skills.pairmode.scripts.model_selector import (
+    MODEL_FABLE,
     MODEL_HAIKU,
     MODEL_OPUS,
     MODEL_SONNET,
     REASON_AUTO_BASELINE,
     REASON_AUTO_DOWNGRADE,
+    REASON_ESCALATION_UPGRADE,
     REASON_PROMPTED_UPGRADE,
     REASON_RETRY_UPGRADE,
     _phase_has_code_story,
     select_builder_model,
     select_intent_reviewer_model,
+    select_loop_breaker_model,
     select_reviewer_model,
     select_security_auditor_model,
 )
@@ -388,6 +391,24 @@ class TestSelectSecurityAuditorModel:
         model, reason = select_security_auditor_model("")
         assert model == MODEL_OPUS
         assert reason == "production-class"
+
+
+# ---------------------------------------------------------------------------
+# select_loop_breaker_model
+# ---------------------------------------------------------------------------
+
+
+class TestSelectLoopBreakerModel:
+    def test_returns_fable_escalation_upgrade(self) -> None:
+        """The loop-breaker rung escalates unconditionally to the fable tier."""
+        model, reason = select_loop_breaker_model()
+        assert model == "fable"
+        assert reason == "escalation-upgrade"
+
+    def test_returns_named_constants(self) -> None:
+        model, reason = select_loop_breaker_model()
+        assert model == MODEL_FABLE
+        assert reason == REASON_ESCALATION_UPGRADE
 
 
 # ---------------------------------------------------------------------------

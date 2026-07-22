@@ -33,6 +33,13 @@ while true:
     record result via /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py record-attempt ...
 ```
 
+## Model-upgrade prompts
+
+At any `await-user` action whose reason involves a model choice (`model-upgrade`
+or future model-selection handoffs): present the suggested model(s) as named
+`AskUserQuestion` options, and **always** leave a free-text path (the "Other"
+input) so the operator can key in any model name — the `model_selector.py` tiers are not guaranteed current or exhaustive.
+
 ## Checkpoint
 
 Execute each checkpoint leaf worker as dispatched. After each returns, call:

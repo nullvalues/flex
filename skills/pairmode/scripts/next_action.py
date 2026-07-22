@@ -1054,13 +1054,16 @@ def resolve_next_action(
 
     # Row 6 — attempt 2 failed → loop-breaker
     if attempt_count == 2 and last_attempt_outcome == OUTCOME_FAIL:
+        from model_selector import select_loop_breaker_model  # type: ignore[import]
+
         meta = dict(meta_base)
         meta["attempt"] = 3
         meta["fail_rung"] = "double-fail"
+        loop_breaker_model, _loop_breaker_reason = select_loop_breaker_model()
         return make_action(
             SPAWN_LOOP_BREAKER,
             scalar=next_story_id,
-            model="opus",
+            model=loop_breaker_model,
             reason="",
             meta=meta,
         )

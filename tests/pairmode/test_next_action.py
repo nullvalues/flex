@@ -863,7 +863,7 @@ class TestResolveNextActionSpawnLoopBreaker:
         action = resolve_next_action(pos)
         assert action["action"] == SPAWN_LOOP_BREAKER
         assert action["scalar"] == "TEST-004"
-        assert action["model"] == "opus"
+        assert action["model"] == "fable"
         assert action["meta"]["fail_rung"] == "double-fail"
         assert validate_action(action) == []
 
