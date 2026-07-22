@@ -2,7 +2,7 @@
 id: INFRA-234
 rail: INFRA
 title: Drop redundant Write(docs/phases/permissions/**) deny rule from settings.json — Write(path) rules aren't matched by the permission engine
-status: planned
+status: complete
 phase: "97"
 story_class: code
 auth_gated: false

@@ -56,7 +56,7 @@ Resume HARNESS016-main's deferred tail: retry the doc sweep, migrate the fleet t
 | INFRA-231 | Update fleet_discovery.py's hardcoded candidate list to include 7 missing fleet projects | complete |
 | INFRA-232 | Fix README era-status and production-readiness contradictions; remove stale duplicate readme.md | complete |
 | INFRA-233 | Register context-budget-gate hooks in flex-harness's own settings.json — never dogfooded on itself | complete |
-| INFRA-234 | Drop redundant Write(docs/phases/permissions/\*\*) deny rule from settings.json | planned |
+| INFRA-234 | Drop redundant Write(docs/phases/permissions/\*\*) deny rule from settings.json | complete |
 
 ## Deferred stories
 
