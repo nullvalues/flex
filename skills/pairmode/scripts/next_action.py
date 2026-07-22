@@ -520,9 +520,16 @@ def _resolve_active_phase(project_path: "Path") -> "Path | None":
     phase_rows = _pip(index_text)
     active_phase_ref: "str | None" = None
     for phase_ref, status in phase_rows:
-        if not _is_phase_inactive(status):
-            active_phase_ref = phase_ref  # first non-inactive row wins
-            break
+        # ``_parse_index_phases`` already returns ``status`` ``.strip().lower()``'d,
+        # so no re-normalization is needed here.  ``is_phase_inactive`` covers
+        # ``complete``/``deferred``/``backlog`` via exact membership; the
+        # ``startswith("complete")`` fallback adds main's terminal semantics for
+        # annotated statuses like ``complete (partial)`` / ``complete (superseded
+        # — ...)`` — ported from ``flex_build.resolve_current_phase`` (INFRA-225).
+        if _is_phase_inactive(status) or status.startswith("complete"):
+            continue
+        active_phase_ref = phase_ref  # first non-inactive row wins
+        break
 
     if active_phase_ref is not None:
         candidate = project_path / "docs" / "phases" / f"phase-{active_phase_ref}.md"

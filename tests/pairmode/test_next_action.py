@@ -353,6 +353,43 @@ class TestInferPositionActivePhase:
         assert pos["last_attempt_outcome"] == OUTCOME_NONE
 
 
+class TestResolveActivePhaseAnnotatedStatus:
+    """Annotated ``complete (...)`` status rows must read as inactive (INFRA-225).
+
+    Reproduces the ``aab`` phase-15 shape: an index row whose status carries a
+    parenthetical suffix after ``complete``.  ``is_phase_inactive`` is an
+    exact-membership test and would treat such a row as *active*; the ported
+    ``startswith("complete")`` fallback in ``_resolve_active_phase`` must skip
+    it so a genuinely later ``planned`` row is resolved as the active phase.
+    """
+
+    def test_annotated_complete_row_skipped_for_later_planned(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        annotated = (
+            "complete (superseded — all 4 stories already implemented via "
+            "later rebuild phases; confirmed 2026-07-07)"
+        )
+        _write_index(
+            tmp_path,
+            [
+                ("15", "Phase 15", annotated),
+                ("16", "Phase 16", "planned"),
+            ],
+        )
+        _write_phase(tmp_path, "15", [("TEST-015", "complete")])
+        _write_phase(tmp_path, "16", [("TEST-016", "planned")])
+        _write_story(tmp_path, "TEST-016", story_class="code", primary_files=["a.py"])
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        # The annotated-complete phase-15 row must be skipped; the later planned
+        # phase-16 row wins.
+        assert pos["active_phase_file"] is not None
+        assert pos["active_phase_file"].name == "phase-16.md"
+        assert pos["next_story_id"] == "TEST-016"
+
+
 class TestInferPositionPassOutcome:
     """A committed story-<ID> ⇒ outcome inferred PASS."""
 
