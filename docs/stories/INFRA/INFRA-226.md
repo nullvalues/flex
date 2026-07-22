@@ -11,7 +11,10 @@ primary_files:
   - skills/pairmode/scripts/model_selector.py
   - skills/pairmode/scripts/next_action.py
   - CLAUDE.build.md
-touches: []
+  - tests/pairmode/test_model_selector.py
+  - tests/pairmode/test_next_action.py
+touches:
+  - docs/architecture.md
 ---
 
 ## Context
@@ -80,6 +83,17 @@ judgment-handoff, not just whatever tiers happen to be enumerated in code.
 - A new regression test for `select_loop_breaker_model()` exists in
   `tests/pairmode/test_model_selector.py`, asserting it returns exactly
   `("fable", "escalation-upgrade")`.
+- `docs/architecture.md`'s "Loop-breaker" bullet (build-loop mechanics list,
+  currently reading "the orchestrator invokes the loop-breaker subagent
+  (opus)") is updated to say `fable`, not `opus`.
+- `docs/architecture.md`'s model-pinning "Default" note (currently reading
+  "The `loop-breaker` is the one exception: it is opus by default, because
+  by the time the loop-breaker fires the case is — by definition — hard,
+  and the reasoning premium is justified") is updated to name `fable`
+  instead of `opus`, preserving the same justification (the reasoning
+  premium at the double-fail rung), and phrased so it stays consistent with
+  `model_selector.py`'s new "escalation tier ranking above opus" framing.
+- No other content in `docs/architecture.md` is modified.
 - `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q` passes.
 
 ## Instructions
