@@ -9,7 +9,8 @@ auth_gated: false
 schema_introduces: false
 primary_files:
   - README.md
-touches: []
+touches:
+  - pyproject.toml
 ---
 
 ## Context
