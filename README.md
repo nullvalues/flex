@@ -13,16 +13,24 @@ context limits per build, persistent refocus to the system of record, and system
 shifts of deterministic processes to code. The result is a largely hands-free
 auto-mode build loop.
 
-**Era 002 — build loop and observability (active)**
+**Era 002 — build loop and observability (complete)**
 Extends the build loop with observability and mechanical enforcement: a browser-based
 SPA for context budget and effort metrics (Phase 63), story-scoped file permissions
 via hook enforcement (Phase 55), a reliable story-ID-bound context gate (Phase 73),
 and ongoing closure of spec-quality gaps that cause builder friction.
 
+**Era 003 — orchestrator as harness (active)**
+Reduces the orchestrator from a procedure that runs the build loop to a harness
+that dispatches it: the deterministic skeleton of the loop (sequencing, counters,
+routing) moves into a code-resident `next-action` state machine, while each unit
+of work runs as a thin, disposable leaf worker. The goal is a stateless harness
+that can resume losslessly after a `/clear` and build whole phases unattended.
+
 ## Status
 
-Production-ready for solo developers. Core workflows are stable and self-hosted on
-this repo. API and scaffold format may change with notice. See Known Limitations.
+Beta — approaching production-readiness for solo developers. Core workflows are
+stable and self-hosted on this repo; internal APIs and scaffold formats may still
+change without notice. See Known Limitations.
 
 ## What flex does
 
@@ -252,7 +260,6 @@ developer decision to override. `lineage` is append-only.
 
 ## Known limitations
 
-- Alpha software. Internal APIs and scaffold formats may change without notice.
 - Optimized for solo developers. No multi-developer story assignment or concurrent session
   coordination.
 - The companion sidebar must be running for real-time drift detection and automatic spec
