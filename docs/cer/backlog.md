@@ -1,6 +1,6 @@
 # flex — Cold-Eyes Review (CER) Backlog
 
-*Last updated: 2026-07-16*
+*Last updated: 2026-07-22*
 
 This file is the structured triage log for findings from external cold-eyes reviews.
 Each finding is assigned to one quadrant. Findings are not deleted — resolved findings
@@ -53,6 +53,8 @@ Important, not urgent. Quality improvements, architectural refinements.
 
 | ID | Finding | Source | Date | Phase |
 |----|---------|--------|------|-------|
+
+| CER-068 | Era-doc phase ledger drifts uncommitted and its status column is never updated. `phase_new.py` appends a `| <phase> | <title> | planned |` row to the active era doc's phase ledger (`docs/eras/*.md`) on every scaffold, but no commit path ever stages `docs/eras/`: the spec-mode commit list in `CLAUDE.build.md` step 5c stages only `docs/phases/` + `docs/stories/` + `docs/phases/permissions/`, and the pre-reviewer methodology commit (Step 1.5) stages only `docs/phases/` + `docs/cer/`. Result: ledger rows silently accumulate as working-tree drift until an operator notices an "unexplained" modified era doc (observed in forqsite 2026-07-22: three uncommitted rows spanning PM064-main, PM064-post1, PM065-main — two of them from prior sessions). Secondary gap: the ledger's status column is written once as `planned` and never updated — `flex_build.py mark-phase-complete` updates `docs/phases/index.md` only, so checkpointed phases remain `planned` in the era ledger indefinitely (both PM064 rows were complete-and-tagged while still reading `planned`). Fix direction: (a) stage the active era doc in the spec-mode commit (phase_new.py writes it, so the spec commit should carry it) and/or add `docs/eras/` to the Step 1.5 blanket stage; (b) have `mark-phase-complete` update the era ledger row status alongside `index.md`, or drop the status column from the ledger template if it is not meant to be load-bearing. MEDIUM severity (bookkeeping drift + a status column that misleads readers; no enforcement impact). `skills/pairmode/scripts/phase_new.py` (era append), `skills/pairmode/scripts/flex_build.py` (mark-phase-complete), `CLAUDE.build.md` (spec-mode step 5c, build-loop Step 1.5). | forqsite session (operator noticed unexplained modified era doc) | 2026-07-22 | — |
 
 | CER-063 | The `fold-prep` branch (`HARNESS011-main`, not yet merged to `main`) already owns a different `INFRA-203` ("Context gate edge cases and session_id safety") — itself the product of a prior renumbering to avoid colliding with `main`'s then-existing `INFRA-192`. Phase 91 (`main`) has now allocated a second, unrelated `INFRA-203` ("Make empty/missing-variable template renders in the sync-agents body-merge path fail loudly"). When `fold-prep`/`harness` eventually merges into `main`, this rail+number will collide again — the second time this exact pattern has occurred. Not urgent while `fold-prep` remains unmerged. Fix at merge time: renumber the incoming `fold-prep` `INFRA-203` (recommended, since it was already renumbered once and its content is less coupled to the flex-self-hosting-tool identity than the `main` story). MEDIUM severity (forward-looking; no current-branch defect). No specific files — applies to whichever phase performs the `fold-prep`/`harness` merge into `main`. | Phase 91 intent review | 2026-07-16 | HARNESS (fold-prep merge) |
 
