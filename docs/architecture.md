@@ -256,7 +256,7 @@ is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
    `.companion/effort.db` (tokens, model, duration, outcome).
 
 8. **Loop-breaker** — if the same story fails twice, the orchestrator invokes the loop-breaker
-   subagent (opus) to diagnose the root cause cold and propose one alternative approach.
+   subagent (fable) to diagnose the root cause cold and propose one alternative approach.
 
 9. **Context budget check** — `hooks/pre_tool_use.py` fires on every
    agent-spawn tool call (matcher `"Task|Agent"`; the current Claude Code
@@ -567,9 +567,9 @@ and obscuring whether the work actually requires that tier.
 
 **Default.** Sonnet is the baseline for all reviewer-class agents (`reviewer`,
 `intent-reviewer`, `security-auditor`) and for the `builder`. The
-`loop-breaker` is the one exception: it is opus by default, because by the
-time the loop-breaker fires the case is — by definition — hard, and the
-reasoning premium is justified. The `reconstruction-agent` is not subject to
+`loop-breaker` is the one exception: it is fable by default — an escalation
+tier ranking above opus — because by the time the loop-breaker fires the case
+is — by definition — hard, and the reasoning premium is justified. The `reconstruction-agent` is not subject to
 the build-loop model pinning policy — it is spawned infrequently outside the
 build loop and inherits the orchestrator's model; the reconstruction-agent
 template carries no `model:` field by design.
