@@ -50,7 +50,8 @@ Resume HARNESS016-main's deferred tail: retry the doc sweep, migrate the fleet t
 | INFRA-225 | Port startswith("complete") annotated-status fallback into next_action.py's _resolve_active_phase | complete |
 | INFRA-226 | Add fable as an escalation-tier model; document mandatory custom-model entry at model-upgrade gates | complete |
 | INFRA-227 | Port Model-upgrade prompts subsection into CLAUDE.build.md.j2 sync template | complete |
-| INFRA-228 | Match hook blocks by basename not full path — fix duplicate hook registration on plugin_root migration | draft |
+| INFRA-228 | Match hook blocks by basename not full path — fix duplicate hook registration on plugin_root migration | complete |
+| INFRA-229 | Reword Model-upgrade prompts section to avoid banned await-user phrase in CLAUDE.build.md.j2 | draft |
 
 ## Deferred stories
 
