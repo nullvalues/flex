@@ -113,6 +113,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | HARNESS015-main | Checkpoint-sequence reset and state.json atomic-write adoption | complete | [phase-HARNESS015-main.md](phase-HARNESS015-main.md) · cp-HARNESS015-main |
 | HARNESS016-main | Final fold — pre-fold gate, merge to main, re-sync | deferred | [phase-HARNESS016-main.md](phase-HARNESS016-main.md) — paused 2026-07-21, forked to Phase 96 |
 | 96 | Build-loop revert safety and worktree-per-cycle isolation | complete | [phase-96.md](phase-96.md) |
+| 97 | Fold resume — pre-fold gate, fleet migration, merge to main, re-sync | planned | [phase-97.md](phase-97.md) |
 
 ---
 
