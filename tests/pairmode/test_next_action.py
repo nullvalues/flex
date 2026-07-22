@@ -40,6 +40,7 @@ from next_action import (  # noqa: E402
     OUTCOME_PASS,
     infer_position,
     _check_phase_completion,
+    _run_build_gate_subprocess,
 )
 from flex_build import (  # noqa: E402
     resolve_current_phase,
@@ -1421,3 +1422,112 @@ class TestCheckPhaseCompletionEscapedPipe:
             encoding="utf-8",
         )
         assert _check_phase_completion(phase_file) is True
+
+
+# ---------------------------------------------------------------------------
+# _run_build_gate_subprocess — config-driven test_command (INFRA-230 / CER-072)
+# ---------------------------------------------------------------------------
+
+
+class TestRunBuildGateSubprocess:
+    """Build gate honors ``.companion/pairmode_context.json``'s ``test_command``.
+
+    Regression coverage for CER-072: the guard hardcoded flex-only
+    ``uv run pytest tests/pairmode/`` and returned gate-red in every fleet
+    project that lacks that directory.  These tests use trivial always-pass
+    (``true``) / always-fail (``false``) shell commands to stay fast and
+    dependency-free.
+    """
+
+    @staticmethod
+    def _write_context(project_dir: Path, test_command: object) -> None:
+        companion = project_dir / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        (companion / "pairmode_context.json").write_text(
+            json.dumps({"test_command": test_command}),
+            encoding="utf-8",
+        )
+
+    def test_config_passing_command_gate_green(self, tmp_path: Path) -> None:
+        """(a) pairmode_context.json + passing test_command → gate green."""
+        self._write_context(tmp_path, "true")
+        assert _run_build_gate_subprocess(tmp_path) is True
+
+    def test_config_failing_command_gate_red(self, tmp_path: Path) -> None:
+        """(b) pairmode_context.json + failing test_command → gate red.
+
+        Confirms the fix does NOT turn the guard into an unconditional advisory
+        pass: a command that genuinely ran and exited non-zero reports red.
+        """
+        self._write_context(tmp_path, "false")
+        assert _run_build_gate_subprocess(tmp_path) is False
+
+    def test_no_context_falls_back_to_pytest(self, tmp_path: Path) -> None:
+        """(c) no pairmode_context.json → falls back to hardcoded pytest.
+
+        Asserts the fallback runs the exact historical command (list form,
+        no shell) via a mocked ``subprocess.run`` so the existing flex-harness
+        gate behavior is provably unchanged.
+        """
+        assert not (tmp_path / ".companion" / "pairmode_context.json").exists()
+
+        captured: dict = {}
+
+        def _fake_run(*args, **kwargs):
+            captured["cmd"] = args[0]
+            captured["shell"] = kwargs.get("shell", False)
+
+            class _R:
+                returncode = 0
+
+            return _R()
+
+        with mock.patch("subprocess.run", side_effect=_fake_run):
+            result = _run_build_gate_subprocess(tmp_path)
+
+        assert result is True
+        assert captured["cmd"] == [
+            "uv",
+            "run",
+            "pytest",
+            "tests/pairmode/",
+            "-q",
+            "--tb=no",
+        ]
+        assert captured["shell"] is False
+
+    def test_malformed_context_falls_back_to_pytest(self, tmp_path: Path) -> None:
+        """(d) malformed/empty test_command → falls back to pytest, no crash."""
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+
+        captured: dict = {}
+
+        def _fake_run(*args, **kwargs):
+            captured["cmd"] = args[0]
+            captured["shell"] = kwargs.get("shell", False)
+
+            class _R:
+                returncode = 0
+
+            return _R()
+
+        # invalid JSON
+        (companion / "pairmode_context.json").write_text("{not json", encoding="utf-8")
+        with mock.patch("subprocess.run", side_effect=_fake_run):
+            assert _run_build_gate_subprocess(tmp_path) is True
+        assert captured["cmd"][0] == "uv" and captured["shell"] is False
+
+        # missing test_command field
+        (companion / "pairmode_context.json").write_text("{}", encoding="utf-8")
+        captured.clear()
+        with mock.patch("subprocess.run", side_effect=_fake_run):
+            assert _run_build_gate_subprocess(tmp_path) is True
+        assert captured["cmd"][0] == "uv" and captured["shell"] is False
+
+        # blank test_command
+        self._write_context(tmp_path, "   ")
+        captured.clear()
+        with mock.patch("subprocess.run", side_effect=_fake_run):
+            assert _run_build_gate_subprocess(tmp_path) is True
+        assert captured["cmd"][0] == "uv" and captured["shell"] is False

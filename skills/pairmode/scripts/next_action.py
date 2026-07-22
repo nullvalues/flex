@@ -365,9 +365,22 @@ def _check_cer_do_now(project_dir: "Path") -> bool:
 
 
 def _run_build_gate_subprocess(project_dir: "Path") -> bool:
-    """Run ``uv run pytest tests/pairmode/ -q --tb=no`` in ``project_dir``.
+    """Run the project's build gate in ``project_dir`` (CER-072, INFRA-230).
 
-    Returns True (gate green) when the exit code is 0.
+    Two paths:
+
+    - **Config-driven** — if ``project_dir/.companion/pairmode_context.json``
+      exists, is valid JSON, and has a non-empty ``test_command`` string, that
+      exact command is run via a shell (``shell=True``, since it may be an
+      ``&&``-chained command like ``pnpm build && pnpm typecheck && pnpm test``).
+      Its real exit code is honored (0 → gate green, non-zero → gate red).
+    - **Fallback** — if that file is absent, unreadable, invalid JSON, or has
+      no non-empty ``test_command``, the guard falls back to the historical
+      hardcoded ``uv run pytest tests/pairmode/ -q --tb=no`` (flex-harness's
+      own checkpoint gate, which has no ``pairmode_context.json``, is
+      unaffected).
+
+    Returns True (gate green) when the chosen command's exit code is 0.
     Returns True (advisory pass) on timeout or any execution error.
     """
     import os
@@ -381,14 +394,36 @@ def _run_build_gate_subprocess(project_dir: "Path") -> bool:
         if local_bin not in current_path.split(":"):
             env["PATH"] = f"{local_bin}:{current_path}"
 
+    # Config-driven path: read test_command from pairmode_context.json.
+    test_command: "str | None" = None
+    context_path = Path(project_dir) / ".companion" / "pairmode_context.json"
+    if context_path.exists():
+        try:
+            data = json.loads(context_path.read_text(encoding="utf-8"))
+            candidate = data.get("test_command")
+            if isinstance(candidate, str) and candidate.strip():
+                test_command = candidate
+        except Exception:  # noqa: BLE001
+            test_command = None  # malformed → fall through to pytest fallback
+
     try:
-        result = subprocess.run(
-            ["uv", "run", "pytest", "tests/pairmode/", "-q", "--tb=no"],
-            cwd=str(project_dir),
-            capture_output=True,
-            timeout=60,
-            env=env,
-        )
+        if test_command is not None:
+            result = subprocess.run(
+                test_command,
+                shell=True,
+                cwd=str(project_dir),
+                capture_output=True,
+                timeout=60,
+                env=env,
+            )
+        else:
+            result = subprocess.run(
+                ["uv", "run", "pytest", "tests/pairmode/", "-q", "--tb=no"],
+                cwd=str(project_dir),
+                capture_output=True,
+                timeout=60,
+                env=env,
+            )
         return result.returncode == 0
     except Exception:  # noqa: BLE001
         return True  # advisory: fail open on error or timeout
