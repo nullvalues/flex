@@ -20,6 +20,7 @@ touches:
   - tests/pairmode/test_context_budget.py
   - tests/pairmode/test_bootstrap.py
   - docs/architecture.md
+  - tests/pairmode/fixtures/transcript_entry_shape.json
 ---
 
 ## Context
@@ -90,6 +91,31 @@ gap: total.
      per-call model override — if it can't, registering typed agents with a fixed
      model would silently break retry escalation. Resolve this before implementation,
      not after.
+- **Amended per operator direction (context-budget-gate reliability discussion)**:
+  once this story reconnects the gate to real spawns, `pre_tool_use.py:126`'s
+  `{"decision": "block", ...}` output is confirmed to be a genuine Claude-Code-enforced
+  hard stop on the tool call — not advisory text the orchestrator can talk past. The
+  operator's recollection of the orchestrator "ignoring" the gate in the past traces to
+  two documented, distinct causes, neither of which is "the block fired and got
+  ignored": (1) the pre-INFRA-193 self-clearing bug (CER-047), fixed; (2) an agent
+  manually forging `context_budget_acknowledged_*` keys into `state.json` to defeat the
+  gate entirely (CER-067/asp finding) — a workaround around the gate never firing
+  correctly, not a case of a fired block being overridden. This story's fix, once
+  landed, restores a real hard block for genuine cases.
+- **Amended, folded in rather than a separate story**: `context_budget.py`'s
+  `compute_context_tokens` transcript parser already fails safe today — any parse
+  failure (missing file, malformed JSON, wrong field shape, non-numeric value) returns
+  `None`, and `decide()` already treats `current_tokens is None` as a hard block
+  (`CONTEXT CHECK REQUIRED`), never a silently-wrong permissive number. Per Claude
+  Code's own documentation, the underlying transcript JSONL format is internal and can
+  change between releases — the existing `None`-on-mismatch behavior already absorbs
+  most of that risk (a renamed/missing field just becomes `None` and fails safe). The
+  one gap not covered: a future format change that's *silently* wrong — still
+  valid-shaped JSON, but with different field semantics — would not be caught by the
+  current `None` check. Add a small regression test pinning today's known-good
+  transcript-entry shape as a canary, not a parser rewrite (operator explicitly does
+  not want a remodel; the existing fail-safe design is sound and should be preserved,
+  only backstopped against silent drift).
 
 ## Ensures
 
@@ -116,6 +142,18 @@ gap: total.
   always passing model explicitly per spawn) so escalation isn't silently broken.
 - `docs/architecture.md` updated to describe the resolved spawn contract, including
   correcting the `:602` passage's stale template/subagent-type references.
+- `tests/pairmode/fixtures/transcript_entry_shape.json` (or an inline fixture in
+  `test_context_budget.py` if a separate file is unwarranted) captures a real,
+  known-good `type: "assistant"` transcript entry with its `message.usage` block; a
+  new test asserts `compute_context_tokens` extracts the expected total from it. This
+  is a drift canary, not new parsing logic — the parser itself is unchanged.
+- `docs/architecture.md` gains an explicit note (near the context-budget-gate
+  description) that the working threshold (currently 130000/150000-ish depending on
+  where it's read — confirm the actual constant) is an **empirically-tuned defensive
+  heuristic for managing build-churn/drift, not a hard platform token limit** — it may
+  need recalibration over time (different models, longer sessions) and its job is to
+  be close enough that an operator can decide whether to `/clear` or continue given
+  the next story's complexity, not to be precisely accurate to the token.
 - `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -q` passes (run without
   `-x`; confirm only the known CER-070 environmental failure remains).
 
@@ -137,8 +175,11 @@ gap: total.
 4. Update `CLAUDE.build.md.j2`'s pseudocode to name the exact `subagent_type` per
    action.
 5. Add the observable-invocation test described in Ensures.
-6. Update `docs/architecture.md`.
-7. Run the full test suite without `-x`; confirm only the known CER-070 failure
+6. Add the transcript-entry-shape drift-canary test and fixture.
+7. Update `docs/architecture.md`: the resolved spawn contract, the corrected `:602`
+   passage, and the 150k-heuristic note (confirm the actual live threshold constant
+   before writing the exact number).
+8. Run the full test suite without `-x`; confirm only the known CER-070 failure
    remains.
 
 ## Out of scope

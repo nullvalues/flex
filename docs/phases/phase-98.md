@@ -52,12 +52,34 @@ marked inline in each story's Context/Requires/Ensures sections rather than
 silently rewritten.
 
 **Recommended build order** (per the adversarial review; dependency-driven, not
-the order stories are listed below): **INFRA-239 → INFRA-241 → INFRA-236 →
-INFRA-237 → INFRA-238 → INFRA-240 → INFRA-242/INFRA-243 → INFRA-244.**
+the order stories are listed below): **INFRA-239 → INFRA-241 → INFRA-245 →
+INFRA-236 → INFRA-237 → INFRA-238 → INFRA-240 → INFRA-242/INFRA-243 → INFRA-244.**
 INFRA-241 needs to settle the spawn/model contract before INFRA-236 (token
 capture source) and INFRA-237 (per-attempt model escalation) can safely build
-against it. INFRA-244 (README currency) is last by design — it documents
-post-remediation behavior, not a snapshot of the current broken state.
+against it. INFRA-245 follows INFRA-241 directly — INFRA-241 is what turns
+INFRA-245's target bug (stale post-compact counter) from a latent gap into a live
+deadlock, so it should land right after. INFRA-244 (README currency) is last by
+design — it documents post-remediation behavior, not a snapshot of the current
+broken state.
+
+A follow-up operator question this session — "are the context controls blind-guessing,
+or conflating subagent context with the orchestrator's own?" — triggered a dedicated
+audit (fable, Plan mode) plus a direct check against current Claude Code hook/tooling
+documentation (via the `claude-code-guide` agent, not this repo's own historical CER
+entries, since those could themselves be stale). Findings: the live mechanism reads
+real transcript data (not a guess) and does not conflate subagent/orchestrator tokens
+in current code (the historical conflation vector, `bump-context-tokens`, is dormant
+with zero live callers). But there is no supported way to programmatically call the
+real `/context` command or receive token data directly in a hook payload — confirmed
+authoritatively, not assumed; transcript-JSONL parsing is explicitly documented by
+Anthropic as an internal, version-unstable format, and is nonetheless the only
+available approximation today. Per operator direction, this phase does not attempt a
+parser remodel to chase a reliability ceiling the platform doesn't currently support —
+INFRA-241 was amended with a small drift-canary test instead of a rewrite, and
+INFRA-245 (compact-refresh) was added as the one genuine, bounded reliability gap
+worth closing. The 130-150k working threshold is documented (INFRA-241's amended
+scope) as an empirically-tuned defensive heuristic for managing build-churn, not a
+precision hard limit.
 
 ## Stories
 
@@ -72,6 +94,7 @@ post-remediation behavior, not a snapshot of the current broken state.
 | INFRA-242 | Redesign ideology enforcement — spec-time alignment + narrow reviewer drift check | planned |
 | INFRA-243 | Phase-authoring convention for single-purpose, bounded, reproducible phases — amended: `phase_new.py`/`phase.md.j2` already exist, story adds the convention to them rather than building new tooling | planned |
 | INFRA-244 | Bring README.md current with the 0.3 resolver-driven design — remove 8-step/0.2-workflow/pre-resolver claims | planned |
+| INFRA-245 | Compact-aware context-counter refresh — unwedge the gate after auto-compaction | planned |
 
 ## Schema delivery
 
