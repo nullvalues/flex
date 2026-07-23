@@ -25,7 +25,10 @@ while true:
         on reviewer FAIL: /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py discard-story-worktree --story-id a.scalar --project-dir .
     else:
         spawn leaf-worker-for(a.action) with subagent_type=ACTION_SUBAGENT_TYPE[a.action], scalar=a.scalar, model=a.model
-    record result via /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py record-attempt ...
+    # effort-attempt recording is fully hook-side (INFRA-236): hooks/post_tool_use.py's
+    # Task/Agent branch calls subagent_transcript.record_attempt_from_transcript() after
+    # every spawn, deriving tokens/model/outcome from the live transcript and the spawn's
+    # own tool_input/tool_response — no separate orchestrator-side recording step needed.
 ```
 
 ## Model-upgrade prompts
@@ -39,7 +42,7 @@ input) so the operator can key in any model name — the `model_selector.py` tie
 
 Execute each checkpoint leaf worker as dispatched. After each returns, call:
   /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py record-checkpoint-step <action> --project-dir .
-Then re-run next-action. checkpoint-tag: `git tag cp-<phase-key> && git push origin main --tags`.
+After the three gate workers complete, call `/mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py checkpoint-report --project-dir .` and print its output verbatim (cost rollup + next-phase pointer) before checkpoint-tag. Then re-run next-action. checkpoint-tag: `git tag cp-<phase-key> && git push origin main --tags`.
 
 ## All other input
 

@@ -987,3 +987,86 @@ def test_to030_defers_customized_agent(tmp_path: Path) -> None:
     assert "manual" in output.lower() or "port" in output.lower(), (
         "Expected porting instructions in output"
     )
+
+
+# ---------------------------------------------------------------------------
+# B8: effort_tracking backfill (INFRA-236)
+# ---------------------------------------------------------------------------
+
+
+def test_to030_backfills_missing_effort_tracking_with_apply(tmp_path: Path) -> None:
+    """to-030 --apply must set effort_tracking: true when the key is absent."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS)
+    state_path = project / ".companion" / "state.json"
+    before = json.loads(state_path.read_text())
+    assert "effort_tracking" not in before
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    state = json.loads(state_path.read_text())
+    assert state["effort_tracking"] is True
+    assert "[apply]" in output and "effort_tracking" in output
+
+
+def test_to030_dryrun_does_not_backfill_effort_tracking(tmp_path: Path) -> None:
+    """to-030 dry-run must print [would] backfill but not write effort_tracking."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS)
+    state_path = project / ".companion" / "state.json"
+    before = state_path.read_bytes()
+
+    exit_code, output = _invoke_030(project, apply=False)
+
+    assert exit_code == 0
+    assert state_path.read_bytes() == before, "Dry-run modified state.json"
+    assert "[would]" in output and "effort_tracking" in output
+
+
+def test_to030_preserves_explicit_effort_tracking_false(tmp_path: Path) -> None:
+    """to-030 must NOT override an explicitly-set effort_tracking: false."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS,
+        effort_tracking=False,
+    )
+    state_path = project / ".companion" / "state.json"
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    state = json.loads(state_path.read_text())
+    assert state["effort_tracking"] is False, (
+        "An explicit effort_tracking: false must not be overridden by the backfill"
+    )
+    assert "backfilled" not in output.lower()
+
+
+def test_to030_leaves_explicit_effort_tracking_true_unchanged(tmp_path: Path) -> None:
+    """to-030 must be a no-op for a project that already has effort_tracking: true."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS,
+        effort_tracking=True,
+    )
+    state_path = project / ".companion" / "state.json"
+    before = state_path.read_bytes()
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    assert state_path.read_bytes() == before, (
+        "to-030 must not rewrite state.json when effort_tracking is already set"
+    )
+
+
+def test_to030_effort_tracking_backfill_is_idempotent(tmp_path: Path) -> None:
+    """Running to-030 --apply twice must not change state.json on the second run."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS)
+    state_path = project / ".companion" / "state.json"
+
+    _invoke_030(project, apply=True)
+    after_first = state_path.read_bytes()
+
+    _invoke_030(project, apply=True)
+
+    assert state_path.read_bytes() == after_first, "Second run changed state.json"

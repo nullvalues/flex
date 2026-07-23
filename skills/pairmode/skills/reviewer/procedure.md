@@ -159,15 +159,37 @@ pass the story ID to the builder/reviewer subagent and let it read cold.
 `hooks/post_tool_use.py` is a thin dispatcher for two tool types:
 
 - `Write` / `Edit` / `MultiEdit` → companion sidebar pipe relay (file-change events)
-- `Task` / `Agent` → `skills/pairmode/scripts/context_budget.py`
-  (INFRA-182 PostToolUse context-token writer)
+- `Task` / `Agent` → `skills/pairmode/scripts/context_budget.py` (INFRA-182
+  PostToolUse context-token writer) AND
+  `skills/pairmode/scripts/subagent_transcript.py` (INFRA-236 effort-attempt
+  writer) — neither call ever reads agent-authored prose for its data.
 
-For the `Task`/`Agent` dispatch: one tool-name check, one delegated module call
-(`read_current_tokens(project_dir, session_id)` — reads the JSONL transcript,
-bounded to last 500 lines), one state.json write (`context_current_tokens` +
-`context_current_tokens_recorded_at` when a live count is obtained). Never emits
-a block decision. All JSONL parsing logic lives in `context_budget.py`, NOT in
-the hook. The Task/Agent branch is write-only.
+For the `Task`/`Agent` dispatch: one tool-name check, then two independently
+try/excepted delegated module calls (a failure in either must never block or
+affect the other), one stdout emit (none — this branch is silent; it only
+writes state and exits 0). Never emits a block decision.
+
+The first delegated call, `read_current_tokens(project_dir, session_id)`
+(`context_budget.py`) — reads the live JSONL session log, bounded to last
+500 lines — feeds one state.json write: `context_current_tokens` +
+`context_current_tokens_recorded_at`, when a live count is obtained.
+
+The second delegated call,
+`record_attempt_from_transcript(project_dir, session_id, tool_input,
+tool_response, tool_use_id)` (`subagent_transcript.py`) — reads the
+just-completed spawn's own usage from that same live session log (a
+DIFFERENT metric than the first call's orchestrator-window count; never
+merged with it — see DP7 in `docs/architecture.md`), plus
+`tool_input`/`tool_response`/`state.json` for role/story/model/outcome —
+feeds one write to the effort database: a single attempt row via
+`effort_recorder.record_effort`, when `tool_input.subagent_type` is a
+recordable build-cycle role and `effort_tracking` is `true`.
+
+All parsing and DB-write logic lives in the two named modules, never in
+the hook. The Task/Agent branch writes to two different stores
+(`state.json` and the effort database) via its two calls — it is not purely
+write-only-to-one-place, but every write is delegated; the hook itself
+performs no parsing or decision logic.
 
 `hooks/session_start.py` (CER-047 / Phase 68 INFRA-175) is a thin
 dispatcher for the SessionStart `source` field:
@@ -363,9 +385,17 @@ Examples:
   FAIL-CAUSE: missing ## Ensures section
   FAIL-CAUSE: CRITICAL hook violation in hooks/pre_tool_use.py
 
-Emit the FAIL-CAUSE line before the revert command below. The orchestrator
-parses this line and passes it as `--notes` to `record_attempt.py` (alongside
-`--outcome FAIL`) to record the reason in the effort DB.
+Emit the FAIL-CAUSE line before the revert command below, for human
+readability in the mid-response text. This line is never read back by the
+orchestrator — it exists solely for the human operator watching the
+transcript live. Also populate the `fail_cause` field (INFRA-236) in the
+returned `REVIEW-RESULT` JSON with the same text — that field, not the
+line above, is the actual data contract: the orchestrator only observes
+the final JSON object, so `subagent_transcript.py`'s
+`record_attempt_from_transcript()` (called from `hooks/post_tool_use.py`'s
+Task/Agent branch, never by the reviewer itself) reads `fail_cause` from
+`tool_response` to populate `record_attempt.py`'s `--notes` (alongside
+`--outcome FAIL`) in the effort database row.
 
 On FAIL, revert:
 
@@ -420,7 +450,8 @@ On failure:
   "type": "REVIEW-RESULT",
   "verdict": "FAIL",
   "findings": ["finding 1 — severity: HIGH", "finding 2 — severity: CRITICAL"],
-  "reason": "One sentence describing the blocking finding(s)."
+  "reason": "One sentence describing the blocking finding(s).",
+  "fail_cause": "concise reason — 10 words or fewer"
 }
 ```
 
@@ -429,6 +460,12 @@ Fields:
 - `verdict` — `"PASS"` if the story committed; `"FAIL"` if reverted
 - `findings` — list of finding strings (empty on PASS; one entry per blocking finding on FAIL)
 - `reason` — one sentence: for PASS, what was committed; for FAIL, what blocked it
+- `fail_cause` — optional (INFRA-236). Present on FAIL, absent on PASS. The same
+  concise reason as the mid-response `FAIL-CAUSE:` line (see § "Notes on FAIL"
+  above) — that line stays for human readability, but this JSON field is the
+  actual data contract: the orchestrator only observes the final
+  return-format-only JSON object, never any earlier line of the response, so
+  it reads `fail_cause` here and passes it as `--notes` to `record_attempt.py`.
 
 Return only the JSON object. No preamble, no commentary, no usage block.
 

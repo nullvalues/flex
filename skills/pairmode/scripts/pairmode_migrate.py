@@ -956,6 +956,33 @@ def cmd_to_030(project_dir: str, apply: bool) -> None:
             click.echo("[would] remove 'pipe_path' key from state.json")
 
     # -----------------------------------------------------------------------
+    # B8: effort_tracking backfill (INFRA-236)
+    #
+    # bootstrap.py's _record_state() auto-enables effort_tracking on every
+    # NEW pairmode bootstrap and preserves an existing (even explicitly
+    # False) value — but a project whose state.json predates that
+    # auto-enable logic, and that has not been re-bootstrapped since, is
+    # left with the key permanently absent (bootstrap is only invoked once,
+    # normally). This backfills exactly that gap: key absent → set True.
+    # A project that explicitly disabled tracking (effort_tracking: false)
+    # is left untouched — this is a backfill for the missing-key case only,
+    # never an override of an explicit choice.
+    # -----------------------------------------------------------------------
+    if "effort_tracking" not in state:
+        if apply:
+            state["effort_tracking"] = True
+            sys.path.insert(0, str(_SCRIPTS_DIR))
+            from state_utils import _atomic_write_json  # noqa: PLC0415
+            _atomic_write_json(state_path, state)
+            click.echo(
+                "[apply] backfilled missing 'effort_tracking': true in state.json"
+            )
+        else:
+            click.echo(
+                "[would] backfill missing 'effort_tracking': true in state.json"
+            )
+
+    # -----------------------------------------------------------------------
     # B3: Protected-path preview — recent commits touching PROTECTED_GLOBS
     # -----------------------------------------------------------------------
     _protected_path_preview(project_path)

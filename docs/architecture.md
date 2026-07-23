@@ -21,7 +21,7 @@ flex/
     hooks.json                    ← hook event registration
     stop.py                       ← historian: extract decisions after each response
     exit_plan_mode.py             ← relay plan content for impact analysis
-    post_tool_use.py              ← pair partner: relay file changes; Task/Agent branch: reads JSONL via context_budget.read_current_tokens() and writes context_current_tokens to state.json (INFRA-182)
+    post_tool_use.py              ← pair partner: relay file changes; Task/Agent branch: reads JSONL via context_budget.read_current_tokens() and writes context_current_tokens to state.json (INFRA-182); also calls subagent_transcript.record_attempt_from_transcript() to write one effort.db attempt row per spawn (INFRA-236)
     session_end.py                ← signal sidebar to summarize and exit
     pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename; INFRA-199 scoped to tool_input.subagent_type ∈ build-cycle agents only); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement); Read → cold_read_guard.py (INFRA-196 cold-read enforcement, registered/reachable since INFRA-205/INFRA-206, CER-065)
     session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write (context_current_tokens + context_current_tokens_recorded_at + context_session_reset_at on clear/startup — INFRA-180)
@@ -158,6 +158,7 @@ reconcile.py → merges into <spec_location>/openspec/specs/<module>/spec.json
 ```
 post_tool_use.py → pipe → sidebar tracks file→module mapping
 post_tool_use.py (Task/Agent branch) → reads JSONL transcript → writes context_current_tokens to state.json (INFRA-182)
+post_tool_use.py (Task/Agent branch) → reads JSONL transcript + tool_input/tool_response/state.json → writes one attempts row to effort.db (INFRA-236)
 exit_plan_mode.py → pipe → sidebar analyzes plan for cross-module impact
 session_end.py → pipe → sidebar graceful shutdown signal
 ```
@@ -254,8 +255,22 @@ is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
    attempt_number incremented. The reviewer's in-worktree revert is now a defense-in-depth
    layer; the worktree discard is the structural guarantee (see § Per-story worktree isolation).
 
-7. **Effort recording** — `record_attempt.py` writes each builder and reviewer spawn to
-   `.companion/effort.db` (tokens, model, duration, outcome).
+7. **Effort recording** — `hooks/post_tool_use.py`'s Task/Agent branch calls
+   `skills/pairmode/scripts/subagent_transcript.py`'s
+   `record_attempt_from_transcript()` (INFRA-236) after every builder and
+   reviewer spawn. It reads the spawn's own usage directly from the live
+   JSONL transcript (the same mechanical source `context_budget.py` already
+   trusts for `context_current_tokens` — see § effort.db ≠ context-control
+   invariant below), plus `tool_input`/`tool_response`/`state.json` for
+   role/story/model/outcome, and writes one row via
+   `effort_recorder.record_effort()` to `.companion/effort.db` (tokens,
+   model, duration, outcome). This replaced the 0.2-era design where each
+   agent template ended its final message with a self-reported
+   `<usage>total_tokens: N</usage>` block that `record_attempt.py
+   --usage-block` parsed — 0.3's builder/reviewer `procedure.md` return-format
+   sections forbid that block entirely (WORKER-004 grammar); nothing reads
+   agent-authored token prose anymore. `record_attempt.py`'s CLI remains the
+   underlying writer other (non-hook) callers use directly.
 
 8. **Loop-breaker** — if the same story fails twice, the orchestrator invokes the loop-breaker
    subagent (fable) to diagnose the root cause cold and propose one alternative approach.
@@ -1064,7 +1079,7 @@ is **read-only** on every row.
 | `state.json` `checkpoint_step` | orchestrator (`flex_build.py record-checkpoint-step`); HARNESS009-main moved authority from LLM prose to CLI (RESOLVER-012); HARNESS015-main (RESOLVER-017) added reset-to-`[]` on `checkpoint-tag` completion, fixing a silent skip of the entire checkpoint sequence on every phase after the first | read-only |
 | `docs/phases/index.md` phase status cell | orchestrator, via `flex_build.py record-checkpoint-step checkpoint-tag` (INFRA-239) — the `checkpoint-tag` step's `_mark_phase_complete_in_index` call writes `complete` to the just-tagged phase's row in the same CLI invocation that resets `checkpoint_step`, so the two writes never land in separate orchestrator turns; the standalone `mark-phase-complete` command (`cmd_mark_phase_complete`) shares the same write helper for direct/manual use but is no longer required in the checkpoint path | read-only (`_resolve_active_phase` / `resolve_current_phase` skip `complete`/`deferred`/`backlog` rows when selecting the active phase) |
 | active story (`state.json` `current_story`) | orchestrator (`story_context.py`) | read-only |
-| `effort.db` | orchestrator (`record_attempt.py` / effort recorder) | read-only |
+| `effort.db` | `hooks/post_tool_use.py` → `subagent_transcript.py` / `effort_recorder.py` (INFRA-236); `record_attempt.py` CLI for non-hook callers | read-only |
 | `attempt_counter.json` (attempt counters) | orchestrator (`flex_build.py write-attempt-count` / `clear-attempt-count`) | read-only |
 | story `status` frontmatter | orchestrator (`story_update.py`) | read-only |
 | permission files (`docs/phases/permissions/<story_id>.json`) | orchestrator (`flex_build.py permissions-create`) | read-only |
@@ -1076,8 +1091,13 @@ is **read-only** on every row.
 
 These two token surfaces measure fundamentally different things and must never cross-feed:
 
-- **`effort.db`** = *retrospective cost* from subagent `<usage>` blocks (tokens spent in
-  disposable subagent contexts). Inputs: model selection, guardrail, rollups, cost display.
+- **`effort.db`** = *retrospective cost* recorded by
+  `subagent_transcript.record_attempt_from_transcript()` (INFRA-236) — the
+  spawning subagent's own token usage read directly from its sidechain
+  turns in the live session JSONL transcript (tokens spent in disposable
+  subagent contexts). No longer sourced from agent-authored `<usage>`
+  blocks (0.3's builder/reviewer `procedure.md` forbids that return format).
+  Inputs: model selection, guardrail, rollups, cost display.
   **Never an input to a context-headroom or clear-seam decision.**
 
 - **context-control** = the orchestrator's own *live window occupancy*
@@ -1282,14 +1302,22 @@ fixed an escaped-pipe parsing bug in `next_action.py`'s checkpoint guard
 
 All decision logic lives in the named modules; the hook is a thin dispatcher.
 
-**Documented exception — `hooks/post_tool_use.py` Task/Agent branch (INFRA-182):**
+**Documented exception — `hooks/post_tool_use.py` Task/Agent branch (INFRA-182, INFRA-236):**
 In addition to the file-change relay role, `post_tool_use.py` handles Task/Agent
-PostToolUse events:
+PostToolUse events with two independently try/excepted delegated calls:
 
 - Calls `context_budget.read_current_tokens(project_dir, session_id)` to read the live
-  token count from the JSONL transcript (bounded reverse scan).
-- Writes `context_current_tokens` + `context_current_tokens_recorded_at` to state.json.
-- Never blocks (no `decision: block` output). Exits silently on any failure.
+  token count from the JSONL transcript (bounded reverse scan). Writes
+  `context_current_tokens` + `context_current_tokens_recorded_at` to state.json.
+- Calls `subagent_transcript.record_attempt_from_transcript(project_dir, session_id,
+  tool_input, tool_response, tool_use_id)` (INFRA-236) to read the just-completed
+  spawn's own usage from its sidechain turns in the same transcript, plus
+  `tool_input`/`tool_response`/`state.json` for role/story/model/outcome. Writes one
+  `attempts` row to `.companion/effort.db` via `effort_recorder.record_effort()` when
+  the spawn is a recordable build-cycle role and `effort_tracking` is `true`. This is a
+  distinct metric and a distinct store from the first call — see § effort.db ≠
+  context-control invariant (DP7) — and must never be merged with it.
+- Never blocks (no `decision: block` output). Exits silently on any failure in either call.
 
 This write/read split means PreToolUse never reads JSONL directly — it reads only the
 state.json value written by the most recent PostToolUse invocation or the SessionStart

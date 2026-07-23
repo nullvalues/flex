@@ -64,6 +64,18 @@
           ],
           "reason": "Two HIGH findings block completion."
         }
+      },
+      {
+        "label": "review-fail-with-fail-cause",
+        "obj": {
+          "type": "REVIEW-RESULT",
+          "verdict": "FAIL",
+          "findings": [
+            "hooks/post_tool_use.py: inlined logic instead of delegating — CRITICAL"
+          ],
+          "reason": "CRITICAL hook violation blocks completion.",
+          "fail_cause": "CRITICAL hook violation in hooks/post_tool_use.py"
+        }
       }
     ],
     "invalid": [

@@ -51,7 +51,12 @@ _SCHEMAS: dict[str, dict] = {
     },
     REVIEW_RESULT: {
         "required": ["verdict", "findings", "reason"],
-        "allowed": {"type", "verdict", "findings", "reason"},
+        # fail_cause (INFRA-236) is optional: the reviewer's FAIL-CAUSE
+        # transcript line (reviewer/procedure.md) is kept for human
+        # readability, but this field is the actual data contract the
+        # orchestrator reads for record_attempt.py --notes. Absent on PASS;
+        # populated on FAIL.
+        "allowed": {"type", "verdict", "findings", "reason", "fail_cause"},
         # ALIGNED is the canonical intent-review verdict (WORKER-009): the
         # checkpoint-intent action relies on the "ALIGNED/[findings]" output
         # format. The grammar admits string verdicts beyond PASS/FAIL for

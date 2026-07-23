@@ -592,6 +592,31 @@ def cmd_current_phase(project_dir: str) -> None:
     sys.exit(1)
 
 
+def _next_phase_after(after_phase: str, project_dir: Path) -> "str | None":
+    """Return the ``phase_ref`` of the index row immediately following
+    *after_phase*, or ``None`` when the index is missing, the phase is not
+    found, or the matched row is the last one.
+
+    Extracted from ``cmd_next_phase`` (INFRA-236) so ``checkpoint-report``
+    can reuse the same lookup without shelling out to a second CLI
+    invocation. Pure read — no state writes.
+    """
+    index_path = project_dir / "docs" / "phases" / "index.md"
+    if not index_path.exists():
+        return None
+
+    index_text = index_path.read_text(encoding="utf-8")
+    phase_rows = _parse_index_phases(index_text)
+
+    for i, (phase_ref, _status) in enumerate(phase_rows):
+        if phase_ref == after_phase:
+            if i + 1 < len(phase_rows):
+                return phase_rows[i + 1][0]
+            return None
+
+    return None
+
+
 @flex_build.command("next-phase")
 @click.option(
     "--after",
@@ -618,24 +643,11 @@ def cmd_next_phase(after_phase: str, project_dir: str) -> None:
     """
     project_path = Path(project_dir).resolve()
 
-    index_path = project_path / "docs" / "phases" / "index.md"
-    if not index_path.exists():
+    next_ref = _next_phase_after(after_phase, project_path)
+    if next_ref is None:
         sys.exit(1)
-
-    index_text = index_path.read_text(encoding="utf-8")
-    phase_rows = _parse_index_phases(index_text)
-
-    for i, (phase_ref, _status) in enumerate(phase_rows):
-        if phase_ref == after_phase:
-            if i + 1 < len(phase_rows):
-                click.echo(phase_rows[i + 1][0])
-                sys.exit(0)
-            else:
-                # Matched row is the last one — no next phase.
-                sys.exit(1)
-
-    # Phase not found in index.
-    sys.exit(1)
+    click.echo(next_ref)
+    sys.exit(0)
 
 
 def _mark_phase_complete_in_index(phase_key: str, project_dir: Path) -> bool:
@@ -1942,6 +1954,65 @@ def _record_checkpoint_step(step_id: str, project_dir: Path) -> int:
 
     os.replace(tmp_path_str, state_path)
     return 0
+
+
+@flex_build.command("checkpoint-report")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_checkpoint_report(project_dir: str) -> None:
+    """Print a per-role effort cost rollup + next-phase pointer at checkpoint time.
+
+    Mirrors 0.2's checkpoint step 8 intent (per-role cost rollup + a closing
+    "next phase" prompt) without reintroducing 0.2's prose bulk (INFRA-236,
+    folding operator decision A5). Reuses ``_query_effort_by_role`` — the
+    same rollup ``resolver-state`` emits under ``effort_by_role`` — rather
+    than duplicating the query, and ``_next_phase_after`` — the same lookup
+    the standalone ``next-phase`` command uses — for the pointer.
+
+    Intended call site: ``CLAUDE.build.md``'s Checkpoint section, once after
+    all three checkpoint gate workers (checkpoint-security, checkpoint-intent,
+    checkpoint-docs) have completed and before ``checkpoint-tag``.
+
+    Pure-read: writes nothing. Never raises — an absent/empty effort.db or
+    index produces a minimal report, not an error.
+    """
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+
+    db_path = project_path / ".companion" / "effort.db"
+    effort_by_role = _query_effort_by_role(db_path)
+
+    click.echo("=== checkpoint cost rollup ===")
+    if not effort_by_role:
+        click.echo("  no effort.db attempts recorded yet")
+    else:
+        for role in sorted(effort_by_role):
+            stats = effort_by_role[role]
+            median = stats.get("median_tokens")
+            count = stats.get("count", 0)
+            if median is not None:
+                click.echo(f"  {role}: {count} attempt(s), median {median:,} tokens")
+            else:
+                click.echo(f"  {role}: {count} attempt(s)")
+
+    active_phase_file = resolve_current_phase(project_path)
+    if active_phase_file is None:
+        click.echo("next phase: unknown (no active phase resolved)")
+        return
+
+    phase_key = active_phase_file.stem
+    if phase_key.startswith("phase-"):
+        phase_key = phase_key[len("phase-") :]
+
+    next_ref = _next_phase_after(phase_key, project_path)
+    if next_ref:
+        click.echo(f"next phase: {next_ref}")
+    else:
+        click.echo("next phase: none (end of index)")
 
 
 @flex_build.command("record-checkpoint-step")
