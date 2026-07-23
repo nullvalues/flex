@@ -14,6 +14,7 @@ sys.path.insert(
     str(pathlib.Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts"),
 )
 
+import pairmode_status as pairmode_status_module  # noqa: E402
 from pairmode_status import pairmode_status  # noqa: E402
 
 
@@ -87,40 +88,58 @@ def test_shows_no_story(tmp_path: pathlib.Path) -> None:
     assert "(none set)" in result.output
 
 
-def test_shows_sidebar_active(tmp_path: pathlib.Path) -> None:
-    """pipe_path pointing at a real file → 'Sidebar: active' in output."""
+def test_shows_sidebar_active(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """A real file at the hardcoded PIPE_PATH (INFRA-238) → 'Sidebar: active'.
+
+    The `pipe_path` state.json key is retired — sidebar detection is purely a
+    filesystem check against the module's hardcoded ``PIPE_PATH`` constant.
+    """
     pipe_file = tmp_path / "fake.pipe"
     pipe_file.write_text("", encoding="utf-8")
-    _write_state(
-        tmp_path,
-        {
-            "pairmode_version": "0.1.0",
-            "pipe_path": str(pipe_file),
-        },
-    )
+    monkeypatch.setattr(pairmode_status_module, "PIPE_PATH", str(pipe_file))
+    _write_state(tmp_path, {"pairmode_version": "0.1.0"})
     result = _invoke(tmp_path)
     assert result.exit_code == 0, result.output
     assert "Sidebar: active" in result.output
     assert str(pipe_file) in result.output
 
 
-def test_shows_attachment_instructions(tmp_path: pathlib.Path) -> None:
-    """pipe_path pointing at non-existent path → attachment instructions emitted."""
-    missing_pipe = tmp_path / "does_not_exist.pipe"
+def test_shows_sidebar_ignores_retired_pipe_path_state_key(
+    tmp_path: pathlib.Path, monkeypatch
+) -> None:
+    """A state.json `pipe_path` key must be ignored — only the hardcoded
+    PIPE_PATH constant is consulted (INFRA-238)."""
+    real_pipe_elsewhere = tmp_path / "elsewhere.pipe"
+    real_pipe_elsewhere.write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        pairmode_status_module, "PIPE_PATH", str(tmp_path / "does_not_exist.pipe")
+    )
     _write_state(
         tmp_path,
         {
             "pairmode_version": "0.1.0",
-            "pipe_path": str(missing_pipe),
+            "pipe_path": str(real_pipe_elsewhere),
         },
     )
+    result = _invoke(tmp_path)
+    assert result.exit_code == 0, result.output
+    assert "Sidebar: active" not in result.output
+    assert "not detected" in result.output
+
+
+def test_shows_attachment_instructions(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """No file at the hardcoded PIPE_PATH → attachment instructions emitted."""
+    monkeypatch.setattr(
+        pairmode_status_module, "PIPE_PATH", str(tmp_path / "does_not_exist.pipe")
+    )
+    _write_state(tmp_path, {"pairmode_version": "0.1.0"})
     result = _invoke(tmp_path)
     assert result.exit_code == 0, result.output
     assert "start_sidebar.sh" in result.output
     assert "tail -f" in result.output
 
 
-def test_start_sidebar_path_exists(tmp_path: pathlib.Path) -> None:
+def test_start_sidebar_path_exists(tmp_path: pathlib.Path, monkeypatch) -> None:
     """The printed ``bash <start_sidebar.sh>`` path must resolve to a real file.
 
     Regression guard for CER-012: ``_REPO_ROOT`` previously resolved to
@@ -128,14 +147,10 @@ def test_start_sidebar_path_exists(tmp_path: pathlib.Path) -> None:
     ``<repo>/skills/skills/companion/scripts/start_sidebar.sh`` instruction
     that pointed at a non-existent file.
     """
-    missing_pipe = tmp_path / "does_not_exist.pipe"
-    _write_state(
-        tmp_path,
-        {
-            "pairmode_version": "0.1.0",
-            "pipe_path": str(missing_pipe),
-        },
+    monkeypatch.setattr(
+        pairmode_status_module, "PIPE_PATH", str(tmp_path / "does_not_exist.pipe")
     )
+    _write_state(tmp_path, {"pairmode_version": "0.1.0"})
     result = _invoke(tmp_path)
     assert result.exit_code == 0, result.output
 

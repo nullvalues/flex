@@ -212,27 +212,45 @@ is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
    live-rendered template counterpart); it is informational only and never blocks.
    (Phase 78 BUILD-034/BUILD-035)
 
-2. **Permission pre-write** — Two layers run before the builder spawns:
-   Layer 1 (`permissions-create`): `flex_build.py permissions-create` generates
-   `docs/phases/permissions/<story_id>.json` from the story's `primary_files` and `touches`
-   frontmatter, no-op'ing (no write, no `generated_at` change) when the computed `allowed_paths`
-   already match the file on disk — so that only genuine scope drift re-triggers the Layer 1
-   file write. (Phase 86, INFRA-194.)
+2. **Permission pre-write** — Two layers exist; only Layer 1 is wired into the automatic
+   per-story worktree cycle (INFRA-238):
+   Layer 1 (`permissions-create`): folded directly into `flex_build.py create-story-worktree`
+   (no separate template step) — immediately after the worktree/branch are created,
+   `create-story-worktree` reads the story's frontmatter and calls
+   `generate_permissions_artifact()`, which generates `docs/phases/permissions/<story_id>.json`
+   from the story's `primary_files` and `touches`, no-op'ing (no write, no `generated_at`
+   change) when the computed `allowed_paths` already match the file on disk — so that only
+   genuine scope drift re-triggers the Layer 1 file write. (Phase 86, INFRA-194; wired into the
+   worktree cycle by INFRA-238.) `create-story-worktree` also calls `story_context.set_current_story()`
+   directly (not via a separate `story_context.py --set` template step) to stamp the active story
+   into the **main checkout's** `.companion/state.json` — the worktree has no `.companion/` of its
+   own, and `scope_guard.py` always resolves state from the main checkout root regardless of the
+   spawn's cwd (a git worktree carries a `.git` pointer file back to the main repo). On PASS,
+   `merge-story-worktree` clears both the `current_story` stamp and the Layer 1 permission
+   artifact via `story_context.clear_current_story()` / `clear_permissions_artifact()`; on FAIL,
+   `discard-story-worktree` clears both identically, so a discarded attempt never leaves stale
+   scope state behind for whatever the orchestrator runs next.
    The `pre_tool_use.py` hook enforces the declared scope via `scope_guard.py` on
-   every Edit/Write call during the builder session. (Phase 55, INFRA-138, INFRA-139.)
-   Layer 2 (`write-permissions`): `flex_build.py write-permissions` calls
-   `write_story_permissions()` to write `Edit` allow rules (never `Write` — the Claude Code
-   permission engine only matches `Edit(path)` against file-editing tools including Write; a
-   bare `Write(path)` rule is never evaluated, INFRA-235) into
-   `.claude/settings.local.json` for every declared file. These rules suppress the Claude Code
-   permission prompt before writes even reach the hook, eliminating the auto-mode toggle symptom
-   in upstream projects. (Phase 81, BUILD-040.)
-   `story_context.py --set` stamps the active story into `.companion/state.json`. After the
-   reviewer returns, `story_context.py --clear` runs first, then `flex_build.py
-   clear-permissions` removes the Layer 2 allow rules from `settings.local.json`, restoring the
-   default deny posture before the next story starts — regardless of PASS/FAIL outcome. (Phase 55
-   replaced the old allow-rule-only cycle; Phase 81 reintroduced allow-rule writes as a second
-   layer alongside the hook layer. See step 9.5 and § Hook architecture.)
+   every Edit/Write call during the builder session, including when the spawn's cwd is the
+   story's worktree (`.pairmode-worktrees/<story_id>/`): `scope_guard._normalise()` strips a
+   leading `.pairmode-worktrees/<segment>/` prefix from the candidate path before comparing it
+   against `allowed_paths`, but **only when `<segment>` equals the currently active story's ID**
+   read via `_read_current_story()`. A path under a *different* story's worktree
+   (`.pairmode-worktrees/INFRA-999/...` while `INFRA-238` is active) is never treated as an
+   in-scope match by this stripping, even if its trailing path segments happen to match an
+   `allowed_paths` entry name for the active story — per-story worktree isolation depends on this
+   distinction; stripping unconditionally would let a spawn write into a concurrently in-progress
+   different story's worktree while scope_guard reports it as allowed.
+   Layer 2 (`write-permissions`/`clear-permissions`) remains a manual/on-demand mechanism —
+   `flex_build.py write-permissions` calls `write_story_permissions()` to write `Edit` allow
+   rules (never `Write` — the Claude Code permission engine only matches `Edit(path)` against
+   file-editing tools including Write; a bare `Write(path)` rule is never evaluated, INFRA-235)
+   into `.claude/settings.local.json` for every declared file, suppressing the Claude Code
+   permission prompt before writes even reach the hook (Phase 81, BUILD-040). Layer 2 is
+   deliberately **not** wired into the automatic worktree cycle by INFRA-238 — it is a distinct,
+   optional prompt-suppression aid, not part of the enforcement path Layer 1 + `scope_guard.py`
+   already cover. An operator (or a future story) may still invoke `write-permissions`/
+   `clear-permissions` by hand.
 
 3. **Builder spawn** — `model_selector.select_builder_model()` picks the model (haiku for
    doc/lesson, sonnet baseline for code, opus on high-scope signals or retry). The builder

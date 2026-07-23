@@ -22,6 +22,10 @@ touches:
   - skills/pairmode/skills/reviewer/procedure.md
   - docs/architecture.md
   - tests/pairmode/test_scope_guard.py
+  - tests/pairmode/test_flex_build.py
+  - tests/pairmode/test_hooks.py
+  - tests/pairmode/test_pairmode_status.py
+  - tests/pairmode/test_session_start_hook.py
 ---
 
 ## Context

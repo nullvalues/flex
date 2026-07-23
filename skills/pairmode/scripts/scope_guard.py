@@ -31,7 +31,12 @@ def check_path(
     file_path: str | Path,
     project_dir: str | Path,
 ) -> tuple[bool, str]:
-    project = Path(project_dir).resolve()
+    # INFRA-238: *project_dir* is the tool call's cwd, which for a story-build
+    # spawn is the per-story worktree (<main>/.pairmode-worktrees/<story-id>/),
+    # not the main checkout. state.json and the permissions artifacts only
+    # ever live in the main checkout — resolve it here so scope enforcement
+    # works regardless of the spawn's cwd.
+    project = _resolve_main_project_root(Path(project_dir).resolve())
 
     story_id = _read_current_story(project)
     if not story_id:
@@ -53,9 +58,46 @@ def check_path(
     if normalised is None:
         return False, "path escapes project root"
 
-    if normalised in allowed_paths:
+    candidate = _strip_worktree_prefix(normalised, story_id)
+
+    if candidate in allowed_paths:
         return True, "allowed"
     return False, f"not in story scope for {story_id}: {normalised}"
+
+
+def _resolve_main_project_root(project: Path) -> Path:
+    """Resolve the main checkout root even when *project* is a per-story
+    worktree (``<main>/.pairmode-worktrees/<story-id>/``).
+
+    A linked git worktree has no ``.companion/`` of its own; ``state.json``
+    and the permission artifacts only ever live in the main checkout. A
+    linked worktree's ``.git`` is a *file* (not a directory) containing
+    ``gitdir: <main>/.git/worktrees/<name>``; resolve that back up to the
+    main checkout root. Falls back to *project* unchanged when it is not a
+    linked worktree, or the ``.git`` file can't be parsed — this is a
+    best-effort resolution, never a hard failure.
+    """
+    git_marker = project / ".git"
+    if not git_marker.is_file():
+        return project
+    try:
+        text = git_marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return project
+    if not text.startswith("gitdir:"):
+        return project
+    raw = text.split(":", 1)[1].strip()
+    gitdir = Path(raw)
+    if not gitdir.is_absolute():
+        gitdir = (project / gitdir).resolve()
+    else:
+        gitdir = gitdir.resolve()
+    # A linked worktree's gitdir is <main>/.git/worktrees/<name>; the main
+    # checkout root is three levels up from there.
+    if gitdir.parent.name != "worktrees":
+        return project
+    candidate = gitdir.parent.parent.parent
+    return candidate if candidate.is_dir() else project
 
 
 def _read_current_story(project: Path) -> str | None:
@@ -78,6 +120,37 @@ def _read_allowed_paths(project: Path, story_id: str) -> list[str] | None:
         return [_norm_str(p) for p in paths] if isinstance(paths, list) else []
     except Exception:
         return None  # malformed — fail open
+
+
+_WORKTREE_PREFIX = ".pairmode-worktrees/"
+
+
+def _strip_worktree_prefix(path: str, active_story_id: str | None) -> str:
+    """Strip a leading ``.pairmode-worktrees/<segment>/`` prefix from *path*,
+    but ONLY when ``<segment>`` equals *active_story_id*.
+
+    A build spawn's cwd is the per-story worktree
+    (``.pairmode-worktrees/<story-id>/``), so a path edited there
+    (``.pairmode-worktrees/INFRA-238/skills/foo.py``) never matches an
+    ``allowed_paths`` entry generated from ``primary_files: [skills/foo.py]``
+    unless this prefix is stripped first. But stripping it unconditionally —
+    regardless of which story's worktree the path actually names — lets a
+    path belonging to a DIFFERENT, concurrently in-progress story's worktree
+    (``.pairmode-worktrees/INFRA-999/skills/foo.py`` while INFRA-238 is
+    active) get misidentified as in-scope purely because its trailing
+    segments match an allowed_paths entry name after stripping. That defeats
+    per-story worktree isolation. So: only strip when the worktree segment
+    equals the currently active story's ID; any other segment (or no active
+    story) is left untouched and therefore falls through to the normal
+    out-of-scope/not-found comparison below, which will not match.
+    """
+    if not path.startswith(_WORKTREE_PREFIX):
+        return path
+    remainder = path[len(_WORKTREE_PREFIX):]
+    segment, _sep, rest = remainder.partition("/")
+    if not active_story_id or not rest or segment != active_story_id:
+        return path
+    return rest
 
 
 def _normalise(file_path: str | Path, project: Path) -> str | None:

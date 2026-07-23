@@ -218,9 +218,11 @@ that emits a decision-block response remains CRITICAL.
 
 ### 2. PIPE CONTRACT
 
-Do all hook scripts write only to the project-scoped pipe (e.g. `/tmp/companion-<hash>.pipe`)?
-The pipe path is read from `.companion/state.json["pipe_path"]` at hook startup,
-with `/tmp/companion.pipe` as a legacy fallback when state.json is absent.
+Do all hook scripts write only to the single hardcoded pipe path
+(`os.path.join(tempfile.gettempdir(), "companion.pipe")`, the same
+convention `post_tool_use.py` established)? (INFRA-238) The `pipe_path`
+state.json key was retired by `pairmode_migrate.py`'s `to-030` step and no
+hook script reads it any longer.
 Do any hook scripts write directly to spec files or `.companion/` directories?
 Direct spec writes from hooks violate the architecture. CRITICAL.
 

@@ -51,6 +51,39 @@ from effort_db import check_guardrail, resolve_effort_db_path  # noqa: E402
 from context_health import check_context_health  # noqa: E402
 from next_action import _CHECKPOINT_SEQUENCE  # noqa: E402
 from state_utils import _atomic_write_json  # noqa: E402
+from story_context import set_current_story, clear_current_story  # noqa: E402
+
+
+def _stamp_active_story(project_path: Path, story_id: str) -> None:
+    """Stamp *story_id* as ``current_story`` in the main checkout's
+    ``.companion/state.json``, creating the directory if needed.
+
+    Best-effort: any failure is swallowed by the caller (create-story-worktree
+    surfaces it as a warning) — a stamping failure must never prevent the
+    worktree itself from being created.
+    """
+    story_path = _story_path(story_id, project_path)
+    fm = _read_story_frontmatter(story_path)
+    companion_dir = project_path / ".companion"
+    companion_dir.mkdir(parents=True, exist_ok=True)
+    set_current_story(companion_dir, story_id, title=fm.get("title"))
+
+
+def _clear_active_story(project_path: Path) -> None:
+    """Clear ``current_story`` from the main checkout's ``.companion/state.json``.
+
+    Silent no-op when ``.companion/`` does not exist — merge/discard must
+    never fail because the story was never stamped in the first place (e.g.
+    a story ID with no matching spec file, as several worktree-lifecycle
+    tests use).
+    """
+    companion_dir = project_path / ".companion"
+    if not companion_dir.is_dir():
+        return
+    try:
+        clear_current_story(companion_dir)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -296,21 +329,24 @@ def cmd_clear_permissions(project_dir: str) -> None:
     clear_story_permissions(project_path)
 
 
-@flex_build.command("permissions-create")
-@click.argument("story_id")
-@click.option(
-    "--project-dir",
-    default=".",
-    type=click.Path(file_okay=False, dir_okay=True),
-    help="Project root directory.",
-)
-def cmd_permissions_create(story_id: str, project_dir: str) -> None:
-    """Generate docs/phases/permissions/<STORY_ID>.json from story spec frontmatter."""
-    if not _STORY_ID_RE.match(story_id):
-        click.echo(f"permissions-create: invalid story_id format: {story_id!r}", err=True)
-        sys.exit(1)
+class PermissionsCreateError(Exception):
+    """Raised by ``generate_permissions_artifact`` on any recoverable failure."""
 
-    project_path = Path(project_dir).resolve()
+
+def generate_permissions_artifact(story_id: str, project_path: Path) -> str:
+    """Generate ``docs/phases/permissions/<story_id>.json`` from story frontmatter.
+
+    Shared by the ``permissions-create`` CLI command and
+    ``create-story-worktree`` (INFRA-238 Ensures 1) so the Layer 1 artifact is
+    generated automatically on every worktree creation, not only when an
+    operator runs the command by hand. Returns a human-readable status
+    message; raises ``PermissionsCreateError`` on any failure instead of
+    calling ``sys.exit`` directly, so callers other than the CLI command can
+    decide how to handle it.
+    """
+    if not _STORY_ID_RE.match(story_id):
+        raise PermissionsCreateError(f"invalid story_id format: {story_id!r}")
+
     rail = story_id.split("-")[0]
     story_spec_rel = f"docs/stories/{rail}/{story_id}.md"
     story_path = project_path / story_spec_rel
@@ -319,18 +355,15 @@ def cmd_permissions_create(story_id: str, project_dir: str) -> None:
     try:
         story_path.resolve().relative_to(stories_root.resolve())
     except ValueError:
-        click.echo("permissions-create: story spec path escapes project root", err=True)
-        sys.exit(1)
+        raise PermissionsCreateError("story spec path escapes project root") from None
 
     if not story_path.exists():
-        click.echo(f"permissions-create: story spec not found: {story_path}", err=True)
-        sys.exit(1)
+        raise PermissionsCreateError(f"story spec not found: {story_path}")
 
     try:
         fm = _read_story_frontmatter(story_path)
     except Exception as exc:  # noqa: BLE001
-        click.echo(f"permissions-create: failed to parse frontmatter: {exc}", err=True)
-        sys.exit(1)
+        raise PermissionsCreateError(f"failed to parse frontmatter: {exc}") from exc
 
     primary_files: list[str] = fm.get("primary_files") or []
     touches: list[str] = fm.get("touches") or []
@@ -351,8 +384,7 @@ def cmd_permissions_create(story_id: str, project_dir: str) -> None:
     try:
         out_path.resolve().relative_to(out_dir.resolve())
     except ValueError:
-        click.echo("permissions-create: output path escapes permissions dir", err=True)
-        sys.exit(1)
+        raise PermissionsCreateError("output path escapes permissions dir") from None
 
     existing_allowed: list[str] | None = None
     if out_path.exists():
@@ -363,10 +395,7 @@ def cmd_permissions_create(story_id: str, project_dir: str) -> None:
             existing_allowed = None
 
     if existing_allowed == allowed:
-        click.echo(
-            f"permissions: docs/phases/permissions/{story_id}.json unchanged ({len(allowed)} paths)"
-        )
-        return
+        return f"permissions: docs/phases/permissions/{story_id}.json unchanged ({len(allowed)} paths)"
 
     payload = {
         "story_id": story_id,
@@ -375,9 +404,43 @@ def cmd_permissions_create(story_id: str, project_dir: str) -> None:
         "generated_at": _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     out_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    click.echo(
-        f"permissions: wrote docs/phases/permissions/{story_id}.json ({len(allowed)} paths)"
-    )
+    return f"permissions: wrote docs/phases/permissions/{story_id}.json ({len(allowed)} paths)"
+
+
+def clear_permissions_artifact(story_id: str, project_path: Path) -> None:
+    """Remove ``docs/phases/permissions/<story_id>.json`` if present.
+
+    Called by ``merge-story-worktree``/``discard-story-worktree`` (INFRA-238
+    Ensures 1) to clear the Layer 1 artifact stamped by
+    ``create-story-worktree``, mirroring the ``current_story`` clear. Silent
+    no-op when the file does not exist — merge/discard must never fail because
+    a permissions file was never generated (e.g. a story with an empty
+    ``primary_files``/``touches``, or a manually-discarded worktree).
+    """
+    out_path = project_path / "docs" / "phases" / "permissions" / f"{story_id}.json"
+    try:
+        out_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+@flex_build.command("permissions-create")
+@click.argument("story_id")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_permissions_create(story_id: str, project_dir: str) -> None:
+    """Generate docs/phases/permissions/<STORY_ID>.json from story spec frontmatter."""
+    project_path = Path(project_dir).resolve()
+    try:
+        message = generate_permissions_artifact(story_id, project_path)
+    except PermissionsCreateError as exc:
+        click.echo(f"permissions-create: {exc}", err=True)
+        sys.exit(1)
+    click.echo(message)
 
 
 @flex_build.command("select-security-auditor-model")
@@ -2151,6 +2214,13 @@ def cmd_create_story_worktree(story_id: str, project_dir: str) -> None:
     absolute worktree path to stdout. Fails loudly (exit 1) if a worktree or
     branch for that story ID already exists — never silently reuses one.
     (INFRA-224, Ensures 1 & 2.)
+
+    Also stamps ``current_story`` into the main checkout's
+    ``.companion/state.json`` and (re)generates the story's Layer 1
+    permission artifact (``docs/phases/permissions/<story_id>.json``) before
+    returning the worktree path — both must be in place before the builder
+    spawns so ``scope_guard.py`` can resolve the active story and its
+    allowed paths regardless of the spawn's cwd (INFRA-238, Ensures 1).
     """
     _validate_story_id_or_exit(story_id)
     project_path = Path(project_dir).resolve()
@@ -2179,6 +2249,23 @@ def cmd_create_story_worktree(story_id: str, project_dir: str) -> None:
             err=True,
         )
         sys.exit(1)
+
+    # INFRA-238: stamp the active story into the main checkout's state.json —
+    # the worktree has no .companion/ of its own; scope_guard.py always
+    # resolves state from the main checkout regardless of cwd — and
+    # (re)generate the Layer 1 permission artifact from the just-checked-out
+    # story spec. Best-effort: a failure here must not leave the worktree
+    # half-created, but it also must not silently mask the story-scope gap,
+    # so it is surfaced on stderr rather than swallowed.
+    try:
+        _stamp_active_story(project_path, story_id)
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"warning: failed to stamp current_story for {story_id}: {exc}", err=True)
+
+    try:
+        generate_permissions_artifact(story_id, project_path)
+    except PermissionsCreateError as exc:
+        click.echo(f"warning: failed to generate permissions for {story_id}: {exc}", err=True)
 
     click.echo(str(wt_abs))
 
@@ -2244,6 +2331,12 @@ def cmd_merge_story_worktree(story_id: str, project_dir: str) -> None:
     # clear the per-story attempt counter so the next story starts at
     # attempt_count == 0 rather than carrying over a stale FAIL count.
     clear_attempt_count(project_path)
+    # INFRA-238: clear both artifacts create-story-worktree stamped — the
+    # active-story marker and the Layer 1 permission artifact — so the next
+    # story starts with a clean slate rather than inheriting this story's
+    # scope.
+    _clear_active_story(project_path)
+    clear_permissions_artifact(story_id, project_path)
     click.echo(f"merged {branch} into {main_branch}")
 
 
@@ -2287,6 +2380,14 @@ def cmd_discard_story_worktree(story_id: str, project_dir: str) -> None:
             err=True,
         )
         sys.exit(1)
+
+    # INFRA-238: clear both artifacts create-story-worktree stamped — the
+    # active-story marker and the Layer 1 permission artifact — so a
+    # discarded attempt does not leave stale scope state behind for whatever
+    # runs next (a retry re-stamps via create-story-worktree; a different
+    # story must not inherit this one's scope).
+    _clear_active_story(project_path)
+    clear_permissions_artifact(story_id, project_path)
 
     click.echo(f"discarded {branch}")
 

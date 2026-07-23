@@ -19,10 +19,10 @@ while true:
     a = /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py next-action --json --project-dir .
     if a.action == "done": break
     if a.action is a story-build action (spawn-builder / spawn-reviewer):
-        wt = /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py create-story-worktree --story-id a.scalar --project-dir .
+        wt = /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py create-story-worktree --story-id a.scalar --project-dir .  # also stamps current_story + generates docs/phases/permissions/<scalar>.json (INFRA-238)
         spawn leaf-worker-for(a.action) with subagent_type=ACTION_SUBAGENT_TYPE[a.action], scalar=a.scalar, model=a.model, cwd=wt
-        on reviewer PASS: /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py merge-story-worktree --story-id a.scalar --project-dir .  # also clears the attempt counter (INFRA-237)
-        on reviewer FAIL: /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py discard-story-worktree --story-id a.scalar --project-dir .
+        on reviewer PASS: /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py merge-story-worktree --story-id a.scalar --project-dir .  # also clears the attempt counter (INFRA-237) and the current_story/permissions stamps (INFRA-238)
+        on reviewer FAIL: /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py discard-story-worktree --story-id a.scalar --project-dir .  # also clears the current_story/permissions stamps (INFRA-238)
     else:
         spawn leaf-worker-for(a.action) with subagent_type=ACTION_SUBAGENT_TYPE[a.action], scalar=a.scalar, model=a.model
     # effort-attempt recording AND the attempt counter are both fully hook-side

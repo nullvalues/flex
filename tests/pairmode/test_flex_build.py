@@ -1293,6 +1293,99 @@ class TestStoryWorktreeLifecycle:
         assert (main_untracked / "keep.md").read_text() == "precious\n"
 
 
+class TestStoryWorktreeActiveStoryStamping:
+    """create/merge/discard-story-worktree stamp/clear current_story + the
+    Layer 1 permission artifact (INFRA-238)."""
+
+    def test_create_story_worktree_stamps_current_story_and_permissions(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-200", primary_files=["skills/foo.py"])
+        result = _run(
+            "create-story-worktree",
+            "--story-id", "WT-200",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert state["current_story"]["id"] == "WT-200"
+
+        perm_path = tmp_path / "docs" / "phases" / "permissions" / "WT-200.json"
+        assert perm_path.exists()
+        payload = json.loads(perm_path.read_text())
+        assert "skills/foo.py" in payload["allowed_paths"]
+
+    def test_merge_story_worktree_clears_current_story_and_permissions(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-201", primary_files=["feature.txt"])
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-201",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-201"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-201",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert "current_story" not in state
+        assert not (
+            tmp_path / "docs" / "phases" / "permissions" / "WT-201.json"
+        ).exists()
+
+    def test_discard_story_worktree_clears_current_story_and_permissions(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-202", primary_files=["scratch.txt"])
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-202",
+            "--project-dir", str(tmp_path),
+        )
+        assert (
+            tmp_path / "docs" / "phases" / "permissions" / "WT-202.json"
+        ).exists()
+
+        result = _run(
+            "discard-story-worktree",
+            "--story-id", "WT-202",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert "current_story" not in state
+        assert not (
+            tmp_path / "docs" / "phases" / "permissions" / "WT-202.json"
+        ).exists()
+
+    def test_create_story_worktree_without_story_spec_does_not_fail(
+        self, tmp_path: Path
+    ) -> None:
+        """A story_id with no matching spec file (e.g. an ad-hoc lifecycle
+        test ID like WT-001 elsewhere in this file) must not prevent worktree
+        creation — stamping is best-effort."""
+        _init_git_repo(tmp_path)
+        result = _run(
+            "create-story-worktree",
+            "--story-id", "WT-203",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        assert (tmp_path / ".pairmode-worktrees" / "WT-203").is_dir()
+
+
 def test_spec_writer_procedure_references_spec_preflight() -> None:
     """INFRA-191 fold location (RELEASE-008): the fat CLAUDE.build.md.j2 step was
     superseded by the thin harness; spec-preflight is wired as a

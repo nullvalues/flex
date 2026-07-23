@@ -1,5 +1,6 @@
 """Tests for hooks/session_start.py — pairmode context injection."""
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -10,14 +11,23 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 HOOK_PATH = REPO_ROOT / "hooks" / "session_start.py"
 
 
-def _run_hook(cwd: Path) -> subprocess.CompletedProcess:
-    """Invoke the SessionStart hook in ``cwd`` and return the completed process."""
+def _run_hook(cwd: Path, *, tempdir: Path | None = None) -> subprocess.CompletedProcess:
+    """Invoke the SessionStart hook in ``cwd`` and return the completed process.
+
+    ``tempdir``, when given, is passed as ``TMPDIR`` so the hook's hardcoded
+    ``tempfile.gettempdir()``-derived PIPE_PATH (INFRA-238) resolves under a
+    test-controlled directory instead of the real system tempdir.
+    """
+    env = dict(os.environ)
+    if tempdir is not None:
+        env["TMPDIR"] = str(tempdir)
     return subprocess.run(
         [sys.executable, str(HOOK_PATH)],
         cwd=str(cwd),
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
 
 
@@ -89,34 +99,51 @@ def test_emits_no_story_message(tmp_path):
 
 
 def test_sidebar_active_when_pipe_exists(tmp_path):
-    """pipe_path pointing at a real file → 'Companion sidebar: active'."""
-    pipe_file = tmp_path / "fake_pipe"
+    """A real file at the hardcoded PIPE_PATH (INFRA-238) → 'Companion sidebar: active'.
+
+    The `pipe_path` state.json key is retired — sidebar detection is purely a
+    filesystem check against ``tempfile.gettempdir()/companion.pipe`` now, so
+    this test points TMPDIR at tmp_path and creates the pipe file there.
+    """
+    pipe_file = tmp_path / "companion.pipe"
     pipe_file.write_text("", encoding="utf-8")
-    _write_state(
-        tmp_path,
-        {
-            "pairmode_version": "0.1.0",
-            "pipe_path": str(pipe_file),
-        },
-    )
-    result = _run_hook(tmp_path)
+    _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+    result = _run_hook(tmp_path, tempdir=tmp_path)
     assert result.returncode == 0
     ctx = _additional_context(result.stdout)
     assert "Companion sidebar: active" in ctx
 
 
 def test_sidebar_attachment_instructions_when_pipe_missing(tmp_path):
-    """pipe_path pointing at non-existent path → attachment instructions emitted."""
-    missing_pipe = tmp_path / "does_not_exist.pipe"
-    _write_state(
-        tmp_path,
-        {
-            "pairmode_version": "0.1.0",
-            "pipe_path": str(missing_pipe),
-        },
-    )
-    result = _run_hook(tmp_path)
+    """No file at the hardcoded PIPE_PATH → attachment instructions emitted."""
+    _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+    result = _run_hook(tmp_path, tempdir=tmp_path)
     assert result.returncode == 0
     ctx = _additional_context(result.stdout)
     assert "To start" in ctx
     assert "start_sidebar.sh" in ctx
+
+
+def test_sidebar_ignores_retired_pipe_path_state_key(tmp_path):
+    """A state.json `pipe_path` key pointing at a real file must be IGNORED —
+    the hardcoded PIPE_PATH convention is the only source of truth
+    (INFRA-238). This asserts the retired key has no effect, not that it's
+    merely unused."""
+    real_pipe_elsewhere = tmp_path / "elsewhere" / "companion.pipe"
+    real_pipe_elsewhere.parent.mkdir()
+    real_pipe_elsewhere.write_text("", encoding="utf-8")
+    _write_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "pipe_path": str(real_pipe_elsewhere),
+        },
+    )
+    # TMPDIR points somewhere with no companion.pipe file — the retired
+    # pipe_path key must NOT cause "active" to be reported.
+    (tmp_path / "empty_tmpdir").mkdir()
+    result = _run_hook(tmp_path, tempdir=tmp_path / "empty_tmpdir")
+    assert result.returncode == 0
+    ctx = _additional_context(result.stdout)
+    assert "Companion sidebar: active" not in ctx
+    assert "To start" in ctx
