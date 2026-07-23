@@ -1069,6 +1069,47 @@ as-is rather than parameterized.
   intentionally returns the slim schema because the reconstruction brief does not capture
   those fields.
 
+### Ideology enforcement: three-stage division of labor (INFRA-242)
+
+0.2's reviewer ran a full 3-part ideology re-audit (conviction consistency,
+constraint-rationale preservation, fingerprint awareness) against `docs/ideology.md`
+on every single story diff. 0.3 initially dropped this from the per-story reviewer
+entirely and moved it exclusively to the checkpoint-level `intent-reviewer`
+(§ Pairmode build loop step 10), which runs once per phase rather than once per
+story. INFRA-242 corrects this: the intent was never "the same check at a cheaper
+cadence" — it is a genuine division of labor across three distinct pipeline stages,
+each doing a different job:
+
+1. **Spec-authoring time (primary enforcement)** — `spec-writer/procedure.md`
+   Step 4a reads `docs/ideology.md` as a declared bounded input and checks the
+   drafted `## Ensures`/`## Instructions` against `## Core convictions`,
+   `## Accepted constraints`, and `## Prototype fingerprints` before the spec is
+   written to `docs/stories/<RAIL>/<ID>.md`. Conflicts are resolved inline in the
+   spec draft when possible (preferred — the spec-writer has full story-intent
+   context) or flagged for the operator (`status: "revised"`) when they cannot be.
+   A spec that is already ideology-consistent means the builder inherits that
+   alignment structurally by implementing the spec faithfully — this is the load-
+   bearing stage.
+
+2. **Per-story review time (narrow drift check)** — `reviewer/procedure.md`
+   checklist item 12 (IDEOLOGY DRIFT) is gated on out-of-spec diff content: a diff
+   that exactly matches its spec-approved scope (`primary_files`/`touches` +
+   `## Ensures`/`## Instructions`, already read for the RAIL SCOPE check) never
+   re-reads `docs/ideology.md` at all — the check is a no-op on the common
+   in-scope-and-clean path. Only content the diff introduces beyond what the spec
+   called for is checked against `docs/ideology.md`, and only for whether that
+   specific out-of-spec content independently violates a convictions/constraints/
+   fingerprints entry. This is a drift check scoped to the gap between spec and
+   diff, not a re-audit of the diff against the whole of `docs/ideology.md`.
+
+3. **Checkpoint time (phase-wide backstop)** — the `intent-reviewer`
+   (§ Pairmode build loop step 10) retains its existing phase-wide `IDEOLOGY DRIFT`
+   section (`intent-reviewer/procedure.md`), unaffected by INFRA-242. It catches
+   the case individual stories each pass their narrow checks but the phase as a
+   whole trends away from a stated conviction or undermines a stated constraint —
+   a pattern only visible in aggregate across the phase's stories, not from any
+   single story's spec or diff.
+
 ### Auth policy integration
 
 Before any auth-gated story (authentication, session handling, permission checks,

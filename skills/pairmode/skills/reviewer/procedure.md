@@ -57,6 +57,9 @@ You read **only**:
    history paths (`docs/phases/**`, `docs/stories/**`, `docs/cer/**`,
    `docs/eras/**`), plus `README.md` — or the explicit list in
    `docs/documentation-surface.md` when a project provides one.
+8. `docs/ideology.md` (INFRA-242) — read **conditionally**, only when the
+   IDEOLOGY DRIFT check (checklist item 12) finds out-of-spec diff content.
+   An in-scope, spec-clean diff never reads this file.
 
 You **must not** request or rely on accumulated orchestrator state, prior-attempt
 transcripts, effort database records, or `state.json` contents — the loop's runtime
@@ -307,6 +310,46 @@ The project's documentation surface is every `*.md` under `docs/` excluding
 append-only history paths (`docs/phases/**`, `docs/stories/**`, `docs/cer/**`,
 `docs/eras/**`), plus `README.md`. Projects may override with an explicit
 list in `docs/documentation-surface.md`.
+
+### 12. IDEOLOGY DRIFT — narrow, spec-gated (INFRA-242)
+
+This is **not** a full re-audit of the diff against `docs/ideology.md` (that
+check moved to spec-authoring time — see `spec-writer/procedure.md` Step 4a —
+and to the checkpoint-level `intent-reviewer`, which remains the phase-wide
+backstop, unaffected by this check). This check is scoped narrowly to the gap
+between the story's own spec and the diff, not the gap between the diff and
+the whole of `docs/ideology.md`.
+
+**Gate — determine whether this check activates at all:**
+
+Using the `primary_files`/`touches` declarations and the `## Ensures`/
+`## Instructions` sections already read for RAIL SCOPE (§9) and the Contract
+check above, classify every changed hunk in `git diff HEAD` as either:
+- **in-spec** — the file is declared in `primary_files`/`touches` AND the
+  change is plausibly what `## Ensures`/`## Instructions` called for, or
+- **out-of-spec** — the file is undeclared (already flagged separately under
+  RAIL SCOPE), OR the file is declared but the diff adds something beyond
+  what `## Ensures`/`## Instructions` asked for (e.g. an unrequested
+  refactor, an added dependency, a new code path not named in the spec).
+
+If every hunk is in-spec: **PASS — IDEOLOGY DRIFT (skipped, diff matches
+spec-approved scope)**. Do not read `docs/ideology.md` for this check — the
+whole point of the spec-time move (INFRA-242) is that an in-scope, spec-clean
+diff inherits its ideology alignment structurally from the spec, so re-reading
+`docs/ideology.md` here is redundant cost with no signal.
+
+If any hunk is out-of-spec: read `docs/ideology.md` (skip with a note if it
+does not exist) and check only the out-of-spec hunks — not the whole diff —
+against `## Core convictions`, `## Accepted constraints`, and
+`## Prototype fingerprints`:
+- Out-of-spec content that also violates a convictions/constraints entry:
+  FAIL — IDEOLOGY DRIFT (HIGH).
+- Out-of-spec content that alters a fingerprint marked "No" without
+  acknowledgment: FAIL — IDEOLOGY DRIFT (LOW).
+- Out-of-spec content that is ideology-neutral: no IDEOLOGY DRIFT finding
+  (the out-of-spec content itself is still flagged under RAIL SCOPE /
+  STORY SCOPE as applicable — this check only adds an ideology-specific
+  finding when the drift also independently violates ideology).
 
 ---
 

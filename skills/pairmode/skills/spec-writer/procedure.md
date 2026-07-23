@@ -37,7 +37,7 @@ story file identified by `{scalar}`.
 
 ## Input contract (DP1.3 — input-bound property)
 
-You read **exactly four** bounded inputs. No other files, no accumulated orchestrator
+You read **exactly five** bounded inputs. No other files, no accumulated orchestrator
 state, no prior-attempt transcripts, no effort database records.
 
 1. **The stub story file** — `docs/stories/<RAIL>/<scalar>.md`
@@ -50,10 +50,15 @@ state, no prior-attempt transcripts, no effort database records.
    `docs/stories/` whose frontmatter `status` is `complete`. Prefer the same rail as
    the stub; if none exists in that rail, use any rail. Read exactly one file; do not
    scan all stories.
+5. **`docs/ideology.md`** (INFRA-242) — the project's convictions, accepted
+   constraints, and prototype fingerprints. Read in full. If the file does not
+   exist, skip the ideology-alignment step (§ Step 4a below) and note the skip —
+   mirroring 0.2's skip behaviour — rather than failing the spec-writer run.
 
-Do **not** read any file outside these four categories. If you cannot locate any one
-of the four inputs, report it in `reason` and return `status: "revised"` so a human
-can resolve the gap.
+Do **not** read any file outside these five categories. If you cannot locate any one
+of the five inputs (`docs/ideology.md`'s absence is an explicit skip, not a
+missing-input failure), report it in `reason` and return `status: "revised"` so a
+human can resolve the gap.
 
 ---
 
@@ -65,7 +70,7 @@ From the scalar (e.g. `BUILD-012`):
 - Rail = characters before the first `-` (e.g. `BUILD`)
 - Story file path = `docs/stories/<RAIL>/<scalar>.md`
 
-### Step 2 — Read the four bounded inputs
+### Step 2 — Read the five bounded inputs
 
 1. Read the stub story file at `docs/stories/<RAIL>/<scalar>.md` in full.
    Extract the `phase:` frontmatter field to locate the phase doc.
@@ -73,6 +78,8 @@ From the scalar (e.g. `BUILD-012`):
 3. Scan `docs/eras/` filenames; read the one whose frontmatter has `status: active`.
 4. Find one complete story in the same rail as the stub (or any rail if none exists in
    that rail) and read it as a format exemplar.
+5. Read `docs/ideology.md` in full. If it does not exist, note the absence and skip
+   Step 4a below.
 
 ### Step 3 — Identify what the stub is missing
 
@@ -117,6 +124,41 @@ complete set of sections for this story.
 - Preserve any existing body sections that are already complete — only add or expand
   what is missing.
 
+### Step 4a — Ideology-alignment check (INFRA-242)
+
+If `docs/ideology.md` was unreadable in Step 2, skip this step entirely and note in
+the story body (or in your `reason` if returning `revised`) that the ideology check
+was skipped because `docs/ideology.md` does not exist — mirroring 0.2's skip
+behaviour rather than failing.
+
+Otherwise, check the drafted `## Ensures` and `## Instructions` sections (not the
+whole codebase — this is a check on what you are about to have the builder do,
+not a full-repo audit) against `docs/ideology.md`, modeled on 0.2's 5a/5b/5c
+structure but applied to the spec draft rather than a diff:
+
+- **4a-i. Conviction consistency** — for each entry in `## Core convictions`: does
+  anything drafted in `## Ensures`/`## Instructions` contradict it?
+- **4a-ii. Constraint rationale preservation** — for each entry in
+  `## Accepted constraints` touched or adjacently affected by the drafted story:
+  does the instructed implementation respect the constraint's rationale, not just
+  the rule letter?
+- **4a-iii. Fingerprint awareness** — for each entry in `## Prototype fingerprints`
+  marked "No" or "Conditional" under "Free to change?": does the drafted story
+  instruct altering that pattern without acknowledging the constraint?
+
+**Conflict resolution (decided this story, INFRA-242):** resolve inline within the
+spec draft whenever possible — the spec-writer already has full context on the
+story's intent from the phase doc and era doc, so revising `## Ensures`/
+`## Instructions` to route around the conflict (rather than through it) is
+preferred over stopping the pipeline. Only flag for the operator (return
+`status: "revised"`, see Step 5) when the conflict cannot be resolved without a
+decision only a human can make — e.g. the story's whole premise depends on
+overriding a constraint whose `## Accepted constraints` entry lists "no override
+permitted." Document which path was taken: if resolved inline, add a one-line
+note to `## Instructions` describing the adjustment and the conviction/constraint
+it was made to preserve; if flagged, describe the unresolved conflict in the
+`reason` you return.
+
 ### Step 5 — Check for human-review signals
 
 Return `status: "revised"` (rather than `"done"`) if any of the following apply:
@@ -128,6 +170,8 @@ Return `status: "revised"` (rather than `"done"`) if any of the following apply:
 - Any required input was missing or unreadable (missing phase doc, no active era, etc.).
 - The phase doc's Stories table references other stories in the same phase whose
   completion is a prerequisite but whose story files do not yet exist.
+- Step 4a's ideology-alignment check found a conflict that could not be resolved
+  inline within the spec draft (see Step 4a's conflict-resolution rule).
 
 Otherwise return `status: "done"`.
 
@@ -198,7 +242,7 @@ Return only the JSON object. No preamble, no commentary, no usage block.
 
 ## Non-negotiables
 
-- Read only the four declared bounded inputs (DP1.3). No other files.
+- Read only the five declared bounded inputs (DP1.3). No other files.
 - Write only to `docs/stories/<RAIL>/<scalar>.md`. No other files.
 - Never touch the phase doc, architecture.md, or any file outside `docs/stories/`.
 - Never commit — the orchestrator does that.
