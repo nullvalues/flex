@@ -115,12 +115,11 @@ class TestRuleFields:
             assert rule["path_pattern"] == "Edit(src/services/auth/**)"
 
     def test_path_pattern_format_write(self):
+        """Write(...) rules are never emitted (INFRA-235) — only Edit(...)."""
         module = make_module("auth", non_negotiables=["must never be bypassed"])
         result = derive_denylist([module], {"auth": ["src/services/auth"]})
         write_rules = [r for r in result if r["path_pattern"].startswith("Write(")]
-        assert len(write_rules) > 0
-        for rule in write_rules:
-            assert rule["path_pattern"] == "Write(src/services/auth/**)"
+        assert write_rules == []
 
 
 # ---------------------------------------------------------------------------
@@ -130,13 +129,15 @@ class TestRuleFields:
 
 class TestBothToolsEmitted:
     def test_both_edit_and_write_rules_emitted_per_path(self):
+        """Only Edit(...) rules are emitted per path (INFRA-235) — Write(...) is dead weight."""
         module = make_module("schema", non_negotiables=["immutable schema must not change"])
         result = derive_denylist([module], {"schema": ["src/schema"]})
         patterns = {r["path_pattern"] for r in result}
         assert "Edit(src/schema/**)" in patterns
-        assert "Write(src/schema/**)" in patterns
+        assert "Write(src/schema/**)" not in patterns
 
     def test_multiple_paths_produce_two_rules_each(self):
+        """Only Edit(...) rules are emitted per path (INFRA-235); one rule per path, not two."""
         module = make_module(
             "core",
             non_negotiables=["must not modify core internals without review"],
@@ -146,9 +147,9 @@ class TestBothToolsEmitted:
         )
         patterns = {r["path_pattern"] for r in result}
         assert "Edit(src/core/engine/**)" in patterns
-        assert "Write(src/core/engine/**)" in patterns
+        assert "Write(src/core/engine/**)" not in patterns
         assert "Edit(src/core/config/**)" in patterns
-        assert "Write(src/core/config/**)" in patterns
+        assert "Write(src/core/config/**)" not in patterns
 
 
 # ---------------------------------------------------------------------------
@@ -291,4 +292,4 @@ class TestMultipleModules:
         for p in patterns:
             assert "//" not in p, f"double-slash in pattern: {p}"
         assert "Edit(skills/companion/**)" in patterns
-        assert "Write(skills/companion/**)" in patterns
+        assert "Write(skills/companion/**)" not in patterns
