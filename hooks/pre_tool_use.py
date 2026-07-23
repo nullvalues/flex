@@ -9,7 +9,10 @@ Thin dispatcher. Domain logic lives in the named modules:
     context_budget import/call and acknowledgment state write happen only when
     tool_input.subagent_type is one of BUILD_CYCLE_SUBAGENTS. Non-build-cycle
     spawns (general-purpose / Plan / Explore / absent subagent_type) pass
-    straight through ungated.
+    straight through ungated. BUILD_CYCLE_SUBAGENTS covers only discretionary
+    or escalation build-cycle spawns; `reviewer` is exempt (INFRA-246) because
+    it is the build loop's mandatory, deterministic next step after every
+    builder attempt and never reaches decide().
     One delegated module call:
       decide(project_dir) — reads context_current_tokens from state.json
       (written by post_tool_use.py after each completed spawn, or by the
@@ -56,9 +59,17 @@ from state_utils import _atomic_write_json  # noqa: E402
 # The gate models context growth across the pairmode build loop only; a
 # general-purpose / Plan / Explore spawn must never be blocked. Future
 # Era-003 WORKER-rail leaf-worker types are enrolled by adding one line here.
+#
+# This set covers discretionary/escalation build-cycle spawns only — spawns
+# where the orchestrator has a legitimate alternative action (report tokens,
+# /clear, or reconsider whether to spawn at all) and blocking-to-conserve is
+# a valid tradeoff. It never gates a spawn that is the mandatory, only-valid
+# next step in the build loop. `reviewer` is exempt (INFRA-246): per
+# CLAUDE.build.md's `on reviewer PASS` / `on reviewer FAIL` routing, reviewer
+# is the deterministic next step after every builder attempt, and there is
+# no alternative action the gate would be preserving by blocking it.
 BUILD_CYCLE_SUBAGENTS = frozenset({
     "builder",
-    "reviewer",
     "loop-breaker",
     "security-auditor",
     "intent-reviewer",

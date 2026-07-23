@@ -75,7 +75,7 @@ _FLEX_BUILD_PATH = Path(__file__).resolve().parent / "flex_build.py"
 _CONTEXT_CHECK_REQUIRED_MSG = (
     "CONTEXT CHECK REQUIRED\n"
     "Context token count is missing or stale. This blocks the exact\n"
-    "build-cycle agent spawn (builder/reviewer/loop-breaker/security-\n"
+    "build-cycle agent spawn (builder/loop-breaker/security-\n"
     "auditor/intent-reviewer) that would normally refresh it, so it will\n"
     "NOT clear on its own. To proceed, do one of:\n"
     "1. Run /context to see the current token count, then run:\n"

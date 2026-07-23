@@ -310,9 +310,13 @@ is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
 
    **On the gate's real dispatch scope (INFRA-241).** The subagent_type
    allowlist above (`BUILD_CYCLE_SUBAGENTS`) is a no-op unless spawns for
-   those five roles actually carry a real, registered `subagent_type` —
+   those four roles actually carry a real, registered `subagent_type` —
    see § Spawn contract: subagent_type resolution below for the full history
    of why this was previously fully decorative and how it was restored.
+   `reviewer` is not in `BUILD_CYCLE_SUBAGENTS` (INFRA-246): it is the build
+   loop's mandatory, deterministic next step after every builder attempt,
+   with no legitimate alternative action for the gate to preserve by
+   blocking it, unlike the four discretionary/escalation roles above.
 
 9.5 **Story file-scope enforcement** — `hooks/pre_tool_use.py` also intercepts
    `Edit` and `Write` tool calls. It delegates to
@@ -739,9 +743,12 @@ before spawning each checkpoint agent and passes the result as the Agent tool's
 
 **The gap.** `hooks/pre_tool_use.py`'s context-budget gate (INFRA-199) only
 calls `context_budget.decide()` when `tool_input.subagent_type` is one of the
-five build-cycle types (`BUILD_CYCLE_SUBAGENTS`: `builder`, `reviewer`,
-`loop-breaker`, `security-auditor`, `intent-reviewer`) — intentional design,
-not a bug; `general-purpose`/`Plan`/`Explore` spawns must never be blocked.
+build-cycle types in `BUILD_CYCLE_SUBAGENTS` — intentional design, not a bug;
+`general-purpose`/`Plan`/`Explore` spawns must never be blocked. At the time
+of this fix `BUILD_CYCLE_SUBAGENTS` held all five roles (`builder`,
+`reviewer`, `loop-breaker`, `security-auditor`, `intent-reviewer`); INFRA-246
+later removed `reviewer` (it is the build loop's mandatory next step, not a
+discretionary spawn), leaving four gated types — see § Spawn contract above.
 But HARNESS-002 had retired the rendered per-role agent files in `.claude/agents/`
 in favor of shared procedure skills loaded by generic thin shells, which left
 no custom agent type registered under any of those five names — nothing for
@@ -794,8 +801,9 @@ precedent) document the manual-invocation defaults only.
 
 **Observability.** The gate reconnecting to real spawns is directly testable:
 `tests/pairmode/test_pre_tool_use_hook.py::test_allowlisted_subagent_type_still_gates`
-(parametrized over all five `BUILD_CYCLE_SUBAGENTS` values) asserts `decide()`
-runs and blocks for each; `tests/pairmode/test_bootstrap.py`'s
+(parametrized over all `BUILD_CYCLE_SUBAGENTS` values — four since INFRA-246
+removed `reviewer`) asserts `decide()` runs and blocks for each;
+`tests/pairmode/test_bootstrap.py`'s
 `TestBuildCycleSubagentDispatch` asserts each of the five shells is deployed,
 project-name-rendered, references its procedure skill, and its frontmatter
 `name:` matches the literal string `BUILD_CYCLE_SUBAGENTS` matches on.
