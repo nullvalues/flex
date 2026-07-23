@@ -31,6 +31,16 @@ Public entry point: ``record_attempt_from_transcript()``. Every function in
 this module is best-effort and never raises — a hook branch calling this
 must stay millisecond-thin and must never block on a malformed transcript,
 a missing state.json, or an unrecognised tool_response shape.
+
+INFRA-237: this is also the sole per-attempt call site that has both a
+completed builder/reviewer spawn's outcome and its story_id in hand, so it
+additionally bumps ``.companion/attempt_counter.json`` (via
+``flex_build.bump_attempt_count``) on a FAIL outcome. That counter is core
+build-loop control state that ``next_action.infer_position`` depends on
+(not observability) — the bump runs unconditionally on FAIL, independent of
+``effort_tracking``, so a project with effort recording disabled does not
+lose its loop-breaker/human-pause escalation. The counter is cleared on the
+opposite end by ``flex_build.py merge-story-worktree`` on a successful land.
 """
 
 from __future__ import annotations
@@ -43,9 +53,11 @@ from typing import Any
 try:
     from skills.pairmode.scripts.context_budget import _derive_transcript_path
     from skills.pairmode.scripts.effort_recorder import record_effort
+    from skills.pairmode.scripts.flex_build import bump_attempt_count
 except ImportError:
     from context_budget import _derive_transcript_path  # type: ignore[no-redef]  # flat import via hook sys.path
     from effort_recorder import record_effort  # type: ignore[no-redef]  # flat import via hook sys.path
+    from flex_build import bump_attempt_count  # type: ignore[no-redef]  # flat import via hook sys.path
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -355,16 +367,27 @@ def record_attempt_from_transcript(
 
         project_path = Path(project_dir) if not isinstance(project_dir, Path) else project_dir
         state = _read_state(project_path)
-        if not state or not state.get("effort_tracking"):
-            return None
 
         story_id = _derive_story_id(tool_input, state)
+        outcome, fail_cause = parse_worker_outcome(tool_response)
+
+        # INFRA-237: attempt-counter bump runs unconditionally on FAIL — it
+        # is core build-loop control state next_action.py depends on, not
+        # observability, so it must not be gated on effort_tracking. Kept
+        # best-effort/non-raising like every other branch in this function.
+        if story_id and outcome == "FAIL":
+            try:
+                bump_attempt_count(story_id, project_path)
+            except Exception:
+                pass
+
+        if not state or not state.get("effort_tracking"):
+            return None
 
         transcript_path = _derive_transcript_path(project_path, session_id, home)
         usage = extract_subagent_usage(transcript_path, tool_use_id)
 
         model = tool_input.get("model") or usage.get("model")
-        outcome, fail_cause = parse_worker_outcome(tool_response)
 
         rail = story_id.split("-", 1)[0] if story_id and "-" in story_id else None
 

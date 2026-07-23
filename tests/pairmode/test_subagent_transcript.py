@@ -355,3 +355,126 @@ class TestRecordAttemptFromTranscript:
         after = json.loads(state_path.read_text())
         assert "context_current_tokens" not in after
         assert "context_current_tokens_recorded_at" not in after
+
+
+# ---------------------------------------------------------------------------
+# Attempt-counter bump on FAIL (INFRA-237)
+# ---------------------------------------------------------------------------
+
+
+class TestAttemptCounterBump:
+    def test_fail_outcome_bumps_counter_from_zero(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-237"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "FAIL",
+                "story_id": "INFRA-237", "reason": "stuck",
+            }),
+        )
+
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+        assert read_attempt_count("INFRA-237", project_dir) == 1
+
+    def test_successive_fails_bump_1_then_2_then_3(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+
+        fail_response = json.dumps({
+            "type": "REVIEW-RESULT", "verdict": "FAIL",
+            "findings": ["x"], "reason": "y",
+        })
+        for expected in (1, 2, 3):
+            st.record_attempt_from_transcript(
+                project_dir=project_dir,
+                session_id="",
+                tool_input={"subagent_type": "reviewer", "prompt": "INFRA-237"},
+                tool_response=fail_response,
+            )
+            assert read_attempt_count("INFRA-237", project_dir) == expected
+
+    def test_pass_outcome_does_not_bump(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-237"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "PASS",
+                "story_id": "INFRA-237", "reason": "done",
+            }),
+        )
+
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+        assert read_attempt_count("INFRA-237", project_dir) == 0
+
+    def test_bump_runs_even_when_effort_tracking_disabled(self, tmp_path: Path) -> None:
+        """The counter is core build-loop control state, not observability —
+        it must not be gated on effort_tracking (INFRA-237)."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        # No state.json at all — effort_tracking absent/false.
+
+        result = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-237"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "FAIL",
+                "story_id": "INFRA-237", "reason": "stuck",
+            }),
+        )
+
+        # Recording itself is a no-op (no effort.db row) when tracking is off...
+        assert result is None
+        # ...but the attempt counter still bumps.
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+        assert read_attempt_count("INFRA-237", project_dir) == 1
+
+    def test_non_recordable_subagent_type_does_not_bump(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={"subagent_type": "general-purpose", "prompt": "INFRA-237"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "FAIL",
+                "story_id": "INFRA-237", "reason": "stuck",
+            }),
+        )
+
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+        assert read_attempt_count("INFRA-237", project_dir) == 0
+
+    def test_no_story_id_does_not_bump(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        # No RAIL-NNN pattern anywhere and no current_story fallback in state.
+        result = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={"subagent_type": "builder", "prompt": "no story id here"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "FAIL",
+                "story_id": "unresolved", "reason": "stuck",
+            }),
+        )
+        assert result is not None  # effort.db still records under unattributed:builder
+        counter_path = project_dir / ".companion" / "attempt_counter.json"
+        assert not counter_path.exists()

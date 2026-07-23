@@ -1080,7 +1080,7 @@ is **read-only** on every row.
 | `docs/phases/index.md` phase status cell | orchestrator, via `flex_build.py record-checkpoint-step checkpoint-tag` (INFRA-239) — the `checkpoint-tag` step's `_mark_phase_complete_in_index` call writes `complete` to the just-tagged phase's row in the same CLI invocation that resets `checkpoint_step`, so the two writes never land in separate orchestrator turns; the standalone `mark-phase-complete` command (`cmd_mark_phase_complete`) shares the same write helper for direct/manual use but is no longer required in the checkpoint path | read-only (`_resolve_active_phase` / `resolve_current_phase` skip `complete`/`deferred`/`backlog` rows when selecting the active phase) |
 | active story (`state.json` `current_story`) | orchestrator (`story_context.py`) | read-only |
 | `effort.db` | `hooks/post_tool_use.py` → `subagent_transcript.py` / `effort_recorder.py` (INFRA-236); `record_attempt.py` CLI for non-hook callers | read-only |
-| `attempt_counter.json` (attempt counters) | orchestrator (`flex_build.py write-attempt-count` / `clear-attempt-count`) | read-only |
+| `attempt_counter.json` (attempt counters) | `hooks/post_tool_use.py` → `subagent_transcript.record_attempt_from_transcript` → `flex_build.bump_attempt_count` on builder/reviewer FAIL (INFRA-237); `flex_build.py merge-story-worktree` → `flex_build.clear_attempt_count` on a successful land; the standalone `write-attempt-count` / `clear-attempt-count` CLI subcommands share the same underlying functions for direct/manual use but are no longer invoked from `CLAUDE.build.md.j2`'s loop | read-only |
 | story `status` frontmatter | orchestrator (`story_update.py`) | read-only |
 | permission files (`docs/phases/permissions/<story_id>.json`) | orchestrator (`flex_build.py permissions-create`) | read-only |
 | era/phase/story index (`docs/phases/index.md`) | orchestrator | read-only |
@@ -1216,12 +1216,23 @@ Fields:
   The key is created on first `register` call when absent; it is never written by
   `bootstrap.py`. Each entry is a resolved absolute path string.
 
-`.companion/attempt_counter.json` is an ephemeral single-record file written by
-`flex_build.py write-attempt-count` and read by `flex_build.py read-attempt-count`.
+`.companion/attempt_counter.json` is an ephemeral single-record file read by
+`flex_build.read_attempt_count` (composed by `next_action.infer_position`, RESOLVER-002).
 Schema: `{"story_id": "RAIL-NNN", "attempt_count": N}`. It stores the current attempt
-number for the active story so a `/clear` mid-phase does not reset the counter. Cleared
-by `flex_build.py clear-attempt-count` on reviewer PASS. Covered by the `.companion/`
-`.gitignore` rule — never committed.
+number for the active story so a `/clear` mid-phase does not reset the counter — this is
+core build-loop control state, not observability, so its writer is independent of the
+`effort_tracking` state.json flag (INFRA-237). It is bumped by
+`flex_build.bump_attempt_count` (a mismatched `story_id` resets the count to 1 for the
+new story), called from `subagent_transcript.record_attempt_from_transcript` — the same
+`hooks/post_tool_use.py` Task/Agent delegated call that writes `effort.db` rows
+(INFRA-236) — whenever a completed builder or reviewer spawn's own BUILD-RESULT /
+REVIEW-RESULT reports `FAIL`. It is cleared by `flex_build.clear_attempt_count`, called
+from `flex_build.py merge-story-worktree` on a successful rebase + fast-forward merge
+(reviewer PASS that actually lands). The `write-attempt-count` / `clear-attempt-count`
+CLI subcommands remain available (and are exercised directly by
+`tests/pairmode/test_flex_build_attempt_counter.py`) but are no longer invoked from
+`CLAUDE.build.md.j2`'s loop pseudocode — the two call sites above own the writes.
+Covered by the `.companion/` `.gitignore` rule — never committed.
 
 Pairmode is considered active when `.claude/settings.deny-rationale.json` exists in the
 project root. The helper `skills/pairmode/scripts/story_context.py` provides:

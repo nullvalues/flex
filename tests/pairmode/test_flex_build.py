@@ -1141,6 +1141,36 @@ class TestStoryWorktreeLifecycle:
         )
         assert branch.returncode != 0
 
+    def test_merge_story_worktree_clears_attempt_counter(
+        self, tmp_path: Path
+    ) -> None:
+        """INFRA-237: a successful merge is the durable PASS signal — clear
+        the counter so the next story doesn't inherit a stale FAIL count."""
+        _init_git_repo(tmp_path)
+        _run(
+            "write-attempt-count",
+            "--story-id", "WT-100",
+            "--count", "2",
+            "--project-dir", str(tmp_path),
+        )
+        counter_path = tmp_path / ".companion" / "attempt_counter.json"
+        assert counter_path.exists()
+
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-100",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-100"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-100",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        assert not counter_path.exists()
+
     def test_merge_story_worktree_rebases_past_intervening_main_commits(
         self, tmp_path: Path
     ) -> None:
@@ -1200,6 +1230,13 @@ class TestStoryWorktreeLifecycle:
             check=True,
         )
         main_head_before = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
+        # Seed a counter, as a real FAIL-then-retry cycle would have left one.
+        _run(
+            "write-attempt-count",
+            "--story-id", "WT-006",
+            "--count", "1",
+            "--project-dir", str(tmp_path),
+        )
 
         result = _run(
             "merge-story-worktree",
@@ -1217,6 +1254,9 @@ class TestStoryWorktreeLifecycle:
         main_head_after = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
         assert main_head_after == main_head_before
         assert (tmp_path / "shared.txt").read_text() == "main-change\n"
+        # A failed merge must not clear the counter — the story hasn't landed.
+        counter_path = tmp_path / ".companion" / "attempt_counter.json"
+        assert counter_path.exists()
 
     def test_discard_story_worktree_removes_uncommitted_changes_only_in_worktree(
         self, tmp_path: Path

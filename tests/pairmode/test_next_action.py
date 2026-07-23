@@ -1679,3 +1679,95 @@ class TestRunBuildGateSubprocess:
         with mock.patch("subprocess.run", side_effect=_fake_run):
             assert _run_build_gate_subprocess(tmp_path) is True
         assert captured["cmd"][0] == "uv" and captured["shell"] is False
+
+
+# ---------------------------------------------------------------------------
+# Resolver-level integration coverage for the attempt-counter write path
+# (INFRA-237). Drives bump_attempt_count (the real writer used by
+# subagent_transcript.record_attempt_from_transcript on builder/reviewer
+# FAIL) end-to-end through infer_position + resolve_next_action, rather than
+# a synthetic Position dict — proves the write path and the resolver's read
+# path actually agree.
+# ---------------------------------------------------------------------------
+
+
+class TestAttemptCounterWritePathIntegration:
+    def test_two_consecutive_fails_route_to_spawn_loop_breaker(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from flex_build import bump_attempt_count  # type: ignore[import]
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-237", "planned")])
+        _write_story(tmp_path, "TEST-237", story_class="code")
+        _patch_git_log(monkeypatch, "")  # no commit — story never landed
+
+        # Simulate a builder/reviewer FAIL twice, exactly as
+        # subagent_transcript.record_attempt_from_transcript does.
+        assert bump_attempt_count("TEST-237", tmp_path) == 1
+        assert bump_attempt_count("TEST-237", tmp_path) == 2
+
+        pos = infer_position(tmp_path)
+        assert pos["attempt_count"] == 2
+        assert pos["last_attempt_outcome"] == OUTCOME_FAIL
+
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_LOOP_BREAKER
+        assert action["scalar"] == "TEST-237"
+        assert validate_action(action) == []
+
+    def test_three_consecutive_fails_route_to_await_user_build_paused(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from flex_build import bump_attempt_count  # type: ignore[import]
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-238", "planned")])
+        _write_story(tmp_path, "TEST-238", story_class="code")
+        _patch_git_log(monkeypatch, "")
+
+        for expected in (1, 2, 3):
+            assert bump_attempt_count("TEST-238", tmp_path) == expected
+
+        pos = infer_position(tmp_path)
+        assert pos["attempt_count"] == 3
+        assert pos["last_attempt_outcome"] == OUTCOME_FAIL
+
+        action = resolve_next_action(pos)
+        assert action["action"] == AWAIT_USER
+        assert action["reason"] == "build-paused"
+        assert validate_action(action) == []
+
+    def test_merge_clears_counter_so_next_story_starts_fresh(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A cleared counter (post-merge) does not leak a stale FAIL count
+        onto the next story: once ``find_next_story`` advances past the
+        landed commit, the next story's own (unwritten) counter reads 0 —
+        fresh first-launch (Row 2), not a carried-over retry tier."""
+        from flex_build import bump_attempt_count, clear_attempt_count  # type: ignore[import]
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(
+            tmp_path, "1", [("TEST-239", "planned"), ("TEST-240", "planned")]
+        )
+        _write_story(tmp_path, "TEST-239", story_class="code")
+        _write_story(tmp_path, "TEST-240", story_class="code")
+
+        # TEST-239 failed once, then landed (merge-story-worktree clears it).
+        bump_attempt_count("TEST-239", tmp_path)
+        counter_path = tmp_path / ".companion" / "attempt_counter.json"
+        assert counter_path.exists()
+        clear_attempt_count(tmp_path)
+        assert not counter_path.exists()
+        _patch_git_log(monkeypatch, "abc123 story-TEST-239 committed\n")
+
+        pos = infer_position(tmp_path)
+        assert pos["next_story_id"] == "TEST-240"
+        assert pos["attempt_count"] == 0
+        assert pos["last_attempt_outcome"] == OUTCOME_NONE
+
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["scalar"] == "TEST-240"
+        assert action["meta"]["attempt"] == 1

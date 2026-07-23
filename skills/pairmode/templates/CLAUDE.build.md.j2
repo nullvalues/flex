@@ -21,14 +21,17 @@ while true:
     if a.action is a story-build action (spawn-builder / spawn-reviewer):
         wt = {{ pairmode_scripts_dir }}/flex_build.py create-story-worktree --story-id a.scalar --project-dir .
         spawn leaf-worker-for(a.action) with subagent_type=ACTION_SUBAGENT_TYPE[a.action], scalar=a.scalar, model=a.model, cwd=wt
-        on reviewer PASS: {{ pairmode_scripts_dir }}/flex_build.py merge-story-worktree --story-id a.scalar --project-dir .
+        on reviewer PASS: {{ pairmode_scripts_dir }}/flex_build.py merge-story-worktree --story-id a.scalar --project-dir .  # also clears the attempt counter (INFRA-237)
         on reviewer FAIL: {{ pairmode_scripts_dir }}/flex_build.py discard-story-worktree --story-id a.scalar --project-dir .
     else:
         spawn leaf-worker-for(a.action) with subagent_type=ACTION_SUBAGENT_TYPE[a.action], scalar=a.scalar, model=a.model
-    # effort-attempt recording is fully hook-side (INFRA-236): hooks/post_tool_use.py's
-    # Task/Agent branch calls subagent_transcript.record_attempt_from_transcript() after
-    # every spawn, deriving tokens/model/outcome from the live transcript and the spawn's
-    # own tool_input/tool_response — no separate orchestrator-side recording step needed.
+    # effort-attempt recording AND the attempt counter are both fully hook-side
+    # (INFRA-236, INFRA-237): hooks/post_tool_use.py's Task/Agent branch calls
+    # subagent_transcript.record_attempt_from_transcript() after every spawn, deriving
+    # tokens/model/outcome from the live transcript and the spawn's own
+    # tool_input/tool_response, writing an effort.db row AND bumping
+    # .companion/attempt_counter.json on a FAIL outcome — no separate orchestrator-side
+    # recording step needed.
 ```
 
 ## Model-upgrade prompts

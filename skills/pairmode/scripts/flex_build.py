@@ -850,12 +850,41 @@ def cmd_write_attempt_count(story_id: str, count: int, project_dir: str) -> None
     """Persist the per-story attempt counter to .companion/attempt_counter.json."""
     project_path = Path(project_dir).resolve()
     _depth_guard(project_path)
-    path = _attempt_counter_path(project_path)
+    write_attempt_count(story_id, count, project_path)
+
+
+def write_attempt_count(story_id: str, count: int, project_dir: Path) -> None:
+    """Persist ``{story_id, attempt_count}`` to ``.companion/attempt_counter.json``.
+
+    Extracted as a module-level helper (mirrors ``read_attempt_count``) so
+    other modules — ``subagent_transcript.record_attempt_from_transcript``
+    and ``cmd_merge_story_worktree`` — can compose it as a library call
+    instead of shelling out to the CLI (INFRA-237).
+    """
+    path = _attempt_counter_path(project_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps({"story_id": story_id, "attempt_count": count}),
         encoding="utf-8",
     )
+
+
+def bump_attempt_count(story_id: str, project_dir: Path) -> int:
+    """Increment and persist the attempt counter for *story_id*; return the new count.
+
+    Reads the current count via ``read_attempt_count`` (0 when absent or
+    recorded against a different story — a mismatched story_id resets the
+    counter to 1 for the new story rather than continuing the old story's
+    count) and writes ``count + 1``.
+
+    Called on builder/reviewer FAIL (INFRA-237). The persisted counter is
+    ``next_action.infer_position``'s sole durable signal that a story
+    attempt failed before any commit exists — independent of
+    ``effort_tracking`` (core build-loop control state, not observability).
+    """
+    new_count = read_attempt_count(story_id, project_dir) + 1
+    write_attempt_count(story_id, new_count, project_dir)
+    return new_count
 
 
 def read_attempt_count(story_id: str, project_dir: Path) -> int:
@@ -909,7 +938,17 @@ def cmd_clear_attempt_count(project_dir: str) -> None:
     """Delete .companion/attempt_counter.json if present."""
     project_path = Path(project_dir).resolve()
     _depth_guard(project_path)
-    path = _attempt_counter_path(project_path)
+    clear_attempt_count(project_path)
+
+
+def clear_attempt_count(project_dir: Path) -> None:
+    """Delete ``.companion/attempt_counter.json`` if present.
+
+    Extracted as a module-level helper (mirrors ``read_attempt_count``) so
+    ``cmd_merge_story_worktree`` can clear the counter on a successful merge
+    without shelling out to the CLI (INFRA-237).
+    """
+    path = _attempt_counter_path(project_dir)
     if path.exists():
         path.unlink()
 
@@ -2201,6 +2240,10 @@ def cmd_merge_story_worktree(story_id: str, project_dir: str) -> None:
 
     _run_git(["worktree", "remove", "--force", str(wt_rel)], project_path)
     _run_git(["branch", "-D", branch], project_path)
+    # INFRA-237: a successful land is the durable "story is done" signal —
+    # clear the per-story attempt counter so the next story starts at
+    # attempt_count == 0 rather than carrying over a stale FAIL count.
+    clear_attempt_count(project_path)
     click.echo(f"merged {branch} into {main_branch}")
 
 
