@@ -81,6 +81,19 @@ worth closing. The 130-150k working threshold is documented (INFRA-241's amended
 scope) as an empirically-tuned defensive heuristic for managing build-churn, not a
 precision hard limit.
 
+A separate operator determination, made directly against this same gate (not part
+of the fable audit): `reviewer` should never have been in `BUILD_CYCLE_SUBAGENTS`
+in the first place. Unlike `builder`/`loop-breaker`/`security-auditor`/
+`intent-reviewer` — discretionary or escalation spawns where blocking-to-conserve
+is a legitimate tradeoff — `reviewer` is the build loop's mandatory, deterministic
+next step after every builder attempt (`CLAUDE.build.md`'s `on reviewer PASS` /
+`on reviewer FAIL` routing has no path that skips it). Blocking a mandatory step
+doesn't conserve anything; it just wedges the loop with no valid alternative
+action. INFRA-246 removes `reviewer` from the gated set. This is complementary to,
+not a substitute for, INFRA-245: INFRA-245 narrows how often the counter goes
+stale, INFRA-246 ensures staleness can never wedge the one step that has no
+alternative action regardless.
+
 ## Stories
 
 | ID | Title | Status |
@@ -95,6 +108,7 @@ precision hard limit.
 | INFRA-243 | Phase-authoring convention for single-purpose, bounded, reproducible phases — amended: `phase_new.py`/`phase.md.j2` already exist, story adds the convention to them rather than building new tooling | planned |
 | INFRA-244 | Bring README.md current with the 0.3 resolver-driven design — remove 8-step/0.2-workflow/pre-resolver claims | planned |
 | INFRA-245 | Compact-aware context-counter refresh — unwedge the gate after auto-compaction | planned |
+| INFRA-246 | Exempt reviewer spawns from the context-budget gate — mandatory pipeline step, not discretionary | planned |
 
 ## Schema delivery
 
