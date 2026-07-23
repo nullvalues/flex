@@ -15,6 +15,7 @@ touches:
   - tests/pairmode/test_bootstrap.py
   - tests/pairmode/test_permission_scope.py
   - tests/pairmode/test_phase2_coverage.py
+  - tests/pairmode/test_denylist_deriver.py
   - tests/pairmode/test_sync_deny_list.py
   - docs/architecture.md
 ---
