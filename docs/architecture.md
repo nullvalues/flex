@@ -220,7 +220,9 @@ is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
    The `pre_tool_use.py` hook enforces the declared scope via `scope_guard.py` on
    every Edit/Write call during the builder session. (Phase 55, INFRA-138, INFRA-139.)
    Layer 2 (`write-permissions`): `flex_build.py write-permissions` calls
-   `write_story_permissions()` to write `Edit`/`Write` allow rules into
+   `write_story_permissions()` to write `Edit` allow rules (never `Write` — the Claude Code
+   permission engine only matches `Edit(path)` against file-editing tools including Write; a
+   bare `Write(path)` rule is never evaluated, INFRA-235) into
    `.claude/settings.local.json` for every declared file. These rules suppress the Claude Code
    permission prompt before writes even reach the hook, eliminating the auto-mode toggle symptom
    in upstream projects. (Phase 81, BUILD-040.)

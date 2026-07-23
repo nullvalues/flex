@@ -79,9 +79,9 @@ def test_write_adds_edit_write_for_primary_files(tmp_path):
     settings = _read_settings(tmp_path)
     allow = settings["permissions"]["allow"]
     assert "Edit(src/foo.py)" in allow
-    assert "Write(src/foo.py)" in allow
+    assert "Write(src/foo.py)" not in allow
     assert "Edit(src/bar.py)" in allow
-    assert "Write(src/bar.py)" in allow
+    assert "Write(src/bar.py)" not in allow
 
 
 def test_write_adds_read_for_touches(tmp_path):
@@ -90,14 +90,14 @@ def test_write_adds_read_for_touches(tmp_path):
 
     allow = _read_settings(tmp_path)["permissions"]["allow"]
     assert "Read(docs/readme.md)" in allow
-    # touches also get Edit and Write
+    # touches also get Edit (never Write — INFRA-235)
     assert "Edit(docs/readme.md)" in allow
-    assert "Write(docs/readme.md)" in allow
+    assert "Write(docs/readme.md)" not in allow
 
 
 def test_write_strips_inline_comment_from_touches(tmp_path):
     """INFRA-211 regression: a touches entry with an inline '# reason: ...'
-    comment must produce a clean Edit/Write/Read rule, not a malformed one
+    comment must produce a clean Edit/Read rule, not a malformed one
     with the comment text baked into the path."""
     story_content = """\
 ---
@@ -118,7 +118,7 @@ Story body here.
 
     allow = _read_settings(tmp_path)["permissions"]["allow"]
     assert "Edit(hooks/post_tool_use.py)" in allow
-    assert "Write(hooks/post_tool_use.py)" in allow
+    assert "Write(hooks/post_tool_use.py)" not in allow
     assert "Read(hooks/post_tool_use.py)" in allow
     assert not any("#" in rule for rule in allow)
 
@@ -324,7 +324,7 @@ def test_valid_path_alongside_traversal(tmp_path, capsys):
     allow = settings.get("permissions", {}).get("allow", [])
     # Valid path should produce rules
     assert "Edit(src/good.py)" in allow
-    assert "Write(src/good.py)" in allow
+    assert "Write(src/good.py)" not in allow
     # Traversal path should not appear
     assert not any("etc/passwd" in r for r in allow)
 

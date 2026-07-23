@@ -618,7 +618,7 @@ class TestSpecDerivedDenyList:
         data = json.loads((tmp_path / ".claude/settings.json").read_text())
         deny = data["permissions"]["deny"]
         assert "Edit(src/services/auth/**)" in deny
-        assert "Write(src/services/auth/**)" in deny
+        assert "Write(src/services/auth/**)" not in deny
 
     def test_spec_derived_deny_replaces_static_defaults(self, tmp_path):
         """When spec yields deny rules, DEFAULT_DENY static entries are NOT written."""
@@ -1066,7 +1066,7 @@ class TestDefaultDenyScopeDocs:
         assert "Edit(docs/phases/permissions/**)" in DEFAULT_DENY
 
     def test_write_permissions_glob_in_default_deny(self):
-        assert "Write(docs/phases/permissions/**)" in DEFAULT_DENY
+        assert "Write(docs/phases/permissions/**)" not in DEFAULT_DENY
 
     def test_old_docs_phases_glob_not_in_default_deny(self):
         """Broad docs/phases/** glob was superseded by the narrower permissions/**."""

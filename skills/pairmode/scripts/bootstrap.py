@@ -79,7 +79,6 @@ AGENT_FILES: list[tuple[str, str]] = [
 # prevent builders from self-modifying their own scope declarations.
 DEFAULT_DENY: list[str] = [
     "Edit(docs/phases/permissions/**)",
-    "Write(docs/phases/permissions/**)",
 ]
 
 # Entries removed from DEFAULT_DENY in Phase 55. Kept here so sync.py can
