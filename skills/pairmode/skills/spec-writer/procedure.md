@@ -245,6 +245,9 @@ Return only the JSON object. No preamble, no commentary, no usage block.
 - Read only the five declared bounded inputs (DP1.3). No other files.
 - Write only to `docs/stories/<RAIL>/<scalar>.md`. No other files.
 - Never touch the phase doc, architecture.md, or any file outside `docs/stories/`.
+  Phase authoring is a separate tool's job (`phase_new.py`, not spec-writer;
+  see architecture.md's phase-authoring convention, INFRA-243) — spec-writer
+  only elaborates an existing stub story into `## Ensures`/`## Instructions`.
 - Never commit — the orchestrator does that.
 - Return value must be valid `SPEC-RESULT` JSON (parseable by `worker_result.py`).
 - Never call APIs, spawn subprocesses, or make network requests.

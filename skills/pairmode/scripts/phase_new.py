@@ -30,6 +30,18 @@ TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
 _SAFE_PHASE_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 
+# Phase-authoring checklist (docs/architecture.md § Phase-authoring convention, INFRA-243).
+# Printed to the operator after a phase file is created — a CLI echo, not gating logic;
+# the operator remains the sole judge of whether the new phase satisfies it.
+PHASE_AUTHORING_CHECKLIST = """
+Phase-authoring checklist (docs/architecture.md § Phase-authoring convention):
+  [ ] Does this phase's Goal section state one purpose, in one or two sentences?
+  [ ] Is its scope comparable to recent phases (rough story count / primary_files
+      count as a proxy, not a hard metric) -- and if not, is the reason explicit?
+  [ ] Could an agent with no conversation history, given only this phase's doc and
+      its stories' spec files, start building it correctly?
+""".strip("\n")
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -360,6 +372,7 @@ def phase_new(
         # Update era Phases table if an active era was found
         if era_id:
             _update_era_phases_table(project_path, era_id, phase_key, title or f"Phase {phase_key}")
+        click.echo(PHASE_AUTHORING_CHECKLIST)
 
     # 9. Update or create index.md
     index_path = phases_dir / "index.md"

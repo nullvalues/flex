@@ -4,6 +4,11 @@ This document is the index of all build phases for the project.
 Each phase has a dedicated file in `docs/phases/`. Phases 1–7 are recorded in the
 legacy monolithic doc at `docs/phase-prompts.md`.
 
+New phases are created via `skills/pairmode/scripts/phase_new.py` (`/flex:pairmode phase-new`),
+which prints the phase-authoring checklist on creation — see `docs/architecture.md` §
+Phase-authoring convention (INFRA-243) for the single-purpose / bounded-complexity /
+reproducible-from-artifacts criteria a well-formed phase should meet.
+
 | Phase | Title | Status | Tag |
 |-------|-------|--------|-----|
 | 1–7 | Core pairmode scaffold, spec-derived generation, lessons, audit/sync, companion enhancements, audit noise, template coherence | complete | cp1 – cp7 |

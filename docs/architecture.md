@@ -585,6 +585,64 @@ read time. `schema_validator.py` validates the value when present via `validate_
 `phase_new.py` accepts `--phase-class` to write the field into generated frontmatter. The field
 enables deterministic model-upgrade decisions at the checkpoint-agent level (INFRA-048).
 
+### Phase-authoring convention (INFRA-243)
+
+`skills/pairmode/scripts/phase_new.py` (wired to `/flex:pairmode phase-new`) already does the
+mechanical work of authoring a phase — it renders `skills/pairmode/templates/docs/phases/phase.md.j2`
+and updates `docs/phases/index.md`. This section is not new tooling; it is the convention that tool
+does not yet prompt for or check, so a phase authored through it (or by hand) can still drift from
+what makes a phase well-formed. Phase instantiation stays manual/operator-driven — the operator
+feeds the objective via `phase-new` — this convention does not add automation on top of that
+decision.
+
+A well-formed phase meets three criteria, stated here in the operator's own terms:
+
+1. **Single purpose.** A phase is bounded by one idea/objective — not a grab-bag of unrelated
+   fixes. When a session's work naturally splits into unrelated concerns, that is a signal to open
+   a sibling phase rather than widen the current one's Goal.
+2. **Bounded, comparable complexity.** Phases should be roughly similar in total scope/effort to
+   each other. When a single idea is too large for one phase, the break points between the
+   resulting phases should be **intentional seams** — natural stopping points where the software is
+   in a coherent, buildable state — not arbitrary chunking by story count.
+3. **Reproducible from artifacts.** A phase's committed artifacts (the phase doc, its stories' spec
+   files, whatever `docs/architecture.md`/`docs/ideology.md` sections it references) should let
+   another agent or a human reader — with no access to the conversation that produced them —
+   understand and continue the work. This mirrors this document's own cold-start claim in
+   `CLAUDE.md` § "read before any task."
+
+**Phase-authoring checklist** — analogous to the existing CP-N Cold-eyes checklist each phase doc
+carries at *completion* time, but applied at phase *authoring* time instead:
+
+- [ ] Does this phase's Goal section state one purpose, in one or two sentences?
+- [ ] Is its scope comparable to recent phases — rough story count / `primary_files` count across
+  its stories as a proxy, not a hard metric — and if not, is the reason (e.g. a break point being
+  deferred to a sibling phase) explicit in the Goal or a `Parent context`/`Deferred stories` note?
+- [ ] Could an agent with no access to the conversation that produced this phase, given only this
+  phase's doc and its stories' spec files, start building it correctly?
+
+`phase_new.py` prints this checklist to the operator immediately after creating a phase file (a
+CLI echo, not new gating or validation logic — the operator remains the sole judge of whether the
+new phase satisfies it).
+
+**Worked example (retroactive, per Instructions item 4 — not a request to split or resize either
+phase; INFRA-243's Out of scope explicitly rules that out):**
+
+- *Phase 97* ("Fold resume — pre-fold gate, fleet migration, merge to main, re-sync"): single
+  purpose — yes, fold mechanics only. Scope — large (14 pending fleet migrations) but the phase doc
+  itself frames this as the reason phase-98 was opened as a sibling rather than folded in, so the
+  seam is intentional and documented, not arbitrary. Reproducible — yes; the phase doc's `Parent
+  context` and linked story files carry enough history to resume cold.
+- *Phase 98* (this phase, "0.2 → 0.3 regression remediation"): single purpose — yes; the phase doc
+  states directly that it was kept separate from phase-97 specifically because their purposes
+  differ (harness self-correctness vs. fold mechanics), which is the single-purpose criterion
+  working as intended. Scope — 11 stories is larger than most prior single-digit-story phases in
+  this index; the phase doc's own "Recommended build order" note and per-story dependency
+  annotations are what keep it reproducible despite the count, so this is treated as useful
+  calibration signal for the convention (audit-driven remediation phases may legitimately run
+  larger than feature phases) rather than a defect to fix retroactively. Reproducible — yes; the
+  Goal section documents the audit lineage (fable Plan-mode comparison, adversarial second-opinion
+  review, follow-up operator questions) an agent would otherwise be missing.
+
 **`story_update.py` is the canonical tool for updating story status.**
 `update_story_status(story_id, project_dir, status)` updates a story file's frontmatter
 `status` field. `update_phase_story_status(story_id, project_dir, status)` updates the status
