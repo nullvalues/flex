@@ -1079,6 +1079,21 @@ def cmd_bump_context_tokens(cost: int, project_dir: str) -> None:
 
     Silent no-op (exit 0) when ``.companion/state.json`` is absent — consistent
     with ``set-context-tokens`` fail-open behaviour for non-pairmode projects.
+
+    INFRA-245 decision (dormant-command review): this command has zero live
+    callers in this project's own build loop — removed from ``CLAUDE.build.md``
+    at BUILD-029/BUILD-030 (Phase 70-71) because its historical caller fed it
+    subagent ``<usage>`` cost, which is a DP7 violation (``docs/architecture.md``
+    § effort.db ≠ context-control invariant: subagent tokens never entered the
+    orchestrator's own window, so summing them into ``context_current_tokens``
+    inflates it with figures that were never really there). Kept rather than
+    removed per INFRA-179's prior decision (older sibling-project
+    ``CLAUDE.build.md`` files may still reference it; removal was explicitly
+    deferred, not forgotten). If you are about to wire a new caller: feed this
+    command ONLY a measured live-window delta (e.g. from
+    ``context_budget.compute_context_tokens``), never a subagent cost/effort.db
+    figure — doing so reintroduces the exact conflation this invariant exists
+    to prevent.
     """
     if cost <= 0:
         click.echo(

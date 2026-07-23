@@ -1149,7 +1149,8 @@ Fields:
   longer reads this field. Entries remain in state.json but are inert for gate enforcement.
   The per-story dict design was introduced by INFRA-180 and superseded by INFRA-182.
 - `context_session_reset_at` — **optional**; UTC ISO-8601 timestamp string; written by
-  `session_start.py` on `clear`/`startup` via `session_reset.decide_reset()`. Used by
+  `session_start.py` on `clear`/`startup`/`compact` (INFRA-245) via
+  `session_reset.decide_reset()`. Used by
   `_is_stale()` in `context_budget.py` to detect whether
   `context_current_tokens_recorded_at` predates the last session reset; if so, `decide()`
   blocks with CONTEXT CHECK REQUIRED. Equal timestamps are treated as fresh (the
@@ -1297,15 +1298,29 @@ baseline.
 **Documented exception — `hooks/session_start.py` (CER-047 / Phase 68 INFRA-175):**
 `session_start.py` dispatches to one module:
 
-- **`source` ∈ {`clear`, `startup`} → `session_reset.py`:** resets the dead-reckoning
-  context counter to a fresh-session baseline (`state["context_baseline_tokens"]` if set,
-  else `25_000`). Returns `None` for `resume` and `compact` (no reset). The hook writes
-  `context_current_tokens`, `context_current_tokens_recorded_at`, and
-  `context_session_reset_at` to state.json when `decide_reset()` returns a dict with
-  `should_reset=True`; all decision logic lives in `session_reset.py`.
-  (INFRA-180 changed the return type from `int | None` to `dict | None`.)
-  `compact` is deliberately excluded (CER-047 — post-compact window size unknown; stale
-  counter over-blocks, which is fail-safe).
+- **`source` ∈ {`clear`, `startup`} → `session_reset.py`:** resets the live context
+  counter to a fresh-session baseline (`state["context_baseline_tokens"]` if set,
+  else `25_000`). The hook writes `context_current_tokens`,
+  `context_current_tokens_recorded_at`, and `context_session_reset_at` to state.json
+  when `decide_reset()` returns a dict with `should_reset=True`; all decision logic
+  lives in `session_reset.py`. (INFRA-180 changed the return type from `int | None`
+  to `dict | None`.) Returns `None` for `resume` (the same window is restored — the
+  stored counter is still correct, no reset needed).
+- **`source == "compact"` → `session_reset.py` (INFRA-245):** also resets, to a
+  separate post-compact baseline (`state["context_compact_baseline_tokens"]` if set,
+  else `COMPACT_BASELINE_TOKENS` = `45_000`). Originally excluded (CER-047 — a stale
+  counter over-blocks, which is fail-safe, so leaving it stale was a defensible
+  no-op). Revisited at INFRA-245 because INFRA-241 (same phase) reconnects the
+  PreToolUse gate to real build-cycle spawns: once that lands, a stale-high
+  pre-compact count blocks exactly the spawn class whose completion would refresh
+  it — a live deadlock, not just occasional over-caution. The baseline is a
+  documented constant, not a transcript re-derivation: `decide_reset()` may not
+  perform filesystem I/O (D11), and re-deriving the true post-compact count would
+  require scanning the JSONL transcript for the first assistant `usage` entry after
+  the `compact_boundary` marker — a change to the transcript-parsing surface this
+  phase reserves for INFRA-241's drift-canary test alone. `45_000` is set above a
+  directly-observed post-compact figure (~39k, dropped from ~166k pre-compact) so
+  the fallback stays fail-safe (conservative/high) rather than risking under-block.
 
 **Documented exception — `hooks/user_prompt_submit.py` (INFRA-192):**
 `user_prompt_submit.py` is a thin dispatcher for the `UserPromptSubmit` event:

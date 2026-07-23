@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-# thin dispatcher — clear/startup → session_reset.py
+# thin dispatcher — clear/startup/compact → session_reset.py
 """SessionStart hook — injects pairmode context into Claude's session.
 
 Thin-delegation exception: when Claude Code passes a stdin payload containing
 ``source`` (one of ``"startup"``, ``"resume"``, ``"clear"``, ``"compact"``),
-this hook delegates the dead-reckoning counter reset decision to
+this hook delegates the live context-counter reset decision to
 ``skills/pairmode/scripts/session_reset.decide_reset()`` (CER-047 / Phase 68
-INFRA-175 / INFRA-180). All decision logic and timestamp generation live in
-that module; the hook owns one state write (all keys returned by
-``decide_reset()``: ``context_current_tokens``,
+INFRA-175 / INFRA-180 / INFRA-245). All decision logic and timestamp
+generation live in that module; the hook owns one state write (all keys
+returned by ``decide_reset()``: ``context_current_tokens``,
 ``context_current_tokens_recorded_at``, and ``context_session_reset_at``)
 when ``decide_reset()`` returns a dict with ``should_reset=True``.
 """
