@@ -859,7 +859,8 @@ Behaviour:
   filename stem (e.g. `reviewer.md` → `reviewer.md.j2`) in `skills/pairmode/templates/agents/`.
 - Renders only the frontmatter block of the template using the full context from
   `_build_template_context()` (Phase 44+): `project_name`, `build_command`, `test_command`,
-  `migration_command`, `pairmode_scripts_dir`, `domain_isolation_rule`, and `protected_paths`.
+  `test_dir` (INFRA-240; defaults to `"tests/"`), `migration_command`, `pairmode_scripts_dir`,
+  `domain_isolation_rule`, and `protected_paths`.
   Values are sourced from `.companion/pairmode_context.json` with `.companion/state.json` as
   fallback; missing keys default to `""` or `[]`.
 - Replaces the frontmatter block in the target file.
@@ -998,6 +999,46 @@ Behaviour:
 - All writes are atomic: temp file in same directory + `os.replace`.
 - Reads and writes flex's own `.companion/state.json` (cwd-relative), not the target
   project's state.json.
+
+### Per-project parameterization surface (INFRA-240)
+
+The builder and reviewer procedure skills (`skills/pairmode/skills/builder/procedure.md`,
+`skills/pairmode/skills/reviewer/procedure.md`) are **plugin-versioned** — shared, unrendered,
+identical across every project that bootstraps pairmode 0.3 (see § Pairmode design above). This
+means any project-specific fact baked directly into their prose (a hardcoded test command, a
+fixed test-directory convention, one project's protected-file list) is silently wrong for every
+*other* project that shares the same procedure skill. Facts that genuinely vary per project —
+test command, test-directory convention, protected-file list, domain-isolation rule — must
+instead live on a **rendered** per-project surface the procedure skills read at build/review
+time, not on the shared skill text itself.
+
+That rendered surface is the **Build standards** line in each project's own `CLAUDE.build.md`
+(rendered from `skills/pairmode/templates/CLAUDE.build.md.j2`): `test_command`, `test_dir`,
+`protected_paths`, and `domain_isolation_rule` are interpolated there from
+`.companion/pairmode_context.json` (written by `bootstrap.py` at bootstrap time; `test_dir`
+defaults to `"tests/"` when not supplied via `bootstrap.py --test-dir`) with `.companion/state.json`
+as fallback — the same source `pairmode_sync.py`'s `_build_template_context()` already used for
+`sync-build` re-rendering. `builder/procedure.md`'s and `reviewer/procedure.md`'s "When you are
+done" / "Story test verification" / checklist items (TEST COVERAGE, PROTECTED FILES, BUILD GATE)
+now point at this line instead of a literal invocation — this is what makes the builder's
+declared input-contract line ("read `CLAUDE.build.md` for build standards and test command",
+`builder/procedure.md` § Input contract) actually satisfiable: before this story the rendered
+`CLAUDE.build.md.j2` carried no test-command field at all, so the contract's claim was
+unbacked and the procedure's hardcoded flex literal was the *only* place the value actually
+lived. A literal-string scan test (`tests/pairmode/test_procedure_skills.py`) asserts neither
+procedure skill contains `tests/pairmode/`, the `-x -q` pytest flags, or flex's own enumerated
+protected-file list (`skills/seed/scripts/`, `skills/companion/scripts/sidebar.py`,
+`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) verbatim; a synthetic-project
+test (`tests/pairmode/test_bootstrap.py::TestSyntheticProjectPerProjectParameterization`)
+bootstraps a non-flex-shaped project (`pnpm build`, `spec/` test dir) and confirms its own
+rendered `CLAUDE.build.md` carries its own values, never flex's.
+
+Out of scope for this story (deliberately): the procedure skills themselves remain
+plugin-versioned and are never re-rendered per project — only the *values* they reference
+became per-project, not the files. `hooks/`-layer conventions (hook thinness, the fixed
+`$TMPDIR/companion.pipe` relay path) are genuinely identical across every project — they
+describe the shared plugin code every project runs, not a per-project fact — and were left
+as-is rather than parameterized.
 
 ### Pairmode non-negotiables
 

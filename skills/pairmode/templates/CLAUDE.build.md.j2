@@ -47,6 +47,8 @@ Execute each checkpoint leaf worker as dispatched. After each returns, call:
   {{ pairmode_scripts_dir }}/flex_build.py record-checkpoint-step <action> --project-dir .
 After the three gate workers complete, call `{{ pairmode_scripts_dir }}/flex_build.py checkpoint-report --project-dir .` and print its output verbatim (cost rollup + next-phase pointer) before checkpoint-tag. Then re-run next-action. checkpoint-tag: `git tag cp-<phase-key> && git push origin {{ default_branch | default('main') }} --tags`.
 
+**Build standards** (per-project facts the builder/reviewer procedure skills read from here instead of hardcoding, INFRA-240): test_command=`{{ test_command | default('(unset)', true) }}` | test_dir=`{{ test_dir | default('tests/', true) }}` | protected_paths=`{% if protected_paths is defined and protected_paths %}{{ protected_paths | join(', ') }}{% else %}(none){% endif %}` | domain_isolation_rule=`{{ domain_isolation_rule | default('(none)', true) }}`
+
 ## All other input
 
 Read `CLAUDE.md` and apply the reviewer role.

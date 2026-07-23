@@ -2369,3 +2369,45 @@ class TestBuild026ContextGateReauthorization:
     def test_flex_claude_build_md_context_gate_calls_slash_context(self):
         """INFRA-182: CLAUDE.build.md Context gate instructs calling /context for display."""
         assert "/context" in self.flex_build_md
+
+
+# ---------------------------------------------------------------------------
+# Story INFRA-240 — CLAUDE.build.md.j2 Build standards line (per-project
+# test_command/test_dir/protected_paths/domain_isolation_rule)
+# ---------------------------------------------------------------------------
+
+class TestClaudeBuildMdBuildStandardsLine:
+    """Story INFRA-240: CLAUDE.build.md.j2 renders a Build standards line
+    that carries the per-project test command, test-directory convention,
+    protected-file list, and domain-isolation rule -- the surface the
+    builder/reviewer procedure skills now read instead of hardcoding flex's
+    own values."""
+
+    def test_renders_test_command_and_test_dir(self):
+        ctx = {
+            **CLAUDE_BUILD_MD_CONTEXT,
+            "test_dir": "spec/",
+        }
+        output = render("CLAUDE.build.md.j2", ctx)
+        assert "Build standards" in output
+        assert ctx["test_command"] in output
+        assert "spec/" in output
+
+    def test_missing_test_dir_defaults_to_tests_slash(self):
+        output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
+        assert "test_dir=`tests/`" in output
+
+    def test_protected_paths_rendered_when_present(self):
+        ctx = {**CLAUDE_BUILD_MD_CONTEXT, "protected_paths": ["hooks/", "src/core/"]}
+        output = render("CLAUDE.build.md.j2", ctx)
+        assert "hooks/" in output
+        assert "src/core/" in output
+
+    def test_protected_paths_absent_renders_none_placeholder(self):
+        output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
+        assert "protected_paths=`(none)`" in output
+
+    def test_domain_isolation_rule_rendered_when_present(self):
+        ctx = {**CLAUDE_BUILD_MD_CONTEXT, "domain_isolation_rule": "no raw SQL"}
+        output = render("CLAUDE.build.md.j2", ctx)
+        assert "no raw SQL" in output

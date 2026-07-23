@@ -873,6 +873,13 @@ def _initialize_rails(
     help="Build/test command (inferred from project files if omitted, else prompted).",
 )
 @click.option(
+    "--test-dir",
+    default=None,
+    help="Test-location convention for this project (e.g. tests/pairmode/, tests/). "
+    "Defaults to tests/ if omitted -- the builder/reviewer procedure skills read this "
+    "value from the project rendered CLAUDE.build.md rather than assuming a fixed layout.",
+)
+@click.option(
     "--phase-title",
     default=None,
     help="Title for the initial phase-1.md (prompted in TTY if omitted; blank allowed).",
@@ -929,6 +936,7 @@ def bootstrap(
     what: str | None,
     why: str | None,
     build_command: str | None,
+    test_dir: str | None,
     phase_title: str | None,
     phase_goal: str | None,
     dry_run: bool,
@@ -1011,6 +1019,13 @@ def bootstrap(
 
     # test_command is derived from build_command for now
     test_command = build_command
+
+    # test_dir: the project's test-location convention. Defaults to "tests/" when
+    # not supplied -- this is the per-project value the builder/reviewer procedure
+    # skills read from CLAUDE.build.md's Build standards section instead of
+    # hardcoding flex's own "tests/pairmode/" convention (INFRA-240).
+    if not test_dir:
+        test_dir = "tests/"
 
     # ------------------------------------------------------------------
     # 1a. Era strategic intent (BUILD-016)
@@ -1134,6 +1149,7 @@ def bootstrap(
         "operator_contact": product.get("operator_contact", ""),
         "build_command": build_command,
         "test_command": test_command,
+        "test_dir": test_dir,
         "migration_command": "",
         "pairmode_scripts_dir": str(pathlib.Path(__file__).parent),
         "domain_model": "",
@@ -1252,6 +1268,7 @@ def bootstrap(
         "operator_contact": context["operator_contact"],
         "build_command": context["build_command"],
         "test_command": context["test_command"],
+        "test_dir": context["test_dir"],
         "migration_command": context["migration_command"],
         "domain_model": context["domain_model"],
         "domain_isolation_rule": context["domain_isolation_rule"],

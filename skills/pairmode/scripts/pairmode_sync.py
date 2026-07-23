@@ -467,6 +467,7 @@ def _build_template_context(project_dir: Path) -> dict:
         "project_name": project_name,
         "build_command": pctx.get("build_command") or state.get("build_command") or "",
         "test_command": pctx.get("test_command") or state.get("test_command") or "",
+        "test_dir": pctx.get("test_dir") or state.get("test_dir") or "tests/",
         "migration_command": pctx.get("migration_command") or state.get("migration_command") or "",
         "pairmode_scripts_dir": str(Path(__file__).parent),
         "default_branch": default_branch,

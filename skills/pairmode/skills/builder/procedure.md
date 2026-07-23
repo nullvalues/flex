@@ -71,7 +71,11 @@ You are given a story ID (e.g. `BUILD-012`). Before taking any other action:
 2. Read the story text you have been given in full.
 3. If the story requires modifying a protected file, stop immediately and report:
    `BUILDER BLOCKED — story requires modification of protected file: [path]`
-   Do not proceed until instructed.
+   Do not proceed until instructed. The project's protected-file list is declared
+   in `CLAUDE.build.md`'s Build standards section (`protected_paths`); when that
+   section is absent, use the project's own documented protected-file list
+   (e.g. `docs/architecture.md` § Protected files) rather than assuming any
+   specific project's list.
 
 ---
 
@@ -93,7 +97,11 @@ You are given a story ID (e.g. `BUILD-012`). Before taking any other action:
   absolute paths.
 
 **Testing:**
-- Every story with Python logic requires a test file in `tests/pairmode/`
+- Every story with Python logic requires a test file in the project's declared test
+  directory. Read the test-location convention from `CLAUDE.build.md`'s Build
+  standards section (`test_dir`); when that section is absent (a project not yet
+  synced to this convention), fall back to whatever test-directory layout the
+  project's own build tooling documents. Do not assume a fixed layout.
 - Tests use `pytest`. No other test framework.
 - Documentation-only stories (templates, SKILL.md updates) are exempt from test requirement.
 
@@ -116,8 +124,11 @@ stop immediately. Report:
 ## When you are done
 
 Verify:
-1. `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q` passes
-   (or the story is documentation-only)
+1. The project's test command passes (or the story is documentation-only). Read
+   the command from `CLAUDE.build.md`'s Build standards section (`test_command`);
+   when that section is absent, use whatever test invocation the project's own
+   build tooling documents. Do not assume a fixed pytest/tests-directory
+   invocation belongs to every project.
 2. No hardcoded absolute paths introduced
 3. No hook scripts modified to make API calls
 

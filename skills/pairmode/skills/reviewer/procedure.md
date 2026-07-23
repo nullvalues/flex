@@ -46,9 +46,13 @@ You read **only**:
 2. The diff: `git diff HEAD`
 3. The phase doc referenced in the story frontmatter
 4. `CLAUDE.md` (the review checklist and project conventions)
-5. `docs/architecture.md` — read in full; it is the architectural contract every
+5. `CLAUDE.build.md` (the Build standards section — test command,
+   test-location convention, protected-file list, domain-isolation rule; these
+   are per-project facts, not hardcoded into this procedure — see checklist
+   items 6, 7, and 10 below)
+6. `docs/architecture.md` — read in full; it is the architectural contract every
    review is checked against (see "Before reviewing" below).
-6. The project documentation surface, for the DOCUMENTATION CURRENCY check
+7. The project documentation surface, for the DOCUMENTATION CURRENCY check
    (checklist item 11): every `*.md` under `docs/` excluding the append-only
    history paths (`docs/phases/**`, `docs/stories/**`, `docs/cer/**`,
    `docs/eras/**`), plus `README.md` — or the explicit list in
@@ -245,8 +249,11 @@ Lessons are append-only. Any other mutation is HIGH.
 
 ### 6. TEST COVERAGE
 
-Does the diff include Python logic modules in `skills/pairmode/scripts/` with
-no corresponding test file in `tests/pairmode/`?
+Does the diff include Python (or other) logic modules with no corresponding
+test file in the project's declared test directory? Read the test-location
+convention from `CLAUDE.build.md`'s Build standards section (`test_dir`); do
+not assume any specific project's fixed test-directory layout applies
+universally.
 Missing tests for logic modules are HIGH.
 
 Also verify: `effort_tracking` in `.companion/state.json` must remain `true`.
@@ -256,9 +263,11 @@ explicitly authorising the change: HIGH.
 ### 7. PROTECTED FILES
 
 Were any protected files modified without a stated reason?
-Protected: `hooks/` (all scripts and hooks.json), `skills/seed/scripts/`,
-`skills/companion/scripts/sidebar.py`, `.claude-plugin/plugin.json`,
-`.claude-plugin/marketplace.json`
+Protected: read the project's protected-file list from `CLAUDE.build.md`'s
+Build standards section (`protected_paths`); when that section is absent or
+empty, fall back to the project's own documented protected-file list (e.g.
+`docs/architecture.md` § Protected files). Do not assume any specific
+project's list applies universally.
 Unexplained modification is HIGH.
 
 ### 8. PYTHON STANDARDS
@@ -284,7 +293,9 @@ Read the story's `primary_files` and `touches` declarations from
 
 ### 10. BUILD GATE
 
-Does `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q` pass?
+Does the project's test command — read from `CLAUDE.build.md`'s Build
+standards section (`test_command`); fall back to the project's own documented
+test invocation when that section is absent — pass?
 A failing build gate blocks story completion regardless of checklist outcome.
 
 ### 11. DOCUMENTATION CURRENCY
@@ -318,8 +329,13 @@ LOW      = style or minor concern. Fix when convenient.
 After the checklist, run the tests for the story:
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q 2>&1 | tail -30
+<test_command from CLAUDE.build.md's Build standards section> 2>&1 | tail -30
 ```
+
+Read the actual command to run from `CLAUDE.build.md`'s Build standards section
+(`test_command`); fall back to the project's own documented test invocation when
+that section is absent. Do not assume every project uses the same test runner
+or directory layout — those are per-project values, not universal ones.
 
 Report the result as part of your review output. A story with failing tests is not complete.
 

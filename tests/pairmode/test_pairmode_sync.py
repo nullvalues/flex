@@ -82,6 +82,24 @@ class TestBuildTemplateContext:
             f"Expected protected_paths=['src/core/'], got {ctx.get('protected_paths')!r}"
         )
 
+    def test_test_dir_from_pairmode_context(self, tmp_path: pathlib.Path) -> None:
+        """_build_template_context returns test_dir from pairmode_context.json (INFRA-240)."""
+        companion_dir = tmp_path / ".companion"
+        companion_dir.mkdir()
+        pairmode_ctx = {"test_dir": "spec/"}
+        (companion_dir / "pairmode_context.json").write_text(
+            json.dumps(pairmode_ctx), encoding="utf-8"
+        )
+        ctx = _build_template_context(tmp_path)
+        assert ctx.get("test_dir") == "spec/", (
+            f"Expected test_dir='spec/', got {ctx.get('test_dir')!r}"
+        )
+
+    def test_test_dir_defaults_to_tests_slash_when_absent(self, tmp_path: pathlib.Path) -> None:
+        """_build_template_context falls back to 'tests/' when no test_dir is declared."""
+        ctx = _build_template_context(tmp_path)
+        assert ctx.get("test_dir") == "tests/"
+
 
 class TestRenderBuildTemplate:
     """Tests for _render_build_template() with pairmode_scripts_dir in context."""

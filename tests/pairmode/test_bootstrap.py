@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import sys
 
 import pytest
 from click.testing import CliRunner
@@ -168,6 +169,74 @@ class TestBootstrapCreatesFiles:
         run_bootstrap(tmp_path)
         content = (tmp_path / "docs/checkpoints.md").read_text()
         assert "testproject" in content
+
+
+# ---------------------------------------------------------------------------
+# INFRA-240: synthetic non-flex project -- per-project parameterization
+# ---------------------------------------------------------------------------
+
+class TestSyntheticProjectPerProjectParameterization:
+    """A synthetic non-flex project must get its OWN test command / test-dir /
+    protected-file declarations rendered into its own CLAUDE.build.md, and
+    nothing in the (unrendered, plugin-versioned) builder/reviewer procedure
+    skills may override those per-project values with flex's own.
+    """
+
+    _FLEX_TEST_COMMAND = "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q"
+
+    def _bootstrap_synthetic_project(self, tmp_path: pathlib.Path):
+        runner = CliRunner()
+        args = [
+            "--project-dir", str(tmp_path),
+            "--project-name", "acme-widgets",
+            "--stack", "Node.js / TypeScript / Vitest",
+            "--build-command", "pnpm build",
+            "--test-dir", "spec/",
+            "--yes",
+        ]
+        result = runner.invoke(bootstrap, args, catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        return result
+
+    def test_synthetic_project_test_command_differs_from_flex_own(self, tmp_path):
+        self._bootstrap_synthetic_project(tmp_path)
+        pctx = json.loads((tmp_path / ".companion" / "pairmode_context.json").read_text())
+        assert pctx["test_command"] != self._FLEX_TEST_COMMAND
+        assert pctx["test_command"] == "pnpm build"
+
+    def test_synthetic_project_test_dir_recorded(self, tmp_path):
+        self._bootstrap_synthetic_project(tmp_path)
+        pctx = json.loads((tmp_path / ".companion" / "pairmode_context.json").read_text())
+        assert pctx["test_dir"] == "spec/"
+
+    def test_synthetic_project_claude_build_md_carries_its_own_test_command(self, tmp_path):
+        """The project's rendered CLAUDE.build.md must carry ITS OWN test
+        command/test-dir, not flex's, once sync-build renders the Build
+        standards line against pairmode_context.json (INFRA-240)."""
+        self._bootstrap_synthetic_project(tmp_path)
+        sys.path.insert(
+            0, str(pathlib.Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts")
+        )
+        import importlib
+        pairmode_sync = importlib.import_module("pairmode_sync")
+        ctx = pairmode_sync._build_template_context(tmp_path)
+        rendered = pairmode_sync._render_build_template(ctx)
+        assert "pnpm build" in rendered
+        assert "spec/" in rendered
+        assert self._FLEX_TEST_COMMAND not in rendered
+
+    def test_procedure_skills_contain_no_reference_to_synthetic_or_flex_test_command(self, tmp_path):
+        """Neither procedure skill (shared/plugin-versioned, never re-rendered
+        per project) may hardcode any project's literal test command -- the
+        synthetic project's builder/reviewer must read it from its own
+        rendered CLAUDE.build.md at build time, not from a baked-in literal."""
+        procedure_dir = pathlib.Path(__file__).parent.parent.parent / "skills" / "pairmode" / "skills"
+        builder_text = (procedure_dir / "builder" / "procedure.md").read_text(encoding="utf-8")
+        reviewer_text = (procedure_dir / "reviewer" / "procedure.md").read_text(encoding="utf-8")
+        for text in (builder_text, reviewer_text):
+            assert self._FLEX_TEST_COMMAND not in text
+            assert "pnpm build" not in text
+            assert "tests/pairmode/" not in text
 
 
 # ---------------------------------------------------------------------------
@@ -3803,6 +3872,7 @@ class TestEraStrategicIntent:
                     what="x",
                     why="y",
                     build_command="uv run pytest",
+                    test_dir=None,
                     phase_title="",
                     phase_goal="",
                     dry_run=False,
