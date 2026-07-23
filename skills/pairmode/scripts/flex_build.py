@@ -638,46 +638,36 @@ def cmd_next_phase(after_phase: str, project_dir: str) -> None:
     sys.exit(1)
 
 
-@flex_build.command("mark-phase-complete")
-@click.option(
-    "--phase",
-    "phase_key",
-    required=True,
-    type=str,
-    help="Phase key to mark complete (e.g. 59 or PM037-main).",
-)
-@click.option(
-    "--project-dir",
-    required=True,
-    type=click.Path(file_okay=False, dir_okay=True),
-    help="Project root directory.",
-)
-def cmd_mark_phase_complete(phase_key: str, project_dir: str) -> None:
-    """Set the status cell of a phase row in docs/phases/index.md to 'complete'."""
+def _mark_phase_complete_in_index(phase_key: str, project_dir: Path) -> bool:
+    """Set the status cell of *phase_key*'s row in docs/phases/index.md to
+    'complete'.
+
+    Idempotent no-op (returns ``False``) when the index file is absent, the
+    phase row is not found, or the row is already ``complete``. Returns
+    ``True`` when a write happened.
+
+    Extracted from ``cmd_mark_phase_complete`` so that both the standalone
+    ``mark-phase-complete`` CLI command and the ``checkpoint-tag`` step of
+    ``record-checkpoint-step`` share one implementation (INFRA-239) — the
+    write side no longer requires a second, separate CLI call for the
+    checkpoint-tag path.
+    """
     import tempfile  # noqa: PLC0415
 
-    project_path = Path(project_dir).resolve()
-    _depth_guard(project_path)
-    index_path = project_path / "docs" / "phases" / "index.md"
+    index_path = project_dir / "docs" / "phases" / "index.md"
     if not index_path.exists():
-        click.echo(
-            f"mark-phase-complete: index not found: {index_path}", err=True
-        )
-        raise SystemExit(1)
+        return False
 
     text = index_path.read_text(encoding="utf-8")
     rows = _parse_index_phases(text)
     found = any(ref == phase_key for ref, _ in rows)
     if not found:
-        click.echo(
-            f"mark-phase-complete: phase '{phase_key}' not in index", err=True
-        )
-        raise SystemExit(1)
+        return False
 
-    # Check for idempotency: if already complete, exit silently.
+    # Check for idempotency: if already complete, no write.
     for ref, status in rows:
         if ref == phase_key and status == "complete":
-            sys.exit(0)
+            return False
 
     # Rewrite the matching row in-place, line by line.
     new_lines: list[str] = []
@@ -698,6 +688,9 @@ def cmd_mark_phase_complete(phase_key: str, project_dir: str) -> None:
                     continue
         new_lines.append(line)
 
+    if not replaced:
+        return False
+
     new_text = "".join(new_lines)
 
     # Atomic write: NamedTemporaryFile in same directory + os.replace.
@@ -713,6 +706,44 @@ def cmd_mark_phase_complete(phase_key: str, project_dir: str) -> None:
         tmp_path_str = tf.name
 
     os.replace(tmp_path_str, index_path)
+    return True
+
+
+@flex_build.command("mark-phase-complete")
+@click.option(
+    "--phase",
+    "phase_key",
+    required=True,
+    type=str,
+    help="Phase key to mark complete (e.g. 59 or PM037-main).",
+)
+@click.option(
+    "--project-dir",
+    required=True,
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_mark_phase_complete(phase_key: str, project_dir: str) -> None:
+    """Set the status cell of a phase row in docs/phases/index.md to 'complete'."""
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    index_path = project_path / "docs" / "phases" / "index.md"
+    if not index_path.exists():
+        click.echo(
+            f"mark-phase-complete: index not found: {index_path}", err=True
+        )
+        raise SystemExit(1)
+
+    text = index_path.read_text(encoding="utf-8")
+    rows = _parse_index_phases(text)
+    found = any(ref == phase_key for ref, _ in rows)
+    if not found:
+        click.echo(
+            f"mark-phase-complete: phase '{phase_key}' not in index", err=True
+        )
+        raise SystemExit(1)
+
+    _mark_phase_complete_in_index(phase_key, project_path)
 
 
 _DELEGATION_RE = re.compile(
@@ -1826,6 +1857,20 @@ def _record_checkpoint_step(step_id: str, project_dir: Path) -> int:
 
     Returns 0 on success or when step_id is already present (idempotent).
     Returns 1 when step_id is not in _CHECKPOINT_SEQUENCE.
+
+    Completing the terminal step (``checkpoint-tag``) also marks the
+    currently-active phase's row ``complete`` in ``docs/phases/index.md``,
+    via ``_mark_phase_complete_in_index`` (INFRA-239). This happens in the
+    same CLI call as the ``checkpoint_step`` reset — the orchestrator no
+    longer needs to remember to invoke ``mark-phase-complete`` separately.
+    Without this, the phase's index row stays non-``complete``, so the next
+    ``next-action`` resolution re-selects the same phase as active; combined
+    with the ``checkpoint_step`` reset below, that re-emits
+    ``checkpoint-security`` for a phase that was just tagged (INFRA-239
+    regression). Resolving the active phase is done here, before the
+    ``checkpoint_step`` reset takes effect, using the same
+    ``resolve_current_phase`` read-model the resolver itself uses — no
+    phase key is threaded through the CLI args.
     """
     import tempfile  # noqa: PLC0415
 
@@ -1859,6 +1904,12 @@ def _record_checkpoint_step(step_id: str, project_dir: Path) -> int:
     current.append(step_id)
     if step_id == _CHECKPOINT_SEQUENCE[-1]:
         current = []
+        _active_phase_file = resolve_current_phase(project_dir)
+        if _active_phase_file is not None:
+            _phase_key = _active_phase_file.stem
+            if _phase_key.startswith("phase-"):
+                _phase_key = _phase_key[len("phase-") :]
+            _mark_phase_complete_in_index(_phase_key, project_dir)
     state["checkpoint_step"] = current
 
     # Atomic write: temp file in same dir, then rename.

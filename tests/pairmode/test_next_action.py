@@ -746,6 +746,154 @@ class TestResolveNextActionCheckpoint:
         assert action["action"] != DONE
         assert validate_action(action) == []
 
+    def test_tag_without_phase_complete_never_reemits_checkpoint_security(
+        self, tmp_path: Any
+    ) -> None:
+        """INFRA-239 regression: reproduces the exact failure mode from the
+        story Context.
+
+        Before this fix, ``record-checkpoint-step checkpoint-tag`` reset
+        ``state.json["checkpoint_step"]`` to ``[]`` (RESOLVER-017) but never
+        flipped the phase's ``docs/phases/index.md`` row to ``complete``. The
+        same phase would therefore re-resolve as active on the next
+        ``next-action`` call, ``_check_phase_completion`` would pass
+        vacuously (no unbuilt stories left), the checkpoint guards would
+        pass, and — because ``checkpoint_step`` had just been reset to
+        ``[]`` — the resolver would re-emit ``checkpoint-security`` for a
+        phase that was already tagged, forever.
+
+        This test drives the real ``record-checkpoint-step`` CLI through a
+        full checkpoint sequence against a real ``docs/phases/index.md`` +
+        phase file, then feeds the real (updated) durable state through
+        ``infer_position`` + ``resolve_next_action`` and asserts the
+        just-tagged phase is never re-selected as active — the resolver
+        must emit ``done`` (no further phases in the index), never
+        ``checkpoint-security`` again.
+        """
+        import subprocess
+        import sys as _sys
+
+        project_dir = tmp_path / "sub" / "project"
+        companion = project_dir / ".companion"
+        companion.mkdir(parents=True)
+        state_path = companion / "state.json"
+        state_path.write_text(json.dumps({"checkpoint_step": []}), encoding="utf-8")
+
+        _write_index(project_dir, [("1", "Only phase", "planned")])
+        # No Stories table → phase-completion guard passes vacuously.
+        (project_dir / "docs" / "phases" / "phase-1.md").write_text(
+            "# Phase 1\n", encoding="utf-8"
+        )
+
+        scripts_dir = (
+            Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts"
+        )
+
+        for step in [
+            "checkpoint-security",
+            "checkpoint-intent",
+            "checkpoint-docs",
+            "checkpoint-tag",
+        ]:
+            result = subprocess.run(
+                [
+                    _sys.executable,
+                    str(scripts_dir / "flex_build.py"),
+                    "record-checkpoint-step",
+                    step,
+                    "--project-dir",
+                    str(project_dir),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0, result.stderr
+
+        # The checkpoint-tag step must have flipped the index row to complete.
+        index_text = (
+            project_dir / "docs" / "phases" / "index.md"
+        ).read_text(encoding="utf-8")
+        assert "| 1 | Only phase | complete |" in index_text
+
+        # Feed the real, updated durable state through the real read-model —
+        # not a synthetic position — so the phase-selection logic
+        # (_resolve_active_phase) is exercised end to end.
+        pos = infer_position(project_dir)
+        assert pos["active_phase_file"] is None, (
+            "the just-tagged phase re-resolved as active — index write "
+            "did not take effect before the next resolver call"
+        )
+
+        action = resolve_next_action(pos, gate_fn=lambda: True)
+        assert action["action"] != CHECKPOINT_SECURITY, (
+            "checkpoint-security was re-emitted for the just-tagged phase "
+            "(INFRA-239 regression)"
+        )
+        assert action["action"] == DONE
+        assert validate_action(action) == []
+
+    def test_tag_without_phase_complete_advances_to_next_phase(
+        self, tmp_path: Any
+    ) -> None:
+        """Same regression as above, but with a second phase still planned:
+        next-action must advance to the next phase's first action, never
+        re-emit checkpoint-security for the just-tagged phase."""
+        import subprocess
+        import sys as _sys
+
+        project_dir = tmp_path / "sub" / "project"
+        companion = project_dir / ".companion"
+        companion.mkdir(parents=True)
+        state_path = companion / "state.json"
+        state_path.write_text(json.dumps({"checkpoint_step": []}), encoding="utf-8")
+
+        _write_index(
+            project_dir,
+            [
+                ("1", "First phase", "planned"),
+                ("2", "Second phase", "planned"),
+            ],
+        )
+        (project_dir / "docs" / "phases" / "phase-1.md").write_text(
+            "# Phase 1\n", encoding="utf-8"
+        )
+        _write_phase(project_dir, "2", [("TEST-900", "planned")])
+        _write_story(project_dir, "TEST-900", phase="2")
+
+        scripts_dir = (
+            Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts"
+        )
+
+        for step in [
+            "checkpoint-security",
+            "checkpoint-intent",
+            "checkpoint-docs",
+            "checkpoint-tag",
+        ]:
+            result = subprocess.run(
+                [
+                    _sys.executable,
+                    str(scripts_dir / "flex_build.py"),
+                    "record-checkpoint-step",
+                    step,
+                    "--project-dir",
+                    str(project_dir),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0, result.stderr
+
+        pos = infer_position(project_dir)
+        assert pos["active_phase_file"] is not None
+        assert Path(pos["active_phase_file"]).name == "phase-2.md", (
+            "resolver did not advance past the just-tagged phase 1"
+        )
+
+        action = resolve_next_action(pos, gate_fn=lambda: True)
+        assert action["action"] != CHECKPOINT_SECURITY
+        assert action["action"] != DONE
+
 
 class TestResolveNextActionSpawnBuilder:
     """Rows 2/5/8: various spawn-builder conditions."""

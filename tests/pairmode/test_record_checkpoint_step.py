@@ -182,6 +182,84 @@ class TestRecordCheckpointStep:
         state = _read_state(project_dir)
         assert state["checkpoint_step"] == []
 
+    def test_checkpoint_tag_marks_active_phase_complete_in_index(
+        self, tmp_path: Path
+    ) -> None:
+        """INFRA-239: completing checkpoint-tag also flips the active phase's
+        status cell to 'complete' in docs/phases/index.md, in the same CLI
+        call — no separate mark-phase-complete invocation required."""
+        project_dir = _setup_project(
+            tmp_path,
+            {
+                "checkpoint_step": [
+                    "checkpoint-security",
+                    "checkpoint-intent",
+                    "checkpoint-docs",
+                ]
+            },
+        )
+        phases_dir = project_dir / "docs" / "phases"
+        phases_dir.mkdir(parents=True)
+        index_path = phases_dir / "index.md"
+        index_path.write_text(
+            "# Index\n\n"
+            "| Phase | Title | Status | Tag |\n"
+            "|-------|-------|--------|-----|\n"
+            "| 1 | First phase | planned | |\n",
+            encoding="utf-8",
+        )
+        (phases_dir / "phase-1.md").write_text("# Phase 1\n", encoding="utf-8")
+
+        result = _invoke(project_dir, "checkpoint-tag")
+        assert result.exit_code == 0, result.output
+
+        state = _read_state(project_dir)
+        assert state["checkpoint_step"] == []
+
+        index_text = index_path.read_text(encoding="utf-8")
+        assert "| 1 | First phase | complete |" in index_text
+
+    def test_non_terminal_steps_do_not_touch_index(self, tmp_path: Path) -> None:
+        """checkpoint-security/intent/docs must not mark the phase complete —
+        only the terminal checkpoint-tag step does."""
+        project_dir = _setup_project(tmp_path, {"checkpoint_step": []})
+        phases_dir = project_dir / "docs" / "phases"
+        phases_dir.mkdir(parents=True)
+        index_path = phases_dir / "index.md"
+        original = (
+            "# Index\n\n"
+            "| Phase | Title | Status | Tag |\n"
+            "|-------|-------|--------|-----|\n"
+            "| 1 | First phase | planned | |\n"
+        )
+        index_path.write_text(original, encoding="utf-8")
+        (phases_dir / "phase-1.md").write_text("# Phase 1\n", encoding="utf-8")
+
+        for step in ["checkpoint-security", "checkpoint-intent", "checkpoint-docs"]:
+            result = _invoke(project_dir, step)
+            assert result.exit_code == 0, result.output
+
+        assert index_path.read_text(encoding="utf-8") == original
+
+    def test_checkpoint_tag_noop_when_no_index(self, tmp_path: Path) -> None:
+        """No docs/phases/index.md present → checkpoint-tag still succeeds
+        (the phase-complete write is a graceful no-op, not a hard failure)."""
+        project_dir = _setup_project(
+            tmp_path,
+            {
+                "checkpoint_step": [
+                    "checkpoint-security",
+                    "checkpoint-intent",
+                    "checkpoint-docs",
+                ]
+            },
+        )
+        result = _invoke(project_dir, "checkpoint-tag")
+        assert result.exit_code == 0, result.output
+        state = _read_state(project_dir)
+        assert state["checkpoint_step"] == []
+        assert not (project_dir / "docs" / "phases" / "index.md").exists()
+
     def test_depth_guard_rejects_shallow_project_dir(self, tmp_path: Path) -> None:
         """A project_dir with fewer than 3 path components → exits non-zero (CER-061)."""
         runner = CliRunner()

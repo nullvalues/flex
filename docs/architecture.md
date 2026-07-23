@@ -53,7 +53,7 @@ flex/
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
-        flex_build.py             ← CLI wrapping pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stub, check-schema-gate, check-auth-gate, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope, next-action, resolver-state, record-checkpoint-step, record-attempt); next-action added in HARNESS001-main (since the flip, HARNESS006, the sequencing core the thin dispatch loop in CLAUDE.build.md calls each iteration); resolver-state added in HARNESS007-main (pure-read resolver state dump); record-checkpoint-step added in HARNESS009-main (RESOLVER-012) — atomically appends a validated checkpoint step ID to state.json["checkpoint_step"], replacing LLM-prose writes; replaces inline python -c blocks in CLAUDE.build.md.j2; record-attempt added in RELEASE-009 (HARNESS012-main) — Click alias delegating to record_attempt.py, so the orchestrator template can call a single entry point
+        flex_build.py             ← CLI wrapping pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stub, check-schema-gate, check-auth-gate, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope, next-action, resolver-state, record-checkpoint-step, record-attempt); next-action added in HARNESS001-main (since the flip, HARNESS006, the sequencing core the thin dispatch loop in CLAUDE.build.md calls each iteration); resolver-state added in HARNESS007-main (pure-read resolver state dump); record-checkpoint-step added in HARNESS009-main (RESOLVER-012) — atomically appends a validated checkpoint step ID to state.json["checkpoint_step"], replacing LLM-prose writes; replaces inline python -c blocks in CLAUDE.build.md.j2; INFRA-239 wires the `checkpoint-tag` step of record-checkpoint-step to also call `_mark_phase_complete_in_index` (the write side `mark-phase-complete` shares) in the same invocation, so the checkpoint_step reset and the phase-index `complete` write happen atomically in one CLI call rather than requiring a second, separately-remembered `mark-phase-complete` call; record-attempt added in RELEASE-009 (HARNESS012-main) — Click alias delegating to record_attempt.py, so the orchestrator template can call a single entry point
         refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
@@ -317,6 +317,21 @@ is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
     one action per call, and the harness applies the checkpoint-agent model override (model_selector)
     when spawning each leaf worker. Documentation is updated, all planned stories are verified
     complete or deferred, and the phase is tagged. Live since the flip (HARNESS006).
+
+    Completing `checkpoint-tag` (`flex_build.py record-checkpoint-step checkpoint-tag`) does two
+    writes in the same CLI call (INFRA-239): it resets `state.json["checkpoint_step"]` to `[]`
+    (RESOLVER-017) **and** flips the just-tagged phase's status cell to `complete` in
+    `docs/phases/index.md`, via the shared `_mark_phase_complete_in_index` helper (the phase is
+    resolved with the same `resolve_current_phase` read-model the resolver itself uses — no phase
+    key is threaded through the orchestrator). Both writes landing in one call closes the gap where
+    an operator/orchestrator had to remember a second `mark-phase-complete` invocation: without the
+    index write, the just-tagged phase kept re-resolving as active (its status cell was still not
+    `complete`), the phase-completion guard passed vacuously (no unbuilt stories), and the freshly
+    reset `checkpoint_step` made the resolver re-emit `checkpoint-security` for a phase that was
+    already tagged — the `_CHECKPOINT_SEQUENCE`-complete `done` branch structurally could never be
+    reached again for that phase. The write is a graceful no-op (not a failure) when
+    `docs/phases/index.md` is absent or the phase row can't be found, so legacy layouts and unit
+    tests that don't set up an index are unaffected.
 
 ---
 
@@ -938,6 +953,7 @@ is **read-only** on every row.
 |---------|-------------------------------|-----------------|
 | `state.json` `context_*` (context tokens: `context_current_tokens`, `context_current_tokens_recorded_at`, `context_session_reset_at`) | orchestrator hooks (`post_tool_use.py` / `session_start.py`), frozen | read-only |
 | `state.json` `checkpoint_step` | orchestrator (`flex_build.py record-checkpoint-step`); HARNESS009-main moved authority from LLM prose to CLI (RESOLVER-012); HARNESS015-main (RESOLVER-017) added reset-to-`[]` on `checkpoint-tag` completion, fixing a silent skip of the entire checkpoint sequence on every phase after the first | read-only |
+| `docs/phases/index.md` phase status cell | orchestrator, via `flex_build.py record-checkpoint-step checkpoint-tag` (INFRA-239) — the `checkpoint-tag` step's `_mark_phase_complete_in_index` call writes `complete` to the just-tagged phase's row in the same CLI invocation that resets `checkpoint_step`, so the two writes never land in separate orchestrator turns; the standalone `mark-phase-complete` command (`cmd_mark_phase_complete`) shares the same write helper for direct/manual use but is no longer required in the checkpoint path | read-only (`_resolve_active_phase` / `resolve_current_phase` skip `complete`/`deferred`/`backlog` rows when selecting the active phase) |
 | active story (`state.json` `current_story`) | orchestrator (`story_context.py`) | read-only |
 | `effort.db` | orchestrator (`record_attempt.py` / effort recorder) | read-only |
 | `attempt_counter.json` (attempt counters) | orchestrator (`flex_build.py write-attempt-count` / `clear-attempt-count`) | read-only |
