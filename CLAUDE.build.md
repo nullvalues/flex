@@ -8,16 +8,11 @@ pairmode_scripts_dir = /mnt/work/flex-harness/skills/pairmode/scripts
 
 ## Build loop
 
-Story-build actions (`spawn-builder`, `spawn-reviewer`, and the
-reviewer-equivalent spawn actions that write and commit code) run inside a
-disposable per-story git worktree: created fresh from the current branch tip
-before the builder spawns, and on reviewer PASS rebased + fast-forward-merged
-back onto the main branch, or on reviewer FAIL discarded outright — untracked
-content and all — without ever touching the main worktree's files. The builder
-and reviewer operate inside the returned worktree path, never the main project
-directory. Checkpoint-stage workers (`checkpoint-security`, `checkpoint-intent`,
-`checkpoint-docs`) are read-mostly/advisory and never commit — they stay on the
-main worktree, unwrapped.
+Story-build actions (`spawn-builder`, `spawn-reviewer`, and the reviewer-equivalent spawn actions that write and commit code) run inside a disposable per-story git worktree: created fresh from the current branch tip before the builder spawns, and on reviewer PASS rebased + fast-forward-merged back onto the main branch, or on reviewer FAIL discarded outright — untracked content and all — without ever touching the main worktree's files. The builder and reviewer operate inside the returned worktree path, never the main project directory. Checkpoint-stage workers (`checkpoint-security`, `checkpoint-intent`, `checkpoint-docs`) are read-mostly/advisory and never commit — they stay on the main worktree, unwrapped.
+
+`leaf-worker-for(a.action)` spawns `Task`/`Agent` with `subagent_type` resolved from `a.action` via the fixed map below (never `general-purpose` for a story-build/checkpoint action — an unresolved `general-purpose` spawn is invisible to the context-budget gate, INFRA-199/INFRA-241); `model=a.model` always overrides an agent's frontmatter `model:` default (see `docs/architecture.md` § Spawn contract):
+
+ACTION_SUBAGENT_TYPE = {spawn-builder: builder, spawn-reviewer: reviewer, spawn-loop-breaker: loop-breaker, spawn-security-auditor: security-auditor, spawn-intent-reviewer: intent-reviewer, checkpoint-security: security-auditor, checkpoint-intent: intent-reviewer}  # other spawn/checkpoint actions keep their own existing dispatch, out of INFRA-241 scope
 
 ```
 while true:
@@ -25,11 +20,11 @@ while true:
     if a.action == "done": break
     if a.action is a story-build action (spawn-builder / spawn-reviewer):
         wt = /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py create-story-worktree --story-id a.scalar --project-dir .
-        spawn leaf-worker-for(a.action) with scalar=a.scalar, model=a.model, cwd=wt
+        spawn leaf-worker-for(a.action) with subagent_type=ACTION_SUBAGENT_TYPE[a.action], scalar=a.scalar, model=a.model, cwd=wt
         on reviewer PASS: /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py merge-story-worktree --story-id a.scalar --project-dir .
         on reviewer FAIL: /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py discard-story-worktree --story-id a.scalar --project-dir .
     else:
-        spawn leaf-worker-for(a.action) with scalar=a.scalar, model=a.model
+        spawn leaf-worker-for(a.action) with subagent_type=ACTION_SUBAGENT_TYPE[a.action], scalar=a.scalar, model=a.model
     record result via /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py record-attempt ...
 ```
 

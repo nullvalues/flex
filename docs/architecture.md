@@ -85,11 +85,11 @@ flex/
         CLAUDE.build.md.j2
         RECONSTRUCTION.md.j2     ← scoring report template filled in by a reconstruction agent
         agents/
-          builder.md.j2
-          reviewer.md.j2
-          loop-breaker.md.j2
-          security-auditor.md.j2
-          intent-reviewer.md.j2
+          builder.md.j2             ← thin builder agent shell (WORKER-005); retired in HARNESS002-main, re-registered in INFRA-241 so subagent_type: "builder" resolves to a real agent for the context-budget gate (INFRA-199)
+          reviewer.md.j2            ← thin reviewer agent shell (WORKER-006); retired in HARNESS002-main, re-registered in INFRA-241
+          loop-breaker.md.j2        ← thin loop-breaker agent shell (WORKER-007); retired in HARNESS002-main, re-registered in INFRA-241; model: fable
+          security-auditor.md.j2    ← thin security-auditor agent shell (WORKER-008); retired in HARNESS002-main, re-registered in INFRA-241
+          intent-reviewer.md.j2     ← thin intent-reviewer agent shell (WORKER-009); retired in HARNESS002-main, re-registered in INFRA-241
           reconstruction-agent.md.j2
           gate-worker.md.j2         ← thin gate-worker agent shell (WORKER-002, HARNESS002-main); delegates all judgment logic to skills/pairmode/gate_worker/SKILL.md; carries no inline gate-detection logic; live since the flip (HARNESS006)
         docs/
@@ -294,6 +294,25 @@ is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
    (JSON decode error or non-dict root) — the malformed-file path returns `{}` from
    `_read_state()`, which propagates to a missing-tokens block (CER-040).
    References: CER-027, CER-039, CER-040, INFRA-180, INFRA-181, INFRA-182.
+
+   **On the threshold constant (INFRA-241).** The live default threshold
+   (`context_budget.py`'s `decide()`: `int(state.get("context_budget_threshold",
+   130000) or 130000)`) is an **empirically-tuned defensive heuristic for
+   managing build-churn/drift, not a hard platform token limit**. It is not
+   derived from any documented model context window; it exists to give an
+   operator a "close enough" signal to decide whether to `/clear` or continue
+   given the next story's complexity, before a session's accumulated context
+   degrades build quality. It may need recalibration over time — different
+   models, longer sessions, or changed story complexity profiles could all
+   shift where "close enough" actually sits — and recalibrating it is a
+   config-value change (`context_budget_threshold` in `state.json`), not an
+   architectural one.
+
+   **On the gate's real dispatch scope (INFRA-241).** The subagent_type
+   allowlist above (`BUILD_CYCLE_SUBAGENTS`) is a no-op unless spawns for
+   those five roles actually carry a real, registered `subagent_type` —
+   see § Spawn contract: subagent_type resolution below for the full history
+   of why this was previously fully decorative and how it was restored.
 
 9.5 **Story file-scope enforcement** — `hooks/pre_tool_use.py` also intercepts
    `Edit` and `Write` tool calls. It delegates to
@@ -621,6 +640,23 @@ The pre-existing `# fallback:` comments remain in the templates — fallback
 handles rate-limit substitution downward, upgrade handles edge-case
 substitution upward; both apply concurrently.
 
+**Correction (INFRA-241).** Until INFRA-241, this `Agent({..., subagent_type:
+"reviewer", ...})` example described a spawn shape that could not actually
+occur: HARNESS-002 had retired the rendered per-role `builder.md` /
+`reviewer.md` / `loop-breaker.md` / `security-auditor.md` / `intent-reviewer.md`
+agent files in favor of shared procedure skills loaded by generic thin shells,
+which left no custom agent type named `reviewer` (etc.) registered anywhere
+for `subagent_type` to resolve to — every real build-cycle spawn since
+HARNESS-002 used `subagent_type: "general-purpose"` instead. INFRA-241
+re-registers the five build-cycle roles as thin `.claude/agents/*.md` shells
+(bodies unchanged from the "Shell instruction" already documented in each
+role's `procedure.md` — no judgment/implementation logic duplicated into the
+shell, preserving HARNESS-002's single-source-of-truth intent) so this example
+is now accurate: `subagent_type: "reviewer"` resolves to a real registered
+agent, and `model` is still overridden per call exactly as described above.
+See § Spawn contract: subagent_type resolution below for the full mechanism
+and the model-override verification this correction depends on.
+
 **Rationale.** Most reviews catch nothing because most builders produce
 correct work. The per-story reviewer task is mechanical: diff matches spec,
 tests pass, checklist OK, commit. Sonnet handles that fine. Opus is overhead
@@ -698,6 +734,71 @@ Unknown or absent `phase_class` values default to `"production"` for both
 helpers. The orchestrator reads `phase_class` from the phase manifest frontmatter
 before spawning each checkpoint agent and passes the result as the Agent tool's
 `model` parameter (same override mechanism as the reviewer model selection).
+
+### Spawn contract: subagent_type resolution (INFRA-241)
+
+**The gap.** `hooks/pre_tool_use.py`'s context-budget gate (INFRA-199) only
+calls `context_budget.decide()` when `tool_input.subagent_type` is one of the
+five build-cycle types (`BUILD_CYCLE_SUBAGENTS`: `builder`, `reviewer`,
+`loop-breaker`, `security-auditor`, `intent-reviewer`) — intentional design,
+not a bug; `general-purpose`/`Plan`/`Explore` spawns must never be blocked.
+But HARNESS-002 had retired the rendered per-role agent files in `.claude/agents/`
+in favor of shared procedure skills loaded by generic thin shells, which left
+no custom agent type registered under any of those five names — nothing for
+`subagent_type` to resolve to. Every real build-cycle spawn following the
+then-current process used `subagent_type: "general-purpose"` (confirmed by
+direct trace of the INFRA-235 build), which is never in `BUILD_CYCLE_SUBAGENTS`
+— so the gate hit `sys.exit(0)` before `decide()` ever ran, for every real
+build-cycle spawn since HARNESS-002. Not a partial gap: total.
+
+**The fix.** Re-register the five build-cycle roles as thin
+`.claude/agents/{builder,reviewer,loop-breaker,security-auditor,intent-reviewer}.md`
+shells (`skills/pairmode/templates/agents/*.md.j2`, deployed via
+`bootstrap.py`'s `AGENT_FILES` to every newly-bootstrapped and re-synced
+project). Each shell's entire body is the "Shell instruction" already
+documented in its role's `skills/pairmode/skills/<role>/procedure.md` — load
+the procedure skill, execute for the given story/phase identifier, return the
+typed result. No judgment or implementation logic is duplicated into the
+shell; this preserves HARNESS-002's single-source-of-truth intent exactly (the
+`gate-worker.md.j2` bootstrap template already established this thin-shell-
+over-shared-skill pattern, so registering five more does not reintroduce the
+per-role-file duplication HARNESS-002 eliminated). `CLAUDE.build.md.j2`'s
+build-loop pseudocode now names the exact `subagent_type` per `a.action` via
+an explicit table (see `CLAUDE.build.md` § Build loop) rather than leaving
+`leaf-worker-for(a.action)` ambiguous — the ambiguity is what produced the
+`general-purpose` choice in the first place.
+
+**Model-override verification (Requires item 2).** Each of the five new
+shells carries a frontmatter `model:` default (`sonnet` for `builder`,
+`reviewer`, `security-auditor`, `intent-reviewer`; `fable` for
+`loop-breaker`, matching `model_selector.select_loop_breaker_model()`'s
+unconditional escalation) — consistent with the "Pairmode pins each agent to
+a specific Claude model" policy above. This is safe regardless of whether a
+frontmatter-pinned `model:` can be overridden per call, because the build
+loop never actually depends on the frontmatter default being used: every
+spawn in `CLAUDE.build.md.j2`'s pseudocode already passes `model=a.model`
+explicitly (`a.model` always resolved beforehand by the matching
+`model_selector.select_*_model()` call — `next_action.py` guarantees `model`
+is non-`None` for all five of these actions, see `_SPAWN_ACTIONS`). The
+per-call `model` parameter on the `Task`/`Agent` tool call is standard Claude
+Code subagent behavior: a custom agent's frontmatter `model:` field sets only
+that agent's *default* when invoked with no override; passing `model` on the
+spawn call itself takes precedence for that one invocation. INFRA-237's
+per-attempt escalation ladder (retry-upgrade at attempt ≥ 2, the loop-breaker's
+fable tier) therefore continues to work unchanged post-INFRA-241 — it was
+never resting on the frontmatter default in the first place, only on
+`model_selector` computing the right value and the orchestrator passing it
+per call, both of which are unaffected by this story. The `# fallback:` /
+`# upgrade:` inline YAML comments on each shell (matching the `gate-worker.md.j2`
+precedent) document the manual-invocation defaults only.
+
+**Observability.** The gate reconnecting to real spawns is directly testable:
+`tests/pairmode/test_pre_tool_use_hook.py::test_allowlisted_subagent_type_still_gates`
+(parametrized over all five `BUILD_CYCLE_SUBAGENTS` values) asserts `decide()`
+runs and blocks for each; `tests/pairmode/test_bootstrap.py`'s
+`TestBuildCycleSubagentDispatch` asserts each of the five shells is deployed,
+project-name-rendered, references its procedure skill, and its frontmatter
+`name:` matches the literal string `BUILD_CYCLE_SUBAGENTS` matches on.
 
 ### Pairmode tooling
 

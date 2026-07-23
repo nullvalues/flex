@@ -273,6 +273,34 @@ def test_compute_context_tokens_skips_malformed_json(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# INFRA-241: transcript-entry-shape drift canary.
+#
+# Not a parser rewrite and not new parsing logic -- compute_context_tokens()
+# already fails safe (returns None) on any malformed/missing/reshaped field,
+# and decide() already hard-blocks on a None current_tokens. The one gap that
+# leaves uncovered: a *silent* future transcript-format change that stays
+# valid-shaped JSON but alters field semantics (e.g. a units change, or a
+# rename that happens to collide with another key) would not raise and would
+# not be caught by the None check. This test pins today's known-good
+# ``type: "assistant"`` entry shape (tests/pairmode/fixtures/
+# transcript_entry_shape.json) so any future drift away from that shape shows
+# up as a failing test rather than a silently-wrong budget number.
+# ---------------------------------------------------------------------------
+
+
+def test_compute_context_tokens_drift_canary_known_good_shape(tmp_path):
+    """Pin today's known-good transcript entry shape against silent drift."""
+    fixture_path = Path(__file__).parent / "fixtures" / "transcript_entry_shape.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    f = tmp_path / "t.jsonl"
+    f.write_text(json.dumps(fixture["entry"]) + "\n", encoding="utf-8")
+
+    result = context_budget.compute_context_tokens(f)
+    assert result == fixture["expected_total_tokens"]
+
+
+# ---------------------------------------------------------------------------
 # read_current_tokens
 # ---------------------------------------------------------------------------
 

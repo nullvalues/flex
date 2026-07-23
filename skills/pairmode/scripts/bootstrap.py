@@ -61,16 +61,34 @@ SCAFFOLD_FILES: list[tuple[str, str]] = [
 # Agent files — skipped if they already exist, unless --force-agents is passed.
 # These are treated as project-owned after first bootstrap.
 # Note: builder.md.j2, reviewer.md.j2, loop-breaker.md.j2, security-auditor.md.j2,
-# and intent-reviewer.md.j2 were retired in HARNESS-002 (dogfood flip). New projects
-# use procedure skill shells instead of rendered agent files for these roles.
+# and intent-reviewer.md.j2 were retired in HARNESS-002 (dogfood flip) and
+# re-registered in INFRA-241 (see below) — HARNESS-002's shared-procedure design
+# is preserved (each shell's body is only the "Shell instruction" already
+# documented in its corresponding procedure.md; no role logic is duplicated
+# into the agent file), but a real, matchable `subagent_type` string is
+# required for the context-budget PreToolUse gate (INFRA-199) to ever fire —
+# without a registered custom agent type, spawns for these five roles have no
+# `subagent_type` to resolve to and the gate falls through as a no-op for
+# every real build-cycle spawn.
 #
 # gate-worker.md.j2 is included (RELEASE-010): the resolver emits spawn-gate-worker for
 # stories with schema_introduces/auth_gated true; without this shell the orchestrator has
 # no dispatch path for that action.  The shell references skills/pairmode/gate_worker/SKILL.md
 # (relative to project root) which is present in any project bootstrapped from this harness.
+#
+# builder.md.j2, reviewer.md.j2, loop-breaker.md.j2, security-auditor.md.j2, and
+# intent-reviewer.md.j2 (INFRA-241): thin shells whose body loads the matching
+# skills/pairmode/skills/<role>/procedure.md and defers all judgment/implementation
+# logic to it. Deployed to every newly-bootstrapped and re-synced project so the
+# fleet-wide context-budget gate (INFRA-199) has a real subagent_type to match on.
 AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/reconstruction-agent.md", "agents/reconstruction-agent.md.j2"),
     (".claude/agents/gate-worker.md", "agents/gate-worker.md.j2"),
+    (".claude/agents/builder.md", "agents/builder.md.j2"),
+    (".claude/agents/reviewer.md", "agents/reviewer.md.j2"),
+    (".claude/agents/loop-breaker.md", "agents/loop-breaker.md.j2"),
+    (".claude/agents/security-auditor.md", "agents/security-auditor.md.j2"),
+    (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
 ]
 
 # Default deny list written into .claude/settings.json.

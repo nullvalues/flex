@@ -4,9 +4,20 @@ Tests for HARNESS-002: Dogfood flip — apply thin loop + retire agent templates
 Asserts deterministically:
 - The live CLAUDE.build.md is <=40 non-blank lines (line-count gate).
 - The live CLAUDE.build.md contains "next-action".
-- skills/pairmode/templates/agents/builder.md.j2 does NOT exist (retired).
-- .claude/agents/builder.md does NOT exist (retired rendered file).
-- skills/pairmode/skills/builder/procedure.md DOES exist (the replacement).
+- skills/pairmode/skills/builder/procedure.md DOES exist (the shared procedure).
+
+INFRA-241 update: HARNESS-002 retired the *rendered per-role agent files* in
+favor of shared procedure skills loaded by generic thin shells — but left no
+custom `subagent_type` registered for the Task/Agent tool to resolve to,
+which made the context-budget gate (INFRA-199) fully decorative for every
+real build-cycle spawn. INFRA-241 re-registers
+skills/pairmode/templates/agents/builder.md.j2 and .claude/agents/builder.md
+as thin shells whose entire body is the builder procedure's "Shell
+instruction" — no judgment/implementation logic is duplicated back in, so
+HARNESS-002's single-source-of-truth intent is preserved even though the
+files themselves now exist again. The "retired" tests below are renamed to
+assert the shells are re-registered *and* still delegate to the procedure
+skill rather than reintroducing inline logic.
 """
 from pathlib import Path
 
@@ -18,13 +29,13 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 
 LIVE_BUILD_MD = REPO_ROOT / "CLAUDE.build.md"
 
-# Old j2 template that must be removed
-RETIRED_BUILDER_TEMPLATE = (
+# Thin builder shell template — re-registered by INFRA-241 (see module docstring)
+BUILDER_TEMPLATE = (
     REPO_ROOT / "skills" / "pairmode" / "templates" / "agents" / "builder.md.j2"
 )
 
-# Old rendered agent file that must be removed
-RETIRED_BUILDER_AGENT = REPO_ROOT / ".claude" / "agents" / "builder.md"
+# Thin rendered builder agent shell — re-registered by INFRA-241
+BUILDER_AGENT = REPO_ROOT / ".claude" / "agents" / "builder.md"
 
 # Replacement procedure skill that must exist
 BUILDER_PROCEDURE = (
@@ -50,17 +61,30 @@ def test_live_build_md_contains_next_action() -> None:
     assert "next-action" in text, "Live CLAUDE.build.md does not contain 'next-action'"
 
 
-def test_retired_builder_template_absent() -> None:
-    """skills/pairmode/templates/agents/builder.md.j2 must NOT exist after the flip."""
-    assert not RETIRED_BUILDER_TEMPLATE.exists(), (
-        f"Retired builder template still exists: {RETIRED_BUILDER_TEMPLATE}"
+def test_builder_template_reregistered() -> None:
+    """skills/pairmode/templates/agents/builder.md.j2 exists (INFRA-241) and
+    delegates to the shared procedure skill rather than duplicating logic."""
+    assert BUILDER_TEMPLATE.exists(), (
+        f"Builder template shell missing: {BUILDER_TEMPLATE}"
+    )
+    text = BUILDER_TEMPLATE.read_text()
+    assert "skills/pairmode/skills/builder/procedure.md" in text, (
+        "Builder template shell does not reference the shared procedure skill"
+    )
+    assert "name: builder" in text, (
+        "Builder template shell frontmatter name must be the literal "
+        "subagent_type string 'builder' the context-budget gate matches on"
     )
 
 
-def test_retired_builder_agent_absent() -> None:
-    """.claude/agents/builder.md must NOT exist after the flip."""
-    assert not RETIRED_BUILDER_AGENT.exists(), (
-        f"Retired rendered builder agent still exists: {RETIRED_BUILDER_AGENT}"
+def test_builder_agent_reregistered() -> None:
+    """.claude/agents/builder.md exists (INFRA-241) and delegates to the
+    shared procedure skill rather than duplicating logic."""
+    if not BUILDER_AGENT.exists():
+        pytest.skip("builder.md not yet rendered in this checkout")
+    text = BUILDER_AGENT.read_text()
+    assert "skills/pairmode/skills/builder/procedure.md" in text, (
+        "Builder agent shell does not reference the shared procedure skill"
     )
 
 

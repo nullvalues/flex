@@ -1645,17 +1645,23 @@ def _write_full_context(project_dir: Path) -> dict:
 class TestSyncBoldMarkerSectionGranularity:
     """sync_project locates and patches bold-marker checklist items independently.
 
-    agents/reviewer.md.j2 was retired in HARNESS-002 (the reviewer role is now a
-    procedure-skill shell, not a rendered per-project template) — no file in
-    fold-prep's real CANONICAL_FILES uses bold-marker (``**N. NAME**``) checklist
-    sections anymore. This class registers a synthetic bold-marker canonical
-    file for the duration of its tests so the override/sync integration path
-    (real content, not just the unit-level `_replace_section_in_file` helper)
-    stays exercised even though no production file currently needs the format.
+    No file in fold-prep's real CANONICAL_FILES uses bold-marker
+    (``**N. NAME**``) checklist sections. This class registers a synthetic
+    bold-marker canonical file for the duration of its tests so the
+    override/sync integration path (real content, not just the unit-level
+    `_replace_section_in_file` helper) stays exercised even though no
+    production file currently needs the format.
+
+    INFRA-241 note: the fixture destination used to alias the real
+    `.claude/agents/reviewer.md` (safe only while agents/reviewer.md.j2 was
+    retired in HARNESS-002, so no real CANONICAL_FILES entry existed at that
+    path). INFRA-241 re-registers a real `agents/reviewer.md.j2` entry for the
+    context-budget gate (INFRA-199), so the fixture now uses its own
+    non-colliding destination path instead of shadowing it.
     """
 
     _FIXTURE_TEMPLATE_REL = "agents/_test_bold_marker_fixture.md.j2"
-    _FIXTURE_DEST_REL = ".claude/agents/reviewer.md"
+    _FIXTURE_DEST_REL = ".claude/agents/_test_bold_marker_fixture.md"
 
     @pytest.fixture(autouse=True)
     def _register_bold_marker_fixture(self, tmp_path_factory):
@@ -1726,7 +1732,7 @@ class TestSyncBoldMarkerSectionGranularity:
         assert "**1. protected files**" in canonical_sections
         assert "**3. build gate**" in canonical_sections
 
-        reviewer_path = tmp_path / ".claude" / "agents" / "reviewer.md"
+        fixture_path = tmp_path / self._FIXTURE_DEST_REL
         rendered = _JINJA_ENV.get_template(self._FIXTURE_TEMPLATE_REL).render(**ctx)
         custom_protected_body = "CUSTOM PROTECTED FILES OVERRIDE BODY"
         custom_build_gate_body = "CUSTOM BUILD GATE BODY (undeclared, should be reverted)"
@@ -1736,18 +1742,18 @@ class TestSyncBoldMarkerSectionGranularity:
         ).replace(
             canonical_sections["**3. build gate**"], custom_build_gate_body, 1
         )
-        reviewer_path.parent.mkdir(parents=True, exist_ok=True)
-        reviewer_path.write_text(modified, encoding="utf-8")
+        fixture_path.parent.mkdir(parents=True, exist_ok=True)
+        fixture_path.write_text(modified, encoding="utf-8")
 
         # Declare only the PROTECTED FILES item as an override
         (tmp_path / ".pairmode-overrides").write_text(
-            ".claude/agents/reviewer.md:**1. protected files**\n",
+            f"{self._FIXTURE_DEST_REL}:**1. protected files**\n",
             encoding="utf-8",
         )
 
         sync_project(tmp_path, yes=True)
 
-        final_text = reviewer_path.read_text(encoding="utf-8")
+        final_text = fixture_path.read_text(encoding="utf-8")
 
         assert custom_protected_body in final_text, (
             "Overridden bold-marker item body should be preserved by sync"

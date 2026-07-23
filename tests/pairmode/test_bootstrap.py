@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import pathlib
 
+import pytest
 from click.testing import CliRunner
 
 from skills.pairmode.scripts.bootstrap import (
@@ -85,12 +86,19 @@ EXPECTED_DEST_PATHS = [
     "CLAUDE.md",
     "CLAUDE.build.md",
     # Note: builder.md, reviewer.md, loop-breaker.md, security-auditor.md, and
-    # intent-reviewer.md were retired in HARNESS-002 (dogfood flip). Bootstrap no
-    # longer generates these files; procedure skill shells replace them.
+    # intent-reviewer.md were retired in HARNESS-002 (dogfood flip) and
+    # re-registered in INFRA-241 as thin shells over the shared procedure
+    # skills — real, matchable subagent_type strings are required for the
+    # context-budget gate (INFRA-199) to fire on build-cycle spawns.
     ".claude/agents/reconstruction-agent.md",
     # gate-worker.md is deployed so the orchestrator has a dispatch path for
     # spawn-gate-worker (stories with schema_introduces/auth_gated true).
     ".claude/agents/gate-worker.md",
+    ".claude/agents/builder.md",
+    ".claude/agents/reviewer.md",
+    ".claude/agents/loop-breaker.md",
+    ".claude/agents/security-auditor.md",
+    ".claude/agents/intent-reviewer.md",
     "docs/architecture.md",
     "docs/checkpoints.md",
     "docs/phases/index.md",
@@ -135,8 +143,9 @@ class TestBootstrapCreatesFiles:
         assert "next-action" in content
 
     def test_agent_reconstruction_frontmatter(self, tmp_path):
-        # builder, reviewer, loop-breaker, security-auditor, and intent-reviewer
-        # agent files were retired in HARNESS-002; reconstruction-agent is retained.
+        # reconstruction-agent is not subject to the build-loop model pinning
+        # policy and is unrelated to the subagent_type gate; it is retained
+        # unchanged by INFRA-241.
         run_bootstrap(tmp_path)
         content = (tmp_path / ".claude/agents/reconstruction-agent.md").read_text()
         assert "reconstruction" in content
@@ -186,6 +195,65 @@ class TestGateWorkerDispatch:
         run_bootstrap(tmp_path)
         content = (tmp_path / ".claude/agents/gate-worker.md").read_text()
         assert "gate_worker" in content or "gate-worker" in content
+
+
+# ---------------------------------------------------------------------------
+# Build-cycle subagent dispatch tests (INFRA-241)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildCycleSubagentDispatch:
+    """Bootstrap deploys builder/reviewer/loop-breaker/security-auditor/
+    intent-reviewer as thin shells over the shared procedure skills, so the
+    Task/Agent tool has a real, registered ``subagent_type`` to resolve to for
+    each build-cycle role — without this, the context-budget PreToolUse gate
+    (INFRA-199) has no matchable subagent_type and is fully decorative for
+    every real build-cycle spawn.
+    """
+
+    BUILD_CYCLE_AGENTS = [
+        ("builder", "builder"),
+        ("reviewer", "reviewer"),
+        ("loop-breaker", "loop-breaker"),
+        ("security-auditor", "security-auditor"),
+        ("intent-reviewer", "intent-reviewer"),
+    ]
+
+    @pytest.mark.parametrize("dest_stem,procedure_dir", BUILD_CYCLE_AGENTS)
+    def test_agent_shell_created(self, tmp_path, dest_stem, procedure_dir):
+        run_bootstrap(tmp_path)
+        dest = tmp_path / f".claude/agents/{dest_stem}.md"
+        assert dest.exists(), (
+            f"{dest_stem}.md missing; the context-budget gate has no "
+            f"subagent_type to match on for this role"
+        )
+
+    @pytest.mark.parametrize("dest_stem,procedure_dir", BUILD_CYCLE_AGENTS)
+    def test_agent_shell_contains_project_name(self, tmp_path, dest_stem, procedure_dir):
+        run_bootstrap(tmp_path)
+        content = (tmp_path / f".claude/agents/{dest_stem}.md").read_text()
+        assert "testproject" in content
+
+    @pytest.mark.parametrize("dest_stem,procedure_dir", BUILD_CYCLE_AGENTS)
+    def test_agent_shell_references_procedure_skill(self, tmp_path, dest_stem, procedure_dir):
+        run_bootstrap(tmp_path)
+        content = (tmp_path / f".claude/agents/{dest_stem}.md").read_text()
+        assert f"skills/pairmode/skills/{procedure_dir}/procedure.md" in content
+
+    @pytest.mark.parametrize("dest_stem,procedure_dir", BUILD_CYCLE_AGENTS)
+    def test_agent_shell_name_matches_subagent_type(self, tmp_path, dest_stem, procedure_dir):
+        """The frontmatter ``name`` must equal the literal subagent_type string
+        BUILD_CYCLE_SUBAGENTS matches on in hooks/pre_tool_use.py."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / f".claude/agents/{dest_stem}.md").read_text()
+        assert f"name: {dest_stem}" in content
+
+    def test_loop_breaker_pins_fable_model(self, tmp_path):
+        """loop-breaker escalates unconditionally to the fable tier (model_selector
+        .select_loop_breaker_model); its frontmatter default must reflect that."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / ".claude/agents/loop-breaker.md").read_text()
+        assert "model: fable" in content
 
 
 # ---------------------------------------------------------------------------
@@ -566,20 +634,25 @@ class TestSpecDerivedChecklist:
         assert (tmp_path / "CLAUDE.md").exists()
 
     def test_bootstrap_with_spec_succeeds_cleanly(self, tmp_path):
-        """Bootstrap with spec succeeds; spec non-negotiables never leaked into agent files.
+        """Bootstrap with spec succeeds; spec non-negotiables never leak into agent files.
 
-        Note: reviewer.md was retired in HARNESS-002 (dogfood flip). The reviewer
-        role is now delivered as skills/pairmode/skills/reviewer/procedure.md. This
-        test verifies bootstrap exits 0 with a spec present (the L005 invariant that
-        spec content must not contaminate agent shells is moot once reviewer.md is gone).
+        Note: builder.md, reviewer.md, loop-breaker.md, security-auditor.md, and
+        intent-reviewer.md were retired in HARNESS-002 (dogfood flip) and
+        re-registered in INFRA-241 as thin shells over the shared procedure
+        skills — the L005 invariant (spec content must not contaminate agent
+        shells) is meaningful again: these shells are static Jinja2 templates
+        parameterized only by project_name, so spec-derived non_negotiables/
+        business_rules text must never appear in their rendered output.
         """
+        non_negotiable_text = "Auth must never call billing directly — events only"
+        business_rule_text = "All payments must be idempotent"
         _make_spec_structure(
             tmp_path,
             modules={
                 "auth": {
                     "module": "auth",
-                    "non_negotiables": ["Auth must never call billing directly — events only"],
-                    "business_rules": ["All payments must be idempotent"],
+                    "non_negotiables": [non_negotiable_text],
+                    "business_rules": [business_rule_text],
                 }
             },
         )
@@ -587,11 +660,20 @@ class TestSpecDerivedChecklist:
         assert result.exit_code == 0, result.output
         # Reconstruction agent is still generated; verify it exists
         assert (tmp_path / ".claude/agents/reconstruction-agent.md").exists()
-        # Retired agent files must NOT exist
-        for retired in ["builder.md", "reviewer.md", "loop-breaker.md",
-                        "security-auditor.md", "intent-reviewer.md"]:
-            assert not (tmp_path / ".claude" / "agents" / retired).exists(), (
-                f"Retired agent file {retired} was unexpectedly created by bootstrap"
+        # INFRA-241: builder/reviewer/loop-breaker/security-auditor/intent-reviewer
+        # shells now exist again — verify no spec content leaked into them.
+        for reregistered in ["builder.md", "reviewer.md", "loop-breaker.md",
+                              "security-auditor.md", "intent-reviewer.md"]:
+            dest = tmp_path / ".claude" / "agents" / reregistered
+            assert dest.exists(), (
+                f"Re-registered agent shell {reregistered} missing after bootstrap"
+            )
+            content = dest.read_text()
+            assert non_negotiable_text not in content, (
+                f"Spec non_negotiable text leaked into {reregistered}"
+            )
+            assert business_rule_text not in content, (
+                f"Spec business_rule text leaked into {reregistered}"
             )
 
 

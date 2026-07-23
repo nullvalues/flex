@@ -30,16 +30,24 @@ TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
 # Canonical files to audit (dest path in project → template path relative to TEMPLATES_DIR)
 # Note: builder.md.j2, reviewer.md.j2, loop-breaker.md.j2, security-auditor.md.j2,
-# and intent-reviewer.md.j2 were retired in HARNESS-002. Their corresponding .claude/agents/
-# files are no longer canonical — they are now delivered as procedure skill shells.
+# and intent-reviewer.md.j2 were retired in HARNESS-002 and re-registered in INFRA-241
+# as thin shells over the shared procedure skills (no judgment/implementation logic
+# duplicated back in) — a real, matchable subagent_type is required for the
+# context-budget gate (INFRA-199) to fire on build-cycle spawns.
 #
-# reconstruction-agent.md and gate-worker.md are canonical (RELEASE-010): must mirror
-# AGENT_FILES in bootstrap.py so audit/sync keep these shells current after template changes.
+# reconstruction-agent.md, gate-worker.md, and the five INFRA-241 shells are canonical:
+# must mirror AGENT_FILES in bootstrap.py so audit/sync keep these shells current after
+# template changes.
 CANONICAL_FILES: list[tuple[str, str]] = [
     ("CLAUDE.md", "CLAUDE.md.j2"),
     ("CLAUDE.build.md", "CLAUDE.build.md.j2"),
     (".claude/agents/reconstruction-agent.md", "agents/reconstruction-agent.md.j2"),
     (".claude/agents/gate-worker.md", "agents/gate-worker.md.j2"),
+    (".claude/agents/builder.md", "agents/builder.md.j2"),
+    (".claude/agents/reviewer.md", "agents/reviewer.md.j2"),
+    (".claude/agents/loop-breaker.md", "agents/loop-breaker.md.j2"),
+    (".claude/agents/security-auditor.md", "agents/security-auditor.md.j2"),
+    (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
 ]
 
 # Scaffold files: Phase 7 docs that receive full section-level comparison.

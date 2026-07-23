@@ -21,6 +21,23 @@ touches:
   - tests/pairmode/test_bootstrap.py
   - docs/architecture.md
   - tests/pairmode/fixtures/transcript_entry_shape.json
+  # 5 new agent shell template sources (Instructions item 2) — the actual
+  # deliverable for the subagent_type-registration side of this story; each
+  # is a thin shell over its role's existing procedure skill.
+  - skills/pairmode/templates/agents/builder.md.j2
+  - skills/pairmode/templates/agents/reviewer.md.j2
+  - skills/pairmode/templates/agents/loop-breaker.md.j2
+  - skills/pairmode/templates/agents/security-auditor.md.j2
+  - skills/pairmode/templates/agents/intent-reviewer.md.j2
+  # audit.py's CANONICAL_FILES must mirror bootstrap.py's AGENT_FILES
+  # (TestCanonicalFilesAgentFilesConsistency) or sync/audit silently drift on
+  # the 5 new shells.
+  - skills/pairmode/scripts/audit.py
+  - tests/pairmode/test_flip_dogfood.py
+  # Real agents/reviewer.md.j2 CANONICAL_FILES entry collides with this test's
+  # prior synthetic-fixture reuse of the same .claude/agents/reviewer.md dest
+  # path; retargeted to a non-colliding fixture path.
+  - tests/pairmode/test_sync.py
 ---
 
 ## Context
