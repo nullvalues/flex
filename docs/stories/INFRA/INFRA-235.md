@@ -2,7 +2,7 @@
 id: INFRA-235
 rail: INFRA
 title: Stop generating invalid Write(path) permission rules — permission engine only matches Edit(path) for file-editing tools
-status: planned
+status: complete
 phase: "97"
 story_class: code
 auth_gated: false

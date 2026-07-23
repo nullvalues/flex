@@ -57,7 +57,7 @@ Resume HARNESS016-main's deferred tail: retry the doc sweep, migrate the fleet t
 | INFRA-232 | Fix README era-status and production-readiness contradictions; remove stale duplicate readme.md | complete |
 | INFRA-233 | Register context-budget-gate hooks in flex-harness's own settings.json — never dogfooded on itself | complete |
 | INFRA-234 | Drop redundant Write(docs/phases/permissions/\*\*) deny rule from settings.json | complete |
-| INFRA-235 | Stop generating invalid Write(path) permission rules across bootstrap.py, permission_scope.py, denylist_deriver.py | planned |
+| INFRA-235 | Stop generating invalid Write(path) permission rules across bootstrap.py, permission_scope.py, denylist_deriver.py | complete |
 
 ## Deferred stories
 
