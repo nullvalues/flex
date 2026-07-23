@@ -68,6 +68,20 @@ exists; `reviewer/procedure.md:197-203` still documents project-scoped pipes in 
 - Explicit decision (first Instruction step below) on worktree-cwd applicability
   before implementing the enforcement wiring, since it changes where state gets
   read/written.
+- **Amended after adversarial review**: worktrees live at
+  `<project>/.pairmode-worktrees/<story-id>/` — inside the main checkout
+  (`flex_build.py`'s worktree-path helper) — so `scope_guard.py` *can* resolve
+  `state.json` from the main root regardless of cwd (a git worktree carries a `.git`
+  pointer file back to the main repo; no new provisioning needed just to find state).
+  But finding state isn't sufficient: a path edited inside the worktree
+  (`.pairmode-worktrees/<ID>/skills/foo.py`) will never match an `allowed_paths` entry
+  generated from `primary_files: [skills/foo.py]` unless `_normalise` explicitly
+  strips the `.pairmode-worktrees/<ID>/` prefix before comparing. Without that
+  stripping, "restored" enforcement either blocks every worktree edit (if failing
+  closed) or fails open again (if the normalised path just doesn't match and the
+  fail-open branch swallows the miss) — decide which failure mode `_normalise`
+  currently produces and treat the prefix-stripping fix as required scope, not
+  optional polish.
 
 ## Ensures
 
@@ -79,6 +93,11 @@ exists; `reviewer/procedure.md:197-203` still documents project-scoped pipes in 
   `primary_files`/`touches`, issued during a build spawn, is blocked by
   `scope_guard.py` — with an explicit, tested answer to whether this applies when the
   spawn's cwd is the worktree path (not the main checkout).
+- A second concrete test, distinct from the above: an Edit call to a file that IS
+  inside the story's declared scope, but addressed via its worktree-relative path
+  (`.pairmode-worktrees/<ID>/<declared-path>`), is correctly *allowed* — proving the
+  `.pairmode-worktrees/<ID>/` prefix is stripped before the `allowed_paths` comparison,
+  not just that out-of-scope edits are blocked.
 - RELEASE-020's `flex_factor` resolves the real story-specific value (not the 1.0
   fallback) during an active build spawn.
 - `docs/phases/permissions/` generation resumes for current and future stories (or, if
@@ -94,9 +113,12 @@ exists; `reviewer/procedure.md:197-203` still documents project-scoped pipes in 
 ## Instructions
 
 1. Decide and document: does story-scope enforcement apply to Edit/Write calls whose
-   cwd is a per-story worktree? (Recommended: yes — the worktree has no `.companion/`
-   of its own today; either give it one via `create-story-worktree`, or have
-   `scope_guard.py` resolve state from the main checkout path regardless of cwd.)
+   cwd is a per-story worktree? (Recommended: yes — resolve `state.json` from the
+   main checkout path regardless of cwd, since the worktree structurally lives inside
+   the main project directory; no `.companion/` symlinking needed.) Implement the
+   `.pairmode-worktrees/<ID>/` prefix-stripping in `_normalise` required by the
+   amended Requires section above — this is the part that actually makes enforcement
+   work inside a worktree, not just the state-resolution piece.
 2. Add the stamping/clearing calls to `CLAUDE.build.md.j2`'s pseudocode around
    `create-story-worktree`/`merge-story-worktree`/`discard-story-worktree`, or fold
    them into those `flex_build.py` commands directly if that avoids new template prose

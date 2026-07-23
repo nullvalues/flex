@@ -8,15 +8,17 @@ story_class: code
 auth_gated: false
 schema_introduces: false
 primary_files:
-  - skills/pairmode/templates/CLAUDE.build.md.j2
+  - hooks/post_tool_use.py
   - skills/pairmode/scripts/worker_result.py
   - skills/pairmode/skills/reviewer/procedure.md
   - docs/architecture.md
 touches:
+  - skills/pairmode/templates/CLAUDE.build.md.j2
   - CLAUDE.build.md
   - skills/pairmode/scripts/flex_build.py
   - tests/pairmode/test_record_attempt.py
   - tests/pairmode/test_worker_result.py
+  - tests/pairmode/test_post_tool_use.py
 ---
 
 ## Context
@@ -55,23 +57,37 @@ per-role cost rollup and a closing "next phase" prompt at the end of every check
 
 ## Requires
 
-- A decision on token source (this story's Instructions below choose orchestrator-side
-  extraction from the Task/Agent tool's own returned usage metadata — the same
-  `<subagent_tokens>`/`<duration_ms>` data already visible in this session's own
-  task-notification results — over re-adding a self-reported `<usage>` block, since
-  the latter was deliberately removed by the WORKER-004 grammar and re-adding it would
-  regress that design decision rather than complete it).
+- A decision on token source. **Amended after adversarial review**: this story
+  originally proposed orchestrator-side extraction from the Task/Agent tool's own
+  returned usage metadata (the `<subagent_tokens>`/`<duration_ms>` fields visible in
+  this session's own task-notification results). A second review confirmed that
+  surface is *not* a documented, stable API — it's an artifact of how this harness
+  happens to render task notifications, not something `CLAUDE.build.md`-driven CLI
+  steps can reliably query. It also would have reintroduced LLM-transcribed numbers
+  (just moved from the subagent's self-report to the orchestrator's), contradicting
+  the CLI-side-not-prose approach INFRA-237/238/239 already adopt.
+- **Corrected direction:** `hooks/post_tool_use.py` already parses the live session
+  JSONL transcript for token counts (used today for `context_current_tokens`
+  tracking). A PostToolUse-side hook write of `record-attempt` — reading the
+  just-completed Task/Agent tool result's usage data directly from the transcript,
+  the same mechanical source already trusted elsewhere in this codebase — is fully
+  deterministic and testable, with no dependency on an unverified notification-format
+  contract. Instruction 1 below still requires confirming this concretely before
+  building (see Instructions).
 
 ## Ensures
 
 - After one builder spawn and one reviewer spawn in a real story cycle,
   `.companion/effort.db`'s `attempts` table contains one `builder` row and one
   `reviewer` row, each with non-NULL `tokens_total`, `model`, and `outcome`.
-- `CLAUDE.build.md.j2`'s build-loop pseudocode gains an explicit step, after each
-  leaf-worker spawn returns, that extracts token/duration usage from the orchestrator's
-  own view of the completed spawn and passes it to
-  `flex_build.py record-attempt --tokens-total ... --duration-ms ...` — no reliance on
-  agent-authored text.
+- `hooks/post_tool_use.py`'s Task/Agent branch gains a `record-attempt` call, reading
+  token/duration usage directly from the same session-transcript parse it already
+  performs for `context_current_tokens` — no reliance on agent-authored text, no
+  reliance on the orchestrator's own view of a notification. `CLAUDE.build.md.j2`'s
+  build-loop pseudocode is updated only if any orchestrator-side step is still needed
+  (e.g. passing `--story-id`/`--agent-role` context the hook can't derive from the
+  transcript alone) — prefer a fully hook-side mechanism if the transcript carries
+  enough context to derive those fields too.
 - `REVIEW-RESULT`'s JSON schema (`worker_result.py`) gains an optional `fail_cause`
   field; `reviewer/procedure.md`'s FAIL path populates it instead of (or in addition
   to, for human readability) the mid-transcript `FAIL-CAUSE:` line; the orchestrator
@@ -94,15 +110,18 @@ per-role cost rollup and a closing "next phase" prompt at the end of every check
 
 ## Instructions
 
-1. Confirm what usage metadata the Agent/Task tool actually surfaces to the
-   orchestrator on spawn completion in this harness (this session's own task
-   notifications carried `<subagent_tokens>`, `<tool_uses>`, `<duration_ms>` —
-   confirm this is a stable, documented contract, not an artifact of this particular
-   session).
-2. Add a `record-attempt` invocation step to `CLAUDE.build.md.j2`'s build-loop
-   pseudocode that fires after every story-build spawn returns (both PASS and FAIL),
-   populated from that orchestrator-observed usage data plus `--story-file`,
-   `--agent-role`, `--model`, `--outcome`.
+1. Read `hooks/post_tool_use.py`'s Task/Agent branch and whatever transcript-resolution
+   helper it uses for `context_current_tokens` in full. Confirm exactly what usage
+   fields (total/in/out/cache tokens, duration) are actually present in a completed
+   Task/Agent tool result inside the session transcript, and confirm they're
+   per-spawn (not cumulative-session) so a `record-attempt` row can be attributed to
+   the one story/agent-role that just ran.
+2. Add a `record-attempt` call to `hooks/post_tool_use.py`'s Task/Agent branch,
+   populated from that transcript-derived usage data plus whatever
+   `--story-id`/`--agent-role`/`--model`/`--outcome` context the hook can derive
+   (from `tool_input`, `tool_response`, or `state.json`) — falling back to an
+   orchestrator-side `CLAUDE.build.md.j2` step only for fields the hook genuinely
+   cannot derive on its own.
 3. Add `fail_cause` to the `REVIEW-RESULT` schema in `worker_result.py`; update
    `reviewer/procedure.md`'s return-format section to include it; keep the
    human-readable `FAIL-CAUSE:` transcript line for operator visibility but make the

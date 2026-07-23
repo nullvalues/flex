@@ -10,18 +10,22 @@ schema_introduces: false
 primary_files:
   - hooks/pre_tool_use.py
   - skills/pairmode/templates/CLAUDE.build.md.j2
+  - skills/pairmode/scripts/bootstrap.py
   - .claude/agents/
 touches:
   - CLAUDE.build.md
   - skills/pairmode/scripts/context_budget.py
+  - skills/pairmode/scripts/model_selector.py
   - tests/pairmode/test_pre_tool_use_scope_guard.py
   - tests/pairmode/test_context_budget.py
+  - tests/pairmode/test_bootstrap.py
   - docs/architecture.md
 ---
 
 ## Context
 
-`hooks/pre_tool_use.py:113-115` gates the context-budget check (INFRA-199) with an
+`hooks/pre_tool_use.py:102-105` (line drift confirmed by adversarial re-check; was
+`:113-115` at spec-writing time) gates the context-budget check (INFRA-199) with an
 exact-string match:
 
 ```python
@@ -37,7 +41,9 @@ if subagent_type not in BUILD_CYCLE_SUBAGENTS:
 
 But no custom agent type named `builder`, `reviewer`, `loop-breaker`,
 `security-auditor`, or `intent-reviewer` is registered anywhere in this repo —
-`.claude/agents/` contains only `reconstruction-agent.md` and `gate-worker.md`, since
+`.claude/agents/` contains only `reconstruction-agent.md` (confirmed by adversarial
+re-check; `gate-worker.md` is a `bootstrap.py` `AGENT_FILES` template distributed to
+newly-bootstrapped projects, not a file present in this checkout itself), since
 HARNESS-002 deliberately retired the rendered per-role agent files in favor of shared
 procedure skills loaded by generic thin shells. `CLAUDE.build.md`'s own
 `spawn leaf-worker-for(a.action)` line (`:28,32`) defines no explicit `subagent_type`
@@ -64,7 +70,26 @@ gap: total.
   matching logic and is a smaller diff — unless registering five thin agent files is
   judged to reintroduce the per-role-file duplication HARNESS-002 was trying to
   eliminate, in which case document that tradeoff explicitly before choosing the
-  latter.
+  latter. Adversarial review confirmed thin-shell agents referencing a shared skill
+  is already this repo's accepted pattern (the `gate-worker.md` bootstrap template
+  does exactly this), so registering 5 one-line shells does not reintroduce
+  HARNESS-002's per-role duplication.
+- **Amended after adversarial review — two additional requirements, not optional:**
+  1. Registering the 5 agent types in `.claude/agents/` alone only fixes this repo.
+     `bootstrap.py`'s `AGENT_FILES` list is the actual distribution mechanism to the
+     14 pending fleet migrations (INFRA-240's whole point) — this story's scope must
+     include adding the 5 shells there, or the gate stays dead for every downstream
+     project even after this story lands.
+  2. `docs/architecture.md:602` documents `Agent({..., subagent_type: "reviewer",
+     model: "opus"})` working — but that passage also references agent templates
+     retired in HARNESS-002 and an unregistered subagent type, so it may itself
+     describe a design that never ran. Before treating this story's fix as compatible
+     with INFRA-237's per-attempt model escalation (retry-upgrade at attempt ≥2, the
+     `fable` loop-breaker tier), explicitly verify whether a custom agent type with a
+     frontmatter-pinned `model:` field can still be spawned with a *different*,
+     per-call model override — if it can't, registering typed agents with a fixed
+     model would silently break retry escalation. Resolve this before implementation,
+     not after.
 
 ## Ensures
 
@@ -80,7 +105,17 @@ gap: total.
   — it names the exact `subagent_type` to use per action (`spawn-builder` →
   `"builder"`, `spawn-reviewer` → `"reviewer"`, etc.), removing the interpretation gap
   that led to this session's `general-purpose` choice.
-- `docs/architecture.md` updated to describe the resolved spawn contract.
+- `bootstrap.py`'s `AGENT_FILES` list includes the 5 new thin-shell agent templates,
+  so newly-bootstrapped and re-synced projects (including the 14 pending fleet
+  migrations) receive them.
+- Explicit, tested confirmation of the per-attempt model-override question from the
+  amended Requires section: either (a) a typed agent's model can be overridden
+  per-call despite a frontmatter default, and INFRA-237's escalation ladder keeps
+  working unchanged, or (b) it can't, and this story's Ensures include whatever
+  adjustment is needed (e.g. omitting a frontmatter `model:` default entirely and
+  always passing model explicitly per spawn) so escalation isn't silently broken.
+- `docs/architecture.md` updated to describe the resolved spawn contract, including
+  correcting the `:602` passage's stale template/subagent-type references.
 - `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -q` passes (run without
   `-x`; confirm only the known CER-070 environmental failure remains).
 
@@ -93,6 +128,10 @@ gap: total.
    "Shell instruction" already documented in each corresponding `procedure.md` (load
    the procedure skill, execute for the given story ID) — no role logic duplicated
    into the agent file itself, preserving HARNESS-002's single-source-of-truth intent.
+   Resolve the model-override question (Requires, item 2) before deciding whether
+   these files declare a frontmatter `model:` default at all.
+2a. Add the same 5 templates to `bootstrap.py`'s `AGENT_FILES` list so they propagate
+    to newly-bootstrapped and re-synced downstream projects.
 3. If changing the gate's matcher instead: update `context_budget.py`'s matching logic
    and add equivalent test coverage for the new signal.
 4. Update `CLAUDE.build.md.j2`'s pseudocode to name the exact `subagent_type` per
