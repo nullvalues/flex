@@ -110,8 +110,11 @@ and `/flex:pairmode`. Marketplace installation is available for registered users
 # 2. Create your first story on a named rail
 uv run python skills/pairmode/scripts/story_new.py --rail CORE --title "Initial data model"
 
-# 3. Tell the builder which story to work on, then build
-# In Claude Code: "Build story CORE-001"
+# 3. Start the build loop
+# In Claude Code: "Build Phase 1"
+# The orchestrator drives a while-loop over `flex_build.py next-action`, which
+# resolves to `spawn-builder` for CORE-001 automatically — no manual
+# per-story invocation needed.
 ```
 
 The bootstrap command asks for your project name, tech stack, and key modules. It writes
@@ -159,13 +162,25 @@ You are starting a Python API service. The codebase is empty.
    The deny list in `.claude/settings.json` is generated from your declared non-negotiables:
    "no direct database writes outside the repository layer."
 3. You create story `BILLING-001: Add invoice creation endpoint` via `story_new.py`.
-4. You invoke the builder subagent: "Build story BILLING-001."
-5. The builder implements the endpoint. When it tries to write raw SQL in the route handler,
-   the deny list blocks the write and the sidebar surfaces the conflict: the route handler
-   is not in the repository layer.
-6. You invoke the reviewer subagent. It checks the implementation against the checklist,
-   confirms the constraint was respected, and commits with the story tag.
-7. The spec gains a new lineage entry. The constraint held.
+4. You tell Claude Code "Build Phase 1." The orchestrator does not invoke any agent by
+   name or read the story file itself — it drives a while-loop over
+   `flex_build.py next-action`, dispatching whatever action the resolver returns.
+5. `next-action` resolves to `spawn-builder` for BILLING-001. The orchestrator creates a
+   disposable git worktree (`create-story-worktree`), which stamps `current_story` into
+   the main checkout's `.companion/state.json` and generates the story's file-scope
+   permissions artifact, then spawns the builder (model chosen by
+   `model_selector.select_builder_model()`) inside that worktree.
+6. The builder implements the endpoint. If it tries to write raw SQL in the route handler,
+   `hooks/pre_tool_use.py`'s `scope_guard` check blocks the Edit/Write at the tool-call
+   level — the route handler is not declared in the story's `primary_files`/`touches`, so
+   the write is rejected before it lands, not caught after the fact.
+7. `next-action` resolves to `spawn-reviewer` (exempt from the context-budget gate — it's
+   the loop's mandatory next step, never a discretionary spawn the gate could block). The
+   reviewer diffs the worktree against HEAD, runs the checklist and test suite, and
+   reports PASS. `merge-story-worktree` fast-forward-merges the worktree back onto main,
+   clears the attempt counter, and commits with the story tag.
+8. If `/flex:companion` is running, the sidebar picked up `current_story` while the story
+   was active and can log the decision into `spec.json`; the constraint held either way.
 
 ### Scenario B: Returning developer
 
@@ -184,45 +199,85 @@ in place.
 
 ## The build loop
 
-1. Write the story spec in `docs/stories/<RAIL>/<RAIL>-NNN.md` with frontmatter and
-   acceptance criterion.
+Orchestration is code-resident, not orchestrator prose: `CLAUDE.build.md` is a ~50-line
+template whose only real logic is a while-loop over
+`flex_build.py next-action --json --project-dir .`. The resolver
+(`skills/pairmode/scripts/next_action.py`) reads story/phase status and `state.json` and
+returns exactly one action per call — `spawn-builder`, `spawn-reviewer`, a checkpoint
+step, a paused/gate action awaiting an operator decision, or `done`. The orchestrator's
+job is to dispatch whatever comes back.
+
+1. Write the story spec in `docs/stories/<RAIL>/<RAIL>-NNN.md` with frontmatter and an
+   `## Ensures` acceptance section.
 
    Pairmode owns this loop. Companion is not required to use it; if companion is running,
    the sidebar will surface the active story but does not gate the build.
-2. **Context gate.** After each builder or reviewer spawn completes,
+2. **Story-build actions run inside a disposable worktree.** For `spawn-builder`/
+   `spawn-reviewer`, the orchestrator first calls `create-story-worktree`, which creates a
+   fresh git worktree at `.pairmode-worktrees/<ID>/`, stamps `current_story` into the
+   *main checkout's* `.companion/state.json` (so the companion sidebar can surface the
+   active story — the worktree has no `.companion/` of its own), and generates the
+   story's file-scope permissions artifact (`docs/phases/permissions/<ID>.json`). The
+   builder/reviewer subagent operates only inside that worktree, never the main project
+   directory; `scope_guard.py` blocks any Edit/Write outside the story's declared
+   `primary_files`/`touches` at the tool-call level, including writes made from inside
+   the worktree.
+3. **Context gate.** After each builder/reviewer spawn completes,
    `hooks/post_tool_use.py` reads the live token count from the session JSONL
    transcript and writes it to `state["context_current_tokens"]` — no orchestrator
-   action required. On the next spawn, `hooks/pre_tool_use.py` reads that value,
-   checks it isn't stale (predating the last `/clear`), and blocks if the projected
-   total exceeds the overrun ceiling (`threshold × 1.10`, default 132k). The
-   SessionStart hook resets the count to a fresh-session baseline on `/clear` or
-   startup. No LLM cooperation required — the write/read split between PostToolUse
-   and PreToolUse is fully mechanical. See
-   `docs/pairmode/context-gate-flow.md` for the full flow diagram.
-3. **Invoke the builder subagent: "Build story RAIL-NNN."** The builder receives only the
-   story ID. The orchestrator passes no story text, file contents, or prior context. The
-   builder reads `docs/stories/<RAIL>/<RAIL>-NNN.md` cold, derives all needed context from
-   the live codebase, implements the story, and runs tests.
-4. **Invoke the reviewer subagent.** The reviewer also receives only the story ID and reads
-   its own context cold. It diffs the working tree against HEAD, runs the review checklist,
-   and executes the test suite. The reviewer sees what the builder actually changed — not
-   what the builder reported it changed.
-5. On PASS: the reviewer commits with the story tag. On FAIL: the orchestrator auto-retries
-   with an escalated model (attempt 1 → sonnet, attempt 2 → opus). After two failures, the
-   loop-breaker subagent proposes a single alternative approach; the developer decides whether
-   to proceed with a third attempt or pause.
-6. After each phase: run the 8-step checkpoint sequence (build gate, security audit,
-   intent review, documentation update, phase completion check, CER backlog review,
-   checkpoint tag, context health report).
+   action required. On the next spawn, `hooks/pre_tool_use.py` fires for four
+   build-cycle subagent types only (`builder`, `loop-breaker`, `security-auditor`,
+   `intent-reviewer`); for those it reads that value, checks it isn't stale (predating
+   the last `/clear`), and blocks if the projected total exceeds the overrun ceiling
+   (`threshold × (1 + overrun_pct)`, default `130000 × 1.10` ≈ 143k). `reviewer` is
+   deliberately excluded from the gate: it is the build loop's mandatory, deterministic
+   next step after every builder attempt, with no alternative action for the gate to
+   preserve by blocking it. The SessionStart hook resets the count to a fresh-session
+   baseline (25,000 tokens) on `/clear` or startup. No LLM cooperation required — the
+   write/read split between PostToolUse and PreToolUse is fully mechanical for every
+   role the gate actually governs. See `docs/pairmode/context-gate-flow.md` for the
+   full flow diagram.
+4. **Builder spawn.** The builder receives only the story ID. The orchestrator passes
+   no story text, file contents, or prior context. The builder reads
+   `docs/stories/<RAIL>/<RAIL>-NNN.md` cold, derives all needed context from the live
+   codebase, implements the story inside its worktree, and runs tests.
+   `model_selector.select_builder_model()` picks the model: haiku for doc/lesson
+   stories, sonnet baseline for code, opus on high-scope signals (5+ primary files or a
+   protected file) or on retry.
+5. **Reviewer spawn.** The reviewer also receives only the story ID and reads its own
+   context cold. It diffs the worktree against HEAD, runs the review checklist, and
+   executes the test suite. The reviewer sees what the builder actually changed — not
+   what the builder reported it changed. `model_selector.select_reviewer_model()` picks
+   sonnet on attempt 1 for every story class; on retry (attempt ≥ 2), `code`-class
+   stories escalate to opus, `doc`/`lesson` stay sonnet, and `methodology` upgrades to
+   opus only if a same-phase `code` story exists.
+6. On PASS: `merge-story-worktree` fast-forward-merges the worktree back onto main,
+   clears the attempt counter, and commits with the story tag. On FAIL:
+   `discard-story-worktree` discards the worktree outright and the attempt counter is
+   bumped — both effort recording and the attempt counter are hook-side
+   (`hooks/post_tool_use.py`'s Task/Agent branch calls
+   `subagent_transcript.record_attempt_from_transcript()` after every spawn, deriving
+   tokens/model/outcome from the live transcript and writing an `effort.db` row; no
+   separate orchestrator-side recording step is needed). After two same-story failures,
+   the loop-breaker subagent (always `fable`, an escalation tier ranking above opus)
+   proposes a single alternative approach; the developer decides whether to proceed
+   with a third attempt or pause.
+7. After each phase: three pre-checkpoint guards (phase-completion, CER Do Now, build
+   gate) must pass, then the four-step checkpoint sequence runs —
+   `checkpoint-security` (security-auditor) → `checkpoint-intent` (intent-reviewer) →
+   `checkpoint-docs` (docs-reviewer) → `checkpoint-tag` (inline `git tag` + push).
+   Completing `checkpoint-tag` also marks the phase complete in `docs/phases/index.md`
+   in the same call, so no separate "mark phase complete" step is needed.
 
-**The CER and intent refocus.** At each checkpoint, the orchestrator checks
-`docs/cer/backlog.md` for open "Do Now" entries before tagging. The CER (Constraints and
-Exceptions Register) is the project's structured triage log: findings from cold-eyes
-reviewers — security auditor, intent reviewer, post-mortems — land in one of four quadrants
-(Do Now, Do Later, Do Much Later, Do Never). The Do Now gate is a hard block: the checkpoint
-cannot be tagged until every open "Do Now" entry is resolved or formally re-triaged with an
-explicit reason. Findings accumulate across phases, so each checkpoint is also a backlog
-grooming session — the mechanism that prevents intent drift from compounding silently.
+**The CER and intent refocus.** Before the checkpoint sequence starts, the
+phase-completion / CER Do Now / build-gate guards check `docs/cer/backlog.md` for open
+"Do Now" entries. The CER (Constraints and Exceptions Register) is the project's
+structured triage log: findings from cold-eyes reviewers — security auditor, intent
+reviewer, post-mortems — land in one of four quadrants (Do Now, Do Later, Do Much Later,
+Do Never). The Do Now gate is a hard block: the checkpoint cannot start until every open
+"Do Now" entry is resolved or formally re-triaged with an explicit reason. Findings
+accumulate across phases, so each checkpoint is also a backlog grooming session — the
+mechanism that prevents intent drift from compounding silently.
 
 ## The canonical spec format
 
@@ -270,9 +325,12 @@ developer decision to override. `lineage` is append-only.
   invocations are now covered by `story_update.py` and `flex_build.py`, which together
   cover the full status lifecycle (introduced in Phases 18, 22, 45).
 - Context gate enforcement is fully automatic via the PostToolUse/PreToolUse hook split
-  (INFRA-182, Phase 74). The gate does not depend on orchestrator cooperation. A first
-  spawn after `/clear` uses the SessionStart baseline (25,000 tokens); PostToolUse
-  updates the count from the JSONL transcript after each spawn completes.
+  (INFRA-182, Phase 74) for the four build-cycle subagent types it governs (`builder`,
+  `loop-breaker`, `security-auditor`, `intent-reviewer`); `reviewer` is intentionally
+  exempt (INFRA-246 — it is the loop's mandatory next step, not a discretionary spawn).
+  The gate does not depend on orchestrator cooperation. A first spawn after `/clear`
+  uses the SessionStart baseline (25,000 tokens); PostToolUse updates the count from
+  the JSONL transcript after each spawn completes.
 - The reconstruction workflow (ideology extraction and competing implementation seeding)
   requires a populated spec and works best after several sessions of decision capture.
 
