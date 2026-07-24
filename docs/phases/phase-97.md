@@ -44,7 +44,7 @@ Resume HARNESS016-main's deferred tail: retry the doc sweep, migrate the fleet t
 | RELEASE-056 | Fleet migration — sync stackabid to pairmode 0.3.0 | deferred |
 | RELEASE-057 | Fleet migration — sync ud to pairmode 0.3.0 | deferred |
 | RELEASE-058 | Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects | backlog |
-| RELEASE-059 | Fold merge — fold-prep into main, tag v0.3.0 | draft |
+| RELEASE-059 | Fold merge — fold-prep into main, tag v0.3.0 | complete |
 | RELEASE-060 | Post-fold re-sync of migrated projects + RELEASE-002 status reconciliation | draft |
 | RELEASE-061 | Worktree and branch retirement — remove /mnt/work/flex-harness | draft |
 | INFRA-225 | Port startswith("complete") annotated-status fallback into next_action.py's _resolve_active_phase | complete |

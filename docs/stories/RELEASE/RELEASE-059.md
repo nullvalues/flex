@@ -2,7 +2,7 @@
 id: RELEASE-059
 rail: RELEASE
 title: Fold merge — fold-prep into main, tag v0.3.0
-status: draft
+status: complete
 phase: "97"
 story_class: code
 auth_gated: false
