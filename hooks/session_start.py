@@ -1,26 +1,35 @@
 #!/usr/bin/env python3
+# thin dispatcher — clear/startup/compact → session_reset.py
 """SessionStart hook — injects pairmode context into Claude's session.
 
 Thin-delegation exception: when Claude Code passes a stdin payload containing
 ``source`` (one of ``"startup"``, ``"resume"``, ``"clear"``, ``"compact"``),
-this hook delegates the dead-reckoning counter reset decision to
+this hook delegates the live context-counter reset decision to
 ``skills/pairmode/scripts/session_reset.decide_reset()`` (CER-047 / Phase 68
-INFRA-175 / INFRA-180). All decision logic and timestamp generation live in
-that module; the hook owns one state write (all keys returned by
-``decide_reset()``: ``context_current_tokens``,
+INFRA-175 / INFRA-180 / INFRA-245). All decision logic and timestamp
+generation live in that module; the hook owns one state write (all keys
+returned by ``decide_reset()``: ``context_current_tokens``,
 ``context_current_tokens_recorded_at``, and ``context_session_reset_at``)
 when ``decide_reset()`` returns a dict with ``should_reset=True``.
 """
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN_ROOT / "skills" / "pairmode" / "scripts"))
 
+from state_utils import _atomic_write_json  # noqa: E402
 
-def _pipe_active(pipe_path: str) -> bool:
-    return bool(pipe_path) and Path(pipe_path).exists()
+# INFRA-238: standardized on the hardcoded pipe location post_tool_use.py
+# already used. The `pipe_path` state.json key was deleted by
+# pairmode_migrate.py's `to-030` step; reading it here was dead code.
+PIPE_PATH = str(Path(tempfile.gettempdir()) / "companion.pipe")
+
+
+def _pipe_active() -> bool:
+    return Path(PIPE_PATH).exists()
 
 
 def _read_source_from_stdin() -> str | None:
@@ -74,9 +83,7 @@ def main() -> None:
                 "context_current_tokens_recorded_at"
             ]
             state["context_session_reset_at"] = reset_result["context_session_reset_at"]
-            state_path.write_text(
-                json.dumps(state, indent=2), encoding="utf-8"
-            )
+            _atomic_write_json(state_path, state)
             reset_notice = (
                 f"Context counter reset to {baseline} "
                 f"(session source: {source})."
@@ -105,9 +112,8 @@ def main() -> None:
         lines.append(f"Loaded modules: {', '.join(modules)}")
 
     # Sidebar
-    pipe_path = state.get("pipe_path", "")
-    if _pipe_active(pipe_path):
-        lines.append(f"Companion sidebar: active (pipe: {pipe_path})")
+    if _pipe_active():
+        lines.append(f"Companion sidebar: active (pipe: {PIPE_PATH})")
     else:
         project_dir = Path(".").resolve()
         repo_root = Path(__file__).resolve().parent.parent

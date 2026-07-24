@@ -1,0 +1,12 @@
+{
+  "story_id": "RESOLVER-009",
+  "story_spec": "docs/stories/RESOLVER/RESOLVER-009.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/next_action.py",
+    "tests/pairmode/test_needs_spec.py",
+    "tests/pairmode/test_next_action_states.py",
+    "tests/pairmode/resolver_fixtures.py",
+    "docs/stories/RESOLVER/RESOLVER-009.md"
+  ],
+  "generated_at": "2026-06-30T20:28:19Z"
+}

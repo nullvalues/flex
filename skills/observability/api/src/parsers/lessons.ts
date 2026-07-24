@@ -53,8 +53,8 @@ interface LessonsFile {
 // D6 promotion-candidate filter patterns
 // ---------------------------------------------------------------------------
 
-/** Matches a Python module filename: lowercase letters/underscores + .py */
-const MODULE_FILENAME_RE = /^[a-z_]+\.py$/;
+/** Matches a Python module filename: alphanumeric/underscore, optional path prefix, .py extension */
+const MODULE_FILENAME_RE = /^(?:[a-zA-Z0-9_]+\/)?[a-zA-Z0-9_]+\.py$/;
 
 /** Procedural-verb patterns (case-insensitive) from D6 */
 const PROCEDURAL_VERB_PATTERNS: Array<{ re: RegExp; label: string }> = [

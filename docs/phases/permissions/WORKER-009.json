@@ -1,0 +1,11 @@
+{
+  "story_id": "WORKER-009",
+  "story_spec": "docs/stories/WORKER/WORKER-009.md",
+  "allowed_paths": [
+    "skills/pairmode/skills/intent-reviewer/procedure.md",
+    "tests/pairmode/test_intent_reviewer_worker.py",
+    "skills/pairmode/scripts/worker_result.py",
+    "docs/stories/WORKER/WORKER-009.md"
+  ],
+  "generated_at": "2026-06-30T15:24:57Z"
+}

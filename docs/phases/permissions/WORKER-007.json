@@ -1,0 +1,11 @@
+{
+  "story_id": "WORKER-007",
+  "story_spec": "docs/stories/WORKER/WORKER-007.md",
+  "allowed_paths": [
+    "skills/pairmode/skills/loop-breaker/procedure.md",
+    "tests/pairmode/test_loop_breaker_worker.py",
+    "skills/pairmode/scripts/worker_result.py",
+    "docs/stories/WORKER/WORKER-007.md"
+  ],
+  "generated_at": "2026-06-30T15:06:07Z"
+}

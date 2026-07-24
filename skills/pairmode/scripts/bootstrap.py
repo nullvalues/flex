@@ -24,8 +24,10 @@ from skills.pairmode.scripts import spec_reader as _spec_reader
 from skills.pairmode.scripts import checklist_deriver as _checklist_deriver
 from skills.pairmode.scripts import denylist_deriver as _denylist_deriver
 from skills.pairmode.scripts._version import PAIRMODE_VERSION  # noqa: E402
+from skills.pairmode.scripts.context_model import THIN_HARNESS_STEP_TOKENS
 import ideology_parser as _ideology_parser
 from schema_validator import _parse_frontmatter
+from state_utils import _atomic_write_json
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -58,13 +60,35 @@ SCAFFOLD_FILES: list[tuple[str, str]] = [
 
 # Agent files — skipped if they already exist, unless --force-agents is passed.
 # These are treated as project-owned after first bootstrap.
+# Note: builder.md.j2, reviewer.md.j2, loop-breaker.md.j2, security-auditor.md.j2,
+# and intent-reviewer.md.j2 were retired in HARNESS-002 (dogfood flip) and
+# re-registered in INFRA-241 (see below) — HARNESS-002's shared-procedure design
+# is preserved (each shell's body is only the "Shell instruction" already
+# documented in its corresponding procedure.md; no role logic is duplicated
+# into the agent file), but a real, matchable `subagent_type` string is
+# required for the context-budget PreToolUse gate (INFRA-199) to ever fire —
+# without a registered custom agent type, spawns for these five roles have no
+# `subagent_type` to resolve to and the gate falls through as a no-op for
+# every real build-cycle spawn.
+#
+# gate-worker.md.j2 is included (RELEASE-010): the resolver emits spawn-gate-worker for
+# stories with schema_introduces/auth_gated true; without this shell the orchestrator has
+# no dispatch path for that action.  The shell references skills/pairmode/gate_worker/SKILL.md
+# (relative to project root) which is present in any project bootstrapped from this harness.
+#
+# builder.md.j2, reviewer.md.j2, loop-breaker.md.j2, security-auditor.md.j2, and
+# intent-reviewer.md.j2 (INFRA-241): thin shells whose body loads the matching
+# skills/pairmode/skills/<role>/procedure.md and defers all judgment/implementation
+# logic to it. Deployed to every newly-bootstrapped and re-synced project so the
+# fleet-wide context-budget gate (INFRA-199) has a real subagent_type to match on.
 AGENT_FILES: list[tuple[str, str]] = [
+    (".claude/agents/reconstruction-agent.md", "agents/reconstruction-agent.md.j2"),
+    (".claude/agents/gate-worker.md", "agents/gate-worker.md.j2"),
     (".claude/agents/builder.md", "agents/builder.md.j2"),
     (".claude/agents/reviewer.md", "agents/reviewer.md.j2"),
     (".claude/agents/loop-breaker.md", "agents/loop-breaker.md.j2"),
     (".claude/agents/security-auditor.md", "agents/security-auditor.md.j2"),
     (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
-    (".claude/agents/reconstruction-agent.md", "agents/reconstruction-agent.md.j2"),
 ]
 
 # Default deny list written into .claude/settings.json.
@@ -73,7 +97,6 @@ AGENT_FILES: list[tuple[str, str]] = [
 # prevent builders from self-modifying their own scope declarations.
 DEFAULT_DENY: list[str] = [
     "Edit(docs/phases/permissions/**)",
-    "Write(docs/phases/permissions/**)",
 ]
 
 # Entries removed from DEFAULT_DENY in Phase 55. Kept here so sync.py can
@@ -314,6 +337,27 @@ def _prune_superseded_deny_entries(
 PRETOOLUSE_MATCHER = "Task|Agent|Edit|Write|Read"
 
 
+def _find_block_by_command_basename(
+    block_list: list[dict], basename: str
+) -> tuple[dict, dict] | None:
+    """Find the (block, inner-hook-entry) pair whose command's final path
+    segment equals *basename* (e.g. "pre_tool_use.py").
+
+    Matches the full final path segment (``command.rsplit("/", 1)[-1]``) rather
+    than a bare ``endswith`` so a different file sharing a suffix (e.g.
+    ``my_pre_tool_use.py``) cannot false-positive. Used to locate a stale hook
+    entry whose basename matches but whose full path points at a different
+    plugin_root (a 0.2.0 -> 0.3.0 migration), so it can be migrated in place
+    instead of duplicated. Returns None if no entry matches.
+    """
+    for block in block_list:
+        for entry in block.get("hooks", []):
+            command = entry.get("command")
+            if isinstance(command, str) and command.rsplit("/", 1)[-1] == basename:
+                return block, entry
+    return None
+
+
 def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> None:
     """Merge a PreToolUse hook entry into .claude/settings.json.
 
@@ -358,6 +402,17 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
             break
 
     if target_block is None:
+        # Fallback: a stale entry whose basename matches but whose full path
+        # points at a different plugin_root (a 0.2.0 -> 0.3.0 migration). Migrate
+        # its command in place rather than appending a duplicate block.
+        basename_match = _find_block_by_command_basename(
+            pre_tool_use_list, pre_tool_use_path.name
+        )
+        if basename_match is not None:
+            target_block, stale_entry = basename_match
+            stale_entry["command"] = command
+
+    if target_block is None:
         target_block = {"matcher": PRETOOLUSE_MATCHER, "hooks": []}
         pre_tool_use_list.append(target_block)
 
@@ -379,53 +434,45 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
     )
 
 
-# Table-driven spec for the three load-bearing context-budget-gate hooks that
-# must be registered downstream alongside PreToolUse (INFRA-208 / CER-067):
+# Load-bearing context-budget-gate hooks that must be registered downstream
+# alongside PreToolUse (CER-067): without these three, context_budget_user_turn_seq
+# never increments (INFRA-192 UserPromptSubmit), context_current_tokens never
+# resets on /clear (SessionStart), and context_current_tokens is never written
+# from a live transcript read (INFRA-182 PostToolUse Task|Agent). Each entry is a
+# thin, safe-to-blanket-register dispatcher that no-ops when the project is not a
+# pairmode repo.
 #
-#   - UserPromptSubmit -> hooks/user_prompt_submit.py (INFRA-192): the sole
-#     source of the human-turn signal (`context_budget_user_turn_seq`)
-#     consumed by context_budget.should_block() (INFRA-193).
-#   - SessionStart -> hooks/session_start.py (INFRA-175): dispatches to
-#     session_reset.py to reset `context_current_tokens` on /clear.
-#   - PostToolUse (matcher "Task|Agent") -> hooks/post_tool_use.py
-#     (INFRA-182): writes `context_current_tokens` from a live transcript
-#     read after each completed Task/Agent spawn.
-#
-# Without these three, the PreToolUse context-budget gate registered by
-# _register_pretooluse_hook reads state nothing downstream ever produces or
-# advances -- the gate is decorative (CER-067).
-#
-# Deliberately NOT registered here (opt-in, separate product decision -- see
-# INFRA-208 "Chosen approach"): Stop (hooks/stop.py), PermissionRequest /
-# ExitPlanMode (hooks/exit_plan_mode.py), PostToolUse "Write|Edit|MultiEdit"
-# (hooks/post_tool_use.py file-change relay), SessionEnd (hooks/session_end.py).
-# These are companion-sidebar relays, not part of context-budget-gate
-# correctness.
-_CONTEXT_BUDGET_HOOK_SPEC: list[tuple[str, str, str | None]] = [
-    ("UserPromptSubmit", "user_prompt_submit.py", None),
-    ("SessionStart", "session_start.py", None),
-    ("PostToolUse", "post_tool_use.py", "Task|Agent"),
-]
+# Deliberately NOT included here (INFRA-208): Stop, PermissionRequest/
+# ExitPlanMode, PostToolUse Write|Edit|MultiEdit, SessionEnd. These four are
+# companion-sidebar relays, not part of context-budget-gate correctness; whether
+# a downstream project runs the companion sidebar is a separate product
+# decision, deferred as a future opt-in story rather than folded into this
+# correctness fix.
+CONTEXT_BUDGET_HOOK_SPECS: tuple[dict, ...] = (
+    {"event": "UserPromptSubmit", "hook_file": "hooks/user_prompt_submit.py", "matcher": None},
+    {"event": "SessionStart", "hook_file": "hooks/session_start.py", "matcher": None},
+    {"event": "PostToolUse", "hook_file": "hooks/post_tool_use.py", "matcher": "Task|Agent"},
+)
 
 
 def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> None:
-    """Merge the three context-budget-gate hook entries into .claude/settings.json.
+    """Merge the three load-bearing context-budget-gate hook entries into
+    .claude/settings.json (INFRA-208; see CER-067, INFRA-192, INFRA-175, INFRA-182).
 
-    Registers UserPromptSubmit, SessionStart (both matcher-less -- they fire
-    unconditionally per event), and PostToolUse "Task|Agent" (as a sibling
-    block alongside any pre-existing PostToolUse block for a different
-    command, e.g. a local pytest runner) -- see INFRA-208.
+    Registers UserPromptSubmit and SessionStart with no matcher (they fire
+    unconditionally per event in hooks.json) and PostToolUse Task|Agent as a
+    sibling block alongside any pre-existing PostToolUse block for a different
+    command (e.g. a local pytest-runner hook) — never merged into or replacing it.
 
-    For each event, the target block is located by scanning for an inner hook
-    entry whose command already matches (not by matcher/event alone), so a
-    pre-existing block for an unrelated command is never merged into or
-    replaced -- only a block already carrying our command is reused
-    (idempotent, sibling-preserving).
+    Mirrors _register_pretooluse_hook's by-command find/migrate idempotency: the
+    target block for each event is located by scanning for an inner hook entry
+    whose command already matches the computed absolute command, not by matcher
+    or event name alone. If found, that block is reused (and its matcher set in
+    place); if not found, a new block is appended. The command is added to a
+    block's inner hooks only if not already present.
 
-    Creates the file if it does not exist. Does not touch PreToolUse (see
-    _register_pretooluse_hook) or any of the four deferred companion/sidebar
-    blocks (Stop, PermissionRequest/ExitPlanMode, PostToolUse
-    "Write|Edit|MultiEdit", SessionEnd).
+    Reads the file once, mutates all three events, and writes once (trailing
+    newline, json.dumps(..., indent=2)). Creates the file if it does not exist.
     """
     if settings_path.exists():
         try:
@@ -437,15 +484,17 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
 
     hooks_top = data.setdefault("hooks", {})
 
-    for event, hook_filename, matcher in _CONTEXT_BUDGET_HOOK_SPEC:
-        hook_path = plugin_root / "hooks" / hook_filename
+    for spec in CONTEXT_BUDGET_HOOK_SPECS:
+        hook_path = plugin_root / spec["hook_file"]
         command = f"uv run python {hook_path}"
+        matcher = spec["matcher"]
 
-        event_list: list[dict] = hooks_top.setdefault(event, [])
+        event_list: list[dict] = hooks_top.setdefault(spec["event"], [])
 
-        # Find the block by command, not by matcher/event alone -- this is
-        # what makes registration idempotent and preserves any pre-existing
-        # sibling block for a different command untouched.
+        # Find the block by command, not by matcher/event alone — see
+        # _register_pretooluse_hook for the same discipline. This preserves
+        # any pre-existing sibling block for an unrelated command (e.g. a
+        # local pytest-runner PostToolUse hook) untouched.
         target_block: dict | None = None
         for block in event_list:
             inner_hooks: list[dict] = block.get("hooks", [])
@@ -454,20 +503,29 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
                 break
 
         if target_block is None:
+            # Fallback: a stale entry whose basename matches but whose full path
+            # points at a different plugin_root (a 0.2.0 -> 0.3.0 migration).
+            # The basename check itself isolates this event's hook from any
+            # unrelated sibling block (a different basename entirely). Migrate
+            # the command in place rather than appending a duplicate block.
+            basename_match = _find_block_by_command_basename(
+                event_list, hook_path.name
+            )
+            if basename_match is not None:
+                target_block, stale_entry = basename_match
+                stale_entry["command"] = command
+
+        if target_block is None:
+            target_block = {"hooks": []}
             if matcher is not None:
-                target_block = {"matcher": matcher, "hooks": []}
-            else:
-                target_block = {"hooks": []}
+                target_block["matcher"] = matcher
             event_list.append(target_block)
 
         if matcher is not None:
             target_block["matcher"] = matcher
 
         inner_hooks = target_block.setdefault("hooks", [])
-
-        already_registered = any(
-            h.get("command") == command for h in inner_hooks
-        )
+        already_registered = any(h.get("command") == command for h in inner_hooks)
         if not already_registered:
             inner_hooks.append({"type": "command", "command": command})
 
@@ -529,24 +587,13 @@ def _print_next_steps(project_dir: pathlib.Path, repo_root: pathlib.Path) -> Non
     )
 
 
-_EFFORT_BASELINE_SEED = (
-    pathlib.Path(__file__).resolve().parent.parent / "seed" / "effort_baseline.json"
-)
-
-_DEFAULT_EXPECTED_STEP_TOKENS = 53000
-
-
 def _load_seed_expected_step_tokens() -> int:
-    """Return the builder median from the effort baseline seed file.
+    """Return the thin-harness per-step context growth constant (CER-053).
 
-    Falls back to the hard-coded ~flex builder median if the seed file is
-    missing or malformed. Side-effect-free.
+    No longer reads the effort baseline seed. Returns THIN_HARNESS_STEP_TOKENS
+    — the dispatch loop's per-step context growth. Side-effect-free.
     """
-    try:
-        raw = json.loads(_EFFORT_BASELINE_SEED.read_text(encoding="utf-8"))
-        return int(raw["by_role"]["builder"]["median"])
-    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-        return _DEFAULT_EXPECTED_STEP_TOKENS
+    return THIN_HARNESS_STEP_TOKENS
 
 
 def _record_state(state_path: pathlib.Path, version: str) -> bool:
@@ -598,7 +645,7 @@ def _record_state(state_path: pathlib.Path, version: str) -> bool:
         data.setdefault("context_current_tokens", 1)
 
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    _atomic_write_json(state_path, data)
     return newly_enabled
 
 
@@ -826,6 +873,13 @@ def _initialize_rails(
     help="Build/test command (inferred from project files if omitted, else prompted).",
 )
 @click.option(
+    "--test-dir",
+    default=None,
+    help="Test-location convention for this project (e.g. tests/pairmode/, tests/). "
+    "Defaults to tests/ if omitted -- the builder/reviewer procedure skills read this "
+    "value from the project rendered CLAUDE.build.md rather than assuming a fixed layout.",
+)
+@click.option(
     "--phase-title",
     default=None,
     help="Title for the initial phase-1.md (prompted in TTY if omitted; blank allowed).",
@@ -882,6 +936,7 @@ def bootstrap(
     what: str | None,
     why: str | None,
     build_command: str | None,
+    test_dir: str | None,
     phase_title: str | None,
     phase_goal: str | None,
     dry_run: bool,
@@ -964,6 +1019,13 @@ def bootstrap(
 
     # test_command is derived from build_command for now
     test_command = build_command
+
+    # test_dir: the project's test-location convention. Defaults to "tests/" when
+    # not supplied -- this is the per-project value the builder/reviewer procedure
+    # skills read from CLAUDE.build.md's Build standards section instead of
+    # hardcoding flex's own "tests/pairmode/" convention (INFRA-240).
+    if not test_dir:
+        test_dir = "tests/"
 
     # ------------------------------------------------------------------
     # 1a. Era strategic intent (BUILD-016)
@@ -1087,6 +1149,7 @@ def bootstrap(
         "operator_contact": product.get("operator_contact", ""),
         "build_command": build_command,
         "test_command": test_command,
+        "test_dir": test_dir,
         "migration_command": "",
         "pairmode_scripts_dir": str(pathlib.Path(__file__).parent),
         "domain_model": "",
@@ -1205,6 +1268,7 @@ def bootstrap(
         "operator_contact": context["operator_contact"],
         "build_command": context["build_command"],
         "test_command": context["test_command"],
+        "test_dir": context["test_dir"],
         "migration_command": context["migration_command"],
         "domain_model": context["domain_model"],
         "domain_isolation_rule": context["domain_isolation_rule"],
@@ -1232,15 +1296,13 @@ def bootstrap(
         _merge_deny_list(settings_path, effective_deny)
 
     # ------------------------------------------------------------------
-    # 5b. Register PreToolUse + context-budget-gate hooks (UserPromptSubmit,
-    #     SessionStart, PostToolUse Task|Agent) into .claude/settings.json
+    # 5b. Register PreToolUse + context-budget-gate hooks into .claude/settings.json
+    #     (INFRA-206 PreToolUse; INFRA-208 UserPromptSubmit / SessionStart /
+    #     PostToolUse Task|Agent — see CER-067)
     # ------------------------------------------------------------------
     plugin_root = pathlib.Path(__file__).resolve().parent.parent.parent.parent
     if dry_run:
-        click.echo(
-            f"  [dry-run] would register PreToolUse + context-budget-gate "
-            f"hooks in: {settings_path}"
-        )
+        click.echo(f"  [dry-run] would register PreToolUse + context-budget-gate hooks in: {settings_path}")
     else:
         _register_pretooluse_hook(settings_path, plugin_root)
         _register_context_budget_hooks(settings_path, plugin_root)
@@ -1291,8 +1353,7 @@ def bootstrap(
         effort_newly_enabled = _record_state(state_path, PAIRMODE_VERSION)
         if effort_newly_enabled:
             click.echo(
-                "Effort tracking: enabled"
-                " (records build token costs to .companion/effort.db)"
+                "  effort tracking enabled (local sqlite only — no data leaves the host)"
             )
 
     # ------------------------------------------------------------------

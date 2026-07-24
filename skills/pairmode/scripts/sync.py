@@ -34,6 +34,7 @@ from skills.pairmode.scripts.audit import (  # noqa: E402
     _SECTION_RE,
 )
 from skills.pairmode.scripts._version import PAIRMODE_VERSION  # noqa: E402
+from skills.pairmode.scripts.context_model import THIN_HARNESS_STEP_TOKENS
 from skills.pairmode.scripts.bootstrap import (  # noqa: E402
     DEFAULT_DENY,
     PAIRMODE_DEFAULT_RAILS,
@@ -611,8 +612,9 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
                 _add_rail_to_era(era_path, rail)
             result.applied.append(f"Created rail directory docs/stories/{rail}/")
 
-    # Register PreToolUse + context-budget-gate hooks (UserPromptSubmit,
-    # SessionStart, PostToolUse Task|Agent) in .claude/settings.json
+    # Register PreToolUse + context-budget-gate hooks in .claude/settings.json
+    # (INFRA-206 PreToolUse; INFRA-208 UserPromptSubmit / SessionStart /
+    # PostToolUse Task|Agent — see CER-067)
     settings_path = project_dir / ".claude" / "settings.json"
     plugin_root = Path(__file__).resolve().parent.parent.parent.parent
     _register_pretooluse_hook(settings_path, plugin_root)
@@ -640,7 +642,7 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
     for key, default in [
         ("context_budget_threshold", 120000),
         ("context_budget_overrun_pct", 0.10),
-        ("expected_step_tokens", 53000),
+        ("expected_step_tokens", THIN_HARNESS_STEP_TOKENS),
         ("context_budget_reprompt_margin", 10000),
     ]:
         existing_state.setdefault(key, default)

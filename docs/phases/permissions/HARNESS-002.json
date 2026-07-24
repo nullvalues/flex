@@ -1,0 +1,12 @@
+{
+  "story_id": "HARNESS-002",
+  "story_spec": "docs/stories/HARNESS/HARNESS-002.md",
+  "allowed_paths": [
+    "CLAUDE.build.md",
+    "skills/pairmode/templates/agents/",
+    "tests/pairmode/test_flip_dogfood.py",
+    ".claude/agents/",
+    "docs/stories/HARNESS/HARNESS-002.md"
+  ],
+  "generated_at": "2026-07-01T17:45:12Z"
+}

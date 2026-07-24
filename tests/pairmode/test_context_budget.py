@@ -273,6 +273,34 @@ def test_compute_context_tokens_skips_malformed_json(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# INFRA-241: transcript-entry-shape drift canary.
+#
+# Not a parser rewrite and not new parsing logic -- compute_context_tokens()
+# already fails safe (returns None) on any malformed/missing/reshaped field,
+# and decide() already hard-blocks on a None current_tokens. The one gap that
+# leaves uncovered: a *silent* future transcript-format change that stays
+# valid-shaped JSON but alters field semantics (e.g. a units change, or a
+# rename that happens to collide with another key) would not raise and would
+# not be caught by the None check. This test pins today's known-good
+# ``type: "assistant"`` entry shape (tests/pairmode/fixtures/
+# transcript_entry_shape.json) so any future drift away from that shape shows
+# up as a failing test rather than a silently-wrong budget number.
+# ---------------------------------------------------------------------------
+
+
+def test_compute_context_tokens_drift_canary_known_good_shape(tmp_path):
+    """Pin today's known-good transcript entry shape against silent drift."""
+    fixture_path = Path(__file__).parent / "fixtures" / "transcript_entry_shape.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    f = tmp_path / "t.jsonl"
+    f.write_text(json.dumps(fixture["entry"]) + "\n", encoding="utf-8")
+
+    result = context_budget.compute_context_tokens(f)
+    assert result == fixture["expected_total_tokens"]
+
+
+# ---------------------------------------------------------------------------
 # read_current_tokens
 # ---------------------------------------------------------------------------
 
@@ -781,6 +809,37 @@ def test_decide_returns_check_required_when_tokens_absent(tmp_path):
     assert "CONTEXT CHECK REQUIRED" in result["reason"]
 
 
+def test_check_required_message_names_working_escape_paths(tmp_path):
+    """RELEASE-021: the CHECK-REQUIRED message must name real, working exits.
+
+    The prior message claimed the token count "will update automatically
+    after the next tool call completes" — false for this verdict, since the
+    PreToolUse block prevents exactly the Task/Agent spawn whose PostToolUse
+    completion would perform that write. The rewritten message must not make
+    that false claim, and must name the documented manual escape hatches
+    (`set-context-tokens`, `/clear`) explicitly.
+    """
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 53_000,
+            "current_phase": "58",
+            "current_story": "RELEASE-021",
+        },
+    )
+
+    result = context_budget.decide(project_dir)
+    assert result is not None
+    assert result["block"] is True
+    reason = result["reason"]
+    assert "CONTEXT CHECK REQUIRED" in reason
+    assert "will update automatically" not in reason
+    assert "set-context-tokens" in reason
+    assert "/clear" in reason
+
+
 def test_decide_returns_none_when_acknowledged_within_margin(tmp_path):
     """Already-acknowledged budget within reprompt margin → None."""
     project_dir = _setup_project(
@@ -873,12 +932,18 @@ def test_decide_is_read_only_does_not_write_user_turn_ack(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_decide_no_state_file_passthrough(tmp_path):
-    """`.companion/` directory exists but state.json is absent → None (fail-open)."""
+def test_decide_no_state_file_with_companion_dir_context_check_required(tmp_path):
+    """`.companion/` directory exists but state.json is absent → CONTEXT CHECK REQUIRED.
+
+    CER-040: a pairmode project (has .companion/) with a missing state.json should
+    surface the gate as needing attention, not silently pass.
+    """
     companion = tmp_path / ".companion"
     companion.mkdir(parents=True, exist_ok=True)
     result = context_budget.decide(tmp_path)
-    assert result is None
+    assert result is not None
+    assert result["block"] is True
+    assert "CONTEXT CHECK REQUIRED" in result["reason"]
 
 
 def test_decide_malformed_state_file_context_check_required(tmp_path):
@@ -1328,3 +1393,195 @@ def test_compute_context_tokens_does_not_find_entry_beyond_500_line_bound(tmp_pa
     assert result is None, (
         f"Expected None (assistant outside 500-line bound), got {result!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-165: NaN clamp + render_alert_prompt factored ceiling
+# ---------------------------------------------------------------------------
+
+
+def test_flex_factor_nan_clamped(tmp_path):
+    """decide() with flex_factor=NaN must clamp to 1.0 and print a warning (INFRA-165)."""
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 1_000,
+            "context_budget_reprompt_margin": 10_000,
+            "context_current_tokens": 10_000,
+        },
+    )
+    import io
+    captured = io.StringIO()
+    import sys as _sys
+    old_stderr = _sys.stderr
+    _sys.stderr = captured
+    try:
+        result = context_budget.decide(project_dir, flex_factor=float("nan"))
+    finally:
+        _sys.stderr = old_stderr
+
+    assert result is None, (
+        "NaN flex_factor clamped to 1.0; 10k tokens well under 132k ceiling → should pass"
+    )
+    assert "NaN" in captured.getvalue(), (
+        f"Expected NaN warning on stderr; got: {captured.getvalue()!r}"
+    )
+
+
+def test_render_alert_prompt_factored_ceiling(tmp_path):
+    """render_alert_prompt uses ceiling = threshold * (1+overrun) * flex_factor (INFRA-165).
+
+    With threshold=120000, overrun=0.10, flex_factor=0.5:
+        ceiling = int(120000 * 1.10 * 0.5) = 66000
+        remaining = 66000 - 70000 = -4000
+    """
+    result = context_budget.render_alert_prompt(
+        story_id="S",
+        tokens=70000,
+        threshold=120000,
+        overrun_pct=0.10,
+        expected_next=1000,
+        flex_factor=0.5,
+    )
+    assert "-4,000" in result or "-4000" in result, (
+        f"Expected remaining -4000 in prompt (factored ceiling=66000 − tokens=70000); "
+        f"got: {result!r}"
+    )
+    # Confirm un-factored ceiling (132000) is NOT used as the cutoff
+    assert "62,000" not in result and "62000" not in result, (
+        "Un-factored remaining (132k-70k=62k) found — ceiling is not being factored"
+    )
+
+
+def test_decide_alert_uses_factored_ceiling(tmp_path):
+    """decide() block prompt contains factored [R] when flex_factor < 1.0 (INFRA-165).
+
+    threshold=120000, overrun=0.10, flex_factor=0.5 → ceiling=66000.
+    current_tokens=70000 > ceiling → blocked; [R] = 66000-70000 = -4000.
+    """
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 1_000,
+            "context_budget_reprompt_margin": 10_000,
+            "context_current_tokens": 70_000,
+        },
+    )
+    result = context_budget.decide(project_dir, flex_factor=0.5)
+    assert result is not None, (
+        "70k tokens > factored ceiling (66k); decide should block"
+    )
+    assert result["block"] is True
+    output = result.get("reason", "")
+    assert "-4,000" in output or "-4000" in output, (
+        f"Factored [R] (-4000) not found in block prompt; got: {output!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-203: CER-040 — decide() pairmode-aware fail-closed
+# ---------------------------------------------------------------------------
+
+
+def test_decide_companion_dir_absent_state_absent_returns_none(tmp_path):
+    """No .companion/ directory → non-pairmode project → decide() returns None.
+
+    CER-040: absence of .companion/ means this is not a pairmode project;
+    decide() must fail-open (return None).
+    """
+    # tmp_path has no .companion/ at all
+    result = context_budget.decide(tmp_path)
+    assert result is None
+
+
+def test_decide_companion_dir_present_state_absent_returns_check_required(tmp_path):
+    """`.companion/` present but state.json absent → CONTEXT CHECK REQUIRED.
+
+    CER-040: pairmode project (has .companion/) with missing state.json should
+    surface the gate as needing attention, not silently pass.
+    """
+    (tmp_path / ".companion").mkdir(parents=True)
+    result = context_budget.decide(tmp_path)
+    assert result is not None
+    assert result["block"] is True
+    assert "CONTEXT CHECK REQUIRED" in result["reason"]
+
+
+# ---------------------------------------------------------------------------
+# INFRA-203: CER-041 — recorded_at TTL staleness
+# ---------------------------------------------------------------------------
+
+
+def test_read_context_tokens_stale_at_exactly_60_minutes(tmp_path):
+    """recorded_at exactly 60 minutes old is NOT stale (boundary: age > TTL, not >=)."""
+    now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    recorded_at = (now - timedelta(minutes=60)).isoformat()
+    state = {
+        "context_current_tokens": 50_000,
+        "context_current_tokens_recorded_at": recorded_at,
+    }
+    # age_minutes == ttl_minutes (60 == 60) → NOT stale (>) → value returned
+    assert context_budget.read_context_tokens_from_state(state, _now=now) == 50_000
+
+
+def test_read_context_tokens_stale_at_61_minutes(tmp_path):
+    """recorded_at 61 minutes old is stale → returns None."""
+    now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    recorded_at = (now - timedelta(minutes=61)).isoformat()
+    state = {
+        "context_current_tokens": 50_000,
+        "context_current_tokens_recorded_at": recorded_at,
+    }
+    assert context_budget.read_context_tokens_from_state(state, _now=now) is None
+
+
+def test_read_context_tokens_backward_compat_no_recorded_at():
+    """recorded_at absent → TTL not enforced; value returned (backward-compat).
+
+    CER-041: existing state.json files without context_current_tokens_recorded_at
+    must continue to work as before.
+    """
+    state = {"context_current_tokens": 77_777}
+    assert context_budget.read_context_tokens_from_state(state) == 77_777
+
+
+# ---------------------------------------------------------------------------
+# INFRA-203: CER-051 — session_id traversal guard in _derive_transcript_path
+# ---------------------------------------------------------------------------
+
+
+def test_derive_transcript_path_rejects_session_id_with_slash(tmp_path):
+    """_derive_transcript_path returns None for session_id containing '/'.
+
+    CER-051: slash in session_id could be used to escape the transcript directory.
+    """
+    result = context_budget._derive_transcript_path(
+        tmp_path / "proj", "abc/def", home=tmp_path
+    )
+    assert result is None
+
+
+def test_derive_transcript_path_rejects_session_id_with_dotdot(tmp_path):
+    """_derive_transcript_path returns None for session_id containing '..'.
+
+    CER-051: '..' in session_id could be used for path traversal.
+    """
+    result = context_budget._derive_transcript_path(
+        tmp_path / "proj", "abc..def", home=tmp_path
+    )
+    assert result is None
+
+
+def test_derive_transcript_path_rejects_dotdot_slash(tmp_path):
+    """_derive_transcript_path returns None for session_id with '../' traversal.
+
+    CER-051: combined '..' and '/' must both be rejected.
+    """
+    result = context_budget._derive_transcript_path(
+        tmp_path / "proj", "../../../etc/passwd", home=tmp_path
+    )
+    assert result is None

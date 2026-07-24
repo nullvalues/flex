@@ -90,6 +90,8 @@ These were agreed during design and frame every phase below:
 | WORKER | leaf-worker conversions — agent shell + plugin procedure skill — for gate, builder, reviewer, security-auditor, intent-reviewer, loop-breaker, spec-writer |
 | OBS | observability SPA/API refactor to read the new resolver state model instead of orchestrator-centric signals |
 | RELEASE | version increment, upstream-consumer compatibility, plugin packaging; keeping flex usable downstream throughout the refactor |
+| CORE | _(fill in primary domain)_ |
+| TEST | _(fill in primary domain)_ |
 
 ## Phases (proposed — `HARNESS` predicate, suffix scheme)
 
@@ -228,4 +230,20 @@ scope above. The close-out record is `docs/agreements/era-002-closeout.md`.
 
 ## Era summary
 
-*(written at era close)*
+*(era active — not yet closed. The summary below is a provisional record of the
+planned-phase work; the final era summary will be written at formal close, once
+field validation is complete.)*
+
+All 8 planned phases complete as of 2026-07-03:
+
+- **HARNESS001-ante1** — version pinned (`v0.2.0` tag), `harness` worktree established, dev-line isolated from `main`.
+- **HARNESS001-main** — `next-action` resolver built as a pure CLI state machine; sequencing, counters, model-selection routing in code; fully unit-tested in isolation alongside the old orchestrator.
+- **HARNESS002-main** — gate verdict extraction: gate-worker leaf worker established, safe-clear seam at inter-story gate spawn.
+- **HARNESS003-main** — builder, reviewer, loop-breaker, security-auditor, intent-reviewer converted to agent-shell + plugin procedure skills; disposable-context isolation validated.
+- **HARNESS004-main** — checkpoint decomposed into four resolver-emitted actions (`checkpoint-security`, `checkpoint-intent`, `checkpoint-docs`, `checkpoint-tag`); no nested spawning.
+- **HARNESS005-main** — spec-writer converted to a leaf worker; `spawn-spec-writer` action added to the resolver.
+- **HARNESS006-main** — the flip: `CLAUDE.build.md` reduced to the ~20-line dispatch loop; stateless-across-clears invariant enforced; harness holds nothing not reconstructable from `next-action`.
+- **HARNESS007-main** (Phase G) — observability SPA/API reworked to read the resolver state model; Phase 64 deferred stories (INFRA-164–168) built; D1/D2/D3 defects (CER-053/054/055) closed.
+- **HARNESS008-main** — housekeeper: `index_integrity.py` pure-read graph-invariant checker (status drift, cross-link consistency, orphan stories, deferred-without-section); `check-index` CLI; CER-056 deferred-as-inactive rule shared between the checker and `infer_position`.
+
+The load-bearing invariant held throughout: the harness holds nothing not reconstructable from `next-action`. The era has not yet been run against real project builds at scale; formal close pending field validation.

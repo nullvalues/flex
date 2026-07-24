@@ -717,53 +717,60 @@ def test_current_phase_finds_active_in_second_era(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# BUILD-043: Reviewer FAIL reason capture via --notes
+# BUILD-043: Reviewer FAIL reason capture via FAIL-CAUSE / --notes
+#
+# RELEASE-008 fold note: the retired agent template `reviewer.md.j2` and live
+# agent `.claude/agents/reviewer.md` were deleted at the Era 3 fold merge. The
+# FAIL-CAUSE instruction was ported into the plugin-versioned reviewer
+# procedure skill, which is now the single live reviewer surface. These tests
+# were retargeted accordingly.
 # ---------------------------------------------------------------------------
 
-_REVIEWER_TEMPLATE = (
-    _REPO_ROOT / "skills" / "pairmode" / "templates" / "agents" / "reviewer.md.j2"
+_REVIEWER_PROCEDURE = (
+    _REPO_ROOT / "skills" / "pairmode" / "skills" / "reviewer" / "procedure.md"
 )
-_BUILD_TEMPLATE = (
-    _REPO_ROOT / "skills" / "pairmode" / "templates" / "CLAUDE.build.md.j2"
-)
-_LIVE_REVIEWER = _REPO_ROOT / ".claude" / "agents" / "reviewer.md"
 
 
-def test_reviewer_template_contains_fail_cause_instruction() -> None:
-    """reviewer.md.j2 must emit FAIL-CAUSE before git checkout on FAIL."""
-    text = _REVIEWER_TEMPLATE.read_text(encoding="utf-8")
+def test_reviewer_procedure_contains_fail_cause_instruction() -> None:
+    """reviewer procedure.md must emit FAIL-CAUSE before git checkout on FAIL."""
+    text = _REVIEWER_PROCEDURE.read_text(encoding="utf-8")
     lines = text.splitlines()
 
     assert "Before reverting, emit one line" in text, (
-        "reviewer.md.j2 missing 'Before reverting, emit one line' instruction"
+        "reviewer procedure.md missing 'Before reverting, emit one line' instruction"
     )
-    assert "FAIL-CAUSE:" in text, "reviewer.md.j2 missing FAIL-CAUSE: marker"
+    assert "FAIL-CAUSE:" in text, "reviewer procedure.md missing FAIL-CAUSE: marker"
 
-    # FAIL-CAUSE: must appear before git checkout
+    # FAIL-CAUSE: must appear before the FAIL-revert git checkout command.
     fail_cause_line = next(
         (i for i, ln in enumerate(lines) if "FAIL-CAUSE:" in ln), None
     )
     git_checkout_line = next(
-        (i for i, ln in enumerate(lines) if "git checkout" in ln), None
+        (
+            i
+            for i, ln in enumerate(lines)
+            if ln.strip() == "git checkout ."
+        ),
+        None,
     )
-    assert fail_cause_line is not None, "FAIL-CAUSE: not found in reviewer.md.j2"
-    assert git_checkout_line is not None, "git checkout not found in reviewer.md.j2"
+    assert fail_cause_line is not None, "FAIL-CAUSE: not found in reviewer procedure.md"
+    assert git_checkout_line is not None, (
+        "git checkout . not found in reviewer procedure.md"
+    )
     assert fail_cause_line < git_checkout_line, (
         f"FAIL-CAUSE: (line {fail_cause_line}) must appear before "
-        f"git checkout (line {git_checkout_line}) in reviewer.md.j2"
+        f"git checkout . (line {git_checkout_line}) in reviewer procedure.md"
     )
 
 
-def test_build_template_passes_notes_on_reviewer_fail() -> None:
-    """CLAUDE.build.md.j2 must pass --notes near --outcome FAIL in record_attempt."""
-    text = _BUILD_TEMPLATE.read_text(encoding="utf-8")
+def test_reviewer_procedure_passes_notes_on_reviewer_fail() -> None:
+    """The reviewer procedure must document --notes near --outcome FAIL."""
+    text = _REVIEWER_PROCEDURE.read_text(encoding="utf-8")
     lines = text.splitlines()
 
-    # Find all lines containing --outcome FAIL
     fail_lines = [i for i, ln in enumerate(lines) if "--outcome FAIL" in ln]
-    assert fail_lines, "No '--outcome FAIL' found in CLAUDE.build.md.j2"
+    assert fail_lines, "No '--outcome FAIL' found in reviewer procedure.md"
 
-    # For at least one --outcome FAIL occurrence, --notes must appear within 30 lines
     found_notes_near_fail = False
     for fail_idx in fail_lines:
         window_start = max(0, fail_idx - 30)
@@ -774,15 +781,7 @@ def test_build_template_passes_notes_on_reviewer_fail() -> None:
             break
 
     assert found_notes_near_fail, (
-        "--notes flag not found within 30 lines of '--outcome FAIL' in CLAUDE.build.md.j2"
-    )
-
-
-def test_live_reviewer_contains_fail_cause_instruction() -> None:
-    """The live .claude/agents/reviewer.md must contain the FAIL-CAUSE instruction."""
-    text = _LIVE_REVIEWER.read_text(encoding="utf-8")
-    assert "Before reverting, emit one line" in text, (
-        ".claude/agents/reviewer.md missing 'Before reverting, emit one line' instruction"
+        "--notes not found within 30 lines of '--outcome FAIL' in reviewer procedure.md"
     )
 
 
@@ -1014,26 +1013,396 @@ def test_spec_preflight_subcommand_help_shows_story_id_flag() -> None:
     assert "--story-id" in result.stdout
 
 
-def test_build_template_contains_spec_preflight_step() -> None:
-    """CLAUDE.build.md.j2 must have spec-preflight between check-stub and check-story-scope."""
-    text = _BUILD_TEMPLATE.read_text(encoding="utf-8")
-    assert "spec-preflight" in text, "spec-preflight not found in CLAUDE.build.md.j2"
-    assert "SPEC PREFLIGHT" in text, "SPEC PREFLIGHT header not found in CLAUDE.build.md.j2"
+# ---------------------------------------------------------------------------
+# create/merge/discard-story-worktree (INFRA-224)
+# ---------------------------------------------------------------------------
 
-    lines = text.splitlines()
-    stub_line = next(
-        (i for i, ln in enumerate(lines) if "check-stub" in ln), None
+
+def _init_git_repo(project: Path) -> None:
+    """Initialise *project* as a git repo with one commit on the default branch."""
+    subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=str(project),
+        check=True,
     )
-    preflight_line = next(
-        (i for i, ln in enumerate(lines) if "spec-preflight" in ln), None
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=str(project), check=True
     )
-    scope_line = next(
-        (i for i, ln in enumerate(lines) if "check-story-scope" in ln), None
+    (project / "README.md").write_text("init\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=str(project), check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "initial"], cwd=str(project), check=True
     )
-    assert stub_line is not None, "check-stub not found in template"
-    assert preflight_line is not None, "spec-preflight not found in template"
-    assert scope_line is not None, "check-story-scope not found in template"
-    assert stub_line < preflight_line < scope_line, (
-        f"Expected check-stub ({stub_line}) < spec-preflight ({preflight_line}) "
-        f"< check-story-scope ({scope_line})"
+
+
+def _git(project: Path, *args: str) -> subprocess.CompletedProcess:
+    """Run a git command in *project* and capture its output."""
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(project),
+        capture_output=True,
+        text=True,
+    )
+
+
+def _commit_in(worktree: Path, filename: str, content: str, msg: str) -> None:
+    """Create/overwrite *filename* in *worktree* and commit it there."""
+    (worktree / filename).write_text(content, encoding="utf-8")
+    subprocess.run(["git", "add", filename], cwd=str(worktree), check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", msg], cwd=str(worktree), check=True
+    )
+
+
+class TestStoryWorktreeLifecycle:
+    """create / merge / discard-story-worktree (INFRA-224)."""
+
+    def test_create_story_worktree_creates_branch_and_directory(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        result = _run(
+            "create-story-worktree",
+            "--story-id", "WT-001",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        wt = tmp_path / ".pairmode-worktrees" / "WT-001"
+        assert wt.is_dir()
+        # stdout is the absolute worktree path.
+        assert result.stdout.strip() == str(wt.resolve())
+        # git worktree list shows it.
+        listing = _git(tmp_path, "worktree", "list")
+        assert str(wt.resolve()) in listing.stdout
+        # the new branch exists.
+        branch = _git(
+            tmp_path, "rev-parse", "--verify", "refs/heads/pairmode/WT-001"
+        )
+        assert branch.returncode == 0
+
+    def test_create_story_worktree_fails_if_already_exists(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        first = _run(
+            "create-story-worktree",
+            "--story-id", "WT-002",
+            "--project-dir", str(tmp_path),
+        )
+        assert first.returncode == 0, first.stderr
+        second = _run(
+            "create-story-worktree",
+            "--story-id", "WT-002",
+            "--project-dir", str(tmp_path),
+        )
+        assert second.returncode != 0
+        assert "already exists" in second.stderr
+
+    def test_worktree_edits_isolated_from_main_tree(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-003",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-003"
+        (wt / "feature.txt").write_text("in-worktree\n", encoding="utf-8")
+        # Not visible in the main worktree until merged.
+        assert not (tmp_path / "feature.txt").exists()
+
+    def test_merge_story_worktree_lands_commit_on_main_branch(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-004",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-004"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-004",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        # The commit is now on the main branch and the file materialised.
+        assert (tmp_path / "feature.txt").read_text() == "done\n"
+        log = _git(tmp_path, "log", "--oneline")
+        assert "add feature" in log.stdout
+        # Worktree and branch are gone.
+        assert not wt.exists()
+        branch = _git(
+            tmp_path, "rev-parse", "--verify", "refs/heads/pairmode/WT-004"
+        )
+        assert branch.returncode != 0
+
+    def test_merge_story_worktree_clears_attempt_counter(
+        self, tmp_path: Path
+    ) -> None:
+        """INFRA-237: a successful merge is the durable PASS signal — clear
+        the counter so the next story doesn't inherit a stale FAIL count."""
+        _init_git_repo(tmp_path)
+        _run(
+            "write-attempt-count",
+            "--story-id", "WT-100",
+            "--count", "2",
+            "--project-dir", str(tmp_path),
+        )
+        counter_path = tmp_path / ".companion" / "attempt_counter.json"
+        assert counter_path.exists()
+
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-100",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-100"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-100",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        assert not counter_path.exists()
+
+    def test_merge_story_worktree_rebases_past_intervening_main_commits(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-005",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-005"
+        _commit_in(wt, "feature.txt", "wt work\n", "worktree commit")
+        # Advance the main branch AFTER the worktree was created.
+        (tmp_path / "mainfile.txt").write_text("main work\n", encoding="utf-8")
+        subprocess.run(["git", "add", "mainfile.txt"], cwd=str(tmp_path), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "main commit"],
+            cwd=str(tmp_path),
+            check=True,
+        )
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-005",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        log = _git(tmp_path, "log", "--oneline").stdout
+        assert "worktree commit" in log
+        assert "main commit" in log
+        assert (tmp_path / "feature.txt").exists()
+        assert (tmp_path / "mainfile.txt").exists()
+
+    def test_merge_story_worktree_conflict_aborts_cleanly(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        # A shared file both branches will edit on the same line.
+        (tmp_path / "shared.txt").write_text("base\n", encoding="utf-8")
+        subprocess.run(["git", "add", "shared.txt"], cwd=str(tmp_path), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "add shared"],
+            cwd=str(tmp_path),
+            check=True,
+        )
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-006",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-006"
+        _commit_in(wt, "shared.txt", "worktree-change\n", "wt edit shared")
+        # Conflicting edit on the main branch.
+        (tmp_path / "shared.txt").write_text("main-change\n", encoding="utf-8")
+        subprocess.run(["git", "add", "shared.txt"], cwd=str(tmp_path), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "main edit shared"],
+            cwd=str(tmp_path),
+            check=True,
+        )
+        main_head_before = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
+        # Seed a counter, as a real FAIL-then-retry cycle would have left one.
+        _run(
+            "write-attempt-count",
+            "--story-id", "WT-006",
+            "--count", "1",
+            "--project-dir", str(tmp_path),
+        )
+
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-006",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode != 0
+        # The rebase was aborted: no lingering rebase state in the worktree gitdir.
+        wt_gitdir = _git(
+            wt, "rev-parse", "--git-dir"
+        ).stdout.strip()
+        assert not (Path(wt_gitdir) / "rebase-merge").exists()
+        assert not (Path(wt_gitdir) / "rebase-apply").exists()
+        # The main worktree is unaffected.
+        main_head_after = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
+        assert main_head_after == main_head_before
+        assert (tmp_path / "shared.txt").read_text() == "main-change\n"
+        # A failed merge must not clear the counter — the story hasn't landed.
+        counter_path = tmp_path / ".companion" / "attempt_counter.json"
+        assert counter_path.exists()
+
+    def test_discard_story_worktree_removes_uncommitted_changes_only_in_worktree(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        # Untracked content in the MAIN worktree, mirroring the RELEASE-022
+        # docs/stories/CORE/-style scenario — must survive a discard.
+        main_untracked = tmp_path / "docs" / "stories" / "CORE"
+        main_untracked.mkdir(parents=True)
+        (main_untracked / "keep.md").write_text("precious\n", encoding="utf-8")
+
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-007",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-007"
+        # Uncommitted + untracked content inside the worktree (never committed).
+        (wt / "scratch.txt").write_text("throwaway\n", encoding="utf-8")
+
+        result = _run(
+            "discard-story-worktree",
+            "--story-id", "WT-007",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        # The worktree and branch are gone.
+        assert not wt.exists()
+        branch = _git(
+            tmp_path, "rev-parse", "--verify", "refs/heads/pairmode/WT-007"
+        )
+        assert branch.returncode != 0
+        # The main worktree's own untracked content is untouched.
+        assert (main_untracked / "keep.md").read_text() == "precious\n"
+
+
+class TestStoryWorktreeActiveStoryStamping:
+    """create/merge/discard-story-worktree stamp/clear current_story + the
+    Layer 1 permission artifact (INFRA-238)."""
+
+    def test_create_story_worktree_stamps_current_story_and_permissions(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-200", primary_files=["skills/foo.py"])
+        result = _run(
+            "create-story-worktree",
+            "--story-id", "WT-200",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert state["current_story"]["id"] == "WT-200"
+
+        perm_path = tmp_path / "docs" / "phases" / "permissions" / "WT-200.json"
+        assert perm_path.exists()
+        payload = json.loads(perm_path.read_text())
+        assert "skills/foo.py" in payload["allowed_paths"]
+
+    def test_merge_story_worktree_clears_current_story_and_permissions(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-201", primary_files=["feature.txt"])
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-201",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-201"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-201",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert "current_story" not in state
+        assert not (
+            tmp_path / "docs" / "phases" / "permissions" / "WT-201.json"
+        ).exists()
+
+    def test_discard_story_worktree_clears_current_story_and_permissions(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-202", primary_files=["scratch.txt"])
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-202",
+            "--project-dir", str(tmp_path),
+        )
+        assert (
+            tmp_path / "docs" / "phases" / "permissions" / "WT-202.json"
+        ).exists()
+
+        result = _run(
+            "discard-story-worktree",
+            "--story-id", "WT-202",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert "current_story" not in state
+        assert not (
+            tmp_path / "docs" / "phases" / "permissions" / "WT-202.json"
+        ).exists()
+
+    def test_create_story_worktree_without_story_spec_does_not_fail(
+        self, tmp_path: Path
+    ) -> None:
+        """A story_id with no matching spec file (e.g. an ad-hoc lifecycle
+        test ID like WT-001 elsewhere in this file) must not prevent worktree
+        creation — stamping is best-effort."""
+        _init_git_repo(tmp_path)
+        result = _run(
+            "create-story-worktree",
+            "--story-id", "WT-203",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        assert (tmp_path / ".pairmode-worktrees" / "WT-203").is_dir()
+
+
+def test_spec_writer_procedure_references_spec_preflight() -> None:
+    """INFRA-191 fold location (RELEASE-008): the fat CLAUDE.build.md.j2 step was
+    superseded by the thin harness; spec-preflight is wired as a
+    `flex_build.py spec-preflight` subcommand and referenced from the
+    spec-writer procedure skill instead."""
+    procedure = (
+        _REPO_ROOT
+        / "skills"
+        / "pairmode"
+        / "skills"
+        / "spec-writer"
+        / "procedure.md"
+    )
+    text = procedure.read_text(encoding="utf-8")
+    assert "spec-preflight" in text, (
+        "spec-preflight not referenced in spec-writer procedure.md"
+    )
+    assert "flex_build.py" in text, (
+        "flex_build.py invocation not referenced in spec-writer procedure.md"
     )

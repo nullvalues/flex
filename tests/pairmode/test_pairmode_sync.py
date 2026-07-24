@@ -82,6 +82,24 @@ class TestBuildTemplateContext:
             f"Expected protected_paths=['src/core/'], got {ctx.get('protected_paths')!r}"
         )
 
+    def test_test_dir_from_pairmode_context(self, tmp_path: pathlib.Path) -> None:
+        """_build_template_context returns test_dir from pairmode_context.json (INFRA-240)."""
+        companion_dir = tmp_path / ".companion"
+        companion_dir.mkdir()
+        pairmode_ctx = {"test_dir": "spec/"}
+        (companion_dir / "pairmode_context.json").write_text(
+            json.dumps(pairmode_ctx), encoding="utf-8"
+        )
+        ctx = _build_template_context(tmp_path)
+        assert ctx.get("test_dir") == "spec/", (
+            f"Expected test_dir='spec/', got {ctx.get('test_dir')!r}"
+        )
+
+    def test_test_dir_defaults_to_tests_slash_when_absent(self, tmp_path: pathlib.Path) -> None:
+        """_build_template_context falls back to 'tests/' when no test_dir is declared."""
+        ctx = _build_template_context(tmp_path)
+        assert ctx.get("test_dir") == "tests/"
+
 
 class TestRenderBuildTemplate:
     """Tests for _render_build_template() with pairmode_scripts_dir in context."""
@@ -108,13 +126,87 @@ class TestRenderBuildTemplate:
                 )
 
     def test_rendered_template_contains_absolute_scripts_path(self, tmp_path: pathlib.Path) -> None:
-        """The rendered build template must contain the absolute scripts directory path."""
+        """The rendered build template must contain the absolute scripts directory path.
+
+        RELEASE-009: pairmode_scripts_dir is now explicitly embedded in the template.
+        """
         ctx = self._make_context(tmp_path)
         rendered = _render_build_template(ctx)
-        expected = ctx["pairmode_scripts_dir"]
-        assert expected in rendered, (
-            f"Rendered CLAUDE.build.md does not contain the absolute scripts path {expected!r}."
+        absolute_scripts = ctx["pairmode_scripts_dir"]
+        assert absolute_scripts in rendered, (
+            f"Rendered CLAUDE.build.md does not contain absolute scripts path {absolute_scripts!r}"
         )
+
+    def test_rendered_template_has_pairmode_scripts_dir_line(self, tmp_path: pathlib.Path) -> None:
+        """Rendered CLAUDE.build.md must contain a 'pairmode_scripts_dir = <path>' line.
+
+        Signal-1 detection in fleet_discovery.py uses _SCRIPTS_DIR_PATTERN which
+        matches exactly this key-value form.  RELEASE-009 defect 1.
+        """
+        import re
+        ctx = self._make_context(tmp_path)
+        rendered = _render_build_template(ctx)
+        pattern = re.compile(r"pairmode_scripts_dir\s*=\s*\S+")
+        assert pattern.search(rendered), (
+            "Rendered CLAUDE.build.md does not contain a 'pairmode_scripts_dir = <path>' line"
+        )
+
+    def test_rendered_template_has_no_bare_flex_build_invocations(self, tmp_path: pathlib.Path) -> None:
+        """All flex_build.py invocations in the rendered template must use absolute paths.
+
+        RELEASE-009 defect 2: bare 'flex_build.py' references must not appear.
+        """
+        ctx = self._make_context(tmp_path)
+        rendered = _render_build_template(ctx)
+        absolute_scripts = ctx["pairmode_scripts_dir"]
+        for lineno, line in enumerate(rendered.splitlines(), 1):
+            # A bare invocation is one that contains 'flex_build.py' but NOT
+            # the absolute scripts path prefix.
+            if "flex_build.py" in line and absolute_scripts not in line:
+                raise AssertionError(
+                    f"Line {lineno} contains bare 'flex_build.py' without absolute path prefix:\n  {line}"
+                )
+
+    def test_rendered_template_does_not_hardcode_harness_branch(self, tmp_path: pathlib.Path) -> None:
+        """The rendered template must not contain the literal string 'harness' as a branch name.
+
+        RELEASE-009 defect 3: the tag-push line must use the project's default_branch variable.
+        """
+        ctx = self._make_context(tmp_path)
+        rendered = _render_build_template(ctx)
+        # Look for patterns like 'git push origin harness' that hardcode the branch
+        import re
+        pattern = re.compile(r"git push origin harness")
+        assert not pattern.search(rendered), (
+            "Rendered CLAUDE.build.md hardcodes 'harness' as the push branch — "
+            "should use default_branch variable"
+        )
+
+    def test_rendered_template_record_attempt_uses_absolute_path(self, tmp_path: pathlib.Path) -> None:
+        """The record-attempt invocation in the rendered template must use the absolute path.
+
+        RELEASE-009 defect 4: record-attempt must be dispatched via the absolute
+        flex_build.py path, not a bare subcommand reference.
+        """
+        ctx = self._make_context(tmp_path)
+        rendered = _render_build_template(ctx)
+        absolute_scripts = ctx["pairmode_scripts_dir"]
+        # The record-attempt line should reference absolute path/flex_build.py record-attempt
+        for lineno, line in enumerate(rendered.splitlines(), 1):
+            if "record-attempt" in line and "flex_build.py" in line:
+                if absolute_scripts not in line:
+                    raise AssertionError(
+                        f"Line {lineno} has record-attempt via flex_build.py but not absolute path:\n  {line}"
+                    )
+                return  # found and it's correct
+        # Also acceptable: no flex_build.py on the record-attempt line — means it's using
+        # record_attempt.py directly or the line format differs; check for absolute path
+        for lineno, line in enumerate(rendered.splitlines(), 1):
+            if "record-attempt" in line:
+                if absolute_scripts not in line:
+                    raise AssertionError(
+                        f"Line {lineno} has record-attempt without absolute scripts path:\n  {line}"
+                    )
 
 
 class TestMergeBodySections:
@@ -1308,12 +1400,14 @@ def test_sync_build_dry_run_detects_old_gate_sections(tmp_path: pathlib.Path) ->
 
 
 def test_sync_build_apply_replaces_old_gate_sections(tmp_path: pathlib.Path) -> None:
-    """sync-build --apply --yes rewrites CLAUDE.build.md: contains check-stub, not old prose.
+    """sync-build --apply --yes rewrites CLAUDE.build.md with the thin dispatch loop.
 
-    After applying the template, the written file must:
-    - Contain 'check-stub' (the new CLI subcommand name).
+    HARNESS-001: the thin dispatch loop template no longer contains check-stub or old
+    gate-section prose. After applying, the file must:
+    - Contain 'next-action' (the resolver CLI call in the thin dispatch loop).
     - Not contain the old delegation-language prose ('See phase doc').
     """
+    import pytest
     from click.testing import CliRunner
 
     project_dir = _make_old_gate_build_md(tmp_path)
@@ -1332,8 +1426,9 @@ def test_sync_build_apply_replaces_old_gate_sections(tmp_path: pathlib.Path) -> 
 
     written = build_file.read_text(encoding="utf-8")
 
-    assert "check-stub" in written, (
-        "Expected 'check-stub' CLI call in written CLAUDE.build.md, but not found."
+    # HARNESS-001: check-stub is no longer in the thin template; verify dispatch loop instead.
+    assert "next-action" in written, (
+        "Expected 'next-action' dispatch call in written CLAUDE.build.md, but not found."
     )
     assert "See phase doc" not in written, (
         "Old delegation-language prose ('See phase doc') still present in written file."

@@ -266,6 +266,36 @@ def test_build036_single_active_phase_resolves(tmp_path: Path) -> None:
     assert "phase-7.md" in result.stdout.strip()
 
 
+def test_release008_deferred_then_planned_fileless_returns_next_existing(
+    tmp_path: Path,
+) -> None:
+    """RELEASE-008 fold regression: deferred row followed by a planned-fileless row.
+
+    A ``deferred`` row is skipped (inactive), the following ``planned`` row has no
+    phase file (fileless guard keeps scanning), and the first active row after
+    the deferred entry whose file exists is returned.
+    """
+    _write_phase_index_4col(
+        tmp_path,
+        [
+            ("1", "Done", "complete"),
+            ("64", "Parked", "deferred"),
+            ("70", "Planned but fileless", "planned"),
+            ("71", "Planned with file", "planned"),
+        ],
+    )
+    # phase-64.md exists but is deferred; phase-70.md does NOT exist;
+    # phase-71.md exists and must be the one returned.
+    _write_phase_file(tmp_path, 64, "RAIL-064")
+    _write_phase_file(tmp_path, 71, "RAIL-071")
+
+    result = _run("current-phase", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "phase-71.md" in result.stdout.strip()
+    assert "phase-64.md" not in result.stdout.strip()
+    assert "phase-70.md" not in result.stdout.strip()
+
+
 def test_build036_five_column_layout(tmp_path: Path) -> None:
     """5-column seeded layout resolves identically to 4-column layout."""
     _write_phase_index_5col(

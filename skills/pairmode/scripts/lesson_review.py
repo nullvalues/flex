@@ -36,14 +36,15 @@ from skills.pairmode.scripts import lesson_utils  # noqa: E402
 
 _AFFECTS_TO_TEMPLATE: dict[str, str] = {
     "reviewer_checklist": "skills/pairmode/templates/CLAUDE.md.j2",
-    "builder_agent": "skills/pairmode/templates/agents/builder.md.j2",
+    "builder_agent": "skills/pairmode/skills/builder/procedure.md",
+    "reviewer": "skills/pairmode/skills/reviewer/procedure.md",
     "orchestrator": "skills/pairmode/templates/CLAUDE.build.md.j2",
     "checkpoint_sequence": "skills/pairmode/templates/CLAUDE.build.md.j2",
 }
 
 _ALL_TEMPLATE_FILES: list[str] = [
     "skills/pairmode/templates/CLAUDE.md.j2",
-    "skills/pairmode/templates/agents/builder.md.j2",
+    "skills/pairmode/skills/builder/procedure.md",
     "skills/pairmode/templates/CLAUDE.build.md.j2",
 ]
 
@@ -59,6 +60,20 @@ def load_reviewable_lessons() -> list[dict]:
         lesson
         for lesson in data.get("lessons", [])
         if lesson.get("status") in ("captured", "reviewed")
+    ]
+
+
+def list_unenforced_lessons() -> list[dict]:
+    """Return all lessons with status 'applied' and enforced_by 'none'.
+
+    This is the queryable unenforced-lessons backlog: applied lessons whose
+    methodology change has not been folded into a lint/hook/skill gate.
+    """
+    data = lesson_utils.load_lessons()
+    return [
+        lesson
+        for lesson in data.get("lessons", [])
+        if lesson.get("status") == "applied" and lesson.get("enforced_by") == "none"
     ]
 
 
@@ -148,15 +163,36 @@ def apply_template_change(proposal: dict, change_text: str, templates_root: Path
         change_text: The text describing the change to embed.
         templates_root: Optional override for the repo root (used in tests).
     """
+    if not proposal.get("template_file"):
+        raise FileNotFoundError(
+            f"No template mapping for affects={proposal.get('affects')!r} "
+            f"(lesson {proposal.get('lesson_id')}) — add an _AFFECTS_TO_TEMPLATE "
+            f"entry or fold this lesson manually."
+        )
+
     root = templates_root if templates_root is not None else _REPO_ROOT
     template_path = (root / proposal["template_file"]).resolve()
     templates_boundary = (root / "skills" / "pairmode" / "templates").resolve()
-    try:
-        template_path.resolve().relative_to(templates_boundary.resolve())
-    except ValueError:
+    procedures_boundary = (root / "skills" / "pairmode" / "skills").resolve()
+    in_boundary = False
+    for boundary in (templates_boundary, procedures_boundary):
+        try:
+            template_path.relative_to(boundary)
+            in_boundary = True
+            break
+        except ValueError:
+            continue
+    if not in_boundary:
         raise ValueError(
             f"Template path {template_path} is outside templates directory"
         )
+
+    if not template_path.exists():
+        raise FileNotFoundError(
+            f"Mapped template file does not exist: {template_path} "
+            f"(lesson {proposal.get('lesson_id')}, affects={proposal.get('affects')!r})"
+        )
+
     lesson_id = proposal["lesson_id"]
 
     comment_block = f"\n{{# LESSON {lesson_id}: {change_text} #}}\n"
@@ -418,12 +454,20 @@ def drift_promotion_step(project_dir: Path, **kwargs) -> None:
     default=False,
     help="Skip lesson processing and run only drift promotion.",
 )
+@click.option(
+    "--list-unenforced",
+    "list_unenforced",
+    is_flag=True,
+    default=False,
+    help="Print applied lessons with enforced_by 'none' (the unenforced backlog) and exit.",
+)
 def cli(
     approve_ids: tuple[str, ...],
     reject_ids: tuple[str, ...],
     project_dir: str,
     skip_drift: bool,
     drift_only: bool,
+    list_unenforced: bool,
 ) -> None:
     """Process lesson approvals and rejections, then regenerate LESSONS.md.
 
@@ -435,6 +479,18 @@ def cli(
 
     Rejected lessons: status is set to 'reviewed'.
     """
+    if list_unenforced:
+        unenforced = list_unenforced_lessons()
+        if not unenforced:
+            click.echo("no unenforced applied lessons")
+        else:
+            for lesson in unenforced:
+                lid = lesson.get("id", "")
+                trigger = lesson.get("trigger", "")
+                description = lesson.get("methodology_change", {}).get("description", "")
+                click.echo(f"{lid}: {trigger} — {description}")
+        return
+
     if drift_only and skip_drift:
         raise click.UsageError("--drift-only and --skip-drift are mutually exclusive")
 

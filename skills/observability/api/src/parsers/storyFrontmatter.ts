@@ -57,8 +57,14 @@ export async function parseStoryFrontmatter(
   const title = typeof fm['title'] === 'string' ? fm['title'] : '';
   const status = typeof fm['status'] === 'string' ? fm['status'] : 'unknown';
   const story_class = typeof fm['story_class'] === 'string' ? fm['story_class'] : 'code';
-  const flex_factor =
-    typeof fm['flex_factor'] === 'number' ? fm['flex_factor'] : 1.0;
+  let flex_factor = 1.0;
+  const ffRaw = fm['flex_factor'];
+  if (typeof ffRaw === 'number' && !Number.isNaN(ffRaw)) {
+    flex_factor = ffRaw;
+  } else if (typeof ffRaw === 'string') {
+    const parsed = parseFloat(ffRaw);
+    if (!Number.isNaN(parsed)) flex_factor = parsed;
+  }
   const primary_files = Array.isArray(fm['primary_files'])
     ? (fm['primary_files'] as unknown[]).filter((x) => typeof x === 'string') as string[]
     : [];

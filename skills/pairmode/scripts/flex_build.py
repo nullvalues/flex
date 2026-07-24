@@ -49,6 +49,41 @@ from permission_scope import (  # noqa: E402
 )
 from effort_db import check_guardrail, resolve_effort_db_path  # noqa: E402
 from context_health import check_context_health  # noqa: E402
+from next_action import _CHECKPOINT_SEQUENCE  # noqa: E402
+from state_utils import _atomic_write_json  # noqa: E402
+from story_context import set_current_story, clear_current_story  # noqa: E402
+
+
+def _stamp_active_story(project_path: Path, story_id: str) -> None:
+    """Stamp *story_id* as ``current_story`` in the main checkout's
+    ``.companion/state.json``, creating the directory if needed.
+
+    Best-effort: any failure is swallowed by the caller (create-story-worktree
+    surfaces it as a warning) — a stamping failure must never prevent the
+    worktree itself from being created.
+    """
+    story_path = _story_path(story_id, project_path)
+    fm = _read_story_frontmatter(story_path)
+    companion_dir = project_path / ".companion"
+    companion_dir.mkdir(parents=True, exist_ok=True)
+    set_current_story(companion_dir, story_id, title=fm.get("title"))
+
+
+def _clear_active_story(project_path: Path) -> None:
+    """Clear ``current_story`` from the main checkout's ``.companion/state.json``.
+
+    Silent no-op when ``.companion/`` does not exist — merge/discard must
+    never fail because the story was never stamped in the first place (e.g.
+    a story ID with no matching spec file, as several worktree-lifecycle
+    tests use).
+    """
+    companion_dir = project_path / ".companion"
+    if not companion_dir.is_dir():
+        return
+    try:
+        clear_current_story(companion_dir)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -66,9 +101,18 @@ def _story_path(story_id: str, project_dir: Path) -> Path:
     """Return ``docs/stories/<RAIL>/<STORY_ID>.md`` for ``story_id``.
 
     Rail is the substring before the first ``-`` in ``story_id``.
+
+    Raises ``ValueError`` when the resolved path escapes the stories root
+    (e.g. a story_id containing path-traversal sequences).
     """
     rail = story_id.split("-", 1)[0]
-    return project_dir / "docs" / "stories" / rail / f"{story_id}.md"
+    resolved = (project_dir / "docs" / "stories" / rail / f"{story_id}.md").resolve()
+    stories_root = (project_dir / "docs" / "stories").resolve()
+    try:
+        resolved.relative_to(stories_root)
+    except ValueError:
+        raise ValueError(f"story ID escapes stories root: {story_id}")
+    return resolved
 
 
 def _read_story_frontmatter(story_path: Path) -> dict:
@@ -102,6 +146,62 @@ def _read_guardrail_multiplier(project_dir: Path) -> float:
         return float(data.get("effort_guardrail_multiplier", 3.0))
     except (json.JSONDecodeError, ValueError, TypeError, OSError):
         return 3.0
+
+
+# ---------------------------------------------------------------------------
+# Story-worktree helpers (INFRA-224)
+# ---------------------------------------------------------------------------
+
+
+def _run_git(args: list[str], cwd: Path, timeout: int = 120):
+    """Run ``git <args>`` with ``cwd`` and return the completed process.
+
+    Output is captured (text mode). Callers inspect ``returncode`` /
+    ``stdout`` / ``stderr`` themselves. No exception is raised on non-zero
+    exit — the story-worktree commands surface git's own error text.
+    """
+    import subprocess  # noqa: PLC0415
+
+    return subprocess.run(  # noqa: S603
+        ["git", *args],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _worktree_paths(story_id: str, project_dir: Path) -> tuple[Path, Path, str]:
+    """Return ``(worktree_rel, worktree_abs, branch)`` for ``story_id``.
+
+    Convention (INFRA-224): worktree at ``.pairmode-worktrees/<story-id>/``
+    (relative to the project dir), branch ``pairmode/<story-id>``.
+    """
+    wt_rel = Path(".pairmode-worktrees") / story_id
+    wt_abs = (project_dir / wt_rel).resolve()
+    branch = f"pairmode/{story_id}"
+    return wt_rel, wt_abs, branch
+
+
+def _validate_story_id_or_exit(story_id: str) -> None:
+    """Exit non-zero with a clear message if ``story_id`` is malformed.
+
+    Guards the worktree/branch path construction against traversal or
+    injection (the story ID becomes both a directory name and a branch name).
+    """
+    if not _STORY_ID_RE.match(story_id):
+        click.echo(
+            f"error: malformed story ID '{story_id}' "
+            "(expected RAIL-NNN, e.g. INFRA-224)",
+            err=True,
+        )
+        sys.exit(1)
+
+
+def _current_branch(project_dir: Path) -> str:
+    """Return the abbreviated branch name of the main worktree's HEAD."""
+    result = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], project_dir)
+    return result.stdout.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -229,21 +329,24 @@ def cmd_clear_permissions(project_dir: str) -> None:
     clear_story_permissions(project_path)
 
 
-@flex_build.command("permissions-create")
-@click.argument("story_id")
-@click.option(
-    "--project-dir",
-    default=".",
-    type=click.Path(file_okay=False, dir_okay=True),
-    help="Project root directory.",
-)
-def cmd_permissions_create(story_id: str, project_dir: str) -> None:
-    """Generate docs/phases/permissions/<STORY_ID>.json from story spec frontmatter."""
-    if not _STORY_ID_RE.match(story_id):
-        click.echo(f"permissions-create: invalid story_id format: {story_id!r}", err=True)
-        sys.exit(1)
+class PermissionsCreateError(Exception):
+    """Raised by ``generate_permissions_artifact`` on any recoverable failure."""
 
-    project_path = Path(project_dir).resolve()
+
+def generate_permissions_artifact(story_id: str, project_path: Path) -> str:
+    """Generate ``docs/phases/permissions/<story_id>.json`` from story frontmatter.
+
+    Shared by the ``permissions-create`` CLI command and
+    ``create-story-worktree`` (INFRA-238 Ensures 1) so the Layer 1 artifact is
+    generated automatically on every worktree creation, not only when an
+    operator runs the command by hand. Returns a human-readable status
+    message; raises ``PermissionsCreateError`` on any failure instead of
+    calling ``sys.exit`` directly, so callers other than the CLI command can
+    decide how to handle it.
+    """
+    if not _STORY_ID_RE.match(story_id):
+        raise PermissionsCreateError(f"invalid story_id format: {story_id!r}")
+
     rail = story_id.split("-")[0]
     story_spec_rel = f"docs/stories/{rail}/{story_id}.md"
     story_path = project_path / story_spec_rel
@@ -252,18 +355,15 @@ def cmd_permissions_create(story_id: str, project_dir: str) -> None:
     try:
         story_path.resolve().relative_to(stories_root.resolve())
     except ValueError:
-        click.echo("permissions-create: story spec path escapes project root", err=True)
-        sys.exit(1)
+        raise PermissionsCreateError("story spec path escapes project root") from None
 
     if not story_path.exists():
-        click.echo(f"permissions-create: story spec not found: {story_path}", err=True)
-        sys.exit(1)
+        raise PermissionsCreateError(f"story spec not found: {story_path}")
 
     try:
         fm = _read_story_frontmatter(story_path)
     except Exception as exc:  # noqa: BLE001
-        click.echo(f"permissions-create: failed to parse frontmatter: {exc}", err=True)
-        sys.exit(1)
+        raise PermissionsCreateError(f"failed to parse frontmatter: {exc}") from exc
 
     primary_files: list[str] = fm.get("primary_files") or []
     touches: list[str] = fm.get("touches") or []
@@ -284,8 +384,7 @@ def cmd_permissions_create(story_id: str, project_dir: str) -> None:
     try:
         out_path.resolve().relative_to(out_dir.resolve())
     except ValueError:
-        click.echo("permissions-create: output path escapes permissions dir", err=True)
-        sys.exit(1)
+        raise PermissionsCreateError("output path escapes permissions dir") from None
 
     existing_allowed: list[str] | None = None
     if out_path.exists():
@@ -296,10 +395,7 @@ def cmd_permissions_create(story_id: str, project_dir: str) -> None:
             existing_allowed = None
 
     if existing_allowed == allowed:
-        click.echo(
-            f"permissions: docs/phases/permissions/{story_id}.json unchanged ({len(allowed)} paths)"
-        )
-        return
+        return f"permissions: docs/phases/permissions/{story_id}.json unchanged ({len(allowed)} paths)"
 
     payload = {
         "story_id": story_id,
@@ -308,9 +404,43 @@ def cmd_permissions_create(story_id: str, project_dir: str) -> None:
         "generated_at": _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     out_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    click.echo(
-        f"permissions: wrote docs/phases/permissions/{story_id}.json ({len(allowed)} paths)"
-    )
+    return f"permissions: wrote docs/phases/permissions/{story_id}.json ({len(allowed)} paths)"
+
+
+def clear_permissions_artifact(story_id: str, project_path: Path) -> None:
+    """Remove ``docs/phases/permissions/<story_id>.json`` if present.
+
+    Called by ``merge-story-worktree``/``discard-story-worktree`` (INFRA-238
+    Ensures 1) to clear the Layer 1 artifact stamped by
+    ``create-story-worktree``, mirroring the ``current_story`` clear. Silent
+    no-op when the file does not exist — merge/discard must never fail because
+    a permissions file was never generated (e.g. a story with an empty
+    ``primary_files``/``touches``, or a manually-discarded worktree).
+    """
+    out_path = project_path / "docs" / "phases" / "permissions" / f"{story_id}.json"
+    try:
+        out_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+@flex_build.command("permissions-create")
+@click.argument("story_id")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_permissions_create(story_id: str, project_dir: str) -> None:
+    """Generate docs/phases/permissions/<STORY_ID>.json from story spec frontmatter."""
+    project_path = Path(project_dir).resolve()
+    try:
+        message = generate_permissions_artifact(story_id, project_path)
+    except PermissionsCreateError as exc:
+        click.echo(f"permissions-create: {exc}", err=True)
+        sys.exit(1)
+    click.echo(message)
 
 
 @flex_build.command("select-security-auditor-model")
@@ -426,50 +556,29 @@ def _parse_index_phases(index_text: str) -> list[tuple[str, str]]:
     return rows
 
 
-def _is_terminal_status(status: str) -> bool:
-    """Return True when *status* represents a terminal (done / closed) phase state.
+def resolve_current_phase(project_dir: Path) -> Path | None:
+    """Return the active phase file Path, or None when all phases are complete.
 
-    Terminal statuses:
-    - Exactly ``complete`` or begins with ``complete`` (e.g. ``complete (partial)``).
+    Reads ``docs/phases/index.md`` when present (authoritative); falls back to
+    scanning ``docs/phases/phase-*.md`` files for one with an unbuilt story.
+    Pure read — no state writes.
 
-    Match is case-insensitive; the caller is expected to pass an already-lowercased,
-    stripped value (as returned by ``_parse_index_phases``), but we normalise anyway.
+    Extracted from ``cmd_current_phase`` as a module-level helper so that
+    ``next_action.infer_position`` can compose it as a library call (RESOLVER-002).
+
+    Index walk semantics (Era 3 fold — RELEASE-008): rows are walked in index
+    order (build order) and the FIRST row whose status is active per
+    ``index_integrity.is_phase_inactive`` AND whose phase file exists is
+    returned.  Inactive statuses (``complete``, ``complete (partial)``,
+    ``deferred``, ``backlog``) are skipped; an active-but-fileless row is
+    skipped rather than terminating the walk, so a planned future row without
+    a file never masks a later active phase that has one.
     """
-    normalised = status.strip().lower()
-    return normalised == "complete" or normalised.startswith("complete")
-
-
-def _is_active_status(status: str) -> bool:
-    """Return True when *status* means the phase is eligible as the current active phase.
-
-    Active = not terminal and not deferred.
-    ``deferred`` phases are parked; they are never returned as the active phase.
-    """
-    normalised = status.strip().lower()
-    if _is_terminal_status(normalised):
-        return False
-    if normalised == "deferred":
-        return False
-    return True
-
-
-@flex_build.command("current-phase")
-@click.option(
-    "--project-dir",
-    default=".",
-    type=click.Path(file_okay=False, dir_okay=True),
-    help="Project root directory.",
-)
-def cmd_current_phase(project_dir: str) -> None:
-    """Print the active phase file path; exit 1 if all stories are complete."""
     # Import lazily to avoid issues in environments where next_story isn't on
     # sys.path at module load time.
     from next_story import find_next_story  # noqa: E402  # type: ignore[import]
 
-    project_path = Path(project_dir).resolve()
-    _depth_guard(project_path)
-
-    index_path = project_path / "docs" / "phases" / "index.md"
+    index_path = project_dir / "docs" / "phases" / "index.md"
 
     if index_path.exists():
         index_text = index_path.read_text(encoding="utf-8")
@@ -480,26 +589,30 @@ def cmd_current_phase(project_dir: str) -> None:
         # (``complete``, ``complete (partial)``, …) and parked phases
         # (``deferred``).  A planned-but-fileless future row must never mask
         # an earlier active phase that has a file.
+        from index_integrity import is_phase_inactive  # noqa: PLC0415
+
         for phase_ref, status in phase_rows:
-            if not _is_active_status(status):
+            normalised = status.strip().lower()
+            # is_phase_inactive covers complete/deferred/backlog; the
+            # startswith check adds main's terminal semantics for annotated
+            # statuses like "complete (partial)".
+            if is_phase_inactive(normalised) or normalised.startswith("complete"):
                 continue
-            candidate = project_path / "docs" / "phases" / f"phase-{phase_ref}.md"
+            candidate = project_dir / "docs" / "phases" / f"phase-{phase_ref}.md"
             if candidate.exists():
-                click.echo(str(candidate.relative_to(project_path)))
-                sys.exit(0)
-            # Active row but no file yet — keep scanning for an earlier
+                return candidate
+            # Active row but no file yet — keep scanning for a later
             # active row that does have a file (fileless-phase guard).
 
-        # Index exists but no active phase with an existing file was found.
-        click.echo("No active phase found — all stories complete.", err=True)
-        sys.exit(1)
+        # Index exists but no active phase with an existing file was found —
+        # authoritative signal that no active phase remains.
+        return None
 
     # No index file — fallback: scan phase files directly for one with an
     # unbuilt story.
-    phases_dir = project_path / "docs" / "phases"
+    phases_dir = project_dir / "docs" / "phases"
     if not phases_dir.exists():
-        click.echo("No active phase found — all stories complete.", err=True)
-        sys.exit(1)
+        return None
 
     # Collect all phase-N.md files and sort descending by N.
     phase_files = sorted(
@@ -512,15 +625,59 @@ def cmd_current_phase(project_dir: str) -> None:
 
     for phase_file in phase_files:
         try:
-            result = find_next_story(phase_file, project_path)
+            result = find_next_story(phase_file, project_dir)
         except Exception:  # noqa: BLE001
             continue
         if result is not None:
-            click.echo(str(phase_file.relative_to(project_path)))
-            sys.exit(0)
+            return phase_file
+
+    return None
+
+
+@flex_build.command("current-phase")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_current_phase(project_dir: str) -> None:
+    """Print the active phase file path; exit 1 if all stories are complete."""
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+
+    result = resolve_current_phase(project_path)
+    if result is not None:
+        click.echo(str(result.relative_to(project_path)))
+        sys.exit(0)
 
     click.echo("No active phase found — all stories complete.", err=True)
     sys.exit(1)
+
+
+def _next_phase_after(after_phase: str, project_dir: Path) -> "str | None":
+    """Return the ``phase_ref`` of the index row immediately following
+    *after_phase*, or ``None`` when the index is missing, the phase is not
+    found, or the matched row is the last one.
+
+    Extracted from ``cmd_next_phase`` (INFRA-236) so ``checkpoint-report``
+    can reuse the same lookup without shelling out to a second CLI
+    invocation. Pure read — no state writes.
+    """
+    index_path = project_dir / "docs" / "phases" / "index.md"
+    if not index_path.exists():
+        return None
+
+    index_text = index_path.read_text(encoding="utf-8")
+    phase_rows = _parse_index_phases(index_text)
+
+    for i, (phase_ref, _status) in enumerate(phase_rows):
+        if phase_ref == after_phase:
+            if i + 1 < len(phase_rows):
+                return phase_rows[i + 1][0]
+            return None
+
+    return None
 
 
 @flex_build.command("next-phase")
@@ -549,66 +706,43 @@ def cmd_next_phase(after_phase: str, project_dir: str) -> None:
     """
     project_path = Path(project_dir).resolve()
 
-    index_path = project_path / "docs" / "phases" / "index.md"
-    if not index_path.exists():
+    next_ref = _next_phase_after(after_phase, project_path)
+    if next_ref is None:
         sys.exit(1)
-
-    index_text = index_path.read_text(encoding="utf-8")
-    phase_rows = _parse_index_phases(index_text)
-
-    for i, (phase_ref, _status) in enumerate(phase_rows):
-        if phase_ref == after_phase:
-            if i + 1 < len(phase_rows):
-                click.echo(phase_rows[i + 1][0])
-                sys.exit(0)
-            else:
-                # Matched row is the last one — no next phase.
-                sys.exit(1)
-
-    # Phase not found in index.
-    sys.exit(1)
+    click.echo(next_ref)
+    sys.exit(0)
 
 
-@flex_build.command("mark-phase-complete")
-@click.option(
-    "--phase",
-    "phase_key",
-    required=True,
-    type=str,
-    help="Phase key to mark complete (e.g. 59 or PM037-main).",
-)
-@click.option(
-    "--project-dir",
-    required=True,
-    type=click.Path(file_okay=False, dir_okay=True),
-    help="Project root directory.",
-)
-def cmd_mark_phase_complete(phase_key: str, project_dir: str) -> None:
-    """Set the status cell of a phase row in docs/phases/index.md to 'complete'."""
+def _mark_phase_complete_in_index(phase_key: str, project_dir: Path) -> bool:
+    """Set the status cell of *phase_key*'s row in docs/phases/index.md to
+    'complete'.
+
+    Idempotent no-op (returns ``False``) when the index file is absent, the
+    phase row is not found, or the row is already ``complete``. Returns
+    ``True`` when a write happened.
+
+    Extracted from ``cmd_mark_phase_complete`` so that both the standalone
+    ``mark-phase-complete`` CLI command and the ``checkpoint-tag`` step of
+    ``record-checkpoint-step`` share one implementation (INFRA-239) — the
+    write side no longer requires a second, separate CLI call for the
+    checkpoint-tag path.
+    """
     import tempfile  # noqa: PLC0415
 
-    project_path = Path(project_dir).resolve()
-    _depth_guard(project_path)
-    index_path = project_path / "docs" / "phases" / "index.md"
+    index_path = project_dir / "docs" / "phases" / "index.md"
     if not index_path.exists():
-        click.echo(
-            f"mark-phase-complete: index not found: {index_path}", err=True
-        )
-        raise SystemExit(1)
+        return False
 
     text = index_path.read_text(encoding="utf-8")
     rows = _parse_index_phases(text)
     found = any(ref == phase_key for ref, _ in rows)
     if not found:
-        click.echo(
-            f"mark-phase-complete: phase '{phase_key}' not in index", err=True
-        )
-        raise SystemExit(1)
+        return False
 
-    # Check for idempotency: if already complete, exit silently.
+    # Check for idempotency: if already complete, no write.
     for ref, status in rows:
         if ref == phase_key and status == "complete":
-            sys.exit(0)
+            return False
 
     # Rewrite the matching row in-place, line by line.
     new_lines: list[str] = []
@@ -629,6 +763,9 @@ def cmd_mark_phase_complete(phase_key: str, project_dir: str) -> None:
                     continue
         new_lines.append(line)
 
+    if not replaced:
+        return False
+
     new_text = "".join(new_lines)
 
     # Atomic write: NamedTemporaryFile in same directory + os.replace.
@@ -644,6 +781,44 @@ def cmd_mark_phase_complete(phase_key: str, project_dir: str) -> None:
         tmp_path_str = tf.name
 
     os.replace(tmp_path_str, index_path)
+    return True
+
+
+@flex_build.command("mark-phase-complete")
+@click.option(
+    "--phase",
+    "phase_key",
+    required=True,
+    type=str,
+    help="Phase key to mark complete (e.g. 59 or PM037-main).",
+)
+@click.option(
+    "--project-dir",
+    required=True,
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_mark_phase_complete(phase_key: str, project_dir: str) -> None:
+    """Set the status cell of a phase row in docs/phases/index.md to 'complete'."""
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    index_path = project_path / "docs" / "phases" / "index.md"
+    if not index_path.exists():
+        click.echo(
+            f"mark-phase-complete: index not found: {index_path}", err=True
+        )
+        raise SystemExit(1)
+
+    text = index_path.read_text(encoding="utf-8")
+    rows = _parse_index_phases(text)
+    found = any(ref == phase_key for ref, _ in rows)
+    if not found:
+        click.echo(
+            f"mark-phase-complete: phase '{phase_key}' not in index", err=True
+        )
+        raise SystemExit(1)
+
+    _mark_phase_complete_in_index(phase_key, project_path)
 
 
 _DELEGATION_RE = re.compile(
@@ -738,12 +913,66 @@ def cmd_write_attempt_count(story_id: str, count: int, project_dir: str) -> None
     """Persist the per-story attempt counter to .companion/attempt_counter.json."""
     project_path = Path(project_dir).resolve()
     _depth_guard(project_path)
-    path = _attempt_counter_path(project_path)
+    write_attempt_count(story_id, count, project_path)
+
+
+def write_attempt_count(story_id: str, count: int, project_dir: Path) -> None:
+    """Persist ``{story_id, attempt_count}`` to ``.companion/attempt_counter.json``.
+
+    Extracted as a module-level helper (mirrors ``read_attempt_count``) so
+    other modules — ``subagent_transcript.record_attempt_from_transcript``
+    and ``cmd_merge_story_worktree`` — can compose it as a library call
+    instead of shelling out to the CLI (INFRA-237).
+    """
+    path = _attempt_counter_path(project_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps({"story_id": story_id, "attempt_count": count}),
         encoding="utf-8",
     )
+
+
+def bump_attempt_count(story_id: str, project_dir: Path) -> int:
+    """Increment and persist the attempt counter for *story_id*; return the new count.
+
+    Reads the current count via ``read_attempt_count`` (0 when absent or
+    recorded against a different story — a mismatched story_id resets the
+    counter to 1 for the new story rather than continuing the old story's
+    count) and writes ``count + 1``.
+
+    Called on builder/reviewer FAIL (INFRA-237). The persisted counter is
+    ``next_action.infer_position``'s sole durable signal that a story
+    attempt failed before any commit exists — independent of
+    ``effort_tracking`` (core build-loop control state, not observability).
+    """
+    new_count = read_attempt_count(story_id, project_dir) + 1
+    write_attempt_count(story_id, new_count, project_dir)
+    return new_count
+
+
+def read_attempt_count(story_id: str, project_dir: Path) -> int:
+    """Return the persisted attempt count for *story_id* (0 if absent/mismatched).
+
+    Reads ``.companion/attempt_counter.json``; returns 0 when the file is
+    absent, unreadable, or records a different story ID.  Pure read — no
+    state writes.
+
+    Extracted from ``cmd_read_attempt_count`` as a module-level helper so that
+    ``next_action.infer_position`` can compose it as a library call (RESOLVER-002).
+    """
+    path = _attempt_counter_path(project_dir)
+    if not path.exists():
+        return 0
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return 0
+    if data.get("story_id") != story_id:
+        return 0
+    try:
+        return int(data.get("attempt_count", 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 @flex_build.command("read-attempt-count")
@@ -758,22 +987,7 @@ def cmd_read_attempt_count(story_id: str, project_dir: str) -> None:
     """Print the persisted attempt count for *story_id* (0 if absent/mismatched)."""
     project_path = Path(project_dir).resolve()
     _depth_guard(project_path)
-    path = _attempt_counter_path(project_path)
-    if not path.exists():
-        click.echo("0")
-        return
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        click.echo("0")
-        return
-    if data.get("story_id") != story_id:
-        click.echo("0")
-        return
-    try:
-        click.echo(str(int(data.get("attempt_count", 0))))
-    except (TypeError, ValueError):
-        click.echo("0")
+    click.echo(str(read_attempt_count(story_id, project_path)))
 
 
 @flex_build.command("clear-attempt-count")
@@ -787,7 +1001,17 @@ def cmd_clear_attempt_count(project_dir: str) -> None:
     """Delete .companion/attempt_counter.json if present."""
     project_path = Path(project_dir).resolve()
     _depth_guard(project_path)
-    path = _attempt_counter_path(project_path)
+    clear_attempt_count(project_path)
+
+
+def clear_attempt_count(project_dir: Path) -> None:
+    """Delete ``.companion/attempt_counter.json`` if present.
+
+    Extracted as a module-level helper (mirrors ``read_attempt_count``) so
+    ``cmd_merge_story_worktree`` can clear the counter on a successful merge
+    without shelling out to the CLI (INFRA-237).
+    """
+    path = _attempt_counter_path(project_dir)
     if path.exists():
         path.unlink()
 
@@ -948,7 +1172,7 @@ def cmd_set_context_tokens(tokens: int, project_dir: str) -> None:
     state["context_current_tokens"] = tokens
     state["context_current_tokens_recorded_at"] = now_iso
 
-    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    _atomic_write_json(state_path, state)
     click.echo(f"context: recorded {tokens:,} tokens")
 
 
@@ -969,6 +1193,21 @@ def cmd_bump_context_tokens(cost: int, project_dir: str) -> None:
 
     Silent no-op (exit 0) when ``.companion/state.json`` is absent — consistent
     with ``set-context-tokens`` fail-open behaviour for non-pairmode projects.
+
+    INFRA-245 decision (dormant-command review): this command has zero live
+    callers in this project's own build loop — removed from ``CLAUDE.build.md``
+    at BUILD-029/BUILD-030 (Phase 70-71) because its historical caller fed it
+    subagent ``<usage>`` cost, which is a DP7 violation (``docs/architecture.md``
+    § effort.db ≠ context-control invariant: subagent tokens never entered the
+    orchestrator's own window, so summing them into ``context_current_tokens``
+    inflates it with figures that were never really there). Kept rather than
+    removed per INFRA-179's prior decision (older sibling-project
+    ``CLAUDE.build.md`` files may still reference it; removal was explicitly
+    deferred, not forgotten). If you are about to wire a new caller: feed this
+    command ONLY a measured live-window delta (e.g. from
+    ``context_budget.compute_context_tokens``), never a subagent cost/effort.db
+    figure — doing so reintroduces the exact conflation this invariant exists
+    to prevent.
     """
     if cost <= 0:
         click.echo(
@@ -998,7 +1237,7 @@ def cmd_bump_context_tokens(cost: int, project_dir: str) -> None:
 
     state["context_current_tokens"] = base + cost
     state["context_current_tokens_recorded_at"] = datetime.now(timezone.utc).isoformat()
-    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    _atomic_write_json(state_path, state)
     click.echo(f"context: bumped by {cost:,} → total {state['context_current_tokens']:,} tokens")
 
 
@@ -1241,29 +1480,23 @@ def _parse_phase_stories_with_status(phase_text: str) -> list[tuple[str, str, st
     return rows
 
 
-@flex_build.command("check-stub")
-@click.argument("story_id")
-@click.option(
-    "--project-dir",
-    default=".",
-    type=click.Path(file_okay=False, dir_okay=True),
-    help="Project root directory.",
-)
-def cmd_check_stub(story_id: str, project_dir: str) -> None:
-    """Check a single story file for stub indicators (delegation language or missing acceptance surface).
+def check_stub_gate(story_id: str, project_dir: Path) -> dict:
+    """Return a structured gate result for the stub check.
 
-    Exits 0 silently on a clean story.
-    Exits 1 with a structured block when the story is a stub.
-    Exits 2 with a clear error message when the story file cannot be found.
+    Returns a dict with keys:
+      - ``ok`` (bool): True when the story passes, False when blocked.
+      - ``missing`` (bool): True when the story file does not exist.
+      - ``reasons`` (list[str]): Human-readable block reasons (empty on pass).
+
+    Pure read — no state writes.
+
+    Extracted from ``cmd_check_stub`` as a module-level helper so that
+    ``next_action.infer_position`` can compose it as a library call (RESOLVER-002).
     """
-    project_path = Path(project_dir).resolve()
-    story_path = _story_path(story_id, project_path)
+    story_path = _story_path(story_id, project_dir)
 
     if not story_path.exists():
-        click.echo(
-            f"check-stub: story file not found: {story_path}", err=True
-        )
-        sys.exit(2)
+        return {"ok": False, "missing": True, "reasons": [f"story file not found: {story_path}"]}
 
     text = story_path.read_text(encoding="utf-8")
     body = _story_body(text)
@@ -1287,9 +1520,36 @@ def cmd_check_stub(story_id: str, project_dir: str) -> None:
             "or ## Acceptance criteria)."
         )
 
-    if reasons:
+    return {"ok": len(reasons) == 0, "missing": False, "reasons": reasons}
+
+
+@flex_build.command("check-stub")
+@click.argument("story_id")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_check_stub(story_id: str, project_dir: str) -> None:
+    """Check a single story file for stub indicators (delegation language or missing acceptance surface).
+
+    Exits 0 silently on a clean story.
+    Exits 1 with a structured block when the story is a stub.
+    Exits 2 with a clear error message when the story file cannot be found.
+    """
+    project_path = Path(project_dir).resolve()
+    result = check_stub_gate(story_id, project_path)
+
+    if result["missing"]:
+        click.echo(
+            f"check-stub: story file not found: {_story_path(story_id, project_path)}", err=True
+        )
+        sys.exit(2)
+
+    if not result["ok"]:
         click.echo(f"PRE-STORY BLOCK — Story [{story_id}] is a stub.")
-        for reason in reasons:
+        for reason in result["reasons"]:
             click.echo(reason)
         click.echo("Action required: fill in the story spec before building.")
         click.echo('When resolved, say: "Continue building"')
@@ -1297,6 +1557,78 @@ def cmd_check_stub(story_id: str, project_dir: str) -> None:
 
     # Silent pass.
     sys.exit(0)
+
+
+def check_schema_gate_result(story_id: str, project_dir: Path) -> dict:
+    """Return a structured gate result for the schema-introduces check.
+
+    Returns a dict with keys:
+      - ``ok`` (bool): True when the story passes, False when blocked.
+      - ``missing`` (bool): True when the story file does not exist.
+      - ``blocked_reason`` (str): Human-readable reason when blocked (empty on pass).
+
+    Pure read — no state writes.
+
+    Extracted from ``cmd_check_schema_gate`` as a module-level helper so that
+    ``next_action.infer_position`` can compose it as a library call (RESOLVER-002).
+    """
+    story_path = _story_path(story_id, project_dir)
+
+    if not story_path.exists():
+        return {"ok": False, "missing": True, "blocked_reason": f"story file not found: {story_path}"}
+
+    text = story_path.read_text(encoding="utf-8")
+    fm = _parse_frontmatter(text) or {}
+
+    schema_introduces_raw = fm.get("schema_introduces")
+    # _parse_frontmatter returns strings; coerce "true"/"false" as booleans.
+    if isinstance(schema_introduces_raw, bool):
+        schema_introduces = schema_introduces_raw
+    elif isinstance(schema_introduces_raw, str):
+        schema_introduces = schema_introduces_raw.lower() == "true"
+    else:
+        schema_introduces = False
+
+    if not schema_introduces:
+        return {"ok": True, "missing": False, "blocked_reason": ""}
+
+    # schema_introduces is True — look for management surface or exception phrase.
+    body = _story_body(text)
+
+    # Check for exception phrase in story body.
+    if _SCHEMA_EXCEPTION_RE.search(body):
+        return {"ok": True, "missing": False, "blocked_reason": ""}
+
+    # Load phase manifest to check remaining unbuilt stories.
+    phase_id = fm.get("phase")
+    if phase_id is not None:
+        phase_id_str = str(phase_id).strip()
+        phase_file = _find_phase_file(phase_id_str, project_dir)
+        if phase_file is not None:
+            phase_text = phase_file.read_text(encoding="utf-8")
+            phase_stories = _parse_phase_stories_with_status(phase_text)
+            for sid, title, status in phase_stories:
+                if status == "complete":
+                    continue
+                if _SCHEMA_MGMT_KEYWORDS.search(title):
+                    return {"ok": True, "missing": False, "blocked_reason": ""}
+                # Also check the story file's title if we can read it.
+                candidate_path = _story_path(sid, project_dir)
+                if candidate_path.exists():
+                    candidate_fm = _parse_frontmatter(
+                        candidate_path.read_text(encoding="utf-8")
+                    ) or {}
+                    candidate_title = candidate_fm.get("title") or ""
+                    if _SCHEMA_MGMT_KEYWORDS.search(candidate_title):
+                        return {"ok": True, "missing": False, "blocked_reason": ""}
+
+    return {
+        "ok": False,
+        "missing": False,
+        "blocked_reason": (
+            f"Story [{story_id}] introduces a schema object with no management surface."
+        ),
+    }
 
 
 @flex_build.command("check-schema-gate")
@@ -1317,69 +1649,77 @@ def cmd_check_schema_gate(story_id: str, project_dir: str) -> None:
     Exits 2 with a clear error message when the story file cannot be found.
     """
     project_path = Path(project_dir).resolve()
-    story_path = _story_path(story_id, project_path)
+    result = check_schema_gate_result(story_id, project_path)
 
-    if not story_path.exists():
+    if result["missing"]:
         click.echo(
-            f"check-schema-gate: story file not found: {story_path}", err=True
+            f"check-schema-gate: story file not found: {_story_path(story_id, project_path)}", err=True
         )
         sys.exit(2)
+
+    if not result["ok"]:
+        click.echo(
+            f"PRE-STORY BLOCK — Story [{story_id}] introduces a schema object with no management surface."
+        )
+        click.echo("Options:")
+        click.echo("1. Add a management UI story to the phase spec before building.")
+        click.echo(
+            "2. Note an explicit exception in the story spec (append-only, junction table,"
+        )
+        click.echo("   or cron-output cache) if one of those categories applies.")
+        sys.exit(1)
+
+    sys.exit(0)
+
+
+def check_auth_gate_result(story_id: str, project_dir: Path) -> dict:
+    """Return a structured gate result for the auth-gated check.
+
+    Returns a dict with keys:
+      - ``ok`` (bool): True when the story passes, False when blocked.
+      - ``missing`` (bool): True when the story file does not exist.
+      - ``blocked_reason`` (str): Human-readable reason when blocked (empty on pass).
+
+    Pure read — no state writes.
+
+    Extracted from ``cmd_check_auth_gate`` as a module-level helper so that
+    ``next_action.infer_position`` can compose it as a library call (RESOLVER-002).
+    """
+    story_path = _story_path(story_id, project_dir)
+
+    if not story_path.exists():
+        return {"ok": False, "missing": True, "blocked_reason": f"story file not found: {story_path}"}
 
     text = story_path.read_text(encoding="utf-8")
     fm = _parse_frontmatter(text) or {}
 
-    schema_introduces_raw = fm.get("schema_introduces")
+    auth_gated_raw = fm.get("auth_gated")
     # _parse_frontmatter returns strings; coerce "true"/"false" as booleans.
-    if isinstance(schema_introduces_raw, bool):
-        schema_introduces = schema_introduces_raw
-    elif isinstance(schema_introduces_raw, str):
-        schema_introduces = schema_introduces_raw.lower() == "true"
+    if isinstance(auth_gated_raw, bool):
+        auth_gated = auth_gated_raw
+    elif isinstance(auth_gated_raw, str):
+        auth_gated = auth_gated_raw.lower() == "true"
     else:
-        schema_introduces = False
+        auth_gated = False
 
-    if not schema_introduces:
-        sys.exit(0)
+    if not auth_gated:
+        return {"ok": True, "missing": False, "blocked_reason": ""}
 
-    # schema_introduces is True — look for management surface or exception phrase.
-    body = _story_body(text)
+    # auth_gated is True — check docs/architecture.md for **Classification:** line.
+    arch_path = project_dir / "docs" / "architecture.md"
+    if arch_path.exists():
+        arch_text = arch_path.read_text(encoding="utf-8")
+        if _AUTH_CLASSIFICATION_RE.search(arch_text):
+            return {"ok": True, "missing": False, "blocked_reason": ""}
 
-    # Check for exception phrase in story body.
-    if _SCHEMA_EXCEPTION_RE.search(body):
-        sys.exit(0)
-
-    # Load phase manifest to check remaining unbuilt stories.
-    phase_id = fm.get("phase")
-    if phase_id is not None:
-        phase_id_str = str(phase_id).strip()
-        phase_file = _find_phase_file(phase_id_str, project_path)
-        if phase_file is not None:
-            phase_text = phase_file.read_text(encoding="utf-8")
-            phase_stories = _parse_phase_stories_with_status(phase_text)
-            for sid, title, status in phase_stories:
-                if status == "complete":
-                    continue
-                if _SCHEMA_MGMT_KEYWORDS.search(title):
-                    sys.exit(0)
-                # Also check the story file's title if we can read it.
-                candidate_path = _story_path(sid, project_path)
-                if candidate_path.exists():
-                    candidate_fm = _parse_frontmatter(
-                        candidate_path.read_text(encoding="utf-8")
-                    ) or {}
-                    candidate_title = candidate_fm.get("title") or ""
-                    if _SCHEMA_MGMT_KEYWORDS.search(candidate_title):
-                        sys.exit(0)
-
-    click.echo(
-        f"PRE-STORY BLOCK — Story [{story_id}] introduces a schema object with no management surface."
-    )
-    click.echo("Options:")
-    click.echo("1. Add a management UI story to the phase spec before building.")
-    click.echo(
-        "2. Note an explicit exception in the story spec (append-only, junction table,"
-    )
-    click.echo("   or cron-output cache) if one of those categories applies.")
-    sys.exit(1)
+    return {
+        "ok": False,
+        "missing": False,
+        "blocked_reason": (
+            f"Story [{story_id}] is auth-gated but no classification is recorded in "
+            "docs/architecture.md."
+        ),
+    }
 
 
 @flex_build.command("check-auth-gate")
@@ -1400,46 +1740,27 @@ def cmd_check_auth_gate(story_id: str, project_dir: str) -> None:
     Exits 2 with a clear error message when the story file cannot be found.
     """
     project_path = Path(project_dir).resolve()
-    story_path = _story_path(story_id, project_path)
+    result = check_auth_gate_result(story_id, project_path)
 
-    if not story_path.exists():
+    if result["missing"]:
         click.echo(
-            f"check-auth-gate: story file not found: {story_path}", err=True
+            f"check-auth-gate: story file not found: {_story_path(story_id, project_path)}", err=True
         )
         sys.exit(2)
 
-    text = story_path.read_text(encoding="utf-8")
-    fm = _parse_frontmatter(text) or {}
+    if not result["ok"]:
+        click.echo(
+            f"AUTH GATE — Story [{story_id}] is auth-gated but no classification is recorded."
+        )
+        click.echo(
+            "Load ~/.claude/policies/auth-coexistence.md and classify the auth model"
+        )
+        click.echo(
+            "(RBAC / ABAC / both), then record it in docs/architecture.md before building."
+        )
+        sys.exit(1)
 
-    auth_gated_raw = fm.get("auth_gated")
-    # _parse_frontmatter returns strings; coerce "true"/"false" as booleans.
-    if isinstance(auth_gated_raw, bool):
-        auth_gated = auth_gated_raw
-    elif isinstance(auth_gated_raw, str):
-        auth_gated = auth_gated_raw.lower() == "true"
-    else:
-        auth_gated = False
-
-    if not auth_gated:
-        sys.exit(0)
-
-    # auth_gated is True — check docs/architecture.md for **Classification:** line.
-    arch_path = project_path / "docs" / "architecture.md"
-    if arch_path.exists():
-        arch_text = arch_path.read_text(encoding="utf-8")
-        if _AUTH_CLASSIFICATION_RE.search(arch_text):
-            sys.exit(0)
-
-    click.echo(
-        f"AUTH GATE — Story [{story_id}] is auth-gated but no classification is recorded."
-    )
-    click.echo(
-        "Load ~/.claude/policies/auth-coexistence.md and classify the auth model"
-    )
-    click.echo(
-        "(RBAC / ABAC / both), then record it in docs/architecture.md before building."
-    )
-    sys.exit(1)
+    sys.exit(0)
 
 
 @flex_build.command("transition-era")
@@ -1474,6 +1795,601 @@ def cmd_transition_era(
             yes=yes,
         )
     )
+
+
+@flex_build.command("next-action")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit the canonical JSON action object instead of a human-readable line.",
+)
+@click.option(
+    "--warning",
+    "warnings",
+    multiple=True,
+    help="Advisory signal to surface in meta.warnings[] (e.g. guardrail-fired). May be repeated.",
+)
+def cmd_next_action(project_dir: str, as_json: bool, warnings: tuple) -> None:
+    """Resolve the next build-loop action from durable state.
+
+    Pure-read: no file is written.  Advisory only — not wired into the live
+    CLAUDE.build.md loop (DP7).
+
+    Prints a human-readable summary by default; use --json to emit the
+    canonical action object that round-trips through validate_action.
+    """
+    from next_action import infer_position, resolve_next_action  # noqa: PLC0415
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+
+    warnings_list = list(warnings) if warnings else None
+    position = infer_position(project_path)
+    action = resolve_next_action(position, warnings=warnings_list)
+
+    if as_json:
+        click.echo(json.dumps(action))
+    else:
+        # Human-readable summary line.
+        action_val = action["action"]
+        scalar = action.get("scalar") or ""
+        reason = action.get("reason") or ""
+        model = action.get("model")
+        parts = [f"action: {action_val}"]
+        if scalar:
+            parts.append(f"scalar: {scalar}")
+        if reason:
+            parts.append(f"reason: {reason}")
+        if model:
+            parts.append(f"model: {model}")
+        click.echo("  ".join(parts))
+
+
+# ---------------------------------------------------------------------------
+# OBS-001 helpers — resolver state model
+# ---------------------------------------------------------------------------
+
+def _query_effort_by_role(db_path: Path) -> dict:
+    """Per-agent-role effort rollup from effort.db (OBS-001).
+
+    Returns a dict keyed by agent_role with count and median_tokens.
+    Returns {} when the db is absent or unreadable.
+    """
+    import sqlite3 as _sqlite3
+    import statistics as _stats
+
+    if not db_path.exists():
+        return {}
+
+    try:
+        conn = _sqlite3.connect(str(db_path))
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT agent_role, tokens_total
+                FROM attempts
+                WHERE tokens_total IS NOT NULL AND tokens_total > 0
+                ORDER BY agent_role
+                """
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        return {}
+
+    by_role: dict[str, list[int]] = {}
+    for role, tokens in rows:
+        by_role.setdefault(role, []).append(int(tokens))
+
+    return {
+        role: {
+            "count": len(vals),
+            "median_tokens": int(_stats.median(vals)) if vals else None,
+        }
+        for role, vals in by_role.items()
+    }
+
+
+def _build_resolver_index(project_dir: Path) -> list:
+    """Build the resolver-owned phase index from docs/phases/index.md (OBS-001).
+
+    Deferred and backlog phases are reported as inactive (CER-056 rule:
+    deferred/backlog phases must not be treated as active work).
+    """
+    index_path = project_dir / "docs" / "phases" / "index.md"
+    if not index_path.exists():
+        return []
+
+    try:
+        index_text = index_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+
+    phase_rows = _parse_index_phases(index_text)
+
+    result = []
+    for phase_ref, status in phase_rows:
+        active = status not in ("complete", "deferred", "backlog")
+        result.append({
+            "phase_ref": phase_ref,
+            "status": status,
+            "active": active,
+        })
+    return result
+
+
+@flex_build.command("resolver-state")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_resolver_state(project_dir: str) -> None:
+    """Emit the pure-read resolver state model as JSON (OBS-001).
+
+    Output contains:
+      action     — the current next-action dict
+      position   — the infer_position Position dict
+      effort_by_role — per-agent-role effort rollup from effort.db
+      index      — phase index (deferred/backlog reported as inactive, CER-056)
+
+    Pure-read: no file is written.
+    """
+    from next_action import infer_position, resolve_next_action  # noqa: PLC0415
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+
+    position = infer_position(project_path)
+    action = resolve_next_action(position)
+
+    # Serialize position: convert Path objects to strings for JSON.
+    serialized_position: dict = {}
+    for k, v in position.items():
+        if isinstance(v, Path):
+            serialized_position[k] = str(v)
+        else:
+            serialized_position[k] = v
+
+    db_path = project_path / ".companion" / "effort.db"
+    effort_by_role = _query_effort_by_role(db_path)
+    index = _build_resolver_index(project_path)
+
+    doc = {
+        "schema_version": 1,
+        "action": action,
+        "position": serialized_position,
+        "effort_by_role": effort_by_role,
+        "index": index,
+    }
+    click.echo(json.dumps(doc))
+
+
+# ---------------------------------------------------------------------------
+# record-checkpoint-step (RESOLVER-012)
+# ---------------------------------------------------------------------------
+
+
+def _record_checkpoint_step(step_id: str, project_dir: Path) -> int:
+    """Atomically append *step_id* to state.json["checkpoint_step"].
+
+    Returns 0 on success or when step_id is already present (idempotent).
+    Returns 1 when step_id is not in _CHECKPOINT_SEQUENCE.
+
+    Completing the terminal step (``checkpoint-tag``) also marks the
+    currently-active phase's row ``complete`` in ``docs/phases/index.md``,
+    via ``_mark_phase_complete_in_index`` (INFRA-239). This happens in the
+    same CLI call as the ``checkpoint_step`` reset — the orchestrator no
+    longer needs to remember to invoke ``mark-phase-complete`` separately.
+    Without this, the phase's index row stays non-``complete``, so the next
+    ``next-action`` resolution re-selects the same phase as active; combined
+    with the ``checkpoint_step`` reset below, that re-emits
+    ``checkpoint-security`` for a phase that was just tagged (INFRA-239
+    regression). Resolving the active phase is done here, before the
+    ``checkpoint_step`` reset takes effect, using the same
+    ``resolve_current_phase`` read-model the resolver itself uses — no
+    phase key is threaded through the CLI args.
+    """
+    import tempfile  # noqa: PLC0415
+
+    if step_id not in _CHECKPOINT_SEQUENCE:
+        click.echo(
+            f"record-checkpoint-step: unknown step_id {step_id!r}. "
+            f"Valid values: {', '.join(_CHECKPOINT_SEQUENCE)}",
+            err=True,
+        )
+        return 1
+
+    state_path = project_dir / ".companion" / "state.json"
+
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            if not isinstance(state, dict):
+                state = {}
+        except (json.JSONDecodeError, OSError):
+            state = {}
+    else:
+        state = {}
+
+    current: list[str] = state.get("checkpoint_step") or []
+    if not isinstance(current, list):
+        current = []
+
+    if step_id in current:
+        return 0  # idempotent — no write
+
+    current.append(step_id)
+    if step_id == _CHECKPOINT_SEQUENCE[-1]:
+        current = []
+        _active_phase_file = resolve_current_phase(project_dir)
+        if _active_phase_file is not None:
+            _phase_key = _active_phase_file.stem
+            if _phase_key.startswith("phase-"):
+                _phase_key = _phase_key[len("phase-") :]
+            _mark_phase_complete_in_index(_phase_key, project_dir)
+    state["checkpoint_step"] = current
+
+    # Atomic write: temp file in same dir, then rename.
+    dir_ = state_path.parent
+    dir_.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=dir_,
+        delete=False,
+        suffix=".tmp",
+    ) as tf:
+        tf.write(json.dumps(state, indent=2))
+        tmp_path_str = tf.name
+
+    os.replace(tmp_path_str, state_path)
+    return 0
+
+
+@flex_build.command("checkpoint-report")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_checkpoint_report(project_dir: str) -> None:
+    """Print a per-role effort cost rollup + next-phase pointer at checkpoint time.
+
+    Mirrors 0.2's checkpoint step 8 intent (per-role cost rollup + a closing
+    "next phase" prompt) without reintroducing 0.2's prose bulk (INFRA-236,
+    folding operator decision A5). Reuses ``_query_effort_by_role`` — the
+    same rollup ``resolver-state`` emits under ``effort_by_role`` — rather
+    than duplicating the query, and ``_next_phase_after`` — the same lookup
+    the standalone ``next-phase`` command uses — for the pointer.
+
+    Intended call site: ``CLAUDE.build.md``'s Checkpoint section, once after
+    all three checkpoint gate workers (checkpoint-security, checkpoint-intent,
+    checkpoint-docs) have completed and before ``checkpoint-tag``.
+
+    Pure-read: writes nothing. Never raises — an absent/empty effort.db or
+    index produces a minimal report, not an error.
+    """
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+
+    db_path = project_path / ".companion" / "effort.db"
+    effort_by_role = _query_effort_by_role(db_path)
+
+    click.echo("=== checkpoint cost rollup ===")
+    if not effort_by_role:
+        click.echo("  no effort.db attempts recorded yet")
+    else:
+        for role in sorted(effort_by_role):
+            stats = effort_by_role[role]
+            median = stats.get("median_tokens")
+            count = stats.get("count", 0)
+            if median is not None:
+                click.echo(f"  {role}: {count} attempt(s), median {median:,} tokens")
+            else:
+                click.echo(f"  {role}: {count} attempt(s)")
+
+    active_phase_file = resolve_current_phase(project_path)
+    if active_phase_file is None:
+        click.echo("next phase: unknown (no active phase resolved)")
+        return
+
+    phase_key = active_phase_file.stem
+    if phase_key.startswith("phase-"):
+        phase_key = phase_key[len("phase-") :]
+
+    next_ref = _next_phase_after(phase_key, project_path)
+    if next_ref:
+        click.echo(f"next phase: {next_ref}")
+    else:
+        click.echo("next phase: none (end of index)")
+
+
+@flex_build.command("record-checkpoint-step")
+@click.argument("step_id")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_record_checkpoint_step(step_id: str, project_dir: str) -> None:
+    """Atomically append *step_id* to state.json["checkpoint_step"].
+
+    Validates step_id against the known checkpoint sequence before writing.
+    Idempotent: if step_id is already present, exits 0 with no write.
+    """
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    rc = _record_checkpoint_step(step_id, project_path)
+    sys.exit(rc)
+
+
+@flex_build.command("check-index")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_check_index(project_dir: str) -> None:
+    """Run the graph-invariant integrity checker on the project index.
+
+    Checks four invariants:
+      1. Status drift — story with a feat(story-<ID>) commit but status not complete/deferred.
+      2. Cross-link consistency — phase files exist; story phase frontmatter valid; era tables match.
+      3. Orphan stories — story files not referenced in any phase doc.
+      4. Deferred without section — deferred story with no ## Deferred stories section naming it.
+
+    Exits 0 (silent) when the graph is clean.
+    Exits 1 and prints each violation's IDs/paths + reason when violations exist.
+    Pure-read: writes nothing.
+
+    RESOLVER-010.
+    """
+    from index_integrity import check_index  # noqa: PLC0415
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+
+    violations = check_index(project_path)
+
+    if not violations:
+        sys.exit(0)
+
+    for v in violations:
+        ids_str = ", ".join(v.ids)
+        click.echo(f"{v.kind}  [{ids_str}]  {v.path}  —  {v.reason}")
+
+    sys.exit(1)
+
+
+@flex_build.command("record-attempt")
+@click.pass_context
+def cmd_record_attempt(ctx: click.Context, **kwargs: object) -> None:
+    """Delegate to record_attempt.py's CLI with all forwarded arguments.
+
+    This alias exists so the orchestrator template can call
+    ``flex_build.py record-attempt ...`` without knowing the path to
+    ``record_attempt.py`` directly.  All options accepted by
+    ``record_attempt.py`` are forwarded unchanged.
+
+    RELEASE-009.
+    """
+    import subprocess  # noqa: PLC0415
+
+    _scripts_dir = Path(__file__).parent
+    record_script = _scripts_dir / "record_attempt.py"
+    result = subprocess.run(
+        [sys.executable, str(record_script)] + sys.argv[sys.argv.index("record-attempt") + 1 :],
+        check=False,
+    )
+    sys.exit(result.returncode)
+
+
+@flex_build.command("create-story-worktree")
+@click.option("--story-id", required=True, help="Story ID (e.g. INFRA-224).")
+@click.option(
+    "--project-dir",
+    default=".",
+    help="Project directory (main worktree). Defaults to CWD.",
+)
+def cmd_create_story_worktree(story_id: str, project_dir: str) -> None:
+    """Create a disposable git worktree for a story's build/review cycle.
+
+    Creates ``.pairmode-worktrees/<story-id>/`` on a new branch
+    ``pairmode/<story-id>`` from the current branch's HEAD and prints the
+    absolute worktree path to stdout. Fails loudly (exit 1) if a worktree or
+    branch for that story ID already exists — never silently reuses one.
+    (INFRA-224, Ensures 1 & 2.)
+
+    Also stamps ``current_story`` into the main checkout's
+    ``.companion/state.json`` and (re)generates the story's Layer 1
+    permission artifact (``docs/phases/permissions/<story_id>.json``) before
+    returning the worktree path — both must be in place before the builder
+    spawns so ``scope_guard.py`` can resolve the active story and its
+    allowed paths regardless of the spawn's cwd (INFRA-238, Ensures 1).
+    """
+    _validate_story_id_or_exit(story_id)
+    project_path = Path(project_dir).resolve()
+    wt_rel, wt_abs, branch = _worktree_paths(story_id, project_path)
+
+    if wt_abs.exists():
+        click.echo(f"error: worktree already exists: {wt_abs}", err=True)
+        sys.exit(1)
+
+    branch_check = _run_git(
+        ["rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
+        project_path,
+    )
+    if branch_check.returncode == 0:
+        click.echo(f"error: branch already exists: {branch}", err=True)
+        sys.exit(1)
+
+    result = _run_git(
+        ["worktree", "add", "-b", branch, str(wt_rel), "HEAD"],
+        project_path,
+    )
+    if result.returncode != 0:
+        click.echo(
+            (result.stderr or result.stdout).strip()
+            or "error: git worktree add failed",
+            err=True,
+        )
+        sys.exit(1)
+
+    # INFRA-238: stamp the active story into the main checkout's state.json —
+    # the worktree has no .companion/ of its own; scope_guard.py always
+    # resolves state from the main checkout regardless of cwd — and
+    # (re)generate the Layer 1 permission artifact from the just-checked-out
+    # story spec. Best-effort: a failure here must not leave the worktree
+    # half-created, but it also must not silently mask the story-scope gap,
+    # so it is surfaced on stderr rather than swallowed.
+    try:
+        _stamp_active_story(project_path, story_id)
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"warning: failed to stamp current_story for {story_id}: {exc}", err=True)
+
+    try:
+        generate_permissions_artifact(story_id, project_path)
+    except PermissionsCreateError as exc:
+        click.echo(f"warning: failed to generate permissions for {story_id}: {exc}", err=True)
+
+    click.echo(str(wt_abs))
+
+
+@flex_build.command("merge-story-worktree")
+@click.option("--story-id", required=True, help="Story ID (e.g. INFRA-224).")
+@click.option(
+    "--project-dir",
+    default=".",
+    help="Project directory (main worktree). Defaults to CWD.",
+)
+def cmd_merge_story_worktree(story_id: str, project_dir: str) -> None:
+    """Land a story's worktree branch onto the main worktree's branch (PASS).
+
+    Rebases ``pairmode/<story-id>`` onto the current tip of the main
+    worktree's branch, fast-forward-merges it in, then removes the worktree
+    and deletes the branch. On any rebase conflict the rebase is aborted and
+    the command exits non-zero with git's error output — no partial state
+    change, no automatic conflict resolution. (INFRA-224, Ensures 3.)
+    """
+    _validate_story_id_or_exit(story_id)
+    project_path = Path(project_dir).resolve()
+    wt_rel, wt_abs, branch = _worktree_paths(story_id, project_path)
+
+    if not wt_abs.exists():
+        click.echo(f"error: no worktree for story: {wt_abs}", err=True)
+        sys.exit(1)
+
+    main_branch = _current_branch(project_path)
+    if not main_branch or main_branch == "HEAD":
+        click.echo(
+            "error: main worktree is not on a named branch (detached HEAD)",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Rebase the story branch onto the main branch. Run via `git -C <worktree>`
+    # because the branch is checked out in the linked worktree; the invocation
+    # itself is issued from the main worktree (cwd = project_dir), never by
+    # cd-ing into the directory that is about to be torn down.
+    rebase = _run_git(["-C", str(wt_abs), "rebase", main_branch], project_path)
+    if rebase.returncode != 0:
+        _run_git(["-C", str(wt_abs), "rebase", "--abort"], project_path)
+        click.echo(
+            (rebase.stdout + rebase.stderr).strip()
+            or f"error: rebase of {branch} onto {main_branch} failed",
+            err=True,
+        )
+        sys.exit(1)
+
+    merge = _run_git(["merge", "--ff-only", branch], project_path)
+    if merge.returncode != 0:
+        click.echo(
+            (merge.stderr or merge.stdout).strip()
+            or f"error: fast-forward merge of {branch} failed",
+            err=True,
+        )
+        sys.exit(1)
+
+    _run_git(["worktree", "remove", "--force", str(wt_rel)], project_path)
+    _run_git(["branch", "-D", branch], project_path)
+    # INFRA-237: a successful land is the durable "story is done" signal —
+    # clear the per-story attempt counter so the next story starts at
+    # attempt_count == 0 rather than carrying over a stale FAIL count.
+    clear_attempt_count(project_path)
+    # INFRA-238: clear both artifacts create-story-worktree stamped — the
+    # active-story marker and the Layer 1 permission artifact — so the next
+    # story starts with a clean slate rather than inheriting this story's
+    # scope.
+    _clear_active_story(project_path)
+    clear_permissions_artifact(story_id, project_path)
+    click.echo(f"merged {branch} into {main_branch}")
+
+
+@flex_build.command("discard-story-worktree")
+@click.option("--story-id", required=True, help="Story ID (e.g. INFRA-224).")
+@click.option(
+    "--project-dir",
+    default=".",
+    help="Project directory (main worktree). Defaults to CWD.",
+)
+def cmd_discard_story_worktree(story_id: str, project_dir: str) -> None:
+    """Throw away a story's worktree and branch (reviewer FAIL).
+
+    Removes the worktree — including any uncommitted or untracked content the
+    builder created inside it — and deletes the ``pairmode/<story-id>``
+    branch. Runs no command against the main worktree's working directory:
+    a FAIL in a story's worktree cannot touch the main worktree's files,
+    tracked or untracked, regardless of the reviewer's revert logic.
+    (INFRA-224, Ensures 4.)
+    """
+    _validate_story_id_or_exit(story_id)
+    project_path = Path(project_dir).resolve()
+    wt_rel, _wt_abs, branch = _worktree_paths(story_id, project_path)
+
+    remove = _run_git(
+        ["worktree", "remove", "--force", str(wt_rel)], project_path
+    )
+    if remove.returncode != 0:
+        click.echo(
+            (remove.stderr or remove.stdout).strip()
+            or f"error: failed to remove worktree {wt_rel}",
+            err=True,
+        )
+        sys.exit(1)
+
+    delete = _run_git(["branch", "-D", branch], project_path)
+    if delete.returncode != 0:
+        click.echo(
+            (delete.stderr or delete.stdout).strip()
+            or f"error: failed to delete branch {branch}",
+            err=True,
+        )
+        sys.exit(1)
+
+    # INFRA-238: clear both artifacts create-story-worktree stamped — the
+    # active-story marker and the Layer 1 permission artifact — so a
+    # discarded attempt does not leave stale scope state behind for whatever
+    # runs next (a retry re-stamps via create-story-worktree; a different
+    # story must not inherit this one's scope).
+    _clear_active_story(project_path)
+    clear_permissions_artifact(story_id, project_path)
+
+    click.echo(f"discarded {branch}")
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 name = "flex"
 version = "0.1.0"
 description = "Claude Code plugin for persistent architectural memory"
-readme = "readme.md"
+readme = "README.md"
 requires-python = ">=3.11"
 authors = [
     { name = "David Jacobsen", email = "david@halfhorse.com" },

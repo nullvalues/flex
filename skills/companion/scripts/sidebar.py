@@ -128,6 +128,7 @@ from skills.pairmode.scripts.lesson_utils import (  # noqa: E402
     save_lessons,
     next_lesson_id,
 )
+from skills.pairmode.scripts.state_utils import _atomic_write_json  # noqa: E402
 
 try:
     from skills.pairmode.scripts.effort_recorder import record_effort  # noqa: E402
@@ -1689,7 +1690,7 @@ def main():
     except Exception:
         _state = {}
     _state["pipe_path"] = PIPE_PATH
-    _state_path.write_text(json.dumps(_state, indent=2))
+    _atomic_write_json(_state_path, _state)
 
     # Clear entire screen + move cursor to top — wipes shell login messages
     sys.stdout.write("\033[2J\033[H")
@@ -1836,7 +1837,7 @@ def main():
                                 except Exception:
                                     _st = {}
                                 _st["mode"] = mode
-                                _state_path.write_text(json.dumps(_st, indent=2))
+                                _atomic_write_json(_state_path, _st)
 
                         elif event_type == "refresh":
                             if live and mini:
@@ -1853,7 +1854,7 @@ def main():
                                 _st["last_session_id"] = event.get("session_id", "")
                                 _st["last_session_closed"] = event.get("last_session_closed", True)
                                 _st["mode"] = event.get("mode", "planning")
-                                _sp.write_text(json.dumps(_st, indent=2))
+                                _atomic_write_json(_sp, _st)
                             except Exception:
                                 pass
                             threading.Thread(target=handle_session_end, args=(event,), daemon=True).start()

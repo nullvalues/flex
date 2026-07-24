@@ -101,7 +101,7 @@ function sqliteP90(
     .get(...params) as { n: number } | undefined;
   const n = countRow?.n ?? 0;
   if (n === 0) return null;
-  const offset = Math.floor(n * 0.9);
+  const offset = Math.max(0, Math.ceil(n * 0.9) - 1);
   const row = db
     .prepare(
       `SELECT ${column} AS v FROM ${table} WHERE ${where} AND ${column} IS NOT NULL ORDER BY ${column} LIMIT 1 OFFSET ?`,
@@ -115,9 +115,10 @@ function sqliteP90(
 // ---------------------------------------------------------------------------
 
 /**
- * Return reviewer FAIL attempts ordered by ts descending, max 100 rows.
+ * Return all recent attempts ordered by ts descending, max 100 rows.
  * near_miss = tokens_total > threshold * 0.85
  * delta_above_threshold = tokens_total - threshold when tokens_total > threshold, else null
+ * NULL outcome is passed through as null — callers must not map NULL to FAIL (CER-055).
  */
 export function queryWaypoints(
   db: Database.Database,
@@ -150,8 +151,6 @@ export function queryWaypoints(
         `SELECT ${tsColumn} AS created_at, tokens_total, story_id, phase, agent_role, outcome
          FROM attempts
          WHERE tokens_total IS NOT NULL
-           AND outcome = 'FAIL'
-           AND agent_role = 'reviewer'
          ORDER BY ${tsColumn} DESC
          LIMIT 100`,
       )

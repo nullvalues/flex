@@ -1,0 +1,9 @@
+{
+  "story_id": "INFRA-234",
+  "story_spec": "docs/stories/INFRA/INFRA-234.md",
+  "allowed_paths": [
+    ".claude/settings.json",
+    "docs/stories/INFRA/INFRA-234.md"
+  ],
+  "generated_at": "2026-07-22T23:45:48Z"
+}

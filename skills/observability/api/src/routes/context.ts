@@ -8,6 +8,8 @@ import {
   queryEffortSummary,
   queryMisses,
 } from '../readers/effortDb.js';
+import { readResolverState, type ResolverStateDoc } from '../readers/resolverState.js';
+import { parseStoryFrontmatter } from '../parsers/storyFrontmatter.js';
 
 // ---------------------------------------------------------------------------
 // Threshold definitions
@@ -20,6 +22,7 @@ interface ThresholdDef {
   editable_via: string | null;
   phase2_writable: boolean;
   source_override?: string; // used for flex_factor
+  provenance?: string; // human-readable origin label (OBS-003)
 }
 
 const THRESHOLD_DEFS: ThresholdDef[] = [
@@ -40,9 +43,10 @@ const THRESHOLD_DEFS: ThresholdDef[] = [
   {
     name: 'expected_step_tokens',
     stateKey: 'expected_step_tokens',
-    default: 53000,
-    editable_via: 'flex_build.py refresh-effort-baseline',
-    phase2_writable: true,
+    default: 5000,
+    editable_via: null,
+    phase2_writable: false,
+    provenance: 'thin-harness return-block growth',
   },
   {
     name: 'context_budget_reprompt_margin',
@@ -79,6 +83,7 @@ interface ThresholdOut {
   source: string;
   editable_via: string | null;
   phase2_writable: boolean;
+  provenance: string | null;
 }
 
 interface CurrentOut {
@@ -98,6 +103,7 @@ interface ContextOut {
   waypoints: ReturnType<typeof queryWaypoints>;
   effort_summary: ReturnType<typeof queryEffortSummary>;
   misses: ReturnType<typeof queryMisses>;
+  resolver_state: ResolverStateDoc | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,15 +116,21 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
+const inflight = new Map<string, Promise<ContextOut>>();
 const CACHE_TTL_MS = 2000;
 
 // ---------------------------------------------------------------------------
 // Build the context payload for one repo
 // ---------------------------------------------------------------------------
 
-function buildCurrentField(state: Record<string, unknown>, ttlMinutes: number): CurrentOut {
+function buildCurrentField(
+  state: Record<string, unknown>,
+  ttlMinutes: number,
+  resolverState: ResolverStateDoc | null,
+): CurrentOut {
   const tokens =
-    typeof state['context_current_tokens'] === 'number'
+    typeof state['context_current_tokens'] === 'number' &&
+    (state['context_current_tokens'] as number) > 0
       ? state['context_current_tokens']
       : null;
 
@@ -142,39 +154,63 @@ function buildCurrentField(state: Record<string, unknown>, ttlMinutes: number): 
     }
   }
 
-  // story_id from current_story
-  let story_id: string | null = null;
-  const currentStory = state['current_story'];
-  if (currentStory !== null && typeof currentStory === 'object' && !Array.isArray(currentStory)) {
-    const cs = currentStory as Record<string, unknown>;
-    if (typeof cs['id'] === 'string') story_id = cs['id'];
-  }
-
-  // phase from current_phase
-  const phase =
-    typeof state['current_phase'] === 'string' ? state['current_phase'] : null;
+  // story_id and phase from resolver state position (OBS-002: replaced orchestrator-signal reads)
+  const story_id = resolverState?.position.next_story_id ?? null;
+  const phase = resolverState?.position.active_phase_file ?? null;
 
   return { tokens, recorded_at, age_seconds, stale, story_id, phase };
 }
 
-function buildThresholds(state: Record<string, unknown>): ThresholdOut[] {
+async function buildThresholds(
+  projectDir: string,
+  stateObj: Record<string, unknown>,
+): Promise<ThresholdOut[]> {
+  // Resolve flex_factor from current story frontmatter (INFRA-166 fix 2)
+  let flexFactorValue = 1.0;
+  let flexFactorSource = 'default';
+
+  const currentStory = stateObj['current_story'];
+  if (currentStory && typeof currentStory === 'object') {
+    const cs = currentStory as Record<string, unknown>;
+    const id = cs['id'];
+    const rail = cs['rail'];
+    if (typeof id === 'string' && typeof rail === 'string') {
+      const relPath = `docs/stories/${rail}/${id}.md`;
+      try {
+        const fm = await parseStoryFrontmatter(projectDir, relPath);
+        if (fm && fm !== 'missing') {
+          flexFactorValue = fm.flex_factor;
+          flexFactorSource = 'story-frontmatter';
+        }
+      } catch {
+        flexFactorValue = 1.0;
+        flexFactorSource = 'story-frontmatter (fallback)';
+      }
+    }
+  }
+
   return THRESHOLD_DEFS.map((def) => {
     if (def.source_override) {
-      // flex_factor — always "story-frontmatter", always default value
+      // flex_factor — live read from story frontmatter (INFRA-166)
       return {
         name: def.name,
-        value: def.default,
+        value: flexFactorValue,
         default: def.default,
-        source: def.source_override,
+        source: flexFactorSource,
         editable_via: def.editable_via,
         phase2_writable: def.phase2_writable,
+        provenance: def.provenance ?? null,
       };
     }
 
     const stateKey = def.stateKey!;
-    const hasKey = Object.prototype.hasOwnProperty.call(state, stateKey);
-    const rawValue = state[stateKey];
-    const value = typeof rawValue === 'number' ? rawValue : def.default;
+    const hasKey = Object.prototype.hasOwnProperty.call(stateObj, stateKey);
+    const rawValue = stateObj[stateKey];
+    // NaN guard: typeof NaN === 'number', so check explicitly (INFRA-166 fix 4)
+    const value =
+      typeof rawValue === 'number' && !Number.isNaN(rawValue)
+        ? rawValue
+        : def.default;
     const source = hasKey ? 'state.json' : 'default';
 
     return {
@@ -184,6 +220,7 @@ function buildThresholds(state: Record<string, unknown>): ThresholdOut[] {
       source,
       editable_via: def.editable_via,
       phase2_writable: def.phase2_writable,
+      provenance: def.provenance ?? null,
     };
   });
 }
@@ -203,17 +240,20 @@ async function buildContextPayload(
       ? state['context_current_tokens_ttl_minutes']
       : 60;
 
-  // 3. Build current field
-  const current = buildCurrentField(state, ttlMinutes);
+  // 3. Read resolver state first (used for current field position)
+  const resolver_state = readResolverState(projectDir);
 
-  // 4. Build thresholds
-  const thresholds = buildThresholds(state);
+  // 4. Build current field from token state + resolver position
+  const current = buildCurrentField(state, ttlMinutes, resolver_state);
 
-  // 5. Determine context_budget_threshold value for waypoints/misses queries
+  // 5. Build thresholds (async — reads story frontmatter for flex_factor)
+  const thresholds = await buildThresholds(projectDir, state);
+
+  // 6. Determine context_budget_threshold value for waypoints/misses queries
   const thresholdValue =
     thresholds.find((t) => t.name === 'context_budget_threshold')?.value ?? 120000;
 
-  // 6. Open effort.db
+  // 7. Open effort.db
   const dbPath = path.join(projectDir, '.companion', 'effort.db');
   const db = openEffortDb(dbPath);
 
@@ -242,6 +282,7 @@ async function buildContextPayload(
     waypoints,
     effort_summary,
     misses,
+    resolver_state,
   };
 }
 
@@ -270,11 +311,22 @@ export async function registerContextRoutes(app: FastifyInstance): Promise<void>
       return cached.data;
     }
 
-    const data = await buildContextPayload(repo.project_dir, id);
+    // In-flight dedup: concurrent misses share one build promise
+    const existing = inflight.get(id);
+    if (existing) return existing;
 
-    cache.set(id, { ts: now, data });
+    const promise = buildContextPayload(repo.project_dir, id)
+      .then((data) => {
+        cache.set(id, { ts: Date.now(), data });
+        inflight.delete(id);
+        return data;
+      })
+      .catch((err) => {
+        inflight.delete(id);
+        throw err;
+      });
 
-    reply.header('Content-Type', 'application/json');
-    return data;
+    inflight.set(id, promise);
+    return promise;
   });
 }

@@ -1,7 +1,7 @@
 # Fleet Snapshot
 
-**Generated:** 2026-07-17 16:37:58 UTC
-**Flex checkout:** `/mnt/work/flex`
+**Generated:** 2026-07-24 03:03:22 UTC
+**Flex checkout:** `/mnt/work/flex-harness`
 
 ## Pre-fold gate notice (DP8)
 
@@ -17,13 +17,19 @@ from the discovered fleet, never forced).
 
 Found **16** bound project(s):
 
-### `/mnt/work/coherra`
+### `/mnt/work/aab`
 
-- **Binding:** version
-- **Signal 1 (scripts path):** absent
-- **Signal 2 (pairmode_version):** present — `0.2.0`
+- **Binding:** both
+- **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
+- **Signal 2 (pairmode_version):** present — `0.3.0`
 
-### `/mnt/work/meander`
+### `/mnt/work/asp`
+
+- **Binding:** both
+- **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
+- **Signal 2 (pairmode_version):** present — `0.3.0`
+
+### `/mnt/work/base56`
 
 - **Binding:** version
 - **Signal 1 (scripts path):** absent
@@ -35,35 +41,11 @@ Found **16** bound project(s):
 - **Signal 1 (scripts path):** absent
 - **Signal 2 (pairmode_version):** present — `0.2.0`
 
-### `/mnt/work/forqsite.help`
+### `/mnt/work/coherra`
 
-- **Binding:** version
-- **Signal 1 (scripts path):** absent
-- **Signal 2 (pairmode_version):** present — `0.2.0`
-
-### `/mnt/work/forqsite`
-
-- **Binding:** version
-- **Signal 1 (scripts path):** absent
-- **Signal 2 (pairmode_version):** present — `0.2.0`
-
-### `/mnt/work/radar`
-
-- **Binding:** version
-- **Signal 1 (scripts path):** absent
-- **Signal 2 (pairmode_version):** present — `0.2.0`
-
-### `/mnt/work/asp`
-
-- **Binding:** version
-- **Signal 1 (scripts path):** absent
-- **Signal 2 (pairmode_version):** present — `0.2.0`
-
-### `/mnt/work/aab`
-
-- **Binding:** version
-- **Signal 1 (scripts path):** absent
-- **Signal 2 (pairmode_version):** present — `0.2.0`
+- **Binding:** both
+- **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
+- **Signal 2 (pairmode_version):** present — `0.3.0`
 
 ### `/mnt/work/cora`
 
@@ -71,7 +53,13 @@ Found **16** bound project(s):
 - **Signal 1 (scripts path):** absent
 - **Signal 2 (pairmode_version):** present — `0.1.0`
 
-### `/mnt/work/lumin`
+### `/mnt/work/forqsite`
+
+- **Binding:** both
+- **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
+- **Signal 2 (pairmode_version):** present — `0.3.0`
+
+### `/mnt/work/forqsite.help`
 
 - **Binding:** version
 - **Signal 1 (scripts path):** absent
@@ -83,13 +71,13 @@ Found **16** bound project(s):
 - **Signal 1 (scripts path):** absent
 - **Signal 2 (pairmode_version):** present — `0.2.0`
 
-### `/mnt/work/anchor`
+### `/mnt/work/lumin`
 
 - **Binding:** version
 - **Signal 1 (scripts path):** absent
-- **Signal 2 (pairmode_version):** present — `0.1.0`
+- **Signal 2 (pairmode_version):** present — `0.2.0`
 
-### `/mnt/work/base56`
+### `/mnt/work/meander`
 
 - **Binding:** version
 - **Signal 1 (scripts path):** absent
@@ -101,15 +89,27 @@ Found **16** bound project(s):
 - **Signal 1 (scripts path):** absent
 - **Signal 2 (pairmode_version):** present — `0.2.0`
 
+### `/mnt/work/radar`
+
+- **Binding:** both
+- **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
+- **Signal 2 (pairmode_version):** present — `0.3.0`
+
 ### `/mnt/work/rockue`
 
-- **Binding:** version
-- **Signal 1 (scripts path):** absent
-- **Signal 2 (pairmode_version):** present — `0.2.0`
+- **Binding:** both
+- **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
+- **Signal 2 (pairmode_version):** present — `0.3.0`
+
+### `/mnt/work/stackabid`
+
+- **Binding:** both
+- **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
+- **Signal 2 (pairmode_version):** present — `0.3.0`
 
 ### `/mnt/work/ud`
 
-- **Binding:** version
-- **Signal 1 (scripts path):** absent
-- **Signal 2 (pairmode_version):** present — `0.2.0`
+- **Binding:** both
+- **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
+- **Signal 2 (pairmode_version):** present — `0.3.0`
 

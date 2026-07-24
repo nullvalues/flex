@@ -40,6 +40,7 @@ def capture_lesson(
     source_project: str = "unknown",
     value_framing: str | None = None,
     validation_phase: str | None = None,
+    enforced_by: str = "none",
 ) -> dict:
     """Capture a lesson and persist it.
 
@@ -50,6 +51,9 @@ def capture_lesson(
     - value_framing: durable metric framing for efficiency-based lessons.
     - validation_phase: phase ID that confirmed or revised the lesson.
     When None, these fields are omitted from the lesson entry entirely.
+
+    enforced_by: one of "lint" | "hook" | "skill" | "none" — how (if at all)
+    this lesson is mechanically enforced. Defaults to "none".
     """
     data = lesson_utils.load_lessons()
 
@@ -69,6 +73,7 @@ def capture_lesson(
         },
         "applies_to": applies_to,
         "status": "captured",
+        "enforced_by": enforced_by,
     }
 
     if value_framing is not None:
@@ -133,6 +138,14 @@ def capture_lesson(
     default=None,
     help="Phase ID that confirmed or revised this lesson (optional).",
 )
+@click.option(
+    "--enforced-by",
+    "enforced_by",
+    type=click.Choice(["lint", "hook", "skill", "none"]),
+    default="none",
+    show_default=True,
+    help="How this lesson is mechanically enforced, if at all.",
+)
 def cli(
     trigger: str,
     problem: str,
@@ -143,6 +156,7 @@ def cli(
     source_project: str,
     value_framing: str | None,
     validation_phase: str | None,
+    enforced_by: str,
 ) -> None:
     """Capture a methodology lesson and append it to lessons.json."""
     lesson = capture_lesson(
@@ -155,6 +169,7 @@ def cli(
         source_project=source_project,
         value_framing=value_framing,
         validation_phase=validation_phase,
+        enforced_by=enforced_by,
     )
     click.echo(f"Lesson captured: {lesson['id']}")
     click.echo(json.dumps(lesson, indent=2))

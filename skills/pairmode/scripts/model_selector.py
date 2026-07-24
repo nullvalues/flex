@@ -88,6 +88,21 @@ Public API:
 
     Unknown/absent phase_class values default to "production" (opus,
     production-class).
+
+  select_loop_breaker_model() -> tuple[str, str]
+
+    Returns the (model, reason) tuple for the loop-breaker rung.  Deterministic
+    and parameter-free: always ``("fable", "escalation-upgrade")``.  This rung
+    is only reached at the double-fail point (next_action.py Row 6), after the
+    ordinary top tier (opus) has already failed twice.
+
+  Model ladder note:
+
+    The ordinary builder/reviewer attempt tables use the strict three-rung
+    ladder haiku < sonnet < opus.  ``fable`` is an *escalation tier ranking
+    above opus*, used only by the loop-breaker rung (select_loop_breaker_model)
+    for escalation/loop-breaker situations — it is deliberately NOT inserted
+    into the attempt-1/attempt-2 builder or reviewer tables above.
 """
 
 from __future__ import annotations
@@ -109,6 +124,10 @@ from schema_validator import DEFAULT_STORY_CLASS  # noqa: E402
 MODEL_HAIKU = "haiku"
 MODEL_SONNET = "sonnet"
 MODEL_OPUS = "opus"
+# Escalation tier — ranks *above* opus. Used only by the loop-breaker rung
+# (see select_loop_breaker_model); never inserted into the ordinary
+# builder/reviewer attempt-based tables, which stay haiku/sonnet/opus.
+MODEL_FABLE = "fable"
 
 # Model selection reason values (used by the effort DB schema).
 REASON_AUTO_DOWNGRADE = "auto-downgrade"
@@ -116,6 +135,7 @@ REASON_AUTO_BASELINE = "auto-baseline"
 REASON_PROMPTED_UPGRADE = "prompted-upgrade"
 REASON_USER_OVERRIDE = "user-override"
 REASON_RETRY_UPGRADE = "retry-upgrade"
+REASON_ESCALATION_UPGRADE = "escalation-upgrade"
 
 # story_class values that never upgrade to opus on retry
 _ALWAYS_SONNET_CLASSES = frozenset({"doc", "lesson"})
@@ -303,6 +323,30 @@ def select_security_auditor_model(phase_class: str) -> tuple[str, str]:
         return MODEL_SONNET, "non-production-class"
     # production and pre-pr both use opus
     return MODEL_OPUS, "production-class"
+
+
+# ---------------------------------------------------------------------------
+# Loop-breaker / escalation-tier model selection
+# ---------------------------------------------------------------------------
+
+
+def select_loop_breaker_model() -> tuple[str, str]:
+    """Return (model, reason) for the loop-breaker rung.
+
+    The loop-breaker rung is only ever reached at the double-fail point
+    (next_action.py Row 6: attempt_count == 2 and the last outcome was FAIL),
+    i.e. after the harness's ordinary top tier (opus) has already failed twice.
+    It therefore escalates unconditionally to the ``fable`` tier, which ranks
+    above ``opus`` for escalation/loop-breaker situations only — it is not part
+    of the ordinary builder/reviewer attempt-based tables.
+
+    Deterministic and parameter-free (mirrors the intent-reviewer /
+    security-auditor selector pattern).
+
+    Returns:
+        The tuple ``("fable", "escalation-upgrade")``.
+    """
+    return MODEL_FABLE, REASON_ESCALATION_UPGRADE
 
 
 # ---------------------------------------------------------------------------

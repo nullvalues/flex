@@ -41,10 +41,16 @@ remains untouched.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import statistics
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    from skills.pairmode.scripts.context_model import THIN_HARNESS_STEP_TOKENS
+except ImportError:
+    from context_model import THIN_HARNESS_STEP_TOKENS  # type: ignore[no-redef]  # flat import via hook sys.path
 
 
 # ---------------------------------------------------------------------------
@@ -68,9 +74,22 @@ _FLEX_BUILD_PATH = Path(__file__).resolve().parent / "flex_build.py"
 
 _CONTEXT_CHECK_REQUIRED_MSG = (
     "CONTEXT CHECK REQUIRED\n"
-    "Context token count is missing or stale. It will update automatically\n"
-    "after the next tool call completes.\n"
+    "Context token count is missing or stale. This blocks the exact\n"
+    "build-cycle agent spawn (builder/loop-breaker/security-\n"
+    "auditor/intent-reviewer) that would normally refresh it, so it will\n"
+    "NOT clear on its own. To proceed, do one of:\n"
+    "1. Run /context to see the current token count, then run:\n"
+    "     set-context-tokens --tokens N\n"
+    "   (N = the token count /context reports). Then retry the spawn.\n"
+    "2. Run /clear to reset the session; this writes a fresh baseline\n"
+    "   automatically. Then resume with: \"Continue building Phase X\n"
+    "   from story RAIL-NNN\".\n"
+    "3. Spawn a non-build-cycle agent (general-purpose / Plan / Explore) —\n"
+    "   these are not gated by this check.\n"
 )
+
+# CER-041: named constant for the staleness TTL (minutes).
+_CONTEXT_TOKEN_STALE_MINUTES = 60
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +120,9 @@ def _derive_transcript_path(
     """
     try:
         if not session_id or not isinstance(session_id, str):
+            return None
+        # CER-051: reject session_id values that could escape the transcript dir.
+        if "/" in session_id or ".." in session_id:
             return None
         if home is None:
             home = Path.home()
@@ -248,9 +270,12 @@ def read_context_tokens_from_state(
 
     now = _now if _now is not None else datetime.now(timezone.utc)
     try:
-        ttl_minutes = int(state.get("context_current_tokens_ttl_minutes", 60) or 60)
+        ttl_minutes = int(
+            state.get("context_current_tokens_ttl_minutes", _CONTEXT_TOKEN_STALE_MINUTES)
+            or _CONTEXT_TOKEN_STALE_MINUTES
+        )
     except (TypeError, ValueError):
-        ttl_minutes = 60
+        ttl_minutes = _CONTEXT_TOKEN_STALE_MINUTES
 
     age_minutes = (now - recorded_at_dt).total_seconds() / 60
     if age_minutes > ttl_minutes:
@@ -399,6 +424,7 @@ def render_alert_prompt(
     threshold: int,
     overrun_pct: float,
     expected_next: int,
+    flex_factor: float = 1.0,
 ) -> str:
     """Template the verbatim prompt body from
     ``tests/pairmode/fixtures/context_budget_prompt.txt`` with
@@ -406,11 +432,11 @@ def render_alert_prompt(
     substituted. ``story_id`` falls back to ``"current"`` when ``None``.
 
     ``[E]`` is ``expected_next``; ``[R]`` is ``ceiling - tokens`` where
-    ``ceiling = int(threshold * (1 + overrun_pct))``.
+    ``ceiling = int(threshold * (1 + overrun_pct) * flex_factor)`` (INFRA-165).
     """
     template = _FIXTURE_PATH.read_text(encoding="utf-8")
     story_label = story_id if story_id else "current"
-    ceiling = int(threshold * (1.0 + overrun_pct))
+    ceiling = int(threshold * (1.0 + overrun_pct) * flex_factor)
     remaining = ceiling - tokens
     rendered = template.replace("[story RAIL-NNN]", f"[story {story_label}]")
     rendered = rendered.replace("[N]", f"{tokens:,}")
@@ -507,7 +533,13 @@ def decide(
     if not isinstance(project_dir, Path):
         project_dir = Path(project_dir)
 
-    # Clamp flex_factor to a safe range.
+    # Clamp flex_factor to a safe range (NaN check first — IEEE-754 NaN fails all comparisons).
+    if math.isnan(flex_factor):
+        print(
+            "context_budget.decide: flex_factor is NaN; clamped to 1.0",
+            file=_sys.stderr,
+        )
+        flex_factor = 1.0
     if flex_factor <= 0:
         print(
             f"context_budget.decide: flex_factor={flex_factor!r} is <= 0; clamped to 1.0",
@@ -523,7 +555,17 @@ def decide(
 
     state = _read_state(project_dir)
     if state is None:
-        # No state.json — non-pairmode project, fail-open.
+        # _read_state returns None when state.json is absent.
+        # CER-040: check whether this is a pairmode project (has .companion/ dir).
+        # If .companion/ exists, state.json should be present → surface as needing attention.
+        # If .companion/ is absent, this is a non-pairmode project → fail-open.
+        if (project_dir / ".companion").is_dir():
+            return {
+                "block": True,
+                "reason": _CONTEXT_CHECK_REQUIRED_MSG,
+                "tokens": 0,
+                "acknowledged_at": 0,
+            }
         return None
 
     # Read context_current_tokens directly (bypass TTL; session-reset check below).
@@ -557,7 +599,7 @@ def decide(
 
     threshold = int(state.get("context_budget_threshold", 130000) or 130000)
     overrun_pct = float(state.get("context_budget_overrun_pct", 0.10) or 0.10)
-    seeded_default = int(state.get("expected_step_tokens", 53000) or 53000)
+    seeded_default = int(state.get("expected_step_tokens", THIN_HARNESS_STEP_TOKENS) or THIN_HARNESS_STEP_TOKENS)
     reprompt_margin = int(state.get("context_budget_reprompt_margin", 10000) or 10000)
     acknowledged_at_raw = state.get("context_budget_acknowledged_at")
     acknowledged_at: int | None
@@ -569,17 +611,17 @@ def decide(
         except (TypeError, ValueError):
             acknowledged_at = None
 
+    # CER-053: window-growth constant must not be effort-derived.
+    # Pass db_path=None to skip the effort.db median lookup entirely.
     user_turn_seq = int(state.get("context_budget_user_turn_seq", 0) or 0)
     ack_turn_seq_raw = state.get("context_budget_acknowledged_user_turn_seq")
     acknowledged_user_turn_seq = (
         int(ack_turn_seq_raw) if ack_turn_seq_raw is not None else None
     )
 
-    phase = state.get("current_phase") or state.get("phase")
-    db_path = project_dir / ".companion" / "effort.db"
     expected_next = estimate_next_step_tokens(
-        db_path if db_path.exists() else None,
-        str(phase) if phase is not None else None,
+        None,
+        None,
         seeded_default,
     )
 
@@ -605,6 +647,7 @@ def decide(
         threshold=threshold,
         overrun_pct=overrun_pct,
         expected_next=expected_next,
+        flex_factor=flex_factor,
     )
     return {
         "block": True,

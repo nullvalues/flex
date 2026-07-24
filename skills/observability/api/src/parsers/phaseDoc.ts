@@ -45,7 +45,12 @@ export async function parsePhaseDoc(
         const fm = yaml.load(frontmatterText) as Record<string, unknown>;
         if (fm && typeof fm === 'object' && 'era' in fm) {
           const eraVal = fm['era'];
-          era = eraVal != null ? String(eraVal) : null;
+          era =
+            eraVal == null
+              ? null
+              : typeof eraVal === 'number'
+                ? String(eraVal).padStart(3, '0')
+                : String(eraVal);
         }
       } catch {
         // ignore frontmatter parse errors

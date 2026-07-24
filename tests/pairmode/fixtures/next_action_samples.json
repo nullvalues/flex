@@ -1,0 +1,138 @@
+[
+  {
+    "action": "spawn-builder",
+    "scalar": "RESOLVER-002",
+    "model": "sonnet",
+    "reason": "Next unbuilt story; attempt 1; sonnet baseline.",
+    "meta": {
+      "schema_version": 4,
+      "attempt": 1
+    }
+  },
+  {
+    "action": "spawn-builder",
+    "scalar": "RESOLVER-003",
+    "model": "opus",
+    "reason": "Retry — second attempt; upgrading to opus.",
+    "meta": {
+      "schema_version": 4,
+      "attempt": 2,
+      "warnings": ["previous attempt failed reviewer check"]
+    }
+  },
+  {
+    "action": "spawn-loop-breaker",
+    "scalar": "RESOLVER-002",
+    "model": "opus",
+    "reason": "Story failed twice; escalating to loop-breaker.",
+    "meta": {
+      "schema_version": 4,
+      "attempt": 3,
+      "fail_rung": "double-fail"
+    }
+  },
+  {
+    "action": "spawn-gate-worker",
+    "scalar": "RESOLVER-005",
+    "model": null,
+    "reason": "judged-gate-tripped",
+    "meta": {
+      "schema_version": 4,
+      "gates_tripped": ["schema"],
+      "gate_reasons": {"schema": "no management surface story in phase"}
+    }
+  },
+  {
+    "action": "spawn-reviewer",
+    "scalar": "WORKER-004",
+    "model": "sonnet",
+    "reason": "Builder completed; spawning reviewer for story WORKER-004.",
+    "meta": {
+      "schema_version": 4,
+      "attempt": 1
+    }
+  },
+  {
+    "action": "spawn-security-auditor",
+    "scalar": "HARNESS003-main",
+    "model": "opus",
+    "reason": "Checkpoint: phase_class=production; security-auditor upgrades to opus.",
+    "meta": {
+      "schema_version": 4
+    }
+  },
+  {
+    "action": "spawn-intent-reviewer",
+    "scalar": "HARNESS003-main",
+    "model": "sonnet",
+    "reason": "Checkpoint: intent-reviewer reviews all stories in phase.",
+    "meta": {
+      "schema_version": 4
+    }
+  },
+  {
+    "action": "checkpoint-security",
+    "scalar": "HARNESS004-main",
+    "model": "opus",
+    "reason": "Checkpoint step: security audit.",
+    "meta": {
+      "schema_version": 4
+    }
+  },
+  {
+    "action": "checkpoint-intent",
+    "scalar": "HARNESS004-main",
+    "model": "sonnet",
+    "reason": "Checkpoint step: intent review.",
+    "meta": {
+      "schema_version": 4
+    }
+  },
+  {
+    "action": "checkpoint-docs",
+    "scalar": "HARNESS004-main",
+    "model": "sonnet",
+    "reason": "Checkpoint step: docs review.",
+    "meta": {
+      "schema_version": 4
+    }
+  },
+  {
+    "action": "checkpoint-tag",
+    "scalar": "HARNESS004-main",
+    "model": null,
+    "reason": "Checkpoint step: tag phase.",
+    "meta": {
+      "schema_version": 4
+    }
+  },
+  {
+    "action": "await-user",
+    "scalar": "",
+    "model": null,
+    "reason": "Context budget exceeded; waiting for operator acknowledgement.",
+    "meta": {
+      "schema_version": 4,
+      "gate": "context-budget",
+      "warnings": ["context_current_tokens is stale"]
+    }
+  },
+  {
+    "action": "spawn-spec-writer",
+    "scalar": "RESOLVER-009",
+    "model": "opus",
+    "reason": "needs-spec",
+    "meta": {
+      "schema_version": 4
+    }
+  },
+  {
+    "action": "done",
+    "scalar": "",
+    "model": null,
+    "reason": "Phase complete and checkpointed.",
+    "meta": {
+      "schema_version": 4
+    }
+  }
+]

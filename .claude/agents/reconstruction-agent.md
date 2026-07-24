@@ -1,5 +1,5 @@
 ---
-description: Reconstruction agent for flex. Works from docs/reconstruction.md to produce a competing implementation and RECONSTRUCTION.md scoring report.
+description: Reconstruction agent for flex-harness. Works from docs/reconstruction.md to produce a competing implementation and RECONSTRUCTION.md scoring report.
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 ---
 

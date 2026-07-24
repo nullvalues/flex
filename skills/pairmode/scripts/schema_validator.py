@@ -25,6 +25,34 @@ _FRONTMATTER_RE = re.compile(
 _YAML_SCALAR_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$')
 _YAML_LIST_ITEM_RE = re.compile(r'^\s+-\s+(.+)$')
 
+# Matches a '#' that starts an inline comment: preceded by whitespace (or at
+# the very start of the string). A '#' glued to non-whitespace content is not
+# a comment start (real-YAML-like semantics).
+_INLINE_COMMENT_RE = re.compile(r'(?:^|\s)#.*$')
+
+
+def _strip_list_item_comment(value: str) -> str:
+    """
+    Apply quote-handling then inline-comment-stripping to a raw block-sequence
+    list item value, mirroring the scalar-value quote handling below.
+
+    Quoted values (start and end with matching quotes) are treated as
+    literal — a '#' inside quotes is data, not a comment, and is never
+    stripped. Unquoted values have a trailing inline comment removed, but
+    only when the '#' is preceded by whitespace (or starts the value); a '#'
+    glued to non-whitespace content is left alone.
+    """
+    trimmed = value.strip()
+    if (trimmed.startswith('"') and trimmed.endswith('"') and len(trimmed) >= 2) or (
+        trimmed.startswith("'") and trimmed.endswith("'") and len(trimmed) >= 2
+    ):
+        return trimmed[1:-1]
+
+    match = _INLINE_COMMENT_RE.search(trimmed)
+    if match:
+        trimmed = trimmed[: match.start()]
+    return trimmed.strip()
+
 # L018-style enforcement: detect pointer-only acceptance sections.
 _POINTER_ONLY_RE = re.compile(
     r"^\s*See\s+(docs|phase)",
@@ -65,7 +93,7 @@ def _parse_frontmatter(text: str) -> dict[str, Any] | None:
         # Check if this is a list item
         list_m = _YAML_LIST_ITEM_RE.match(line)
         if list_m and current_key is not None and current_list is not None:
-            current_list.append(list_m.group(1).strip())
+            current_list.append(_strip_list_item_comment(list_m.group(1)))
             continue
 
         # Check if this is a new scalar or list-start key
@@ -126,10 +154,9 @@ def validate_story_file(path: Path) -> list[str]:
         return ["Missing or malformed YAML frontmatter block"]
 
     for field in REQUIRED_STORY_FIELDS:
-        # primary_files emptiness is checked separately with status awareness
+        # primary_files presence and emptiness are checked separately with status awareness
         if field == "primary_files":
-            if field not in fm or fm[field] is None:
-                errors.append(f"Missing required field: '{field}'")
+            pass  # handled below in the status-aware block
         else:
             if field not in fm or fm[field] in (None, "", []):
                 errors.append(f"Missing required field: '{field}'")
@@ -161,11 +188,14 @@ def validate_story_file(path: Path) -> list[str]:
             f"{sorted(VALID_TEST_GATES)} when present"
         )
 
-    if "primary_files" in fm and not isinstance(fm["primary_files"], list):
-        errors.append("Field 'primary_files' must be a list")
-
     status = fm.get("status", "")
-    if status not in ("draft", "backlog"):
+    if status in ("draft", "backlog"):
+        # primary_files absent or empty is acceptable for draft/backlog stories
+        if "primary_files" in fm and fm["primary_files"] is not None and not isinstance(fm["primary_files"], list):
+            errors.append("Field 'primary_files' must be a list")
+    else:
+        if "primary_files" in fm and fm["primary_files"] is not None and not isinstance(fm["primary_files"], list):
+            errors.append("Field 'primary_files' must be a list")
         if not fm.get("primary_files"):
             errors.append("primary_files must be non-empty for non-draft stories "
                           "(status is not 'draft' or 'backlog')")

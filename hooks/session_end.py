@@ -11,35 +11,12 @@ import os
 import sys
 import tempfile
 from datetime import datetime
-from pathlib import Path
 
 
-def _resolve_pipe_path(raw_path: str) -> str | None:
-    """Validate that a configured pipe path resolves under the system tempdir.
-
-    Returns the resolved path string when valid; returns None when the path
-    is malformed or escapes the tempdir, signalling callers to keep the
-    legacy fallback. (CER-009)
-    """
-    try:
-        candidate = Path(raw_path).resolve()
-        if candidate.is_relative_to(Path(tempfile.gettempdir()).resolve()):
-            return str(candidate)
-    except Exception:
-        return None
-    return None
-
-
-PIPE_PATH = "/tmp/companion.pipe"  # legacy fallback
-try:
-    import json as _json
-    _state = _json.loads(open(".companion/state.json").read())
-    if _state.get("pipe_path"):
-        _validated = _resolve_pipe_path(_state["pipe_path"])
-        if _validated is not None:
-            PIPE_PATH = _validated
-except Exception:
-    pass
+# INFRA-238: standardized on the hardcoded pipe location post_tool_use.py
+# already used. The `pipe_path` state.json key was deleted by
+# pairmode_migrate.py's `to-030` step; reading it here was dead code.
+PIPE_PATH = os.path.join(tempfile.gettempdir(), "companion.pipe")
 
 
 def main():

@@ -19,6 +19,7 @@ interface LessonsOut {
 }
 
 const cache = new Map<string, CacheEntry>();
+const inflight = new Map<string, Promise<LessonsOut>>();
 const CACHE_TTL_MS = 2000;
 
 // ---------------------------------------------------------------------------
@@ -46,19 +47,31 @@ export async function registerLessonsRoutes(app: FastifyInstance): Promise<void>
       return cached.data;
     }
 
-    const lessonsPath = path.join(repo.project_dir, 'lessons', 'lessons.json');
-    const rawLessons = await parseLessons(lessonsPath);
-    const lessons = applyPromotionFilter(rawLessons);
+    // In-flight dedup: concurrent misses share one build promise
+    const existing = inflight.get(id);
+    if (existing) return existing;
 
-    const data: LessonsOut = {
-      repo_id: id,
-      generated_at: new Date().toISOString(),
-      lessons,
-    };
+    const promise = (async () => {
+      const lessonsPath = path.join(repo.project_dir, 'lessons', 'lessons.json');
+      const rawLessons = await parseLessons(lessonsPath);
+      const lessons = applyPromotionFilter(rawLessons);
+      return {
+        repo_id: id,
+        generated_at: new Date().toISOString(),
+        lessons,
+      } satisfies LessonsOut;
+    })()
+      .then((data) => {
+        cache.set(id, { ts: Date.now(), data });
+        inflight.delete(id);
+        return data;
+      })
+      .catch((err) => {
+        inflight.delete(id);
+        throw err;
+      });
 
-    cache.set(id, { ts: now, data });
-
-    reply.header('Content-Type', 'application/json');
-    return data;
+    inflight.set(id, promise);
+    return promise;
   });
 }

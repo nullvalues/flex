@@ -18,7 +18,8 @@ skills/pairmode/scripts/bootstrap.py has exactly one hook-registration function,
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-208 | Generalize `bootstrap.py` downstream hook registration to wire the three load-bearing context-budget-gate hooks (`UserPromptSubmit`, `SessionStart`, `PostToolUse` `Task\|Agent` block) into `.claude/settings.json` alongside the existing `PreToolUse` registration — flowing through both the `bootstrap` and `sync.py` call sites, mirroring `_register_pretooluse_hook`'s by-command find/migrate idempotency, explicitly deferring the four companion/sidebar blocks (`Stop`, `PermissionRequest`/`ExitPlanMode`, `PostToolUse` `Write\|Edit\|MultiEdit`, `SessionEnd`) as opt-in with stated reason, plus migrated/added tests | complete |
-| INFRA-209 | Re-run the fleet rollout of the newly-registered context-budget-gate hooks across every already-bootstrapped sibling repo's `.claude/settings.json` (via `pairmode sync`/`sync-all` per repo, same mechanical pattern as the manual INFRA-206 rollout), verifying each fleet project now carries the `UserPromptSubmit`/`SessionStart`/`PostToolUse` `Task\|Agent` registrations | planned |
+| INFRA-209 | Re-run the fleet rollout of the newly-registered context-budget-gate hooks across every already-bootstrapped sibling repo's `.claude/settings.json` (via `pairmode sync`/`sync-all` per repo, same mechanical pattern as the manual INFRA-206 rollout), verifying each fleet project now carries the `UserPromptSubmit`/`SessionStart`/`PostToolUse` `Task\|Agent` registrations | complete |
+| INFRA-222 | Fix escaped-pipe corruption in next_action.py's _check_phase_completion Stories-table status parse (CER-066 recurrence) | complete |
 
 ## Schema delivery
 
@@ -33,4 +34,9 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-95 Cold-eyes checklist
 
-— developer fills in after phase completion —
+- **checkpoint-security** — PASS. No CRITICAL/HIGH findings; no `hooks/` files touched by this phase's diff; spec safety, credential exposure, path traversal, and layer-violation checks all clean (`_register_context_budget_hooks` builds hook-command paths from fixed constants, not external input).
+- **checkpoint-intent** — ALIGNED. INFRA-208, INFRA-209, INFRA-222 all built exactly to their `## Ensures`; INFRA-222's mid-phase scope addition (fixing the phase's own checkpoint-guard bug) is a legitimate live-hit, same pattern as CER-066/INFRA-207. One LOW/process note: INFRA-208 was independently built on two branches (`83bdd4e`, `66fcc87`) before reconciliation by merge `9fcef91` — final `bootstrap.py` is single-definition and fully tested, no drift.
+- **checkpoint-docs** — PASS (after one fix cycle). First pass FAILed on two gaps: `docs/architecture.md` had no explicit Phase 95 reference, and `CHANGELOG.md` had no Phase 95 entry. Both fixed (commit `24f0512`); recheck PASSed clean.
+- **CER Do Now** — CER-067 (the finding this phase was built to close) resolved with a Phase 95 note; no other unresolved Do Now items.
+- **Fleet verification (INFRA-209)** — 13 of 14 in-scope fleet projects already carried the three context-budget-gate registrations by the time of verification (read-only audit, no commits needed); `cora` formally excluded as a known carve-out; `anchor` remains excluded as a non-pairmode-consumer sibling plugin repo; `asp`'s forged CER-067 workaround keys in `state.json` are still present, reset deferred as a follow-up (out of scope for this phase).
+- **CER-069 filed** — the escaped-pipe `split("|")` bug class (CER-066 → INFRA-222 recurrence) has 6 more unaudited occurrences (`next_story.py`, `index_integrity.py`, `flex_build.py` ×3, `story_resolver.py`); filed to `docs/cer/backlog.md` Do Later for a follow-up audit, not fixed in this phase.

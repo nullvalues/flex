@@ -1284,9 +1284,9 @@ class TestSyncBuildDryRun:
             ["sync-build", "--project-dir", str(tmp_path), "--dry-run"],
         )
         assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
-        # The Checkpoint sequence section is in the template but missing from the stale file
-        assert "Checkpoint sequence" in result.output, (
-            f"Expected 'Checkpoint sequence' in diff output, got: {result.output[:500]}"
+        # The ## Checkpoint section is in the thin template but missing from the stale file
+        assert "## Checkpoint" in result.output, (
+            f"Expected '## Checkpoint' in diff output, got: {result.output[:500]}"
         )
 
     def test_dry_run_does_not_modify_file(self, tmp_path: Path) -> None:
@@ -1335,9 +1335,9 @@ class TestSyncBuildApply:
 
         build_file = tmp_path / "CLAUDE.build.md"
         content = build_file.read_text(encoding="utf-8")
-        # The rendered template must contain the Checkpoint sequence section
-        assert "Checkpoint sequence" in content, (
-            "Rendered CLAUDE.build.md should contain 'Checkpoint sequence'"
+        # The rendered template must contain the ## Checkpoint section (thin dispatch loop)
+        assert "## Checkpoint" in content, (
+            "Rendered CLAUDE.build.md should contain '## Checkpoint'"
         )
 
     def test_apply_yes_produces_updated_message(self, tmp_path: Path) -> None:
@@ -1406,8 +1406,8 @@ class TestSyncBuildApply:
 
         assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
         content = (tmp_path / "CLAUDE.build.md").read_text(encoding="utf-8")
-        assert "Checkpoint sequence" in content, (
-            "Rendered template should contain 'Checkpoint sequence' after accepting prompt"
+        assert "## Checkpoint" in content, (
+            "Rendered template should contain '## Checkpoint' after accepting prompt"
         )
 
 
@@ -1591,7 +1591,8 @@ class TestSyncSeedsContextBudgetDefaults:
         # Check default values
         assert state["context_budget_threshold"] == 120000
         assert state["context_budget_overrun_pct"] == 0.10
-        assert state["expected_step_tokens"] == 53000
+        from skills.pairmode.scripts.context_model import THIN_HARNESS_STEP_TOKENS
+        assert state["expected_step_tokens"] == THIN_HARNESS_STEP_TOKENS  # CER-053
         assert state["context_budget_reprompt_margin"] == 10000
 
     def test_sync_does_not_overwrite_existing_budget_values(self, tmp_path: Path) -> None:
@@ -1642,10 +1643,54 @@ def _write_full_context(project_dir: Path) -> dict:
 
 
 class TestSyncBoldMarkerSectionGranularity:
-    """sync_project locates and patches bold-marker checklist items independently."""
+    """sync_project locates and patches bold-marker checklist items independently.
+
+    No file in fold-prep's real CANONICAL_FILES uses bold-marker
+    (``**N. NAME**``) checklist sections. This class registers a synthetic
+    bold-marker canonical file for the duration of its tests so the
+    override/sync integration path (real content, not just the unit-level
+    `_replace_section_in_file` helper) stays exercised even though no
+    production file currently needs the format.
+
+    INFRA-241 note: the fixture destination used to alias the real
+    `.claude/agents/reviewer.md` (safe only while agents/reviewer.md.j2 was
+    retired in HARNESS-002, so no real CANONICAL_FILES entry existed at that
+    path). INFRA-241 re-registers a real `agents/reviewer.md.j2` entry for the
+    context-budget gate (INFRA-199), so the fixture now uses its own
+    non-colliding destination path instead of shadowing it.
+    """
+
+    _FIXTURE_TEMPLATE_REL = "agents/_test_bold_marker_fixture.md.j2"
+    _FIXTURE_DEST_REL = ".claude/agents/_test_bold_marker_fixture.md"
+
+    @pytest.fixture(autouse=True)
+    def _register_bold_marker_fixture(self, tmp_path_factory):
+        from skills.pairmode.scripts.audit import TEMPLATES_DIR
+        import skills.pairmode.scripts.sync as _sync_mod
+
+        fixture_path = TEMPLATES_DIR / self._FIXTURE_TEMPLATE_REL
+        fixture_path.parent.mkdir(parents=True, exist_ok=True)
+        fixture_path.write_text(
+            "## Review checklist\n\n"
+            "**1. PROTECTED FILES**\n\n"
+            "Check protected files were not touched.\n\n"
+            "**3. BUILD GATE**\n\n"
+            "Does {{ build_command }} pass?\n",
+            encoding="utf-8",
+        )
+        entry = (self._FIXTURE_DEST_REL, self._FIXTURE_TEMPLATE_REL)
+        _audit_mod.CANONICAL_FILES.append(entry)
+        assert entry in _sync_mod.CANONICAL_FILES, (
+            "sync.py's CANONICAL_FILES import does not alias audit.py's list object"
+        )
+        try:
+            yield
+        finally:
+            _audit_mod.CANONICAL_FILES.remove(entry)
+            fixture_path.unlink(missing_ok=True)
 
     def _canonical_reviewer_sections(self, ctx: dict) -> dict[str, str]:
-        rendered = _JINJA_ENV.get_template("agents/reviewer.md.j2").render(**ctx)
+        rendered = _JINJA_ENV.get_template(self._FIXTURE_TEMPLATE_REL).render(**ctx)
         return _audit_mod._split_sections(rendered)
 
     def test_replace_section_in_file_patches_bold_marker_only(self, tmp_path: Path) -> None:
@@ -1687,8 +1732,8 @@ class TestSyncBoldMarkerSectionGranularity:
         assert "**1. protected files**" in canonical_sections
         assert "**3. build gate**" in canonical_sections
 
-        reviewer_path = tmp_path / ".claude" / "agents" / "reviewer.md"
-        rendered = _JINJA_ENV.get_template("agents/reviewer.md.j2").render(**ctx)
+        fixture_path = tmp_path / self._FIXTURE_DEST_REL
+        rendered = _JINJA_ENV.get_template(self._FIXTURE_TEMPLATE_REL).render(**ctx)
         custom_protected_body = "CUSTOM PROTECTED FILES OVERRIDE BODY"
         custom_build_gate_body = "CUSTOM BUILD GATE BODY (undeclared, should be reverted)"
 
@@ -1697,18 +1742,18 @@ class TestSyncBoldMarkerSectionGranularity:
         ).replace(
             canonical_sections["**3. build gate**"], custom_build_gate_body, 1
         )
-        reviewer_path.parent.mkdir(parents=True, exist_ok=True)
-        reviewer_path.write_text(modified, encoding="utf-8")
+        fixture_path.parent.mkdir(parents=True, exist_ok=True)
+        fixture_path.write_text(modified, encoding="utf-8")
 
         # Declare only the PROTECTED FILES item as an override
         (tmp_path / ".pairmode-overrides").write_text(
-            ".claude/agents/reviewer.md:**1. protected files**\n",
+            f"{self._FIXTURE_DEST_REL}:**1. protected files**\n",
             encoding="utf-8",
         )
 
         sync_project(tmp_path, yes=True)
 
-        final_text = reviewer_path.read_text(encoding="utf-8")
+        final_text = fixture_path.read_text(encoding="utf-8")
 
         assert custom_protected_body in final_text, (
             "Overridden bold-marker item body should be preserved by sync"

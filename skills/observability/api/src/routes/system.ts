@@ -3,6 +3,7 @@ import { readRegistry } from '../registry.js';
 import { parsePhaseIndex } from '../parsers/phaseIndex.js';
 import { parsePhaseDoc } from '../parsers/phaseDoc.js';
 import { parseStoryFrontmatter } from '../parsers/storyFrontmatter.js';
+import { readResolverState, type ResolverStateDoc } from '../readers/resolverState.js';
 
 // ---------------------------------------------------------------------------
 // Output shapes
@@ -34,6 +35,7 @@ interface SystemOut {
   repo_id: string;
   generated_at: string;
   phases: PhaseOut[];
+  resolver_state: ResolverStateDoc | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -46,6 +48,7 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
+const inflight = new Map<string, Promise<SystemOut>>();
 const CACHE_TTL_MS = 2000;
 
 // ---------------------------------------------------------------------------
@@ -78,7 +81,8 @@ async function buildSystemPayload(projectDir: string, repoId: string): Promise<S
   const indexRows = await parsePhaseIndex(projectDir);
 
   if (indexRows.length === 0) {
-    return { repo_id: repoId, generated_at, phases: [] };
+    const resolver_state = readResolverState(projectDir);
+    return { repo_id: repoId, generated_at, phases: [], resolver_state };
   }
 
   // 2. Sort by numeric phase_ref ascending, non-numeric refs sort to end
@@ -185,7 +189,8 @@ async function buildSystemPayload(projectDir: string, repoId: string): Promise<S
     }),
   );
 
-  return { repo_id: repoId, generated_at, phases };
+  const resolver_state = readResolverState(projectDir);
+  return { repo_id: repoId, generated_at, phases, resolver_state };
 }
 
 // ---------------------------------------------------------------------------
@@ -213,11 +218,22 @@ export async function registerSystemRoutes(app: FastifyInstance): Promise<void> 
       return cached.data;
     }
 
-    const data = await buildSystemPayload(repo.project_dir, id);
+    // In-flight dedup: concurrent misses share one build promise
+    const existing = inflight.get(id);
+    if (existing) return existing;
 
-    cache.set(id, { ts: now, data });
+    const promise = buildSystemPayload(repo.project_dir, id)
+      .then((data) => {
+        cache.set(id, { ts: Date.now(), data });
+        inflight.delete(id);
+        return data;
+      })
+      .catch((err) => {
+        inflight.delete(id);
+        throw err;
+      });
 
-    reply.header('Content-Type', 'application/json');
-    return data;
+    inflight.set(id, promise);
+    return promise;
   });
 }

@@ -4,6 +4,11 @@ This document is the index of all build phases for the project.
 Each phase has a dedicated file in `docs/phases/`. Phases 1–7 are recorded in the
 legacy monolithic doc at `docs/phase-prompts.md`.
 
+New phases are created via `skills/pairmode/scripts/phase_new.py` (`/flex:pairmode phase-new`),
+which prints the phase-authoring checklist on creation — see `docs/architecture.md` §
+Phase-authoring convention (INFRA-243) for the single-purpose / bounded-complexity /
+reproducible-from-artifacts criteria a well-formed phase should meet.
+
 | Phase | Title | Status | Tag |
 |-------|-------|--------|-----|
 | 1–7 | Core pairmode scaffold, spec-derived generation, lessons, audit/sync, companion enhancements, audit noise, template coherence | complete | cp1 – cp7 |
@@ -22,7 +27,7 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 20 | PR readiness — documentation, changelog, git history | complete | [phase-20.md](phase-20.md) · cp20 |
 | 21 | Orchestrator hardening and auth-policy integration | complete | [phase-21.md](phase-21.md) · cp21 |
 | 22 | Effort tracking infrastructure | complete | [phase-22.md](phase-22.md) · cp22 |
-| 23 | Drift detection foundations (pivoted — see Phase 29) | complete (partial) | [phase-23.md](phase-23.md) · cp23 |
+| 23 | Drift detection foundations (pivoted — see Phase 29) | deferred | [phase-23.md](phase-23.md) · cp23 |
 | 24 | Data-defensible model rebalance refinement | complete | [phase-24.md](phase-24.md) · cp24-data-defensible-methodology |
 | 25 | Backlog remediation and cross-project agent sync | complete | [phase-25.md](phase-25.md) · cp25-backlog-remediation-and-agent-sync |
 | 26 | Build loop retry automation and auth policy canonization | complete | [phase-26.md](phase-26.md) · cp26-build-loop-retry-and-auth-canonization |
@@ -80,7 +85,6 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 79 | era-002 index-tooling maintenance (current-phase, mark-phase-complete, reviewer revert) | complete | [phase-79.md](phase-79.md) |
 | 80 | pre-reviewer blanket-stage exclusion fix | complete | [phase-80.md](phase-80.md) |
 | 81 | write-permissions + clear-permissions wired into build loop | complete | [phase-81.md](phase-81.md) |
-| HARNESS001-ante1 | Versioning & upstream compatibility | complete | [phase-HARNESS001-ante1.md](phase-HARNESS001-ante1.md) |
 | 82 | security-auditor: document pairmode hook exceptions + audit scope rule | complete | [phase-82.md](phase-82.md) |
 | 83 | Spec quality gates | complete | [phase-83.md](phase-83.md) |
 | 84 | Spec preflight verification | complete | [phase-84.md](phase-84.md) |
@@ -94,7 +98,28 @@ legacy monolithic doc at `docs/phase-prompts.md`.
 | 92 | Fix cross-phase status leakage in story_update.py | complete | [phase-92.md](phase-92.md) |
 | 93 | Wire Edit/Write/Read matchers into pre_tool_use.py's PreToolUse registration | complete | [phase-93.md](phase-93.md) |
 | 94 | Fix escaped-pipe corruption in story_update.py phase-table row matching | complete | [phase-94.md](phase-94.md) |
-| 95 | Wire context-budget-gate hooks (UserPromptSubmit, SessionStart, PostToolUse Task/Agent) into downstream bootstrap registration | planned | [phase-95.md](phase-95.md) |
+| 95 | Wire context-budget-gate hooks (UserPromptSubmit, SessionStart, PostToolUse Task/Agent) into downstream bootstrap registration | complete | [phase-95.md](phase-95.md) |
+| HARNESS001-ante1 | Versioning & upstream compatibility | complete | [phase-HARNESS001-ante1.md](phase-HARNESS001-ante1.md) |
+| HARNESS001-main | Resolver foundation (deterministic skeleton) | complete | [phase-HARNESS001-main.md](phase-HARNESS001-main.md) |
+| HARNESS002-main | Gate verdict extraction | complete | [phase-HARNESS002-main.md](phase-HARNESS002-main.md) |
+| HARNESS003-main | Builder/reviewer/loop-breaker/security-auditor/intent-reviewer as leaf workers | complete | [phase-HARNESS003-main.md](phase-HARNESS003-main.md) |
+| HARNESS004-main | Checkpoint as an action sequence | complete | [phase-HARNESS004-main.md](phase-HARNESS004-main.md) |
+| HARNESS005-main | Spec-writer as a leaf worker | complete | [phase-HARNESS005-main.md](phase-HARNESS005-main.md) |
+| HARNESS006-main | Harness reduction — the flip | complete | [phase-HARNESS006-main.md](phase-HARNESS006-main.md) · cp-HARNESS006-main |
+| HARNESS007-main | Observability refactor (Phase G) | complete | [phase-HARNESS007-main.md](phase-HARNESS007-main.md) |
+| HARNESS008-main | Housekeeper consolidation | complete | [phase-HARNESS008-main.md](phase-HARNESS008-main.md) · cp-HARNESS008-main |
+| HARNESS009-main | Write-path determinism | complete | [phase-HARNESS009-main.md](phase-HARNESS009-main.md) · cp-HARNESS009-main |
+| HARNESS010-main | Token surgery | complete | [phase-HARNESS010-main.md](phase-HARNESS010-main.md) · cp-HARNESS010-main |
+| HARNESS009-post1 | HARNESS009 backlog close-out | complete | [phase-HARNESS009-post1.md](phase-HARNESS009-post1.md) · cp-HARNESS009-post1 |
+| HARNESS011-main | Era 3 closeout remediation | complete | [phase-HARNESS011-main.md](phase-HARNESS011-main.md) |
+| HARNESS012-main | Era 3 Fold Prep | complete | [phase-HARNESS012-main.md](phase-HARNESS012-main.md) · cp-HARNESS012-main |
+| HARNESS013-main | Era 3 Fleet Migration | complete | [phase-HARNESS013-main.md](phase-HARNESS013-main.md) |
+| HARNESS014-main | Lessons enforcement instrumentation | complete | [phase-HARNESS014-main.md](phase-HARNESS014-main.md) · cp-HARNESS014-main |
+| HARNESS015-main | Checkpoint-sequence reset and state.json atomic-write adoption | complete | [phase-HARNESS015-main.md](phase-HARNESS015-main.md) · cp-HARNESS015-main |
+| HARNESS016-main | Final fold — pre-fold gate, merge to main, re-sync | deferred | [phase-HARNESS016-main.md](phase-HARNESS016-main.md) — paused 2026-07-21, forked to Phase 96 |
+| 96 | Build-loop revert safety and worktree-per-cycle isolation | complete | [phase-96.md](phase-96.md) |
+| 97 | Fold resume — pre-fold gate, fleet migration, merge to main, re-sync | planned | [phase-97.md](phase-97.md) |
+| 98 | 0.2 → 0.3 regression remediation | complete | [phase-98.md](phase-98.md) · cp98-context-budget-regression-remediation |
 
 ---
 

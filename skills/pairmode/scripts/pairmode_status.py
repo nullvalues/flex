@@ -15,6 +15,7 @@ from __future__ import annotations
 import glob
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 # Insert repo root and scripts dir so sibling imports work when run as CLI
@@ -38,6 +39,11 @@ from schema_validator import _parse_frontmatter
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 DIVIDER = "─────────────────────────────────────"
+
+# INFRA-238: standardized on the hardcoded pipe location post_tool_use.py
+# already used. The `pipe_path` state.json key was deleted by
+# pairmode_migrate.py's `to-030` step; reading it here was dead code.
+PIPE_PATH = str(Path(tempfile.gettempdir()) / "companion.pipe")
 
 NOT_PAIRMODE_MESSAGE = (
     "Not a pairmode repo: .companion/state.json not found.\n"
@@ -114,11 +120,10 @@ def _format_modules(modules: object) -> str:
 
 def _sidebar_lines(state: dict, project_dir: Path) -> list[str]:
     """Return the list of lines describing sidebar status / attachment."""
-    pipe_path = state.get("pipe_path", "")
-    if isinstance(pipe_path, str) and pipe_path and Path(pipe_path).exists():
+    if Path(PIPE_PATH).exists():
         return [
             "Sidebar: active",
-            f"  Pipe:  {pipe_path}",
+            f"  Pipe:  {PIPE_PATH}",
         ]
 
     start_sh = _REPO_ROOT / "skills" / "companion" / "scripts" / "start_sidebar.sh"

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# thin dispatcher — Edit/Write → scope_guard.py; Task/Agent → context_budget.py
 """
 PreToolUse hook — dispatches to context_budget (Task/Agent) and scope_guard (Edit/Write).
 
@@ -8,7 +9,10 @@ Thin dispatcher. Domain logic lives in the named modules:
     context_budget import/call and acknowledgment state write happen only when
     tool_input.subagent_type is one of BUILD_CYCLE_SUBAGENTS. Non-build-cycle
     spawns (general-purpose / Plan / Explore / absent subagent_type) pass
-    straight through ungated.
+    straight through ungated. BUILD_CYCLE_SUBAGENTS covers only discretionary
+    or escalation build-cycle spawns; `reviewer` is exempt (INFRA-246) because
+    it is the build loop's mandatory, deterministic next step after every
+    builder attempt and never reaches decide().
     One delegated module call:
       decide(project_dir) — reads context_current_tokens from state.json
       (written by post_tool_use.py after each completed spawn, or by the
@@ -33,6 +37,15 @@ under either harness.
 INFRA-182: simplified Task/Agent branch — removed story_id lookup and the
 live_tokens state write (now PostToolUse's job). decide() now takes only
 project_dir.
+
+RELEASE-020: re-added a read-only story lookup, scoped strictly to
+resolving ``flex_factor`` for the ``decide()`` call. Reuses
+``scope_guard._read_current_story`` (current-story lookup) and
+``flex_build._story_path`` / ``flex_build._read_story_frontmatter``
+(frontmatter parsing) rather than duplicating story-lookup logic. This is
+distinct from the story_id lookup INFRA-182 removed (which fed a
+now-defunct live-count write) — no state.json write results from this
+resolution.
 """
 import json, sys
 from pathlib import Path
@@ -40,17 +53,53 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN_ROOT / "skills" / "pairmode" / "scripts"))
 
+from state_utils import _atomic_write_json  # noqa: E402
+
 # Build-cycle subagent types the context-budget gate governs (INFRA-199).
 # The gate models context growth across the pairmode build loop only; a
 # general-purpose / Plan / Explore spawn must never be blocked. Future
 # Era-003 WORKER-rail leaf-worker types are enrolled by adding one line here.
+#
+# This set covers discretionary/escalation build-cycle spawns only — spawns
+# where the orchestrator has a legitimate alternative action (report tokens,
+# /clear, or reconsider whether to spawn at all) and blocking-to-conserve is
+# a valid tradeoff. It never gates a spawn that is the mandatory, only-valid
+# next step in the build loop. `reviewer` is exempt (INFRA-246): per
+# CLAUDE.build.md's `on reviewer PASS` / `on reviewer FAIL` routing, reviewer
+# is the deterministic next step after every builder attempt, and there is
+# no alternative action the gate would be preserving by blocking it.
 BUILD_CYCLE_SUBAGENTS = frozenset({
     "builder",
-    "reviewer",
     "loop-breaker",
     "security-auditor",
     "intent-reviewer",
 })
+
+
+def _resolve_flex_factor(project_dir: Path) -> float:
+    """Resolve the current story's ``flex_factor`` for the context-budget gate.
+
+    RELEASE-020: reuses ``scope_guard._read_current_story`` (current-story
+    lookup from ``.companion/state.json``) and ``flex_build._story_path`` /
+    ``flex_build._read_story_frontmatter`` (story-frontmatter parsing) rather
+    than duplicating story-lookup logic. Fails open to ``1.0`` — the
+    pre-INFRA-160 default — when there is no active story, the story file is
+    missing, no ``flex_factor`` is set, or any error occurs.
+    """
+    try:
+        from scope_guard import _read_current_story
+        from flex_build import _read_story_frontmatter, _story_path
+
+        story_id = _read_current_story(project_dir)
+        if not story_id:
+            return 1.0
+        story_path = _story_path(story_id, project_dir)
+        if not story_path.exists():
+            return 1.0
+        fm = _read_story_frontmatter(story_path)
+        return float(fm.get("flex_factor", 1.0) or 1.0)
+    except Exception:
+        return 1.0
 
 
 def main():
@@ -69,7 +118,8 @@ def main():
             import context_budget
 
             project_dir = Path(data.get("cwd") or ".")
-            result = context_budget.decide(project_dir=project_dir)
+            flex_factor = _resolve_flex_factor(project_dir)
+            result = context_budget.decide(project_dir=project_dir, flex_factor=flex_factor)
         except Exception:
             sys.exit(0)
 
@@ -83,7 +133,7 @@ def main():
                         state["context_budget_acknowledged_user_turn_seq"] = result[
                             "user_turn_seq_at_block"
                         ]
-                    state_path.write_text(json.dumps(state, indent=2))
+                    _atomic_write_json(state_path, state)
             except Exception:
                 pass
             print(json.dumps({"decision": "block", "reason": result["reason"]}))

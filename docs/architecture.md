@@ -21,7 +21,7 @@ flex/
     hooks.json                    ← hook event registration
     stop.py                       ← historian: extract decisions after each response
     exit_plan_mode.py             ← relay plan content for impact analysis
-    post_tool_use.py              ← pair partner: relay file changes; Task/Agent branch: reads JSONL via context_budget.read_current_tokens() and writes context_current_tokens to state.json (INFRA-182)
+    post_tool_use.py              ← pair partner: relay file changes; Task/Agent branch: reads JSONL via context_budget.read_current_tokens() and writes context_current_tokens to state.json (INFRA-182); also calls subagent_transcript.record_attempt_from_transcript() to write one effort.db attempt row per spawn (INFRA-236)
     session_end.py                ← signal sidebar to summarize and exit
     pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename; INFRA-199 scoped to tool_input.subagent_type ∈ build-cycle agents only); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement); Read → cold_read_guard.py (INFRA-196 cold-read enforcement, registered/reachable since INFRA-205/INFRA-206, CER-065)
     session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write (context_current_tokens + context_current_tokens_recorded_at + context_session_reset_at on clear/startup — INFRA-180)
@@ -29,6 +29,23 @@ flex/
   skills/
     pairmode/                     ← /flex:pairmode — bootstrap and manage pairmode
       SKILL.md
+      gate_worker/
+        SKILL.md                  ← plugin-versioned gate judgment procedure (WORKER-002, HARNESS002-main): single source of schema+auth verdict evaluation; instructs the worker to self-check via check-* CLIs, judge schema/auth only, treat stub as mechanical, and return the WORKER-001 per-gate verdict map; live since the flip (HARNESS006)
+      skills/
+        builder/
+          procedure.md            ← plugin-versioned builder procedure (WORKER-005, HARNESS003-main): bounded inputs, BUILDER STUCK format, BUILD-RESULT return schema; live since the flip (HARNESS006)
+        reviewer/
+          procedure.md            ← plugin-versioned reviewer procedure (WORKER-006, HARNESS003-main): review checklist, REVIEW-RESULT return schema; live since the flip (HARNESS006)
+        loop-breaker/
+          procedure.md            ← plugin-versioned loop-breaker procedure (WORKER-007, HARNESS003-main): cold-eyes analysis, one-alternative approach, ADVICE return schema; live since the flip (HARNESS006)
+        security-auditor/
+          procedure.md            ← plugin-versioned security-audit procedure (WORKER-008, HARNESS003-main): CRITICAL/HIGH/MEDIUM/LOW checklist, REVIEW-RESULT return schema; live since the flip (HARNESS006)
+        intent-reviewer/
+          procedure.md            ← plugin-versioned intent-review procedure (WORKER-009, HARNESS003-main): story-alignment scale, design-pivot detection, doc-edit recommendations, REVIEW-RESULT with ALIGNED verdict; live since the flip (HARNESS006)
+        checkpoint-docs/
+          procedure.md            ← plugin-versioned docs-review procedure (WORKER-011, HARNESS004-main): documentation currency checklist, bounded inputs (phase doc, era doc, index.md, architecture.md, cer/backlog.md, story files, CHANGELOG.md), REVIEW-RESULT return schema; live since the flip (HARNESS006)
+        spec-writer/
+          procedure.md            ← plugin-versioned spec-writer procedure (WORKER-013, HARNESS005-main): bounded inputs (stub story file, phase doc, active era doc, one format exemplar), elaborates stub story in place (Ensures/Instructions/Tests/Out-of-scope), returns SPEC-RESULT{status: "done"|"revised"}; live since the flip (HARNESS006)
       scripts/
         bootstrap.py              ← generate pairmode scaffold from spec
         audit.py                  ← diff project against canonical templates
@@ -36,7 +53,7 @@ flex/
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
-        flex_build.py             ← CLI wrapping 24 pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stub, check-schema-gate, check-auth-gate, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope); replaces inline python -c blocks in CLAUDE.build.md.j2
+        flex_build.py             ← CLI wrapping pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stub, check-schema-gate, check-auth-gate, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope, next-action, resolver-state, record-checkpoint-step, record-attempt); next-action added in HARNESS001-main (since the flip, HARNESS006, the sequencing core the thin dispatch loop in CLAUDE.build.md calls each iteration); resolver-state added in HARNESS007-main (pure-read resolver state dump); record-checkpoint-step added in HARNESS009-main (RESOLVER-012) — atomically appends a validated checkpoint step ID to state.json["checkpoint_step"], replacing LLM-prose writes; replaces inline python -c blocks in CLAUDE.build.md.j2; INFRA-239 wires the `checkpoint-tag` step of record-checkpoint-step to also call `_mark_phase_complete_in_index` (the write side `mark-phase-complete` shares) in the same invocation, so the checkpoint_step reset and the phase-index `complete` write happen atomically in one CLI call rather than requiring a second, separately-remembered `mark-phase-complete` call; record-attempt added in RELEASE-009 (HARNESS012-main) — Click alias delegating to record_attempt.py, so the orchestrator template can call a single entry point
         refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
@@ -48,11 +65,15 @@ flex/
         era_transition.py         ← formally close the current active era and open the next; CLI: uv run era_transition.py --project-dir DIR [--name NAME] [--intent INTENT] [--yes]; also registered as flex_build.py transition-era
         schema_validator.py       ← validate story/era/phase manifest frontmatter
         permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json (legacy; Phase 55 replaces runtime use with scope_guard.py + permissions-create for new projects)
-        scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json and fails open (Phase 55, INFRA-138)
+        scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json; fails open on non-protected paths when no active story, but fails closed (blocks) on PROTECTED_GLOBS paths even without an active story (INFRA-196)
+        state_utils.py            ← shared helper for atomic state.json writes (`_atomic_write_json`); adopted by all remaining state.json writers as of HARNESS015-main (INFRA-202) — hooks/post_tool_use.py, story_context.py, bootstrap.py, skills/companion/scripts/sidebar.py (pairmode_sync.py/pairmode_register.py already had their own inline atomic implementation)
         session_reset.py          ← pure decision logic for SessionStart counter reset; no I/O (mirrors context_budget.py D11 boundary); CER-047 / Phase 68 INFRA-175
         spec_preflight.py         ← INFRA-190/191 — scans story body sections for unverifiable route and constant references; informational only (always exits 0)
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
         next_story.py             ← find next unbuilt story from a phase file; CLI: uv run next_story.py <phase-file> [--json] [--project-dir DIR]
+        gate_verdict.py           ← WORKER-001 gate verdict grammar: VERBS (clean/block/flag), JUDGED_GATES (schema/auth; stub excluded), parse_verdict (string → (verb, reason)), validate_verdict_map (dict → violation list); stdlib-only, no I/O; the WORKER-rail contract analogue of next_action.py's action grammar
+        worker_result.py          ← generalized worker return contract (WORKER-004, HARNESS003-main): four result types (BUILD-RESULT, REVIEW-RESULT, ADVICE, SPEC-RESULT), parse_worker_result (text → dict, validated), validate_worker_result (dict → violation list); stdlib-only, no I/O; parallel to gate_verdict.py for all non-gate workers
+        next_action.py            ← next-action resolver: action grammar (make_action, validate_action, ACTIONS), position read-model (infer_position), 9-state DP2 machine (resolve_next_action); HARNESS002-main adds spawn-gate-worker to ACTIONS, Row-4 DP2 split (stub→await-user directly; schema/auth→spawn-gate-worker), parse_worker_verdict_text (worker text return → per-gate verdict map), route_gate_verdict (DP3.2 aggregation: block→await-user, flag→proceed+warnings, clean→proceed); the live sequencing core since the flip (HARNESS006), pure-read; HARNESS003-main adds spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer to ACTIONS and _SPAWN_ACTIONS; SCHEMA_VERSION bumped to 2; HARNESS004-main adds checkpoint-security, checkpoint-intent, checkpoint-docs, checkpoint-tag to ACTIONS; removes monolithic checkpoint from ACTIONS (constant retained for import compat); adds check_checkpoint_guards (pre-checkpoint guards: phase-completion, CER Do Now, build-gate via injectable gate_fn); checkpoint step sequencing via _CHECKPOINT_SEQUENCE; SCHEMA_VERSION bumped to 3; HARNESS005-main adds spawn-spec-writer to ACTIONS and _SPAWN_ACTIONS; adds needs_spec bool to infer_position Position (True when ## Ensures absent or &lt; 5 non-blank lines — stub heuristic; fail-safe: unreadable story file → True); Row-2 split: needs_spec True → spawn-spec-writer (model=opus, reason=needs-spec), needs_spec False → spawn-builder as before; _count_ensures_nonblank_lines private helper (pure, no I/O); SPEC-RESULT{revised} routing lives in CLAUDE.build.md orchestrator prose (not in resolve_next_action); canonical reason string: spec-revised-awaiting-review; SCHEMA_VERSION bumped to 4
         pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all three sync operations in fixed order (sync-all subcommand); also registers register/unregister/list-projects in the top-level CLI group
         pairmode_register.py      ← manage registered_projects in .companion/state.json (register/unregister/list-projects subcommands)
         pairmode_migrate.py       ← one-shot migration of an anchor-bootstrapped sibling project to flex naming (migrate-from-anchor subcommand)
@@ -64,12 +85,13 @@ flex/
         CLAUDE.build.md.j2
         RECONSTRUCTION.md.j2     ← scoring report template filled in by a reconstruction agent
         agents/
-          builder.md.j2
-          reviewer.md.j2
-          loop-breaker.md.j2
-          security-auditor.md.j2
-          intent-reviewer.md.j2
+          builder.md.j2             ← thin builder agent shell (WORKER-005); retired in HARNESS002-main, re-registered in INFRA-241 so subagent_type: "builder" resolves to a real agent for the context-budget gate (INFRA-199)
+          reviewer.md.j2            ← thin reviewer agent shell (WORKER-006); retired in HARNESS002-main, re-registered in INFRA-241
+          loop-breaker.md.j2        ← thin loop-breaker agent shell (WORKER-007); retired in HARNESS002-main, re-registered in INFRA-241; model: fable
+          security-auditor.md.j2    ← thin security-auditor agent shell (WORKER-008); retired in HARNESS002-main, re-registered in INFRA-241
+          intent-reviewer.md.j2     ← thin intent-reviewer agent shell (WORKER-009); retired in HARNESS002-main, re-registered in INFRA-241
           reconstruction-agent.md.j2
+          gate-worker.md.j2         ← thin gate-worker agent shell (WORKER-002, HARNESS002-main); delegates all judgment logic to skills/pairmode/gate_worker/SKILL.md; carries no inline gate-detection logic; live since the flip (HARNESS006)
         docs/
           brief.md.j2
           ideology.md.j2           ← ideology and conviction record; generated by bootstrap
@@ -136,6 +158,7 @@ reconcile.py → merges into <spec_location>/openspec/specs/<module>/spec.json
 ```
 post_tool_use.py → pipe → sidebar tracks file→module mapping
 post_tool_use.py (Task/Agent branch) → reads JSONL transcript → writes context_current_tokens to state.json (INFRA-182)
+post_tool_use.py (Task/Agent branch) → reads JSONL transcript + tool_input/tool_response/state.json → writes one attempts row to effort.db (INFRA-236)
 exit_plan_mode.py → pipe → sidebar analyzes plan for cross-module impact
 session_end.py → pipe → sidebar graceful shutdown signal
 ```
@@ -145,6 +168,26 @@ session_end.py → pipe → sidebar graceful shutdown signal
 ## Pairmode build loop
 
 Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) drives every step:
+
+**Per-story worktree isolation (Phase 96, INFRA-223/INFRA-224).** The builder/reviewer cycle for each
+story runs inside a disposable git worktree, not directly against the main project
+directory. Before the builder spawns, `flex_build.py create-story-worktree --story-id
+<ID>` creates `.pairmode-worktrees/<ID>/` on a fresh branch `pairmode/<ID>` cut from
+the current branch tip and prints its absolute path; the orchestrator passes that path
+as the builder's and reviewer's working directory. On reviewer PASS the orchestrator
+calls `flex_build.py merge-story-worktree`, which rebases `pairmode/<ID>` onto the main
+branch's current tip, fast-forward-merges it in, then removes the worktree and deletes
+the branch (a rebase conflict aborts cleanly and surfaces to the operator — no partial
+state, no auto-resolution). On reviewer FAIL the orchestrator calls `flex_build.py
+discard-story-worktree`, which force-removes the worktree (uncommitted and untracked
+content included) and deletes the branch **without running any command against the main
+worktree's working directory**. This is the structural guarantee that a story's cycle —
+including a reviewer revert — cannot touch files outside that story's worktree, closing
+both the RELEASE-022 collateral-damage risk and the future cross-story concurrency risk.
+Only story-build actions (`spawn-builder` / `spawn-reviewer`) are worktree-wrapped;
+checkpoint-stage workers (`checkpoint-security`, `checkpoint-intent`, `checkpoint-docs`)
+are read-mostly, never commit, and stay on the main worktree unwrapped. `.pairmode-worktrees/`
+is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
 
 1. **Story spec** — the phase doc names the story; the story file at
    `docs/stories/<RAIL>/<RAIL>-NNN.md` defines `## Requires`, `## Ensures`, and
@@ -169,45 +212,86 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    live-rendered template counterpart); it is informational only and never blocks.
    (Phase 78 BUILD-034/BUILD-035)
 
-2. **Permission pre-write** — Two layers run before the builder spawns:
-   Layer 1 (`permissions-create`): `flex_build.py permissions-create` generates
-   `docs/phases/permissions/<story_id>.json` from the story's `primary_files` and `touches`
-   frontmatter, no-op'ing (no write, no `generated_at` change) when the computed `allowed_paths`
-   already match the file on disk — so that only genuine scope drift re-triggers the Layer 1
-   file write. (Phase 86, INFRA-194.)
+2. **Permission pre-write** — Two layers exist; only Layer 1 is wired into the automatic
+   per-story worktree cycle (INFRA-238):
+   Layer 1 (`permissions-create`): folded directly into `flex_build.py create-story-worktree`
+   (no separate template step) — immediately after the worktree/branch are created,
+   `create-story-worktree` reads the story's frontmatter and calls
+   `generate_permissions_artifact()`, which generates `docs/phases/permissions/<story_id>.json`
+   from the story's `primary_files` and `touches`, no-op'ing (no write, no `generated_at`
+   change) when the computed `allowed_paths` already match the file on disk — so that only
+   genuine scope drift re-triggers the Layer 1 file write. (Phase 86, INFRA-194; wired into the
+   worktree cycle by INFRA-238.) `create-story-worktree` also calls `story_context.set_current_story()`
+   directly (not via a separate `story_context.py --set` template step) to stamp the active story
+   into the **main checkout's** `.companion/state.json` — the worktree has no `.companion/` of its
+   own, and `scope_guard.py` always resolves state from the main checkout root regardless of the
+   spawn's cwd (a git worktree carries a `.git` pointer file back to the main repo). On PASS,
+   `merge-story-worktree` clears both the `current_story` stamp and the Layer 1 permission
+   artifact via `story_context.clear_current_story()` / `clear_permissions_artifact()`; on FAIL,
+   `discard-story-worktree` clears both identically, so a discarded attempt never leaves stale
+   scope state behind for whatever the orchestrator runs next.
    The `pre_tool_use.py` hook enforces the declared scope via `scope_guard.py` on
-   every Edit/Write call during the builder session. (Phase 55, INFRA-138, INFRA-139.)
-   Layer 2 (`write-permissions`): `flex_build.py write-permissions` calls
-   `write_story_permissions()` to write `Edit`/`Write` allow rules into
-   `.claude/settings.local.json` for every declared file. These rules suppress the Claude Code
-   permission prompt before writes even reach the hook, eliminating the auto-mode toggle symptom
-   in upstream projects. (Phase 81, BUILD-040.)
-   `story_context.py --set` stamps the active story into `.companion/state.json`. After the
-   reviewer returns, `story_context.py --clear` runs first, then `flex_build.py
-   clear-permissions` removes the Layer 2 allow rules from `settings.local.json`, restoring the
-   default deny posture before the next story starts — regardless of PASS/FAIL outcome. (Phase 55
-   replaced the old allow-rule-only cycle; Phase 81 reintroduced allow-rule writes as a second
-   layer alongside the hook layer. See step 9.5 and § Hook architecture.)
+   every Edit/Write call during the builder session, including when the spawn's cwd is the
+   story's worktree (`.pairmode-worktrees/<story_id>/`): `scope_guard._normalise()` strips a
+   leading `.pairmode-worktrees/<segment>/` prefix from the candidate path before comparing it
+   against `allowed_paths`, but **only when `<segment>` equals the currently active story's ID**
+   read via `_read_current_story()`. A path under a *different* story's worktree
+   (`.pairmode-worktrees/INFRA-999/...` while `INFRA-238` is active) is never treated as an
+   in-scope match by this stripping, even if its trailing path segments happen to match an
+   `allowed_paths` entry name for the active story — per-story worktree isolation depends on this
+   distinction; stripping unconditionally would let a spawn write into a concurrently in-progress
+   different story's worktree while scope_guard reports it as allowed.
+   Layer 2 (`write-permissions`/`clear-permissions`) remains a manual/on-demand mechanism —
+   `flex_build.py write-permissions` calls `write_story_permissions()` to write `Edit` allow
+   rules (never `Write` — the Claude Code permission engine only matches `Edit(path)` against
+   file-editing tools including Write; a bare `Write(path)` rule is never evaluated, INFRA-235)
+   into `.claude/settings.local.json` for every declared file, suppressing the Claude Code
+   permission prompt before writes even reach the hook (Phase 81, BUILD-040). Layer 2 is
+   deliberately **not** wired into the automatic worktree cycle by INFRA-238 — it is a distinct,
+   optional prompt-suppression aid, not part of the enforcement path Layer 1 + `scope_guard.py`
+   already cover. An operator (or a future story) may still invoke `write-permissions`/
+   `clear-permissions` by hand.
 
 3. **Builder spawn** — `model_selector.select_builder_model()` picks the model (haiku for
    doc/lesson, sonnet baseline for code, opus on high-scope signals or retry). The builder
-   subagent implements the story, runs the test suite, and exits.
+   subagent implements the story, runs the test suite, and exits — all inside the story's
+   worktree (`.pairmode-worktrees/<ID>/`), which the orchestrator created and passed as the
+   builder's working directory (see § Per-story worktree isolation above).
 
 4. **Tests** — the builder confirms `pytest tests/pairmode/ -x -q` passes before handing off.
 
 5. **Reviewer spawn** — `model_selector.select_reviewer_model()` picks the model (sonnet
    baseline; opus on retry for `code`-class stories). The reviewer checks the diff against
-   every `## Ensures` assertion and the review checklist, then either commits or reverts.
+   every `## Ensures` assertion and the review checklist, then either commits or reverts —
+   operating inside the same story worktree as the builder.
 
-6. **Commit or revert + retry** — on PASS the reviewer commits and story status is updated to
-   `complete`; on FAIL the reviewer reverts and the builder is respawned with attempt_number
-   incremented.
+6. **Commit / merge or discard + retry** — on PASS the reviewer commits inside the worktree
+   and story status is updated to `complete`, then the orchestrator merges the worktree back
+   onto the main branch (`merge-story-worktree`: rebase → fast-forward → teardown). On FAIL
+   the orchestrator discards the worktree (`discard-story-worktree`) — the builder's work is
+   thrown away wholesale rather than reverted in place — and respawns the builder with
+   attempt_number incremented. The reviewer's in-worktree revert is now a defense-in-depth
+   layer; the worktree discard is the structural guarantee (see § Per-story worktree isolation).
 
-7. **Effort recording** — `record_attempt.py` writes each builder and reviewer spawn to
-   `.companion/effort.db` (tokens, model, duration, outcome).
+7. **Effort recording** — `hooks/post_tool_use.py`'s Task/Agent branch calls
+   `skills/pairmode/scripts/subagent_transcript.py`'s
+   `record_attempt_from_transcript()` (INFRA-236) after every builder and
+   reviewer spawn. It reads the spawn's own usage directly from the live
+   JSONL transcript (the same mechanical source `context_budget.py` already
+   trusts for `context_current_tokens` — see § effort.db ≠ context-control
+   invariant below), plus `tool_input`/`tool_response`/`state.json` for
+   role/story/model/outcome, and writes one row via
+   `effort_recorder.record_effort()` to `.companion/effort.db` (tokens,
+   model, duration, outcome). This replaced the 0.2-era design where each
+   agent template ended its final message with a self-reported
+   `<usage>total_tokens: N</usage>` block that `record_attempt.py
+   --usage-block` parsed — 0.3's builder/reviewer `procedure.md` return-format
+   sections forbid that block entirely (WORKER-004 grammar); nothing reads
+   agent-authored token prose anymore. `record_attempt.py`'s CLI remains the
+   underlying writer other (non-hook) callers use directly.
 
 8. **Loop-breaker** — if the same story fails twice, the orchestrator invokes the loop-breaker
-   subagent (opus) to diagnose the root cause cold and propose one alternative approach.
+   subagent (fable) to diagnose the root cause cold and propose one alternative approach.
 
 9. **Context budget check** — `hooks/pre_tool_use.py` fires on every
    agent-spawn tool call (matcher `"Task|Agent"`; the current Claude Code
@@ -226,6 +310,16 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    `threshold * (1 + overrun_pct) * flex_factor`; blocks when it does
    (unless acknowledged within the reprompt margin).
    The `decide()` signature is `(project_dir, flex_factor=1.0)` — no `story_id`.
+   `pre_tool_use.py` resolves `flex_factor` itself (RELEASE-020) via
+   `_resolve_flex_factor()`, which reuses `scope_guard._read_current_story`
+   (current-story lookup) and `flex_build._story_path` /
+   `flex_build._read_story_frontmatter` (frontmatter parsing) rather than
+   duplicating story-lookup logic; it fails open to `1.0` when there is no
+   active story, the story file is missing, no `flex_factor` is set, or any
+   error occurs — the no-override path is unchanged. This closes the gap
+   where a story's declared `flex_factor` raised the ceiling shown by the
+   observability SPA (see `/context` route below) but not the ceiling the
+   gate actually enforced, found via cold-eyes review 2026-07-17.
    No manual `set-context-tokens` call is required during normal operation;
    PostToolUse updates the count automatically. `set-context-tokens` remains
    available as a manual override / debugging escape hatch.
@@ -234,6 +328,29 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    `_read_state()`, which propagates to a missing-tokens block (CER-040).
    References: CER-027, CER-039, CER-040, INFRA-180, INFRA-181, INFRA-182.
 
+   **On the threshold constant (INFRA-241).** The live default threshold
+   (`context_budget.py`'s `decide()`: `int(state.get("context_budget_threshold",
+   130000) or 130000)`) is an **empirically-tuned defensive heuristic for
+   managing build-churn/drift, not a hard platform token limit**. It is not
+   derived from any documented model context window; it exists to give an
+   operator a "close enough" signal to decide whether to `/clear` or continue
+   given the next story's complexity, before a session's accumulated context
+   degrades build quality. It may need recalibration over time — different
+   models, longer sessions, or changed story complexity profiles could all
+   shift where "close enough" actually sits — and recalibrating it is a
+   config-value change (`context_budget_threshold` in `state.json`), not an
+   architectural one.
+
+   **On the gate's real dispatch scope (INFRA-241).** The subagent_type
+   allowlist above (`BUILD_CYCLE_SUBAGENTS`) is a no-op unless spawns for
+   those four roles actually carry a real, registered `subagent_type` —
+   see § Spawn contract: subagent_type resolution below for the full history
+   of why this was previously fully decorative and how it was restored.
+   `reviewer` is not in `BUILD_CYCLE_SUBAGENTS` (INFRA-246): it is the build
+   loop's mandatory, deterministic next step after every builder attempt,
+   with no legitimate alternative action for the gate to preserve by
+   blocking it, unlike the four discretionary/escalation roles above.
+
 9.5 **Story file-scope enforcement** — `hooks/pre_tool_use.py` also intercepts
    `Edit` and `Write` tool calls. It delegates to
    `skills/pairmode/scripts/scope_guard.py`, which reads
@@ -241,13 +358,36 @@ Each story moves through a fixed sequence. The orchestrator (`CLAUDE.build.md`) 
    `<project_dir>/docs/phases/permissions/<story_id>.json` to verify the target
    path is declared in the active story's `primary_files` or `touches`. If the
    path is not declared, the hook emits `{"decision": "block", "reason": "..."}`.
-   The check fails open on any error (missing state, missing permissions file,
-   malformed JSON) so non-story orchestrator work (checkpointing, spec mode) is
-   never blocked. Introduced in Phase 55 (INFRA-138, INFRA-139).
+   On any error (missing state, missing permissions file, malformed JSON), the
+   check fails open for non-protected paths so non-story orchestrator work
+   (checkpointing, spec mode) is never blocked. However, paths matching
+   PROTECTED_GLOBS fail closed even without an active story (INFRA-196), so
+   protected paths are always blocked outside an active story context.
+   Introduced in Phase 55 (INFRA-138, INFRA-139).
 
-10. **Checkpoint** — at phase end, the intent-reviewer and security-auditor run across all stories.
-    Documentation is updated, all planned stories are verified complete or deferred, and the phase
-    is tagged.
+10. **Checkpoint** — at phase end, the checkpoint sequence runs:
+    `checkpoint-security` (security-auditor, WORKER-008) → `checkpoint-intent` (intent-reviewer,
+    WORKER-009) → `checkpoint-docs` (docs-reviewer, WORKER-011) → `checkpoint-tag` (inline git
+    operation). Pre-checkpoint guards (phase-completion, CER Do Now, build gate) must pass before
+    the sequence starts. Step state persists in `state.json["checkpoint_step"]`; the resolver emits
+    one action per call, and the harness applies the checkpoint-agent model override (model_selector)
+    when spawning each leaf worker. Documentation is updated, all planned stories are verified
+    complete or deferred, and the phase is tagged. Live since the flip (HARNESS006).
+
+    Completing `checkpoint-tag` (`flex_build.py record-checkpoint-step checkpoint-tag`) does two
+    writes in the same CLI call (INFRA-239): it resets `state.json["checkpoint_step"]` to `[]`
+    (RESOLVER-017) **and** flips the just-tagged phase's status cell to `complete` in
+    `docs/phases/index.md`, via the shared `_mark_phase_complete_in_index` helper (the phase is
+    resolved with the same `resolve_current_phase` read-model the resolver itself uses — no phase
+    key is threaded through the orchestrator). Both writes landing in one call closes the gap where
+    an operator/orchestrator had to remember a second `mark-phase-complete` invocation: without the
+    index write, the just-tagged phase kept re-resolving as active (its status cell was still not
+    `complete`), the phase-completion guard passed vacuously (no unbuilt stories), and the freshly
+    reset `checkpoint_step` made the resolver re-emit `checkpoint-security` for a phase that was
+    already tagged — the `_CHECKPOINT_SEQUENCE`-complete `done` branch structurally could never be
+    reached again for that phase. The write is a graceful no-op (not a failure) when
+    `docs/phases/index.md` is absent or the phase row can't be found, so legacy layouts and unit
+    tests that don't set up an index are unaffected.
 
 ---
 
@@ -313,18 +453,14 @@ sidebar still captures decisions; the spec still grows).
 (`reviewer`, `intent-reviewer`, `loop-breaker`, `security-auditor`) are restricted to
 read-only tools plus `Bash` (all four reviewer-class agents declare
 `tools: [Read, Bash, Glob, Grep]`; Bash is needed for test runs and git operations in
-the reviewer and loop-breaker; security-auditor includes it for consistency). This is one of two layers protecting the working tree: tool restriction
-prevents the reviewer from backdooring a fix into the code instead of reverting it; the
-orchestrator's pre-reviewer commit discipline (committing story files and running
-`git checkout -- lessons/` before the reviewer fires) prevents accidental erasure of
-uncommitted methodology files. Both commit and revert paths in the reviewer agent
-are Bash-mediated (`git add`, `git commit`, `git checkout .`). BUILD-038 dropped
-`git clean -fd` from the FAIL-revert in the live `.claude/agents/reviewer.md` —
-tracked files are restored via `git checkout .`; untracked files are intentionally
-left in place. The canonical template
-`skills/pairmode/templates/agents/reviewer.md.j2` still carries the old
-`git clean -fd` line; propagating the drop (and updating its guardrail test) is
-tracked as CER-060.
+the reviewer and loop-breaker; security-auditor includes it for consistency). Tool
+restriction prevents the reviewer from backdooring a fix into the code instead of
+reverting it. Both commit and revert paths in the reviewer template are Bash-mediated.
+The commit path stages files via `git add` scoped to the story's declared
+`primary_files` + `touches` paths (or `git add -A` for legacy stories with no declared
+scope). The revert path runs `git checkout -- <path>` and `git clean -fd -- <path>` for
+each declared path (or `git checkout . && git clean -fd` for legacy stories with no
+declared scope), ensuring revert never touches files outside the story's scope.
 
 This document describes pairmode's internals: the scaffold it generates, the rails/eras
 model, the schema validators, and the non-negotiables that keep its bootstraps repeatable.
@@ -449,6 +585,64 @@ read time. `schema_validator.py` validates the value when present via `validate_
 `phase_new.py` accepts `--phase-class` to write the field into generated frontmatter. The field
 enables deterministic model-upgrade decisions at the checkpoint-agent level (INFRA-048).
 
+### Phase-authoring convention (INFRA-243)
+
+`skills/pairmode/scripts/phase_new.py` (wired to `/flex:pairmode phase-new`) already does the
+mechanical work of authoring a phase — it renders `skills/pairmode/templates/docs/phases/phase.md.j2`
+and updates `docs/phases/index.md`. This section is not new tooling; it is the convention that tool
+does not yet prompt for or check, so a phase authored through it (or by hand) can still drift from
+what makes a phase well-formed. Phase instantiation stays manual/operator-driven — the operator
+feeds the objective via `phase-new` — this convention does not add automation on top of that
+decision.
+
+A well-formed phase meets three criteria, stated here in the operator's own terms:
+
+1. **Single purpose.** A phase is bounded by one idea/objective — not a grab-bag of unrelated
+   fixes. When a session's work naturally splits into unrelated concerns, that is a signal to open
+   a sibling phase rather than widen the current one's Goal.
+2. **Bounded, comparable complexity.** Phases should be roughly similar in total scope/effort to
+   each other. When a single idea is too large for one phase, the break points between the
+   resulting phases should be **intentional seams** — natural stopping points where the software is
+   in a coherent, buildable state — not arbitrary chunking by story count.
+3. **Reproducible from artifacts.** A phase's committed artifacts (the phase doc, its stories' spec
+   files, whatever `docs/architecture.md`/`docs/ideology.md` sections it references) should let
+   another agent or a human reader — with no access to the conversation that produced them —
+   understand and continue the work. This mirrors this document's own cold-start claim in
+   `CLAUDE.md` § "read before any task."
+
+**Phase-authoring checklist** — analogous to the existing CP-N Cold-eyes checklist each phase doc
+carries at *completion* time, but applied at phase *authoring* time instead:
+
+- [ ] Does this phase's Goal section state one purpose, in one or two sentences?
+- [ ] Is its scope comparable to recent phases — rough story count / `primary_files` count across
+  its stories as a proxy, not a hard metric — and if not, is the reason (e.g. a break point being
+  deferred to a sibling phase) explicit in the Goal or a `Parent context`/`Deferred stories` note?
+- [ ] Could an agent with no access to the conversation that produced this phase, given only this
+  phase's doc and its stories' spec files, start building it correctly?
+
+`phase_new.py` prints this checklist to the operator immediately after creating a phase file (a
+CLI echo, not new gating or validation logic — the operator remains the sole judge of whether the
+new phase satisfies it).
+
+**Worked example (retroactive, per Instructions item 4 — not a request to split or resize either
+phase; INFRA-243's Out of scope explicitly rules that out):**
+
+- *Phase 97* ("Fold resume — pre-fold gate, fleet migration, merge to main, re-sync"): single
+  purpose — yes, fold mechanics only. Scope — large (14 pending fleet migrations) but the phase doc
+  itself frames this as the reason phase-98 was opened as a sibling rather than folded in, so the
+  seam is intentional and documented, not arbitrary. Reproducible — yes; the phase doc's `Parent
+  context` and linked story files carry enough history to resume cold.
+- *Phase 98* (this phase, "0.2 → 0.3 regression remediation"): single purpose — yes; the phase doc
+  states directly that it was kept separate from phase-97 specifically because their purposes
+  differ (harness self-correctness vs. fold mechanics), which is the single-purpose criterion
+  working as intended. Scope — 11 stories is larger than most prior single-digit-story phases in
+  this index; the phase doc's own "Recommended build order" note and per-story dependency
+  annotations are what keep it reproducible despite the count, so this is treated as useful
+  calibration signal for the convention (audit-driven remediation phases may legitimately run
+  larger than feature phases) rather than a defect to fix retroactively. Reproducible — yes; the
+  Goal section documents the audit lineage (fable Plan-mode comparison, adversarial second-opinion
+  review, follow-up operator questions) an agent would otherwise be missing.
+
 **`story_update.py` is the canonical tool for updating story status.**
 `update_story_status(story_id, project_dir, status)` updates a story file's frontmatter
 `status` field. `update_phase_story_status(story_id, project_dir, status)` updates the status
@@ -461,7 +655,15 @@ the `phase:` field convention). This closes CER-064's cross-phase status-leakage
 update to one phase's story row could leak into an unrelated phase manifest carrying a colliding
 bare story ID.
 CLI: `uv run python skills/pairmode/scripts/story_update.py --story-id RAIL-NNN --status complete --project-dir .`
-Orchestrators must call this after a successful reviewer commit (see CLAUDE.build.md Step 3).
+**Current status (corrected — the current `CLAUDE.build.md` is a ~52-line thin loop with no
+numbered "Step 3" and never calls `story_update.py`; neither does
+`skills/pairmode/skills/reviewer/procedure.md`):** frontmatter/phase-table story status is not
+written automatically by any orchestrator step today. It is git-commit-verified after the fact —
+`flex_build.py check-index`'s status-drift check (RESOLVER-010) reads git log for a
+`feat(story-<ID>)` commit and flags any story whose file still shows `planned`/`draft` as drift —
+rather than orchestrator-prose-driven at commit time. `story_update.py` remains the canonical CLI
+for making the correction (manual or checkpoint-docs-driven), it is just not wired into the build
+loop as an automatic post-commit step.
 Valid statuses: `draft`, `planned`, `in-progress`, `complete`, `backlog`.
 
 **Note (Phase 55 / Phase 81):** Phase 55 replaced the allow-rule-only cycle with
@@ -504,9 +706,9 @@ and obscuring whether the work actually requires that tier.
 
 **Default.** Sonnet is the baseline for all reviewer-class agents (`reviewer`,
 `intent-reviewer`, `security-auditor`) and for the `builder`. The
-`loop-breaker` is the one exception: it is opus by default, because by the
-time the loop-breaker fires the case is — by definition — hard, and the
-reasoning premium is justified. The `reconstruction-agent` is not subject to
+`loop-breaker` is the one exception: it is fable by default — an escalation
+tier ranking above opus — because by the time the loop-breaker fires the case
+is — by definition — hard, and the reasoning premium is justified. The `reconstruction-agent` is not subject to
 the build-loop model pinning policy — it is spawned infrequently outside the
 build loop and inherits the orchestrator's model; the reconstruction-agent
 template carries no `model:` field by design.
@@ -540,6 +742,23 @@ triggers (e.g. `# upgrade: opus  (when retry / pre-PR audit / mid-phase pivot)`)
 The pre-existing `# fallback:` comments remain in the templates — fallback
 handles rate-limit substitution downward, upgrade handles edge-case
 substitution upward; both apply concurrently.
+
+**Correction (INFRA-241).** Until INFRA-241, this `Agent({..., subagent_type:
+"reviewer", ...})` example described a spawn shape that could not actually
+occur: HARNESS-002 had retired the rendered per-role `builder.md` /
+`reviewer.md` / `loop-breaker.md` / `security-auditor.md` / `intent-reviewer.md`
+agent files in favor of shared procedure skills loaded by generic thin shells,
+which left no custom agent type named `reviewer` (etc.) registered anywhere
+for `subagent_type` to resolve to — every real build-cycle spawn since
+HARNESS-002 used `subagent_type: "general-purpose"` instead. INFRA-241
+re-registers the five build-cycle roles as thin `.claude/agents/*.md` shells
+(bodies unchanged from the "Shell instruction" already documented in each
+role's `procedure.md` — no judgment/implementation logic duplicated into the
+shell, preserving HARNESS-002's single-source-of-truth intent) so this example
+is now accurate: `subagent_type: "reviewer"` resolves to a real registered
+agent, and `model` is still overridden per call exactly as described above.
+See § Spawn contract: subagent_type resolution below for the full mechanism
+and the model-override verification this correction depends on.
 
 **Rationale.** Most reviews catch nothing because most builders produce
 correct work. The per-story reviewer task is mechanical: diff matches spec,
@@ -619,6 +838,75 @@ helpers. The orchestrator reads `phase_class` from the phase manifest frontmatte
 before spawning each checkpoint agent and passes the result as the Agent tool's
 `model` parameter (same override mechanism as the reviewer model selection).
 
+### Spawn contract: subagent_type resolution (INFRA-241)
+
+**The gap.** `hooks/pre_tool_use.py`'s context-budget gate (INFRA-199) only
+calls `context_budget.decide()` when `tool_input.subagent_type` is one of the
+build-cycle types in `BUILD_CYCLE_SUBAGENTS` — intentional design, not a bug;
+`general-purpose`/`Plan`/`Explore` spawns must never be blocked. At the time
+of this fix `BUILD_CYCLE_SUBAGENTS` held all five roles (`builder`,
+`reviewer`, `loop-breaker`, `security-auditor`, `intent-reviewer`); INFRA-246
+later removed `reviewer` (it is the build loop's mandatory next step, not a
+discretionary spawn), leaving four gated types — see § Spawn contract above.
+But HARNESS-002 had retired the rendered per-role agent files in `.claude/agents/`
+in favor of shared procedure skills loaded by generic thin shells, which left
+no custom agent type registered under any of those five names — nothing for
+`subagent_type` to resolve to. Every real build-cycle spawn following the
+then-current process used `subagent_type: "general-purpose"` (confirmed by
+direct trace of the INFRA-235 build), which is never in `BUILD_CYCLE_SUBAGENTS`
+— so the gate hit `sys.exit(0)` before `decide()` ever ran, for every real
+build-cycle spawn since HARNESS-002. Not a partial gap: total.
+
+**The fix.** Re-register the five build-cycle roles as thin
+`.claude/agents/{builder,reviewer,loop-breaker,security-auditor,intent-reviewer}.md`
+shells (`skills/pairmode/templates/agents/*.md.j2`, deployed via
+`bootstrap.py`'s `AGENT_FILES` to every newly-bootstrapped and re-synced
+project). Each shell's entire body is the "Shell instruction" already
+documented in its role's `skills/pairmode/skills/<role>/procedure.md` — load
+the procedure skill, execute for the given story/phase identifier, return the
+typed result. No judgment or implementation logic is duplicated into the
+shell; this preserves HARNESS-002's single-source-of-truth intent exactly (the
+`gate-worker.md.j2` bootstrap template already established this thin-shell-
+over-shared-skill pattern, so registering five more does not reintroduce the
+per-role-file duplication HARNESS-002 eliminated). `CLAUDE.build.md.j2`'s
+build-loop pseudocode now names the exact `subagent_type` per `a.action` via
+an explicit table (see `CLAUDE.build.md` § Build loop) rather than leaving
+`leaf-worker-for(a.action)` ambiguous — the ambiguity is what produced the
+`general-purpose` choice in the first place.
+
+**Model-override verification (Requires item 2).** Each of the five new
+shells carries a frontmatter `model:` default (`sonnet` for `builder`,
+`reviewer`, `security-auditor`, `intent-reviewer`; `fable` for
+`loop-breaker`, matching `model_selector.select_loop_breaker_model()`'s
+unconditional escalation) — consistent with the "Pairmode pins each agent to
+a specific Claude model" policy above. This is safe regardless of whether a
+frontmatter-pinned `model:` can be overridden per call, because the build
+loop never actually depends on the frontmatter default being used: every
+spawn in `CLAUDE.build.md.j2`'s pseudocode already passes `model=a.model`
+explicitly (`a.model` always resolved beforehand by the matching
+`model_selector.select_*_model()` call — `next_action.py` guarantees `model`
+is non-`None` for all five of these actions, see `_SPAWN_ACTIONS`). The
+per-call `model` parameter on the `Task`/`Agent` tool call is standard Claude
+Code subagent behavior: a custom agent's frontmatter `model:` field sets only
+that agent's *default* when invoked with no override; passing `model` on the
+spawn call itself takes precedence for that one invocation. INFRA-237's
+per-attempt escalation ladder (retry-upgrade at attempt ≥ 2, the loop-breaker's
+fable tier) therefore continues to work unchanged post-INFRA-241 — it was
+never resting on the frontmatter default in the first place, only on
+`model_selector` computing the right value and the orchestrator passing it
+per call, both of which are unaffected by this story. The `# fallback:` /
+`# upgrade:` inline YAML comments on each shell (matching the `gate-worker.md.j2`
+precedent) document the manual-invocation defaults only.
+
+**Observability.** The gate reconnecting to real spawns is directly testable:
+`tests/pairmode/test_pre_tool_use_hook.py::test_allowlisted_subagent_type_still_gates`
+(parametrized over all `BUILD_CYCLE_SUBAGENTS` values — four since INFRA-246
+removed `reviewer`) asserts `decide()` runs and blocks for each;
+`tests/pairmode/test_bootstrap.py`'s
+`TestBuildCycleSubagentDispatch` asserts each of the five shells is deployed,
+project-name-rendered, references its procedure skill, and its frontmatter
+`name:` matches the literal string `BUILD_CYCLE_SUBAGENTS` matches on.
+
 ### Pairmode tooling
 
 **`pairmode_sync.py` — `sync-agents` subcommand.**
@@ -637,7 +925,8 @@ Behaviour:
   filename stem (e.g. `reviewer.md` → `reviewer.md.j2`) in `skills/pairmode/templates/agents/`.
 - Renders only the frontmatter block of the template using the full context from
   `_build_template_context()` (Phase 44+): `project_name`, `build_command`, `test_command`,
-  `migration_command`, `pairmode_scripts_dir`, `domain_isolation_rule`, and `protected_paths`.
+  `test_dir` (INFRA-240; defaults to `"tests/"`), `migration_command`, `pairmode_scripts_dir`,
+  `domain_isolation_rule`, and `protected_paths`.
   Values are sourced from `.companion/pairmode_context.json` with `.companion/state.json` as
   fallback; missing keys default to `""` or `[]`.
 - Replaces the frontmatter block in the target file.
@@ -777,6 +1066,46 @@ Behaviour:
 - Reads and writes flex's own `.companion/state.json` (cwd-relative), not the target
   project's state.json.
 
+### Per-project parameterization surface (INFRA-240)
+
+The builder and reviewer procedure skills (`skills/pairmode/skills/builder/procedure.md`,
+`skills/pairmode/skills/reviewer/procedure.md`) are **plugin-versioned** — shared, unrendered,
+identical across every project that bootstraps pairmode 0.3 (see § Pairmode design above). This
+means any project-specific fact baked directly into their prose (a hardcoded test command, a
+fixed test-directory convention, one project's protected-file list) is silently wrong for every
+*other* project that shares the same procedure skill. Facts that genuinely vary per project —
+test command, test-directory convention, protected-file list, domain-isolation rule — must
+instead live on a **rendered** per-project surface the procedure skills read at build/review
+time, not on the shared skill text itself.
+
+That rendered surface is the **Build standards** line in each project's own `CLAUDE.build.md`
+(rendered from `skills/pairmode/templates/CLAUDE.build.md.j2`): `test_command`, `test_dir`,
+`protected_paths`, and `domain_isolation_rule` are interpolated there from
+`.companion/pairmode_context.json` (written by `bootstrap.py` at bootstrap time; `test_dir`
+defaults to `"tests/"` when not supplied via `bootstrap.py --test-dir`) with `.companion/state.json`
+as fallback — the same source `pairmode_sync.py`'s `_build_template_context()` already used for
+`sync-build` re-rendering. `builder/procedure.md`'s and `reviewer/procedure.md`'s "When you are
+done" / "Story test verification" / checklist items (TEST COVERAGE, PROTECTED FILES, BUILD GATE)
+now point at this line instead of a literal invocation — this is what makes the builder's
+declared input-contract line ("read `CLAUDE.build.md` for build standards and test command",
+`builder/procedure.md` § Input contract) actually satisfiable: before this story the rendered
+`CLAUDE.build.md.j2` carried no test-command field at all, so the contract's claim was
+unbacked and the procedure's hardcoded flex literal was the *only* place the value actually
+lived. A literal-string scan test (`tests/pairmode/test_procedure_skills.py`) asserts neither
+procedure skill contains `tests/pairmode/`, the `-x -q` pytest flags, or flex's own enumerated
+protected-file list (`skills/seed/scripts/`, `skills/companion/scripts/sidebar.py`,
+`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) verbatim; a synthetic-project
+test (`tests/pairmode/test_bootstrap.py::TestSyntheticProjectPerProjectParameterization`)
+bootstraps a non-flex-shaped project (`pnpm build`, `spec/` test dir) and confirms its own
+rendered `CLAUDE.build.md` carries its own values, never flex's.
+
+Out of scope for this story (deliberately): the procedure skills themselves remain
+plugin-versioned and are never re-rendered per project — only the *values* they reference
+became per-project, not the files. `hooks/`-layer conventions (hook thinness, the fixed
+`$TMPDIR/companion.pipe` relay path) are genuinely identical across every project — they
+describe the shared plugin code every project runs, not a per-project fact — and were left
+as-is rather than parameterized.
+
 ### Pairmode non-negotiables
 
 - Template context uses separate keys for brief.md and ideology.md must-preserve content:
@@ -805,6 +1134,47 @@ Behaviour:
   branch does this; any new caller must replicate it. `parse_reconstruction_brief`
   intentionally returns the slim schema because the reconstruction brief does not capture
   those fields.
+
+### Ideology enforcement: three-stage division of labor (INFRA-242)
+
+0.2's reviewer ran a full 3-part ideology re-audit (conviction consistency,
+constraint-rationale preservation, fingerprint awareness) against `docs/ideology.md`
+on every single story diff. 0.3 initially dropped this from the per-story reviewer
+entirely and moved it exclusively to the checkpoint-level `intent-reviewer`
+(§ Pairmode build loop step 10), which runs once per phase rather than once per
+story. INFRA-242 corrects this: the intent was never "the same check at a cheaper
+cadence" — it is a genuine division of labor across three distinct pipeline stages,
+each doing a different job:
+
+1. **Spec-authoring time (primary enforcement)** — `spec-writer/procedure.md`
+   Step 4a reads `docs/ideology.md` as a declared bounded input and checks the
+   drafted `## Ensures`/`## Instructions` against `## Core convictions`,
+   `## Accepted constraints`, and `## Prototype fingerprints` before the spec is
+   written to `docs/stories/<RAIL>/<ID>.md`. Conflicts are resolved inline in the
+   spec draft when possible (preferred — the spec-writer has full story-intent
+   context) or flagged for the operator (`status: "revised"`) when they cannot be.
+   A spec that is already ideology-consistent means the builder inherits that
+   alignment structurally by implementing the spec faithfully — this is the load-
+   bearing stage.
+
+2. **Per-story review time (narrow drift check)** — `reviewer/procedure.md`
+   checklist item 12 (IDEOLOGY DRIFT) is gated on out-of-spec diff content: a diff
+   that exactly matches its spec-approved scope (`primary_files`/`touches` +
+   `## Ensures`/`## Instructions`, already read for the RAIL SCOPE check) never
+   re-reads `docs/ideology.md` at all — the check is a no-op on the common
+   in-scope-and-clean path. Only content the diff introduces beyond what the spec
+   called for is checked against `docs/ideology.md`, and only for whether that
+   specific out-of-spec content independently violates a convictions/constraints/
+   fingerprints entry. This is a drift check scoped to the gap between spec and
+   diff, not a re-audit of the diff against the whole of `docs/ideology.md`.
+
+3. **Checkpoint time (phase-wide backstop)** — the `intent-reviewer`
+   (§ Pairmode build loop step 10) retains its existing phase-wide `IDEOLOGY DRIFT`
+   section (`intent-reviewer/procedure.md`), unaffected by INFRA-242. It catches
+   the case individual stories each pass their narrow checks but the phase as a
+   whole trends away from a stated conviction or undermines a stated constraint —
+   a pattern only visible in aggregate across the phase's stories, not from any
+   single story's spec or diff.
 
 ### Auth policy integration
 
@@ -835,7 +1205,7 @@ story.
 ## Era 003 additive contract
 
 This section records the binding methodology agreements for the `HARNESS001-ante1 … HARNESS005-main`
-additive window. Authority: `docs/agreements/HARNESS001-ante1.md`, DP4 and DP7.
+additive window, extended through HARNESS009-main. Authority: `docs/agreements/HARNESS001-ante1.md`, DP4 and DP7.
 
 ### (a) Four-point additive contract (DP4)
 
@@ -849,7 +1219,10 @@ Scoped to the window `HARNESS001-main … HARNESS005-main`:
 2. **Resolver is pure-read.** `next-action` reads `state.json`, `effort.db`, the era/phase/story
    index, story status, and attempt counters; it writes nothing authoritative (any cache is
    disposable and never read back by the orchestrator). The orchestrator remains the sole writer
-   of all shared state during the additive window.
+   of all shared state during the additive window. Note: `check_checkpoint_guards` (introduced in
+   RESOLVER-008) calls `_run_build_gate_subprocess` when `gate_fn` is not injected — this is a
+   subprocess call, not a state write. The pure-read constraint refers to `state.json`; the
+   subprocess invocation is advisory-only and fails open on timeout or error.
 
 3. **Fleet-facing surface frozen on `main`.** Consumer-facing templates (`CLAUDE.build.md.j2`,
    `agents/*.md.j2`), global hooks, and agent files do not change on `main` until the flip — a
@@ -869,10 +1242,12 @@ is **read-only** on every row.
 | Surface | Sole writer (additive window) | Resolver access |
 |---------|-------------------------------|-----------------|
 | `state.json` `context_*` (context tokens: `context_current_tokens`, `context_current_tokens_recorded_at`, `context_session_reset_at`) | orchestrator hooks (`post_tool_use.py` / `session_start.py`), frozen | read-only |
+| `state.json` `checkpoint_step` | orchestrator (`flex_build.py record-checkpoint-step`); HARNESS009-main moved authority from LLM prose to CLI (RESOLVER-012); HARNESS015-main (RESOLVER-017) added reset-to-`[]` on `checkpoint-tag` completion, fixing a silent skip of the entire checkpoint sequence on every phase after the first | read-only |
+| `docs/phases/index.md` phase status cell | orchestrator, via `flex_build.py record-checkpoint-step checkpoint-tag` (INFRA-239) — the `checkpoint-tag` step's `_mark_phase_complete_in_index` call writes `complete` to the just-tagged phase's row in the same CLI invocation that resets `checkpoint_step`, so the two writes never land in separate orchestrator turns; the standalone `mark-phase-complete` command (`cmd_mark_phase_complete`) shares the same write helper for direct/manual use but is no longer required in the checkpoint path | read-only (`_resolve_active_phase` / `resolve_current_phase` skip `complete`/`deferred`/`backlog` rows when selecting the active phase) |
 | active story (`state.json` `current_story`) | orchestrator (`story_context.py`) | read-only |
-| `effort.db` | orchestrator (`record_attempt.py` / effort recorder) | read-only |
-| `attempt_counter.json` (attempt counters) | orchestrator (`flex_build.py write-attempt-count` / `clear-attempt-count`) | read-only |
-| story `status` frontmatter | orchestrator (`story_update.py`) | read-only |
+| `effort.db` | `hooks/post_tool_use.py` → `subagent_transcript.py` / `effort_recorder.py` (INFRA-236); `record_attempt.py` CLI for non-hook callers | read-only |
+| `attempt_counter.json` (attempt counters) | `hooks/post_tool_use.py` → `subagent_transcript.record_attempt_from_transcript` → `flex_build.bump_attempt_count` on builder/reviewer FAIL (INFRA-237); `flex_build.py merge-story-worktree` → `flex_build.clear_attempt_count` on a successful land; the standalone `write-attempt-count` / `clear-attempt-count` CLI subcommands share the same underlying functions for direct/manual use but are no longer invoked from `CLAUDE.build.md.j2`'s loop | read-only |
+| story `status` frontmatter | manual/advisory — `story_update.py` is the canonical CLI but no build-loop step calls it automatically; drift is caught after the fact by `flex_build.py check-index`'s git-commit status-drift check (RESOLVER-010), not prevented at write time | read-only |
 | permission files (`docs/phases/permissions/<story_id>.json`) | orchestrator (`flex_build.py permissions-create`) | read-only |
 | era/phase/story index (`docs/phases/index.md`) | orchestrator | read-only |
 | commits + tags | reviewer / orchestrator (via `git`) | read-only |
@@ -882,8 +1257,13 @@ is **read-only** on every row.
 
 These two token surfaces measure fundamentally different things and must never cross-feed:
 
-- **`effort.db`** = *retrospective cost* from subagent `<usage>` blocks (tokens spent in
-  disposable subagent contexts). Inputs: model selection, guardrail, rollups, cost display.
+- **`effort.db`** = *retrospective cost* recorded by
+  `subagent_transcript.record_attempt_from_transcript()` (INFRA-236) — the
+  spawning subagent's own token usage read directly from its sidechain
+  turns in the live session JSONL transcript (tokens spent in disposable
+  subagent contexts). No longer sourced from agent-authored `<usage>`
+  blocks (0.3's builder/reviewer `procedure.md` forbids that return format).
+  Inputs: model selection, guardrail, rollups, cost display.
   **Never an input to a context-headroom or clear-seam decision.**
 
 - **context-control** = the orchestrator's own *live window occupancy*
@@ -955,7 +1335,8 @@ Fields:
   longer reads this field. Entries remain in state.json but are inert for gate enforcement.
   The per-story dict design was introduced by INFRA-180 and superseded by INFRA-182.
 - `context_session_reset_at` — **optional**; UTC ISO-8601 timestamp string; written by
-  `session_start.py` on `clear`/`startup` via `session_reset.decide_reset()`. Used by
+  `session_start.py` on `clear`/`startup`/`compact` (INFRA-245) via
+  `session_reset.decide_reset()`. Used by
   `_is_stale()` in `context_budget.py` to detect whether
   `context_current_tokens_recorded_at` predates the last session reset; if so, `decide()`
   blocks with CONTEXT CHECK REQUIRED. Equal timestamps are treated as fresh (the
@@ -1001,12 +1382,23 @@ Fields:
   The key is created on first `register` call when absent; it is never written by
   `bootstrap.py`. Each entry is a resolved absolute path string.
 
-`.companion/attempt_counter.json` is an ephemeral single-record file written by
-`flex_build.py write-attempt-count` and read by `flex_build.py read-attempt-count`.
+`.companion/attempt_counter.json` is an ephemeral single-record file read by
+`flex_build.read_attempt_count` (composed by `next_action.infer_position`, RESOLVER-002).
 Schema: `{"story_id": "RAIL-NNN", "attempt_count": N}`. It stores the current attempt
-number for the active story so a `/clear` mid-phase does not reset the counter. Cleared
-by `flex_build.py clear-attempt-count` on reviewer PASS. Covered by the `.companion/`
-`.gitignore` rule — never committed.
+number for the active story so a `/clear` mid-phase does not reset the counter — this is
+core build-loop control state, not observability, so its writer is independent of the
+`effort_tracking` state.json flag (INFRA-237). It is bumped by
+`flex_build.bump_attempt_count` (a mismatched `story_id` resets the count to 1 for the
+new story), called from `subagent_transcript.record_attempt_from_transcript` — the same
+`hooks/post_tool_use.py` Task/Agent delegated call that writes `effort.db` rows
+(INFRA-236) — whenever a completed builder or reviewer spawn's own BUILD-RESULT /
+REVIEW-RESULT reports `FAIL`. It is cleared by `flex_build.clear_attempt_count`, called
+from `flex_build.py merge-story-worktree` on a successful rebase + fast-forward merge
+(reviewer PASS that actually lands). The `write-attempt-count` / `clear-attempt-count`
+CLI subcommands remain available (and are exercised directly by
+`tests/pairmode/test_flex_build_attempt_counter.py`) but are no longer invoked from
+`CLAUDE.build.md.j2`'s loop pseudocode — the two call sites above own the writes.
+Covered by the `.companion/` `.gitignore` rule — never committed.
 
 Pairmode is considered active when `.claude/settings.deny-rationale.json` exists in the
 project root. The helper `skills/pairmode/scripts/story_context.py` provides:
@@ -1024,13 +1416,18 @@ project root. The helper `skills/pairmode/scripts/story_context.py` provides:
 **Non-negotiable: hooks are thin relays.**
 
 Hooks must:
-- Write a JSON message to `/tmp/companion.pipe` (or the project-scoped pipe path from `state.json["pipe_path"]`)
+- Write a JSON message to `/tmp/companion.pipe`
 - Exit in milliseconds
 - Never make API calls
 - Never write to spec files directly
 
 **Documented exception — `hooks/pre_tool_use.py` (triple thin-delegate):**
-`pre_tool_use.py` dispatches to three modules:
+`pre_tool_use.py` dispatches to three modules. As of RELEASE-020, the
+`Task`/`Agent` branch also makes a fourth, read-only import — `flex_build`
+(for `_story_path` / `_read_story_frontmatter`) alongside `scope_guard`
+(for `_read_current_story`) — solely to resolve `flex_factor` before
+calling `decide()`; no state is written by this resolution and no new
+dispatch branch is added.
 
 - **`Task`/`Agent` → `context_budget.py` (CER-027, CER-039, CER-040, CER-049, INFRA-182, INFRA-199):**
   the dispatch is additionally scoped (INFRA-199) to
@@ -1065,7 +1462,20 @@ As of INFRA-205 (`hooks/hooks.json`) and INFRA-206 (`bootstrap.py`'s downstream
 registrar), all three dispatch branches above are actually reachable — prior to
 Phase 93 (CER-065), the `Edit`/`Write` and `Read` branches were registered
 nowhere in the `PreToolUse` matcher and were dead code in every project using
-this plugin, including flex itself.
+this plugin, including flex itself. As of INFRA-208, the downstream registrar
+(`bootstrap.py` / `sync.py`) also wires the three load-bearing context-budget-
+gate hooks — `UserPromptSubmit`, `SessionStart`, and `PostToolUse` `Task|Agent`
+— into downstream `.claude/settings.json`, using the same by-command
+find/migrate idempotency as the `PreToolUse` registrar (CER-067); the four
+remaining companion/sidebar blocks (`Stop`, `PermissionRequest`/
+`ExitPlanMode`, `PostToolUse` `Write|Edit|MultiEdit`, `SessionEnd`) remain
+opt-in. Phase 95 (INFRA-208/INFRA-209) shipped this registrar generalization
+and verified the fleet rollout — 13 of 14 in-scope projects already carried
+the three registrations by the time INFRA-209 ran (no commits needed); `cora`
+is formally excluded as a known carve-out, `anchor` remains excluded as a
+non-pairmode-consumer sibling plugin repo. Phase 95's INFRA-222 additionally
+fixed an escaped-pipe parsing bug in `next_action.py`'s checkpoint guard
+(`_check_phase_completion`), a CER-066 recurrence.
 
 As of INFRA-208, the downstream registrar (`_register_context_budget_hooks`,
 invoked from both `bootstrap.py` and `sync.py` alongside
@@ -1081,14 +1491,22 @@ remain opt-in and are not registered by this path.
 
 All decision logic lives in the named modules; the hook is a thin dispatcher.
 
-**Documented exception — `hooks/post_tool_use.py` Task/Agent branch (INFRA-182):**
+**Documented exception — `hooks/post_tool_use.py` Task/Agent branch (INFRA-182, INFRA-236):**
 In addition to the file-change relay role, `post_tool_use.py` handles Task/Agent
-PostToolUse events:
+PostToolUse events with two independently try/excepted delegated calls:
 
 - Calls `context_budget.read_current_tokens(project_dir, session_id)` to read the live
-  token count from the JSONL transcript (bounded reverse scan).
-- Writes `context_current_tokens` + `context_current_tokens_recorded_at` to state.json.
-- Never blocks (no `decision: block` output). Exits silently on any failure.
+  token count from the JSONL transcript (bounded reverse scan). Writes
+  `context_current_tokens` + `context_current_tokens_recorded_at` to state.json.
+- Calls `subagent_transcript.record_attempt_from_transcript(project_dir, session_id,
+  tool_input, tool_response, tool_use_id)` (INFRA-236) to read the just-completed
+  spawn's own usage from its sidechain turns in the same transcript, plus
+  `tool_input`/`tool_response`/`state.json` for role/story/model/outcome. Writes one
+  `attempts` row to `.companion/effort.db` via `effort_recorder.record_effort()` when
+  the spawn is a recordable build-cycle role and `effort_tracking` is `true`. This is a
+  distinct metric and a distinct store from the first call — see § effort.db ≠
+  context-control invariant (DP7) — and must never be merged with it.
+- Never blocks (no `decision: block` output). Exits silently on any failure in either call.
 
 This write/read split means PreToolUse never reads JSONL directly — it reads only the
 state.json value written by the most recent PostToolUse invocation or the SessionStart
@@ -1097,15 +1515,29 @@ baseline.
 **Documented exception — `hooks/session_start.py` (CER-047 / Phase 68 INFRA-175):**
 `session_start.py` dispatches to one module:
 
-- **`source` ∈ {`clear`, `startup`} → `session_reset.py`:** resets the dead-reckoning
-  context counter to a fresh-session baseline (`state["context_baseline_tokens"]` if set,
-  else `25_000`). Returns `None` for `resume` and `compact` (no reset). The hook writes
-  `context_current_tokens`, `context_current_tokens_recorded_at`, and
-  `context_session_reset_at` to state.json when `decide_reset()` returns a dict with
-  `should_reset=True`; all decision logic lives in `session_reset.py`.
-  (INFRA-180 changed the return type from `int | None` to `dict | None`.)
-  `compact` is deliberately excluded (CER-047 — post-compact window size unknown; stale
-  counter over-blocks, which is fail-safe).
+- **`source` ∈ {`clear`, `startup`} → `session_reset.py`:** resets the live context
+  counter to a fresh-session baseline (`state["context_baseline_tokens"]` if set,
+  else `25_000`). The hook writes `context_current_tokens`,
+  `context_current_tokens_recorded_at`, and `context_session_reset_at` to state.json
+  when `decide_reset()` returns a dict with `should_reset=True`; all decision logic
+  lives in `session_reset.py`. (INFRA-180 changed the return type from `int | None`
+  to `dict | None`.) Returns `None` for `resume` (the same window is restored — the
+  stored counter is still correct, no reset needed).
+- **`source == "compact"` → `session_reset.py` (INFRA-245):** also resets, to a
+  separate post-compact baseline (`state["context_compact_baseline_tokens"]` if set,
+  else `COMPACT_BASELINE_TOKENS` = `45_000`). Originally excluded (CER-047 — a stale
+  counter over-blocks, which is fail-safe, so leaving it stale was a defensible
+  no-op). Revisited at INFRA-245 because INFRA-241 (same phase) reconnects the
+  PreToolUse gate to real build-cycle spawns: once that lands, a stale-high
+  pre-compact count blocks exactly the spawn class whose completion would refresh
+  it — a live deadlock, not just occasional over-caution. The baseline is a
+  documented constant, not a transcript re-derivation: `decide_reset()` may not
+  perform filesystem I/O (D11), and re-deriving the true post-compact count would
+  require scanning the JSONL transcript for the first assistant `usage` entry after
+  the `compact_boundary` marker — a change to the transcript-parsing surface this
+  phase reserves for INFRA-241's drift-canary test alone. `45_000` is set above a
+  directly-observed post-compact figure (~39k, dropped from ~166k pre-compact) so
+  the fallback stays fail-safe (conservative/high) rather than risking under-block.
 
 **Documented exception — `hooks/user_prompt_submit.py` (INFRA-192):**
 `user_prompt_submit.py` is a thin dispatcher for the `UserPromptSubmit` event:
@@ -1311,22 +1743,37 @@ makes the final promotion decision.
 
 ## Observability surface
 
-Phase 63 ships a read-only observability SPA surfacing pairmode data from `.companion/state.json`
-and `.companion/effort.db`. Multi-repo support is first-class: one instance shows N registered
-repos in side-by-side panels.
+Phase 63 ships a read-only observability SPA. Phase G (HARNESS007-main) refactors it to read
+the **resolver state model** as the primary data source alongside `.companion/state.json` and
+`.companion/effort.db`. Multi-repo support is first-class: one instance shows N registered repos.
 
 **Architecture:** `skills/observability/` is a pnpm monorepo with `api/` (Fastify 5) and
 `ui/` (Vite + React 19) workspaces. Registry at `~/.config/flex-observability/registry.json`.
 
-**API:** Six GET endpoints (read-only): `/api/repos`, `/api/repos/:id/system` (era → phase →
-story tree), `/api/repos/:id/context` (tokens, thresholds, effort.db), `/api/repos/:id/lessons`,
-`/api/user/memories`, `/api/user/policies`. Phase 64 adds PUT/POST routes.
+**Resolver state model** (`flex_build.py resolver-state --json`): pure-read subcommand added
+in HARNESS007/OBS-001. Returns `{action, position, effort_by_role, index}`. The TS reader
+`readers/resolverState.ts` calls it via `child_process.spawnSync` and parses the JSON. The SPA
+renders next-action, position fields, per-role effort, and the resolver-owned phase index from
+this model — not from orchestrator-written keys like `current_story` (retired as display source).
 
-**Read-only contract:** All routes are GET; no write handlers. Phase 64 will add routes that
-shell out to `flex_build.py` subcommands.
+**API:** Six GET endpoints (read-only): `/api/repos`, `/api/repos/:id/system` (era → phase →
+story tree), `/api/repos/:id/context` (tokens, thresholds, effort.db, resolver_state),
+`/api/repos/:id/lessons`, `/api/user/memories`, `/api/user/policies`. All three payload routes
+(`system`, `context`, `lessons`) use an in-flight promise dedup map to prevent thundering-herd
+double-builds on concurrent cache misses (HARNESS007/INFRA-168).
+
+**Read-only contract:** All routes are GET; no write handlers.
 
 **`flex_factor`:** Story frontmatter field (default 1.0) overrides the effective context
-ceiling: `threshold × (1 + overrun_pct) × flex_factor`. Phase 63 reads it; Phase 64 adds UI controls.
+ceiling: `threshold × (1 + overrun_pct) × flex_factor`. The `/context` route live-reads the
+active story's frontmatter via `parseStoryFrontmatter` (HARNESS007/INFRA-166); source is
+`"story-frontmatter"` when a story is active, `"default"` otherwise.
+
+**Defect fixes shipped in HARNESS007:** D1 — `expected_step_tokens` shows provenance label
+`"thin-harness return-block growth"` (OBS-003). D2 — `context_current_tokens: 0` treated as
+absent; stale-badge surfaces genuinely idle projects (OBS-004). D3 — waypoints now return all
+roles and outcomes, not only reviewer-FAIL rows; NULL outcome is passed through as null, not
+mapped to FAIL (OBS-005/CER-055).
 
 **CLI entry point:** `skills/observability/scripts/flex_observability.py` provides `register`,
 `unregister`, `list`, `serve`. Before first `serve`, run
@@ -1459,17 +1906,27 @@ but as a required checkpoint step before tagging.
 - Phase spec files themselves (`docs/phases/phase-N.md`) — these are maintained by the build
   process, not documentation to be polished.
 
-**Enforcement:** The checkpoint sequence in `CLAUDE.build.md` includes a documentation review
-step before tagging. The reviewer subagent checks that README reflects the phase's shipped
-capabilities. A checkpoint with a stale README is not complete.
+**Enforcement:** `checkpoint-docs` — one of the four steps in the actual
+`_CHECKPOINT_SEQUENCE` (`checkpoint-security` → `checkpoint-intent` →
+`checkpoint-docs` → `checkpoint-tag`; see § 10 above) — is the documentation
+review step before tagging. The `docs-reviewer` leaf worker checks that README
+reflects the phase's shipped capabilities. A checkpoint with a stale README is
+not complete. (This project's checkpoint sequence has never had 8 numbered
+steps or a "Step 5" — that description belonged to an earlier, monolithic
+0.2-era checkpoint prose block, superseded by the code-resident
+`_CHECKPOINT_SEQUENCE` since HARNESS006.)
 
-**Phase completion gate (CLAUDE.build.md Step 5):** A phase cannot be checkpointed with
-silently abandoned `planned` stories. Before tagging, all `planned` stories in the phase
-manifest must be either `complete` or formally deferred — added to a `## Deferred stories`
-section in the phase doc with a one-line reason and status updated to `deferred`. The
-checkpoint sequence enforces this as Step 5 between Documentation review and CER backlog
-review. A forked phase (one interrupted by a pivot) documents its deferred stories at fork
-time; the resuming phase references the origin in a `**Parent phase:**` header line.
+**Phase completion gate:** A phase cannot be checkpointed with silently
+abandoned `planned` stories. Before tagging, all `planned` stories in the phase
+manifest must be either `complete` or formally deferred — added to a
+`## Deferred stories` section in the phase doc with a one-line reason and
+status updated to `deferred`. This is enforced as one of the three
+**pre-checkpoint guards** (`check_checkpoint_guards`: phase-completion, CER Do
+Now, build gate) that must all pass *before* the four-step
+`_CHECKPOINT_SEQUENCE` starts — it is a gate ahead of the sequence, not a
+numbered step inside it. A forked phase (one interrupted by a pivot) documents
+its deferred stories at fork time; the resuming phase references the origin in
+a `**Parent phase:**` header line.
 
 **Scope guidance:** Updates should be proportional. A phase that adds a new CLI flag needs one
 line in README. A phase that adds a new workflow needs a paragraph. A phase that only fixes

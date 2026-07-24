@@ -40,7 +40,7 @@ _PROTECTION_KEYWORDS: tuple[str, ...] = (
 
 _CONCEPT_KEYWORDS: tuple[str, ...] = ("auth", "schema", "engine")
 
-_DENY_TOOLS: tuple[str, ...] = ("Edit", "Write")
+_DENY_TOOLS: tuple[str, ...] = ("Edit",)
 
 
 def _nn_triggers_protection(non_negotiable: str) -> bool:

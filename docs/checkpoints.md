@@ -5,6 +5,54 @@ Each checkpoint is tagged after all stories in the phase pass the full checkpoin
 
 ---
 
+## cp-HARNESS012-main
+
+**Phase:** HARNESS012-main — Era 3 Fold Prep
+**Tag command:** `git tag cp-HARNESS012-main && git push origin fold-prep --tags`
+**Acceptance:** Three stories. **RELEASE-008**: Reconcile 46 main-only commits into Era 3 at the fold merge — `_resolve_active_phase` deferred+planned-fileless regression test added; BUILD-043 FAIL-CAUSE port verified. **RELEASE-009**: Fix thin CLAUDE.build.md.j2 binding and dispatch defects — added `pairmode_scripts_dir = {{ pairmode_scripts_dir }}` key-value declaration; all flex_build.py invocations use absolute path variable; replaced hardcoded `harness` branch with `{{ default_branch | default('main') }}`; added `record-attempt` Click alias to `flex_build.py` delegating to `record_attempt.py` via subprocess; `pairmode_sync.py` passes `pairmode_scripts_dir` and `default_branch` in sync-build template context; `test_pairmode_sync.py` updated. **RELEASE-010**: Wire gate-worker into bootstrap/sync and verify leaf-worker dispatch — verification finding: no agent shell existed for `spawn-gate-worker`, making dispatch broken; `gate-worker.md.j2` added to `AGENT_FILES` in `bootstrap.py`; `gate-worker.md` and `reconstruction-agent.md` added to `CANONICAL_FILES` in `audit.py` (latter was a pre-existing gap); `TestGateWorkerDispatch` (3 tests) in `test_bootstrap.py`; `TestCanonicalFilesAgentFilesConsistency` (2 tests, including `AGENT_FILES⊆CANONICAL_FILES` invariant) in `test_audit.py`. `architecture.md` updated: `record-attempt` added to flex_build.py CLI surface. Security audit: 0 CRITICAL/HIGH (1 LOW — `sys.argv.index` argument-truncation in `cmd_record_attempt`; narrow window given story-ID regex validation upstream; filed as CER). Intent review: ALIGNED. 2952 tests pass.
+
+---
+
+## cp-HARNESS009-main
+
+**Phase:** HARNESS009-main — Write-path determinism (Era 003)
+**Tag command:** `git tag cp-HARNESS009-main && git push origin harness --tags`
+**Acceptance:** Three stories. **RESOLVER-014**: `_resolve_active_phase` in `next_action.py` changed from last-non-inactive-wins to first-non-inactive-wins (one-line `break`; fixes sequential phase ordering for multiple `planned` phases); `test_active_phase_selection.py` added (5 parametrized cases). **RESOLVER-012**: `flex_build.py record-checkpoint-step <step-id>` CLI — atomically appends a validated checkpoint step ID to `state.json["checkpoint_step"]`; validates against `_CHECKPOINT_SEQUENCE`; idempotent; moves checkpoint-step write authority from LLM prose to CLI (RESOLVER-012); `CLAUDE.build.md` and `CLAUDE.build.md.j2` checkpoint sections updated; `test_record_checkpoint_step.py` added. **RESOLVER-013**: `parse_worker_verdict_json(text: str) -> dict` replaces `parse_worker_verdict_text` in `next_action.py` — `json.loads()` parser; fail-closed on `JSONDecodeError` or missing key (all gates blocked with `block:malformed-verdict`); `gate-worker/procedure.md` updated to specify JSON output format; `test_parse_worker_verdict_json.py` added (7 cases). `architecture.md` updated: `record-checkpoint-step` added to CLI surface; `checkpoint_step` row added to state-ownership table (sole writer: `flex_build.py record-checkpoint-step`). Security audit: 0 CRITICAL/HIGH. Intent review: ALIGNED. 2878 tests pass.
+
+---
+
+## cp-HARNESS007-main
+
+**Phase:** HARNESS007-main — Observability refactor (Phase G, Era 003)
+**Tag command:** `git tag cp-HARNESS007-main && git push origin harness --tags`
+**Acceptance:** Ten stories. **OBS-001**: `flex_build.py resolver-state --json` pure-read subcommand + `resolverState.ts` TS reader; emits `{action, position, effort_by_role, index}`. **OBS-002**: SPA UI refactored to read resolver state model (`ContextMetrics.tsx` — BuildLoopPanel, RoleEffortPanel, ResolverIndexPanel added); orchestrator-centric `current_story`/`current_phase` reads removed from context.ts/system.ts; stale badge present. **OBS-003**: D1 fix — `expected_step_tokens` re-sourced to `THIN_HARNESS_STEP_TOKENS = 5000` with provenance label `"thin-harness return-block growth"` (CER-053). **OBS-004**: D2 diagnosis — writer (`post_tool_use.py` PostToolUse branch) is correct; 25k stale values are genuine idle; SPA staleness badge already surfaces this; 16 deterministic writer tests (CER-054). **OBS-005**: D3 fix — `queryWaypoints` removed `AND outcome='FAIL' AND agent_role='reviewer'` filters; all roles/outcomes now returned; NULL outcome preserved as null (not mapped to FAIL); `record_attempt.py` recording side confirmed correct (CER-055). **INFRA-164**: `flex_observability.py` CLI hardening — `serve()` propagates exit code, `_write_registry` uses `NamedTemporaryFile` (race-free rename), `register` checks ID uniqueness. **INFRA-165**: `context_budget.py` — NaN guard on `flex_factor` before `<= 0` clamp; `render_alert_prompt` gains `flex_factor` param for factored ceiling. **INFRA-167**: TypeScript parser robustness — `phaseIndex.ts` blank-line `continue`/`break` split; `lessons.ts` `MODULE_FILENAME_RE` broadened; `phaseDoc.ts` era `padStart(3,'0')` for numeric values; `storyFrontmatter.ts` NaN-safe + string-tolerant `flex_factor`. **INFRA-166**: Fastify route hardening — `repos.ts` null `project_dir` crash guard; `context.ts` 0-token treated as absent; NaN threshold guard; `flex_factor` live-read from story frontmatter. **INFRA-168**: `effortDb.ts` p90 off-by-one fixed (`Math.ceil(n*0.9)−1`); inflight dedup Map added to `system.ts`/`context.ts`/`lessons.ts`. Security audit: 0 CRITICAL/HIGH. Intent review: ALIGNED (5 factual corrections applied — story statuses, OBS-002/003/004/005 `primary_files` corrected). 2817 tests pass.
+
+---
+
+## cp-HARNESS003-main
+
+**Phase:** HARNESS003-main — Builder/reviewer/loop-breaker/security-auditor/intent-reviewer as leaf workers (Era 003)
+**Tag command:** `git tag cp-HARNESS003-main && git push origin cp-HARNESS003-main`
+**Acceptance:** Seven stories. **WORKER-004**: `worker_result.py` generalized return contract — four result types (`BUILD-RESULT`, `REVIEW-RESULT`, `ADVICE`, `SPEC-RESULT`), `parse_worker_result`/`validate_worker_result`; `SCHEMA_VERSION` bumped to 2; three new spawn actions (`spawn-reviewer`, `spawn-security-auditor`, `spawn-intent-reviewer`) added to `ACTIONS` and `_SPAWN_ACTIONS` in `next_action.py`. **WORKER-005**: `skills/pairmode/skills/builder/procedure.md` — DP1.3 input-bound builder procedure, `BUILD-RESULT` return format. **WORKER-006**: `skills/pairmode/skills/reviewer/procedure.md` — 10-item review checklist, `REVIEW-RESULT` return format. **WORKER-007**: `skills/pairmode/skills/loop-breaker/procedure.md` — cold-eyes analysis, one-alternative approach, `ADVICE` return format. **WORKER-008**: `skills/pairmode/skills/security-auditor/procedure.md` — CRITICAL/HIGH/MEDIUM/LOW checklist, `REVIEW-RESULT` return format. **WORKER-009**: `skills/pairmode/skills/intent-reviewer/procedure.md` — story-alignment scale, pivot detection, `REVIEW-RESULT` with `ALIGNED` verdict; verdict restricted to closed enum `{"PASS","FAIL","ALIGNED"}` (stricter than spec's open-string note — correct design). **WORKER-010**: `test_harness003_isolation.py` — deterministic acceptance backbone: grammar round-trips for all four result types, parametrized DP1.3 input-bound guard for all five workers, injected-result routing assertions, `SCHEMA_VERSION==2`, new ACTIONS vocabulary. All advisory-only — per-project agent files not removed until HARNESS006 flip. Security audit: 0 CRITICAL/HIGH. Intent review: ALIGNED (1 PIVOT on WORKER-009 verdict enum — implementation is stricter and correct; spec note updated). 2770 tests pass.
+
+---
+
+## cp-HARNESS002-main
+
+**Phase:** HARNESS002-main — Gate verdict extraction (Era 003)
+**Tag command:** `git tag cp-HARNESS002-main && git push origin cp-HARNESS002-main`
+**Acceptance:** Five stories. **WORKER-001** (DP3): `gate_verdict.py` grammar contract — `VERBS`, `JUDGED_GATES` (stub excluded), `parse_verdict`, `validate_verdict_map`; stdlib-only, no I/O; 58 tests + `gate_verdict_grammar.json` fixture. **RESOLVER-005** (DP4, DP6): `spawn-gate-worker` added to `ACTIONS`, Row-4 DP2 split (stub→`await-user` directly; schema/auth→`spawn-gate-worker`), `parse_worker_verdict_text` + `route_gate_verdict` pure helpers for DP3.2 aggregation; resolver stays pure-read. **WORKER-002** (DP1, DP2, DP5, DP6): `skills/pairmode/gate_worker/SKILL.md` plugin-versioned procedure skill + `templates/agents/gate-worker.md.j2` thin agent shell; no inline gate-detection logic. **RESOLVER-006** (DP7 / CF-1 / CER-060): `infer_position` selects builder model at `attempt_count+1` on FAIL; Row 5 emits `position.builder_model`/`builder_model_reason`; selector is now the single source of retry tier. **WORKER-003** (DP8): `test_gate_worker_isolation.py` + `gate_signals.json` — full DP8.1 matrix (signal collection, injected-verdict routing, grammar round-trip, DP1.3 input-bound guard, CF-1 regression). All advisory-only — gate worker not wired into live `CLAUDE.build.md` (HARNESS006 does the flip). Security audit: 0 CRITICAL/HIGH. Intent review: ALIGNED (5 LOW/MEDIUM findings resolved pre-tag). 2516 tests pass.
+
+---
+
+## cp-HARNESS001-main
+
+**Phase:** HARNESS001-main — Resolver foundation (deterministic skeleton, Era 003)
+**Tag command:** `git tag cp-HARNESS001-main && git push origin cp-HARNESS001-main`
+**Acceptance:** Four stories on the RESOLVER rail, building the advisory-only `flex_build.py next-action` resolver (not wired into the live `CLAUDE.build.md` — DP7). **RESOLVER-001** (DP1): `next_action.py` action grammar — `SCHEMA_VERSION=1`, five action constants, `ACTIONS` frozenset, `make_action`, stdlib-only `validate_action`; JSON Schema + samples fixtures. **RESOLVER-002** (DP3/DP5): pure-read `infer_position(project_dir)` composing `next_story`/`model_selector`/gate helpers as a library, plus signature-preserving extractions in `flex_build.py` (`resolve_current_phase`, `read_attempt_count`, `check_stub_gate`, `check_schema_gate_result`, `check_auth_gate_result`); no durable writes. **RESOLVER-003** (DP2/DP4/DP6): `resolve_next_action` 9-state machine + pure-read `next-action` subcommand (`--json`/`--warning`); judgment-handoffs route to `await-user` with no verdict computed; advisories in `meta.warnings[]`. **RESOLVER-004** (DP8): synthetic-state fixture builder + 9 parametrized DP2-state assertions + DP5 signature-drift/composition guard. Security audit: 0 CRITICAL/HIGH. Intent review: ALIGNED (1 MEDIUM carry-forward → CER-060, HARNESS002). 2361 tests pass.
+
+---
+
 ## cp92-story-update-phase-scoping
 
 **Tag command:** `git tag cp92-story-update-phase-scoping && git push origin cp92-story-update-phase-scoping`

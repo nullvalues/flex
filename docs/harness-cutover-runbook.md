@@ -10,6 +10,21 @@ rolling, and sync-driven** — projects that do not run `sync-all` continue runn
 
 ---
 
+## Prerequisites
+
+The following stories must be **complete** before any fleet project migration begins:
+
+| Story | Title | Required for |
+|-------|-------|--------------|
+| RELEASE-008 | Gate-worker and bootstrap/sync wiring | Thin-harness loop stability; fleet build reliability |
+| RELEASE-009 | `pairmode_scripts_dir` fix in CLAUDE.build.md | Signal-1 binding (step 5 of Per-project mechanic) |
+| RELEASE-010 | Fleet discovery and Signal-1 verification | `fleet_discovery.py discover` command used in step 5 |
+| RELEASE-011 | `to-030` normalizer (`pairmode_migrate.py`) | State schema normalization (step 4 of Per-project mechanic) |
+
+Do not begin Phase 1 (flex dogfood) or any fleet project sync until all four stories are at `status: complete`.
+
+---
+
 ## Strategy (Option Y)
 
 **Decision:** opt-in, do-nothing-stays-stable, rolling, sync-driven.
@@ -117,24 +132,34 @@ dogfood removes risk from canary selection.
    ```
    This stages the changes (does not commit yet).
 
-3. **Verify a build round:** run one complete pairmode story through the canary project's migrated loop
+3. **Verify Signal-1 binding:** re-run fleet discovery targeting the canary project and confirm
+   `binding: scripts` appears in the output before proceeding:
+   ```bash
+   PATH=$HOME/.local/bin:$PATH uv run python \
+     /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
+     --candidate-dir /path/to/canary-project --no-snapshot
+   ```
+   If `Signal 1 (scripts path): absent` persists after sync, the project's `CLAUDE.build.md` was not
+   updated by `sync-all`; do not proceed until this is resolved.
+
+4. **Verify a build round:** run one complete pairmode story through the canary project's migrated loop
    (any story). Confirm that the build completes with no regressions. The resolver and agents are
    exercised.
 
-4. **Confirm `pairmode_version`:** check the canary project's `.companion/state.json`:
+5. **Confirm `pairmode_version`:** check the canary project's `.companion/state.json`:
    ```bash
    cat /path/to/canary-project/.companion/state.json | grep pairmode_version
    ```
    Should read `"pairmode_version": "0.3.0"`.
 
-5. **Commit the changes (canary project repo):**
+6. **Commit the changes (canary project repo):**
    ```bash
    cd /path/to/canary-project
    git add -A
    git commit -m "sync: migrate to pairmode 0.3.0 thin-harness loop"
    ```
 
-6. **Document the result:** record in the HARNESS006 era doc or release notes which project was
+7. **Document the result:** record in the HARNESS006 era doc or release notes which project was
    the canary, what dates, and any findings.
 
 **Acceptance:** canary project builds successfully; confidence in the harness is high; migration sequence is proven.
@@ -162,16 +187,26 @@ No deadline, no forced cutover — this is "opt-in."
      sync-all --project-dir /path/to/P --apply --yes
    ```
 
-3. **Verify a build round:** run one story.
+3. **Verify Signal-1 binding:** re-run fleet discovery and confirm `binding: scripts` appears for
+   this project before continuing to the next:
+   ```bash
+   PATH=$HOME/.local/bin:$PATH uv run python \
+     /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
+     --candidate-dir /path/to/P --no-snapshot
+   ```
+   Confirm `Signal 1 (scripts path): present` in the output. If absent, `sync-all` did not update
+   the project's `CLAUDE.build.md`; do not proceed to the next project until resolved.
 
-4. **Confirm `pairmode_version` == 0.3.0:**
+4. **Verify a build round:** run one story.
+
+5. **Confirm `pairmode_version` == 0.3.0:**
    ```bash
    cat /path/to/P/.companion/state.json | grep pairmode_version
    ```
 
-5. **Commit & push.**
+6. **Commit & push.**
 
-6. **Optional: repoint `FLEX_DIR`** (project's own environment config, if used). This is optional because
+7. **Optional: repoint `FLEX_DIR`** (project's own environment config, if used). This is optional because
    the binding is already baked into the `CLAUDE.build.md` `pairmode_scripts_dir`. The version-nag hook
    will stop complaining once `FLEX_DIR` points at the new 0.3.0 unified line (after the fold). Until
    then, the nag is harmless.
@@ -180,36 +215,94 @@ No deadline, no forced cutover — this is "opt-in."
 
 ---
 
+## § Seam gate (run before each project migration)
+
+Before beginning migration on any project P, confirm all five conditions below. **If any item fails, do not proceed.** A story in flight must be completed or formally deferred (status set to `deferred` in the phase doc) before migrating.
+
+- [ ] **Working tree clean.** `git -C /path/to/P status --porcelain` returns no output; all story work is committed and pushed.
+- [ ] **No attempt counter pending.** `PATH=$HOME/.local/bin:$PATH uv run python flex_build.py read-attempt-count` (run from the project directory) returns `0`. A non-zero value means the orchestrator is mid-attempt; complete or abandon the attempt before migrating.
+- [ ] **At a phase boundary.** The project is either sitting on a checkpoint tag, or every story in the current phase doc has `status: complete`. A phase with any `status: planned` or `status: in_progress` story is not a valid seam.
+- [ ] **No stub primary_files in non-draft stories.** `PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py check-stubs --project-dir /path/to/P` returns clean. Any non-draft story with `primary_files: []` will fail the Era 3 schema gate; fill in the list before migrating.
+- [ ] **Project is registered in fleet discovery.** `PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py list-projects` includes the project path. Unregistered projects cannot be verified against the pre-fold discovery gate (DP8).
+
+Era 2 story specs remain valid after migration — the story/phase/era schema is unchanged except for relaxations (draft and backlog stories now accept `primary_files: []`). No spec rewrites are required unless a non-draft story has an empty `primary_files` list, in which case the operator must populate it before the gate above will pass. If a project has customized agent body files in `.claude/agents/{builder,reviewer,...}.md` beyond what `sync-agents` preserves (procedure skill `procedure.md` files are plugin-owned and restored on every sync), those customizations should be ported to a project-specific addendum in the relevant procedure skill's documentation directory before `sync-all` overwrites the stale agent file.
+
+---
+
 ## Per-project mechanic (DP5)
 
 Each project's sync **must run from the harness worktree's scripts** to bake the correct `pairmode_scripts_dir`.
 
-### Command sequence (per project P)
+**Prerequisites:** RELEASE-008, RELEASE-009, RELEASE-010, and RELEASE-011 must all be complete before
+beginning fleet project migration. In particular, RELEASE-009 fixes the `pairmode_scripts_dir` binding in
+`CLAUDE.build.md` (required for step 5) and RELEASE-011 ships the `to-030` normalizer (required for step 4).
 
+### 6-step Era 3 procedure (per project P)
+
+**Step 1 — Confirm inter-story seam:** Verify that RELEASE-013 gate conditions are met for project P
+before proceeding. This confirms the project is in a stable state ready for migration.
+
+**Step 2 — Dry-run sync-all:**
 ```bash
-# Step 1: Dry-run (preview the rewrite)
 PATH=$HOME/.local/bin:$PATH uv run python \
   /mnt/work/flex-harness/skills/pairmode/scripts/pairmode_sync.py \
   sync-all --project-dir /path/to/P --dry-run
+```
+Review the printed diff. Confirm the expected changes to `CLAUDE.build.md`, agent files, and methodology
+templates. Abort if changes are unexpected.
 
-# Step 2: Review the diff output above. If acceptable, apply:
+**Step 3 — Apply sync-all:**
+```bash
 PATH=$HOME/.local/bin:$PATH uv run python \
   /mnt/work/flex-harness/skills/pairmode/scripts/pairmode_sync.py \
   sync-all --project-dir /path/to/P --apply --yes
+```
+This stages the changes (does not commit yet).
 
-# Step 3: Verify a build round (run one story)
-cd /path/to/P
-uv run pytest tests/pairmode/ -x -q  # or run a single story per project's CLAUDE.build.md
+**Step 4 — Run the to-030 normalizer** (RELEASE-011):
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python \
+  /mnt/work/flex-harness/skills/pairmode/scripts/pairmode_migrate.py \
+  to-030 --project-dir /path/to/P --apply
+```
+This normalizes `.companion/state.json` to the 0.3.0 schema, including setting `pairmode_version: 0.3.0`.
 
-# Step 4: Confirm pairmode_version advanced to 0.3.0
-cat .companion/state.json | grep pairmode_version
+**Step 5 — Verify Signal-1 binding** (requires RELEASE-009): re-run fleet discovery and confirm
+`binding: scripts` appears for this project:
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python \
+  /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
+  discover --project-dir /path/to/P
+```
+Required output: `binding: scripts` (Signal 1 (scripts path): present). If `Signal 1 (scripts path): absent`
+persists after sync, the project's `CLAUDE.build.md` was not updated by `sync-all`; do not proceed until
+this is resolved.
+
+**Step 6 — Verify build round and commit:** Run one complete story cycle through the migrated loop.
+After the story completes:
+```bash
+# Confirm pairmode_version advanced to 0.3.0
+cat /path/to/P/.companion/state.json | grep pairmode_version
 # Expected: "pairmode_version": "0.3.0"
 
-# Step 5: Commit the changes
+# Commit and push
+cd /path/to/P
 git add -A
 git commit -m "sync: migrate to pairmode 0.3.0 thin-harness loop"
 git push
 ```
+
+### Rollback procedure
+
+If step 5 or step 6 fails, restore the project to its pre-migration state:
+
+```bash
+cd /path/to/P
+git checkout HEAD -- CLAUDE.build.md .companion/state.json
+```
+
+Then re-run the Era 2 build loop. The `sync-all` changes to `CLAUDE.md` are cosmetic and do not affect
+the Era 2 loop — only `CLAUDE.build.md` and `.companion/state.json` govern which scripts are invoked.
 
 ### What `sync-all` does (three operations in sequence)
 
@@ -290,13 +383,34 @@ This tool scans candidate directories for both binding signals:
 
 ### Gate decision
 
+Run `fleet_discovery.py` across all registered projects and confirm every bound project shows
+`pairmode_version: 0.3.0` and `binding: scripts`. Any project not at `0.3.0` blocks the fold.
+
 The output is an authoritative list of bound projects. For each bound project:
-- **If `pairmode_version` == "0.3.0":** project is migrated ✓ proceed.
+- **If `pairmode_version` == "0.3.0" AND `binding: scripts`:** project is migrated ✓ proceed.
 - **If `pairmode_version` == "0.2.x":** project has not migrated ✗ **do not proceed with fold** until this
   project is migrated (or consciously accepted / removed from the fleet).
+- **If `binding: scripts` is absent:** `sync-all` did not complete binding for this project ✗ **do not
+  proceed with fold** until the `pairmode_scripts_dir` is correctly set in `CLAUDE.build.md`.
 
-**No partial folds:** the fold either proceeds with all migrated projects, or is deferred until remaining
-projects are handled.
+**No partial folds:** the fold either proceeds with all migrated projects showing both `pairmode_version: 0.3.0`
+and `binding: scripts`, or is deferred until remaining projects are handled.
+
+### Signal-1 verification step (CER-059b)
+
+After syncing each project to 0.3.0 (running `pairmode sync --apply` in the project), re-run
+fleet discovery and confirm `binding: scripts` appears in the output for that project. A newly-synced
+project's `CLAUDE.build.md` should contain a `pairmode_scripts_dir` declaration pointing to the
+0.3.0 scripts directory; if `Signal 1 (scripts path): absent` persists after sync, the project's
+`CLAUDE.build.md` was not updated by sync and the bind is incomplete.
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python \
+  /mnt/work/flex/skills/pairmode/scripts/fleet_discovery.py \
+  --candidate-dir /path/to/project
+```
+
+Confirm the output shows `Signal 1 (scripts path): present` before proceeding to the next project.
 
 ---
 
@@ -346,6 +460,17 @@ projects are handled.
    ```bash
    git branch -d harness  # or keep as a historical ref; team decision
    ```
+
+7. **Reconcile RELEASE-002 status (CER-059c):** The fold merge brings the harness branch (where
+   `docs/stories/RELEASE/RELEASE-002.md` carries `status: complete`) into `main`. After the merge,
+   confirm the story file on `main` shows `status: complete` (not `deferred`):
+   ```bash
+   grep "^status:" docs/stories/RELEASE/RELEASE-002.md
+   # Expected: status: complete
+   ```
+   **Acceptance criterion:** `docs/stories/RELEASE/RELEASE-002.md` must read `status: complete` on
+   `main` after the fold merge. If it still reads `status: deferred`, the merge did not bring the
+   correct version; investigate and correct before tagging v0.3.0.
 
 **Final state:** `/mnt/work/flex` is 0.3.0, all migrated projects are using the unified line,
 the harness development worktree is gone, and the version nag hook on migrated projects is satisfied.

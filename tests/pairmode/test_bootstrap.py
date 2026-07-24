@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import pathlib
+import sys
 
+import pytest
 from click.testing import CliRunner
 
 from skills.pairmode.scripts.bootstrap import (
@@ -84,6 +86,15 @@ def run_bootstrap(tmp_path: pathlib.Path, extra_args: list[str] | None = None) -
 EXPECTED_DEST_PATHS = [
     "CLAUDE.md",
     "CLAUDE.build.md",
+    # Note: builder.md, reviewer.md, loop-breaker.md, security-auditor.md, and
+    # intent-reviewer.md were retired in HARNESS-002 (dogfood flip) and
+    # re-registered in INFRA-241 as thin shells over the shared procedure
+    # skills — real, matchable subagent_type strings are required for the
+    # context-budget gate (INFRA-199) to fire on build-cycle spawns.
+    ".claude/agents/reconstruction-agent.md",
+    # gate-worker.md is deployed so the orchestrator has a dispatch path for
+    # spawn-gate-worker (stories with schema_introduces/auth_gated true).
+    ".claude/agents/gate-worker.md",
     ".claude/agents/builder.md",
     ".claude/agents/reviewer.md",
     ".claude/agents/loop-breaker.md",
@@ -128,32 +139,17 @@ class TestBootstrapCreatesFiles:
     def test_build_command_rendered_in_claude_build_md(self, tmp_path):
         run_bootstrap(tmp_path)
         content = (tmp_path / "CLAUDE.build.md").read_text()
-        assert "uv run pytest" in content
+        # The thin dispatch-loop template (HARNESS-001) no longer embeds the build command
+        # in CLAUDE.build.md; it delegates to flex_build.py next-action and leaf workers.
+        assert "next-action" in content
 
-    def test_agent_builder_frontmatter(self, tmp_path):
+    def test_agent_reconstruction_frontmatter(self, tmp_path):
+        # reconstruction-agent is not subject to the build-loop model pinning
+        # policy and is unrelated to the subagent_type gate; it is retained
+        # unchanged by INFRA-241.
         run_bootstrap(tmp_path)
-        content = (tmp_path / ".claude/agents/builder.md").read_text()
-        assert "name: builder" in content
-
-    def test_agent_reviewer_frontmatter(self, tmp_path):
-        run_bootstrap(tmp_path)
-        content = (tmp_path / ".claude/agents/reviewer.md").read_text()
-        assert "name: reviewer" in content
-
-    def test_agent_loop_breaker_frontmatter(self, tmp_path):
-        run_bootstrap(tmp_path)
-        content = (tmp_path / ".claude/agents/loop-breaker.md").read_text()
-        assert "name: loop-breaker" in content
-
-    def test_agent_security_auditor_frontmatter(self, tmp_path):
-        run_bootstrap(tmp_path)
-        content = (tmp_path / ".claude/agents/security-auditor.md").read_text()
-        assert "name: security-auditor" in content
-
-    def test_agent_intent_reviewer_frontmatter(self, tmp_path):
-        run_bootstrap(tmp_path)
-        content = (tmp_path / ".claude/agents/intent-reviewer.md").read_text()
-        assert "name: intent-reviewer" in content
+        content = (tmp_path / ".claude/agents/reconstruction-agent.md").read_text()
+        assert "reconstruction" in content
 
     def test_docs_architecture_has_project_name(self, tmp_path):
         run_bootstrap(tmp_path)
@@ -173,6 +169,160 @@ class TestBootstrapCreatesFiles:
         run_bootstrap(tmp_path)
         content = (tmp_path / "docs/checkpoints.md").read_text()
         assert "testproject" in content
+
+
+# ---------------------------------------------------------------------------
+# INFRA-240: synthetic non-flex project -- per-project parameterization
+# ---------------------------------------------------------------------------
+
+class TestSyntheticProjectPerProjectParameterization:
+    """A synthetic non-flex project must get its OWN test command / test-dir /
+    protected-file declarations rendered into its own CLAUDE.build.md, and
+    nothing in the (unrendered, plugin-versioned) builder/reviewer procedure
+    skills may override those per-project values with flex's own.
+    """
+
+    _FLEX_TEST_COMMAND = "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q"
+
+    def _bootstrap_synthetic_project(self, tmp_path: pathlib.Path):
+        runner = CliRunner()
+        args = [
+            "--project-dir", str(tmp_path),
+            "--project-name", "acme-widgets",
+            "--stack", "Node.js / TypeScript / Vitest",
+            "--build-command", "pnpm build",
+            "--test-dir", "spec/",
+            "--yes",
+        ]
+        result = runner.invoke(bootstrap, args, catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        return result
+
+    def test_synthetic_project_test_command_differs_from_flex_own(self, tmp_path):
+        self._bootstrap_synthetic_project(tmp_path)
+        pctx = json.loads((tmp_path / ".companion" / "pairmode_context.json").read_text())
+        assert pctx["test_command"] != self._FLEX_TEST_COMMAND
+        assert pctx["test_command"] == "pnpm build"
+
+    def test_synthetic_project_test_dir_recorded(self, tmp_path):
+        self._bootstrap_synthetic_project(tmp_path)
+        pctx = json.loads((tmp_path / ".companion" / "pairmode_context.json").read_text())
+        assert pctx["test_dir"] == "spec/"
+
+    def test_synthetic_project_claude_build_md_carries_its_own_test_command(self, tmp_path):
+        """The project's rendered CLAUDE.build.md must carry ITS OWN test
+        command/test-dir, not flex's, once sync-build renders the Build
+        standards line against pairmode_context.json (INFRA-240)."""
+        self._bootstrap_synthetic_project(tmp_path)
+        sys.path.insert(
+            0, str(pathlib.Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts")
+        )
+        import importlib
+        pairmode_sync = importlib.import_module("pairmode_sync")
+        ctx = pairmode_sync._build_template_context(tmp_path)
+        rendered = pairmode_sync._render_build_template(ctx)
+        assert "pnpm build" in rendered
+        assert "spec/" in rendered
+        assert self._FLEX_TEST_COMMAND not in rendered
+
+    def test_procedure_skills_contain_no_reference_to_synthetic_or_flex_test_command(self, tmp_path):
+        """Neither procedure skill (shared/plugin-versioned, never re-rendered
+        per project) may hardcode any project's literal test command -- the
+        synthetic project's builder/reviewer must read it from its own
+        rendered CLAUDE.build.md at build time, not from a baked-in literal."""
+        procedure_dir = pathlib.Path(__file__).parent.parent.parent / "skills" / "pairmode" / "skills"
+        builder_text = (procedure_dir / "builder" / "procedure.md").read_text(encoding="utf-8")
+        reviewer_text = (procedure_dir / "reviewer" / "procedure.md").read_text(encoding="utf-8")
+        for text in (builder_text, reviewer_text):
+            assert self._FLEX_TEST_COMMAND not in text
+            assert "pnpm build" not in text
+            assert "tests/pairmode/" not in text
+
+
+# ---------------------------------------------------------------------------
+# Gate-worker dispatch tests (RELEASE-010)
+# ---------------------------------------------------------------------------
+
+class TestGateWorkerDispatch:
+    """Bootstrap deploys gate-worker so the orchestrator can dispatch spawn-gate-worker."""
+
+    def test_gate_worker_agent_shell_created(self, tmp_path):
+        """Bootstrap must create .claude/agents/gate-worker.md."""
+        run_bootstrap(tmp_path)
+        assert (tmp_path / ".claude/agents/gate-worker.md").exists(), (
+            "gate-worker.md missing; orchestrator has no dispatch path for spawn-gate-worker"
+        )
+
+    def test_gate_worker_contains_project_name(self, tmp_path):
+        """Gate-worker shell must be rendered with project_name substituted."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / ".claude/agents/gate-worker.md").read_text()
+        assert "testproject" in content
+
+    def test_gate_worker_references_procedure_skill(self, tmp_path):
+        """Gate-worker shell must reference the gate_worker procedure skill path."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / ".claude/agents/gate-worker.md").read_text()
+        assert "gate_worker" in content or "gate-worker" in content
+
+
+# ---------------------------------------------------------------------------
+# Build-cycle subagent dispatch tests (INFRA-241)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildCycleSubagentDispatch:
+    """Bootstrap deploys builder/reviewer/loop-breaker/security-auditor/
+    intent-reviewer as thin shells over the shared procedure skills, so the
+    Task/Agent tool has a real, registered ``subagent_type`` to resolve to for
+    each build-cycle role — without this, the context-budget PreToolUse gate
+    (INFRA-199) has no matchable subagent_type and is fully decorative for
+    every real build-cycle spawn.
+    """
+
+    BUILD_CYCLE_AGENTS = [
+        ("builder", "builder"),
+        ("reviewer", "reviewer"),
+        ("loop-breaker", "loop-breaker"),
+        ("security-auditor", "security-auditor"),
+        ("intent-reviewer", "intent-reviewer"),
+    ]
+
+    @pytest.mark.parametrize("dest_stem,procedure_dir", BUILD_CYCLE_AGENTS)
+    def test_agent_shell_created(self, tmp_path, dest_stem, procedure_dir):
+        run_bootstrap(tmp_path)
+        dest = tmp_path / f".claude/agents/{dest_stem}.md"
+        assert dest.exists(), (
+            f"{dest_stem}.md missing; the context-budget gate has no "
+            f"subagent_type to match on for this role"
+        )
+
+    @pytest.mark.parametrize("dest_stem,procedure_dir", BUILD_CYCLE_AGENTS)
+    def test_agent_shell_contains_project_name(self, tmp_path, dest_stem, procedure_dir):
+        run_bootstrap(tmp_path)
+        content = (tmp_path / f".claude/agents/{dest_stem}.md").read_text()
+        assert "testproject" in content
+
+    @pytest.mark.parametrize("dest_stem,procedure_dir", BUILD_CYCLE_AGENTS)
+    def test_agent_shell_references_procedure_skill(self, tmp_path, dest_stem, procedure_dir):
+        run_bootstrap(tmp_path)
+        content = (tmp_path / f".claude/agents/{dest_stem}.md").read_text()
+        assert f"skills/pairmode/skills/{procedure_dir}/procedure.md" in content
+
+    @pytest.mark.parametrize("dest_stem,procedure_dir", BUILD_CYCLE_AGENTS)
+    def test_agent_shell_name_matches_subagent_type(self, tmp_path, dest_stem, procedure_dir):
+        """The frontmatter ``name`` must equal the literal subagent_type string
+        BUILD_CYCLE_SUBAGENTS matches on in hooks/pre_tool_use.py."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / f".claude/agents/{dest_stem}.md").read_text()
+        assert f"name: {dest_stem}" in content
+
+    def test_loop_breaker_pins_fable_model(self, tmp_path):
+        """loop-breaker escalates unconditionally to the fable tier (model_selector
+        .select_loop_breaker_model); its frontmatter default must reflect that."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / ".claude/agents/loop-breaker.md").read_text()
+        assert "model: fable" in content
 
 
 # ---------------------------------------------------------------------------
@@ -465,7 +615,9 @@ class TestBuildCommandInference:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        content = (tmp_path / "CLAUDE.build.md").read_text()
+        # The thin dispatch-loop template (HARNESS-001) no longer embeds the build command
+        # in CLAUDE.build.md; verify the inferred value landed in CLAUDE.md instead.
+        content = (tmp_path / "CLAUDE.md").read_text()
         assert "uv run pytest" in content
 
     def test_infers_pnpm_from_pnpm_lockfile(self, tmp_path):
@@ -483,7 +635,9 @@ class TestBuildCommandInference:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        content = (tmp_path / "CLAUDE.build.md").read_text()
+        # The thin dispatch-loop template (HARNESS-001) no longer embeds the build command
+        # in CLAUDE.build.md; verify the inferred value landed in CLAUDE.md instead.
+        content = (tmp_path / "CLAUDE.md").read_text()
         assert "pnpm build" in content
 
 
@@ -548,28 +702,48 @@ class TestSpecDerivedChecklist:
         # Templates still render — we just verify bootstrap succeeds cleanly
         assert (tmp_path / "CLAUDE.md").exists()
 
-    def test_reviewer_checklist_contains_only_universal_items(self, tmp_path):
-        """Reviewer checklist uses only universal items; spec non-negotiables are NOT injected."""
+    def test_bootstrap_with_spec_succeeds_cleanly(self, tmp_path):
+        """Bootstrap with spec succeeds; spec non-negotiables never leak into agent files.
+
+        Note: builder.md, reviewer.md, loop-breaker.md, security-auditor.md, and
+        intent-reviewer.md were retired in HARNESS-002 (dogfood flip) and
+        re-registered in INFRA-241 as thin shells over the shared procedure
+        skills — the L005 invariant (spec content must not contaminate agent
+        shells) is meaningful again: these shells are static Jinja2 templates
+        parameterized only by project_name, so spec-derived non_negotiables/
+        business_rules text must never appear in their rendered output.
+        """
+        non_negotiable_text = "Auth must never call billing directly — events only"
+        business_rule_text = "All payments must be idempotent"
         _make_spec_structure(
             tmp_path,
             modules={
                 "auth": {
                     "module": "auth",
-                    "non_negotiables": ["Auth must never call billing directly — events only"],
-                    "business_rules": ["All payments must be idempotent"],
+                    "non_negotiables": [non_negotiable_text],
+                    "business_rules": [business_rule_text],
                 }
             },
         )
         result = run_bootstrap(tmp_path)
         assert result.exit_code == 0, result.output
-        content = (tmp_path / ".claude/agents/reviewer.md").read_text()
-        # Spec text must NOT appear in reviewer checklist (L005 fix)
-        assert "Auth must never call billing directly" not in content
-        assert "All payments must be idempotent" not in content
-        # Universal items must still be present
-        assert "PROTECTED FILES" in content
-        assert "STORY SCOPE" in content
-        assert "BUILD GATE" in content
+        # Reconstruction agent is still generated; verify it exists
+        assert (tmp_path / ".claude/agents/reconstruction-agent.md").exists()
+        # INFRA-241: builder/reviewer/loop-breaker/security-auditor/intent-reviewer
+        # shells now exist again — verify no spec content leaked into them.
+        for reregistered in ["builder.md", "reviewer.md", "loop-breaker.md",
+                              "security-auditor.md", "intent-reviewer.md"]:
+            dest = tmp_path / ".claude" / "agents" / reregistered
+            assert dest.exists(), (
+                f"Re-registered agent shell {reregistered} missing after bootstrap"
+            )
+            content = dest.read_text()
+            assert non_negotiable_text not in content, (
+                f"Spec non_negotiable text leaked into {reregistered}"
+            )
+            assert business_rule_text not in content, (
+                f"Spec business_rule text leaked into {reregistered}"
+            )
 
 
 class TestSpecDerivedDenyList:
@@ -595,7 +769,7 @@ class TestSpecDerivedDenyList:
         data = json.loads((tmp_path / ".claude/settings.json").read_text())
         deny = data["permissions"]["deny"]
         assert "Edit(src/services/auth/**)" in deny
-        assert "Write(src/services/auth/**)" in deny
+        assert "Write(src/services/auth/**)" not in deny
 
     def test_spec_derived_deny_replaces_static_defaults(self, tmp_path):
         """When spec yields deny rules, DEFAULT_DENY static entries are NOT written."""
@@ -1043,7 +1217,7 @@ class TestDefaultDenyScopeDocs:
         assert "Edit(docs/phases/permissions/**)" in DEFAULT_DENY
 
     def test_write_permissions_glob_in_default_deny(self):
-        assert "Write(docs/phases/permissions/**)" in DEFAULT_DENY
+        assert "Write(docs/phases/permissions/**)" not in DEFAULT_DENY
 
     def test_old_docs_phases_glob_not_in_default_deny(self):
         """Broad docs/phases/** glob was superseded by the narrower permissions/**."""
@@ -2843,14 +3017,105 @@ class TestBootstrapEffortTrackingNote:
         """Bootstrap output contains the transparency note when effort_tracking was not set."""
         result = self._run_bootstrap(tmp_path)
         assert result.exit_code == 0, result.output
-        assert "Effort tracking: enabled" in result.output
-        assert ".companion/effort.db" in result.output
+        assert "effort tracking enabled" in result.output
+        assert "local sqlite only" in result.output
+        assert "no data leaves the host" in result.output
 
     def test_transparency_note_suppressed_when_effort_tracking_already_set(self, tmp_path):
         """Bootstrap output does NOT contain the transparency note when effort_tracking was already present."""
         result = self._run_bootstrap(tmp_path, extra_state={"effort_tracking": True})
         assert result.exit_code == 0, result.output
-        assert "Effort tracking: enabled" not in result.output
+        assert "effort tracking enabled" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# INFRA-205: --yes auto-overwrite and effort_tracking transparency note
+# ---------------------------------------------------------------------------
+
+
+class TestCer002YesFlagOverwrite:
+    """CER-002: --yes flag causes file-overwrite confirmation to be auto-accepted."""
+
+    def test_yes_flag_auto_accepts_file_overwrite(self, tmp_path):
+        """--yes on an existing project overwrites files without prompting (no stdin required)."""
+        # First bootstrap to create files
+        run_bootstrap(tmp_path)
+
+        # Write sentinel into CLAUDE.md
+        (tmp_path / "CLAUDE.md").write_text("sentinel overwrite content", encoding="utf-8")
+
+        # Second bootstrap with --yes and no stdin input at all
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+            ],
+            input=None,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+        assert "sentinel overwrite content" not in content, (
+            "--yes should auto-confirm overwrite of CLAUDE.md without reading stdin"
+        )
+        assert "testproject" in content
+
+
+class TestCer017EffortTrackingNote:
+    """CER-017: effort_tracking note printed to stdout when _record_state writes effort_tracking: true."""
+
+    def _run_bootstrap_fresh(self, tmp_path):
+        """Run bootstrap on a fresh directory (no prior state.json) with --yes."""
+        runner = CliRunner()
+        return runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproj",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--yes",
+            ],
+            catch_exceptions=False,
+        )
+
+    def test_effort_tracking_note_in_stdout_on_first_bootstrap(self, tmp_path):
+        """On first bootstrap (effort_tracking absent), note appears in stdout."""
+        result = self._run_bootstrap_fresh(tmp_path)
+        assert result.exit_code == 0, result.output
+        assert (
+            "effort tracking enabled (local sqlite only — no data leaves the host)"
+            in result.output
+        ), (
+            "Expected effort tracking transparency note in stdout.\n"
+            f"Output:\n{result.output}"
+        )
+
+    def test_effort_tracking_note_absent_on_rebootstrap(self, tmp_path):
+        """On re-bootstrap (effort_tracking already set), note is NOT printed."""
+        # First run sets effort_tracking
+        self._run_bootstrap_fresh(tmp_path)
+
+        # Verify effort_tracking is now in state.json
+        state_path = tmp_path / ".companion" / "state.json"
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        assert data.get("effort_tracking") is True
+
+        # Second run — note must NOT appear
+        result = self._run_bootstrap_fresh(tmp_path)
+        assert result.exit_code == 0, result.output
+        assert (
+            "effort tracking enabled (local sqlite only — no data leaves the host)"
+            not in result.output
+        ), (
+            "Effort tracking note must not appear when effort_tracking was already set.\n"
+            f"Output:\n{result.output}"
+        )
 
 
 class TestBootstrapNextSteps:
@@ -3175,6 +3440,301 @@ class TestRegisterPreToolUseHook:
         commands2 = [h.get("command") for h in block2.get("hooks", [])]
         assert commands2.count(expected_command) == 1
 
+    def test_register_pretooluse_hook_migrates_stale_plugin_root(self, tmp_path):
+        """INFRA-228: a PreToolUse block whose command points at a different
+        plugin_root (basename matches, full path differs — a 0.2.0 -> 0.3.0
+        migration) is migrated in place to the new plugin_root's path, leaving
+        exactly one block with one command, not a duplicate sibling."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root_a = tmp_path / "flex"          # stale 0.2.0 root
+        plugin_root_b = tmp_path / "flex-harness"  # new 0.3.0 root
+
+        stale_command = f"uv run python {plugin_root_a / 'hooks' / 'pre_tool_use.py'}"
+        new_command = f"uv run python {plugin_root_b / 'hooks' / 'pre_tool_use.py'}"
+
+        existing_data = {
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": PRETOOLUSE_MATCHER,
+                        "hooks": [
+                            {"type": "command", "command": stale_command},
+                        ],
+                    }
+                ]
+            }
+        }
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+
+        _register_pretooluse_hook(settings_path, plugin_root_b)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        pre_tool_use_list = data["hooks"]["PreToolUse"]
+
+        # Exactly one block — no duplicate sibling appended for the new root.
+        assert len(pre_tool_use_list) == 1, (
+            f"Expected the block to be migrated in place, not duplicated: {pre_tool_use_list}"
+        )
+
+        block = pre_tool_use_list[0]
+        commands = [h.get("command") for h in block.get("hooks", [])]
+
+        # Exactly one command, now pointing at plugin_root_b.
+        assert len(commands) == 1, f"Expected exactly one command, got: {commands}"
+        assert commands[0] == new_command, (
+            f"Stale command should be migrated to the new plugin_root: {commands[0]!r}"
+        )
+        assert stale_command not in commands, (
+            f"Stale plugin_root command must not survive: {commands}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-208: _register_context_budget_hooks tests
+# ---------------------------------------------------------------------------
+
+from skills.pairmode.scripts.bootstrap import _register_context_budget_hooks  # noqa: E402
+
+
+class TestRegisterContextBudgetHooks:
+    """Tests for _register_context_budget_hooks in bootstrap.py (INFRA-208)."""
+
+    def _plugin_root(self) -> _pathlib.Path:
+        """Return the flex repo root (plugin root) for tests."""
+        return _pathlib.Path(__file__).resolve().parent.parent.parent
+
+    def _find_block_with_command(self, block_list, command):
+        for block in block_list:
+            inner_hooks = block.get("hooks", [])
+            if any(h.get("command") == command for h in inner_hooks):
+                return block
+        return None
+
+    def test_registers_user_prompt_submit(self, tmp_path):
+        """After the call, UserPromptSubmit has a matcher-less block carrying
+        the user_prompt_submit.py command."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        event_list = data["hooks"]["UserPromptSubmit"]
+
+        expected_command = f"uv run python {plugin_root / 'hooks' / 'user_prompt_submit.py'}"
+        block = self._find_block_with_command(event_list, expected_command)
+        assert block is not None, "Should have a block carrying the user_prompt_submit.py command"
+        assert "matcher" not in block, f"UserPromptSubmit block must not carry a matcher: {block}"
+
+    def test_registers_session_start(self, tmp_path):
+        """After the call, SessionStart has a matcher-less block carrying the
+        session_start.py command."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        event_list = data["hooks"]["SessionStart"]
+
+        expected_command = f"uv run python {plugin_root / 'hooks' / 'session_start.py'}"
+        block = self._find_block_with_command(event_list, expected_command)
+        assert block is not None, "Should have a block carrying the session_start.py command"
+        assert "matcher" not in block, f"SessionStart block must not carry a matcher: {block}"
+
+    def test_registers_posttooluse_task_agent(self, tmp_path):
+        """After the call, PostToolUse has a block with matcher Task|Agent
+        carrying the post_tool_use.py command."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        event_list = data["hooks"]["PostToolUse"]
+
+        expected_command = f"uv run python {plugin_root / 'hooks' / 'post_tool_use.py'}"
+        block = self._find_block_with_command(event_list, expected_command)
+        assert block is not None, "Should have a block carrying the post_tool_use.py command"
+        assert block.get("matcher") == "Task|Agent", (
+            f"Expected matcher 'Task|Agent', got {block.get('matcher')!r}"
+        )
+
+    def test_posttooluse_task_agent_is_sibling_of_existing_block(self, tmp_path):
+        """A pre-existing local PostToolUse block (e.g. a pytest runner) is
+        preserved untouched as a separate sibling of the new Task|Agent block."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        pytest_command = "uv run python /some/pytest_runner.py"
+        existing_data = {
+            "hooks": {
+                "PostToolUse": [
+                    {
+                        "matcher": "Edit|Write",
+                        "hooks": [
+                            {"type": "command", "command": pytest_command},
+                        ],
+                    }
+                ]
+            }
+        }
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        event_list = data["hooks"]["PostToolUse"]
+
+        assert len(event_list) == 2, f"Expected two sibling blocks, got: {event_list}"
+
+        pytest_block = self._find_block_with_command(event_list, pytest_command)
+        assert pytest_block is not None
+        assert pytest_block.get("matcher") == "Edit|Write"
+        pytest_commands = [h.get("command") for h in pytest_block.get("hooks", [])]
+        assert pytest_commands.count(pytest_command) == 1
+
+        expected_command = f"uv run python {plugin_root / 'hooks' / 'post_tool_use.py'}"
+        new_block = self._find_block_with_command(event_list, expected_command)
+        assert new_block is not None
+        assert new_block.get("matcher") == "Task|Agent"
+
+    def test_context_budget_hooks_idempotent(self, tmp_path):
+        """Calling the registrar twice yields exactly one block carrying each
+        hook's command, and exactly one copy of the command inside it, for
+        each of the three events."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+
+        checks = [
+            ("UserPromptSubmit", plugin_root / "hooks" / "user_prompt_submit.py"),
+            ("SessionStart", plugin_root / "hooks" / "session_start.py"),
+            ("PostToolUse", plugin_root / "hooks" / "post_tool_use.py"),
+        ]
+        for event, hook_path in checks:
+            command = f"uv run python {hook_path}"
+            event_list = data["hooks"][event]
+            blocks_with_command = [
+                b for b in event_list
+                if any(h.get("command") == command for h in b.get("hooks", []))
+            ]
+            assert len(blocks_with_command) == 1, (
+                f"{event}: expected exactly one block carrying the command, "
+                f"got {len(blocks_with_command)}"
+            )
+            matching = [
+                h for h in blocks_with_command[0].get("hooks", [])
+                if h.get("command") == command
+            ]
+            assert len(matching) == 1, (
+                f"{event}: expected exactly one command entry after two calls, "
+                f"got {len(matching)}"
+            )
+
+    def test_does_not_register_deferred_blocks(self, tmp_path):
+        """Stop, PermissionRequest, and SessionEnd are absent, and PostToolUse
+        carries no block for the Write|Edit|MultiEdit file-change relay
+        command."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        hooks_top = data.get("hooks", {})
+
+        assert "Stop" not in hooks_top
+        assert "PermissionRequest" not in hooks_top
+        assert "SessionEnd" not in hooks_top
+
+        post_tool_use_command = f"uv run python {plugin_root / 'hooks' / 'post_tool_use.py'}"
+        event_list = hooks_top.get("PostToolUse", [])
+        for block in event_list:
+            if block.get("matcher") == "Write|Edit|MultiEdit":
+                inner_commands = [h.get("command") for h in block.get("hooks", [])]
+                assert post_tool_use_command not in inner_commands, (
+                    "Write|Edit|MultiEdit file-change relay must not be registered"
+                )
+
+    def test_pretooluse_still_registered_alongside(self, tmp_path):
+        """A single registrar invocation of both functions leaves the
+        INFRA-206 PreToolUse Task|Agent|Edit|Write|Read block intact."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_pretooluse_hook(settings_path, plugin_root)
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        pre_tool_use_list = data["hooks"]["PreToolUse"]
+
+        pre_tool_use_command = f"uv run python {plugin_root / 'hooks' / 'pre_tool_use.py'}"
+        block = self._find_block_with_command(pre_tool_use_list, pre_tool_use_command)
+        assert block is not None
+        assert block.get("matcher") == PRETOOLUSE_MATCHER
+
+    def test_context_budget_hooks_migrate_stale_plugin_root(self, tmp_path):
+        """INFRA-228: UserPromptSubmit / SessionStart / PostToolUse blocks whose
+        commands point at a different plugin_root (basename matches, full path
+        differs — a 0.2.0 -> 0.3.0 migration) are each migrated in place to the
+        new plugin_root's path, leaving exactly one command per event, not a
+        duplicate."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root_a = tmp_path / "flex"          # stale 0.2.0 root
+        plugin_root_b = tmp_path / "flex-harness"  # new 0.3.0 root
+
+        specs = [
+            ("UserPromptSubmit", "user_prompt_submit.py", None),
+            ("SessionStart", "session_start.py", None),
+            ("PostToolUse", "post_tool_use.py", "Task|Agent"),
+        ]
+
+        existing_hooks: dict = {}
+        for event, hook_file, matcher in specs:
+            stale_command = f"uv run python {plugin_root_a / 'hooks' / hook_file}"
+            block: dict = {"hooks": [{"type": "command", "command": stale_command}]}
+            if matcher is not None:
+                block["matcher"] = matcher
+            existing_hooks[event] = [block]
+
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            json.dumps({"hooks": existing_hooks}, indent=2), encoding="utf-8"
+        )
+
+        _register_context_budget_hooks(settings_path, plugin_root_b)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+
+        for event, hook_file, _matcher in specs:
+            stale_command = f"uv run python {plugin_root_a / 'hooks' / hook_file}"
+            new_command = f"uv run python {plugin_root_b / 'hooks' / hook_file}"
+            event_list = data["hooks"][event]
+
+            all_commands = [
+                h.get("command")
+                for block in event_list
+                for h in block.get("hooks", [])
+            ]
+            assert all_commands.count(new_command) == 1, (
+                f"{event}: expected exactly one command at the new plugin_root, "
+                f"got: {all_commands}"
+            )
+            assert stale_command not in all_commands, (
+                f"{event}: stale plugin_root command must not survive: {all_commands}"
+            )
+            # No duplicate sibling block was appended for this event.
+            assert len(event_list) == 1, (
+                f"{event}: expected the block migrated in place, not duplicated: {event_list}"
+            )
+
 
 # ---------------------------------------------------------------------------
 # INFRA-208: generalized context-budget-gate hook registration
@@ -3494,6 +4054,7 @@ class TestEraStrategicIntent:
                     what="x",
                     why="y",
                     build_command="uv run pytest",
+                    test_dir=None,
                     phase_title="",
                     phase_goal="",
                     dry_run=False,

@@ -2187,6 +2187,46 @@ class TestAuditOverridesSuppress:
 
 
 # ---------------------------------------------------------------------------
+# CANONICAL_FILES / AGENT_FILES consistency (RELEASE-010)
+# ---------------------------------------------------------------------------
+
+class TestCanonicalFilesAgentFilesConsistency:
+    """CANONICAL_FILES in audit.py must account for every entry in AGENT_FILES in bootstrap.py.
+
+    This invariant ensures audit/sync keep agent shells current after template
+    changes, and prevents silent dispatch breakage when the orchestrator relies
+    on an agent shell that drifts or disappears.
+    """
+
+    def test_gate_worker_in_canonical_files(self) -> None:
+        """gate-worker.md must appear in CANONICAL_FILES (RELEASE-010)."""
+        from skills.pairmode.scripts import audit as _a
+        canonical_dests = {dest for dest, _ in _a.CANONICAL_FILES}
+        assert ".claude/agents/gate-worker.md" in canonical_dests, (
+            "gate-worker.md missing from CANONICAL_FILES; audit/sync will not track it"
+        )
+
+    def test_agent_files_subset_of_canonical_files(self) -> None:
+        """Every AGENT_FILES entry must appear in CANONICAL_FILES.
+
+        bootstrap.py writes agent shells; audit.py must track them so sync can
+        keep them current.  A shell in AGENT_FILES but not CANONICAL_FILES drifts
+        silently after template changes.
+        """
+        from skills.pairmode.scripts import audit as _a
+        from skills.pairmode.scripts import bootstrap as _b
+
+        canonical_dests = {dest for dest, _ in _a.CANONICAL_FILES}
+        agent_dests = {dest for dest, _ in _b.AGENT_FILES}
+
+        missing_from_canonical = agent_dests - canonical_dests
+        assert not missing_from_canonical, (
+            f"AGENT_FILES entries not tracked by CANONICAL_FILES: {missing_from_canonical}. "
+            "Add them to CANONICAL_FILES in audit.py so sync keeps them current."
+        )
+
+
+# ---------------------------------------------------------------------------
 # INFRA-195 — checklist-item-level (bold-marker) section granularity
 # ---------------------------------------------------------------------------
 
@@ -2267,11 +2307,19 @@ class TestAuditBoldMarkerIndependentInconsistency:
         (agents_dir / "reviewer.md").write_text(content, encoding="utf-8")
 
     def _canonical_sections(self, project_dir: Path) -> dict[str, str]:
-        _write_state(project_dir)
-        _write_context(project_dir)
-        context, _ = _load_project_context(project_dir)
-        rendered = _JINJA_ENV.get_template("agents/reviewer.md.j2").render(**context)
-        return _audit_mod._split_sections(rendered)
+        # agents/reviewer.md.j2 was retired in HARNESS-002 — the reviewer role is
+        # now a procedure-skill shell, not a rendered per-project template. This
+        # fixture only needs *some* canonical bold-marker checklist text to
+        # exercise _split_sections' per-item inconsistency detection, so it is
+        # inlined here rather than rendered from a template that no longer exists.
+        canonical_text = (
+            "## Review checklist\n\n"
+            "**1. PROTECTED FILES**\n\n"
+            "Check protected files were not touched.\n\n"
+            "**3. BUILD GATE**\n\n"
+            "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q\n"
+        )
+        return _audit_mod._split_sections(canonical_text)
 
     def test_changed_item_is_inconsistent_unchanged_sibling_is_not(
         self, tmp_path: Path

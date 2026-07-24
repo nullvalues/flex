@@ -537,6 +537,61 @@ class TestOutcomeNormalisation:
 
 
 # ---------------------------------------------------------------------------
+# fail_cause → --notes contract (INFRA-236)
+#
+# subagent_transcript.record_attempt_from_transcript() parses the
+# REVIEW-RESULT JSON's fail_cause field (worker_result.py) and passes it as
+# --notes when calling effort_recorder.record_effort(), which shares the
+# same underlying effort_db write path as this CLI's --notes flag. This
+# class documents/pins that contract at the record_attempt.py layer: a
+# reviewer FAIL's fail_cause text round-trips into effort.db's notes column
+# exactly like any other --notes value.
+# ---------------------------------------------------------------------------
+
+
+class TestFailCauseContract:
+    def test_fail_cause_text_round_trips_as_notes(self, tmp_path: Path) -> None:
+        _enable_tracking(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            _required_args(tmp_path) + [
+                "--agent-role", "reviewer",
+                "--outcome", "FAIL",
+                "--notes", "CRITICAL hook violation in hooks/pre_tool_use.py",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+        db_path = tmp_path / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["outcome"] == "FAIL"
+        assert row["notes"] == "CRITICAL hook violation in hooks/pre_tool_use.py"
+
+    def test_pass_outcome_has_no_notes_when_omitted(self, tmp_path: Path) -> None:
+        """A PASS attempt (no fail_cause) must leave notes NULL, not empty string."""
+        _enable_tracking(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            _required_args(tmp_path) + [
+                "--agent-role", "builder",
+                "--outcome", "PASS",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+        db_path = tmp_path / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert len(rows) == 1
+        assert rows[0]["notes"] is None
+
+
+# ---------------------------------------------------------------------------
 # --usage-block flag
 # ---------------------------------------------------------------------------
 

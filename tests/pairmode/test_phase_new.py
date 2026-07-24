@@ -14,6 +14,7 @@ from skills.pairmode.scripts.phase_new import (
     _create_index,
     _detect_active_era,
     _update_era_phases_table,
+    PHASE_AUTHORING_CHECKLIST,
 )
 from skills.pairmode.scripts.schema_validator import (
     validate_phase_manifest,
@@ -83,6 +84,51 @@ class TestFreshProject:
         )
         content = (tmp_path / "docs" / "phases" / "phase-1.md").read_text()
         assert "Do the alpha things" in content
+
+
+class TestPhaseAuthoringChecklist:
+    """phase_new echoes the phase-authoring checklist (INFRA-243) on real creation."""
+
+    def test_checklist_echoed_on_creation(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "First",
+                "--goal", "Do the alpha things",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        assert "Phase-authoring checklist" in result.output
+        assert "one purpose" in result.output
+
+    def test_checklist_not_echoed_on_dry_run(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "First",
+                "--goal", "",
+                "--dry-run",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        assert "Phase-authoring checklist" not in result.output
+
+    def test_checklist_not_echoed_on_idempotent_second_run(self, tmp_path: pathlib.Path) -> None:
+        args = [
+            "--project-dir", str(tmp_path),
+            "--phase-id", "1",
+            "--title", "First",
+            "--goal", "",
+        ]
+        invoke(args)
+        result = invoke(args)
+        assert result.exit_code == 0
+        assert "Phase-authoring checklist" not in result.output
+
+    def test_checklist_constant_mentions_reproducibility(self) -> None:
+        assert "conversation history" in PHASE_AUTHORING_CHECKLIST
 
 
 class TestIdempotent:

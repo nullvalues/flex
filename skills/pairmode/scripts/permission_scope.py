@@ -66,7 +66,6 @@ def write_story_permissions(story_path: _Path, project_dir: _Path) -> None:
         if raw not in seen:
             seen.add(raw)
             new_rules.append(f"Edit({raw})")
-            new_rules.append(f"Write({raw})")
 
     for raw in touches:
         safe = _safe_path(raw, project_dir)
@@ -79,7 +78,6 @@ def write_story_permissions(story_path: _Path, project_dir: _Path) -> None:
         if raw not in seen:
             seen.add(raw)
             new_rules.append(f"Edit({raw})")
-            new_rules.append(f"Write({raw})")
         # Read rule for touches (deduplicate the Read rule itself too)
         read_rule = f"Read({raw})"
         if read_rule not in new_rules:
