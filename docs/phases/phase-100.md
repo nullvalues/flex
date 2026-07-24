@@ -20,6 +20,7 @@ classifier entirely.
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-253 | Close scope_guard fail-open hole for protected paths; retire redundant settings.json denies; resolve CER-048 | complete |
+| INFRA-254 | Restore live expected_step_tokens from observed orchestrator growth; growth-based gate re-arm past threshold | planned |
 
 **Sequencing:** independent of phase 97 (fleet re-sync), but should land
 before it — phase 97's sync runs will exercise downstream settings.json
@@ -29,3 +30,11 @@ the reference for how the fleet's deny lists should end up.
 ### CP-100 Cold-eyes checklist
 
 — filled by the checkpoint orchestrator at phase completion —
+
+**Mid-phase addition (2026-07-24):** INFRA-254 added pre-checkpoint after the
+operator's live test (hand-edited `expected_step_tokens: 111` persisted
+unchallenged) exposed that HARNESS-003's CER-053 fix severed the live
+estimation path entirely rather than re-sourcing it, and after the gate's
+102k→174k silent gap showed story-boundary-only re-arming misses the
+post-150k drift window. Restores the INFRA-127 live-estimate intent with a
+DP7-clean source (orchestrator context deltas, never effort.db).
