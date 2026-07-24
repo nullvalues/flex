@@ -2,7 +2,7 @@
 id: INFRA-258
 rail: INFRA
 title: Async-spawn effort recording — derive tokens and outcome at completion time; fix checkpoint-worker story misattribution
-status: planned
+status: complete
 phase: "101"
 story_class: code
 auth_gated: false
