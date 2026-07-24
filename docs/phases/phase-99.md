@@ -49,10 +49,20 @@ Phase-95/INFRA-209 already verified fleet hook registrations; fleet 0.3.0
 re-sync belongs to phase-97 when it resumes. This phase must leave flex itself
 correct so that phase-97's fleet rollout propagates a clean pattern.
 
-**Recommended build order:** INFRA-247 → INFRA-248 → INFRA-249; INFRA-250 is
-independent and may build at any point. INFRA-248 depends on INFRA-247 because
-the double-increment audit must run against the *deduplicated* hook
-registration to distinguish historical corruption from ongoing corruption.
+**Recommended build order:** INFRA-247 → INFRA-248 → INFRA-251 → INFRA-249;
+INFRA-250 is independent and may build at any point. INFRA-248 depends on
+INFRA-247 because the double-increment audit must run against the
+*deduplicated* hook registration to distinguish historical corruption from
+ongoing corruption; INFRA-251 reconciles with INFRA-248's findings on the
+shared turn-seq/counter keys.
+
+**Mid-phase addition (2026-07-24):** INFRA-251 was added during the build when
+the context-budget gate hard-blocked the phase's own builder spawns and the
+operator confirmed the behavior is a weeks-old, fleet-wide era-2 regression
+(stuck `expected_step_tokens`, acknowledgment that never clears, frozen
+counter). A live-hit addition in the INFRA-222 / CER-066 mold: the phase's
+purpose is post-fold self-correctness, and the gate defect is both in-theme
+and this phase's direct blocker.
 
 ## Stories
 
@@ -62,6 +72,7 @@ registration to distinguish historical corruption from ongoing corruption.
 | INFRA-248 | Audit and correct context-counter double-increment caused by duplicated UserPromptSubmit hooks | planned |
 | INFRA-249 | Self-sync flex's `.companion/state.json` — pairmode_version to 0.3.0, verify banner correctness | planned |
 | INFRA-250 | Route `pairmode_migrate.py`'s version default through `_version.PAIRMODE_VERSION`; fix SKILL.md migration-target doc drift | planned |
+| INFRA-251 | Context-budget gate remediation — acknowledgment that actually clears, live counter writes, non-fossil step estimate | planned |
 
 ## Schema delivery
 
