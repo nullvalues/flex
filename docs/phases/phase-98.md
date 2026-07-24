@@ -98,17 +98,17 @@ alternative action regardless.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-236 | Restore effort recording pipeline end-to-end (token capture, attempt rows, checkpoint-time cost rollup) — amended: hook-side transcript extraction, not orchestrator-view | planned |
-| INFRA-237 | Wire attempt-count writes into the build loop (retry/loop-breaker/human-pause escalation) | planned |
-| INFRA-238 | Restore active-story stamping and story-scope enforcement in the worktree loop; retire stale `pipe_path` reads — amended: explicit worktree-path-normalization requirement | planned |
-| INFRA-239 | Make checkpoint-tag mark the phase complete | planned |
-| INFRA-240 | Restore per-project parameterization in procedure skills (fold-blocking) | planned |
-| INFRA-241 | Reconcile builder/reviewer spawn `subagent_type` contract with the context-budget gate allowlist — amended: `bootstrap.py` propagation + model-override verification added to scope | planned |
-| INFRA-242 | Redesign ideology enforcement — spec-time alignment + narrow reviewer drift check | planned |
-| INFRA-243 | Phase-authoring convention for single-purpose, bounded, reproducible phases — amended: `phase_new.py`/`phase.md.j2` already exist, story adds the convention to them rather than building new tooling | planned |
-| INFRA-244 | Bring README.md current with the 0.3 resolver-driven design — remove 8-step/0.2-workflow/pre-resolver claims | planned |
-| INFRA-245 | Compact-aware context-counter refresh — unwedge the gate after auto-compaction | planned |
-| INFRA-246 | Exempt reviewer spawns from the context-budget gate — mandatory pipeline step, not discretionary | planned |
+| INFRA-236 | Restore effort recording pipeline end-to-end (token capture, attempt rows, checkpoint-time cost rollup) — amended: hook-side transcript extraction, not orchestrator-view | complete |
+| INFRA-237 | Wire attempt-count writes into the build loop (retry/loop-breaker/human-pause escalation) | complete |
+| INFRA-238 | Restore active-story stamping and story-scope enforcement in the worktree loop; retire stale `pipe_path` reads — amended: explicit worktree-path-normalization requirement | complete |
+| INFRA-239 | Make checkpoint-tag mark the phase complete | complete |
+| INFRA-240 | Restore per-project parameterization in procedure skills (fold-blocking) | complete |
+| INFRA-241 | Reconcile builder/reviewer spawn `subagent_type` contract with the context-budget gate allowlist — amended: `bootstrap.py` propagation + model-override verification added to scope | complete |
+| INFRA-242 | Redesign ideology enforcement — spec-time alignment + narrow reviewer drift check | complete |
+| INFRA-243 | Phase-authoring convention for single-purpose, bounded, reproducible phases — amended: `phase_new.py`/`phase.md.j2` already exist, story adds the convention to them rather than building new tooling | complete |
+| INFRA-244 | Bring README.md current with the 0.3 resolver-driven design — remove 8-step/0.2-workflow/pre-resolver claims | complete |
+| INFRA-245 | Compact-aware context-counter refresh — unwedge the gate after auto-compaction | complete |
+| INFRA-246 | Exempt reviewer spawns from the context-budget gate — mandatory pipeline step, not discretionary | complete |
 
 ## Schema delivery
 

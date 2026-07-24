@@ -655,7 +655,15 @@ the `phase:` field convention). This closes CER-064's cross-phase status-leakage
 update to one phase's story row could leak into an unrelated phase manifest carrying a colliding
 bare story ID.
 CLI: `uv run python skills/pairmode/scripts/story_update.py --story-id RAIL-NNN --status complete --project-dir .`
-Orchestrators must call this after a successful reviewer commit (see CLAUDE.build.md Step 3).
+**Current status (corrected — the current `CLAUDE.build.md` is a ~52-line thin loop with no
+numbered "Step 3" and never calls `story_update.py`; neither does
+`skills/pairmode/skills/reviewer/procedure.md`):** frontmatter/phase-table story status is not
+written automatically by any orchestrator step today. It is git-commit-verified after the fact —
+`flex_build.py check-index`'s status-drift check (RESOLVER-010) reads git log for a
+`feat(story-<ID>)` commit and flags any story whose file still shows `planned`/`draft` as drift —
+rather than orchestrator-prose-driven at commit time. `story_update.py` remains the canonical CLI
+for making the correction (manual or checkpoint-docs-driven), it is just not wired into the build
+loop as an automatic post-commit step.
 Valid statuses: `draft`, `planned`, `in-progress`, `complete`, `backlog`.
 
 **Note (Phase 55 / Phase 81):** Phase 55 replaced the allow-rule-only cycle with
@@ -1239,7 +1247,7 @@ is **read-only** on every row.
 | active story (`state.json` `current_story`) | orchestrator (`story_context.py`) | read-only |
 | `effort.db` | `hooks/post_tool_use.py` → `subagent_transcript.py` / `effort_recorder.py` (INFRA-236); `record_attempt.py` CLI for non-hook callers | read-only |
 | `attempt_counter.json` (attempt counters) | `hooks/post_tool_use.py` → `subagent_transcript.record_attempt_from_transcript` → `flex_build.bump_attempt_count` on builder/reviewer FAIL (INFRA-237); `flex_build.py merge-story-worktree` → `flex_build.clear_attempt_count` on a successful land; the standalone `write-attempt-count` / `clear-attempt-count` CLI subcommands share the same underlying functions for direct/manual use but are no longer invoked from `CLAUDE.build.md.j2`'s loop | read-only |
-| story `status` frontmatter | orchestrator (`story_update.py`) | read-only |
+| story `status` frontmatter | manual/advisory — `story_update.py` is the canonical CLI but no build-loop step calls it automatically; drift is caught after the fact by `flex_build.py check-index`'s git-commit status-drift check (RESOLVER-010), not prevented at write time | read-only |
 | permission files (`docs/phases/permissions/<story_id>.json`) | orchestrator (`flex_build.py permissions-create`) | read-only |
 | era/phase/story index (`docs/phases/index.md`) | orchestrator | read-only |
 | commits + tags | reviewer / orchestrator (via `git`) | read-only |

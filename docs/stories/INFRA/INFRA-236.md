@@ -2,7 +2,7 @@
 id: INFRA-236
 rail: INFRA
 title: Restore effort recording pipeline end-to-end (token capture, attempt rows, checkpoint-time cost rollup)
-status: planned
+status: complete
 phase: "98"
 story_class: code
 auth_gated: false

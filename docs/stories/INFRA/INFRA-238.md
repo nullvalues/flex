@@ -2,7 +2,7 @@
 id: INFRA-238
 rail: INFRA
 title: Restore active-story stamping and story-scope enforcement in the worktree loop; retire stale pipe_path reads
-status: planned
+status: complete
 phase: "98"
 story_class: code
 auth_gated: false

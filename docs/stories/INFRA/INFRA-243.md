@@ -2,7 +2,7 @@
 id: INFRA-243
 rail: INFRA
 title: Phase-authoring convention and tooling for single-purpose, bounded, reproducible phases
-status: planned
+status: complete
 phase: "98"
 story_class: methodology
 auth_gated: false

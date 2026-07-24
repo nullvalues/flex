@@ -2,7 +2,7 @@
 id: INFRA-237
 rail: INFRA
 title: Wire attempt-count writes into the build loop (retry/loop-breaker/human-pause escalation)
-status: planned
+status: complete
 phase: "98"
 story_class: code
 auth_gated: false

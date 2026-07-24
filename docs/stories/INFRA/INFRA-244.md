@@ -2,7 +2,7 @@
 id: INFRA-244
 rail: INFRA
 title: Bring README.md current with the 0.3 resolver-driven design — remove 8-step/0.2-workflow/pre-resolver claims
-status: planned
+status: complete
 phase: "98"
 story_class: doc
 auth_gated: false

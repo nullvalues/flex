@@ -2,7 +2,7 @@
 id: INFRA-239
 rail: INFRA
 title: Make checkpoint-tag mark the phase complete
-status: planned
+status: complete
 phase: "98"
 story_class: code
 auth_gated: false

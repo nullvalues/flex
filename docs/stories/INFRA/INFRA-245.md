@@ -2,7 +2,7 @@
 id: INFRA-245
 rail: INFRA
 title: Compact-aware context-counter refresh — unwedge the gate after auto-compaction
-status: planned
+status: complete
 phase: "98"
 story_class: code
 auth_gated: false

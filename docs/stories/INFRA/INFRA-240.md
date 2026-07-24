@@ -2,7 +2,7 @@
 id: INFRA-240
 rail: INFRA
 title: Restore per-project parameterization in procedure skills (fold-blocking)
-status: planned
+status: complete
 phase: "98"
 story_class: code
 auth_gated: false

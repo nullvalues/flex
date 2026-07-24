@@ -2,7 +2,7 @@
 id: INFRA-241
 rail: INFRA
 title: Reconcile builder/reviewer spawn subagent_type contract with the context-budget gate allowlist
-status: planned
+status: complete
 phase: "98"
 story_class: code
 auth_gated: false

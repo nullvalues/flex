@@ -2,7 +2,7 @@
 id: INFRA-246
 rail: INFRA
 title: Exempt reviewer spawns from the context-budget gate — mandatory pipeline step, not discretionary
-status: planned
+status: complete
 phase: "98"
 story_class: code
 auth_gated: false

@@ -2,7 +2,7 @@
 id: INFRA-242
 rail: INFRA
 title: Redesign ideology enforcement — spec-time alignment + narrow reviewer drift check
-status: planned
+status: complete
 phase: "98"
 story_class: methodology
 auth_gated: false
