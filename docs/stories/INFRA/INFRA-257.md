@@ -2,7 +2,7 @@
 id: INFRA-257
 rail: INFRA
 title: Truthful attempt_number recording — derive real attempt sequence for repeated same-story spawns
-status: draft
+status: complete
 phase: "101"
 story_class: code
 auth_gated: false
