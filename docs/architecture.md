@@ -1371,6 +1371,18 @@ Fields:
   written alongside `context_budget_acknowledged_at` in the same `write_text()` call.
   `None`/absent is treated as a pre-INFRA-192 upgrade grace period by `should_block()` and
   does not itself force a block. INFRA-193.
+- `context_budget_user_turn_seq_fingerprint` — **optional**; string; sha256 hex digest of
+  the identifying fields (`session_id` + `prompt`) of the most recently processed
+  `UserPromptSubmit` event, written by `skills/pairmode/scripts/user_turn_seq.py`
+  (`record_user_turn()`) in the same `write_text()` call as the
+  `context_budget_user_turn_seq` increment it guards. INFRA-248: before every
+  increment, `record_user_turn()` compares the incoming event's fingerprint against
+  this stored value; a match means the event is a duplicate firing of the
+  immediately-preceding `UserPromptSubmit` (e.g. a duplicate hook registration, the
+  INFRA-247 scenario) and the increment is skipped. A mismatch (a genuinely new
+  prompt) always increments and overwrites this key. Purely a same-event dedup
+  signal — it is not consumed by `context_budget.should_block()` or any other
+  gate-decision logic.
 - `registered_projects` — **optional**; list of absolute paths to pairmode-scaffolded
   projects to include in cross-project drift detection. When present and non-empty,
   `/flex:pairmode review` runs `pairmode_drift_report --convergent` across all listed
@@ -1539,13 +1551,38 @@ baseline.
   directly-observed post-compact figure (~39k, dropped from ~166k pre-compact) so
   the fallback stays fail-safe (conservative/high) rather than risking under-block.
 
-**Documented exception — `hooks/user_prompt_submit.py` (INFRA-192):**
-`user_prompt_submit.py` is a thin dispatcher for the `UserPromptSubmit` event:
+**Documented exception — `hooks/user_prompt_submit.py` (INFRA-192, INFRA-248):**
+`user_prompt_submit.py` is a thin dispatcher for the `UserPromptSubmit` event —
+as of INFRA-248 it performs no state.json I/O or decision logic itself; the
+entire read-modify-write, including the idempotency guard, lives in
+`skills/pairmode/scripts/user_turn_seq.py`:
 
-- Every event → one state.json read-modify-write incrementing
-  `context_budget_user_turn_seq`. No decision logic, no block/reason emission.
-  This is the sole source of the human-turn signal consumed by
+- Every event → one delegated call, `user_turn_seq.record_user_turn(project_dir,
+  data)`. That function computes a sha256 fingerprint of the event's
+  `session_id` + `prompt`, compares it against the stored
+  `context_budget_user_turn_seq_fingerprint`, and — unless the fingerprint
+  matches the immediately-preceding event (a duplicate firing, e.g. a
+  duplicate hook registration; INFRA-248) — increments
+  `context_budget_user_turn_seq` and stores the new fingerprint, in a single
+  `write_text()` call. No decision logic, no block/reason emission. This
+  counter is the sole source of the human-turn signal consumed by
   `context_budget.should_block()` (INFRA-193).
+- INFRA-248 audit finding: prior to INFRA-247's dedupe of the duplicate
+  `UserPromptSubmit` registration (`hooks/hooks.json` + `.claude/settings.json`),
+  every prompt fired this hook twice, unconditionally double-incrementing
+  `context_budget_user_turn_seq`. This was confirmed as real corruption of
+  that counter's absolute value, but it had **no functional effect** on
+  `context_budget.should_block()` (`skills/pairmode/scripts/context_budget.py`),
+  because that function compares `user_turn_seq` and
+  `acknowledged_user_turn_seq` *ordinally* only (`<=` / `>`), never by
+  magnitude — and both sides of the comparison were written from the same
+  doubled counter, so the doubling was a uniform scale factor that left every
+  ordinal comparison, past and future, unchanged. No `state.json` value
+  correction was applied for this reason (see
+  `docs/stories/INFRA/INFRA-248.md` Build notes for the full write-up); the
+  fingerprint guard added here exists purely so a *future* duplicate
+  registration degrades to inert noise instead of relying on this
+  no-functional-effect property holding again by chance.
 
 The remaining two registered hooks — `stop.py` and `session_end.py` — are plain pipe relays with no dispatch logic and no state.json writes. They do not require thin-delegation exception documentation.
 

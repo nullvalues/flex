@@ -73,11 +73,39 @@ def test_user_prompt_submit_increments_monotonically(tmp_path):
     assert state["context_budget_user_turn_seq"] == 6
 
 
-def test_user_prompt_submit_two_invocations_increment_twice(tmp_path):
-    """Two invocations against the same state.json → counter reaches 2."""
+def test_user_prompt_submit_two_distinct_invocations_increment_twice(tmp_path):
+    """Two invocations with distinct session_id/prompt → counter reaches 2."""
     state_path = _write_state(tmp_path, {"pairmode_version": "0.1.0"})
-    _run_hook({"cwd": str(tmp_path)})
-    _run_hook({"cwd": str(tmp_path)})
+    _run_hook({"cwd": str(tmp_path), "session_id": "sess-1", "prompt": "first"})
+    _run_hook({"cwd": str(tmp_path), "session_id": "sess-1", "prompt": "second"})
+    state = _read_state(state_path)
+    assert state["context_budget_user_turn_seq"] == 2
+
+
+def test_user_prompt_submit_duplicate_invocation_increments_once(tmp_path):
+    """INFRA-248: two invocations with an identical payload (e.g. a duplicate
+    UserPromptSubmit hook registration firing twice for the same event, the
+    INFRA-247 scenario) → the second invocation is recognised as a duplicate
+    via the sha256 fingerprint and the counter advances only once."""
+    state_path = _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+    payload = {"cwd": str(tmp_path), "session_id": "sess-1", "prompt": "same prompt"}
+    _run_hook(payload)
+    _run_hook(payload)
+    state = _read_state(state_path)
+    assert state["context_budget_user_turn_seq"] == 1
+    assert "context_budget_user_turn_seq_fingerprint" in state
+
+
+def test_user_prompt_submit_duplicate_then_distinct_prompt_increments_again(tmp_path):
+    """A duplicate firing is skipped, but a genuinely new prompt afterward
+    still increments — the guard only suppresses exact repeats, not all
+    subsequent turns."""
+    state_path = _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+    first = {"cwd": str(tmp_path), "session_id": "sess-1", "prompt": "same prompt"}
+    _run_hook(first)
+    _run_hook(first)  # duplicate — skipped
+    second = {"cwd": str(tmp_path), "session_id": "sess-1", "prompt": "a new prompt"}
+    _run_hook(second)
     state = _read_state(state_path)
     assert state["context_budget_user_turn_seq"] == 2
 
