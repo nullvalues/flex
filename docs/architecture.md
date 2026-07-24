@@ -53,7 +53,7 @@ flex/
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
-        flex_build.py             ← CLI wrapping pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stub, check-schema-gate, check-auth-gate, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope, next-action, resolver-state, record-checkpoint-step, record-attempt); next-action added in HARNESS001-main (since the flip, HARNESS006, the sequencing core the thin dispatch loop in CLAUDE.build.md calls each iteration); resolver-state added in HARNESS007-main (pure-read resolver state dump); record-checkpoint-step added in HARNESS009-main (RESOLVER-012) — atomically appends a validated checkpoint step ID to state.json["checkpoint_step"], replacing LLM-prose writes; replaces inline python -c blocks in CLAUDE.build.md.j2; INFRA-239 wires the `checkpoint-tag` step of record-checkpoint-step to also call `_mark_phase_complete_in_index` (the write side `mark-phase-complete` shares) in the same invocation, so the checkpoint_step reset and the phase-index `complete` write happen atomically in one CLI call rather than requiring a second, separately-remembered `mark-phase-complete` call; record-attempt added in RELEASE-009 (HARNESS012-main) — Click alias delegating to record_attempt.py, so the orchestrator template can call a single entry point
+        flex_build.py             ← CLI wrapping pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stub, check-schema-gate, check-auth-gate, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count, story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope, next-action, resolver-state, record-checkpoint-step, record-attempt); next-action added in HARNESS001-main (since the flip, HARNESS006, the sequencing core the thin dispatch loop in CLAUDE.build.md calls each iteration); resolver-state added in HARNESS007-main (pure-read resolver state dump); record-checkpoint-step added in HARNESS009-main (RESOLVER-012) — atomically appends a validated checkpoint step ID to state.json["checkpoint_step"], replacing LLM-prose writes; replaces inline python -c blocks in CLAUDE.build.md.j2; INFRA-239 wires the `checkpoint-tag` step of record-checkpoint-step to also call `_mark_phase_complete_in_index` (the write side `mark-phase-complete` shares) in the same invocation, so the checkpoint_step reset and the phase-index `complete` write happen atomically in one CLI call rather than requiring a second, separately-remembered `mark-phase-complete` call; record-attempt added in RELEASE-009 (HARNESS012-main) — Click alias delegating to record_attempt.py, so the orchestrator template can call a single entry point; `checkpoint-report`'s printed rollup is scoped to the active phase's stories as of INFRA-256 — story IDs are derived from the resolved phase doc's `## Stories` table (via `_parse_phase_stories_with_status`), not from `attempts.phase` or a timestamp window; a lifetime rollup (unchanged, all-phases) is printed separately underneath it — see § Effort tracking for the scoping rationale
         refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
@@ -1976,6 +1976,43 @@ default multiplier is `3.0`, configurable via
 `state["effort_guardrail_multiplier"]`. Insufficient sample (< 3 PASS-outcome
 builder rows for the rail within the lookback window) returns early without
 firing, so new rails do not generate false positives.
+
+**`checkpoint-report` phase scoping (INFRA-256).** `flex_build.py
+checkpoint-report`'s `=== checkpoint cost rollup ===` step originally reused
+`_query_effort_by_role` verbatim — the same lifetime, no-predicate query
+`resolver-state`'s `effort_by_role` payload uses. That made the checkpoint
+report db-lifetime-scoped while its heading claimed to answer "what did
+*this phase* cost?" (an operator caught this at cp-100: the report read
+`builder: 19 attempt(s)` for a phase whose three stories each took one
+builder attempt — 19 was the lifetime count across every phase ever
+recorded). `checkpoint-report` now derives the active phase's story IDs from
+the phase doc's `## Stories` table (`_parse_phase_stories_with_status` — the
+same phase-membership list the checkpoint gates already reason over) and
+filters `attempts.story_id` against that list via
+`_query_effort_by_story_ids`, printing a phase-scoped section first, then
+the unchanged lifetime rollup underneath for historical context. Scoping is
+keyed off `story_id` membership rather than either alternative that looks
+simpler on the surface:
+- **Not `attempts.phase`** — that column is nullable and unreliable in
+  practice: cross-skill rows (seed, sidebar) leave it NULL by design (see
+  "Cross-skill recording" above), and `record_attempt.py` only auto-fills it
+  when invoked with `--story-file`. A phase filter keyed on this column would
+  silently under-count any attempt recorded through a path that didn't pass
+  `--story-file`.
+- **Not a timestamp window** — a phase has no fixed start/end timestamp in
+  the data model, and any window would mis-attribute an attempt run across a
+  phase boundary, or one replayed later against an already-tagged phase.
+Deriving membership from the phase doc's own `## Stories` table makes the
+rollup exactly as correct as the phase manifest itself, with no separate
+source of truth to drift out of sync. `resolver-state`'s `effort_by_role`
+deliberately keeps the old lifetime-only behavior — it is a shipped read
+contract for the observability SPA's cross-phase role-effort panel
+(`skills/observability/api/src/readers/resolverState.ts`,
+`skills/observability/ui/src/components/ContextMetrics.tsx`), whose purpose
+is the whole-history view; only `checkpoint-report` is phase-scoped. Counts
+printed by both sections are row counts (spawns), not `attempt_number`
+values — `attempt_number` correctness for repeated same-story spawns is
+INFRA-257's concern, not this scoping rule's.
 
 **Context health check.** At checkpoint, the orchestrator calls
 `skills/pairmode/scripts/context_health.check_context_health(db_path, current_phase)`

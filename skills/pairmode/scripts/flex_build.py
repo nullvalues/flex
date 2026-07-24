@@ -1900,6 +1900,94 @@ def _query_effort_by_role(db_path: Path) -> dict:
     }
 
 
+def _query_effort_by_story_ids(db_path: Path, story_ids: list[str]) -> dict:
+    """Effort rollup restricted to attempts whose ``story_id`` is in *story_ids*
+    (INFRA-256).
+
+    Counts are row counts (spawns), not ``attempt_number`` values — see
+    ``docs/architecture.md`` § Effort tracking for why row-count is the honest
+    measure here (sibling story INFRA-257 addresses ``attempt_number``
+    correctness separately).
+
+    Returns a dict with two keys:
+      - ``by_role``: same shape as ``_query_effort_by_role`` — ``{role: {"count":
+        int, "median_tokens": int | None}}`` — restricted to the given story IDs.
+      - ``by_story``: ``{story_id: {role: {"count": int, "median_tokens": int |
+        None}}}``.
+
+    Returns ``{"by_role": {}, "by_story": {}}`` (never raises) when the db is
+    absent, unreadable, or *story_ids* is empty — matching
+    ``_query_effort_by_role``'s never-raise contract. Story IDs are bound as
+    SQL parameters; never interpolated into the query text.
+    """
+    import sqlite3 as _sqlite3
+    import statistics as _stats
+
+    empty_result = {"by_role": {}, "by_story": {}}
+
+    if not story_ids or not db_path.exists():
+        return empty_result
+
+    placeholders = ", ".join("?" for _ in story_ids)
+    try:
+        conn = _sqlite3.connect(str(db_path))
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                f"""
+                SELECT story_id, agent_role, tokens_total
+                FROM attempts
+                WHERE tokens_total IS NOT NULL AND tokens_total > 0
+                  AND story_id IN ({placeholders})
+                ORDER BY story_id, agent_role
+                """,
+                list(story_ids),
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        return empty_result
+
+    by_role: dict[str, list[int]] = {}
+    by_story_role: dict[str, dict[str, list[int]]] = {}
+    for story_id, role, tokens in rows:
+        tokens_int = int(tokens)
+        by_role.setdefault(role, []).append(tokens_int)
+        by_story_role.setdefault(story_id, {}).setdefault(role, []).append(tokens_int)
+
+    def _summarize(vals: list[int]) -> dict:
+        return {
+            "count": len(vals),
+            "median_tokens": int(_stats.median(vals)) if vals else None,
+        }
+
+    return {
+        "by_role": {role: _summarize(vals) for role, vals in by_role.items()},
+        "by_story": {
+            story_id: {role: _summarize(vals) for role, vals in role_map.items()}
+            for story_id, role_map in by_story_role.items()
+        },
+    }
+
+
+def _format_role_rollup_lines(by_role: dict) -> list[str]:
+    """Render ``{role: {"count": int, "median_tokens": int | None}}`` as the
+    printed ``<role>: <n> attempt(s)[, median <n> tokens]`` lines shared by the
+    phase-scoped and lifetime checkpoint-report sections (INFRA-256).
+    """
+    lines: list[str] = []
+    for role in sorted(by_role):
+        stats = by_role[role]
+        median = stats.get("median_tokens")
+        count = stats.get("count", 0)
+        if median is not None:
+            lines.append(f"  {role}: {count} attempt(s), median {median:,} tokens")
+        else:
+            lines.append(f"  {role}: {count} attempt(s)")
+    return lines
+
+
 def _build_resolver_index(project_dir: Path) -> list:
     """Build the resolver-owned phase index from docs/phases/index.md (OBS-001).
 
@@ -2066,14 +2154,23 @@ def _record_checkpoint_step(step_id: str, project_dir: Path) -> int:
     help="Project root directory.",
 )
 def cmd_checkpoint_report(project_dir: str) -> None:
-    """Print a per-role effort cost rollup + next-phase pointer at checkpoint time.
+    """Print a phase-scoped + lifetime effort cost rollup, and the next-phase
+    pointer, at checkpoint time.
 
     Mirrors 0.2's checkpoint step 8 intent (per-role cost rollup + a closing
     "next phase" prompt) without reintroducing 0.2's prose bulk (INFRA-236,
-    folding operator decision A5). Reuses ``_query_effort_by_role`` — the
-    same rollup ``resolver-state`` emits under ``effort_by_role`` — rather
-    than duplicating the query, and ``_next_phase_after`` — the same lookup
-    the standalone ``next-phase`` command uses — for the pointer.
+    folding operator decision A5).
+
+    Phase scoping (INFRA-256): the printed rollup is restricted to the
+    stories listed in the active phase's ``## Stories`` table (parsed via
+    ``_parse_phase_stories_with_status``, the same phase-membership list the
+    checkpoint gates reason over) — never ``attempts.phase`` (nullable,
+    unreliable — see ``docs/architecture.md`` § Effort tracking) and never a
+    timestamp window. A lifetime rollup (unchanged ``_query_effort_by_role``,
+    the same rollup ``resolver-state`` emits under ``effort_by_role``) is
+    still printed afterward, under its own heading, as the historical
+    baseline. Counts are row counts (spawns), not ``attempt_number`` values
+    (INFRA-257 addresses ``attempt_number`` correctness separately).
 
     Intended call site: ``CLAUDE.build.md``'s Checkpoint section, once after
     all three checkpoint gate workers (checkpoint-security, checkpoint-intent,
@@ -2086,29 +2183,76 @@ def cmd_checkpoint_report(project_dir: str) -> None:
     _depth_guard(project_path)
 
     db_path = project_path / ".companion" / "effort.db"
-    effort_by_role = _query_effort_by_role(db_path)
 
-    click.echo("=== checkpoint cost rollup ===")
+    # Resolve the active phase and its story membership *before* the rollup,
+    # so the same phase_key derivation feeds both the phase-scoped heading
+    # and the existing next-phase pointer (INFRA-256 instruction 3).
+    active_phase_file = resolve_current_phase(project_path)
+    phase_key: str | None = None
+    story_ids: list[str] = []
+    scoping_unavailable_reason: str | None = None
+
+    if active_phase_file is None:
+        scoping_unavailable_reason = "no active phase resolved"
+    else:
+        phase_key = active_phase_file.stem
+        if phase_key.startswith("phase-"):
+            phase_key = phase_key[len("phase-") :]
+        try:
+            phase_text = active_phase_file.read_text(encoding="utf-8")
+        except OSError:
+            phase_text = ""
+        phase_stories = _parse_phase_stories_with_status(phase_text)
+        story_ids = [sid for sid, _title, _status in phase_stories]
+        if not phase_stories:
+            scoping_unavailable_reason = (
+                f"phase {phase_key} has no parseable ## Stories table "
+                "(or the table yields zero story IDs)"
+            )
+
+    if scoping_unavailable_reason is not None:
+        click.echo("=== checkpoint cost rollup — phase scoping unavailable ===")
+        click.echo(f"  reason: {scoping_unavailable_reason}")
+    else:
+        click.echo(f"=== checkpoint cost rollup — phase {phase_key} ===")
+        scoped = _query_effort_by_story_ids(db_path, story_ids)
+        by_role = scoped.get("by_role", {})
+        by_story = scoped.get("by_story", {})
+
+        if not by_role:
+            click.echo(f"  no attempts recorded for phase {phase_key}")
+        else:
+            for line in _format_role_rollup_lines(by_role):
+                click.echo(line)
+
+        click.echo("  -- per-story --")
+        for sid in story_ids:
+            story_roles = by_story.get(sid)
+            if not story_roles:
+                click.echo(f"  {sid}: no attempts recorded")
+                continue
+            role_parts = []
+            for role in sorted(story_roles):
+                stats = story_roles[role]
+                count = stats.get("count", 0)
+                median = stats.get("median_tokens")
+                if median is not None:
+                    role_parts.append(f"{role}: {count} attempt(s), median {median:,} tokens")
+                else:
+                    role_parts.append(f"{role}: {count} attempt(s)")
+            click.echo(f"  {sid}: " + "; ".join(role_parts))
+
+    click.echo("=== lifetime cost rollup (all phases) ===")
+    effort_by_role = _query_effort_by_role(db_path)
     if not effort_by_role:
         click.echo("  no effort.db attempts recorded yet")
     else:
-        for role in sorted(effort_by_role):
-            stats = effort_by_role[role]
-            median = stats.get("median_tokens")
-            count = stats.get("count", 0)
-            if median is not None:
-                click.echo(f"  {role}: {count} attempt(s), median {median:,} tokens")
-            else:
-                click.echo(f"  {role}: {count} attempt(s)")
+        for line in _format_role_rollup_lines(effort_by_role):
+            click.echo(line)
 
-    active_phase_file = resolve_current_phase(project_path)
     if active_phase_file is None:
         click.echo("next phase: unknown (no active phase resolved)")
         return
-
-    phase_key = active_phase_file.stem
-    if phase_key.startswith("phase-"):
-        phase_key = phase_key[len("phase-") :]
 
     next_ref = _next_phase_after(phase_key, project_path)
     if next_ref:

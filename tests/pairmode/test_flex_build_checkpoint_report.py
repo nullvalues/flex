@@ -1,13 +1,19 @@
-"""Tests for ``flex_build.py checkpoint-report`` (INFRA-236).
+"""Tests for ``flex_build.py checkpoint-report`` (INFRA-236, INFRA-256).
 
 Covers:
 - Empty effort.db → minimal report, no crash.
-- Populated effort.db → per-role cost rollup matching resolver-state's
-  effort_by_role (reuses _query_effort_by_role — same numbers, no
-  duplicated query logic).
+- Populated effort.db → lifetime per-role cost rollup matching
+  resolver-state's effort_by_role (reuses _query_effort_by_role — same
+  numbers, no duplicated query logic).
 - next-phase pointer: present when the index has a following row, absent
   ("none (end of index)") when the active phase is last.
 - Pure-read: writes nothing to state.json or effort.db.
+- Phase-scoped rollup (INFRA-256): only the active phase's ## Stories-table
+  stories are counted in the phase-scoped section, even when effort.db holds
+  rows from other phases' stories; a story listed with zero attempts gets an
+  explicit marker; a story in effort.db but absent from the Stories table is
+  excluded; no-active-phase and an unparseable/empty Stories table both
+  degrade explicitly (scoping-unavailable line + lifetime rollup only).
 """
 
 from __future__ import annotations
@@ -50,8 +56,42 @@ def _write_phase_index(project_dir: Path, rows: list[tuple[str, str]]) -> None:
     (phases_dir / "index.md").write_text("".join(lines), encoding="utf-8")
 
 
-def _seed_effort_db(project_dir: Path, rows: list[tuple[str, int]]) -> None:
-    """rows: list of (agent_role, tokens_total)."""
+def _write_stories_table(
+    project_dir: Path, phase_ref: str, stories: list[tuple[str, str, str]]
+) -> None:
+    """Overwrite phase-<phase_ref>.md with a heading + ## Stories table.
+
+    stories: list of (story_id, title, status). Requires
+    ``_write_phase_index`` (or an equivalent phase-file writer) to have run
+    first for *phase_ref* — this only rewrites that phase's own file, not
+    the index. INFRA-256: phase-scoped rollup tests need a real Stories
+    table; ``_write_phase_index`` alone only writes a bare heading.
+    """
+    phases_dir = project_dir / "docs" / "phases"
+    phases_dir.mkdir(parents=True, exist_ok=True)
+    lines = [
+        f"# Phase {phase_ref}\n\n",
+        "## Stories\n\n",
+        "| ID | Title | Status |\n",
+        "|----|-------|--------|\n",
+    ]
+    for story_id, title, status in stories:
+        lines.append(f"| {story_id} | {title} | {status} |\n")
+    (phases_dir / f"phase-{phase_ref}.md").write_text("".join(lines), encoding="utf-8")
+
+
+def _seed_effort_db(
+    project_dir: Path,
+    rows: list[tuple[str, int]],
+    story_ids: list[str] | None = None,
+    phase: str = "98",
+) -> None:
+    """rows: list of (agent_role, tokens_total).
+
+    story_ids: optional parallel list of explicit story IDs (INFRA-256);
+    defaults to synthetic ``INFRA-<NNN>`` IDs when omitted, preserving every
+    existing call site's behaviour.
+    """
     companion = project_dir / ".companion"
     companion.mkdir(parents=True, exist_ok=True)
     db_path = companion / "effort.db"
@@ -60,10 +100,11 @@ def _seed_effort_db(project_dir: Path, rows: list[tuple[str, int]]) -> None:
 
     init_db(db_path)
     for i, (role, tokens) in enumerate(rows):
+        story_id = story_ids[i] if story_ids is not None else f"INFRA-{i:03d}"
         insert_attempt(
             db_path,
-            story_id=f"INFRA-{i:03d}",
-            phase="98",
+            story_id=story_id,
+            phase=phase,
             rail="INFRA",
             agent_role=role,
             model="claude-sonnet-5",
@@ -138,3 +179,144 @@ def test_checkpoint_report_is_pure_read(tmp_path: Path) -> None:
     after_count = conn.execute("SELECT COUNT(*) FROM attempts").fetchone()[0]
     conn.close()
     assert after_count == before_count
+
+
+# ---------------------------------------------------------------------------
+# Phase-scoped rollup (INFRA-256)
+# ---------------------------------------------------------------------------
+
+
+def test_checkpoint_report_phase_scoped_excludes_other_phase_stories(tmp_path: Path) -> None:
+    """Rows from another phase's stories must not inflate the phase-scoped
+    section, even though they do inflate the lifetime section — the
+    motivating cp-100 bug this story fixes."""
+    _write_phase_index(tmp_path, [("100", "complete"), ("101", "active")])
+    _write_stories_table(
+        tmp_path,
+        "101",
+        [("INFRA-256", "Phase-scoped rollup", "complete")],
+    )
+
+    # Phase 101's own story: one builder attempt.
+    _seed_effort_db(
+        tmp_path,
+        [("builder", 1000)],
+        story_ids=["INFRA-256"],
+        phase="101",
+    )
+    # 18 unrelated attempts from a different phase's stories — these must
+    # not show up in the phase-scoped section.
+    _seed_effort_db(
+        tmp_path,
+        [("builder", 5000)] * 18,
+        story_ids=[f"INFRA-{200 + i:03d}" for i in range(18)],
+        phase="99",
+    )
+
+    result = _run("checkpoint-report", "--project-dir", str(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert "=== checkpoint cost rollup — phase 101 ===" in result.stdout
+    assert "=== lifetime cost rollup (all phases) ===" in result.stdout
+
+    phase_section, _, lifetime_section = result.stdout.partition(
+        "=== lifetime cost rollup (all phases) ==="
+    )
+    assert "builder: 1 attempt(s), median 1,000 tokens" in phase_section
+    assert "builder: 19 attempt(s)" in lifetime_section
+
+
+def test_checkpoint_report_phase_scoped_story_zero_marker(tmp_path: Path) -> None:
+    """A story listed in the Stories table with zero recorded attempts is
+    shown with an explicit marker, not silently omitted."""
+    _write_phase_index(tmp_path, [("101", "active")])
+    _write_stories_table(
+        tmp_path,
+        "101",
+        [
+            ("INFRA-256", "Phase-scoped rollup", "complete"),
+            ("INFRA-257", "attempt_number fix", "planned"),
+        ],
+    )
+    _seed_effort_db(tmp_path, [("builder", 1000)], story_ids=["INFRA-256"], phase="101")
+
+    result = _run("checkpoint-report", "--project-dir", str(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert "INFRA-257: no attempts recorded" in result.stdout
+    assert "INFRA-256: builder: 1 attempt(s), median 1,000 tokens" in result.stdout
+
+
+def test_checkpoint_report_phase_scoped_excludes_story_absent_from_table(tmp_path: Path) -> None:
+    """A story ID present in effort.db but absent from the Stories table is
+    excluded from the phase-scoped section entirely."""
+    _write_phase_index(tmp_path, [("101", "active")])
+    _write_stories_table(
+        tmp_path,
+        "101",
+        [("INFRA-256", "Phase-scoped rollup", "complete")],
+    )
+    _seed_effort_db(
+        tmp_path,
+        [("builder", 1000), ("builder", 9000)],
+        story_ids=["INFRA-256", "INFRA-999"],
+        phase="101",
+    )
+
+    result = _run("checkpoint-report", "--project-dir", str(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    phase_section, _, _ = result.stdout.partition("=== lifetime cost rollup (all phases) ===")
+    assert "INFRA-999" not in phase_section
+    assert "builder: 1 attempt(s), median 1,000 tokens" in phase_section
+
+
+def test_checkpoint_report_no_active_phase_degrades_explicitly(tmp_path: Path) -> None:
+    """No active phase resolved → explicit scoping-unavailable line + lifetime
+    rollup, never a crash and never a phase-scoped heading."""
+    _write_phase_index(tmp_path, [("98", "complete")])
+    _seed_effort_db(tmp_path, [("builder", 1000)])
+
+    result = _run("checkpoint-report", "--project-dir", str(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert "phase scoping unavailable" in result.stdout
+    assert "no active phase resolved" in result.stdout
+    assert "=== lifetime cost rollup (all phases) ===" in result.stdout
+    assert "next phase: unknown (no active phase resolved)" in result.stdout
+
+
+def test_checkpoint_report_unparseable_stories_table_degrades_explicitly(tmp_path: Path) -> None:
+    """A resolved active phase with no ## Stories table (or an empty one)
+    degrades explicitly rather than silently falling back."""
+    _write_phase_index(tmp_path, [("98", "active")])
+    _seed_effort_db(tmp_path, [("builder", 1000)])
+
+    result = _run("checkpoint-report", "--project-dir", str(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert "phase scoping unavailable" in result.stdout
+    assert "no parseable ## Stories table" in result.stdout
+    assert "=== lifetime cost rollup (all phases) ===" in result.stdout
+    assert "builder: 1 attempt(s)" in result.stdout
+
+
+def test_checkpoint_report_phase_scoped_no_attempts_recorded(tmp_path: Path) -> None:
+    """Scoping succeeds (a real Stories table exists) but none of its stories
+    have recorded attempts — explicit 'no attempts recorded for phase <key>'
+    line, not a silent fallback to lifetime numbers."""
+    _write_phase_index(tmp_path, [("101", "active")])
+    _write_stories_table(
+        tmp_path,
+        "101",
+        [("INFRA-256", "Phase-scoped rollup", "planned")],
+    )
+    # Effort recorded, but for an unrelated story never listed in phase 101.
+    _seed_effort_db(tmp_path, [("builder", 1000)], story_ids=["INFRA-999"], phase="99")
+
+    result = _run("checkpoint-report", "--project-dir", str(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert "=== checkpoint cost rollup — phase 101 ===" in result.stdout
+    assert "no attempts recorded for phase 101" in result.stdout
+    assert "INFRA-256: no attempts recorded" in result.stdout

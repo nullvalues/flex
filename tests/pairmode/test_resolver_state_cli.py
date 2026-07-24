@@ -145,6 +145,27 @@ class TestResolverStateCLI:
         doc = _run_resolver_state(project)
         assert doc.get("effort_by_role") == {}
 
+    def test_effort_by_role_stays_lifetime_scoped_across_phases(self, tmp_path: Path) -> None:
+        """INFRA-256 lock-in: resolver-state's effort_by_role is a shipped
+        read contract (skills/observability/api/src/readers/resolverState.ts,
+        ContextMetrics.tsx) that must remain cross-phase — unlike
+        checkpoint-report's rollup, it must NOT be narrowed to the active
+        phase's stories. _make_minimal_project's active phase is "2" (an
+        empty ## Stories table); _add_effort_db's rows are tagged
+        phase "1" / story CORE-001, which is neither the active phase nor
+        listed in phase 2's Stories table. Those rows must still be counted.
+        """
+        project = _make_minimal_project(tmp_path)
+        _add_effort_db(project)
+        doc = _run_resolver_state(project)
+        effort = doc.get("effort_by_role", {})
+        # Same assertion as test_effort_by_role_present_when_db_exists,
+        # stated explicitly as a scope lock-in: these CORE-001 attempts
+        # belong to phase "1" / a story absent from active phase "2"'s
+        # (empty) Stories table, yet they still count.
+        assert effort["builder"]["count"] == 2
+        assert effort["reviewer"]["count"] == 1
+
     def test_index_present(self, tmp_path: Path) -> None:
         project = _make_minimal_project(tmp_path)
         doc = _run_resolver_state(project)
