@@ -91,3 +91,19 @@ fix is to stop registering twice, not to improve matching.
 6. Existing pairmode tests pass; if hook-registration shape is covered by
    tests (e.g. settings.json structure assertions), they are updated to the
    deduplicated shape.
+
+## Build notes (in progress — 2026-07-24)
+
+- The `primary_files` edit is DONE: operator applied the deduplicated
+  `.claude/settings.json` manually (commit `9521b74`) because the Claude Code
+  auto-mode classifier blocks all agent writes to that file, tool-agnostically
+  (builder attempt 1 confirmed; orchestrator and `update-config` skill equally
+  blocked). No builder may attempt to write `.claude/settings.json`.
+- **Story is NOT complete.** Remaining Ensures: architecture.md
+  canonical-surface decision record (plugin manifest canonical; settings.json
+  keeps only pytest-on-py-edit hook + permissions), once-only/no-flex-harness
+  verification, test updates.
+- HAZARD for cold resume: the resolver's git-commit heuristic reads commit
+  `9521b74` as this story being built and advances to INFRA-248. It is wrong —
+  dispatch a builder for this story's remainder explicitly (worktree from
+  current HEAD) before building INFRA-248.
