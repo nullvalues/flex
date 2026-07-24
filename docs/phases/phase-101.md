@@ -22,6 +22,7 @@ Make effort.db attempt recording and checkpoint-time cost reporting truthful: th
 |----|-------|--------|
 | INFRA-256 | Phase-scoped checkpoint cost rollup — filter effort rollup to the phase being checkpointed | complete |
 | INFRA-257 | Truthful attempt_number recording — derive real attempt sequence for repeated same-story spawns | complete |
+| INFRA-258 | Async-spawn effort recording — derive tokens and outcome at completion time; fix checkpoint-worker story misattribution | draft |
 
 ## Schema delivery
 
