@@ -2,7 +2,7 @@
 id: INFRA-252
 rail: INFRA
 title: Authorize user_prompt_submit.py as fourth thin-delegation exception in security-auditor procedure
-status: planned
+status: complete
 phase: "99"
 story_class: docs
 auth_gated: false

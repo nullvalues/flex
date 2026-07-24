@@ -73,7 +73,7 @@ and this phase's direct blocker.
 | INFRA-249 | Self-sync flex's `.companion/state.json` — pairmode_version to 0.3.0, verify banner correctness | complete |
 | INFRA-250 | Route `pairmode_migrate.py`'s version default through `_version.PAIRMODE_VERSION`; fix SKILL.md migration-target doc drift | complete |
 | INFRA-251 | Context-budget gate remediation — acknowledgment that actually clears, live counter writes, non-fossil step estimate | complete |
-| INFRA-252 | Authorize user_prompt_submit.py as fourth thin-delegation exception in security-auditor procedure | planned |
+| INFRA-252 | Authorize user_prompt_submit.py as fourth thin-delegation exception in security-auditor procedure | complete |
 
 ## Schema delivery
 
