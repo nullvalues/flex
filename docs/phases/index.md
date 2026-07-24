@@ -122,6 +122,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 98 | 0.2 → 0.3 regression remediation | complete | [phase-98.md](phase-98.md) · cp98-context-budget-regression-remediation |
 | 99 | Post-fold self-sync remediation | complete | [phase-99.md](phase-99.md) · cp99-post-fold-self-sync-remediation |
 | 100 | Scope-guard fail-closed completion (CER-048 close-out) | complete | [phase-100.md](phase-100.md) · cp100-scope-guard-fail-closed-completion |
+| 101 | Attempt recording and checkpoint reporting correctness | planned | [phase-101.md](phase-101.md) |
 
 ---
 
