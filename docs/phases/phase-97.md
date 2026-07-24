@@ -43,7 +43,7 @@ Resume HARNESS016-main's deferred tail: retry the doc sweep, migrate the fleet t
 | RELEASE-055 | Fleet migration — sync rockue to pairmode 0.3.0 | deferred |
 | RELEASE-056 | Fleet migration — sync stackabid to pairmode 0.3.0 | deferred |
 | RELEASE-057 | Fleet migration — sync ud to pairmode 0.3.0 | deferred |
-| RELEASE-058 | Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects | draft |
+| RELEASE-058 | Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects | backlog |
 | RELEASE-059 | Fold merge — fold-prep into main, tag v0.3.0 | draft |
 | RELEASE-060 | Post-fold re-sync of migrated projects + RELEASE-002 status reconciliation | draft |
 | RELEASE-061 | Worktree and branch retirement — remove /mnt/work/flex-harness | draft |
@@ -126,6 +126,17 @@ Resumed per-project, in each project's own session, as described above — no
 target phase number in *this* repo, since the work no longer happens here.
 RELEASE-058 (DP8 gate) remains blocked, correctly, until the fleet actually
 migrates via this new per-project path.
+
+## DP8 gate override
+
+2026-07-23: the DP8 gate check was run manually against the fresh fleet
+snapshot — verdict BLOCK (8/16 projects at 0.3.0) — and the operator explicitly
+overrode the block because the per-project migration path is not working
+reliably; un-migrated projects will break at the flip and be manually patched
+post-fold. RELEASE-058 is waived (status `backlog`), its gate tooling unbuilt —
+see the `## Resolution — operator override (2026-07-23)` section in
+`docs/stories/RELEASE/RELEASE-058.md`. RELEASE-059 (the fold merge) proceeds
+under this override.
 
 ## Schema delivery
 

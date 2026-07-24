@@ -2,7 +2,7 @@
 id: RELEASE-058
 rail: RELEASE
 title: Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects
-status: draft
+status: backlog
 phase: "97"
 story_class: code
 auth_gated: false
@@ -132,3 +132,23 @@ regenerated fleet snapshot and blocks until every project reports `0.3.0`.
 - Changing the fleet-discovery candidate list (INFRA-231, already complete) or
   the `pairmode_version` comparison logic in `pairmode_status.py` beyond what the
   gate needs to read it.
+
+## Resolution — operator override (2026-07-23)
+
+The gate's fresh-snapshot check was run **manually** on 2026-07-23 — see
+`docs/fleet-snapshot.md` (committed 2026-07-23). The verdict was **BLOCK**:
+only **8 of 16** discovered fleet projects report pairmode `0.3.0`.
+Un-migrated projects: **base56, caddy, cora (0.1.0), forqsite.help, halfhorse,
+lumin, meander, pokus** (all at 0.2.0 except cora as noted). Discovery deltas:
+`anchor` no longer appears in discovery; `stackabid` is newly discovered,
+already at `0.3.0`.
+
+The operator (David) **explicitly overrode the block**: the per-project
+migration path is not working properly, so waiting on it would stall the fold
+indefinitely. The override accepts that un-migrated projects break at the flip;
+each will be **manually patched post-fold**. The fold (RELEASE-059) proceeds
+under this override.
+
+The gate CLI/tooling described in this spec was **not built**. This story is
+waived by operator decision; its status is set to `backlog` (the closest
+available status to "waived") and this section carries the real disposition.
