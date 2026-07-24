@@ -6,11 +6,15 @@ PostToolUse hook — Pair Partner + Validator roles.
 Fires after every file write/edit. Thin relay only.
 Sends file change event to sidebar for UML delta + spec check.
 
-Also fires after Task/Agent tool calls. Two delegated calls (never blocks —
+Also fires after Task/Agent tool calls. Three delegated calls (never blocks —
 each wrapped independently, exits silently on any failure):
   1. context_budget.read_current_tokens() (INFRA-182) — reads the JSONL
      transcript and writes context_current_tokens +
-     context_current_tokens_recorded_at to state.json.
+     context_current_tokens_recorded_at to state.json. Also calls
+     context_budget.record_step_growth() (INFRA-254) in the same
+     read-modify-write, appending the observed delta to the
+     context_step_growth_samples ring buffer and re-deriving
+     expected_step_tokens live — see that module for the derivation tiers.
   2. subagent_transcript.record_attempt_from_transcript() (INFRA-236) —
      reads the same live transcript for the just-completed spawn's own
      usage, plus tool_input/tool_response/state.json for role/story/model/
@@ -70,9 +74,13 @@ def main():
                 state_path = project_dir / ".companion" / "state.json"
                 if state_path.exists():
                     state = json.loads(state_path.read_text())
+                    previous_tokens = state.get("context_current_tokens")
                     state["context_current_tokens"] = live_tokens
                     state["context_current_tokens_recorded_at"] = (
                         datetime.now(timezone.utc).isoformat()
+                    )
+                    context_budget.record_step_growth(
+                        state, previous_tokens, live_tokens
                     )
                     _atomic_write_json(state_path, state)
         except Exception:

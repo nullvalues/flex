@@ -1729,3 +1729,281 @@ def test_derive_transcript_path_rejects_dotdot_slash(tmp_path):
         tmp_path / "proj", "../../../etc/passwd", home=tmp_path
     )
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# INFRA-254 — live expected_step_tokens derivation from orchestrator growth
+# ---------------------------------------------------------------------------
+
+
+def test_derive_expected_step_tokens_absent_state_returns_default():
+    """No ring buffer, no seed → THIN_HARNESS_STEP_TOKENS / 'default'."""
+    value, provenance = context_budget.derive_expected_step_tokens({})
+    assert value == context_budget.THIN_HARNESS_STEP_TOKENS
+    assert provenance == "default"
+
+
+def test_derive_expected_step_tokens_seed_tier():
+    """No ring buffer (or < 5 samples) → the stored seed / 'seed'."""
+    value, provenance = context_budget.derive_expected_step_tokens(
+        {"expected_step_tokens": 111}
+    )
+    assert value == 111
+    assert provenance == "seed"
+
+
+def test_derive_expected_step_tokens_fewer_than_five_samples_falls_to_seed():
+    """< CONTEXT_STEP_GROWTH_SAMPLES_MIN_FOR_LIVE samples → seed tier, not live."""
+    state = {
+        "expected_step_tokens": 111,
+        "context_step_growth_samples": [1000, 2000, 3000, 4000],
+    }
+    value, provenance = context_budget.derive_expected_step_tokens(state)
+    assert value == 111
+    assert provenance == "seed"
+
+
+def test_derive_expected_step_tokens_five_or_more_samples_is_live_median():
+    """>= 5 samples → median of the ring buffer, overriding any stored seed."""
+    state = {
+        "expected_step_tokens": 111,
+        "context_step_growth_samples": [1000, 2000, 3000, 4000, 5000],
+    }
+    value, provenance = context_budget.derive_expected_step_tokens(state)
+    assert value == 3000
+    assert "live" in provenance
+    assert "5 samples" in provenance
+    assert "3,000" in provenance
+
+
+def test_derive_expected_step_tokens_live_overwrites_hand_edited_seed():
+    """A hand-edited expected_step_tokens is overridden once >= 5 samples exist
+    (Ensures #2 — this is the intended behavior, not a bug)."""
+    state = {
+        "expected_step_tokens": 999_999,
+        "context_step_growth_samples": [4000, 4000, 4000, 4000, 4000],
+    }
+    value, _provenance = context_budget.derive_expected_step_tokens(state)
+    assert value == 4000
+
+
+def test_derive_expected_step_tokens_ignores_non_numeric_samples():
+    """Non-numeric ring-buffer entries are skipped, not counted toward the tier."""
+    state = {
+        "expected_step_tokens": 111,
+        "context_step_growth_samples": [1000, "oops", 2000, None, 3000, 4000],
+    }
+    value, provenance = context_budget.derive_expected_step_tokens(state)
+    # Only 4 valid numeric entries — below the live threshold — seed tier.
+    assert value == 111
+    assert provenance == "seed"
+
+
+def test_derive_expected_step_tokens_never_opens_effort_db():
+    """Ensures #3: the derivation path takes no db_path / effort.db argument at all."""
+    import inspect
+
+    sig = inspect.signature(context_budget.derive_expected_step_tokens)
+    assert "db_path" not in sig.parameters
+    source = inspect.getsource(context_budget.derive_expected_step_tokens)
+    assert "sqlite3" not in source
+    assert "connect(" not in source
+
+
+# ---------------------------------------------------------------------------
+# INFRA-254 — record_step_growth ring-buffer append/eviction
+# ---------------------------------------------------------------------------
+
+
+def test_record_step_growth_appends_positive_delta():
+    state = {"context_current_tokens": 100_000}
+    context_budget.record_step_growth(state, 100_000, 105_000)
+    assert state["context_step_growth_samples"] == [5_000]
+
+
+def test_record_step_growth_skips_non_positive_delta():
+    """A zero or negative delta (e.g. re-read of an unchanged transcript, or a
+    fresh /clear baseline lower than the prior value) is not appended."""
+    state: dict = {}
+    context_budget.record_step_growth(state, 100_000, 100_000)
+    assert state.get("context_step_growth_samples", []) == []
+    context_budget.record_step_growth(state, 100_000, 90_000)
+    assert state.get("context_step_growth_samples", []) == []
+
+
+def test_record_step_growth_skips_when_previous_missing():
+    """No previous_tokens (first-ever observation) → nothing to diff against."""
+    state: dict = {}
+    context_budget.record_step_growth(state, None, 50_000)
+    assert state.get("context_step_growth_samples", []) == []
+
+
+def test_record_step_growth_evicts_oldest_past_cap():
+    state = {
+        "context_step_growth_samples": list(range(1, 21)),  # 20 entries, at cap
+    }
+    context_budget.record_step_growth(state, 100_000, 100_500)  # delta 500
+    samples = state["context_step_growth_samples"]
+    assert len(samples) == 20
+    assert samples[-1] == 500
+    assert 1 not in samples  # oldest (1) evicted
+
+
+def test_record_step_growth_writes_back_expected_step_tokens():
+    """Ensures #2: expected_step_tokens is (re)written on every recording call."""
+    state = {"expected_step_tokens": 111}
+    context_budget.record_step_growth(state, 100_000, 104_000)
+    assert state["expected_step_tokens"] == 111  # still seed tier (1 sample)
+
+    # Push it to 5 samples of a consistent delta — should flip to live median.
+    tokens = 104_000
+    for _ in range(4):
+        context_budget.record_step_growth(state, tokens, tokens + 4_000)
+        tokens += 4_000
+    assert state["expected_step_tokens"] == 4_000
+
+
+# ---------------------------------------------------------------------------
+# INFRA-254 — decide() live derivation + provenance + growth-based re-arm
+# ---------------------------------------------------------------------------
+
+
+def test_decide_uses_live_ring_buffer_median_over_stored_seed(tmp_path):
+    """decide() picks up the ring-buffer-derived value, not the stale seed,
+    once >= 5 samples exist."""
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 111,
+            "context_step_growth_samples": [4_000, 4_000, 4_000, 4_000, 4_000],
+            "context_budget_reprompt_margin": 10_000,
+            "current_phase": "100",
+            "current_story": "INFRA-254",
+            "context_current_tokens": 100_000,
+        },
+    )
+    result = context_budget.decide(project_dir)
+    # ceiling = 132,000; 100,000 + 4,000 (live median) = 104,000 <= ceiling → None.
+    assert result is None
+
+
+def test_decide_block_message_reports_live_provenance(tmp_path):
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 111,
+            "context_step_growth_samples": [4_000, 4_000, 4_000, 4_000, 4_000],
+            "context_budget_reprompt_margin": 10_000,
+            "current_phase": "100",
+            "current_story": "INFRA-254",
+            "context_current_tokens": 130_000,
+        },
+    )
+    result = context_budget.decide(project_dir)
+    assert result is not None
+    assert result["block"] is True
+    assert "live" in result["reason"]
+    assert "5 samples" in result["reason"]
+
+
+def test_decide_block_message_reports_seed_provenance_below_five_samples(tmp_path):
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 53_00,  # small seed, still over ceiling on its own
+            "context_budget_reprompt_margin": 10_000,
+            "current_phase": "100",
+            "current_story": "INFRA-254",
+            "context_current_tokens": 132_000,
+        },
+    )
+    result = context_budget.decide(project_dir)
+    assert result is not None
+    assert "seed" in result["reason"]
+
+
+def test_decide_block_message_reports_default_provenance_no_seed_no_samples(tmp_path):
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "context_budget_reprompt_margin": 10_000,
+            "current_phase": "100",
+            "current_story": "INFRA-254",
+            "context_current_tokens": 132_000,
+        },
+    )
+    result = context_budget.decide(project_dir)
+    assert result is not None
+    assert "default" in result["reason"]
+
+
+def test_decide_is_read_only_never_writes_growth_samples_or_expected_tokens(tmp_path):
+    """D11: decide() must never write context_step_growth_samples or
+    expected_step_tokens to state.json — record_step_growth() (called only
+    from post_tool_use.py) is the sole writer."""
+    project_dir = _setup_project(
+        tmp_path,
+        state={
+            "context_budget_threshold": 120_000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 111,
+            "context_budget_reprompt_margin": 10_000,
+            "current_phase": "100",
+            "current_story": "INFRA-254",
+            "context_current_tokens": 132_000,
+        },
+    )
+    context_budget.decide(project_dir)
+    state_on_disk = json.loads(
+        (project_dir / ".companion" / "state.json").read_text(encoding="utf-8")
+    )
+    assert "context_step_growth_samples" not in state_on_disk
+    assert state_on_disk["expected_step_tokens"] == 111
+
+
+def test_decide_growth_based_rearm_fires_once_margin_crossed_past_threshold(tmp_path):
+    """Ensures #4/#6: acknowledged, still over threshold, and growth since the
+    acknowledgment has crossed the reprompt margin → decide() blocks again."""
+    state = {
+        "context_budget_threshold": 120_000,
+        "context_budget_overrun_pct": 0.10,
+        "expected_step_tokens": 1_000,
+        "context_budget_reprompt_margin": 10_000,
+        "current_phase": "100",
+        "current_story": "INFRA-254",
+        "context_budget_acknowledged_at": 125_000,
+        "context_budget_acknowledged_user_turn_seq": 1,
+        "context_budget_user_turn_seq": 2,
+        "context_current_tokens": 140_000,  # 125_000 + 15_000 > margin (10_000)
+    }
+    project_dir = _setup_project(tmp_path, state=state)
+    result = context_budget.decide(project_dir)
+    assert result is not None
+    assert result["block"] is True
+
+
+def test_decide_growth_based_rearm_does_not_fire_before_margin_crossed(tmp_path):
+    """Same acknowledgment, but growth has NOT yet crossed the margin → clear."""
+    state = {
+        "context_budget_threshold": 120_000,
+        "context_budget_overrun_pct": 0.10,
+        "expected_step_tokens": 1_000,
+        "context_budget_reprompt_margin": 10_000,
+        "current_phase": "100",
+        "current_story": "INFRA-254",
+        "context_budget_acknowledged_at": 125_000,
+        "context_budget_acknowledged_user_turn_seq": 1,
+        "context_budget_user_turn_seq": 2,
+        "context_current_tokens": 128_000,  # only +3_000 — under the margin
+    }
+    project_dir = _setup_project(tmp_path, state=state)
+    result = context_budget.decide(project_dir)
+    assert result is None

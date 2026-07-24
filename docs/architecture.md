@@ -328,6 +328,88 @@ is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
    `_read_state()`, which propagates to a missing-tokens block (CER-040).
    References: CER-027, CER-039, CER-040, INFRA-180, INFRA-181, INFRA-182.
 
+   **Live `expected_step_tokens` derivation from orchestrator growth
+   (INFRA-254).** CER-053 correctly severed `expected_step_tokens` from
+   effort.db (a subagent's own per-story cost — DP7) but its HARNESS-003 fix
+   left the value entirely static: `decide()` called
+   `estimate_next_step_tokens(None, None, seed)` with `db_path=None`, so the
+   only path that could ever change `state["expected_step_tokens"]` was a
+   manual edit, and nothing at runtime overwrote it — an operator-hand-edited
+   value of `111` was observed to persist through multiple builds and distort
+   the ceiling arithmetic (`current_tokens + expected_next`) toward
+   near-zero headroom loss. INFRA-254 restores the original INFRA-127
+   live-estimate intent with a DP7-clean source: the orchestrator's own
+   observed context-window growth (`context_current_tokens` deltas between
+   consecutive PostToolUse observations — trustworthy since INFRA-251's
+   `isSidechain` fix excluded subagent turns from that count).
+
+   - **Recording (`hooks/post_tool_use.py` → `context_budget.record_step_growth()`).**
+     In the same read-modify-write PostToolUse already performs to write
+     `context_current_tokens`, it now also captures the *previous* value
+     before overwriting it and passes both to `record_step_growth()`. That
+     function appends `new - previous` to a bounded ring buffer,
+     `state["context_step_growth_samples"]` (capped at 20 entries, oldest
+     evicted), only when both values are valid positive integers and the
+     delta is strictly positive — a non-positive delta (a same-value re-read,
+     or a lower value from a fresh `/clear` baseline) is not genuine step
+     growth and is skipped rather than corrupting the median with zero/
+     negative noise. It then re-derives and writes back
+     `state["expected_step_tokens"]` via `derive_expected_step_tokens()` (see
+     next bullet) — this is the "gate evaluation" write path: it fires on
+     every PostToolUse Task/Agent observation, immediately upstream of the
+     next PreToolUse `decide()` call that will read the freshly-derived value.
+   - **Derivation (`context_budget.derive_expected_step_tokens(state)`,
+     pure, no I/O).** Three tiers, in order: (1) **live** — if
+     `context_step_growth_samples` holds >= 5 numeric entries, return their
+     median; (2) **seed** — otherwise, the stored `state["expected_step_tokens"]`
+     value (bootstrap seed, or any hand-edited override) when present and
+     positive; (3) **default** — otherwise, `THIN_HARNESS_STEP_TOKENS`. Once
+     >= 5 growth samples exist, tier 1 permanently overrides tier 2 on every
+     subsequent recording call — a hand-edited value is overwritten by the
+     next derivation once live data is available. This is the intended
+     behavior, not a bug: the whole point of restoring liveness is that a
+     stale manual number cannot silently persist once real observations
+     exist.
+   - **`decide()` stays strictly read-only (D11).** It calls
+     `derive_expected_step_tokens(state)` to read (never write) the current
+     tier and value, then still passes that value through
+     `estimate_next_step_tokens(None, None, seeded_default)` — preserving the
+     literal `estimate_next_step_tokens(None` call site CER-053's own
+     regression test (`test_expected_step_tokens_source.py`) asserts, and
+     the DP7 guarantee that no code path in the derivation ever opens
+     effort.db. `record_step_growth()` (called only from `post_tool_use.py`)
+     remains the sole writer of both `context_step_growth_samples` and
+     `expected_step_tokens`.
+   - **Provenance in the block message (Ensures #5).** The rendered
+     `CONTEXT BUDGET` prompt appends a trailing
+     `[expected_step_tokens estimate: <provenance>]` line —
+     `"live (N samples, median M)"`, `"seed"`, or `"default"` — so an
+     operator can see at a glance whether the number the gate is using is
+     live-observed or cold-start.
+   - **Growth-based re-arm past threshold.** `should_block()`'s existing
+     margin-crossing re-block logic (INFRA-193/INFRA-251) already covers
+     this case correctly at the pure-function level — when the budget was
+     acknowledged and `context_current_tokens` has since grown by
+     `>= context_budget_reprompt_margin` while still over the ceiling, it
+     re-blocks (fresh acknowledgment required); below margin, or below
+     threshold, acknowledgment clearing is unchanged. INFRA-254 adds
+     decide()-level integration test coverage for this path (previously
+     only exercised at the `should_block()` unit level) as part of closing
+     the 102k→174k silent-gap symptom the operator observed, where a
+     hand-edited near-zero `expected_step_tokens` made the ceiling-crossing
+     check depend almost entirely on `current_tokens` alone, so the gate
+     only ever fired at whatever coarse-grained `Task`/`Agent` boundary
+     happened to cross it — a live, realistic `expected_next` estimate
+     closes that gap in practice by making the projected-total check
+     meaningful again, without changing `should_block()`'s math itself.
+   - **State key inventory addition:** `context_step_growth_samples` — a
+     bounded list (max 20) of positive integer deltas, written only by
+     `record_step_growth()`, read only by `derive_expected_step_tokens()`.
+     No new database table; this is a `state.json` ring buffer only, and is
+     observable via the existing `/context` observability route / companion
+     surfaces (no dedicated management UI required for this bounded,
+     regenerated-on-observation buffer).
+
    **On the threshold constant (INFRA-241).** The live default threshold
    (`context_budget.py`'s `decide()`: `int(state.get("context_budget_threshold",
    130000) or 130000)`) is an **empirically-tuned defensive heuristic for

@@ -48,9 +48,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    from skills.pairmode.scripts.context_model import THIN_HARNESS_STEP_TOKENS
+    from skills.pairmode.scripts.context_model import (
+        CONTEXT_STEP_GROWTH_SAMPLES_CAP,
+        CONTEXT_STEP_GROWTH_SAMPLES_KEY,
+        CONTEXT_STEP_GROWTH_SAMPLES_MIN_FOR_LIVE,
+        THIN_HARNESS_STEP_TOKENS,
+    )
 except ImportError:
-    from context_model import THIN_HARNESS_STEP_TOKENS  # type: ignore[no-redef]  # flat import via hook sys.path
+    # flat import via hook sys.path
+    from context_model import (  # type: ignore[no-redef]
+        CONTEXT_STEP_GROWTH_SAMPLES_CAP,
+        CONTEXT_STEP_GROWTH_SAMPLES_KEY,
+        CONTEXT_STEP_GROWTH_SAMPLES_MIN_FOR_LIVE,
+        THIN_HARNESS_STEP_TOKENS,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +389,115 @@ def estimate_next_step_tokens(
 
 
 # ---------------------------------------------------------------------------
+# 2.5 Live expected_step_tokens derivation from observed orchestrator growth
+#     (INFRA-254 — restores the INFRA-127 live-estimate intent with a DP7-
+#     clean source; CER-053 severed the effort.db-derived path entirely
+#     rather than re-sourcing it, leaving a static state.json value).
+# ---------------------------------------------------------------------------
+
+
+def derive_expected_step_tokens(state: dict) -> "tuple[int, str]":
+    """Derive ``expected_step_tokens`` live from observed orchestrator growth.
+
+    Tiers (never reads effort.db — DP7/CER-053 boundary preserved):
+
+    1. Live — the ``context_step_growth_samples`` ring buffer
+       (``state[CONTEXT_STEP_GROWTH_SAMPLES_KEY]``) holds
+       ``>= CONTEXT_STEP_GROWTH_SAMPLES_MIN_FOR_LIVE`` numeric entries: return
+       the median of those entries.
+    2. Seed — otherwise, the stored ``state["expected_step_tokens"]`` value
+       (bootstrap seed or a hand-edited override) when present and positive.
+    3. Default — otherwise, ``THIN_HARNESS_STEP_TOKENS``.
+
+    Returns ``(value, provenance)`` where ``provenance`` is a short
+    human-readable string for the block message (Ensures #5):
+    ``"live (N samples, median M)"``, ``"seed"``, or ``"default"``.
+
+    Pure function; no I/O, no effort.db read anywhere in this path.
+    """
+    if not isinstance(state, dict):
+        state = {}
+
+    samples = state.get(CONTEXT_STEP_GROWTH_SAMPLES_KEY)
+    numeric_samples: list[int] = []
+    if isinstance(samples, list):
+        for sample in samples:
+            try:
+                numeric_samples.append(int(sample))
+            except (TypeError, ValueError):
+                continue
+
+    if len(numeric_samples) >= CONTEXT_STEP_GROWTH_SAMPLES_MIN_FOR_LIVE:
+        median_value = int(statistics.median(numeric_samples))
+        provenance = f"live ({len(numeric_samples)} samples, median {median_value:,})"
+        return median_value, provenance
+
+    seed_raw = state.get("expected_step_tokens")
+    if seed_raw is not None:
+        try:
+            seed_value = int(seed_raw)
+            if seed_value > 0:
+                return seed_value, "seed"
+        except (TypeError, ValueError):
+            pass
+
+    return THIN_HARNESS_STEP_TOKENS, "default"
+
+
+def record_step_growth(
+    state: dict,
+    previous_tokens: "int | None",
+    new_tokens: "int | None",
+) -> None:
+    """Append an observed orchestrator step-growth delta and re-derive
+    ``expected_step_tokens`` in place.
+
+    Called from ``hooks/post_tool_use.py``'s existing thin Task/Agent
+    delegation (no new inline hook logic) immediately before it overwrites
+    ``state["context_current_tokens"]`` with the freshly-read live count —
+    the caller passes the OLD value as ``previous_tokens`` and the new live
+    read as ``new_tokens``.
+
+    Appends ``new_tokens - previous_tokens`` to the bounded ring buffer
+    (``state[CONTEXT_STEP_GROWTH_SAMPLES_KEY]``, capped at
+    ``CONTEXT_STEP_GROWTH_SAMPLES_CAP`` entries, oldest evicted) only when
+    both values are valid positive integers AND the delta is strictly
+    positive (a non-positive delta — e.g. a fresh ``/clear`` baseline, or a
+    same-value re-read — is not genuine step growth and would corrupt the
+    median with zero/negative noise).
+
+    Always re-derives and writes back ``state["expected_step_tokens"]`` via
+    ``derive_expected_step_tokens()`` (Ensures #2) — this is the "gate
+    evaluation" write path: it fires on every PostToolUse Task/Agent
+    observation (once per build-cycle step), immediately upstream of the
+    next PreToolUse ``decide()`` call that will read it. ``decide()`` itself
+    remains strictly read-only (D11) — this function is the sole writer,
+    mutating ``state`` in place; the caller is responsible for persisting it.
+    """
+    try:
+        prev = int(previous_tokens) if previous_tokens is not None else None
+    except (TypeError, ValueError):
+        prev = None
+    try:
+        new = int(new_tokens) if new_tokens is not None else None
+    except (TypeError, ValueError):
+        new = None
+
+    if prev is not None and prev > 0 and new is not None and new > 0:
+        delta = new - prev
+        if delta > 0:
+            existing = state.get(CONTEXT_STEP_GROWTH_SAMPLES_KEY)
+            samples = list(existing) if isinstance(existing, list) else []
+            samples.append(delta)
+            if len(samples) > CONTEXT_STEP_GROWTH_SAMPLES_CAP:
+                samples = samples[-CONTEXT_STEP_GROWTH_SAMPLES_CAP:]
+            state[CONTEXT_STEP_GROWTH_SAMPLES_KEY] = samples
+
+    derived_value, _provenance = derive_expected_step_tokens(state)
+    state["expected_step_tokens"] = derived_value
+
+
+# ---------------------------------------------------------------------------
 # 3. Pure decision: should we block and prompt?
 # ---------------------------------------------------------------------------
 
@@ -642,7 +762,12 @@ def decide(
 
     threshold = int(state.get("context_budget_threshold", 130000) or 130000)
     overrun_pct = float(state.get("context_budget_overrun_pct", 0.10) or 0.10)
-    seeded_default = int(state.get("expected_step_tokens", THIN_HARNESS_STEP_TOKENS) or THIN_HARNESS_STEP_TOKENS)
+    # INFRA-254: live derivation from observed orchestrator growth (ring-buffer
+    # median tier, falling back to the stored seed / THIN_HARNESS_STEP_TOKENS).
+    # This is strictly a read of state — decide() remains read-only (D11);
+    # the ring buffer and expected_step_tokens are written by
+    # record_step_growth() from hooks/post_tool_use.py, never from here.
+    seeded_default, expected_tokens_provenance = derive_expected_step_tokens(state)
     reprompt_margin = int(state.get("context_budget_reprompt_margin", 10000) or 10000)
     acknowledged_at_raw = state.get("context_budget_acknowledged_at")
     acknowledged_at: int | None
@@ -692,6 +817,10 @@ def decide(
         expected_next=expected_next,
         flex_factor=flex_factor,
     )
+    # INFRA-254 Ensures #5: report the estimate's provenance so an operator
+    # can see at a glance whether the number is live (ring-buffer-derived) or
+    # cold-start (seed / default).
+    prompt = f"{prompt}\n[expected_step_tokens estimate: {expected_tokens_provenance}]\n"
     return {
         "block": True,
         "reason": prompt,

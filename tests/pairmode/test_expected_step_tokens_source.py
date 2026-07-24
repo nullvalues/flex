@@ -79,3 +79,22 @@ class TestExpectedStepTokensSource:
         assert THIN_HARNESS_STEP_TOKENS < 53000, (
             "Thin-harness step constant should be smaller than the old effort-derived 53000"
         )
+
+    def test_derive_expected_step_tokens_never_opens_effort_db(self) -> None:
+        """(d) INFRA-254: the new live-derivation path
+        (derive_expected_step_tokens) never opens effort.db — it reads only
+        the ring-buffer/seed already present in the state dict it is passed."""
+        body = _function_body_source(
+            _source("context_budget.py"), "derive_expected_step_tokens"
+        )
+        assert body, "Function derive_expected_step_tokens not found in context_budget.py"
+        assert "sqlite3" not in body
+        assert "connect(" not in body
+        assert "db_path" not in body
+
+    def test_record_step_growth_never_opens_effort_db(self) -> None:
+        """(d) INFRA-254: the ring-buffer recording path is also DP7-clean."""
+        body = _function_body_source(_source("context_budget.py"), "record_step_growth")
+        assert body, "Function record_step_growth not found in context_budget.py"
+        assert "sqlite3" not in body
+        assert "connect(" not in body
