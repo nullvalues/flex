@@ -2,7 +2,7 @@
 id: INFRA-256
 rail: INFRA
 title: Phase-scoped checkpoint cost rollup — filter effort rollup to the phase being checkpointed
-status: draft
+status: complete
 phase: "101"
 story_class: code
 auth_gated: false
