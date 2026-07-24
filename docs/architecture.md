@@ -1394,9 +1394,12 @@ These two token surfaces measure fundamentally different things and must never c
 
 - **`effort.db`** = *retrospective cost* recorded by
   `subagent_transcript.record_attempt_from_transcript()` (INFRA-236) — the
-  spawning subagent's own token usage read directly from its sidechain
-  turns in the live session JSONL transcript (tokens spent in disposable
-  subagent contexts). No longer sourced from agent-authored `<usage>`
+  spawning subagent's own token usage: for synchronous spawns, read from its
+  sidechain turns in the live session JSONL transcript; for async spawns
+  (the current norm), the sidechain path finds nothing at PostToolUse time
+  and tokens/outcome arrive via the INFRA-258 deferred reconciliation of the
+  spawn's `output_file` transcript (see § Async-spawn effort recording).
+  No longer sourced from agent-authored `<usage>`
   blocks (0.3's builder/reviewer `procedure.md` forbids that return format).
   Inputs: model selection, guardrail, rollups, cost display.
   **Never an input to a context-headroom or clear-seam decision.**
@@ -1732,8 +1735,11 @@ PostToolUse events with two independently try/excepted delegated calls:
   skipped — INFRA-251, see `context_current_tokens`'s writer-liveness note above). Writes
   `context_current_tokens` + `context_current_tokens_recorded_at` to state.json.
 - Calls `subagent_transcript.record_attempt_from_transcript(project_dir, session_id,
-  tool_input, tool_response, tool_use_id)` (INFRA-236) to read the just-completed
-  spawn's own usage from its sidechain turns in the same transcript, plus
+  tool_input, tool_response, tool_use_id)` (INFRA-236) to read the spawn's own usage
+  from its sidechain turns in the same transcript (synchronous spawns only — an async
+  spawn's tool_response is launch metadata, so its row is recorded with NULL
+  tokens/outcome plus `agent_id`/`output_file` spawn refs and backfilled later by the
+  INFRA-258 reconciliation sweep, which also runs from this same call site), plus
   `tool_input`/`tool_response`/`state.json` for role/story/model/outcome. Writes one
   `attempts` row to `.companion/effort.db` via `effort_recorder.record_effort()` when
   the spawn is a recordable build-cycle role and `effort_tracking` is `true`. This is a
@@ -1745,8 +1751,13 @@ This write/read split means PreToolUse never reads JSONL directly — it reads o
 state.json value written by the most recent PostToolUse invocation or the SessionStart
 baseline.
 
-**Documented exception — `hooks/session_start.py` (CER-047 / Phase 68 INFRA-175):**
-`session_start.py` dispatches to one module:
+**Documented exception — `hooks/session_start.py` (CER-047 / Phase 68 INFRA-175;
+extended INFRA-258):** `session_start.py` makes two bounded delegated calls: the
+counter-reset dispatch below, and a best-effort
+`subagent_transcript.reconcile_pending_attempts()` catch-up (INFRA-258) that backfills
+tokens/outcome for async-spawn effort rows left unreconciled by a prior session —
+bounded (RECONCILE_MAX_ROWS/LINES), wrapped in its own try/except, and unable to
+affect the reset decision or exit status. The reset dispatch:
 
 - **`source` ∈ {`clear`, `startup`} → `session_reset.py`:** resets the live context
   counter to a fresh-session baseline (`state["context_baseline_tokens"]` if set,
