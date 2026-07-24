@@ -1656,6 +1656,52 @@ entire read-modify-write, including the idempotency guard, lives in
   registration degrades to inert noise instead of relying on this
   no-functional-effect property holding again by chance.
 
+**Canonical hook-registration surface for flex itself (INFRA-247):**
+flex registers its own pairmode hooks through exactly **one** active
+mechanism: the plugin manifest, `hooks/hooks.json`. `.claude/settings.json`
+no longer duplicates any pairmode hook registration; as of this story it
+retains only the pytest-on-`.py`-edit `PostToolUse` hook (a project-local
+dev-loop convenience hook, unrelated to pairmode) and the `permissions`
+block.
+
+Prior to this story, flex ran every pairmode hook **twice** per session:
+once via `hooks/hooks.json` (registered whenever flex is enabled as a
+plugin — true for every session in this repo, since flex dogfoods itself)
+and once via a `.claude/settings.json` block that INFRA-233 added while the
+working copy briefly lived at `/mnt/work/flex-harness` on the `fold-prep`
+branch. RELEASE-059's fold brought that settings.json block into
+`/mnt/work/flex` main verbatim, so it kept invoking
+`uv run python /mnt/work/flex-harness/hooks/<name>.py` — a hardcoded sibling
+absolute path into a *different checkout*, byte-identical to flex's own
+hooks only by coincidence and with no mechanism keeping it so. This doubled
+every SessionStart banner, PreToolUse/PostToolUse Task|Agent gate, and
+UserPromptSubmit counter increment (the counter-doubling was audited
+separately at INFRA-248 and found to have no functional effect on
+`context_budget.should_block()`'s ordinal comparison, but was still real
+corruption of the stored counter's absolute value).
+
+Decision: the plugin manifest (`hooks/hooks.json`) is canonical for flex
+itself, not `.claude/settings.json`. Rationale:
+- `hooks/hooks.json` already fires reliably for every session in this repo
+  — flex is always developed against itself as an installed/enabled plugin
+  — so "the manifest might not fire" is not a real risk here (contrast with
+  a downstream fleet project, which may not have flex installed as a
+  plugin at all; that's why `bootstrap.py`/`sync.py` still write a
+  settings.json block for *those* projects).
+- `hooks/hooks.json` resolves every command through
+  `${CLAUDE_PLUGIN_ROOT}`, never a hardcoded path, so it carries none of
+  the cross-checkout drift risk that produced this defect.
+- `hooks/hooks.json` already covers every hook the INFRA-233 dogfooding
+  intent requires — `UserPromptSubmit` (`user_prompt_submit.py`),
+  `SessionStart` (`session_start.py`), and the `PreToolUse`/`PostToolUse`
+  `Task|Agent` context-budget gates (`pre_tool_use.py`,
+  `post_tool_use.py`) — so retiring the settings.json copies drops no
+  dogfooded coverage.
+- Keeping a second, independently-maintained copy of the same
+  registrations in two files is itself the defect class (this story); the
+  fix is one canonical surface, not better deduplication logic across two
+  live surfaces.
+
 The remaining two registered hooks — `stop.py` and `session_end.py` — are plain pipe relays with no dispatch logic and no state.json writes. They do not require thin-delegation exception documentation.
 
 The sidebar does all heavy work asynchronously. If the sidebar is not running, the pipe write
