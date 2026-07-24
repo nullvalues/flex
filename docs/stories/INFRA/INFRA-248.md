@@ -11,7 +11,10 @@ primary_files:
   - .companion/state.json
 touches:
   - hooks/user_prompt_submit.py
+  - skills/pairmode/scripts/user_turn_seq.py
   - tests/pairmode/test_user_prompt_submit_hook.py
+  - tests/pairmode/test_user_turn_seq.py
+  - docs/architecture.md
 ---
 
 ## Context
