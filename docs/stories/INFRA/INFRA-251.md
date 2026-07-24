@@ -14,6 +14,7 @@ touches:
   - skills/pairmode/scripts/context_budget.py
   - tests/pairmode/test_pre_tool_use_hook.py
   - tests/pairmode/test_context_budget.py
+  - docs/architecture.md
 ---
 
 ## Context
