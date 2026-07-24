@@ -45,7 +45,9 @@ def check_path(
     story_id = _read_current_story(project)
     if not story_id:
         relative_path = _normalise(file_path, project)
-        if relative_path is not None and _is_protected(relative_path):
+        if relative_path is None:
+            return False, "path escapes project root"
+        if _is_protected(relative_path):
             return (
                 False,
                 f"{relative_path} is a protected path — requires an active story "
@@ -198,15 +200,45 @@ def _strip_worktree_prefix(path: str, active_story_id: str | None) -> str:
 
 
 def _normalise(file_path: str | Path, project: Path) -> str | None:
+    """Resolve *file_path* to an absolute path and contain it against
+    *project*, returning the repo-relative posix string, or ``None`` if the
+    resolved path is not *project* or a descendant of it (INFRA-255).
+
+    Both relative and absolute inputs are resolved through the same code
+    path: a relative input is joined onto *project* (the main-checkout root
+    returned by ``_resolve_main_project_root()``, NOT the raw ``project_dir``
+    cwd — resolving against a worktree cwd would turn a no-active-story
+    protected-path candidate like ``hooks/x.py`` into
+    ``.pairmode-worktrees/<id>/hooks/x.py``, which no longer matches
+    ``PROTECTED_GLOBS`` in the branch that does not strip the worktree
+    prefix; resolving against the main root instead preserves pre-story
+    semantics for the common case of an already repo-relative path from a
+    build spawn). ``Path.resolve()`` is non-strict on Python 3.11 (it works
+    for paths that do not exist yet, which matters for Write creating a new
+    file) and collapses ``..`` segments, so containment is enforced by
+    ``relative_to()`` on the resolved, absolute path — never by a
+    pre-resolution string check for ``..``, which would be trivially evaded
+    (e.g. a disguised prefix) and is not a security boundary on its own.
+
+    ``resolve()`` also follows symlinks, so a repo-internal symlink pointing
+    outside the project root is denied here too. That is intentional
+    fail-closed behaviour, not a bug — do not "fix" it by skipping symlink
+    resolution.
+    """
     p = Path(file_path)
-    if p.is_absolute():
-        try:
-            return _norm_str(p.resolve().relative_to(project))
-        except ValueError:
-            return None
-    return _norm_str(p)
+    candidate = p if p.is_absolute() else project / p
+    resolved = candidate.resolve()
+    try:
+        relative = resolved.relative_to(project)
+    except ValueError:
+        return None
+    return _norm_str(relative)
 
 
 def _norm_str(p: str | Path) -> str:
     s = Path(p).as_posix()
-    return s.lstrip("./") if s.startswith("./") else s
+    # NOTE: the previous implementation used str.lstrip("./"), which strips
+    # every leading "." and "/" character (a character-class strip), not a
+    # single "./" prefix — so "./../../etc/passwd" was laundered into the
+    # innocuous-looking "etc/passwd". Use a single-prefix removal instead.
+    return s.removeprefix("./")

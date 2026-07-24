@@ -357,3 +357,167 @@ def test_resolve_main_project_root_falls_back_when_not_a_worktree(tmp_path: Path
     git_dir = tmp_path / ".git"
     git_dir.mkdir()
     assert scope_guard._resolve_main_project_root(tmp_path) == tmp_path
+
+
+# ---------------------------------------------------------------------------
+# INFRA-255: relative-path containment — _normalise() / _norm_str() unit
+# tests, plus check_path() traversal-deny regression across every guard
+# state.
+# ---------------------------------------------------------------------------
+
+
+def test_normalise_relative_traversal_escapes_root(tmp_path: Path) -> None:
+    """A relative path with enough '..' segments to walk above the project
+    root must return None — it must NOT be passed through verbatim."""
+    assert scope_guard._normalise("../../../etc/passwd", tmp_path) is None
+
+
+def test_normalise_dotslash_disguised_traversal_escapes_root(tmp_path: Path) -> None:
+    """'./../../etc/passwd' must also resolve+contain to None, not be
+    laundered into a bare-looking relative string."""
+    assert scope_guard._normalise("./../../etc/passwd", tmp_path) is None
+
+
+def test_normalise_absolute_out_of_root_escapes_root(tmp_path: Path) -> None:
+    assert scope_guard._normalise("/etc/passwd", tmp_path) is None
+
+
+def test_normalise_in_root_relative_path_unchanged(tmp_path: Path) -> None:
+    assert scope_guard._normalise("skills/pairmode/scripts/scope_guard.py", tmp_path) == (
+        "skills/pairmode/scripts/scope_guard.py"
+    )
+
+
+def test_normalise_in_root_dotslash_prefixed_path_matches_plain(tmp_path: Path) -> None:
+    assert scope_guard._normalise("./skills/pairmode/scripts/scope_guard.py", tmp_path) == (
+        "skills/pairmode/scripts/scope_guard.py"
+    )
+
+
+def test_normalise_in_root_absolute_path_matches_relative(tmp_path: Path) -> None:
+    abs_path = tmp_path / "skills" / "pairmode" / "scripts" / "scope_guard.py"
+    assert scope_guard._normalise(abs_path, tmp_path) == "skills/pairmode/scripts/scope_guard.py"
+
+
+def test_normalise_traversal_that_lands_back_in_root_resolves(tmp_path: Path) -> None:
+    """'docs/../hooks/pre_tool_use.py' stays inside the root once resolved —
+    it must normalise to its real repo-relative identity, not escape."""
+    assert scope_guard._normalise("docs/../hooks/pre_tool_use.py", tmp_path) == (
+        "hooks/pre_tool_use.py"
+    )
+
+
+def test_norm_str_does_not_launder_dotslash_disguised_traversal() -> None:
+    """Regression for the str.lstrip('./') character-class bug: a path
+    starting with './../../' must not be stripped down to a bare-looking
+    relative string."""
+    result = scope_guard._norm_str("./../../etc/passwd")
+    assert result != "etc/passwd"
+    assert result == "../../etc/passwd"
+
+
+def test_norm_str_removes_single_leading_dotslash_prefix_only() -> None:
+    assert scope_guard._norm_str("./skills/foo.py") == "skills/foo.py"
+
+
+def test_norm_str_leaves_path_without_dotslash_prefix_unchanged() -> None:
+    assert scope_guard._norm_str("skills/foo.py") == "skills/foo.py"
+
+
+TRAVERSAL_PATH = "../../../etc/passwd"
+DOTSLASH_TRAVERSAL_PATH = "./../../etc/passwd"
+
+
+def _state_no_active_story(tmp_path: Path) -> None:
+    _write_state(tmp_path, story_id=None)
+
+
+def _state_missing_permissions(tmp_path: Path) -> None:
+    _write_state(tmp_path, STORY_ID)
+    # Do NOT write a permissions file.
+
+
+def _state_malformed_permissions(tmp_path: Path) -> None:
+    _write_state(tmp_path, STORY_ID)
+    perm_dir = tmp_path / "docs" / "phases" / "permissions"
+    perm_dir.mkdir(parents=True, exist_ok=True)
+    (perm_dir / f"{STORY_ID}.json").write_text("{ not valid json !!!")
+
+
+def _state_empty_allowed_paths(tmp_path: Path) -> None:
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions(tmp_path, STORY_ID, [])
+
+
+def _state_populated_allowed_paths(tmp_path: Path) -> None:
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions(tmp_path, STORY_ID, ["skills/foo.py"])
+
+
+GUARD_STATES = [
+    pytest.param(_state_no_active_story, id="no-active-story"),
+    pytest.param(_state_missing_permissions, id="missing-permissions"),
+    pytest.param(_state_malformed_permissions, id="malformed-permissions"),
+    pytest.param(_state_empty_allowed_paths, id="empty-allowed-paths"),
+    pytest.param(_state_populated_allowed_paths, id="populated-allowed-paths"),
+]
+
+
+@pytest.mark.parametrize("setup_state", GUARD_STATES)
+def test_relative_traversal_denied_in_every_guard_state(tmp_path: Path, setup_state) -> None:
+    """Ensures 6/9: a relative traversal path must be denied with
+    'path escapes project root' regardless of guard state — it must never
+    reach a fail-open return."""
+    setup_state(tmp_path)
+    allowed, reason = scope_guard.check_path(TRAVERSAL_PATH, tmp_path)
+    assert allowed is False
+    assert "escapes project root" in reason
+
+
+@pytest.mark.parametrize("setup_state", GUARD_STATES)
+def test_dotslash_disguised_traversal_denied_in_every_guard_state(
+    tmp_path: Path, setup_state
+) -> None:
+    setup_state(tmp_path)
+    allowed, reason = scope_guard.check_path(DOTSLASH_TRAVERSAL_PATH, tmp_path)
+    assert allowed is False
+    assert "escapes project root" in reason
+
+
+@pytest.mark.parametrize("setup_state", GUARD_STATES)
+def test_absolute_out_of_root_denied_in_every_guard_state(tmp_path: Path, setup_state) -> None:
+    setup_state(tmp_path)
+    allowed, reason = scope_guard.check_path("/etc/passwd", tmp_path)
+    assert allowed is False
+    assert "escapes project root" in reason
+
+
+def test_traversal_back_into_root_protected_path_denied_no_active_story(tmp_path: Path) -> None:
+    """Ensures 8: a protected path expressed with traversal segments that
+    still land inside the repo resolves to its real identity and is denied
+    under the protected-path rule, not laundered past PROTECTED_GLOBS."""
+    _write_state(tmp_path, story_id=None)
+    allowed, reason = scope_guard.check_path("docs/../hooks/pre_tool_use.py", tmp_path)
+    assert allowed is False
+    assert "protected path" in reason
+
+
+def test_traversal_back_into_root_protected_path_denied_mid_story_no_permissions(
+    tmp_path: Path,
+) -> None:
+    _write_state(tmp_path, STORY_ID)
+    allowed, reason = scope_guard.check_path("docs/../hooks/pre_tool_use.py", tmp_path)
+    assert allowed is False
+    assert "protected path" in reason
+
+
+def test_worktree_prefixed_relative_path_still_matches_allowed_paths(tmp_path: Path) -> None:
+    """Regression: the normalisation rewrite must not disturb the existing
+    worktree-prefix-stripping behaviour for the active story's own
+    worktree-relative paths."""
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions(tmp_path, STORY_ID, ["skills/foo.py"])
+    worktree_relative = f".pairmode-worktrees/{STORY_ID}/skills/foo.py"
+    allowed, reason = scope_guard.check_path(worktree_relative, tmp_path)
+    assert allowed is True
+    assert reason == "allowed"

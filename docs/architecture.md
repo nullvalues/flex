@@ -459,6 +459,28 @@ is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
    INFRA-253 (Phase 100), which also retired the `PROTECTED_GLOBS`-duplicate
    static denies in flex's own `.claude/settings.json` (CER-048).
 
+   **Input-normalisation contract (INFRA-255):** every `file_path` scope_guard
+   receives — relative or absolute — is resolved to an absolute path and
+   contained against the project root *before* any `PROTECTED_GLOBS` glob
+   match or `allowed_paths` comparison runs. Relative inputs are resolved
+   against the main-checkout root (`_resolve_main_project_root()`'s return
+   value), never the raw worktree cwd; absolute inputs are resolved as
+   before. `_normalise()` returns `None` for any input whose resolved path is
+   not the project root or a descendant of it, and `check_path()` denies
+   `None` with `"path escapes project root"` in **every** guard state — no
+   active story, active story with a missing/malformed/empty permissions
+   artifact, and active story with a populated `allowed_paths` alike; the
+   no-active-story branch previously fell through to its fail-open
+   `"no active story — allowing"` return for an unresolvable relative path,
+   which is the hole this story closes. Fnmatch-based glob matching on an
+   unresolved path string is not a security boundary — resolution and
+   containment must happen first, or a relative traversal string
+   (`../../../etc/passwd`) or a disguised one (`./../../etc/passwd`) never
+   matches `PROTECTED_GLOBS` and walks straight through the fail-open
+   returns. `resolve()` also follows symlinks, so a repo-internal symlink
+   pointing outside the project root is denied by the same containment
+   check — a deliberate fail-closed reading, not a bug.
+
    **`.claude/settings.json` end-state doctrine (INFRA-253):** settings.json
    carries tooling only — the PostToolUse pytest hook, `Bash` allow rules for
    the permissions CLI, and the `Edit(.claude/agents/**)` allow. It does not
