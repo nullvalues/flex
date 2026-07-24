@@ -36,4 +36,21 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-101 Cold-eyes checklist
 
-— developer fills in after phase completion —
+- **checkpoint-security** — PASS, first run, no findings at any severity.
+  `hooks/` unchanged in the phase diff; INFRA-257's `COUNT(*)` derivation
+  verified indexed (`idx_attempts_story`), bounded, try/except-wrapped, and
+  behind the `effort_tracking` early return; all new SQL uses bound
+  parameters.
+- **checkpoint-intent** — ALIGNED, both stories, no pivots. Touched files are
+  exactly the union of declared `primary_files`/`touches` plus phase docs.
+  "Hooks are thin relays only" explicitly addressed by INFRA-257's bounded
+  one-query design; no ideology drift.
+- **checkpoint-docs** — PASS after a pre-tag docs commit adding the missing
+  Phase 101 CHANGELOG entry and filling this checklist. architecture.md
+  verified accurate against the shipped code (checkpoint-report scoping,
+  `next_attempt_number`, call-site derivation); no stale lifetime-only or
+  always-1 references remain; no new CERs from this phase.
+- **Provenance:** both stories filed from the operator's post-cp100 review of
+  the misleading "builder: 19 attempt(s)" rollup (db-lifetime count read as
+  phase cost) and the all-1s `attempt_number` rows (INFRA-247/248 shape);
+  operator directed fixing both before continuing the fleet rollout.
