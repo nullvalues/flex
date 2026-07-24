@@ -84,6 +84,11 @@ state.json writes. They do not violate the thin-relay contract.
   `session_reset.py` (CER-047/INFRA-175). Authorized state.json writes:
   the context-token count baseline, its recorded-at timestamp, and the
   session-reset timestamp.
+- `hooks/user_prompt_submit.py` — dispatches every `UserPromptSubmit` event →
+  `user_turn_seq.py` (INFRA-192/INFRA-248): a single delegated call to
+  `user_turn_seq.record_user_turn(project_dir, data)`, no decision logic, no
+  block/reason emission. Authorized state.json writes:
+  `context_budget_user_turn_seq` and `context_budget_user_turn_seq_fingerprint`.
 
 These state.json writes are the designed write path for the context-budget
 system — not pipe-contract violations. The `cwd` value used to locate
@@ -136,7 +141,7 @@ exceptions in check 1?
 Does any skill script directly modify files in `hooks/`?
 
 Hooks may not import from skills. The boundary in `hooks/` is import-free from
-the skills layer. Check all `import` statements in `hooks/` scripts; the three
+the skills layer. Check all `import` statements in `hooks/` scripts; the four
 dispatcher hooks listed in check 1 are explicitly excluded from this check.
 
 ---
