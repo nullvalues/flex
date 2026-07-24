@@ -88,7 +88,45 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-99 Cold-eyes checklist
 
-— developer fills in after phase completion —
+- **checkpoint-security** — PASS (after one fix cycle). First run FAILed HIGH:
+  INFRA-248's conversion of `hooks/user_prompt_submit.py` into a fourth thin
+  dispatcher was documented in `docs/architecture.md` but absent from the
+  security-auditor procedure's check-1/check-6 exception list — an
+  authorization-doc gap, not a code hazard (the auditor itself recommended a
+  procedure update, not a rollback). Fixed via mid-phase story INFRA-252
+  (procedure-text-only), then re-ran clean: 0 CRITICAL / 0 HIGH, full suite
+  3264 passed / 0 failed.
+- **checkpoint-intent** — ALIGNED, all six stories. Operator/orchestrator-applied
+  writes (INFRA-247 `.claude/settings.json`, INFRA-249 `.companion/state.json`)
+  both anticipated by the stories' own Ensures fallbacks and documented in build
+  notes. Two advisory findings surfaced to operator, not auto-filed: (1) two
+  classifier-forced bypasses in one phase reinforce CER-048's fix direction;
+  (2) `docs/ideology.md`'s "no override permitted" state-write constraints are
+  unreconciled with the four architecture.md-documented hook exceptions (MEDIUM).
+- **checkpoint-docs** — PASS with one HIGH that was mid-checkpoint state, not a
+  gap: `docs/phases/index.md` still showed phase 99 `planned`; resolved by the
+  tagging step itself. All architecture.md sections (state.json key inventory,
+  context-budget contract, canonical-surface decision record) verified current.
+- **Resolver-heuristic hazard confirmed live** — exactly as INFRA-247's build
+  notes warned, the cold-resume resolver read commit `9521b74` as INFRA-247
+  built and skipped to INFRA-248; the remainder had to be dispatched explicitly.
+  The hazard note in the story doc is what caught it — worth keeping that
+  pattern for any future operator-applied partial.
+- **Scope-declaration gaps forced two mid-build spec amendments** — INFRA-248
+  (new module + architecture.md not in `touches`; builder hard-blocked by
+  scope_guard, worktree recreated) and INFRA-251 (architecture.md missing;
+  permissions regenerated in place, builder resumed without losing its diff).
+  Spec-writers should declare `docs/architecture.md` whenever a story alters a
+  documented contract, and declare new-module paths explicitly.
+- **Review quality** — INFRA-248 took three cycles (docs currency → thin-hook
+  CRITICAL → PASS); the reviewer chain caught a genuine architecture violation
+  (inline hook logic) that the builder's first restructure missed. All reviewer
+  commit/revert claims were verified against `git log`/`git status` before
+  being trusted (per the CP-96 reliability note; no discrepancies this phase).
+- **Gate self-test** — the context-budget gate fixed in INFRA-251 fired live at
+  this phase's own checkpoint boundary and its ack-clear worked as rebuilt: the
+  operator's next genuine user turn cleared the block, first spawn after ack
+  went through. Dogfood confirmation of the fix under real conditions.
 
 **Mid-phase addition (2026-07-24, checkpoint remediation):** INFRA-252 was added
 when the checkpoint security audit flagged (HIGH) that the security-auditor
