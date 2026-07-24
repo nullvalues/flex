@@ -252,9 +252,40 @@ def test_bare_retry_without_user_turn_blocks_again(tmp_path):
 
 
 def test_retry_after_user_prompt_submit_suppresses(tmp_path):
-    """A genuine UserPromptSubmit event since the block (user_turn_seq
-    incremented past acknowledged_user_turn_seq) with the token margin
-    satisfied → suppressed (empty stdout)."""
+    """INFRA-251 exact-repro shape: a genuine UserPromptSubmit event since
+    the block (user_turn_seq incremented past acknowledged_user_turn_seq),
+    with context_current_tokens UNCHANGED from acknowledged_at (nothing ran
+    between the block and the retry to grow it — the live-observed shape)
+    → suppressed (empty stdout), without requiring token growth past
+    reprompt_margin. Before the INFRA-251 sign fix in should_block(), this
+    exact shape stayed blocked forever."""
+    _seed_state(
+        tmp_path,
+        {
+            "context_budget_threshold": 1000,
+            "context_budget_overrun_pct": 0.5,
+            "expected_step_tokens": 10,
+            "context_budget_reprompt_margin": 100,
+            "context_current_tokens": 1600,
+            "context_budget_acknowledged_at": 1600,
+            "context_budget_user_turn_seq": 3,
+            "context_budget_acknowledged_user_turn_seq": 2,
+        },
+    )
+    result = _run_hook({
+        "tool_name": "Task",
+        "tool_input": {"subagent_type": "builder"},
+        "cwd": str(tmp_path),
+    })
+    assert result.returncode == 0
+    assert result.stdout.strip() == b""
+
+
+def test_retry_after_user_prompt_submit_reblocks_when_margin_crossed(tmp_path):
+    """INFRA-251 Ensures #2: after a genuine turn, if tokens have ALSO
+    genuinely advanced past the reprompt margin since the acknowledgment,
+    the gate re-blocks (now actually reachable — this exact shape
+    incorrectly suppressed before the INFRA-251 sign fix)."""
     _seed_state(
         tmp_path,
         {
@@ -274,7 +305,8 @@ def test_retry_after_user_prompt_submit_suppresses(tmp_path):
         "cwd": str(tmp_path),
     })
     assert result.returncode == 0
-    assert result.stdout.strip() == b""
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
 
 
 # ---------------------------------------------------------------------------

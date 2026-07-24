@@ -142,13 +142,16 @@ def compute_context_tokens(transcript_path: Path) -> "int | None":
     """Bounded reverse scan of ``transcript_path``; return the live context token count.
 
     Reads the last 500 lines of the file (bounded tail) and walks them in
-    reverse to find the last ``type: "assistant"`` entry with a
-    ``message.usage`` block. Returns the sum of:
+    reverse to find the last **non-sidechain** (``isSidechain`` falsy)
+    ``type: "assistant"`` entry with a ``message.usage`` block — sidechain
+    entries (a spawned subagent's own turns, INFRA-251) are skipped; they
+    measure the subagent's disposable context, not the orchestrator's own
+    live window. Returns the sum of:
       ``input_tokens + cache_read_input_tokens + cache_creation_input_tokens``
 
     Returns ``None`` if:
     - File is missing or unreadable (OSError).
-    - No valid assistant entry with a ``usage`` dict is found.
+    - No valid non-sidechain assistant entry with a ``usage`` dict is found.
     - Any numeric value is non-numeric.
     - Any exception occurs.
 
@@ -170,6 +173,28 @@ def compute_context_tokens(transcript_path: Path) -> "int | None":
             except json.JSONDecodeError:
                 continue
             if not isinstance(entry, dict):
+                continue
+            if entry.get("isSidechain"):
+                # INFRA-251 (writer-liveness root cause): a spawned
+                # subagent's own turns are appended to the SAME session
+                # JSONL as ``isSidechain: True`` entries, each carrying its
+                # own ``usage`` block for the subagent's disposable context
+                # — not the orchestrator's own live window. PostToolUse
+                # fires immediately after a Task/Agent tool call completes,
+                # i.e. immediately after the subagent's sidechain entries
+                # were appended and before the orchestrator emits its own
+                # next turn — so an un-filtered reverse scan matched the
+                # subagent's last sidechain entry here, not the
+                # orchestrator's own growth, reproducing the "writer dead
+                # in-session" symptom (quoting byte-identical/wrong numbers
+                # after every spawn). ``subagent_transcript.py`` already
+                # scans the sidechain-only side of this same split for its
+                # own (correct) purpose — see its module docstring and
+                # ``extract_subagent_usage`` — and § effort.db ≠
+                # context-control invariant (DP7): a subagent's own cost
+                # must never substitute for the orchestrator's own window
+                # occupancy. Skip sidechain entries; only the orchestrator's
+                # own non-sidechain turns count toward context_current_tokens.
                 continue
             if entry.get("type") != "assistant":
                 continue
@@ -369,15 +394,15 @@ def should_block(
 ) -> bool:
     """Pure decision. Block iff the ceiling is exceeded AND acknowledgment does
     not clear the gate. Acknowledgment clearing has three distinct branches
-    (INFRA-193):
+    (INFRA-193; sign-corrected INFRA-251 — see below):
 
       - ``acknowledged_at is None``: no prior acknowledgment — always block.
       - ``acknowledged_user_turn_seq is None`` (pre-INFRA-192 state.json,
         one-time upgrade grace period): no turn tracking is available for
         this acknowledgment, so behave exactly as the pre-INFRA-193
-        contract — block iff ``current_tokens < acknowledged_at +
-        reprompt_margin`` (i.e. suppress once the token margin is crossed,
-        turn-blind).
+        contract — re-block once real token growth crosses the margin
+        (``current_tokens >= acknowledged_at + reprompt_margin``),
+        turn-blind.
       - ``acknowledged_user_turn_seq`` is set but no ``UserPromptSubmit``
         event has occurred since the block (``user_turn_seq <=
         acknowledged_user_turn_seq``): always block. This closes the
@@ -385,9 +410,23 @@ def should_block(
         involvement (``current_tokens == acknowledged_at`` on a blocked
         call that never completed) must not silently clear the gate.
       - ``acknowledged_user_turn_seq`` is set and a genuine turn has
-        occurred (``user_turn_seq > acknowledged_user_turn_seq``):
-        suppress once the token margin is crossed
-        (``current_tokens >= acknowledged_at + reprompt_margin``).
+        occurred (``user_turn_seq > acknowledged_user_turn_seq``): clear
+        (suppress) the block — the operator has now had a turn to see and
+        respond to the prompt — UNLESS tokens have ALSO genuinely advanced
+        past the reprompt margin since the acknowledgment
+        (``current_tokens >= acknowledged_at + reprompt_margin``), in which
+        case re-block (Ensures #2 of INFRA-251: re-block only on real
+        growth, now actually reachable).
+
+    INFRA-251: this last branch previously returned ``not token_ok`` — the
+    opposite of the two branches above it. Every live-observed repro (block
+    → genuine operator turn → retry, with ``context_current_tokens``
+    unchanged from ``acknowledged_at`` because nothing had run since the
+    block to grow it) hit exactly this branch with ``token_ok is False``
+    (no growth), and the inverted sign turned that into ``True`` (still
+    blocked) — the reported "acknowledgment never clears" defect. The fix
+    makes all three token-margin branches agree: block on crossed margin,
+    clear otherwise.
 
     Collapsing the last two branches into a single boolean (`turn happened
     or turn-tracking absent`) is intentionally avoided — the "no turn yet"
@@ -400,17 +439,21 @@ def should_block(
         return False
     if acknowledged_at is None:
         return True
-    token_ok = current_tokens >= acknowledged_at + reprompt_margin
+    # margin_crossed: real token growth since the acknowledgment has crossed
+    # the reprompt margin — the signal that re-blocking is warranted.
+    margin_crossed = current_tokens >= acknowledged_at + reprompt_margin
     if acknowledged_user_turn_seq is None:
         # Backward-compat upgrade path: no turn tracking recorded for this
         # acknowledgment — fall back to the pre-INFRA-193 token-only check
         # (block iff the token margin has been crossed since ack).
-        return token_ok
+        return margin_crossed
     if user_turn_seq <= acknowledged_user_turn_seq:
         # No UserPromptSubmit event since the block was written — a human
         # has not yet had a turn to see and respond to the prompt.
         return True
-    return not token_ok
+    # A genuine turn has occurred since the block. Re-block only if tokens
+    # have ALSO genuinely advanced past the reprompt margin (INFRA-251).
+    return margin_crossed
 
 
 # ---------------------------------------------------------------------------

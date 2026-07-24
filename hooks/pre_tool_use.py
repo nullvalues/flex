@@ -124,6 +124,16 @@ def main():
             sys.exit(0)
 
         if result and result.get("block"):
+            # INFRA-251: every block (including a re-block) re-stamps both
+            # keys to the current values. This is safe post-INFRA-251
+            # (unlike the pre-fix behavior, where a `should_block()` sign
+            # inversion caused a spurious re-block on a retry that should
+            # have passed, and the re-stamp then discarded the just-granted
+            # acknowledgment) — a genuine re-block now only happens when
+            # `should_block()` determined real token growth crossed the
+            # margin, at which point starting a fresh acknowledgment cycle
+            # at the new level/turn is the correct INFRA-193 contract, not a
+            # bug. See skills/pairmode/scripts/context_budget.py::should_block.
             try:
                 state_path = project_dir / ".companion" / "state.json"
                 if state_path.exists():

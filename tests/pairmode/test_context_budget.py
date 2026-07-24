@@ -273,6 +273,68 @@ def test_compute_context_tokens_skips_malformed_json(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# INFRA-251: writer-liveness root cause — isSidechain entries must be
+# skipped. PostToolUse fires immediately after a Task/Agent tool call
+# completes, i.e. immediately after the spawned subagent's own sidechain
+# turns were appended to the transcript and before the orchestrator's own
+# next turn exists. A reverse scan that does not filter isSidechain matches
+# the subagent's own last turn instead of the orchestrator's own window —
+# this is the diagnosed root cause of the "writer dead in-session" defect.
+# ---------------------------------------------------------------------------
+
+
+def test_compute_context_tokens_skips_trailing_sidechain_entry(tmp_path):
+    """The last entry is a subagent's own (isSidechain: True) turn appended
+    right after a Task/Agent call; the orchestrator's own (isSidechain:
+    False) prior turn must be used instead, not the sidechain one."""
+    f = tmp_path / "t.jsonl"
+    f.write_text(
+        _make_jsonl([
+            {**_assistant_entry(input_tokens=20000), "isSidechain": False},
+            {"type": "user", "isSidechain": False, "message": {"content": []}},
+            {**_assistant_entry(input_tokens=999), "isSidechain": True},
+        ]),
+        encoding="utf-8",
+    )
+    result = context_budget.compute_context_tokens(f)
+    assert result == 20000  # orchestrator's own turn, not the sidechain 999
+
+
+def test_compute_context_tokens_skips_multiple_trailing_sidechain_entries(tmp_path):
+    """Several sidechain turns (a longer subagent conversation) trailing the
+    orchestrator's own last turn are all skipped."""
+    f = tmp_path / "t.jsonl"
+    f.write_text(
+        _make_jsonl([
+            {**_assistant_entry(input_tokens=15000), "isSidechain": False},
+            {**_assistant_entry(input_tokens=100), "isSidechain": True},
+            {**_assistant_entry(input_tokens=200), "isSidechain": True},
+            {**_assistant_entry(input_tokens=300), "isSidechain": True},
+        ]),
+        encoding="utf-8",
+    )
+    result = context_budget.compute_context_tokens(f)
+    assert result == 15000
+
+
+def test_compute_context_tokens_uses_own_turn_when_it_is_last(tmp_path):
+    """Sanity check: when the orchestrator's own turn genuinely is the last
+    entry (its own post-tool-result turn already ran), it is still found
+    normally — the isSidechain filter must not exclude non-sidechain
+    entries."""
+    f = tmp_path / "t.jsonl"
+    f.write_text(
+        _make_jsonl([
+            {**_assistant_entry(input_tokens=100), "isSidechain": True},
+            {**_assistant_entry(input_tokens=25000), "isSidechain": False},
+        ]),
+        encoding="utf-8",
+    )
+    result = context_budget.compute_context_tokens(f)
+    assert result == 25000
+
+
+# ---------------------------------------------------------------------------
 # INFRA-241: transcript-entry-shape drift canary.
 #
 # Not a parser rewrite and not new parsing logic -- compute_context_tokens()
@@ -640,8 +702,34 @@ def test_should_block_bare_retry_without_user_turn_stays_blocked():
 
 
 def test_should_block_suppresses_after_genuine_user_turn():
-    """A genuine UserPromptSubmit event since the block (user_turn_seq
-    incremented) plus the token margin satisfied → suppressed (False)."""
+    """INFRA-251 exact-repro shape: a genuine UserPromptSubmit event since
+    the block (user_turn_seq incremented), with tokens UNCHANGED from the
+    acknowledged level (nothing has run since the block to grow them, the
+    live-observed scenario) → suppressed (False), not requiring token growth
+    past reprompt_margin (Ensures #1). Prior to INFRA-251 the final branch
+    of should_block() returned ``not token_ok`` (inverted) and this exact
+    shape stayed blocked forever — the "acknowledgment never clears"
+    regression."""
+    assert (
+        context_budget.should_block(
+            current_tokens=140_000,
+            expected_next=15_000,
+            threshold=120_000,
+            overrun_pct=0.10,
+            acknowledged_at=140_000,
+            reprompt_margin=10_000,
+            user_turn_seq=4,
+            acknowledged_user_turn_seq=3,
+        )
+        is False
+    )
+
+
+def test_should_block_reblocks_after_genuine_user_turn_when_margin_crossed():
+    """INFRA-251 Ensures #2: after a genuine turn, if tokens have ALSO
+    genuinely advanced past the reprompt margin since the acknowledgment,
+    the gate re-blocks (now actually reachable — before the INFRA-251 sign
+    fix this exact shape was the one case that incorrectly SUPPRESSED)."""
     assert (
         context_budget.should_block(
             current_tokens=150_000,
@@ -653,7 +741,7 @@ def test_should_block_suppresses_after_genuine_user_turn():
             user_turn_seq=4,
             acknowledged_user_turn_seq=3,
         )
-        is False
+        is True
     )
 
 
@@ -881,6 +969,62 @@ def test_decide_returns_none_when_state_absent(tmp_path):
 # ---------------------------------------------------------------------------
 # decide — INFRA-193 user-turn acknowledgment gate
 # ---------------------------------------------------------------------------
+
+
+def test_decide_exact_observed_sequence_block_then_user_turn_then_retry_passes(
+    tmp_path,
+):
+    """INFRA-251 Ensures #1 — reproduces the exact operator-observed sequence
+    and asserts the retry passes:
+
+      1. decide() blocks (no prior acknowledgment).
+      2. The hook's block-time state write is simulated (acknowledged_at +
+         acknowledged_user_turn_seq stamped, mirroring hooks/pre_tool_use.py).
+      3. A genuine operator turn occurs (context_budget_user_turn_seq
+         advances — mirrors hooks/user_prompt_submit.py).
+      4. The identical spawn is retried with context_current_tokens
+         UNCHANGED (nothing ran between the block and the retry to grow it —
+         the exact live-observed shape) → decide() must return None (pass),
+         not block again.
+
+    Before the INFRA-251 sign fix, step 4 blocked again — the "Say: Continue
+    building" instruction in the block message was a lie.
+    """
+    state = {
+        "context_budget_threshold": 120_000,
+        "context_budget_overrun_pct": 0.10,
+        "expected_step_tokens": 5_000,
+        "context_budget_reprompt_margin": 10_000,
+        "current_phase": "99",
+        "current_story": "INFRA-251",
+        "context_current_tokens": 128_000,
+        "context_budget_user_turn_seq": 143,
+    }
+    project_dir = _setup_project(tmp_path, state=state)
+    state_path = project_dir / ".companion" / "state.json"
+
+    # 1. First attempt: blocks (no prior acknowledgment).
+    result = context_budget.decide(project_dir)
+    assert result is not None
+    assert result["block"] is True
+    assert result["user_turn_seq_at_block"] == 143
+
+    # 2. Simulate the hook's block-time write (hooks/pre_tool_use.py).
+    on_disk = json.loads(state_path.read_text(encoding="utf-8"))
+    on_disk["context_budget_acknowledged_at"] = result["acknowledged_at"]
+    on_disk["context_budget_acknowledged_user_turn_seq"] = result[
+        "user_turn_seq_at_block"
+    ]
+    state_path.write_text(json.dumps(on_disk), encoding="utf-8")
+
+    # 3. A genuine operator turn occurs (hooks/user_prompt_submit.py).
+    on_disk["context_budget_user_turn_seq"] = 150
+    state_path.write_text(json.dumps(on_disk), encoding="utf-8")
+
+    # 4. Retry — context_current_tokens is unchanged (128_000, same as the
+    #    block). The retry must pass.
+    retry = context_budget.decide(project_dir)
+    assert retry is None
 
 
 def test_decide_block_dict_includes_user_turn_seq_at_block(tmp_path):

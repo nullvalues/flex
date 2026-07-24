@@ -1349,6 +1349,23 @@ Fields:
   by `bootstrap.py::_record_state()` on new state creation (Phase 67 INFRA-174).
   Read by `context_budget.decide()` as the sole token source. Not written by the
   companion sidebar.
+  **INFRA-251 writer-liveness root cause, fixed:** `context_budget.compute_context_tokens()`
+  (the bounded reverse-scan the writer calls) did not filter on the transcript's
+  `isSidechain` field. `PostToolUse` fires immediately after a `Task`/`Agent` tool call
+  completes — i.e. immediately after the spawned subagent's own turns were appended to the
+  *same* session JSONL as `isSidechain: true` entries, and before the orchestrator emits its
+  own next turn. An un-filtered reverse scan therefore matched the subagent's own last
+  `usage` block (its disposable context, unrelated to the orchestrator's window — see §
+  effort.db ≠ context-control invariant, DP7, and `subagent_transcript.py`'s sibling
+  `isSidechain: true`-only scan for the correct converse) instead of the orchestrator's own
+  growth, reproducing the "writer dead in-session" symptom (frozen/wrong counter across
+  repeated spawns). Fixed: `compute_context_tokens()` now skips `isSidechain: true` entries
+  and finds the last **non-sidechain** assistant turn — the orchestrator's own last known
+  value, correctly lagging by at most one hook-fire rather than silently substituting a
+  subagent's number. Regression tests:
+  `test_context_budget.py::test_compute_context_tokens_skips_trailing_sidechain_entry`,
+  `test_context_budget.py::test_compute_context_tokens_skips_multiple_trailing_sidechain_entries`,
+  `test_context_budget.py::test_compute_context_tokens_uses_own_turn_when_it_is_last`.
 - `context_current_tokens_recorded_at` — **optional**; UTC ISO-8601 timestamp string;
   written alongside `context_current_tokens` by `post_tool_use.py` (Task/Agent branch),
   `flex_build.py set-context-tokens`, and `session_start.py` (SessionStart reset).
@@ -1357,6 +1374,38 @@ Fields:
 - `context_current_tokens_ttl_minutes` — **optional**; integer; legacy field from the
   scalar TTL-based staleness check. No longer used after INFRA-182 replaced TTL-based
   staleness with `context_session_reset_at` comparison. Safe to leave in state.json.
+- `expected_step_tokens` — **optional**; positive integer; the per-step context-growth
+  constant `decide()` passes as `estimate_next_step_tokens()`'s `seeded_default` (the ceiling
+  arithmetic is `context_current_tokens + expected_step_tokens > threshold * (1 +
+  overrun_pct)`). **INFRA-251 decision — deliberately a static default, not derived from
+  effort.db:** CER-053 and § effort.db ≠ context-control invariant (DP7) forbid deriving this
+  window-growth constant from `effort.db` (a subagent's own retrospective cost must never
+  feed an orchestrator context-headroom decision) — so `estimate_next_step_tokens()`'s
+  three-tier effort.db waterfall (per-phase median / global median / seeded default) is
+  permanently unreached from `decide()`, which always calls it with `db_path=None`; this is
+  by design, not a dead recompute path to be revived. The maintained default is
+  `context_model.THIN_HARNESS_STEP_TOKENS` (currently `5000`); `decide()` uses
+  `state["expected_step_tokens"]` when present (a legitimate, intentional per-project
+  override — see `bootstrap.py::_load_seed_expected_step_tokens()` and
+  `sync.py`, both of which seed new/synced projects with the constant) and falls back to the
+  constant when absent.
+  **Era-2 fossil, correction path (not a decide()-time code change):** every fleet project's
+  state.json was seeded weeks ago with a static `53000` (a rounded historical
+  builder-attempt median from the pre-thin-harness design) that no writer has refreshed
+  since — `pairmode_migrate.py`'s `to-030 --apply` subcommand already diagnoses and corrects
+  this (`ERA2_STAMP = 53000` → `THIN_HARNESS_STEP_TOKENS`, its "B6" step, tested by
+  `test_pairmode_migrate.py`), preserving any other explicit value as a deliberate custom
+  override (`[WARN] custom expected_step_tokens=... value kept`). `decide()` intentionally
+  does **not** special-case the literal `53000` at read time —
+  `test_expected_step_tokens_source.py::test_context_budget_fallback_not_53000` asserts that
+  literal never appears in `context_budget.py`, and several existing `decide()` tests
+  legitimately seed `expected_step_tokens=53_000` as an honored per-project value — so the
+  correction is applied once, at the state.json layer, via the migration tool, not
+  re-derived on every `decide()` call. flex's own `.companion/state.json` (main checkout) and
+  the wider fleet's stamped values are out of this story's/worktree's scope (phase-99
+  explicitly excludes fleet projects; flex's own runtime state.json is not a
+  `primary_files`/`touches` path for this story) — running `pairmode_migrate.py to-030
+  --apply` against them is a separate, already-tooled operator action.
 - `context_baseline_tokens` — **optional**; positive integer; operator-tunable per-project
   override for the fresh-session baseline written by the SessionStart `clear`/`startup`
   counter reset (Phase 68 INFRA-175). Read by `session_reset.decide_reset()`; when absent,
@@ -1371,6 +1420,28 @@ Fields:
   written alongside `context_budget_acknowledged_at` in the same `write_text()` call.
   `None`/absent is treated as a pre-INFRA-192 upgrade grace period by `should_block()` and
   does not itself force a block. INFRA-193.
+  **INFRA-251 era-2 regression, fixed:** the branch of `should_block()` that runs once a
+  genuine turn has occurred (`user_turn_seq > acknowledged_user_turn_seq`) returned
+  `not token_ok` — the opposite sign of the two branches beside it — so a retry with
+  `context_current_tokens` unchanged from `acknowledged_at` (the common case: nothing has
+  run between the block and the retry to grow the counter) stayed blocked forever, and
+  `hooks/pre_tool_use.py` then re-stamped `context_budget_acknowledged_user_turn_seq` to the
+  *current* turn-seq on that spurious re-block — discarding the operator turn that should
+  have cleared it, so "Say: Continue building" in the block message could never actually
+  succeed. This predates the RELEASE-059 fold and is believed to be a weeks-old, fleet-wide
+  regression, never revisited while 0.3 harness work moved (era-2). Fixed by aligning the
+  sign: `should_block()` now blocks iff genuine token growth (`current_tokens >=
+  acknowledged_at + reprompt_margin`) has occurred since the acknowledgment, in every branch
+  — a bare turn with no growth clears the gate (INFRA-251 Ensures #1); real growth still
+  re-blocks (Ensures #2, the original INFRA-193 intent, now actually reachable).
+  `hooks/pre_tool_use.py`'s unconditional re-stamp on every block is unchanged and remains
+  correct post-fix: a *genuine* re-block (real growth past the margin) legitimately starts a
+  fresh acknowledgment cycle at the new token level/turn. Regression tests:
+  `test_context_budget.py::test_decide_exact_observed_sequence_block_then_user_turn_then_retry_passes`,
+  `test_context_budget.py::test_should_block_suppresses_after_genuine_user_turn`,
+  `test_context_budget.py::test_should_block_reblocks_after_genuine_user_turn_when_margin_crossed`,
+  `test_pre_tool_use_hook.py::test_retry_after_user_prompt_submit_suppresses`,
+  `test_pre_tool_use_hook.py::test_retry_after_user_prompt_submit_reblocks_when_margin_crossed`.
 - `context_budget_user_turn_seq_fingerprint` — **optional**; string; sha256 hex digest of
   the identifying fields (`session_id` + `prompt`) of the most recently processed
   `UserPromptSubmit` event, written by `skills/pairmode/scripts/user_turn_seq.py`
@@ -1508,7 +1579,8 @@ In addition to the file-change relay role, `post_tool_use.py` handles Task/Agent
 PostToolUse events with two independently try/excepted delegated calls:
 
 - Calls `context_budget.read_current_tokens(project_dir, session_id)` to read the live
-  token count from the JSONL transcript (bounded reverse scan). Writes
+  token count from the JSONL transcript (bounded reverse scan, `isSidechain: true` entries
+  skipped — INFRA-251, see `context_current_tokens`'s writer-liveness note above). Writes
   `context_current_tokens` + `context_current_tokens_recorded_at` to state.json.
 - Calls `subagent_transcript.record_attempt_from_transcript(project_dir, session_id,
   tool_input, tool_response, tool_use_id)` (INFRA-236) to read the just-completed
