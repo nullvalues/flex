@@ -2,7 +2,7 @@
 id: INFRA-253
 rail: INFRA
 title: Close scope_guard fail-open hole for protected paths; retire redundant settings.json denies; resolve CER-048
-status: planned
+status: complete
 phase: "100"
 story_class: code
 auth_gated: false

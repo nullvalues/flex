@@ -19,7 +19,7 @@ classifier entirely.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-253 | Close scope_guard fail-open hole for protected paths; retire redundant settings.json denies; resolve CER-048 | planned |
+| INFRA-253 | Close scope_guard fail-open hole for protected paths; retire redundant settings.json denies; resolve CER-048 | complete |
 
 **Sequencing:** independent of phase 97 (fleet re-sync), but should land
 before it — phase 97's sync runs will exercise downstream settings.json
