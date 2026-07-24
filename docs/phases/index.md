@@ -119,7 +119,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | HARNESS016-main | Final fold — pre-fold gate, merge to main, re-sync | deferred | [phase-HARNESS016-main.md](phase-HARNESS016-main.md) — paused 2026-07-21, forked to Phase 96 |
 | 96 | Build-loop revert safety and worktree-per-cycle isolation | complete | [phase-96.md](phase-96.md) |
 | 97 | Fold resume — pre-fold gate, fleet migration, merge to main, re-sync | planned | [phase-97.md](phase-97.md) |
-| 98 | 0.2 → 0.3 regression remediation | planned | [phase-98.md](phase-98.md) |
+| 98 | 0.2 → 0.3 regression remediation | complete | [phase-98.md](phase-98.md) · cp98-context-budget-regression-remediation |
 
 ---
 
