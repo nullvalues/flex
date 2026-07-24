@@ -2,7 +2,7 @@
 id: INFRA-254
 rail: INFRA
 title: Restore live expected_step_tokens from observed orchestrator growth; growth-based gate re-arm past threshold
-status: planned
+status: complete
 phase: "100"
 story_class: code
 auth_gated: false
