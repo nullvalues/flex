@@ -3,8 +3,12 @@ scope_guard.py — Story file-scope enforcement for the pre_tool_use hook.
 
 check_path(file_path, project_dir) -> (allowed: bool, reason: str)
 
-Fails open: when state, permissions file, or any read fails, returns (True, reason).
-Protected paths (PROTECTED_GLOBS) are blocked even with no active story.
+Fails open for non-protected paths: when state, permissions file, or any read
+fails, returns (True, reason). Protected paths (PROTECTED_GLOBS) fail closed —
+blocked with no active story, AND blocked mid-story whenever the active
+story's permissions artifact is missing, empty, or malformed (INFRA-253):
+a protected path is only satisfiable by an explicit entry in the story's
+permissions artifact (derived from the story's `primary_files` + `touches`).
 """
 from __future__ import annotations
 
@@ -44,21 +48,52 @@ def check_path(
         if relative_path is not None and _is_protected(relative_path):
             return (
                 False,
-                f"{relative_path} is a protected path — requires an active story with this file in primary_files",
+                f"{relative_path} is a protected path — requires an active story "
+                "with this file in primary_files or touches, authorized via "
+                "docs/phases/permissions/<story_id>.json",
             )
         return True, "no active story — allowing"
-
-    allowed_paths = _read_allowed_paths(project, story_id)
-    if allowed_paths is None:
-        return True, f"no permissions file for {story_id} — allowing"
-    if not allowed_paths:
-        return True, f"empty allowed_paths for {story_id} — allowing"
 
     normalised = _normalise(file_path, project)
     if normalised is None:
         return False, "path escapes project root"
 
+    # INFRA-253: protected-path status is checked against the worktree-stripped
+    # candidate (the real repo-relative identity of the path), not the raw
+    # (possibly worktree-prefixed) normalised path.
     candidate = _strip_worktree_prefix(normalised, story_id)
+    protected = _is_protected(candidate)
+
+    allowed_paths, status = _read_allowed_paths(project, story_id)
+
+    if status == "missing":
+        if protected:
+            return False, (
+                f"{candidate} is a protected path — no permissions artifact for "
+                f"{story_id} (docs/phases/permissions/{story_id}.json missing); "
+                "authorization requires the path in the story's primary_files "
+                "or touches"
+            )
+        return True, f"no permissions file for {story_id} — allowing"
+
+    if status == "malformed":
+        if protected:
+            return False, (
+                f"{candidate} is a protected path — permissions artifact for "
+                f"{story_id} is malformed; authorization requires the path in "
+                "the story's primary_files or touches"
+            )
+        return True, f"malformed permissions file for {story_id} — allowing"
+
+    # status == "ok"
+    if not allowed_paths:
+        if protected:
+            return False, (
+                f"{candidate} is a protected path — empty allowed_paths for "
+                f"{story_id}; authorization requires the path in the story's "
+                "primary_files or touches"
+            )
+        return True, f"empty allowed_paths for {story_id} — allowing"
 
     if candidate in allowed_paths:
         return True, "allowed"
@@ -110,16 +145,25 @@ def _read_current_story(project: Path) -> str | None:
         return None
 
 
-def _read_allowed_paths(project: Path, story_id: str) -> list[str] | None:
+def _read_allowed_paths(project: Path, story_id: str) -> tuple[list[str] | None, str]:
+    """Returns (allowed_paths, status) where status is one of:
+    "missing" (no permissions artifact for the story), "malformed" (artifact
+    exists but is unreadable/invalid), or "ok" (artifact read successfully;
+    allowed_paths may still be an empty list).
+
+    INFRA-253: status is reported separately from the list itself so
+    check_path() can distinguish these three fail-open triggers and apply
+    the fail-closed protected-path override to each independently.
+    """
     perm_path = project / "docs" / "phases" / "permissions" / f"{story_id}.json"
     if not perm_path.exists():
-        return None
+        return None, "missing"
     try:
         data = json.loads(perm_path.read_text())
         paths = data.get("allowed_paths")
-        return [_norm_str(p) for p in paths] if isinstance(paths, list) else []
+        return ([_norm_str(p) for p in paths] if isinstance(paths, list) else []), "ok"
     except Exception:
-        return None  # malformed — fail open
+        return None, "malformed"
 
 
 _WORKTREE_PREFIX = ".pairmode-worktrees/"

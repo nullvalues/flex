@@ -359,11 +359,42 @@ is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
    path is declared in the active story's `primary_files` or `touches`. If the
    path is not declared, the hook emits `{"decision": "block", "reason": "..."}`.
    On any error (missing state, missing permissions file, malformed JSON), the
-   check fails open for non-protected paths so non-story orchestrator work
-   (checkpointing, spec mode) is never blocked. However, paths matching
-   PROTECTED_GLOBS fail closed even without an active story (INFRA-196), so
-   protected paths are always blocked outside an active story context.
-   Introduced in Phase 55 (INFRA-138, INFRA-139).
+   check fails open for **non-protected** paths so non-story orchestrator work
+   (checkpointing, spec mode) is never blocked. `PROTECTED_GLOBS` paths fail
+   closed unconditionally (INFRA-196, corrected INFRA-253): with no active
+   story, a protected path is always blocked; with an active story, a
+   protected path is blocked whenever that story's permissions artifact is
+   missing, empty, or malformed — the same fail-open early returns that cover
+   non-protected paths are checked against `_is_protected()` first and denied
+   before they can fire. A protected path is only satisfiable by an explicit
+   entry in the permissions artifact (which `permissions-create` derives from
+   the story's `primary_files` + `touches`, not `primary_files` alone) — an
+   active story with no permissions artifact yet is not, by itself,
+   sufficient authorization for a protected path. Introduced in Phase 55
+   (INFRA-138, INFRA-139); the mid-story fail-open hole in the active-story
+   branch (protected paths were allowed whenever the permissions artifact was
+   missing/empty/malformed, regardless of `_is_protected()`) was closed in
+   INFRA-253 (Phase 100), which also retired the `PROTECTED_GLOBS`-duplicate
+   static denies in flex's own `.claude/settings.json` (CER-048).
+
+   **`.claude/settings.json` end-state doctrine (INFRA-253):** settings.json
+   carries tooling only — the PostToolUse pytest hook, `Bash` allow rules for
+   the permissions CLI, and the `Edit(.claude/agents/**)` allow. It does not
+   duplicate `PROTECTED_GLOBS` as static `Edit`/`Write` denies (that
+   drift-prone duplicate surface is what CER-048 named and this story
+   retires); story-aware authorization is scope_guard's job, per the fail-
+   closed contract above. The one deny that stays,
+   `Edit(docs/phases/permissions/**)`, is deliberately outside the
+   story-satisfiable gate — it guards against a story authorizing edits to
+   its own (or another story's) permissions artifact, an anti-self-scope-
+   modification rule that must never be liftable by any story's declared
+   scope. Normal build cycles must not require writes to
+   `.claude/settings.json` or `.claude/settings.local.json` — both are
+   themselves `PROTECTED_GLOBS` entries, and the one legitimate change
+   surface (this doctrine's own edits) is operator-applied, not builder-
+   applied, because Claude Code's auto-mode classifier blocks all agent
+   writes to `.claude/settings.json` regardless of scope_guard's decision
+   (INFRA-247 precedent, harness-level, above project hooks).
 
 10. **Checkpoint** — at phase end, the checkpoint sequence runs:
     `checkpoint-security` (security-auditor, WORKER-008) → `checkpoint-intent` (intent-reviewer,

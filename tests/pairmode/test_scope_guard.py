@@ -165,6 +165,65 @@ def test_scope_guard_allows_non_protected_path_with_no_active_story(tmp_path: Pa
 
 
 # ---------------------------------------------------------------------------
+# Mid-story fail-closed protected-path override (INFRA-253)
+# ---------------------------------------------------------------------------
+
+
+def test_scope_guard_blocks_protected_path_mid_story_no_permissions_file(tmp_path: Path) -> None:
+    """Active story, but its permissions artifact was never created — a
+    protected path must deny, not fail open (INFRA-253 Ensures 1)."""
+    _write_state(tmp_path, STORY_ID)
+    # Do NOT write a permissions file for STORY_ID.
+    allowed, reason = scope_guard.check_path("hooks/pre_tool_use.py", tmp_path)
+    assert allowed is False
+    assert STORY_ID in reason
+    assert "primary_files" in reason
+
+
+def test_scope_guard_blocks_protected_path_mid_story_empty_allowed_paths(tmp_path: Path) -> None:
+    """Active story, permissions artifact exists but allowed_paths is empty —
+    a protected path must deny, not fail open (INFRA-253 Ensures 1)."""
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions(tmp_path, STORY_ID, [])
+    allowed, reason = scope_guard.check_path("hooks/pre_tool_use.py", tmp_path)
+    assert allowed is False
+    assert STORY_ID in reason
+    assert "primary_files" in reason
+
+
+def test_scope_guard_blocks_protected_path_mid_story_malformed_permissions(tmp_path: Path) -> None:
+    """Active story, permissions artifact exists but is malformed JSON — a
+    protected path must deny, not fail open (INFRA-253 Ensures 1)."""
+    _write_state(tmp_path, STORY_ID)
+    perm_dir = tmp_path / "docs" / "phases" / "permissions"
+    perm_dir.mkdir(parents=True, exist_ok=True)
+    (perm_dir / f"{STORY_ID}.json").write_text("{ not valid json !!!")
+    allowed, reason = scope_guard.check_path("hooks/pre_tool_use.py", tmp_path)
+    assert allowed is False
+    assert STORY_ID in reason
+    assert "primary_files" in reason
+
+
+def test_scope_guard_allows_non_protected_path_mid_story_no_permissions_file(tmp_path: Path) -> None:
+    """Active story, no permissions artifact yet, non-protected path — still
+    fails open (unchanged non-protected behavior; INFRA-253 Ensures 1)."""
+    _write_state(tmp_path, STORY_ID)
+    allowed, reason = scope_guard.check_path("src/app.py", tmp_path)
+    assert allowed is True
+    assert "no permissions file" in reason
+
+
+def test_scope_guard_allows_declared_protected_path_still_works(tmp_path: Path) -> None:
+    """Regression (INFRA-253 Ensures 2): a protected path explicitly present
+    in allowed_paths remains allowed."""
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions(tmp_path, STORY_ID, ["hooks/pre_tool_use.py"])
+    allowed, reason = scope_guard.check_path("hooks/pre_tool_use.py", tmp_path)
+    assert allowed is True
+    assert reason == "allowed"
+
+
+# ---------------------------------------------------------------------------
 # Worktree-path normalization (INFRA-238)
 # ---------------------------------------------------------------------------
 
