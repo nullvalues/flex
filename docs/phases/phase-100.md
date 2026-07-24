@@ -21,7 +21,7 @@ classifier entirely.
 |----|-------|--------|
 | INFRA-253 | Close scope_guard fail-open hole for protected paths; retire redundant settings.json denies; resolve CER-048 | complete |
 | INFRA-254 | Restore live expected_step_tokens from observed orchestrator growth; growth-based gate re-arm past threshold | complete |
-| INFRA-255 | scope_guard relative-path containment — resolve and contain all file_path inputs before glob/permission checks | draft |
+| INFRA-255 | scope_guard relative-path containment — resolve and contain all file_path inputs before glob/permission checks | complete |
 
 **Sequencing:** independent of phase 97 (fleet re-sync), but should land
 before it — phase 97's sync runs will exercise downstream settings.json

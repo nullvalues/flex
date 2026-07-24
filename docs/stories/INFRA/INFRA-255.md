@@ -2,7 +2,7 @@
 id: INFRA-255
 rail: INFRA
 title: scope_guard relative-path containment — resolve and contain all file_path inputs before glob/permission checks
-status: draft
+status: complete
 phase: "100"
 story_class: code
 auth_gated: false
