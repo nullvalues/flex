@@ -120,6 +120,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 96 | Build-loop revert safety and worktree-per-cycle isolation | complete | [phase-96.md](phase-96.md) |
 | 97 | Fold resume — pre-fold gate, fleet migration, merge to main, re-sync | planned | [phase-97.md](phase-97.md) |
 | 98 | 0.2 → 0.3 regression remediation | complete | [phase-98.md](phase-98.md) · cp98-context-budget-regression-remediation |
+| 99 | Post-fold self-sync remediation | planned | [phase-99.md](phase-99.md) |
 
 ---
 
