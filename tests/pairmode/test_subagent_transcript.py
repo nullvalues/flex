@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 
 from skills.pairmode.scripts import effort_db
 from skills.pairmode.scripts import subagent_transcript as st
@@ -478,3 +479,131 @@ class TestAttemptCounterBump:
         assert result is not None  # effort.db still records under unattributed:builder
         counter_path = project_dir / ".companion" / "attempt_counter.json"
         assert not counter_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# attempt_number derivation from effort.db row history (INFRA-257)
+# ---------------------------------------------------------------------------
+
+
+def _record_spawn(project_dir: Path, subagent_type: str, story_id: str, outcome: str = "PASS") -> "int | None":
+    return st.record_attempt_from_transcript(
+        project_dir=project_dir,
+        session_id="",
+        tool_input={"subagent_type": subagent_type, "prompt": story_id},
+        tool_response=json.dumps({
+            "type": "BUILD-RESULT" if subagent_type == "builder" else "REVIEW-RESULT",
+            "outcome": outcome,
+            "verdict": outcome,
+            "story_id": story_id,
+            "reason": "x",
+            "findings": [],
+        }),
+    )
+
+
+class TestAttemptNumberDerivation:
+    """Regression coverage for the INFRA-247/INFRA-248 all-1s shape."""
+
+    def test_three_consecutive_builder_spawns_number_1_2_3(self, tmp_path: Path) -> None:
+        """Reproduces the INFRA-247 shape: three builder spawns for one story."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        for _ in range(3):
+            _record_spawn(project_dir, "builder", "INFRA-247")
+
+        rows = effort_db.query_by_story(project_dir / ".companion" / "effort.db", "INFRA-247")
+        assert [r["attempt_number"] for r in rows] == [1, 2, 3]
+
+    def test_second_story_sequence_is_independent(self, tmp_path: Path) -> None:
+        """Reproduces the INFRA-248 shape: four builder spawns for a second,
+        unrelated story — its sequence does not inherit INFRA-247's count."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        for _ in range(3):
+            _record_spawn(project_dir, "builder", "INFRA-247")
+        for _ in range(4):
+            _record_spawn(project_dir, "builder", "INFRA-248")
+
+        db_path = project_dir / ".companion" / "effort.db"
+        rows_247 = effort_db.query_by_story(db_path, "INFRA-247")
+        rows_248 = effort_db.query_by_story(db_path, "INFRA-248")
+        assert [r["attempt_number"] for r in rows_247] == [1, 2, 3]
+        assert [r["attempt_number"] for r in rows_248] == [1, 2, 3, 4]
+
+    def test_interleaved_builder_reviewer_role_independence(self, tmp_path: Path) -> None:
+        """An interleaved builder/reviewer/builder/reviewer sequence for one
+        story produces independent per-role numbering."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        _record_spawn(project_dir, "builder", "INFRA-257")
+        _record_spawn(project_dir, "reviewer", "INFRA-257", outcome="FAIL")
+        _record_spawn(project_dir, "builder", "INFRA-257")
+        _record_spawn(project_dir, "reviewer", "INFRA-257", outcome="PASS")
+
+        db_path = project_dir / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-257")
+        builder_numbers = [r["attempt_number"] for r in rows if r["agent_role"] == "builder"]
+        reviewer_numbers = [r["attempt_number"] for r in rows if r["agent_role"] == "reviewer"]
+        assert builder_numbers == [1, 2]
+        assert reviewer_numbers == [1, 2]
+
+    def test_sequence_continues_after_counter_cleared_by_merge(self, tmp_path: Path) -> None:
+        """The counter-cleared-after-merge case (Ensures 6): attempt_number
+        derivation reads effort.db rows, never attempt_counter.json, so
+        clearing the counter mid-sequence does not reset the row sequence."""
+        from skills.pairmode.scripts.flex_build import clear_attempt_count
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        _record_spawn(project_dir, "builder", "INFRA-257")
+        clear_attempt_count(project_dir)
+        _record_spawn(project_dir, "builder", "INFRA-257")
+
+        db_path = project_dir / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-257")
+        assert [r["attempt_number"] for r in rows] == [1, 2]
+
+    def test_counter_value_unaffected_by_attempt_number_derivation(self, tmp_path: Path) -> None:
+        """attempt_counter.json's own value must be untouched by this
+        story's derivation — only the FAIL-only bump still writes it."""
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        _record_spawn(project_dir, "builder", "INFRA-257", outcome="FAIL")
+        _record_spawn(project_dir, "builder", "INFRA-257", outcome="FAIL")
+
+        assert read_attempt_count("INFRA-257", project_dir) == 2
+
+        db_path = project_dir / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-257")
+        assert [r["attempt_number"] for r in rows] == [1, 2]
+
+    def test_derivation_failure_degrades_to_one_row_still_written(self, tmp_path: Path) -> None:
+        """A derivation-path exception must not lose the row — it degrades
+        to attempt_number=1 and the write still happens."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        with patch.object(
+            effort_db, "next_attempt_number", side_effect=RuntimeError("boom")
+        ):
+            row_id = _record_spawn(project_dir, "builder", "INFRA-257")
+
+        assert row_id is not None
+        db_path = project_dir / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-257")
+        assert len(rows) == 1
+        assert rows[0]["attempt_number"] == 1

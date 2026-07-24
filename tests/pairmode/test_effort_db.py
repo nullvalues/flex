@@ -509,6 +509,51 @@ def _run_effort_db_cli(argv: list[str], mock_result: dict) -> tuple[int, str]:
     return exit_code, captured_stdout.getvalue()
 
 
+class TestNextAttemptNumber:
+    """Tests for effort_db.next_attempt_number (INFRA-257)."""
+
+    def test_empty_db_returns_one(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        assert effort_db.next_attempt_number(db_path, "INFRA-028", "builder") == 1
+
+    def test_absent_db_returns_one(self, db_path: Path) -> None:
+        assert not db_path.exists()
+        assert effort_db.next_attempt_number(db_path, "INFRA-028", "builder") == 1
+
+    def test_n_existing_rows_yields_n_plus_one(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        for i in range(3):
+            effort_db.insert_attempt(
+                db_path,
+                **_required_fields(attempt_number=i + 1, ts=f"2026-05-01T0{i}:00:00+00:00"),
+            )
+        assert effort_db.next_attempt_number(db_path, "INFRA-028", "builder") == 4
+
+    def test_different_agent_role_does_not_increment(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        effort_db.insert_attempt(db_path, **_required_fields(agent_role="builder"))
+        assert effort_db.next_attempt_number(db_path, "INFRA-028", "reviewer") == 1
+
+    def test_different_story_id_does_not_increment(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        effort_db.insert_attempt(db_path, **_required_fields(story_id="INFRA-028"))
+        assert effort_db.next_attempt_number(db_path, "INFRA-029", "builder") == 1
+
+    def test_corrupt_file_returns_one_no_exception(self, tmp_path: Path) -> None:
+        corrupt_path = tmp_path / ".companion" / "effort.db"
+        corrupt_path.parent.mkdir(parents=True, exist_ok=True)
+        corrupt_path.write_text("this is not a sqlite file", encoding="utf-8")
+        assert effort_db.next_attempt_number(corrupt_path, "INFRA-028", "builder") == 1
+
+    def test_empty_story_id_returns_one(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        assert effort_db.next_attempt_number(db_path, "", "builder") == 1
+
+    def test_empty_agent_role_returns_one(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        assert effort_db.next_attempt_number(db_path, "INFRA-028", "") == 1
+
+
 class TestGuardrailCheckCLI:
     def test_guardrail_check_cli_no_warning(self, tmp_path: Path) -> None:
         """No output and exit 0 when guardrail has not fired."""

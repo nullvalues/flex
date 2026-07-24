@@ -19,6 +19,10 @@ Public API
 - ``check_guardrail(path, ...)`` — informational mid-loop guardrail that
   compares a just-completed builder attempt's tokens against the rail's
   recent median.  Returns a dict; never raises on missing data.
+- ``next_attempt_number(path, story_id, agent_role)`` — the lifetime spawn
+  ordinal for a ``(story_id, agent_role)`` pair, derived from the count of
+  existing rows for that pair.  Never raises; returns ``1`` on any missing,
+  unreadable, or corrupt database (INFRA-257).
 """
 
 from __future__ import annotations
@@ -288,6 +292,44 @@ def query_by_phase(path: Path, phase: str) -> list[dict]:
         return _rows_to_dicts(cur, rows)
     finally:
         conn.close()
+
+
+def next_attempt_number(path: Path, story_id: str, agent_role: str) -> int:
+    """Return the lifetime spawn ordinal for the ``(story_id, agent_role)`` pair.
+
+    Computed as ``COUNT(*)`` of existing ``attempts`` rows matching *story_id*
+    and *agent_role*, plus one — the next row for this pair will therefore be
+    number ``count + 1``. ``story_id`` and ``agent_role`` are always bound as
+    SQL parameters, never interpolated into the query text.
+
+    Never raises (INFRA-257): this helper is called from a hook path, so any
+    failure — missing file, missing table, corrupt/non-sqlite file, or
+    empty/``None`` inputs — degrades to ``1``, the honest default for an
+    indistinguishable-from-empty history.
+    """
+
+    try:
+        if not story_id or not agent_role:
+            return 1
+
+        resolved = _depth_guard(path)
+        if not resolved.exists():
+            return 1
+
+        conn = sqlite3.connect(str(resolved))
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT COUNT(*) FROM attempts WHERE story_id = ? AND agent_role = ?",
+                (story_id, agent_role),
+            )
+            row = cur.fetchone()
+            count = int(row[0]) if row else 0
+            return count + 1
+        finally:
+            conn.close()
+    except Exception:
+        return 1
 
 
 def query_all(path: Path) -> list[dict]:

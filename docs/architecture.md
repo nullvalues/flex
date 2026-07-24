@@ -1618,6 +1618,14 @@ CLI subcommands remain available (and are exercised directly by
 `CLAUDE.build.md.j2`'s loop pseudocode — the two call sites above own the writes.
 Covered by the `.companion/` `.gitignore` rule — never committed.
 
+Cross-reference (INFRA-257): `effort.db`'s per-row `attempt_number` column is a
+*different* number, derived from a different source (`effort_db.next_attempt_number`
+counting persisted `attempts` rows) — see § Effort tracking for its definition. The
+two numbers are expected to diverge and neither is a "fix" for the other: this
+counter resets on merge and counts failures since the last land, while
+`attempt_number` never resets and counts lifetime spawns. A future reader should not
+assume they must agree.
+
 Pairmode is considered active when `.claude/settings.deny-rationale.json` exists in the
 project root. The helper `skills/pairmode/scripts/story_context.py` provides:
 - `is_pairmode_active(project_dir)` — returns True when the deny-rationale file is present.
@@ -1862,8 +1870,11 @@ without coupling that legibility to a specific pricing regime.
 
 **Data model.** A single SQLite database lives at `.companion/effort.db` with
 one `attempts` table. Each row captures one agent spawn: `story_id`, `phase`,
-`rail`, `agent_role` (`builder` or `reviewer`), `model`, `attempt_number`,
-`tokens_total`, `tool_uses`, `duration_ms`, optional `outcome` (`PASS`/`FAIL`
+`rail`, `agent_role` (`builder` or `reviewer`), `model`, `attempt_number` —
+the **lifetime spawn ordinal for a `(story_id, agent_role)` pair**, derived
+at record time by `effort_db.next_attempt_number` from the count of existing
+rows already recorded for that pair (INFRA-257) — `tokens_total`,
+`tool_uses`, `duration_ms`, optional `outcome` (`PASS`/`FAIL`
 for reviewer attempts), optional `backend` (`"anthropic"` or `"ollama"` —
 populated by sidebar cross-skill recording; NULL for pairmode loop rows from
 older builds), and a UTC timestamp. Pricing is intentionally absent
@@ -1919,7 +1930,10 @@ outside the phases/rails model. The `backend` column (`"anthropic"` or
 recorded attempts:
 
 - `pairmode_effort.py rollup` — totals by phase, rail, model
-- `pairmode_effort.py rework` — stories with attempt_number > 1 (what cost us a retry)
+- `pairmode_effort.py rework` — stories/roles with `attempt_number > 1` (spawned
+  more than once in total for that pair, including post-completion re-runs —
+  NOT necessarily "this story failed review"; see the `attempt_number`
+  derivation note below)
 - `pairmode_effort.py expensive` — top N attempts by tokens
 - `pairmode_effort.py models` — breakdown by model
 - `pairmode_effort.py validate-rebalance` — evidence report for the
@@ -2013,6 +2027,59 @@ is the whole-history view; only `checkpoint-report` is phase-scoped. Counts
 printed by both sections are row counts (spawns), not `attempt_number`
 values — `attempt_number` correctness for repeated same-story spawns is
 INFRA-257's concern, not this scoping rule's.
+
+**`attempt_number` derivation (INFRA-257).** Every `attempts` row written by
+the pairmode build loop's hook-side recorder
+(`subagent_transcript.record_attempt_from_transcript`, the sole per-attempt
+writer since INFRA-236/237) used to carry `attempt_number = 1` regardless of
+how many times the same story had been spawned, because the hook's
+`record_effort(...)` call never passed an explicit `attempt_number` and
+`effort_recorder.record_effort`'s signature defaults it to `1`. INFRA-257
+fixes this by deriving the value at the hook call site — after the
+`effort_tracking` early return, so a project with effort recording disabled
+does zero additional db work — via `effort_db.next_attempt_number(path,
+story_id, agent_role)`: `SELECT COUNT(*) FROM attempts WHERE story_id = ? AND
+agent_role = ?`, plus one. This was chosen over
+`.companion/attempt_counter.json` (the escalation ladder's own retry signal,
+read by `flex_build.read_attempt_count`) for three reasons: (1) that counter
+counts *failures*, not spawns — it is `0` until the first FAIL, so `counter +
+1` would stamp `1` on both a first spawn and a second spawn following a
+PASS-but-re-run, the exact ambiguity this story removes; (2) it is cleared on
+a successful merge (`flex_build.clear_attempt_count`), so a later re-run of
+an already-landed story would silently restart at `1` — a discontinuity the
+operator explicitly ruled out; (3) it is a single-slot, single-story file
+with no per-role dimension, while `attempt_number` must maintain independent
+sequences per `(story_id, agent_role)` pair across all five
+`RECORDABLE_SUBAGENT_ROLES`. The two numbers are therefore deliberately
+divergent by design, not a bug to reconcile: the escalation ladder's
+effective-attempt count resets on merge and measures "failures since the
+last land"; `attempt_number` never resets and measures "spawns ever
+recorded" for that pair. `.companion/attempt_counter.json`'s own writers,
+readers, and semantics (`read_attempt_count`, `bump_attempt_count`,
+`clear_attempt_count`, and `next_action.infer_position`'s escalation ladder)
+are entirely unmodified by INFRA-257.
+
+This changes the correct reading of `pairmode_effort.py rework`'s
+`MAX(attempt_number) > threshold` predicate: it now means "this story/role
+was spawned more than N times in total, including post-completion re-runs",
+not "this story failed review N times" — adjusting the view's query or
+threshold to match is separate, not-yet-built work.
+
+No backfill is performed: historical rows written before INFRA-257 keep
+`attempt_number = 1` permanently, with no migration and no repair
+subcommand. Row counts (not `attempt_number` values) remain the correct way
+to read historical effort — this is why INFRA-256's checkpoint rollup above
+counts rows, not `attempt_number`, and continues to do so unchanged.
+
+The derivation is a read-then-write with no transaction spanning both steps;
+two genuinely concurrent spawns for the same `(story_id, agent_role)` pair
+could read the same count and write the same `attempt_number`. This is
+accepted, not fixed: the era's no-nested-spawning invariant keeps the build
+loop serial (one worker in flight at a time), so the race cannot occur in
+practice, and `effort.db` is best-effort observability rather than a
+strongly-consistent ledger — spanning the hook's read and the recorder's
+write in one transaction would add locking risk to a hook path to guard
+against a race the loop's own structure already prevents.
 
 **Context health check.** At checkpoint, the orchestrator calls
 `skills/pairmode/scripts/context_health.check_context_health(db_path, current_phase)`

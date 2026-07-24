@@ -52,10 +52,12 @@ from typing import Any
 
 try:
     from skills.pairmode.scripts.context_budget import _derive_transcript_path
+    from skills.pairmode.scripts import effort_db
     from skills.pairmode.scripts.effort_recorder import record_effort
     from skills.pairmode.scripts.flex_build import bump_attempt_count
 except ImportError:
     from context_budget import _derive_transcript_path  # type: ignore[no-redef]  # flat import via hook sys.path
+    import effort_db  # type: ignore[no-redef]  # flat import via hook sys.path
     from effort_recorder import record_effort  # type: ignore[no-redef]  # flat import via hook sys.path
     from flex_build import bump_attempt_count  # type: ignore[no-redef]  # flat import via hook sys.path
 
@@ -384,6 +386,11 @@ def record_attempt_from_transcript(
         if not state or not state.get("effort_tracking"):
             return None
 
+        # Hoist the effective story id actually being recorded so the
+        # attempt-number derivation and the row use the identical value
+        # (INFRA-257).
+        effective_story_id = story_id or f"unattributed:{subagent_type}"
+
         transcript_path = _derive_transcript_path(project_path, session_id, home)
         usage = extract_subagent_usage(transcript_path, tool_use_id)
 
@@ -391,9 +398,27 @@ def record_attempt_from_transcript(
 
         rail = story_id.split("-", 1)[0] if story_id and "-" in story_id else None
 
+        # INFRA-257: derive the lifetime spawn ordinal for this
+        # (story_id, agent_role) pair from effort.db's own row history
+        # rather than .companion/attempt_counter.json (which counts
+        # failures and is cleared on merge — see docs/architecture.md
+        # § Effort tracking). Best-effort: a derivation failure degrades to
+        # 1 rather than losing the row. Single COUNT(*) query, no
+        # transaction spanning this read and the recorder's write — the
+        # era's serial (no-nested-spawning) build loop makes the resulting
+        # race a non-issue for best-effort observability.
+        try:
+            attempt_number = effort_db.next_attempt_number(
+                effort_db.resolve_effort_db_path(project_path),
+                effective_story_id,
+                str(subagent_type),
+            )
+        except Exception:
+            attempt_number = 1
+
         return record_effort(
             project_dir=project_path,
-            story_id=story_id or f"unattributed:{subagent_type}",
+            story_id=effective_story_id,
             agent_role=str(subagent_type),
             model=model,
             usage={
@@ -402,6 +427,7 @@ def record_attempt_from_transcript(
                 "cache_read_input_tokens": usage.get("cache_read_tokens"),
                 "cache_creation_input_tokens": usage.get("cache_write_tokens"),
             },
+            attempt_number=attempt_number,
             duration_ms=usage.get("duration_ms"),
             outcome=outcome,
             notes=fail_cause,
