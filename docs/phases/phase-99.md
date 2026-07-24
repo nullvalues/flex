@@ -73,6 +73,7 @@ and this phase's direct blocker.
 | INFRA-249 | Self-sync flex's `.companion/state.json` — pairmode_version to 0.3.0, verify banner correctness | complete |
 | INFRA-250 | Route `pairmode_migrate.py`'s version default through `_version.PAIRMODE_VERSION`; fix SKILL.md migration-target doc drift | complete |
 | INFRA-251 | Context-budget gate remediation — acknowledgment that actually clears, live counter writes, non-fossil step estimate | complete |
+| INFRA-252 | Authorize user_prompt_submit.py as fourth thin-delegation exception in security-auditor procedure | planned |
 
 ## Schema delivery
 
@@ -88,3 +89,9 @@ this phase, record the management surface before the phase is checkpointed.
 ### CP-99 Cold-eyes checklist
 
 — developer fills in after phase completion —
+
+**Mid-phase addition (2026-07-24, checkpoint remediation):** INFRA-252 was added
+when the checkpoint security audit flagged (HIGH) that the security-auditor
+procedure's thin-delegation exception list was not updated for INFRA-248's
+conversion of `hooks/user_prompt_submit.py` into a fourth dispatcher hook —
+an authorization-doc gap, not a code hazard; fix is procedure-text-only.
