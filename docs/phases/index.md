@@ -123,6 +123,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 99 | Post-fold self-sync remediation | complete | [phase-99.md](phase-99.md) · cp99-post-fold-self-sync-remediation |
 | 100 | Scope-guard fail-closed completion (CER-048 close-out) | complete | [phase-100.md](phase-100.md) · cp100-scope-guard-fail-closed-completion |
 | 101 | Attempt recording and checkpoint reporting correctness | complete | [phase-101.md](phase-101.md) · cp101-attempt-recording-reporting-correctness |
+| 102 | Effort-recording smoke test and harness release-channel fast-forward | planned | [phase-102.md](phase-102.md) |
 
 ---
 
