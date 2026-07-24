@@ -986,7 +986,7 @@ rules 14–15 are gated on `--migrate-lessons`.
 | 10 | `skills/companion/SKILL.md` | regex | Renames `/anchor:companion` → `/flex:companion` |
 | 11 | `skills/pairmode/scripts/*.py` | regex | Renames `_ANCHOR_ROOT`, anchor repo root strings |
 | 12 | `.claude/settings.deny-rationale.json` | regex | Renames `anchor:pairmode` and anchor intercepts refs |
-| 13 | `.companion/state.json` | conditional | Updates `pairmode_version` from `anchor-*` to `0.2.0`; renames `project_name` if `"anchor"` |
+| 13 | `.companion/state.json` | conditional | Updates `pairmode_version` from `anchor-*` to the current version (derived from `_version.PAIRMODE_VERSION`, not hardcoded); renames `project_name` if `"anchor"` |
 | 14 | `lessons/lessons.json` | bypass | One-time rename of anchor→flex prose in lesson content (requires `--migrate-lessons`) |
 | 15 | `lessons/LESSONS.md` | regenerate | Regenerates from updated `lessons.json` (requires `--migrate-lessons`) |
 

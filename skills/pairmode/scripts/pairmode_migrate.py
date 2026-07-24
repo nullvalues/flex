@@ -28,6 +28,10 @@ from typing import Optional
 
 import click
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+
+from skills.pairmode.scripts._version import PAIRMODE_VERSION  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Path constants — relative to this script's location
 # ---------------------------------------------------------------------------
@@ -486,7 +490,7 @@ def _apply_conditional_rule(
     backup_suffix: str,
     apply: bool,
     report: MigrationReport,
-    new_pairmode_version: str = "0.2.0",
+    new_pairmode_version: str = PAIRMODE_VERSION,
 ) -> None:
     """Apply conditional key-update to state.json."""
     if not target.exists():
@@ -503,7 +507,7 @@ def _apply_conditional_rule(
     modified = False
     original_text = json.dumps(state, indent=2) + "\n"
 
-    # pairmode_version: "anchor-*" → "0.2.0"
+    # pairmode_version: "anchor-*" → current PAIRMODE_VERSION (from _version.py)
     pv = state.get("pairmode_version", "")
     if isinstance(pv, str) and pv.startswith("anchor-"):
         report.pairmode_version_old = pv

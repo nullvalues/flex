@@ -336,6 +336,34 @@ def test_migrate_state_json_version_bumped(tmp_path: Path) -> None:
     )
 
 
+def test_migrate_state_json_version_matches_current_pairmode_version(
+    tmp_path: Path,
+) -> None:
+    """After apply, state.json pairmode_version must equal _version.PAIRMODE_VERSION.
+
+    Drift canary (INFRA-250): the default on
+    ``_apply_conditional_rule``'s ``new_pairmode_version`` keyword must derive
+    from ``_version.PAIRMODE_VERSION``, not duplicate it as a hardcoded
+    string. Bumping ``_version.py`` alone must never again leave migrate
+    stamping projects with a stale version.
+    """
+    project = _build_anchor_project(tmp_path)
+
+    _run_migrate_no_subprocess(project, apply=True, yes=True)
+
+    state = json.loads((project / ".companion" / "state.json").read_text())
+    assert state["pairmode_version"] == _mod.PAIRMODE_VERSION
+
+
+def test_apply_conditional_rule_default_matches_version_module() -> None:
+    """The handler's keyword default must equal _version.PAIRMODE_VERSION directly."""
+    import inspect
+
+    sig = inspect.signature(_mod._apply_conditional_rule)
+    default = sig.parameters["new_pairmode_version"].default
+    assert default == _mod.PAIRMODE_VERSION
+
+
 # ---------------------------------------------------------------------------
 # Test 4 — custom project_name preserved (not "anchor")
 # ---------------------------------------------------------------------------
