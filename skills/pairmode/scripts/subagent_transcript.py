@@ -41,12 +41,29 @@ build-loop control state that ``next_action.infer_position`` depends on
 ``effort_tracking``, so a project with effort recording disabled does not
 lose its loop-breaker/human-pause escalation. The counter is cleared on the
 opposite end by ``flex_build.py merge-story-worktree`` on a successful land.
+
+INFRA-258: Agent spawns are asynchronous — at PostToolUse time the
+``tool_response`` is launch metadata only (``isAsync``/``agentId``/
+``outputFile``), never the completed result. Recording is now two-phase:
+(1) at PostToolUse time a row is written immediately with ``tokens_total``
+and ``outcome`` both ``NULL``, plus the spawn's own ``agent_id``/
+``output_file`` persisted via ``effort_db.set_spawn_ref``; (2)
+``reconcile_pending_attempts`` — invoked both from this module's own entry
+point (before the next spawn's row is written) and from
+``hooks/session_start.py`` — later reads the spawn's own ``output_file``
+JSONL directly (``read_completed_spawn``) and fills in the row via
+``effort_db.reconcile_attempt`` once the spawn has actually finished. See
+``docs/architecture.md`` § Effort tracking for the full mechanism, the
+accepted losses (evicted `/tmp` output files, `effort_tracking`-disabled
+projects), and why checkpoint-role spawns (``CHECKPOINT_ROLES``) are
+attributed to ``phase:<key>`` rather than to a story id.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -80,8 +97,35 @@ RECORDABLE_SUBAGENT_ROLES: frozenset[str] = frozenset({
     "intent-reviewer",
 })
 
+#: Checkpoint-stage worker roles (INFRA-258). `next_action.py`'s
+#: `checkpoint-security` / `checkpoint-intent` actions spawn these with
+#: `scalar=""` — they belong to no single story — but their prompts enumerate
+#: the *phase's* story ids (e.g. "...docs/phases/phase-101.md — stories
+#: INFRA-256 ..., INFRA-257 ..."). Attributing by first-match story regex
+#: (as every other role does) silently stamps an entire phase's checkpoint
+#: cost onto whichever story happens to be named first in the prompt
+#: (observed: effort.db ids 339-340 stamped `INFRA-256`). These roles are
+#: therefore routed to `_derive_attribution`'s phase-key branch instead —
+#: never `_STORY_ID_RE`, never `state.json["current_story"]` — so a
+#: per-story rollup that filters `story_id IN (<phase's story ids>)`
+#: correctly excludes them while `query_by_phase` still finds them.
+CHECKPOINT_ROLES: frozenset[str] = frozenset({"security-auditor", "intent-reviewer"})
+
 _STORY_ID_RE = re.compile(r"\b([A-Z][A-Z0-9]*-\d{2,})\b")
 _FAIL_CAUSE_LINE_RE = re.compile(r"FAIL-CAUSE:\s*(.+)")
+
+# Phase-key derivation (INFRA-258, Ensures 22): tries the
+# `docs/phases/phase-<key>.md` path pattern first, then a bare `Phase <key>`
+# mention. `<key>` matches `[A-Za-z0-9][A-Za-z0-9._-]*` with trailing
+# punctuation stripped so both `101` and `HARNESS001-main` resolve.
+_PHASE_KEY_CHARS = r"[A-Za-z0-9][A-Za-z0-9._-]*"
+_PHASE_DOC_PATH_RE = re.compile(r"docs/phases/phase-(" + _PHASE_KEY_CHARS + r")\.md")
+_PHASE_BARE_RE = re.compile(r"\bPhase\s+(" + _PHASE_KEY_CHARS + r")")
+
+#: Bounds on the reconciliation sweep (Instructions 12a / Ensures 15) — a
+#: hook-path invocation must never scan unbounded work.
+RECONCILE_MAX_ROWS = 5
+RECONCILE_MAX_LINES = 20000
 
 _EMPTY_USAGE: dict[str, Any] = {
     "tokens_in": None,
@@ -197,6 +241,77 @@ def parse_worker_outcome(tool_response: Any) -> "tuple[str | None, str | None]":
 # ---------------------------------------------------------------------------
 
 
+def _sum_deduped_usage(entries: "list[dict]") -> dict[str, Any]:
+    """Dedupe assistant usage entries by ``message.id`` (last write wins),
+    then sum the token/cache fields (INFRA-258).
+
+    Both the synchronous sidechain path (``extract_subagent_usage``) and the
+    async output-file path (``read_completed_spawn``) route through this
+    single helper so the two report the same metric under the same rules.
+
+    A subagent's own JSONL contains multiple entries per assistant message —
+    streaming snapshots sharing one ``message.id``, with monotonically
+    growing ``output_tokens`` (observed: one ``message.id`` appearing three
+    times with ``output_tokens`` 5, 5, 263 — only the last, 263, is the true
+    total). Naively summing every ``usage`` block double- (or triple-)
+    counts. Entries with no ``message.id`` are summed individually under a
+    synthetic unique key (nothing to dedupe against).
+
+    *entries* is an iterable of already-parsed JSONL entry dicts; each is
+    expected to be a ``type == "assistant"`` entry carrying
+    ``message.usage``. Non-conforming entries are silently skipped. Returns
+    the ``_EMPTY_USAGE``-shaped dict — all fields ``None`` when no usage data
+    was found in any entry. Never raises.
+    """
+    by_key: dict[Any, dict] = {}
+    synthetic = 0
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        message = entry.get("message")
+        if not isinstance(message, dict):
+            continue
+        usage = message.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        msg_id = message.get("id")
+        key = msg_id if msg_id else ("__synthetic__", synthetic)
+        if not msg_id:
+            synthetic += 1
+        by_key[key] = message  # last write wins per id
+
+    tokens_in = tokens_out = cache_read = cache_write = 0
+    model: "str | None" = None
+    found_any = False
+
+    for message in by_key.values():
+        usage = message.get("usage") or {}
+        try:
+            tokens_in += int(usage.get("input_tokens", 0) or 0)
+            tokens_out += int(usage.get("output_tokens", 0) or 0)
+            cache_read += int(usage.get("cache_read_input_tokens", 0) or 0)
+            cache_write += int(usage.get("cache_creation_input_tokens", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        found_any = True
+        if message.get("model"):
+            model = message.get("model")
+
+    if not found_any:
+        return dict(_EMPTY_USAGE)
+
+    return {
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "tokens_total": tokens_in + tokens_out,
+        "cache_read_tokens": cache_read,
+        "cache_write_tokens": cache_write,
+        "duration_ms": None,
+        "model": model,
+    }
+
+
 def extract_subagent_usage(
     transcript_path: "Path | None",
     tool_use_id: "str | None",
@@ -226,10 +341,8 @@ def extract_subagent_usage(
     except OSError:
         return dict(_EMPTY_USAGE)
 
-    tokens_in = tokens_out = cache_read = cache_write = 0
-    model: "str | None" = None
-    found_any = False
     matched_chain = False
+    candidate_entries: list[dict] = []
 
     for raw in lines:
         raw = raw.strip()
@@ -257,39 +370,16 @@ def extract_subagent_usage(
             continue
 
         if entry.get("isSidechain") and entry.get("type") == "assistant":
-            message = entry.get("message")
-            if not isinstance(message, dict):
-                continue
-            if model is None:
-                model = message.get("model")
-            usage = message.get("usage")
-            if not isinstance(usage, dict):
-                continue
-            try:
-                tokens_in += int(usage.get("input_tokens", 0) or 0)
-                tokens_out += int(usage.get("output_tokens", 0) or 0)
-                cache_read += int(usage.get("cache_read_input_tokens", 0) or 0)
-                cache_write += int(usage.get("cache_creation_input_tokens", 0) or 0)
-                found_any = True
-            except (TypeError, ValueError):
-                continue
+            candidate_entries.append(entry)
         elif not entry.get("isSidechain"):
             # First non-sidechain entry after the match ends this spawn's
             # own turn window — the subagent has returned to the main thread.
             break
 
-    if not found_any:
-        return dict(_EMPTY_USAGE)
-
-    return {
-        "tokens_in": tokens_in,
-        "tokens_out": tokens_out,
-        "tokens_total": tokens_in + tokens_out,
-        "cache_read_tokens": cache_read,
-        "cache_write_tokens": cache_write,
-        "duration_ms": None,
-        "model": model,
-    }
+    # INFRA-258: dedupe by message.id (last write wins) before summing — a
+    # subagent's own turns can appear as multiple streaming-snapshot JSONL
+    # lines sharing one message.id with monotonically growing output_tokens.
+    return _sum_deduped_usage(candidate_entries)
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +407,298 @@ def _derive_story_id(tool_input: dict, state: "dict | None") -> "str | None":
             return current_story
 
     return None
+
+
+def _strip_trailing_punct(value: str) -> str:
+    return value.rstrip(".,;:")
+
+
+def _derive_phase_key(tool_input: dict) -> "str | None":
+    """Derive a phase key from a checkpoint spawn's own prompt (INFRA-258).
+
+    Tries the ``docs/phases/phase-<key>.md`` path pattern first, then a bare
+    ``Phase <key>`` mention. ``<key>`` matches ``[A-Za-z0-9][A-Za-z0-9._-]*``
+    with trailing punctuation stripped, so both ``101`` and
+    ``HARNESS001-main`` resolve. Returns ``None`` when neither pattern is
+    found. Never raises.
+    """
+    try:
+        for key in ("prompt", "description"):
+            value = tool_input.get(key)
+            if not value:
+                continue
+            text = str(value)
+            m = _PHASE_DOC_PATH_RE.search(text)
+            if m:
+                return _strip_trailing_punct(m.group(1))
+            m = _PHASE_BARE_RE.search(text)
+            if m:
+                return _strip_trailing_punct(m.group(1))
+    except Exception:
+        return None
+    return None
+
+
+def _derive_attribution(
+    tool_input: dict, state: "dict | None", subagent_type: "str | None"
+) -> "tuple[str | None, str | None, str | None]":
+    """Return ``(story_id, phase_key, rail)`` for a completed spawn (INFRA-258).
+
+    For :data:`CHECKPOINT_ROLES` (``security-auditor``, ``intent-reviewer``),
+    ``next_action.py`` emits ``checkpoint-security`` / ``checkpoint-intent``
+    with ``scalar=""`` (no story), while their prompts enumerate the phase's
+    story ids — a first-match story-id regex would attribute an entire
+    phase's checkpoint cost to whichever story is named first in the prompt
+    (observed: effort.db ids 339-340 stamped ``INFRA-256``). These roles
+    therefore never consult ``_STORY_ID_RE`` or ``state.json["current_story"]``;
+    the returned ``story_id`` is always the synthetic ``phase:<key>`` (with
+    ``phase_key`` set, ``rail`` ``None``) or ``unattributed:<subagent_type>``
+    (when no phase key is derivable) — never an individual story id.
+
+    For every other role, behaviour is unchanged from the pre-INFRA-258
+    ``_derive_story_id``: prompt story-id regex, then
+    ``state.json["current_story"]``, then ``None`` (the caller applies the
+    ``unattributed:<role>`` fallback). Never raises.
+    """
+    if subagent_type in CHECKPOINT_ROLES:
+        phase_key = _derive_phase_key(tool_input)
+        if phase_key:
+            return f"phase:{phase_key}", phase_key, None
+        return f"unattributed:{subagent_type}", None, None
+
+    story_id = _derive_story_id(tool_input, state)
+    rail = story_id.split("-", 1)[0] if story_id and "-" in story_id else None
+    return story_id, None, rail
+
+
+# ---------------------------------------------------------------------------
+# Async spawn reconciliation (INFRA-258)
+# ---------------------------------------------------------------------------
+
+
+def read_completed_spawn(output_file: "str | Path | None") -> "dict | None":
+    """Read a spawned agent's own JSONL output file (INFRA-258).
+
+    Returns ``None`` when the spawn is not yet complete, the file is
+    unreadable/missing/empty, or no usage data is found. Otherwise returns a
+    dict with ``tokens_in``, ``tokens_out``, ``tokens_total``,
+    ``cache_read_tokens``, ``cache_write_tokens``, ``duration_ms``,
+    ``model``, ``outcome``, ``fail_cause``, ``final_text``.
+
+    Completion detection: the **last parseable** JSONL entry must be
+    ``type == "assistant"`` with ``message.stop_reason == "end_turn"``. An
+    entry with ``stop_reason == "tool_use"``, a truncated/unparseable
+    trailing line with no earlier ``end_turn`` terminator, an empty file, or
+    a nonexistent path all yield ``None`` — an in-flight agent is never
+    reconciled.
+
+    Streams the file with a plain ``for line in fh:`` loop — never
+    ``read_text()``/``readlines()`` — and bails out (returns ``None``) past
+    :data:`RECONCILE_MAX_LINES` lines, so a hook-path caller never slurps or
+    scans an unbounded file. Never raises.
+    """
+    try:
+        if output_file is None:
+            return None
+        path = output_file if isinstance(output_file, Path) else Path(output_file)
+        if not path.exists():
+            return None
+
+        assistant_entries: "list[dict]" = []
+        first_ts: "str | None" = None
+        last_ts: "str | None" = None
+        last_entry: "dict | None" = None
+        line_count = 0
+
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for raw in fh:
+                line_count += 1
+                if line_count > RECONCILE_MAX_LINES:
+                    return None
+                stripped = raw.strip()
+                if not stripped:
+                    continue
+                try:
+                    entry = json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(entry, dict):
+                    continue
+
+                last_entry = entry
+                ts = entry.get("timestamp")
+                if isinstance(ts, str) and ts:
+                    if first_ts is None:
+                        first_ts = ts
+                    last_ts = ts
+
+                if entry.get("type") == "assistant":
+                    assistant_entries.append(entry)
+
+        if last_entry is None or last_entry.get("type") != "assistant":
+            return None
+
+        last_message = last_entry.get("message")
+        if not isinstance(last_message, dict):
+            return None
+        if last_message.get("stop_reason") != "end_turn":
+            return None
+
+        usage = _sum_deduped_usage(assistant_entries)
+        if usage.get("tokens_total") is None:
+            # No usage data anywhere in the file — not reconcilable.
+            return None
+
+        duration_ms: "int | None" = None
+        if first_ts and last_ts:
+            try:
+                t0 = datetime.fromisoformat(first_ts.replace("Z", "+00:00"))
+                t1 = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
+                duration_ms = int((t1 - t0).total_seconds() * 1000)
+            except Exception:
+                duration_ms = None
+
+        final_text = _flatten_tool_response(last_message)
+        outcome, fail_cause = parse_worker_outcome(final_text)
+
+        return {
+            "tokens_in": usage.get("tokens_in"),
+            "tokens_out": usage.get("tokens_out"),
+            "tokens_total": usage.get("tokens_total"),
+            "cache_read_tokens": usage.get("cache_read_tokens"),
+            "cache_write_tokens": usage.get("cache_write_tokens"),
+            "duration_ms": duration_ms,
+            "model": usage.get("model"),
+            "outcome": outcome,
+            "fail_cause": fail_cause,
+            "final_text": final_text,
+        }
+    except Exception:
+        return None
+
+
+def _extract_spawn_ref(tool_response: Any) -> "tuple[str | None, str | None]":
+    """Extract ``(agent_id, output_file)`` from a Task/Agent ``tool_response``
+    (INFRA-258).
+
+    Tries the structured dict shapes first — ``outputFile``/``output_file``
+    and ``agentId``/``agent_id`` keys, at the top level or nested under a
+    ``toolUseResult`` key — then falls back to regexes over
+    ``_flatten_tool_response(tool_response)`` for ``output_file:\\s*(\\S+)``
+    and ``agentId:\\s*(\\S+)``. A missing/unrecognised shape returns
+    ``(None, None)``. Never raises.
+    """
+    agent_id: "str | None" = None
+    output_file: "str | None" = None
+    try:
+        candidates: "list[dict]" = []
+        if isinstance(tool_response, dict):
+            candidates.append(tool_response)
+            nested = tool_response.get("toolUseResult")
+            if isinstance(nested, dict):
+                candidates.append(nested)
+
+        for candidate in candidates:
+            if output_file is None:
+                value = candidate.get("outputFile") or candidate.get("output_file")
+                if value:
+                    output_file = str(value)
+            if agent_id is None:
+                value = candidate.get("agentId") or candidate.get("agent_id")
+                if value:
+                    agent_id = str(value)
+
+        if output_file is None or agent_id is None:
+            text = _flatten_tool_response(tool_response)
+            if output_file is None:
+                m = re.search(r"output_file:\s*(\S+)", text)
+                if m:
+                    output_file = m.group(1)
+            if agent_id is None:
+                m = re.search(r"agentId:\s*(\S+)", text)
+                if m:
+                    agent_id = m.group(1)
+    except Exception:
+        pass
+
+    return agent_id, output_file
+
+
+def reconcile_pending_attempts(
+    *,
+    project_dir: "Path | str",
+    limit: int = RECONCILE_MAX_ROWS,
+    home: "Path | None" = None,
+) -> int:
+    """Sweep pending (``tokens_total IS NULL``) rows and reconcile the
+    completed ones (INFRA-258).
+
+    Reads ``.companion/state.json``; returns ``0`` immediately unless
+    ``effort_tracking`` is ``true``. Fetches at most *limit* pending rows via
+    ``effort_db.pending_reconcilable``, calls ``read_completed_spawn`` on
+    each, and writes the completed ones back via ``effort_db.reconcile_attempt``.
+
+    On a successful reconciliation whose resolved ``outcome`` is ``FAIL`` and
+    whose ``story_id`` is a real story id (no ``:`` — never a ``phase:`` or
+    ``unattributed:`` synthetic), also calls ``flex_build.bump_attempt_count``
+    in its own ``try/except`` — the escalation ladder's late-bump path for a
+    FAIL outcome that only became knowable after PostToolUse time (Ensures 19).
+
+    Returns the count of rows actually reconciled. Never raises — this is a
+    hook-path entry point (called from both ``record_attempt_from_transcript``
+    and ``hooks/session_start.py``).
+    """
+    try:
+        project_path = (
+            project_dir if isinstance(project_dir, Path) else Path(project_dir)
+        )
+        state = _read_state(project_path)
+        if not state or not state.get("effort_tracking"):
+            return 0
+
+        db_path = effort_db.resolve_effort_db_path(project_path)
+        rows = effort_db.pending_reconcilable(db_path, limit)
+
+        reconciled = 0
+        for row in rows:
+            output_file = row.get("output_file")
+            if not output_file:
+                continue
+
+            result = read_completed_spawn(output_file)
+            if result is None:
+                continue
+
+            fields: "dict[str, Any]" = {
+                "tokens_total": result.get("tokens_total"),
+                "tokens_in": result.get("tokens_in"),
+                "tokens_out": result.get("tokens_out"),
+                "cache_read_tokens": result.get("cache_read_tokens"),
+                "cache_write_tokens": result.get("cache_write_tokens"),
+                "duration_ms": result.get("duration_ms"),
+                "outcome": result.get("outcome"),
+                "notes": result.get("fail_cause"),
+            }
+            if row.get("model") is None and result.get("model"):
+                fields["model"] = result.get("model")
+
+            updated = effort_db.reconcile_attempt(db_path, row["id"], **fields)
+            if not updated:
+                continue
+
+            reconciled += 1
+
+            if result.get("outcome") == "FAIL":
+                story_id = row.get("story_id")
+                if story_id and ":" not in str(story_id):
+                    try:
+                        bump_attempt_count(story_id, project_path)
+                    except Exception:
+                        pass
+
+        return reconciled
+    except Exception:
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -357,8 +739,14 @@ def record_attempt_from_transcript(
     - ``tokens_*`` — summed from the subagent's own sidechain transcript
       turns (``extract_subagent_usage``). ``None`` when no sidechain usage
       data is available (e.g. an async-launched spawn whose transcript
-      lives in a separate output file) — a known limitation, not silently
-      fabricated data.
+      lives in a separate output file) — the row is then completed later by
+      ``reconcile_pending_attempts`` (INFRA-258) rather than left permanently
+      null.
+
+    INFRA-258: also persists the spawn's own ``agent_id``/``output_file``
+    (extracted from ``tool_response``) via ``effort_db.set_spawn_ref``, and
+    sweeps up to :data:`RECONCILE_MAX_ROWS` previously-pending rows via
+    ``reconcile_pending_attempts`` before writing the new row.
     """
     try:
         if not isinstance(tool_input, dict):
@@ -370,14 +758,16 @@ def record_attempt_from_transcript(
         project_path = Path(project_dir) if not isinstance(project_dir, Path) else project_dir
         state = _read_state(project_path)
 
-        story_id = _derive_story_id(tool_input, state)
+        story_id, phase_key, rail = _derive_attribution(tool_input, state, subagent_type)
         outcome, fail_cause = parse_worker_outcome(tool_response)
 
         # INFRA-237: attempt-counter bump runs unconditionally on FAIL — it
         # is core build-loop control state next_action.py depends on, not
         # observability, so it must not be gated on effort_tracking. Kept
         # best-effort/non-raising like every other branch in this function.
-        if story_id and outcome == "FAIL":
+        # INFRA-258: never bump on a synthetic phase:/unattributed: id — the
+        # escalation ladder tracks real stories only (Ensures 21).
+        if story_id and outcome == "FAIL" and ":" not in story_id:
             try:
                 bump_attempt_count(story_id, project_path)
             except Exception:
@@ -385,6 +775,16 @@ def record_attempt_from_transcript(
 
         if not state or not state.get("effort_tracking"):
             return None
+
+        # INFRA-258: sweep previously-pending (async, now-completed) rows
+        # before writing this new spawn's row. Runs after the
+        # effort_tracking early return so a project with tracking disabled
+        # does zero additional db work. Its own try/except so a sweep
+        # failure never prevents the new row from being written.
+        try:
+            reconcile_pending_attempts(project_dir=project_path, home=home)
+        except Exception:
+            pass
 
         # Hoist the effective story id actually being recorded so the
         # attempt-number derivation and the row use the identical value
@@ -395,8 +795,6 @@ def record_attempt_from_transcript(
         usage = extract_subagent_usage(transcript_path, tool_use_id)
 
         model = tool_input.get("model") or usage.get("model")
-
-        rail = story_id.split("-", 1)[0] if story_id and "-" in story_id else None
 
         # INFRA-257: derive the lifetime spawn ordinal for this
         # (story_id, agent_role) pair from effort.db's own row history
@@ -416,7 +814,7 @@ def record_attempt_from_transcript(
         except Exception:
             attempt_number = 1
 
-        return record_effort(
+        row_id = record_effort(
             project_dir=project_path,
             story_id=effective_story_id,
             agent_role=str(subagent_type),
@@ -431,8 +829,28 @@ def record_attempt_from_transcript(
             duration_ms=usage.get("duration_ms"),
             outcome=outcome,
             notes=fail_cause,
-            phase=None,
+            phase=phase_key,
             rail=rail,
         )
+
+        # INFRA-258: persist the spawn ref so a later reconciliation pass
+        # (this function's own next call, or hooks/session_start.py) can
+        # find and complete this row from its own output_file. Best-effort —
+        # a missing/unrecognised tool_response shape leaves both columns
+        # NULL and is not an error.
+        if row_id is not None:
+            try:
+                agent_id, output_file = _extract_spawn_ref(tool_response)
+                if output_file:
+                    effort_db.set_spawn_ref(
+                        effort_db.resolve_effort_db_path(project_path),
+                        row_id,
+                        agent_id,
+                        output_file,
+                    )
+            except Exception:
+                pass
+
+        return row_id
     except Exception:
         return None

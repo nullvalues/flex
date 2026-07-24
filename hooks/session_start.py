@@ -92,6 +92,20 @@ def main() -> None:
         # Reset path is best-effort; never break the status block.
         pass
 
+    # INFRA-258: sweep any effort.db rows left pending by an async spawn
+    # whose completion arrived after this session's own PostToolUse sweeps
+    # had already run out (or never ran again before /clear). Best-effort,
+    # own try/except — must never affect decide_reset() above or this
+    # hook's exit status. Imported inside the try using the flat-sys.path
+    # style this hook already relies on (line 21 above prepends
+    # skills/pairmode/scripts to sys.path) — a package-qualified import
+    # would pass tests but break at runtime.
+    try:
+        from subagent_transcript import reconcile_pending_attempts
+        reconcile_pending_attempts(project_dir=Path(".").resolve())
+    except Exception:
+        pass
+
     lines: list[str] = [f"Pairmode v{pairmode_version} is active in this repo."]
     if reset_notice:
         lines.append(reset_notice)

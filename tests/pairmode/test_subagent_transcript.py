@@ -607,3 +607,718 @@ class TestAttemptNumberDerivation:
         rows = effort_db.query_by_story(db_path, "INFRA-257")
         assert len(rows) == 1
         assert rows[0]["attempt_number"] == 1
+
+
+# ---------------------------------------------------------------------------
+# INFRA-258: async-spawn effort recording
+# ---------------------------------------------------------------------------
+
+
+def _sidechain_entry_with_id(
+    msg_id: str, tokens_in: int, tokens_out: int, model: str = "claude-sonnet-5"
+) -> dict:
+    return {
+        "type": "assistant",
+        "isSidechain": True,
+        "message": {
+            "id": msg_id,
+            "model": model,
+            "usage": {
+                "input_tokens": tokens_in,
+                "output_tokens": tokens_out,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+            },
+        },
+    }
+
+
+def _output_assistant_entry(
+    msg_id: str,
+    tokens_in: int,
+    tokens_out: int,
+    *,
+    stop_reason: "str | None" = None,
+    text: "str | None" = None,
+    model: str = "claude-sonnet-5",
+    timestamp: "str | None" = None,
+) -> dict:
+    message: dict = {
+        "id": msg_id,
+        "model": model,
+        "usage": {
+            "input_tokens": tokens_in,
+            "output_tokens": tokens_out,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+        },
+    }
+    if stop_reason is not None:
+        message["stop_reason"] = stop_reason
+    if text is not None:
+        message["content"] = [{"type": "text", "text": text}]
+    entry: dict = {"type": "assistant", "message": message}
+    if timestamp is not None:
+        entry["timestamp"] = timestamp
+    return entry
+
+
+def _write_output_file(path: Path, entries: "list[dict]") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(json.dumps(e) for e in entries) + "\n", encoding="utf-8"
+    )
+
+
+# ---------------------------------------------------------------------------
+# _sum_deduped_usage / streaming dedupe (Ensures 8, 9)
+# ---------------------------------------------------------------------------
+
+
+class TestSumDedupedUsage:
+    def test_observed_streaming_shape_dedupes_by_message_id(self) -> None:
+        """Reproduces the exact observed shape: one message.id appearing
+        three times with output_tokens 5, 5, 263 — only the last is real."""
+        entries = [
+            _sidechain_entry_with_id("msg_011CdMLvCkdcMj13pJQryLmP", 10, 5),
+            _sidechain_entry_with_id("msg_011CdMLvCkdcMj13pJQryLmP", 10, 5),
+            _sidechain_entry_with_id("msg_011CdMLvCkdcMj13pJQryLmP", 10, 263),
+        ]
+        usage = st._sum_deduped_usage(entries)
+        assert usage["tokens_out"] == 263
+        assert usage["tokens_out"] != 273
+
+    def test_entries_without_message_id_summed_individually(self) -> None:
+        entries = [
+            _sidechain_entry(100, 50),
+            _sidechain_entry(200, 75),
+        ]
+        usage = st._sum_deduped_usage(entries)
+        assert usage["tokens_in"] == 300
+        assert usage["tokens_out"] == 125
+
+    def test_no_usage_entries_returns_empty(self) -> None:
+        assert st._sum_deduped_usage([]) == dict(st._EMPTY_USAGE)
+
+    def test_extract_subagent_usage_dedupes_sidechain_path(self, tmp_path: Path) -> None:
+        """Ensures 9: extract_subagent_usage (sidechain path) uses the same
+        dedupe helper as the async output-file path."""
+        home = _write_transcript(
+            tmp_path,
+            "sess-dedupe",
+            [
+                _tool_use_entry("toolu_dedupe"),
+                _sidechain_entry_with_id("msg_dup", 10, 5),
+                _sidechain_entry_with_id("msg_dup", 10, 5),
+                _sidechain_entry_with_id("msg_dup", 10, 263),
+                _completion_entry(),
+            ],
+        )
+        cwd = tmp_path / "project"
+        transcript_path = (
+            home / ".claude" / "projects" / str(cwd.resolve()).replace("/", "-") / "sess-dedupe.jsonl"
+        )
+        usage = st.extract_subagent_usage(transcript_path, "toolu_dedupe")
+        assert usage["tokens_out"] == 263
+
+
+# ---------------------------------------------------------------------------
+# read_completed_spawn (Ensures 6, 7, 12, 15)
+# ---------------------------------------------------------------------------
+
+
+class TestReadCompletedSpawn:
+    def _build_result_text(self, outcome: str = "PASS") -> str:
+        return json.dumps({
+            "type": "BUILD-RESULT",
+            "outcome": outcome,
+            "story_id": "INFRA-258",
+            "reason": "done",
+        })
+
+    def test_completed_spawn_returns_usage_and_outcome(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 1000, 500, timestamp="2026-05-01T00:00:00.000Z"
+                ),
+                _output_assistant_entry(
+                    "msg_2",
+                    100,
+                    200,
+                    stop_reason="end_turn",
+                    text=self._build_result_text("PASS"),
+                    timestamp="2026-05-01T00:00:05.000Z",
+                ),
+            ],
+        )
+        result = st.read_completed_spawn(output_file)
+        assert result is not None
+        assert result["tokens_in"] == 1100
+        assert result["tokens_out"] == 700
+        assert result["tokens_total"] == 1800
+        assert result["outcome"] == "PASS"
+        assert result["duration_ms"] == 5000
+        assert result["model"] == "claude-sonnet-5"
+
+    def test_dedupes_streaming_entries_in_output_file(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry("msg_stream", 10, 5),
+                _output_assistant_entry("msg_stream", 10, 5),
+                _output_assistant_entry(
+                    "msg_stream", 10, 263, stop_reason="end_turn",
+                    text=self._build_result_text("PASS"),
+                ),
+            ],
+        )
+        result = st.read_completed_spawn(output_file)
+        assert result is not None
+        assert result["tokens_out"] == 263
+
+    def test_last_entry_tool_use_returns_none(self, tmp_path: Path) -> None:
+        """In-flight agent — last entry is stop_reason=tool_use — never reconciled."""
+        output_file = tmp_path / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry("msg_1", 1000, 500, stop_reason="tool_use"),
+            ],
+        )
+        assert st.read_completed_spawn(output_file) is None
+
+    def test_truncated_trailing_line_with_no_earlier_end_turn_returns_none(
+        self, tmp_path: Path
+    ) -> None:
+        output_file = tmp_path / "agent.output"
+        output_file.write_text(
+            json.dumps(_output_assistant_entry("msg_1", 100, 50, stop_reason="tool_use"))
+            + "\n{truncated garbage no closing brace",
+            encoding="utf-8",
+        )
+        assert st.read_completed_spawn(output_file) is None
+
+    def test_empty_file_returns_none(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "agent.output"
+        output_file.write_text("", encoding="utf-8")
+        assert st.read_completed_spawn(output_file) is None
+
+    def test_nonexistent_path_returns_none(self, tmp_path: Path) -> None:
+        assert st.read_completed_spawn(tmp_path / "does-not-exist.output") is None
+
+    def test_no_usage_data_returns_none(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "agent.output"
+        entry = {
+            "type": "assistant",
+            "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "hi"}]},
+        }
+        _write_output_file(output_file, [entry])
+        assert st.read_completed_spawn(output_file) is None
+
+    def test_fail_cause_parsed_from_final_text(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "agent.output"
+        fail_text = json.dumps({
+            "type": "REVIEW-RESULT",
+            "verdict": "FAIL",
+            "findings": ["x"],
+            "reason": "y",
+            "fail_cause": "undeclared file: docs/architecture.md",
+        })
+        _write_output_file(
+            output_file,
+            [_output_assistant_entry("msg_1", 100, 50, stop_reason="end_turn", text=fail_text)],
+        )
+        result = st.read_completed_spawn(output_file)
+        assert result is not None
+        assert result["outcome"] == "FAIL"
+        assert result["fail_cause"] == "undeclared file: docs/architecture.md"
+
+    def test_does_not_call_path_read_text(self, tmp_path: Path) -> None:
+        """Ensures 15: the whole file is never loaded into memory at once."""
+        output_file = tmp_path / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn", text=self._build_result_text()
+                )
+            ],
+        )
+        with patch.object(Path, "read_text", side_effect=AssertionError("must not slurp")):
+            result = st.read_completed_spawn(output_file)
+        assert result is not None
+
+    def test_line_cap_treats_file_as_incomplete(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "agent.output"
+        entries = [_output_assistant_entry(f"msg_{i}", 10, 5) for i in range(3)]
+        entries.append(
+            _output_assistant_entry(
+                "msg_last", 10, 5, stop_reason="end_turn", text=self._build_result_text()
+            )
+        )
+        with patch.object(st, "RECONCILE_MAX_LINES", 2):
+            _write_output_file(output_file, entries)
+            result = st.read_completed_spawn(output_file)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _extract_spawn_ref (Instructions 7)
+# ---------------------------------------------------------------------------
+
+
+class TestExtractSpawnRef:
+    def test_dict_shape_top_level(self) -> None:
+        tool_response = {
+            "isAsync": True,
+            "status": "async_launched",
+            "agentId": "a8b42498d3e06fcd1",
+            "outputFile": "/tmp/claude-1000/proj/session/tasks/a8b42498d3e06fcd1.output",
+            "canReadOutputFile": True,
+        }
+        agent_id, output_file = st._extract_spawn_ref(tool_response)
+        assert agent_id == "a8b42498d3e06fcd1"
+        assert output_file == "/tmp/claude-1000/proj/session/tasks/a8b42498d3e06fcd1.output"
+
+    def test_dict_shape_nested_under_tool_use_result(self) -> None:
+        tool_response = {
+            "toolUseResult": {
+                "agent_id": "agent-xyz",
+                "output_file": "/tmp/out.jsonl",
+            }
+        }
+        agent_id, output_file = st._extract_spawn_ref(tool_response)
+        assert agent_id == "agent-xyz"
+        assert output_file == "/tmp/out.jsonl"
+
+    def test_flattened_text_shape(self) -> None:
+        text = (
+            "Async agent launched successfully.\n"
+            "output_file: /tmp/claude-1000/proj/session/tasks/agentid123.output\n"
+            "agentId: agentid123\n"
+        )
+        agent_id, output_file = st._extract_spawn_ref(text)
+        assert agent_id == "agentid123"
+        assert output_file == "/tmp/claude-1000/proj/session/tasks/agentid123.output"
+
+    def test_unrecognised_shape_returns_none_none(self) -> None:
+        assert st._extract_spawn_ref("just some prose") == (None, None)
+        assert st._extract_spawn_ref(None) == (None, None)
+        assert st._extract_spawn_ref({"foo": "bar"}) == (None, None)
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint-worker attribution (Ensures 21, 22, 23, 24, 25)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckpointAttribution:
+    OBSERVED_CP101_PROMPT = (
+        "Checkpoint security audit for Phase 101 … docs/phases/phase-101.md "
+        "— stories INFRA-256 phase-scoped checkpoint cost rollup, INFRA-257 …"
+    )
+
+    def test_observed_cp101_prompt_yields_phase_101_not_infra_256(self) -> None:
+        story_id, phase_key, rail = st._derive_attribution(
+            {"prompt": self.OBSERVED_CP101_PROMPT}, None, "security-auditor"
+        )
+        assert story_id == "phase:101"
+        assert story_id != "INFRA-256"
+        assert phase_key == "101"
+        assert rail is None
+
+    def test_harness_style_phase_key_resolves(self) -> None:
+        story_id, phase_key, rail = st._derive_attribution(
+            {"prompt": "Checkpoint intent review for Phase HARNESS001-main"},
+            None,
+            "intent-reviewer",
+        )
+        assert story_id == "phase:HARNESS001-main"
+        assert phase_key == "HARNESS001-main"
+
+    def test_no_phase_key_found_falls_back_to_unattributed(self) -> None:
+        story_id, phase_key, rail = st._derive_attribution(
+            {"prompt": "Checkpoint security audit, no phase mentioned"},
+            None,
+            "security-auditor",
+        )
+        assert story_id == "unattributed:security-auditor"
+        assert phase_key is None
+        assert rail is None
+
+    def test_checkpoint_role_never_uses_story_id_regex_or_current_story(self) -> None:
+        state = {"current_story": {"id": "INFRA-999"}}
+        story_id, _, _ = st._derive_attribution(
+            {"prompt": "INFRA-111 mentioned but no phase pattern"}, state, "security-auditor"
+        )
+        assert story_id != "INFRA-111"
+        assert story_id != "INFRA-999"
+        assert story_id == "unattributed:security-auditor"
+
+    def test_non_checkpoint_role_still_first_match_story_id(self) -> None:
+        """Ensures 24: builder/reviewer/loop-breaker attribution unchanged —
+        a prompt naming two story ids resolves to the first one."""
+        story_id, phase_key, rail = st._derive_attribution(
+            {"prompt": "docs/phases/phase-101.md — stories INFRA-256, INFRA-257"},
+            None,
+            "builder",
+        )
+        assert story_id == "INFRA-256"
+        assert phase_key is None
+        assert rail == "INFRA"
+
+    def test_checkpoint_row_excluded_from_per_story_rollup(self, tmp_path: Path) -> None:
+        """Ensures 23: a phase:<key> row does not appear in
+        flex_build._query_effort_by_story_ids output for the phase's stories."""
+        from skills.pairmode.scripts import flex_build
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={
+                "subagent_type": "security-auditor",
+                "prompt": self.OBSERVED_CP101_PROMPT,
+            },
+            tool_response=json.dumps({
+                "type": "REVIEW-RESULT", "verdict": "PASS", "findings": [], "reason": "ok",
+            }),
+        )
+
+        db_path = project_dir / ".companion" / "effort.db"
+        result = flex_build._query_effort_by_story_ids(db_path, ["INFRA-256", "INFRA-257"])
+        assert result == {"by_role": {}, "by_story": {}}
+
+        phase_rows = effort_db.query_by_phase(db_path, "101")
+        assert len(phase_rows) == 1
+
+    def test_two_checkpoint_spawns_number_per_phase(self, tmp_path: Path) -> None:
+        """Ensures 25: two security-auditor spawns for phase:101 yield
+        attempt_number 1 then 2."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        for _ in range(2):
+            st.record_attempt_from_transcript(
+                project_dir=project_dir,
+                session_id="",
+                tool_input={
+                    "subagent_type": "security-auditor",
+                    "prompt": self.OBSERVED_CP101_PROMPT,
+                },
+                tool_response=json.dumps({
+                    "type": "REVIEW-RESULT", "verdict": "PASS", "findings": [], "reason": "ok",
+                }),
+            )
+
+        db_path = project_dir / ".companion" / "effort.db"
+        rows = effort_db.query_by_phase(db_path, "101")
+        assert [r["attempt_number"] for r in rows] == [1, 2]
+
+
+# ---------------------------------------------------------------------------
+# reconcile_pending_attempts (Ensures 14, 15, 16, 19, 20, 26, 32)
+# ---------------------------------------------------------------------------
+
+
+class TestReconcilePendingAttempts:
+    def test_returns_zero_when_effort_tracking_disabled(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        assert st.reconcile_pending_attempts(project_dir=project_dir) == 0
+
+    def test_reconciles_a_pending_row(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-258",
+            agent_role="builder",
+            attempt_number=1,
+            ts="2026-05-01T00:00:00+00:00",
+        )
+        output_file = tmp_path / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 1000, 500, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "BUILD-RESULT", "outcome": "PASS",
+                        "story_id": "INFRA-258", "reason": "done",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "agent-1", str(output_file))
+
+        count = st.reconcile_pending_attempts(project_dir=project_dir)
+        assert count == 1
+
+        rows = effort_db.query_by_story(db_path, "INFRA-258")
+        assert rows[0]["tokens_total"] == 1500
+        assert rows[0]["outcome"] == "PASS"
+
+    def test_in_flight_spawn_not_reconciled(self, tmp_path: Path) -> None:
+        """Regression test (Ensures 30)."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-258",
+            agent_role="builder",
+            attempt_number=1,
+            ts="2026-05-01T00:00:00+00:00",
+        )
+        output_file = tmp_path / "agent.output"
+        _write_output_file(
+            output_file,
+            [_output_assistant_entry("msg_1", 1000, 500, stop_reason="tool_use")],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "agent-1", str(output_file))
+
+        count = st.reconcile_pending_attempts(project_dir=project_dir)
+        assert count == 0
+
+        rows = effort_db.query_by_story(db_path, "INFRA-258")
+        assert rows[0]["tokens_total"] is None
+
+    def test_reconciled_fail_bumps_attempt_counter(self, tmp_path: Path) -> None:
+        """Regression test (Ensures 29): a reconciled FAIL bumps the counter
+        and carries the parsed fail_cause in notes."""
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-258",
+            agent_role="reviewer",
+            attempt_number=1,
+            ts="2026-05-01T00:00:00+00:00",
+        )
+        output_file = tmp_path / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "REVIEW-RESULT", "verdict": "FAIL",
+                        "findings": ["x"], "reason": "y",
+                        "fail_cause": "CRITICAL hook violation",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "agent-1", str(output_file))
+
+        st.reconcile_pending_attempts(project_dir=project_dir)
+
+        assert read_attempt_count("INFRA-258", project_dir) == 1
+        row = effort_db.query_by_story(db_path, "INFRA-258")[0]
+        assert row["notes"] == "CRITICAL hook violation"
+
+    def test_counter_bumps_at_most_once_per_row(self, tmp_path: Path) -> None:
+        """Ensures 20: single-shot reconcile_attempt means a repeated call
+        cannot double-bump."""
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-258",
+            agent_role="reviewer",
+            attempt_number=1,
+            ts="2026-05-01T00:00:00+00:00",
+        )
+        output_file = tmp_path / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "REVIEW-RESULT", "verdict": "FAIL",
+                        "findings": ["x"], "reason": "y",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "agent-1", str(output_file))
+
+        st.reconcile_pending_attempts(project_dir=project_dir)
+        st.reconcile_pending_attempts(project_dir=project_dir)
+
+        assert read_attempt_count("INFRA-258", project_dir) == 1
+
+    def test_checkpoint_phase_row_fail_does_not_bump(self, tmp_path: Path) -> None:
+        """Ensures 19/21: a phase:<key>-attributed FAIL never bumps the
+        (nonexistent) story counter."""
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="phase:101",
+            phase="101",
+            agent_role="security-auditor",
+            attempt_number=1,
+            ts="2026-05-01T00:00:00+00:00",
+        )
+        output_file = tmp_path / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "REVIEW-RESULT", "verdict": "FAIL",
+                        "findings": ["x"], "reason": "y",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "agent-1", str(output_file))
+
+        st.reconcile_pending_attempts(project_dir=project_dir)
+
+        assert read_attempt_count("phase:101", project_dir) == 0
+
+    def test_never_raises_on_corrupt_effort_db(self, tmp_path: Path) -> None:
+        """Ensures 32."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+        companion_dir = project_dir / ".companion"
+        companion_dir.mkdir(parents=True, exist_ok=True)
+        (companion_dir / "effort.db").write_text("not a sqlite file", encoding="utf-8")
+
+        assert st.reconcile_pending_attempts(project_dir=project_dir) == 0
+
+    def test_dp7_state_json_byte_identical_across_reconciliation(self, tmp_path: Path) -> None:
+        """Ensures 26: state.json is untouched (byte-identical) by reconciliation."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        state_path = _enable_tracking(project_dir)
+        before = state_path.read_bytes()
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-258",
+            agent_role="builder",
+            attempt_number=1,
+            ts="2026-05-01T00:00:00+00:00",
+        )
+        output_file = tmp_path / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "BUILD-RESULT", "outcome": "PASS",
+                        "story_id": "INFRA-258", "reason": "done",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "agent-1", str(output_file))
+
+        st.reconcile_pending_attempts(project_dir=project_dir)
+
+        after = state_path.read_bytes()
+        assert before == after
+
+
+# ---------------------------------------------------------------------------
+# Regression: async-shaped tool_response end to end (Ensures 28)
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncSpawnRegression:
+    def test_async_launch_then_reconcile(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        output_file = tmp_path / "tasks" / "agent-async-1.output"
+        async_tool_response = {
+            "isAsync": True,
+            "status": "async_launched",
+            "agentId": "agent-async-1",
+            "outputFile": str(output_file),
+            "canReadOutputFile": True,
+        }
+
+        row_id = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="sess-async",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-258"},
+            tool_response=async_tool_response,
+        )
+        assert row_id is not None
+
+        db_path = project_dir / ".companion" / "effort.db"
+        row = effort_db.query_by_story(db_path, "INFRA-258")[0]
+        assert row["tokens_total"] is None
+        assert row["outcome"] is None
+        assert row["agent_id"] == "agent-async-1"
+        assert row["output_file"] == str(output_file)
+
+        # Phase 2: the spawn completes — write its own output file, then
+        # reconcile.
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 1000, 500, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "BUILD-RESULT", "outcome": "PASS",
+                        "story_id": "INFRA-258", "reason": "done",
+                    }),
+                )
+            ],
+        )
+
+        count = st.reconcile_pending_attempts(project_dir=project_dir)
+        assert count == 1
+
+        row = effort_db.query_by_story(db_path, "INFRA-258")[0]
+        assert row["tokens_total"] == 1500
+        assert row["tokens_in"] == 1000
+        assert row["tokens_out"] == 500
+        assert row["model"] == "claude-sonnet-5"
+        assert row["outcome"] == "PASS"

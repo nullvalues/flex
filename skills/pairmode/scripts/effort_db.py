@@ -23,6 +23,16 @@ Public API
   ordinal for a ``(story_id, agent_role)`` pair, derived from the count of
   existing rows for that pair.  Never raises; returns ``1`` on any missing,
   unreadable, or corrupt database (INFRA-257).
+- ``set_spawn_ref(path, row_id, agent_id, output_file)`` — sets the
+  ``agent_id``/``output_file`` columns on one row (INFRA-258). Never raises;
+  returns ``True``/``False``.
+- ``pending_reconcilable(path, limit)`` — rows with ``tokens_total IS NULL``
+  and an ``output_file`` on file, newest first, capped at ``limit``
+  (INFRA-258). Never raises; returns ``[]`` on failure.
+- ``reconcile_attempt(path, row_id, **fields)`` — conditional ``UPDATE`` of
+  the reconcilable columns (tokens/duration/outcome/notes/model) on one row,
+  single-shot via ``WHERE tokens_total IS NULL`` (INFRA-258). Never raises;
+  returns ``True``/``False``.
 """
 
 from __future__ import annotations
@@ -59,7 +69,9 @@ CREATE TABLE IF NOT EXISTS attempts (
     ts TEXT NOT NULL,
     story_class TEXT,
     model_selection_reason TEXT,
-    backend TEXT
+    backend TEXT,
+    agent_id TEXT,
+    output_file TEXT
 );
 """
 
@@ -70,6 +82,23 @@ _MIGRATIONS: tuple[str, ...] = (
     "ALTER TABLE attempts ADD COLUMN story_class TEXT",
     "ALTER TABLE attempts ADD COLUMN model_selection_reason TEXT",
     "ALTER TABLE attempts ADD COLUMN backend TEXT",
+    # INFRA-258: spawn-ref columns for deferred (async-spawn) reconciliation.
+    "ALTER TABLE attempts ADD COLUMN agent_id TEXT",
+    "ALTER TABLE attempts ADD COLUMN output_file TEXT",
+)
+
+#: Fixed allow-list of columns `reconcile_attempt` may write. Never built
+#: from caller-supplied keys (Instructions 3).
+_RECONCILABLE_COLUMNS: tuple[str, ...] = (
+    "tokens_total",
+    "tokens_in",
+    "tokens_out",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "duration_ms",
+    "outcome",
+    "notes",
+    "model",
 )
 
 _SCHEMA_INDICES = (
@@ -330,6 +359,121 @@ def next_attempt_number(path: Path, story_id: str, agent_role: str) -> int:
             conn.close()
     except Exception:
         return 1
+
+
+def set_spawn_ref(
+    path: Path, row_id: int, agent_id: "str | None", output_file: "str | None"
+) -> bool:
+    """Set the ``agent_id``/``output_file`` columns on one row by id (INFRA-258).
+
+    Both values are bound as SQL parameters. Returns ``True`` on a successful
+    update, ``False`` on any failure — missing db, missing table, missing
+    row, or any other error. Never raises.
+    """
+
+    try:
+        resolved = _depth_guard(path)
+        if not resolved.exists():
+            return False
+
+        conn = sqlite3.connect(str(resolved))
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE attempts SET agent_id = ?, output_file = ? WHERE id = ?",
+                (agent_id, output_file, row_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+    except Exception:
+        return False
+
+
+def pending_reconcilable(path: Path, limit: int) -> list[dict]:
+    """Return up to *limit* rows still awaiting reconciliation (INFRA-258).
+
+    Matches ``tokens_total IS NULL AND output_file IS NOT NULL``, ordered by
+    ``id DESC``. *limit* is caller-supplied and always bound as a parameter —
+    this function never issues an unbounded query. Each dict carries at
+    least ``id``, ``story_id``, ``agent_role``, ``output_file``, ``model``.
+    Returns ``[]`` on any failure (missing db, missing table, corrupt file,
+    non-positive limit). Never raises.
+    """
+
+    try:
+        if not isinstance(limit, int) or limit <= 0:
+            return []
+
+        resolved = _depth_guard(path)
+        if not resolved.exists():
+            return []
+
+        conn = sqlite3.connect(str(resolved))
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT * FROM attempts
+                 WHERE tokens_total IS NULL
+                   AND output_file IS NOT NULL
+                 ORDER BY id DESC
+                 LIMIT ?
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+            return _rows_to_dicts(cur, rows)
+        finally:
+            conn.close()
+    except Exception:
+        return []
+
+
+def reconcile_attempt(path: Path, row_id: int, **fields: Any) -> bool:
+    """Conditionally update the reconcilable columns on one row (INFRA-258).
+
+    Only ``tokens_total``, ``tokens_in``, ``tokens_out``, ``cache_read_tokens``,
+    ``cache_write_tokens``, ``duration_ms``, ``outcome``, ``notes``, and
+    ``model`` may be written — the ``SET`` clause is built from a fixed
+    allow-list, never from caller-supplied keys. Unknown kwargs are silently
+    ignored (not written). ``story_id``, ``agent_role``, ``attempt_number``,
+    ``phase``, ``rail``, and ``ts`` are never touched.
+
+    The update is guarded with ``AND tokens_total IS NULL`` so it is
+    single-shot: a repeat call for an already-reconciled row is a no-op
+    returning ``False``. Returns ``True`` only when a row was actually
+    updated. Never raises.
+    """
+
+    try:
+        columns = [col for col in _RECONCILABLE_COLUMNS if col in fields]
+        if not columns:
+            return False
+
+        resolved = _depth_guard(path)
+        if not resolved.exists():
+            return False
+
+        set_clause = ", ".join(f"{col} = ?" for col in columns)
+        values = [fields[col] for col in columns]
+        values.append(row_id)
+
+        conn = sqlite3.connect(str(resolved))
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                f"UPDATE attempts SET {set_clause} "
+                "WHERE id = ? AND tokens_total IS NULL",
+                values,
+            )
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+    except Exception:
+        return False
 
 
 def query_all(path: Path) -> list[dict]:

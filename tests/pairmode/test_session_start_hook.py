@@ -124,6 +124,50 @@ def test_sidebar_attachment_instructions_when_pipe_missing(tmp_path):
     assert "start_sidebar.sh" in ctx
 
 
+def test_reconciliation_call_does_not_break_existing_reset_behavior(tmp_path):
+    """INFRA-258 Ensures 18: the SessionStart hook gains one best-effort
+    delegated call to subagent_transcript.reconcile_pending_attempts, wrapped
+    in its own try/except — the existing reset/status behaviour must be
+    unaffected (no effort_tracking / no effort.db present here, so the
+    reconciliation call is a real, harmless no-op — this is not a mock)."""
+    _write_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "current_story": {"id": "INFRA-258", "title": "async effort", "status": "in-progress"},
+        },
+    )
+    result = _run_hook(tmp_path, tempdir=tmp_path)
+    assert result.returncode == 0
+    ctx = _additional_context(result.stdout)
+    assert "Pairmode v0.1.0 is active" in ctx
+    assert "INFRA-258" in ctx
+
+
+def test_reconciliation_raising_is_swallowed(tmp_path, monkeypatch):
+    """A raising reconcile_pending_attempts must not break the hook's exit
+    status or its existing additionalContext output."""
+    _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+
+    scripts_dir = Path(__file__).resolve().parent.parent.parent / "skills" / "pairmode" / "scripts"
+    stub_path = scripts_dir / "subagent_transcript.py"
+    original = stub_path.read_text(encoding="utf-8")
+    try:
+        stub_path.write_text(
+            original
+            + "\n\ndef reconcile_pending_attempts(*args, **kwargs):\n"
+            "    raise RuntimeError('boom — reconciliation exploded')\n",
+            encoding="utf-8",
+        )
+        result = _run_hook(tmp_path, tempdir=tmp_path)
+    finally:
+        stub_path.write_text(original, encoding="utf-8")
+
+    assert result.returncode == 0
+    ctx = _additional_context(result.stdout)
+    assert "Pairmode v0.1.0 is active" in ctx
+
+
 def test_sidebar_ignores_retired_pipe_path_state_key(tmp_path):
     """A state.json `pipe_path` key pointing at a real file must be IGNORED —
     the hardcoded PIPE_PATH convention is the only source of truth

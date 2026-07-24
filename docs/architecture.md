@@ -1381,7 +1381,7 @@ is **read-only** on every row.
 | `docs/phases/index.md` phase status cell | orchestrator, via `flex_build.py record-checkpoint-step checkpoint-tag` (INFRA-239) — the `checkpoint-tag` step's `_mark_phase_complete_in_index` call writes `complete` to the just-tagged phase's row in the same CLI invocation that resets `checkpoint_step`, so the two writes never land in separate orchestrator turns; the standalone `mark-phase-complete` command (`cmd_mark_phase_complete`) shares the same write helper for direct/manual use but is no longer required in the checkpoint path | read-only (`_resolve_active_phase` / `resolve_current_phase` skip `complete`/`deferred`/`backlog` rows when selecting the active phase) |
 | active story (`state.json` `current_story`) | orchestrator (`story_context.py`) | read-only |
 | `effort.db` | `hooks/post_tool_use.py` → `subagent_transcript.py` / `effort_recorder.py` (INFRA-236); `record_attempt.py` CLI for non-hook callers | read-only |
-| `attempt_counter.json` (attempt counters) | `hooks/post_tool_use.py` → `subagent_transcript.record_attempt_from_transcript` → `flex_build.bump_attempt_count` on builder/reviewer FAIL (INFRA-237); `flex_build.py merge-story-worktree` → `flex_build.clear_attempt_count` on a successful land; the standalone `write-attempt-count` / `clear-attempt-count` CLI subcommands share the same underlying functions for direct/manual use but are no longer invoked from `CLAUDE.build.md.j2`'s loop | read-only |
+| `attempt_counter.json` (attempt counters) | `hooks/post_tool_use.py` → `subagent_transcript.record_attempt_from_transcript` → `flex_build.bump_attempt_count` on builder/reviewer FAIL (INFRA-237); `subagent_transcript.reconcile_pending_attempts` → `flex_build.bump_attempt_count` as a *second, later* bump site for an async spawn's FAIL outcome that was only knowable after PostToolUse time (INFRA-258 — same function, same semantics, just a later call); `flex_build.py merge-story-worktree` → `flex_build.clear_attempt_count` on a successful land; the standalone `write-attempt-count` / `clear-attempt-count` CLI subcommands share the same underlying functions for direct/manual use but are no longer invoked from `CLAUDE.build.md.j2`'s loop | read-only |
 | story `status` frontmatter | manual/advisory — `story_update.py` is the canonical CLI but no build-loop step calls it automatically; drift is caught after the fact by `flex_build.py check-index`'s git-commit status-drift check (RESOLVER-010), not prevented at write time | read-only |
 | permission files (`docs/phases/permissions/<story_id>.json`) | orchestrator (`flex_build.py permissions-create`) | read-only |
 | era/phase/story index (`docs/phases/index.md`) | orchestrator | read-only |
@@ -1610,7 +1610,13 @@ core build-loop control state, not observability, so its writer is independent o
 new story), called from `subagent_transcript.record_attempt_from_transcript` — the same
 `hooks/post_tool_use.py` Task/Agent delegated call that writes `effort.db` rows
 (INFRA-236) — whenever a completed builder or reviewer spawn's own BUILD-RESULT /
-REVIEW-RESULT reports `FAIL`. It is cleared by `flex_build.clear_attempt_count`, called
+REVIEW-RESULT reports `FAIL`. Since INFRA-258, `subagent_transcript.reconcile_pending_attempts`
+is a *second* bump site, called both from `record_attempt_from_transcript` itself and
+from `hooks/session_start.py`: because agent spawns are now asynchronous, a FAIL outcome
+is frequently unknowable until a later PostToolUse event (or the next session's
+SessionStart) reads the spawn's own completed output file — the bump still fires the
+same way, just later; see § Effort tracking for the full mechanism. It is cleared by
+`flex_build.clear_attempt_count`, called
 from `flex_build.py merge-story-worktree` on a successful rebase + fast-forward merge
 (reviewer PASS that actually lands). The `write-attempt-count` / `clear-attempt-count`
 CLI subcommands remain available (and are exercised directly by
@@ -2080,6 +2086,158 @@ practice, and `effort.db` is best-effort observability rather than a
 strongly-consistent ledger — spanning the hook's read and the recorder's
 write in one transaction would add locking risk to a hook path to guard
 against a race the loop's own structure already prevents.
+
+**Async-spawn recording — deferred reconciliation (INFRA-258).** Agent
+spawns are asynchronous in current Claude Code sessions: at PostToolUse time
+the Task/Agent `tool_response` is launch metadata only (`isAsync: true`,
+`status: "async_launched"`, `agentId`, `outputFile`) — never the completed
+result. Two prior assumptions broke as a result: (1) the orchestrator's own
+transcript no longer carries the spawned subagent's turns as `isSidechain:
+true` entries (`extract_subagent_usage` finds nothing and returns
+`_EMPTY_USAGE`), so `tokens_total`/`outcome` were recorded permanently
+`NULL`; and (2) INFRA-237's FAIL-triggered `bump_attempt_count` — gated on
+`outcome == "FAIL"` — could never fire, since no outcome is knowable at
+PostToolUse time, silently disabling the retry/loop-breaker/human-pause
+escalation ladder.
+
+Recording is therefore two-phase. **Phase 1 (immediate, at PostToolUse
+time):** `record_attempt_from_transcript` writes the row as before —
+`tokens_total`/`outcome` are `NULL` for an async spawn, exactly as an
+incomplete synchronous read would have been — and additionally extracts the
+spawn's own `agent_id`/`output_file` from `tool_response` (handling both the
+structured dict shape and the flattened text form) and persists them via
+`effort_db.set_spawn_ref`. **Phase 2 (deferred reconciliation):**
+`subagent_transcript.reconcile_pending_attempts` fetches up to
+`RECONCILE_MAX_ROWS` (5) rows matching `tokens_total IS NULL AND output_file
+IS NOT NULL` (`effort_db.pending_reconcilable`) and, for each, reads the
+spawn's own `output_file` JSONL directly via `read_completed_spawn` —
+streamed line-by-line (never `read_text()`/`readlines()`, capped at
+`RECONCILE_MAX_LINES` = 20 000 lines) — and writes the completed ones back
+via `effort_db.reconcile_attempt`, a conditional `UPDATE ... WHERE id = ? AND
+tokens_total IS NULL` that only ever touches the nine reconcilable columns
+(`tokens_total`, `tokens_in`, `tokens_out`, `cache_read_tokens`,
+`cache_write_tokens`, `duration_ms`, `outcome`, `notes`, `model`) — never
+`story_id`, `agent_role`, `attempt_number`, `phase`, `rail`, or `ts`.
+
+**Completion detection.** `read_completed_spawn` treats a spawn as complete
+only when the **last parseable** JSONL entry in its output file is `type ==
+"assistant"` with `message.stop_reason == "end_turn"`. A last entry of
+`stop_reason == "tool_use"`, a truncated/unparseable trailing line with no
+earlier `end_turn` terminator, an empty file, a nonexistent path, or a file
+with no usage data anywhere in it all yield `None` — an in-flight agent is
+never reconciled, and a mid-write/truncated file is treated as still
+in-flight rather than misread. `outcome`/`fail_cause` are parsed from the
+final assistant text by the same, unmodified `parse_worker_outcome` the
+synchronous path already used — the BUILD-RESULT/REVIEW-RESULT grammar
+stays single-sourced. `duration_ms` is the millisecond delta between the
+first and last parseable entry's `timestamp`, or `None` when either is
+absent/unparseable.
+
+**Reconciliation trigger points and their bounds.** Two call sites invoke
+`reconcile_pending_attempts`, both best-effort (own `try/except`, never
+raise, never block the caller): (1) `record_attempt_from_transcript` itself,
+immediately after the `effort_tracking` early return and before it derives
+the new spawn's own `attempt_number` — this is the next Task/Agent
+PostToolUse event, whenever it next fires; (2) `hooks/session_start.py`,
+once per new session — the earliest opportunity in the *next* session,
+covering the tail rows of a session (the last reviewer, or the checkpoint
+gate workers) that would otherwise never be swept, since the spawning
+session may end before another Task/Agent PostToolUse event occurs. A
+`SessionEnd` sweep was considered and rejected: `SessionEnd` is `async: true`
+with a 30 s timeout and is not a guaranteed-to-complete surface, while the
+next session's `SessionStart` sweep covers the same rows. Both call sites
+are bounded by construction, not by convention: at most `RECONCILE_MAX_ROWS`
+(5) rows per invocation, each output file capped at `RECONCILE_MAX_LINES`
+(20 000) lines and never loaded into memory at once, everything gated
+behind the `effort_tracking` early return, and neither call site is a new
+hook registration — `hooks/post_tool_use.py` and `hooks/hooks.json` are
+unmodified.
+
+**Message-id dedupe (token summation).** A subagent's own JSONL contains
+multiple entries per assistant message — streaming snapshots sharing one
+`message.id`, with monotonically growing `output_tokens` (observed: message
+`msg_011CdMLvCkdcMj13pJQryLmP` appearing three times with `output_tokens` 5,
+5, 263 — only the last, 263, is the true total). Naively summing every
+`usage` block double-counts. A single module-level helper,
+`_sum_deduped_usage`, keys each assistant entry's usage by `message.id`
+(last write wins) before summing; entries with no `message.id` are summed
+individually under a synthetic unique key. Both the synchronous sidechain
+path (`extract_subagent_usage`) and the async output-file path
+(`read_completed_spawn`) route through this one helper, so the two report
+the same metric under the same rules. **This changes token totals relative
+to pre-INFRA-258 rows** — any row recorded before this fix that happened to
+hit the streaming-duplicate shape may read higher than a row recorded after
+it; no backfill is performed (see below), so a cross-era comparison should
+treat this as a known discontinuity, not a regression.
+
+**Checkpoint-worker attribution — the `phase:<phase_key>` synthetic id.**
+`next_action.py`'s `checkpoint-security` / `checkpoint-intent` actions spawn
+`security-auditor` / `intent-reviewer` (`CHECKPOINT_ROLES`) with `scalar=""`
+— they belong to no single story — but their prompts enumerate the phase's
+story ids (e.g. "...docs/phases/phase-101.md — stories INFRA-256 ...,
+INFRA-257 ..."). The pre-INFRA-258 attribution path
+(`_derive_story_id`/`_STORY_ID_RE`) took the first regex match in the
+prompt, so an entire phase's checkpoint cost was silently stamped onto
+whichever story happened to be named first (observed: effort.db ids
+339–340, both `security-auditor`/`intent-reviewer` rows for the cp-101 gate,
+stamped `story_id = INFRA-256`). `_derive_attribution` fixes this by routing
+`CHECKPOINT_ROLES` through a dedicated branch that **never** consults
+`_STORY_ID_RE` or `state.json["current_story"]`: it derives a phase key from
+the prompt (the `docs/phases/phase-<key>.md` path pattern first, then a bare
+`Phase <key>` mention; `<key>` matches `[A-Za-z0-9][A-Za-z0-9._-]*` with
+trailing punctuation stripped, so both `101` and `HARNESS001-main` resolve)
+and records `story_id = f"phase:{key}"` with the `phase` column set to
+`key` and `rail` left `None`, or `story_id =
+f"unattributed:{subagent_type}"` when no phase key is derivable. Because
+`phase:`/`unattributed:` ids contain a `:`, `INFRA-256`'s per-story rollup
+(`flex_build._query_effort_by_story_ids`, which filters `story_id IN
+(<phase's story ids>)`) now correctly excludes checkpoint-worker rows, while
+`effort_db.query_by_phase` still finds them via the `phase` column. Every
+other role (`builder`, `reviewer`, `loop-breaker`) is unaffected — attribution
+for them is exactly the pre-INFRA-258 `_derive_story_id` behaviour: prompt
+story-id regex, then `state.json["current_story"]`, then
+`unattributed:<role>`. This split is deliberately asymmetric with
+`RECORDABLE_SUBAGENT_ROLES` (which still lists all five roles as
+recordable) — a future reader should not "simplify" `CHECKPOINT_ROLES` away
+without re-reading this paragraph; doing so silently reintroduces the
+misattribution.
+
+**Late counter bump.** When `reconcile_pending_attempts` resolves `outcome
+== "FAIL"` for a row whose `story_id` is a real story id (no `:` — never a
+`phase:` or `unattributed:` synthetic), it calls
+`flex_build.bump_attempt_count(story_id, project_dir)` in its own
+`try/except`, exactly as the synchronous path already did at PostToolUse
+time for the (now rare) case where an outcome is known immediately. Because
+`next_action.infer_position` re-reads `.companion/attempt_counter.json` on
+every call rather than caching it, a bump that lands after an earlier
+next-action read is still honoured by the *next* read — the escalation
+ladder now escalates one loop iteration later than in the synchronous era.
+This is a timing change, not a correctness regression: the ladder's meaning
+(`bump_attempt_count`, `read_attempt_count`, `clear_attempt_count`, and
+`next_action.infer_position`'s rows 5/6/7) is entirely unmodified by
+INFRA-258. `effort_db.reconcile_attempt`'s `WHERE ... AND tokens_total IS
+NULL` guard makes reconciliation single-shot per row, so a repeated
+`<task-notification>` for an already-reconciled row cannot double-bump.
+
+**Accepted losses.**
+- With `effort_tracking` disabled there is no `effort.db` row to carry the
+  `output_file`, so an async spawn's outcome is never knowable and the FAIL
+  bump cannot fire for that project — INFRA-237's "the bump runs
+  independent of `effort_tracking`" property does not survive async
+  spawning. Fixing this would require a second durable pending-spawn store
+  outside `effort.db`, which is a larger change than this fix-before-tag
+  warrants; projects that disable effort tracking lose the automatic
+  retry/loop-breaker escalation as a result.
+- Rows 335–340 and any other pre-existing `NULL`-token rows are not
+  repaired — no migration backfill, no repair subcommand, no manual
+  `UPDATE`. They predate the `output_file` column and are therefore
+  invisible to `pending_reconcilable` by construction, so the phase-101
+  rollup gap for them is permanent.
+- A row's `output_file` lives under `/tmp` and is not guaranteed to survive
+  between sessions (eviction, reboot, disk pressure); a row whose
+  `output_file` is gone by the time `reconcile_pending_attempts` next runs
+  keeps its `NULL` tokens permanently. This residual loss is accepted rather
+  than mirrored into a second durable store.
 
 **Context health check.** At checkpoint, the orchestrator calls
 `skills/pairmode/scripts/context_health.check_context_health(db_path, current_phase)`

@@ -554,6 +554,236 @@ class TestNextAttemptNumber:
         assert effort_db.next_attempt_number(db_path, "INFRA-028", "") == 1
 
 
+# ---------------------------------------------------------------------------
+# Spawn-ref columns and reconciliation helpers (INFRA-258)
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnRefColumns:
+    """agent_id / output_file schema (Ensures 1)."""
+
+    def test_columns_present_after_init(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        conn = sqlite3.connect(str(db_path))
+        try:
+            cur = conn.cursor()
+            cur.execute("PRAGMA table_info(attempts)")
+            col_names = {row[1] for row in cur.fetchall()}
+        finally:
+            conn.close()
+        assert "agent_id" in col_names
+        assert "output_file" in col_names
+
+    def test_migration_on_pre_existing_db_without_new_columns(self, db_path: Path) -> None:
+        """Pre-INFRA-258 DB lacking the new columns; init adds them without raising."""
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS attempts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    story_id TEXT NOT NULL,
+                    phase TEXT,
+                    rail TEXT,
+                    agent_role TEXT NOT NULL,
+                    attempt_number INTEGER NOT NULL,
+                    tokens_total INTEGER,
+                    ts TEXT NOT NULL
+                )
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        effort_db.init_db(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            cur = conn.cursor()
+            cur.execute("PRAGMA table_info(attempts)")
+            col_names = {row[1] for row in cur.fetchall()}
+        finally:
+            conn.close()
+        assert "agent_id" in col_names
+        assert "output_file" in col_names
+
+    def test_double_init_is_noop_on_already_migrated_db(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        effort_db.init_db(db_path)  # must not raise
+
+    def test_insert_columns_not_extended(self, db_path: Path) -> None:
+        """Ensures 2: insert_attempt's required-field set is untouched — passing
+        agent_id/output_file as insert_attempt kwargs must still raise unknown-field."""
+        effort_db.init_db(db_path)
+        with pytest.raises(ValueError, match="unknown"):
+            effort_db.insert_attempt(
+                db_path, **_required_fields(), agent_id="a1", output_file="/tmp/x"
+            )
+
+
+class TestSetSpawnRef:
+    def test_sets_both_columns(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(db_path, **_required_fields())
+        assert effort_db.set_spawn_ref(db_path, row_id, "agent-1", "/tmp/out.jsonl") is True
+
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert rows[0]["agent_id"] == "agent-1"
+        assert rows[0]["output_file"] == "/tmp/out.jsonl"
+
+    def test_missing_db_returns_false(self, tmp_path: Path) -> None:
+        ghost = tmp_path / ".companion" / "effort.db"
+        assert effort_db.set_spawn_ref(ghost, 1, "a", "/tmp/x") is False
+
+    def test_missing_row_returns_false(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        assert effort_db.set_spawn_ref(db_path, 999, "a", "/tmp/x") is False
+
+    def test_never_raises_on_corrupt_file(self, tmp_path: Path) -> None:
+        corrupt_path = tmp_path / ".companion" / "effort.db"
+        corrupt_path.parent.mkdir(parents=True, exist_ok=True)
+        corrupt_path.write_text("not a sqlite file", encoding="utf-8")
+        assert effort_db.set_spawn_ref(corrupt_path, 1, "a", "/tmp/x") is False
+
+
+class TestPendingReconcilable:
+    def test_returns_rows_with_null_tokens_and_output_file(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        row_1 = effort_db.insert_attempt(db_path, **_required_fields(story_id="INFRA-100"))
+        effort_db.set_spawn_ref(db_path, row_1, "a1", "/tmp/out1.jsonl")
+        # A completed row (tokens_total set) must NOT show up as pending.
+        effort_db.insert_attempt(
+            db_path, **_required_fields(story_id="INFRA-101", tokens_total=100)
+        )
+
+        rows = effort_db.pending_reconcilable(db_path, 10)
+        assert len(rows) == 1
+        assert rows[0]["id"] == row_1
+        assert rows[0]["story_id"] == "INFRA-100"
+        assert rows[0]["output_file"] == "/tmp/out1.jsonl"
+
+    def test_excludes_rows_without_output_file(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        effort_db.insert_attempt(db_path, **_required_fields())
+        assert effort_db.pending_reconcilable(db_path, 10) == []
+
+    def test_ordered_by_id_descending(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        for i in range(3):
+            row_id = effort_db.insert_attempt(
+                db_path, **_required_fields(story_id=f"INFRA-{200+i}")
+            )
+            effort_db.set_spawn_ref(db_path, row_id, f"a{i}", f"/tmp/out{i}.jsonl")
+
+        rows = effort_db.pending_reconcilable(db_path, 10)
+        ids = [r["id"] for r in rows]
+        assert ids == sorted(ids, reverse=True)
+
+    def test_capped_by_limit(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        for i in range(5):
+            row_id = effort_db.insert_attempt(
+                db_path, **_required_fields(story_id=f"INFRA-{300+i}")
+            )
+            effort_db.set_spawn_ref(db_path, row_id, f"a{i}", f"/tmp/out{i}.jsonl")
+
+        rows = effort_db.pending_reconcilable(db_path, 2)
+        assert len(rows) == 2
+
+    def test_missing_db_returns_empty_list(self, tmp_path: Path) -> None:
+        ghost = tmp_path / ".companion" / "effort.db"
+        assert effort_db.pending_reconcilable(ghost, 5) == []
+
+    def test_never_raises_on_corrupt_file(self, tmp_path: Path) -> None:
+        corrupt_path = tmp_path / ".companion" / "effort.db"
+        corrupt_path.parent.mkdir(parents=True, exist_ok=True)
+        corrupt_path.write_text("not a sqlite file", encoding="utf-8")
+        assert effort_db.pending_reconcilable(corrupt_path, 5) == []
+
+
+class TestReconcileAttempt:
+    def test_updates_reconcilable_columns_only(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(db_path, **_required_fields())
+        effort_db.set_spawn_ref(db_path, row_id, "a1", "/tmp/out.jsonl")
+
+        updated = effort_db.reconcile_attempt(
+            db_path,
+            row_id,
+            tokens_total=1500,
+            tokens_in=1000,
+            tokens_out=500,
+            cache_read_tokens=10,
+            cache_write_tokens=20,
+            duration_ms=4200,
+            outcome="PASS",
+            notes=None,
+            model="claude-sonnet-5",
+        )
+        assert updated is True
+
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        row = rows[0]
+        assert row["tokens_total"] == 1500
+        assert row["tokens_in"] == 1000
+        assert row["tokens_out"] == 500
+        assert row["cache_read_tokens"] == 10
+        assert row["cache_write_tokens"] == 20
+        assert row["duration_ms"] == 4200
+        assert row["outcome"] == "PASS"
+        assert row["model"] == "claude-sonnet-5"
+
+    def test_never_writes_story_id_agent_role_attempt_number_or_ts(self, db_path: Path) -> None:
+        """Ensures 5: attempt_number and ts must be byte-identical before/after."""
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path, **_required_fields(attempt_number=3, ts="2026-05-01T00:00:00+00:00")
+        )
+        before = effort_db.query_by_story(db_path, "INFRA-028")[0]
+
+        effort_db.reconcile_attempt(
+            db_path,
+            row_id,
+            tokens_total=100,
+            story_id="INFRA-999",
+            agent_role="reviewer",
+            attempt_number=99,
+            ts="2099-01-01T00:00:00+00:00",
+        )
+
+        after = effort_db.query_by_story(db_path, "INFRA-999")
+        assert after == []  # story_id write attempt was ignored
+        after_row = effort_db.query_by_story(db_path, "INFRA-028")[0]
+        assert after_row["attempt_number"] == before["attempt_number"] == 3
+        assert after_row["ts"] == before["ts"] == "2026-05-01T00:00:00+00:00"
+        assert after_row["agent_role"] == "builder"
+        assert after_row["tokens_total"] == 100
+
+    def test_single_shot_second_call_is_noop(self, db_path: Path) -> None:
+        """Ensures 5: a second reconciliation call for an already-reconciled
+        row is a no-op returning False."""
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(db_path, **_required_fields())
+
+        assert effort_db.reconcile_attempt(db_path, row_id, tokens_total=100) is True
+        assert effort_db.reconcile_attempt(db_path, row_id, tokens_total=200) is False
+
+        row = effort_db.query_by_story(db_path, "INFRA-028")[0]
+        assert row["tokens_total"] == 100  # unchanged by the second call
+
+    def test_missing_row_returns_false(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        assert effort_db.reconcile_attempt(db_path, 999, tokens_total=100) is False
+
+    def test_never_raises_on_corrupt_file(self, tmp_path: Path) -> None:
+        corrupt_path = tmp_path / ".companion" / "effort.db"
+        corrupt_path.parent.mkdir(parents=True, exist_ok=True)
+        corrupt_path.write_text("not a sqlite file", encoding="utf-8")
+        assert effort_db.reconcile_attempt(corrupt_path, 1, tokens_total=100) is False
+
+
 class TestGuardrailCheckCLI:
     def test_guardrail_check_cli_no_warning(self, tmp_path: Path) -> None:
         """No output and exit 0 when guardrail has not fired."""
