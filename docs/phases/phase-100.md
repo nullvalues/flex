@@ -38,3 +38,10 @@ estimation path entirely rather than re-sourcing it, and after the gate's
 102k→174k silent gap showed story-boundary-only re-arming misses the
 post-150k drift window. Restores the INFRA-127 live-estimate intent with a
 DP7-clean source (orchestrator context deltas, never effort.db).
+
+**Cold-resume warning for the cp100 checkpoint:** the resolver's
+`checkpoint_step` state still contains phase-99's recorded gate steps
+(CER-066 — state is not cleared at tag time), so `next-action` will resolve
+straight to `checkpoint-tag` after the last story completes. Do NOT tag on
+that basis: run all three gate workers (security, intent, docs) explicitly
+for phase 100, then checkpoint-report, then tag `cp100-*`.
