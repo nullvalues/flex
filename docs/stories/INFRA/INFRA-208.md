@@ -2,7 +2,7 @@
 id: INFRA-208
 rail: INFRA
 title: "Generalize bootstrap.py downstream hook registration to wire the three load-bearing context-budget-gate hooks (UserPromptSubmit, SessionStart, PostToolUse Task|Agent) into .claude/settings.json alongside the existing PreToolUse registration — through both the bootstrap and sync.py call sites, mirroring _register_pretooluse_hook's by-command find/migrate idempotency, deferring the four companion/sidebar blocks as opt-in"
-status: planned
+status: complete
 phase: "95"
 story_class: code
 auth_gated: false
