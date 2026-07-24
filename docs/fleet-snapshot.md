@@ -13,6 +13,16 @@ across the era, so the pre-fold run is what licenses the fold.
 `registered_projects` stays drift-opt-in (distinct purpose; optionally seeded
 from the discovered fleet, never forced).
 
+## Flex itself (hub, not a discovered fleet member)
+
+flex is the hub repo this tool runs from, so it is not one of the "discovered"
+bound projects below. As of INFRA-249, flex's own `.companion/state.json`
+records `"pairmode_version": "0.3.0"` (matching
+`skills/pairmode/scripts/_version.PAIRMODE_VERSION`), self-synced by an
+operator/orchestrator-applied edit — see INFRA-249's Build notes for why the
+write could not be made by an in-worktree builder. This gives the phase-97
+fleet re-sync an accurate baseline row for the hub itself.
+
 ## Discovered fleet
 
 Found **16** bound project(s):
