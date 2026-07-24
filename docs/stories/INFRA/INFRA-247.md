@@ -2,7 +2,7 @@
 id: INFRA-247
 rail: INFRA
 title: Single canonical hook registration for flex itself — dedupe plugin manifest vs settings.json, eliminate cross-checkout /mnt/work/flex-harness absolute paths
-status: planned
+status: complete
 phase: "99"
 story_class: code
 auth_gated: false

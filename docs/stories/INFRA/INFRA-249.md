@@ -2,7 +2,7 @@
 id: INFRA-249
 rail: INFRA
 title: Self-sync flex's .companion/state.json — pairmode_version to 0.3.0, verify banner correctness
-status: planned
+status: complete
 phase: "99"
 story_class: code
 auth_gated: false

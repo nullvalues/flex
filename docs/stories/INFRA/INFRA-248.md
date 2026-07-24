@@ -2,7 +2,7 @@
 id: INFRA-248
 rail: INFRA
 title: Audit and correct context-counter double-increment caused by duplicated UserPromptSubmit hooks
-status: planned
+status: complete
 phase: "99"
 story_class: code
 auth_gated: false

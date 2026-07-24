@@ -68,11 +68,11 @@ and this phase's direct blocker.
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-247 | Single canonical hook registration for flex itself — dedupe plugin manifest vs settings.json, eliminate cross-checkout `/mnt/work/flex-harness` absolute paths | planned |
-| INFRA-248 | Audit and correct context-counter double-increment caused by duplicated UserPromptSubmit hooks | planned |
-| INFRA-249 | Self-sync flex's `.companion/state.json` — pairmode_version to 0.3.0, verify banner correctness | planned |
-| INFRA-250 | Route `pairmode_migrate.py`'s version default through `_version.PAIRMODE_VERSION`; fix SKILL.md migration-target doc drift | planned |
-| INFRA-251 | Context-budget gate remediation — acknowledgment that actually clears, live counter writes, non-fossil step estimate | planned |
+| INFRA-247 | Single canonical hook registration for flex itself — dedupe plugin manifest vs settings.json, eliminate cross-checkout `/mnt/work/flex-harness` absolute paths | complete |
+| INFRA-248 | Audit and correct context-counter double-increment caused by duplicated UserPromptSubmit hooks | complete |
+| INFRA-249 | Self-sync flex's `.companion/state.json` — pairmode_version to 0.3.0, verify banner correctness | complete |
+| INFRA-250 | Route `pairmode_migrate.py`'s version default through `_version.PAIRMODE_VERSION`; fix SKILL.md migration-target doc drift | complete |
+| INFRA-251 | Context-budget gate remediation — acknowledgment that actually clears, live counter writes, non-fossil step estimate | complete |
 
 ## Schema delivery
 

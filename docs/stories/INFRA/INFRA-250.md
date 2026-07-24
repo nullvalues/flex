@@ -2,7 +2,7 @@
 id: INFRA-250
 rail: INFRA
 title: Route pairmode_migrate.py's version default through _version.PAIRMODE_VERSION; fix SKILL.md migration-target doc drift
-status: planned
+status: complete
 phase: "99"
 story_class: code
 auth_gated: false

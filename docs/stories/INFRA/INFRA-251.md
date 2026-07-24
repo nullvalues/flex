@@ -2,7 +2,7 @@
 id: INFRA-251
 rail: INFRA
 title: Context-budget gate remediation — acknowledgment that actually clears, live counter writes, non-fossil step estimate
-status: planned
+status: complete
 phase: "99"
 story_class: code
 auth_gated: false
