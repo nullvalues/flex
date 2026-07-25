@@ -367,6 +367,18 @@ class TestClaudeBuildMdTemplate:
         pytest.skip("HARNESS-001: thin dispatch loop removed this content from CLAUDE.build.md.j2")
     def test_migration_command_present_when_provided(self):
         pytest.skip("HARNESS-001: thin dispatch loop removed this content from CLAUDE.build.md.j2")
+
+    def test_checkpoint_tag_cli_precedes_git_tag_and_omits_flex_harness(self):
+        """INFRA-260 / CER-083: the rendered template must mandate the CLI
+        tagging path (record-checkpoint-step checkpoint-tag) before any raw
+        `git tag`, and must not reference flex's own flex-harness release
+        channel — no downstream project has that sibling worktree."""
+        idx_cli = self.output.find("record-checkpoint-step checkpoint-tag")
+        idx_git_tag = self.output.find("git tag")
+        assert idx_cli != -1
+        assert idx_git_tag != -1
+        assert idx_cli < idx_git_tag
+        assert "flex-harness" not in self.output
     def test_loop_breaker_section(self):
         pytest.skip("HARNESS-001: thin dispatch loop removed this content from CLAUDE.build.md.j2")
 

@@ -45,7 +45,7 @@ input) so the operator can key in any model name — the `model_selector.py` tie
 
 Execute each checkpoint leaf worker as dispatched. After each returns, call:
   /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py record-checkpoint-step <action> --project-dir .
-After the three gate workers complete, call `/mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py checkpoint-report --project-dir .` and print its output verbatim (cost rollup + next-phase pointer) before checkpoint-tag. Then re-run next-action. checkpoint-tag: `git tag cp-<phase-key> && git push origin main --tags`.
+After the three gate workers complete, call `/mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py checkpoint-report --project-dir .` and print its output verbatim (cost rollup + next-phase pointer) before checkpoint-tag. Then re-run next-action. checkpoint-tag (mandated order, CER-083): 1) `record-checkpoint-step checkpoint-tag --project-dir .` (resets checkpoint_step, marks phase complete); 2) `git tag cp-<phase-key> && git push origin main --tags`; 3) promote: `git -C /mnt/work/flex-harness merge --ff-only cp-<phase-key>` (see docs/architecture.md § Release channel — flex-harness). A raw `git tag` alone, skipping step 1, is forbidden: `record-checkpoint-step` is idempotent and safely re-runnable if step 2 fails after it, but if the order reverses, step 1's skip is silent and the next phase's gates are lost.
 
 ## All other input
 

@@ -594,6 +594,7 @@ from next_action import (  # noqa: E402
     SPAWN_GATE_WORKER,
     CHECKPOINT,
     CHECKPOINT_SECURITY,
+    CHECKPOINT_TAG,
     AWAIT_USER,
     route_gate_verdict,
 )
@@ -893,6 +894,172 @@ class TestResolveNextActionCheckpoint:
         action = resolve_next_action(pos, gate_fn=lambda: True)
         assert action["action"] != CHECKPOINT_SECURITY
         assert action["action"] != DONE
+
+    def test_cer_083_stamp_mismatch_ignores_stale_checkpoint_step(
+        self, tmp_path: Any
+    ) -> None:
+        """CER-083 regression: a checkpoint_step list stamped for a *prior*
+        phase must not be honoured for a newly-active phase.
+
+        This is the exact live incident (cp99→phase-100, 2026-07-24): phase
+        1's checkpoint_step held the three gate steps under
+        ``checkpoint_phase="1"``; phase 1 is then marked complete and phase 2
+        becomes active with no unbuilt stories. Reading the stale list
+        verbatim would let the resolver resolve straight to
+        ``checkpoint-tag`` for phase 2, silently skipping its gates. Asserts
+        the resolver instead re-starts the checkpoint sequence at
+        ``checkpoint-security``.
+        """
+        import subprocess
+        import sys as _sys
+
+        project_dir = tmp_path / "sub" / "project"
+        companion = project_dir / ".companion"
+        companion.mkdir(parents=True)
+        state_path = companion / "state.json"
+        state_path.write_text(json.dumps({"checkpoint_step": []}), encoding="utf-8")
+
+        # Phase 1 active (planned) with no Stories table (vacuous completion)
+        # so record-checkpoint-step's phase resolution lands on phase 1.
+        _write_index(
+            project_dir,
+            [
+                ("1", "First phase", "planned"),
+                ("2", "Second phase", "planned"),
+            ],
+        )
+        (project_dir / "docs" / "phases" / "phase-1.md").write_text(
+            "# Phase 1\n", encoding="utf-8"
+        )
+
+        scripts_dir = (
+            Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts"
+        )
+
+        for step in ["checkpoint-security", "checkpoint-intent", "checkpoint-docs"]:
+            result = subprocess.run(
+                [
+                    _sys.executable,
+                    str(scripts_dir / "flex_build.py"),
+                    "record-checkpoint-step",
+                    step,
+                    "--project-dir",
+                    str(project_dir),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0, result.stderr
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert state["checkpoint_phase"] == "1"
+        assert state["checkpoint_step"] == [
+            "checkpoint-security",
+            "checkpoint-intent",
+            "checkpoint-docs",
+        ]
+
+        # Phase 1 is now complete (as if checkpoint-tag had run at some
+        # earlier point without the phase-stamp fix); phase 2 has no
+        # unbuilt stories, so it resolves active vacuously.
+        _write_index(
+            project_dir,
+            [
+                ("1", "First phase", "complete"),
+                ("2", "Second phase", "planned"),
+            ],
+        )
+        (project_dir / "docs" / "phases" / "phase-2.md").write_text(
+            "# Phase 2\n", encoding="utf-8"
+        )
+
+        pos = infer_position(project_dir)
+        assert Path(pos["active_phase_file"]).name == "phase-2.md"
+        assert pos["checkpoint_step"] == [], (
+            "the stale phase-1-stamped checkpoint_step was honoured for "
+            "phase 2 — CER-083 regression"
+        )
+
+        action = resolve_next_action(pos, gate_fn=lambda: True)
+        assert action["action"] == CHECKPOINT_SECURITY
+        assert action["action"] != CHECKPOINT_TAG
+        assert validate_action(action) == []
+
+    def test_stamp_matching_active_phase_still_yields_checkpoint_tag(
+        self, tmp_path: Any
+    ) -> None:
+        """A checkpoint_step list stamped with the *active* phase's own key
+        is a genuine mid-checkpoint resume and must not be discarded."""
+        import subprocess
+        import sys as _sys
+
+        project_dir = tmp_path / "sub" / "project"
+        companion = project_dir / ".companion"
+        companion.mkdir(parents=True)
+        state_path = companion / "state.json"
+        state_path.write_text(json.dumps({"checkpoint_step": []}), encoding="utf-8")
+
+        _write_index(project_dir, [("1", "Only phase", "planned")])
+        (project_dir / "docs" / "phases" / "phase-1.md").write_text(
+            "# Phase 1\n", encoding="utf-8"
+        )
+
+        scripts_dir = (
+            Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts"
+        )
+
+        for step in ["checkpoint-security", "checkpoint-intent", "checkpoint-docs"]:
+            result = subprocess.run(
+                [
+                    _sys.executable,
+                    str(scripts_dir / "flex_build.py"),
+                    "record-checkpoint-step",
+                    step,
+                    "--project-dir",
+                    str(project_dir),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0, result.stderr
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert state["checkpoint_phase"] == "1"
+
+        pos = infer_position(project_dir)
+        assert Path(pos["active_phase_file"]).name == "phase-1.md"
+        assert pos["checkpoint_step"] == [
+            "checkpoint-security",
+            "checkpoint-intent",
+            "checkpoint-docs",
+        ], "a stamp matching the active phase must not clear the stored list"
+
+        action = resolve_next_action(pos, gate_fn=lambda: True)
+        assert action["action"] == CHECKPOINT_TAG
+        assert validate_action(action) == []
+
+    def test_unstamped_state_file_honours_stored_list_unchanged(
+        self, tmp_path: Any
+    ) -> None:
+        """Backward compatibility: a state.json predating this story (no
+        ``checkpoint_phase`` key at all) must keep resuming correctly —
+        the stored ``checkpoint_step`` list is exposed unchanged."""
+        project_dir = tmp_path / "sub" / "project"
+        companion = project_dir / ".companion"
+        companion.mkdir(parents=True)
+        state_path = companion / "state.json"
+        state_path.write_text(
+            json.dumps({"checkpoint_step": ["checkpoint-security"]}),
+            encoding="utf-8",
+        )
+
+        _write_index(project_dir, [("1", "Only phase", "planned")])
+        (project_dir / "docs" / "phases" / "phase-1.md").write_text(
+            "# Phase 1\n", encoding="utf-8"
+        )
+
+        pos = infer_position(project_dir)
+        assert pos["checkpoint_step"] == ["checkpoint-security"]
 
 
 class TestResolveNextActionSpawnBuilder:

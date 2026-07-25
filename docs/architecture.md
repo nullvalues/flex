@@ -524,6 +524,96 @@ is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
     `docs/phases/index.md` is absent or the phase row can't be found, so legacy layouts and unit
     tests that don't set up an index are unaffected.
 
+    **Phase-stamped checkpoint state (INFRA-260 / CER-083).** `CLAUDE.build.md`'s checkpoint-tag
+    instruction was, before this story, a raw `git tag && git push` — the CLI's `checkpoint-tag`
+    step was never recorded, so neither the `checkpoint_step` reset nor the index mark-complete
+    ever fired. Live consequence at cp99→phase-100 (2026-07-24): the leftover `checkpoint_step`
+    list held the three gate steps with no `checkpoint-tag` entry, so phase-100's `next-action`
+    resolved straight to `checkpoint-tag`, silently skipping `checkpoint-security`,
+    `checkpoint-intent`, and `checkpoint-docs`. The fix has two halves: `CLAUDE.build.md` and
+    `skills/pairmode/templates/CLAUDE.build.md.j2` now mandate the CLI path *before* the raw
+    `git tag` (never the raw tag alone); and every `record-checkpoint-step` call now stamps
+    `state.json["checkpoint_phase"]` with the phase key resolved by `resolve_current_phase` in the
+    same atomic write that appends the step, reset to `""` alongside the `checkpoint_step` reset on
+    `checkpoint-tag`. `next_action.infer_position` reads that stamp: when it is a non-empty string
+    that differs from the active phase's own key, `position["checkpoint_step"]` is exposed as `[]`
+    instead of the stored (stale) list — a checkpoint sequence recorded for a phase that has since
+    been superseded can no longer be silently mistaken for the active phase's own progress. An
+    absent, empty, or matching stamp leaves the stored list untouched, so state files predating
+    this story keep resuming correctly. The resolver remains pure-read: it never writes
+    `checkpoint_phase` or repairs a stale stamp it observes — only `record-checkpoint-step` writes
+    it.
+
+### Release channel — flex-harness
+
+flex dogfoods its own pairmode: `CLAUDE.build.md` sets `pairmode_scripts_dir =
+/mnt/work/flex-harness/skills/pairmode/scripts`, a **sibling git worktree**, not
+`/mnt/work/flex/skills/pairmode/scripts`. The orchestrator's build loop executes the toolchain out
+of that sibling worktree deliberately, and only fast-forwards it at checkpoints — it is never
+repointed at `main` directly.
+
+**Why a separate worktree instead of pointing the loop at `main`.** If the live build loop executed
+`skills/pairmode/scripts/` straight from the working tree it is itself building, every half-built
+story's CLI edits would take effect on the very loop building it mid-phase — a toolchain that
+changes under the harness while the harness is running is exactly the class of self-reference this
+project has already been bitten by (RESOLVER-012 through RESOLVER-017 were all incidents in this
+same file). Pinning the executed toolchain to the last checkpoint tag instead gives flex's own
+build loop the same property it gives downstream fleet consumers: the code that runs has passed all
+three checkpoint gates (`checkpoint-security`, `checkpoint-intent`, `checkpoint-docs`).
+
+**Mechanics.** `main` is the dev line. `/mnt/work/flex-harness` (branch `fold-prep`, tracking
+`origin/fold-prep`) is the pinned release channel — its `HEAD` is always some prior `cp-<phase>`
+tag. Promotion is a `git merge --ff-only` to the newest checkpoint tag, run **after** the three
+checkpoint gate workers have passed and the tag has been pushed — never before, since the entire
+point of the channel is that the executed toolchain is one that passed them. This is a checkpoint
+step (`CLAUDE.build.md` § Checkpoint, `checkpoint-tag` item 3), not an automatic or gated action;
+INFRA-260 deliberately left "automate/gate the promotion" out of scope — this story makes the step
+documented and verifiable, not enforced.
+
+**Promotion commands**, run from `/mnt/work/flex` unless noted, with `<cp-tag>` resolved (never
+assumed — existing tags use the `cp101-<slug>` shape, not a bare `cp-102`):
+
+```bash
+# P1 — resolve the tag and verify the fast-forward is legitimate
+git -C /mnt/work/flex tag --list 'cp102*'
+git -C /mnt/work/flex-harness status --porcelain --untracked-files=no   # must be empty
+git -C /mnt/work/flex merge-base --is-ancestor \
+    "$(git -C /mnt/work/flex-harness rev-parse HEAD)" <cp-tag> && echo FF-OK
+
+# P2 — promote
+git -C /mnt/work/flex-harness merge --ff-only <cp-tag>
+
+# P3 — verify the pin
+git -C /mnt/work/flex-harness rev-parse HEAD
+git -C /mnt/work/flex rev-parse "<cp-tag>^{commit}"
+git -C /mnt/work/flex-harness describe --tags --exact-match HEAD
+
+# P4 — smoke the promoted toolchain (read-only)
+PATH=$HOME/.local/bin:$PATH uv run python \
+  /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
+  checkpoint-report --project-dir /mnt/work/flex
+```
+
+Three details are load-bearing, not incidental:
+
+- `--untracked-files=no` on the cleanliness check — the vendored `node_modules` payload (CER-090)
+  shows as untracked noise and would otherwise fail a naive cleanliness check even on a channel with
+  no real drift.
+- `--ff-only` on the merge, never `--force` or `reset --hard` — a non-fast-forward means the sibling
+  worktree holds commits nobody has triaged, and the correct response is to **stop and investigate**,
+  not discard them.
+- Promotion happens **after** the checkpoint gates, never before — the channel's entire purpose is
+  that the toolchain it runs has already passed `checkpoint-security` / `checkpoint-intent` /
+  `checkpoint-docs`.
+
+**Ancestry precondition and failure rule.** The promotion is only legitimate when the harness
+worktree's current `HEAD` is an ancestor of the new tag (P1's `merge-base --is-ancestor` check). If
+it is not — the harness worktree has diverged, carrying commits the tag does not — the promotion
+does not proceed with `--force`, `reset --hard`, or a discard of the divergent commits; it stops,
+and the divergence is investigated and resolved (e.g. by rebuilding the harness worktree from the
+tag, or by determining the divergent commits were themselves a mistake) before any fast-forward is
+attempted.
+
 ---
 
 ## The canonical spec format
@@ -1377,7 +1467,8 @@ is **read-only** on every row.
 | Surface | Sole writer (additive window) | Resolver access |
 |---------|-------------------------------|-----------------|
 | `state.json` `context_*` (context tokens: `context_current_tokens`, `context_current_tokens_recorded_at`, `context_session_reset_at`) | orchestrator hooks (`post_tool_use.py` / `session_start.py`), frozen | read-only |
-| `state.json` `checkpoint_step` | orchestrator (`flex_build.py record-checkpoint-step`); HARNESS009-main moved authority from LLM prose to CLI (RESOLVER-012); HARNESS015-main (RESOLVER-017) added reset-to-`[]` on `checkpoint-tag` completion, fixing a silent skip of the entire checkpoint sequence on every phase after the first | read-only |
+| `state.json` `checkpoint_step` | orchestrator (`flex_build.py record-checkpoint-step`); HARNESS009-main moved authority from LLM prose to CLI (RESOLVER-012); HARNESS015-main (RESOLVER-017) added reset-to-`[]` on `checkpoint-tag` completion, fixing a silent skip of the entire checkpoint sequence on every phase after the first; INFRA-260 (CER-083) — the resolver now honours this list only when the adjacent `checkpoint_phase` stamp is absent, empty, or matches the active phase's own key, so a list stamped for a *different* phase reads as `[]` instead of silently resuming a stale checkpoint | read-only (mismatched-stamp override, still no write) |
+| `state.json` `checkpoint_phase` | orchestrator (`flex_build.py record-checkpoint-step`), added INFRA-260 (CER-083) — every `record-checkpoint-step` call stamps the phase key resolved by `resolve_current_phase` (the same read-model the `checkpoint-tag` branch already used) in the same atomic write that appends the step; the terminal `checkpoint-tag` branch resets it to `""` alongside the `checkpoint_step` reset | read-only (`next_action.infer_position` reads it only to decide whether to honour or clear `checkpoint_step`; it never writes `checkpoint_phase`) |
 | `docs/phases/index.md` phase status cell | orchestrator, via `flex_build.py record-checkpoint-step checkpoint-tag` (INFRA-239) — the `checkpoint-tag` step's `_mark_phase_complete_in_index` call writes `complete` to the just-tagged phase's row in the same CLI invocation that resets `checkpoint_step`, so the two writes never land in separate orchestrator turns; the standalone `mark-phase-complete` command (`cmd_mark_phase_complete`) shares the same write helper for direct/manual use but is no longer required in the checkpoint path | read-only (`_resolve_active_phase` / `resolve_current_phase` skip `complete`/`deferred`/`backlog` rows when selecting the active phase) |
 | active story (`state.json` `current_story`) | orchestrator (`story_context.py`) | read-only |
 | `effort.db` | `hooks/post_tool_use.py` → `subagent_transcript.py` / `effort_recorder.py` (INFRA-236); `record_attempt.py` CLI for non-hook callers | read-only |

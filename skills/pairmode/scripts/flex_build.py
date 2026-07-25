@@ -2119,15 +2119,30 @@ def _record_checkpoint_step(step_id: str, project_dir: Path) -> int:
         return 0  # idempotent — no write
 
     current.append(step_id)
+
+    # Resolve the active phase key once (INFRA-260 / CER-083), using the same
+    # resolve_current_phase read-model the resolver itself uses. This single
+    # resolution feeds both the checkpoint_phase stamp below and (for the
+    # terminal step) the existing index mark-complete call — no second,
+    # differently-derived source of the phase key.
+    _active_phase_file = resolve_current_phase(project_dir)
+    _phase_key = ""
+    if _active_phase_file is not None:
+        _phase_key = _active_phase_file.stem
+        if _phase_key.startswith("phase-"):
+            _phase_key = _phase_key[len("phase-") :]
+
     if step_id == _CHECKPOINT_SEQUENCE[-1]:
         current = []
-        _active_phase_file = resolve_current_phase(project_dir)
         if _active_phase_file is not None:
-            _phase_key = _active_phase_file.stem
-            if _phase_key.startswith("phase-"):
-                _phase_key = _phase_key[len("phase-") :]
             _mark_phase_complete_in_index(_phase_key, project_dir)
+        # Reset the phase stamp alongside the checkpoint_step reset, in the
+        # same atomic write — a stamp naming a phase that was just tagged
+        # must not be mistaken for a still-active phase's stamp.
+        _phase_key = ""
+
     state["checkpoint_step"] = current
+    state["checkpoint_phase"] = _phase_key
 
     # Atomic write: temp file in same dir, then rename.
     dir_ = state_path.parent

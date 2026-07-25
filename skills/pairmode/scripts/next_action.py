@@ -80,6 +80,18 @@ RESOLVER-011 (resolver read-model integration + CER-056 fix):
   routing — only ``active_phase_file`` (and therefore ``next_story_id``) in the
   Position dict can differ for projects where the last non-complete phase is
   deferred or backlog.
+
+INFRA-260 (CER-083 — phase-stamped checkpoint state):
+  ``infer_position`` now also reads ``state.json["checkpoint_phase"]`` (written
+  by ``flex_build.py``'s ``_record_checkpoint_step``). When that stamp is a
+  non-empty string and differs from the active phase's own key, the exposed
+  ``position["checkpoint_step"]`` is forced to ``[]`` — a checkpoint_step list
+  recorded for a phase other than the one currently active is stale and must
+  not be honoured (this is what let phase-100 silently resolve straight to
+  ``checkpoint-tag`` at cp99→phase-100, skipping all three gates). Absent,
+  empty, or matching stamps leave the stored list untouched, so state files
+  predating this story keep resuming correctly. Still pure-read: this module
+  never writes ``checkpoint_phase`` or ``checkpoint_step``.
 """
 
 from __future__ import annotations
@@ -806,6 +818,27 @@ def infer_position(project_dir: "str | Path") -> dict:
                 raw_cs = raw_state.get("checkpoint_step")
                 if isinstance(raw_cs, list):
                     checkpoint_step = [s for s in raw_cs if isinstance(s, str)]
+
+                # CER-083: a checkpoint_step list stamped for a phase other
+                # than the one currently active is stale — honouring it would
+                # silently skip the newly-active phase's checkpoint gates
+                # (the cp99→phase-100 incident). Compare the stamp against
+                # the active phase's own key (same file-stem derivation used
+                # elsewhere in this module — no second index parse); a
+                # mismatch clears the exposed list. Absent/empty stamp, or a
+                # stamp equal to the active phase key, means "trust the
+                # stored list" (backward compatible with state files written
+                # before this story). Pure read: this module never writes
+                # checkpoint_phase.
+                raw_phase_stamp = raw_state.get("checkpoint_phase")
+                if isinstance(raw_phase_stamp, str) and raw_phase_stamp:
+                    _active_phase_key = ""
+                    if active_phase_file is not None:
+                        _active_phase_key = Path(active_phase_file).stem
+                        if _active_phase_key.startswith("phase-"):
+                            _active_phase_key = _active_phase_key[len("phase-") :]
+                    if raw_phase_stamp != _active_phase_key:
+                        checkpoint_step = []
     except Exception:  # noqa: BLE001
         pass
 
