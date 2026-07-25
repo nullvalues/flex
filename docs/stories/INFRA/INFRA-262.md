@@ -2,7 +2,7 @@
 id: INFRA-262
 rail: INFRA
 title: Fix story_new.py stub frontmatter — emit parseable touches and invert the test pinning the trailing-comment bug (CER-092)
-status: draft
+status: complete
 phase: "103"
 story_class: code
 auth_gated: false

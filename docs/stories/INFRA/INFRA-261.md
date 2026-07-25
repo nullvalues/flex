@@ -2,7 +2,7 @@
 id: INFRA-261
 rail: INFRA
 title: Track the full vendored observability node_modules payload — un-gitignore build//dist under vendored trees so fresh story worktrees pass the UI build gate (CER-090)
-status: draft
+status: complete
 phase: "103"
 story_class: code
 auth_gated: false

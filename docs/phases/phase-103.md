@@ -20,8 +20,8 @@ Remove the two per-story friction defects phase 102 exposed: make the vendored o
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-261 | Track the full vendored observability node_modules payload — un-gitignore build//dist under vendored trees so fresh story worktrees pass the UI build gate (CER-090) | draft |
-| INFRA-262 | Fix story_new.py stub frontmatter — emit parseable touches and invert the test pinning the trailing-comment bug (CER-092) | draft |
+| INFRA-261 | Track the full vendored observability node_modules payload — un-gitignore build//dist under vendored trees so fresh story worktrees pass the UI build gate (CER-090) | complete |
+| INFRA-262 | Fix story_new.py stub frontmatter — emit parseable touches and invert the test pinning the trailing-comment bug (CER-092) | complete |
 
 ## Schema delivery
 
