@@ -778,7 +778,7 @@ story/era/phase files. Do not re-implement the parser inline. Callers import it 
 the value, begins an inline comment and is stripped; a `#` glued to non-whitespace content is
 literal data, not a comment start. This rule applies uniformly to both block-sequence list items
 (`  - value  # comment`, INFRA-211) and scalar values (`key: value  # comment`, CER-092 /
-INFRA-262) via the shared `_strip_inline_comment` helper — there is one comment rule for the
+INFRA-262, phase 103) via the shared `_strip_inline_comment` helper — there is one comment rule for the
 whole parser, not two. A wholly-quoted value (matching leading/trailing `"` or `'`) is exempt
 from comment stripping and returned verbatim with the quotes removed. A scalar whose value is
 entirely a comment (e.g. `touches:  # note`) reduces to `""` after stripping and is parsed as a
@@ -2416,7 +2416,7 @@ the **resolver state model** as the primary data source alongside `.companion/st
 **Architecture:** `skills/observability/` is a pnpm monorepo with `api/` (Fastify 5) and
 `ui/` (Vite + React 19) workspaces. Registry at `~/.config/flex-observability/registry.json`.
 
-**Vendored dependency payload (CER-090 / INFRA-261):** the `node_modules` tree under
+**Vendored dependency payload (CER-090 / INFRA-261, phase 103):** the `node_modules` tree under
 `skills/observability/` (and its `ui/node_modules`/`api/node_modules` symlink farms into
 the workspace `.pnpm` store) is committed to git in full, deliberately — not installed at
 build time. This keeps the UI build gate (`pnpm --filter @flex-obs/ui build`, exercised by
