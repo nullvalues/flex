@@ -413,27 +413,138 @@ alongside this result.
 
 <!-- owner: builder, first action -->
 
+**Q0 output (MAX(id) and COUNT(*)):**
+```
+(348, 348)
+```
+
+**Q1 output (rows with spawn refs):**
+```
+(343, 'phase:101', 'security-auditor', 1, None, None, 1, 1, '2026-07-24T21:44:50.982108+00:00')
+(344, 'phase:101', 'intent-reviewer', 1, 6597, None, 1, 1, '2026-07-24T23:13:09.100806+00:00')
+(348, 'INFRA-259', 'builder', 1, None, None, 1, 1, '2026-07-25T01:03:13.120767+00:00')
+```
+
+**Pending rows at snapshot time:** Row 343 (tokens_total NULL, outcome NULL), Row 348 (tokens_total NULL, outcome NULL). Row 344 is not pending; it has tokens_total=6597 populated but outcome is NULL.
+
 ### B. Fresh-session reconciliation
 
 <!-- owner: builder -->
+
+**Q1 output (rows 343 and 344):**
+```
+(343, 'phase:101', 'security-auditor', 1, None, None, 1, 1, '2026-07-24T21:44:50.982108+00:00')
+(344, 'phase:101', 'intent-reviewer', 1, 6597, None, 1, 1, '2026-07-24T23:13:09.100806+00:00')
+```
+
+**Observation:** Row 344 has tokens_total=6597 populated, but outcome remains NULL. Row 343 remains fully pending (both tokens_total and outcome NULL). Q2 shows row 343's transcript still exists on disk at `/tmp/claude-1000/-mnt-work-flex/e1110027-655f-4cd1-9f6a-ea22eb1c7825/tasks/a5c9f22356f07b7e7.output`, indicating reconciliation has not yet run for this row, not a transcript-expiry case.
+
+**Analysis:** MAX(id) from snapshot is 348. Row 344 was populated between its creation (2026-07-24T23:13:09) and this snapshot (after builder row 348 at 2026-07-25T01:03:13), suggesting reconciliation occurred via the SessionStart catch-up at some point between the orchestrator starting this session and the builder spawn. Row 343 remains pending, awaiting the next reconciliation trigger (SessionStart hook in a subsequent session, or PostToolUse sweep from a later spawn in this session).
+
+RESULT: PARTIAL — Row 344 reconciled, row 343 pending (transcript exists, not expired)
 
 ### C. In-session sweep
 
 <!-- owner: builder, or orchestrator at review close — see assertion 4 -->
 
+**Analysis:** Section A showed row 343 still pending with transcript extant, and row 348 (this builder) also pending with transcript extant. Since this builder has not spawned any other Agent/Task runs yet, no intervening spawn's PostToolUse event has fired to trigger the reconciliation sweep. The builder's own row (348) cannot reconcile during the builder's own execution — its transcript is being written in real time and not yet complete. The sweep will occur when the reviewer spawn (or any later actor spawn) triggers a PostToolUse event, which will backfill row 348. Row 343 may also be backfilled at that time if it has not already been reconciled by an intervening SessionStart hook.
+
+RESULT: PENDING — owner: orchestrator, at review close. The builder's own row (348) cannot reconcile until after the builder's transcript is complete, which happens after the builder's execution ends.
+
 ### D. New-row integrity
 
 <!-- owner: builder (spawn refs) + orchestrator at review close (reconciled tokens) -->
+
+**Builder spawn refs (Q3 output at builder time):**
+```
+(348, 'INFRA-259', 'builder', 1, 'haiku', None, None, 1, 1, '2026-07-25T01:03:13.120767+00:00')
+```
+
+**Assertion 5 verification:** Row 348 carries:
+- `story_id = 'INFRA-259'` ✓ (exactly correct, not phase-scoped or unattributed)
+- `agent_id IS NOT NULL` ✓ (has_agent_id = 1)
+- `output_file IS NOT NULL` ✓ (has_output_file = 1)
+- `attempt_number = 1` ✓ (truthful ordinal for first builder run of this story)
+- `agent_role = 'builder'` ✓
+- `model = 'haiku'` ✓
+
+RESULT: PASS — builder row carries correct spawn refs at launch
+
+---
+
+**Assertion 6 (post-reviewer reconciliation state):** Re-run the following command after reviewer spawn completes and reconciliation occurs:
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python -c "
+import sqlite3
+c = sqlite3.connect('file:.companion/effort.db?mode=ro', uri=True)
+rows = c.execute('''
+    SELECT id, story_id, agent_role, attempt_number, model, tokens_total,
+           outcome, agent_id IS NOT NULL AS has_agent_id,
+           output_file IS NOT NULL AS has_output_file, ts
+    FROM attempts
+    WHERE story_id IN ('INFRA-259', 'INFRA-260')
+       OR phase = '102'
+    ORDER BY id
+''').fetchall()
+for r in rows:
+    print(r)
+"
+```
+
+Expected: Both builder (row 348) and reviewer rows show non-NULL `tokens_total > 0`, non-NULL `outcome`, correct `story_id`, and truthful `attempt_number` for each role.
+
+RESULT: PENDING — owner: orchestrator, at review close
 
 ### E. Preliminary phase-102 rollup
 
 <!-- owner: orchestrator, at review close -->
 
+**Command to run at review close (after reviewer spawn completes and reconciliation occurs):**
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/flex_build.py checkpoint-report
+```
+
+Run from `/mnt/work/flex`.
+
+Expected: Output shows phase 102 section with non-zero attempt counts and non-NULL median-token figures for `builder` and `reviewer`, per-story line for INFRA-259 with non-zero counts, and per-story line for INFRA-260 (expected to show zero/no-attempts marker, since INFRA-260 has not been built yet).
+
+RESULT: PENDING — owner: orchestrator, at review close
+
 ### F. Checkpoint rollup (cp-102)
 
 <!-- owner: orchestrator, at cp-102 checkpoint -->
+
+**Command to run at checkpoint (after INFRA-260 is built and both stories reconciled):**
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/flex_build.py checkpoint-report
+```
+
+Run from `/mnt/work/flex`.
+
+Expected: Output shows phase 102 section with complete data for both INFRA-259 and INFRA-260, with non-zero counts for both stories.
+
+RESULT: PENDING — owner: orchestrator, at cp-102 checkpoint
 
 ## Accepted limitations
 
 <!-- Filled by the builder per Instructions step 7. Each entry names the
      limitation, the reason it was accepted, and who accepted it. -->
+
+### Deferred live deliberate-FAIL cycle
+
+**Limitation:** No live builder failure is induced and observed in this smoke test. The reconciled-FAIL escalation counter bump (the mechanism that increments `attempt_counter.json` when a reconciled row has `outcome = 'FAIL'`) is verified by unit tests in `tests/pairmode/test_subagent_transcript.py` against synthetic transcripts.
+
+**Reason accepted:** A live deliberate-FAIL builder cycle would require forcing a real builder failure for this story (e.g., via malformed SQL or a scripted error), which would trigger a full retry ladder (builder re-attempt, then reviewer spawn) just to observe one counter value. The cost-benefit is asymmetric: one observation of a code path that is already fixture-verified. The accepted risk is that the FAIL-at-reconciliation-time path is tested only via fixtures, not field observation.
+
+**Accepted by:** Builder (INFRA-259), in accordance with operator decision documented in `## Context` (§ Decision — manual documented procedure).
+
+### Unrecoverable rows ≤342
+
+**Limitation:** Rows 1–342 in `effort.db` predate INFRA-258. They carry no `agent_id` or `output_file` columns and cannot be backfilled by the reconciliation machinery. No migration, estimate, or deletion is performed.
+
+**Reason accepted:** These rows are unrecoverable by design. INFRA-258 introduced the two-phase async scheme; rows written before that deploy do not carry the spawn-ref schema. Retroactive backfill would require either (a) synthetic effort estimates (not viable; the point is to record real observations), or (b) transcript replay from saved files (not stored for those rows). Deletion would lose historical data. Keeping them as-is preserves the operational record and avoids the false precision of post-hoc estimation.
+
+**Accepted by:** Builder (INFRA-259), in accordance with the project's "decision fidelity over convenience" principle (CLAUDE.md § Ideology note).
