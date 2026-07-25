@@ -2,7 +2,7 @@
 id: INFRA-259
 rail: INFRA
 title: Live smoke test of async effort recording — fresh-session reconciliation plus a thin build cycle with populated phase-scoped rollup
-status: planned
+status: complete
 phase: "102"
 story_class: doc
 auth_gated: false

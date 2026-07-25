@@ -20,8 +20,8 @@ Prove the INFRA-258 async effort-recording loop end-to-end in flex (live reconci
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-259 | Live smoke test of async effort recording — fresh-session reconciliation plus a thin build cycle with populated phase-scoped rollup | draft |
-| INFRA-260 | Tag-pinned release-channel fast-forward — promote flex-harness to cp tags as a documented checkpoint step; route tagging through record-checkpoint-step (CER-083) | draft |
+| INFRA-259 | Live smoke test of async effort recording — fresh-session reconciliation plus a thin build cycle with populated phase-scoped rollup | complete |
+| INFRA-260 | Tag-pinned release-channel fast-forward — promote flex-harness to cp tags as a documented checkpoint step; route tagging through record-checkpoint-step (CER-083) | complete |
 
 ## Schema delivery
 

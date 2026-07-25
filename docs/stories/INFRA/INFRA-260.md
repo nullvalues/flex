@@ -2,7 +2,7 @@
 id: INFRA-260
 rail: INFRA
 title: Tag-pinned release-channel fast-forward — promote flex-harness to cp tags as a documented checkpoint step; route tagging through record-checkpoint-step (CER-083)
-status: draft
+status: complete
 phase: "102"
 story_class: code
 auth_gated: false
