@@ -9,7 +9,7 @@ auth_gated: false
 schema_introduces: false
 primary_files:
   - docs/stories/INFRA/INFRA-259.md
-touches:  # If this story changes any documented architecture, add docs/architecture.md to this list.
+touches: []  # If this story changes any documented architecture, add docs/architecture.md to this list.
 ---
 
 ## Context
