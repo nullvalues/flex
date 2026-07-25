@@ -449,7 +449,32 @@ RESULT: PARTIAL — Row 344 reconciled, row 343 pending (transcript exists, not 
 
 **Analysis:** Section A showed row 343 still pending with transcript extant, and row 348 (this builder) also pending with transcript extant. Since this builder has not spawned any other Agent/Task runs yet, no intervening spawn's PostToolUse event has fired to trigger the reconciliation sweep. The builder's own row (348) cannot reconcile during the builder's own execution — its transcript is being written in real time and not yet complete. The sweep will occur when the reviewer spawn (or any later actor spawn) triggers a PostToolUse event, which will backfill row 348. Row 343 may also be backfilled at that time if it has not already been reconciled by an intervening SessionStart hook.
 
-RESULT: PENDING — owner: orchestrator, at review close. The builder's own row (348) cannot reconcile until after the builder's transcript is complete, which happens after the builder's execution ends.
+**Review-close completion (owner: orchestrator, 2026-07-25):** Re-run of Q1
+after the reviewer cycle shows row 348 (builder) now reconciled —
+`tokens_total = 10876`, `outcome = 'PASS'` — differing from `### A`'s snapshot
+where it was pending:
+
+```
+(343, 'phase:101', 'security-auditor', 1, None, None, 1, 1, '2026-07-24T21:44:50.982108+00:00')
+(344, 'phase:101', 'intent-reviewer', 1, 6597, None, 1, 1, '2026-07-24T23:13:09.100806+00:00')
+(348, 'INFRA-259', 'builder', 1, 10876, 'PASS', 1, 1, '2026-07-25T01:03:13.120767+00:00')
+(352, 'INFRA-259', 'reviewer', 1, None, None, 1, 1, '2026-07-25T01:09:07.234362+00:00')
+```
+
+The only sweep trigger between the snapshot and this observation was the
+reviewer spawn's PostToolUse (row 352, ts 01:09:07); the builder's transcript
+was complete by then, so that sweep is the reconciler. The in-session
+PostToolUse sweep path is therefore demonstrated live.
+
+Two anomalies observed in the same output, recorded here as evidence (not
+fixed, per Instructions step 8): row 343 remains pending with its transcript
+still extant on disk despite this sweep opportunity, and row 344 remains in
+the partially-backfilled state the builder recorded in `### B`
+(`tokens_total = 6597`, `outcome` NULL). See `### D` for a further finding on
+the second reviewer spawn.
+
+RESULT: PASS — a row pending in `### A` (348) was backfilled by a subsequent
+spawn's PostToolUse sweep in the same session.
 
 ### D. New-row integrity
 
@@ -494,7 +519,39 @@ for r in rows:
 
 Expected: Both builder (row 348) and reviewer rows show non-NULL `tokens_total > 0`, non-NULL `outcome`, correct `story_id`, and truthful `attempt_number` for each role.
 
-RESULT: PENDING — owner: orchestrator, at review close
+**Review-close observation (owner: orchestrator, 2026-07-25).** Q3 re-run output:
+
+```
+(348, 'INFRA-259', 'builder', 1, 'haiku', 10876, 'PASS', 1, 1, '2026-07-25T01:03:13.120767+00:00')
+(352, 'INFRA-259', 'reviewer', 1, 'haiku', None, None, 1, 1, '2026-07-25T01:09:07.234362+00:00')
+```
+
+Builder row 348: reconciled. `tokens_total = 10876`, `outcome = 'PASS'`,
+`story_id = 'INFRA-259'`, `attempt_number = 1` (truthful). Cross-check against
+the harness task notification for that spawn: recorded 10876 vs
+harness-reported 40429 — same order of magnitude: yes (both 10^4; the
+harness figure includes cache-read/other usage classes the reconciler's
+dedup-by-message-id sum does not).
+
+Reviewer rows: **two findings.**
+
+1. Row 352 is the *first* reviewer spawn (verdict FAIL on an environmental
+   build-gate issue — vendored node_modules payload missing in fresh
+   worktrees, filed as CER-090). It is still pending: no sweep has fired
+   since its launch, because the one event that should have (below) did not
+   record. Its transcript exists on disk and is complete; it is expected to
+   backfill at the next spawn or session start.
+2. The *second* reviewer spawn (the re-review, verdict PASS, harness-reported
+   39230 tokens) produced **no row at all** — the PostToolUse recording path
+   did not fire for that spawn. Consequently there is no attempt_number = 2
+   reviewer row, and no sweep ran to reconcile row 352. This is a real
+   recording gap observed live, not a timing artifact: recording happens
+   synchronously at the spawn's PostToolUse, which is long past.
+
+RESULT: FAIL — builder half fully satisfied; reviewer rows do not meet
+assertion 6 (row 352 unreconciled at review close, and the second reviewer
+spawn was never recorded). Recorded as a finding per Instructions step 8;
+remediation routed by the orchestrator (see CER backlog).
 
 ### E. Preliminary phase-102 rollup
 
@@ -510,7 +567,35 @@ Run from `/mnt/work/flex`.
 
 Expected: Output shows phase 102 section with non-zero attempt counts and non-NULL median-token figures for `builder` and `reviewer`, per-story line for INFRA-259 with non-zero counts, and per-story line for INFRA-260 (expected to show zero/no-attempts marker, since INFRA-260 has not been built yet).
 
-RESULT: PENDING — owner: orchestrator, at review close
+**Review-close run (owner: orchestrator, 2026-07-25), verbatim output:**
+
+```
+=== checkpoint cost rollup — phase 102 ===
+  builder: 1 attempt(s), median 10,876 tokens
+  -- per-story --
+  INFRA-259: builder: 1 attempt(s), median 10,876 tokens
+  INFRA-260: no attempts recorded
+=== lifetime cost rollup (all phases) ===
+  builder: 20 attempt(s), median 53,153 tokens
+  intent-reviewer: 1 attempt(s), median 6,597 tokens
+  reviewer: 17 attempt(s), median 41,671 tokens
+next phase: none (end of index)
+```
+
+Met: phase-102 heading; builder non-zero count with non-None median;
+INFRA-259 per-story line with non-zero counts; INFRA-260 listed with the
+explicit no-attempts marker. Not met: no `reviewer` line appears under the
+phase-scoped section — the direct consequence of the `### D` findings (row
+352 unreconciled, second reviewer spawn unrecorded), not a rollup bug: the
+phase-scoped rollup correctly excludes unreconciled rows. Incidental
+observation: the lifetime section counts row 344's `intent-reviewer` median
+from a row whose `outcome` is still NULL — the rollup includes
+token-reconciled-but-outcome-NULL rows.
+
+RESULT: FAIL — reviewer median absent from the phase-scoped section at review
+close, downstream of the `### D` recording gap. To re-verify after the
+pending rows backfill, re-run the command above; `### F` at cp-102 is the
+final check.
 
 ### F. Checkpoint rollup (cp-102)
 
