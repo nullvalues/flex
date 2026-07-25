@@ -442,3 +442,64 @@ No route or constant referenced in this story is hallucinated.
 - **Adding a CI job** that builds the UI from a clean clone. The guard test plus the
   one-time fresh-worktree proof cover the invariant; continuous enforcement is a
   separate concern.
+
+## Acceptance proof
+
+Other-vendored-tree check (Ensures 21) — only the three known observability roots exist:
+
+```
+$ find . -name node_modules -not -path '*/node_modules/*'
+./skills/observability/node_modules
+./skills/observability/ui/node_modules
+./skills/observability/api/node_modules
+```
+
+Fresh-worktree acceptance proof (Ensures 14), run after all three commits, with no
+rsync/cp/pnpm-install/repair inside the throwaway worktree:
+
+```
+$ VERIFY=$(mktemp -d /tmp/infra261-verify-XXXXXX)
+$ git worktree add --detach "$VERIFY" HEAD
+Preparing worktree (detached HEAD f3112720)
+HEAD is now at f3112720 test(INFRA-261): guard the vendored payload against re-ignoring; document the policy
+
+$ ( cd "$VERIFY/skills/observability" && pnpm --filter @flex-obs/ui build ); echo "build exit=$?"
+> @flex-obs/ui@0.1.0 build /tmp/infra261-verify-0mwWC9/skills/observability/ui
+> tsc -b && vite build
+
+vite v6.4.3 building for production...
+transforming...
+✓ 87 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.49 kB │ gzip:  0.32 kB
+dist/assets/index-C3Nm2bbC.css   20.65 kB │ gzip:  4.87 kB
+dist/assets/index-C16_rfeH.js   258.24 kB │ gzip: 78.11 kB
+✓ built in 1.65s
+build exit=0
+
+$ grep -c 'flex observability' "$VERIFY/skills/observability/ui/dist/index.html"
+1
+
+$ ( cd "$VERIFY" && PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/test_observability_ui.py -q 2>&1 | tail -5 )
+Installed 16 packages in 10ms
+.....................................                                    [100%]
+37 passed in 6.94s
+
+$ git worktree remove --force "$VERIFY" && git worktree prune && git worktree list
+/mnt/work/flex                                a8309ff3 [main]
+/mnt/work/flex-harness                        5759033f [fold-prep]
+/mnt/work/flex/.pairmode-worktrees/INFRA-261  f3112720 [pairmode/INFRA-261]
+```
+
+The throwaway worktree no longer appears in `git worktree list` after removal.
+
+Note: two stray `.claude/settings.local.json` files were found inside
+`node_modules/.pnpm/nanoid@3.3.12/.../nanoid/.claude/` and
+`node_modules/.pnpm/thread-stream@4.2.0/.../thread-stream/.claude/` during rehydration —
+artifacts of a prior agent session having run inside those vendored package directories, not
+real npm package payload (neither nanoid nor thread-stream ship a `.claude/` directory
+upstream). They were deleted from the story worktree before committing the payload so they
+do not leak into the tracked tree or widen the guard test's allow-list; they were untracked
+in the main checkout both before and after this story and are unaffected by this story's
+`.gitignore` change either way.

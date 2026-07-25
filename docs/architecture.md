@@ -596,9 +596,11 @@ PATH=$HOME/.local/bin:$PATH uv run python \
 
 Three details are load-bearing, not incidental:
 
-- `--untracked-files=no` on the cleanliness check — the vendored `node_modules` payload (CER-090)
-  shows as untracked noise and would otherwise fail a naive cleanliness check even on a channel with
-  no real drift.
+- `--untracked-files=no` on the cleanliness check — as of INFRA-261 (CER-090) the vendored
+  `node_modules` payload is fully tracked and no longer the reason for this flag. The flag itself is
+  unchanged (out of scope for INFRA-261); it still guards against ordinary local build noise —
+  `.venv/`, `ui/dist`/`api/dist` build output, `__pycache__/`, and similar — that would otherwise
+  fail a naive cleanliness check even on a channel with no real drift.
 - `--ff-only` on the merge, never `--force` or `reset --hard` — a non-fast-forward means the sibling
   worktree holds commits nobody has triaged, and the correct response is to **stop and investigate**,
   not discard them.
@@ -2403,6 +2405,23 @@ the **resolver state model** as the primary data source alongside `.companion/st
 
 **Architecture:** `skills/observability/` is a pnpm monorepo with `api/` (Fastify 5) and
 `ui/` (Vite + React 19) workspaces. Registry at `~/.config/flex-observability/registry.json`.
+
+**Vendored dependency payload (CER-090 / INFRA-261):** the `node_modules` tree under
+`skills/observability/` (and its `ui/node_modules`/`api/node_modules` symlink farms into
+the workspace `.pnpm` store) is committed to git in full, deliberately — not installed at
+build time. This keeps the UI build gate (`pnpm --filter @flex-obs/ui build`, exercised by
+`tests/pairmode/test_observability_ui.py`) hermetic and network-free in every fresh
+`create-story-worktree` checkout, with no manual repair step. `.gitignore` carries a scoped
+override: the repo's global `dist/`/`build/` patterns (intended for *our* build output)
+match at every depth and would otherwise exclude vendored packages' shipped `dist/`/`build/`
+payload, so a `**/node_modules/**/dist/` / `**/node_modules/**/build/` negation re-includes
+it, anchored to `node_modules` so it never un-ignores our own `ui/dist`/`api/dist`. The one
+carved-out exception is node-gyp's compile intermediates under `better-sqlite3`
+(`build/Release/obj/`, `build/Release/obj.target/`) — reproducible `.o` files, never loaded
+at runtime, still ignored. The tree is a linux-x64 snapshot, including a compiled
+`better_sqlite3.node` addon; other platforms run `pnpm rebuild better-sqlite3` rather than
+reinstalling. The repair path for a broken vendored tree is `git checkout`, never
+`pnpm install` — the latter can rewrite the lockfile and resolve different versions.
 
 **Resolver state model** (`flex_build.py resolver-state --json`): pure-read subcommand added
 in HARNESS007/OBS-001. Returns `{action, position, effort_by_role, index}`. The TS reader
