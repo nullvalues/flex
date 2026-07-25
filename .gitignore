@@ -29,3 +29,15 @@ Thumbs.db
 
 # Ephemeral notes and screenshots (not record-keeping)
 flex_eph/
+
+# Vendored dependency payload (CER-090 / INFRA-261) — deliberate override of the
+# global dist/ and build/ patterns above. Those target *our* build output; inside a
+# vendored node_modules they also exclude shipped package payload (compiled JS and
+# .d.ts), which leaves every fresh git worktree unable to run `pnpm --filter
+# @flex-obs/ui build`. Do not remove these lines to "clean up" the file.
+!**/node_modules/**/dist/
+!**/node_modules/**/build/
+# ...except node-gyp compile intermediates (~15 MB of .o files): rebuildable, never
+# loaded at runtime. The compiled addon beside them (better_sqlite3.node) IS tracked.
+**/node_modules/**/build/Release/obj/
+**/node_modules/**/build/Release/obj.target/
