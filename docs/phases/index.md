@@ -124,6 +124,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 100 | Scope-guard fail-closed completion (CER-048 close-out) | complete | [phase-100.md](phase-100.md) · cp100-scope-guard-fail-closed-completion |
 | 101 | Attempt recording and checkpoint reporting correctness | complete | [phase-101.md](phase-101.md) · cp101-attempt-recording-reporting-correctness |
 | 102 | Effort-recording smoke test and harness release-channel fast-forward | complete | [phase-102.md](phase-102.md) · cp102-effort-smoke-and-release-channel-ff |
+| 103 | Worktree and story-stub friction remediation (CER-090, CER-092) | planned | [phase-103.md](phase-103.md) |
 
 ---
 
