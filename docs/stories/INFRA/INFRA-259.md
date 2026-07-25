@@ -441,7 +441,11 @@ alongside this result.
 
 **Analysis:** MAX(id) from snapshot is 348. Row 344 was populated between its creation (2026-07-24T23:13:09) and this snapshot (after builder row 348 at 2026-07-25T01:03:13), suggesting reconciliation occurred via the SessionStart catch-up at some point between the orchestrator starting this session and the builder spawn. Row 343 remains pending, awaiting the next reconciliation trigger (SessionStart hook in a subsequent session, or PostToolUse sweep from a later spawn in this session).
 
-RESULT: PARTIAL — Row 344 reconciled, row 343 pending (transcript exists, not expired)
+RESULT: FAIL — row 343 not yet reconciled (transcript exists, not expired) and
+row 344 only partially backfilled (`tokens_total` set, `outcome` still NULL);
+recorded as a real finding per assertion 3's failure-interpretation rule, filed
+as CER-091. (Restated from a non-vocabulary `PARTIAL` at the cp-102 intent
+review's direction — assertion 1 enumerates only PASS/FAIL/PENDING.)
 
 ### C. In-session sweep
 
@@ -611,7 +615,38 @@ Run from `/mnt/work/flex`.
 
 Expected: Output shows phase 102 section with complete data for both INFRA-259 and INFRA-260, with non-zero counts for both stories.
 
-RESULT: PENDING — owner: orchestrator, at cp-102 checkpoint
+**cp-102 checkpoint run (owner: orchestrator, 2026-07-25), verbatim output:**
+
+```
+=== checkpoint cost rollup — phase 102 ===
+  builder: 2 attempt(s), median 22,436 tokens
+  reviewer: 2 attempt(s), median 11,298 tokens
+  -- per-story --
+  INFRA-259: builder: 1 attempt(s), median 10,876 tokens; reviewer: 1 attempt(s), median 16,025 tokens
+  INFRA-260: builder: 1 attempt(s), median 33,997 tokens; reviewer: 1 attempt(s), median 6,571 tokens
+=== lifetime cost rollup (all phases) ===
+  builder: 21 attempt(s), median 52,310 tokens
+  intent-reviewer: 1 attempt(s), median 6,597 tokens
+  reviewer: 19 attempt(s), median 35,421 tokens
+  security-auditor: 1 attempt(s), median 2,489 tokens
+next phase: none (end of index)
+```
+
+All assertion-7 requirements for `### F` are met: per-story lines for both
+INFRA-259 and INFRA-260 with non-zero builder *and* reviewer counts and
+non-None medians, and phase-scoped role totals present. The rows pending at
+`### E` (reviewer row 352 and the INFRA-260 cycle's rows) were backfilled by
+the checkpoint-worker spawns' PostToolUse sweeps — the async loop closed
+unaided, which is the phase's core claim. Residual open items, tracked in
+CER-091 and not blocking this assertion: row 343 (`phase:101`) remains
+permanently pending with its transcript extant; row 344's `outcome` is still
+NULL; the INFRA-259 re-review spawn was never recorded (its absence is why
+INFRA-259 shows 1 reviewer attempt, not 2); and row 356 (`phase:102`
+intent-reviewer) is pending awaiting the next sweep, as expected for the
+checkpoint's own tail spawns.
+
+RESULT: PASS — the phase-scoped rollup is fully populated for both stories at
+cp-102.
 
 ## Accepted limitations
 

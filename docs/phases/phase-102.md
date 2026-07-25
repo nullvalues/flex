@@ -36,4 +36,29 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-102 Cold-eyes checklist
 
-— developer fills in after phase completion —
+Filled by the orchestrator at cp-102 (2026-07-25).
+
+- **Smoke test verdict (INFRA-259):** overall **qualified PASS** — the async
+  effort-recording core loop (spawn-ref persistence, in-session PostToolUse
+  sweep, phase-scoped rollup) is proven live; evidence in
+  `docs/stories/INFRA/INFRA-259.md` § Smoke results (A–F, all subsections
+  closed, final F = PASS). The same observations surfaced four recording
+  defects (unrecorded repeat spawn, partial backfill, permanent-pending row,
+  post-merge counter resurrection) filed as CER-091; fleet rollout of
+  INFRA-258 should weigh CER-091 first.
+- **CER-083 closed (INFRA-260):** checkpoint tagging is CLI-first in
+  `CLAUDE.build.md` + template, `checkpoint_phase` stamp live and
+  regression-tested; this checkpoint itself was executed through the new
+  `record-checkpoint-step`-before-`git tag` path as its first live exercise.
+- **Gates:** security PASS (0 findings), intent ALIGNED (one cosmetic
+  RESULT-vocabulary fix, applied), docs FAIL→fixed (phase-102 CHANGELOG entry
+  added at checkpoint; era-ledger drift stays tracked as CER-082).
+- **New backlog from this phase:** CER-090 (worktree vendored node_modules
+  payload gitignored — repaired by rsync twice this phase), CER-091 (async
+  recording defects), CER-092 (`story_new.py` emits crashing `touches:`
+  trailing comment; its test pins the bug).
+- **Schema delivery:** no new persistent schema objects introduced; the
+  `attempts` columns predate this phase (INFRA-258/cp101).
+- **Release-channel promotion:** performed post-tag per
+  `docs/architecture.md` § Release channel; record in
+  `docs/stories/INFRA/INFRA-260.md` § Promotion record (O1–O4).
