@@ -442,22 +442,80 @@ grep -c 'flex-harness' skills/pairmode/templates/CLAUDE.build.md.j2   # must pri
 
 <!-- owner: orchestrator, at cp-102 — commands: Instructions step 6, block P1 -->
 
-RESULT: PENDING — owner: orchestrator, at cp-102
+Executed 2026-07-25 by the orchestrator. Resolved tag: `cp102-effort-smoke-and-release-channel-ff`.
+
+```
+$ git -C /mnt/work/flex tag --list 'cp102*'
+cp102-effort-smoke-and-release-channel-ff
+$ git -C /mnt/work/flex-harness status --porcelain --untracked-files=no
+(empty — tracked-clean)
+$ git -C /mnt/work/flex merge-base --is-ancestor "$(git -C /mnt/work/flex-harness rev-parse HEAD)" cp102-effort-smoke-and-release-channel-ff && echo FF-OK
+FF-OK
+```
+
+RESULT: PASS — tag resolved, sibling tracked-clean, HEAD (`1263c36`) is an ancestor of the tag.
 
 ### P2. Fast-forward
 
 <!-- owner: orchestrator, at cp-102 — commands: Instructions step 6, block P2 -->
 
-RESULT: PENDING — owner: orchestrator, at cp-102
+```
+$ git -C /mnt/work/flex-harness merge --ff-only cp102-effort-smoke-and-release-channel-ff
+Updating 1263c36..5759033
+Fast-forward
+ 56 files changed, 8346 insertions(+), 229 deletions(-)
+```
+
+(Full 56-file stat elided here; a true fast-forward, no merge commit created.)
+
+RESULT: PASS — `--ff-only` succeeded, 1263c36 → 5759033.
 
 ### P3. Pin verification
 
 <!-- owner: orchestrator, at cp-102 — commands: Instructions step 6, block P3 -->
 
-RESULT: PENDING — owner: orchestrator, at cp-102
+```
+$ git -C /mnt/work/flex-harness rev-parse HEAD
+5759033f866df12df7df3405a12617dda7eea210
+$ git -C /mnt/work/flex rev-parse "cp102-effort-smoke-and-release-channel-ff^{commit}"
+5759033f866df12df7df3405a12617dda7eea210
+$ git -C /mnt/work/flex-harness describe --tags --exact-match HEAD
+cp102-effort-smoke-and-release-channel-ff
+```
+
+RESULT: PASS — channel HEAD equals the tag commit exactly.
 
 ### P4. Promoted-toolchain smoke
 
 <!-- owner: orchestrator, at cp-102 — commands: Instructions step 6, block P4 -->
 
-RESULT: PENDING — owner: orchestrator, at cp-102
+```
+$ PATH=$HOME/.local/bin:$PATH uv run python \
+    /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
+    checkpoint-report --project-dir /mnt/work/flex
+=== checkpoint cost rollup — phase scoping unavailable ===
+  reason: no active phase resolved
+=== lifetime cost rollup (all phases) ===
+  builder: 21 attempt(s), median 52,310 tokens
+  intent-reviewer: 1 attempt(s), median 6,597 tokens
+  reviewer: 19 attempt(s), median 35,421 tokens
+  security-auditor: 1 attempt(s), median 2,489 tokens
+next phase: unknown (no active phase resolved)
+```
+
+Ordering note, recorded rather than papered over: O4's expectation of "the
+phase-scoped rollup heading for phase 102" assumed the report would run while
+phase 102 was still active, but `record-checkpoint-step checkpoint-tag` (which
+necessarily precedes the tag, and the tag necessarily precedes this promotion)
+marks the phase complete in the index — so at P4 time no phase is active and
+the promoted toolchain prints the phase-scoped section in its explicit
+INFRA-256 degradation form (`phase scoping unavailable — no active phase
+resolved`). That output still proves exactly what O4 exists to prove: the
+pinned toolchain carries INFRA-256 (the stale `1263c36` build printed a
+lifetime-only report with no phase-scoped section or degradation line at
+all). The fully-populated phase-102-scoped rollup from the same promoted
+commit is recorded verbatim in `docs/stories/INFRA/INFRA-259.md` § Smoke
+results ### F, run minutes earlier while the phase was active.
+
+RESULT: PASS — promoted toolchain runs and demonstrably carries INFRA-256;
+the phase-102-scoped proof lives in INFRA-259 § F from the same commit.
