@@ -125,6 +125,11 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 101 | Attempt recording and checkpoint reporting correctness | complete | [phase-101.md](phase-101.md) · cp101-attempt-recording-reporting-correctness |
 | 102 | Effort-recording smoke test and harness release-channel fast-forward | complete | [phase-102.md](phase-102.md) · cp102-effort-smoke-and-release-channel-ff |
 | 103 | Worktree and story-stub friction remediation (CER-090, CER-092) | complete | [phase-103.md](phase-103.md) |
+| 104 | Recording and checkpoint correctness | planned | [phase-104.md](phase-104.md) |
+| 105 | Campaign preflight: hooks, discovery, scope-guard, channel canon | planned | [phase-105.md](phase-105.md) |
+| 106 | Fleet migration campaign (driven from flex) | planned | [phase-106.md](phase-106.md) |
+| 107 | CER backlog drain to zero | planned | [phase-107.md](phase-107.md) |
+| 108 | Era 003 close (gated on observability delivery) | planned | [phase-108.md](phase-108.md) |
 
 ---
 
@@ -139,3 +144,7 @@ available phase and the proposed file is deleted (git history records the transi
 
 ## backlog promotions
 _(List items promoted from the Do-Later / Do-Much-Later backlog into active phases here, with a one-line reason and the target phase.)_
+
+- CER-071/073/074/076/077/082/088/089/091/016 → Phase 104 — recording/checkpoint correctness must precede the fleet campaign (cp-102 mandate on CER-091)
+- CER-081/058/059/080/087/040/041 → Phase 105 — campaign preflight; hook dedupe and scope-guard fixes de-risk cross-repo migration work
+- CER-078/079/084/085/086/035/014/065b, CER-012/006/010/069, CER-093/094/075, CER-070/062a/009/031 → Phase 107 — backlog drain to zero (fix, verify-and-close, or Do Never routing per operator decision 2026-07-25)
