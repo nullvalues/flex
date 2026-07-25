@@ -7,7 +7,8 @@ import pathlib
 import pytest
 from click.testing import CliRunner
 
-from skills.pairmode.scripts.story_new import story_new, _story_frontmatter, create_story
+from skills.pairmode.scripts.story_new import story_new, _story_frontmatter, _story_body, create_story
+from skills.pairmode.scripts.flex_build import _read_story_frontmatter
 
 
 # ---------------------------------------------------------------------------
@@ -655,22 +656,29 @@ class TestAuthGatedSchemaIntroducesFields:
         assert "primary_files:" not in output
 
 
-class TestTouchesArchitectureComment:
-    """The touches: line in generated frontmatter carries an architecture.md hint comment."""
+class TestTouchesArchitecturePrompt:
+    """The touches: line is a bare, parseable empty list; the architecture.md
+    hint prompt lives in the Markdown body instead (CER-092)."""
 
-    def test_story_frontmatter_touches_has_architecture_comment(self) -> None:
-        """_story_frontmatter() includes 'docs/architecture.md' comment on the touches: line."""
+    def test_story_frontmatter_touches_line_is_bare(self) -> None:
+        """_story_frontmatter() emits 'touches: []' with no trailing '#' comment."""
         output = _story_frontmatter("TEST-001", "TEST", "foo", None, story_class="code")
-        assert "docs/architecture.md" in output
-        # The comment must appear on the touches: line specifically
+        assert "touches: []" in output
         for line in output.splitlines():
             if line.startswith("touches:"):
-                assert "docs/architecture.md" in line, (
-                    f"docs/architecture.md comment not on touches: line. Line was: {line!r}"
+                assert "#" not in line, (
+                    f"touches: line must not carry a trailing comment. Line was: {line!r}"
                 )
-                break
-        else:
-            raise AssertionError("touches: line not found in frontmatter output")
+
+    def test_story_body_carries_architecture_prompt(self) -> None:
+        """_story_body() still contains the docs/architecture.md prompt (INFRA-186),
+        relocated to the Markdown body so no frontmatter parser ever sees it."""
+        content = _story_frontmatter("TEST-001", "TEST", "foo", None, story_class="code") + _story_body()
+        fm_close_idx = content.index("---", content.index("---") + 3) + 3
+        arch_idx = content.index("docs/architecture.md")
+        assert arch_idx > fm_close_idx, (
+            "docs/architecture.md prompt must appear after the frontmatter's closing ---"
+        )
 
     def test_story_frontmatter_fields_in_frontmatter_block_not_body(
         self, tmp_path: pathlib.Path
@@ -753,3 +761,38 @@ class TestTestGateFlag:
         )
         content = story_path.read_text()
         assert "test_gate" not in content
+
+
+class TestTouchesRoundTrip:
+    """CER-092 Ensures 7: a freshly-generated stub round-trips through the
+    canonical frontmatter parser with touches == []."""
+
+    def test_fresh_stub_touches_round_trips_as_empty_list(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """CLI-generated stub parses with fm['touches'] == [] and is a list."""
+        result = invoke(
+            ["--rail", "INFRA", "--title", "Round trip test", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        fm = _read_story_frontmatter(story_file)
+        assert isinstance(fm["touches"], list)
+        assert fm["touches"] == []
+
+
+class TestTitleHashQuoting:
+    """CER-092 Ensures 3: titles containing a whitespace-preceded '#' are quoted
+    so the parser's scalar comment-stripping does not truncate them."""
+
+    def test_title_with_hash_is_quoted(self) -> None:
+        """A title containing ' #' is emitted as a quoted scalar."""
+        title = "Story contract sections — ## Requires / ## Ensures"
+        output = _story_frontmatter("INFRA-074", "INFRA", title, None)
+        assert f'title: "{title}"' in output
+
+    def test_title_without_hash_is_unquoted(self) -> None:
+        """A title with no '#' is emitted unquoted, as before."""
+        output = _story_frontmatter("INFRA-001", "INFRA", "Plain title", None)
+        assert "title: Plain title" in output
+        assert 'title: "Plain title"' not in output

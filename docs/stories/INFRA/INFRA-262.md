@@ -271,3 +271,15 @@ Acceptance:
 - **`phase_new.py` / era templates.** A repo-wide grep shows `story_new.py` is the only generator
   emitting a trailing-comment frontmatter line; no other template is changed here.
 - **INFRA-261's vendored-`node_modules` work (CER-090).** Separate story, disjoint files.
+
+## Build notes (2026-07-25)
+
+- `check-stub INFRA-262 --project-dir .` exits 0.
+- `_read_story_frontmatter(Path("docs/stories/RELEASE/RELEASE-050.md"))["touches"] == []`
+  confirmed against real, pre-existing data carrying the old buggy trailing-comment line —
+  Ensures 9 proven against the fleet's own corpus, not just a fixture.
+- `tests/pairmode/test_schema_validator.py tests/pairmode/test_story_new.py
+  tests/pairmode/test_flex_build_permissions_create.py`: 138 passed.
+- Full `tests/pairmode/` (no `-x`): 3420 passed, 211 skipped, 0 failed — no new
+  failures; the pre-existing `test_observability_ui.py` case did not reproduce as a
+  failure in this run.

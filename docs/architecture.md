@@ -774,6 +774,16 @@ must be imported and used by sibling scripts that need to read YAML frontmatter 
 story/era/phase files. Do not re-implement the parser inline. Callers import it as
 `from schema_validator import _parse_frontmatter` after inserting the scripts dir into `sys.path`.
 
+**Inline-comment rule (minimal YAML subset):** a `#` preceded by whitespace, or at the start of
+the value, begins an inline comment and is stripped; a `#` glued to non-whitespace content is
+literal data, not a comment start. This rule applies uniformly to both block-sequence list items
+(`  - value  # comment`, INFRA-211) and scalar values (`key: value  # comment`, CER-092 /
+INFRA-262) via the shared `_strip_inline_comment` helper — there is one comment rule for the
+whole parser, not two. A wholly-quoted value (matching leading/trailing `"` or `'`) is exempt
+from comment stripping and returned verbatim with the quotes removed. A scalar whose value is
+entirely a comment (e.g. `touches:  # note`) reduces to `""` after stripping and is parsed as a
+block-sequence start, exactly as an explicit `touches: []` would be.
+
 **`schema_validator.py` draft/backlog exemption:** `validate_story_file` permits an empty
 `primary_files` list when `status` is `draft` or `backlog`. Non-draft, non-backlog stories
 must have at least one entry in `primary_files`.

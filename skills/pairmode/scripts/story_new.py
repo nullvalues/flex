@@ -46,11 +46,18 @@ def _story_frontmatter(
 ) -> str:
     """Return YAML frontmatter block for a new story file."""
     phase_val = phase if phase is not None else "backlog"
+    # CER-092: quote the title when it contains a whitespace-preceded '#',
+    # so the schema_validator scalar comment-stripping does not truncate an
+    # operator-supplied title containing a literal '#' (e.g. "... — ## Requires").
+    if re.search(r"(?:^|\s)#", title):
+        title_line = f'title: "{title}"'
+    else:
+        title_line = f"title: {title}"
     lines = [
         "---",
         f"id: {story_id}",
         f"rail: {rail}",
-        f"title: {title}",
+        title_line,
         f"status: draft",
         f'phase: "{phase_val}"',
     ]
@@ -62,9 +69,11 @@ def _story_frontmatter(
     if test_gate is not None:
         lines.append(f"test_gate: {test_gate}")
     # primary_files is deliberately omitted for new (draft) stories (CER-006);
-    # the touches: line carries the INFRA-186 architecture prompt.
+    # the INFRA-186 architecture prompt is carried by _story_body() instead
+    # (CER-092 — a trailing comment on the touches: line made it parse as a
+    # non-empty string, not a block sequence).
     lines += [
-        "touches:  # If this story changes any documented architecture, add docs/architecture.md to this list.",
+        "touches: []",
         "---",
     ]
     return "\n".join(lines) + "\n"
@@ -74,6 +83,7 @@ def _story_body() -> str:
     """Return the default Markdown body for a new story file."""
     return (
         "\n"
+        "<!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->\n"
         "## Requires\n"
         "<!-- Prior stories, system state, or file conditions that must hold before building. -->\n\n"
         "## Ensures\n"

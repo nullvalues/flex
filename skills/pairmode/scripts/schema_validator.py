@@ -31,16 +31,20 @@ _YAML_LIST_ITEM_RE = re.compile(r'^\s+-\s+(.+)$')
 _INLINE_COMMENT_RE = re.compile(r'(?:^|\s)#.*$')
 
 
-def _strip_list_item_comment(value: str) -> str:
+def _strip_inline_comment(value: str) -> str:
     """
-    Apply quote-handling then inline-comment-stripping to a raw block-sequence
-    list item value, mirroring the scalar-value quote handling below.
+    Apply quote-handling then inline-comment-stripping to a raw scalar value
+    or block-sequence list item value.
 
     Quoted values (start and end with matching quotes) are treated as
     literal — a '#' inside quotes is data, not a comment, and is never
     stripped. Unquoted values have a trailing inline comment removed, but
     only when the '#' is preceded by whitespace (or starts the value); a '#'
     glued to non-whitespace content is left alone.
+
+    Shared by both the scalar-value branch and the block-sequence list-item
+    branch of ``_parse_frontmatter`` (INFRA-211 introduced the list-item
+    behaviour; CER-092 / INFRA-262 extended it to scalars).
     """
     trimmed = value.strip()
     if (trimmed.startswith('"') and trimmed.endswith('"') and len(trimmed) >= 2) or (
@@ -52,6 +56,11 @@ def _strip_list_item_comment(value: str) -> str:
     if match:
         trimmed = trimmed[: match.start()]
     return trimmed.strip()
+
+
+# Backwards-compatible alias — the list-item call site historically used this
+# name; kept so any external caller importing it directly still works.
+_strip_list_item_comment = _strip_inline_comment
 
 # L018-style enforcement: detect pointer-only acceptance sections.
 _POINTER_ONLY_RE = re.compile(
@@ -93,7 +102,7 @@ def _parse_frontmatter(text: str) -> dict[str, Any] | None:
         # Check if this is a list item
         list_m = _YAML_LIST_ITEM_RE.match(line)
         if list_m and current_key is not None and current_list is not None:
-            current_list.append(_strip_list_item_comment(list_m.group(1)))
+            current_list.append(_strip_inline_comment(list_m.group(1)))
             continue
 
         # Check if this is a new scalar or list-start key
@@ -104,7 +113,12 @@ def _parse_frontmatter(text: str) -> dict[str, Any] | None:
                 result[current_key] = current_list
 
             key = scalar_m.group(1)
-            value_raw = scalar_m.group(2).strip()
+            # CER-092: strip inline comments BEFORE the empty/block-sequence
+            # test, so a scalar line whose value is only a comment (e.g.
+            # `touches:  # note`) reduces to "" and is correctly parsed as a
+            # block-sequence start. Do not reorder this — comment strip must
+            # run first, or the trailing-comment bug (CER-092) comes back.
+            value_raw = _strip_inline_comment(scalar_m.group(2))
 
             if value_raw in ("", "[]") or value_raw is None:
                 # Start of a block sequence
@@ -114,11 +128,8 @@ def _parse_frontmatter(text: str) -> dict[str, Any] | None:
             else:
                 current_key = key
                 current_list = None
-                # Strip optional quotes
-                if (value_raw.startswith('"') and value_raw.endswith('"')) or (
-                    value_raw.startswith("'") and value_raw.endswith("'")
-                ):
-                    value_raw = value_raw[1:-1]
+                # _strip_inline_comment already removed quotes (if any); do
+                # not strip them again here (would double-strip "'x'").
                 result[key] = value_raw
 
     return result

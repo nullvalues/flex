@@ -838,3 +838,55 @@ class TestParseFrontmatterListItemComments:
         text = self._frontmatter("  - skills/pairmode/scripts/schema_validator.py")
         result = _parse_frontmatter(text)
         assert result["touches"] == ["skills/pairmode/scripts/schema_validator.py"]
+
+
+# ---------------------------------------------------------------------------
+# _parse_frontmatter — inline comment stripping on scalar values (CER-092 /
+# INFRA-262). Extends the INFRA-211 list-item rule one line up to scalars.
+# ---------------------------------------------------------------------------
+
+class TestParseFrontmatterScalarComments:
+    """_parse_frontmatter() scalar inline-comment handling."""
+
+    def _fm(self, body: str) -> str:
+        return f"---\n{body}\n---\n\nbody\n"
+
+    def test_scalar_inline_comment_is_stripped(self):
+        """A '#' preceded by whitespace starts a comment on a scalar value."""
+        text = self._fm("id: FEAT-001  # some note")
+        result = _parse_frontmatter(text)
+        assert result["id"] == "FEAT-001"
+
+    def test_scalar_comment_only_value_is_block_sequence_start(self):
+        """Ensures 5: a scalar whose value is only a comment reduces to '' and
+        starts a block sequence (touches == [])."""
+        text = "---\ntouches:  # note\n---\n"
+        result = _parse_frontmatter(text)
+        assert result["touches"] == []
+
+    def test_quoted_scalar_with_literal_hash_is_exempt(self):
+        """Ensures 6: a wholly-quoted scalar containing a whitespace-preceded
+        '#' is returned verbatim (quotes removed), not truncated."""
+        text = self._fm('title: "Story contract sections — ## Requires / ## Ensures"')
+        result = _parse_frontmatter(text)
+        assert result["title"] == "Story contract sections — ## Requires / ## Ensures"
+
+    def test_real_world_infra_074_title_not_truncated(self):
+        """Ensures 6: parsing the real INFRA-074 story file yields the full,
+        untruncated title."""
+        path = Path(__file__).parent.parent.parent / "docs" / "stories" / "INFRA" / "INFRA-074.md"
+        text = path.read_text(encoding="utf-8")
+        result = _parse_frontmatter(text)
+        assert result["title"] == "Story contract sections — ## Requires / ## Ensures"
+
+    def test_hash_glued_to_scalar_content_is_not_a_comment(self):
+        """A '#' with no preceding whitespace in a scalar value is literal data."""
+        text = self._fm("id: ABC#1")
+        result = _parse_frontmatter(text)
+        assert result["id"] == "ABC#1"
+
+    def test_no_change_to_scalar_without_hash(self):
+        """Regression guard: scalar values without '#' are unaffected."""
+        text = self._fm("id: FEAT-001")
+        result = _parse_frontmatter(text)
+        assert result["id"] == "FEAT-001"

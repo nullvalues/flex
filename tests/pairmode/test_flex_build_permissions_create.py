@@ -13,7 +13,8 @@ _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "skills" / "pairmode" / "sc
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from flex_build import flex_build  # type: ignore[import]  # noqa: E402
+from flex_build import flex_build, generate_permissions_artifact  # type: ignore[import]  # noqa: E402
+from story_new import _story_frontmatter, _story_body  # type: ignore[import]  # noqa: E402
 
 
 def _make_story(tmp_path: Path, story_id: str, primary_files=None, touches=None) -> Path:
@@ -271,3 +272,57 @@ def test_permissions_create_accepts_valid_story_id(tmp_path):
     assert result.exit_code == 0
     out_path = tmp_path / "docs" / "phases" / "permissions" / "INFRA-999.json"
     assert out_path.exists()
+
+
+def test_permissions_artifact_fresh_stub_does_not_raise(tmp_path):
+    """CER-092 Ensures 8: generate_permissions_artifact against an unedited,
+    freshly-generated stub (touches: []) completes without raising, and
+    allowed_paths contains exactly the story spec's own relative path."""
+    story_id = "INFRA-998"
+    rail = "INFRA"
+    story_dir = tmp_path / "docs" / "stories" / rail
+    story_dir.mkdir(parents=True, exist_ok=True)
+    story_spec_rel = f"docs/stories/{rail}/{story_id}.md"
+    story_file = tmp_path / story_spec_rel
+    content = _story_frontmatter(story_id, rail, "Fresh stub", None) + _story_body()
+    story_file.write_text(content, encoding="utf-8")
+
+    generate_permissions_artifact(story_id, tmp_path)
+
+    out_path = tmp_path / "docs" / "phases" / "permissions" / f"{story_id}.json"
+    assert out_path.exists()
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert payload["allowed_paths"] == [story_spec_rel]
+
+
+def test_permissions_artifact_legacy_buggy_touches_line_does_not_raise(tmp_path):
+    """CER-092 Ensures 9: a story file with the OLD buggy trailing-comment
+    touches: line (as emitted by pre-fix story_new.py) also parses with
+    touches == [] and does not raise inside generate_permissions_artifact."""
+    story_id = "INFRA-997"
+    rail = "INFRA"
+    story_dir = tmp_path / "docs" / "stories" / rail
+    story_dir.mkdir(parents=True, exist_ok=True)
+    story_spec_rel = f"docs/stories/{rail}/{story_id}.md"
+    story_file = tmp_path / story_spec_rel
+    content = (
+        "---\n"
+        f"id: {story_id}\n"
+        f"rail: {rail}\n"
+        "title: Legacy stub\n"
+        "status: draft\n"
+        'phase: "backlog"\n'
+        "auth_gated: false\n"
+        "schema_introduces: false\n"
+        "touches:  # If this story changes any documented architecture, add docs/architecture.md to this list.\n"
+        "---\n\n"
+        "## Requires\n\n## Ensures\n\n## Instructions\n\n## Tests\n"
+    )
+    story_file.write_text(content, encoding="utf-8")
+
+    generate_permissions_artifact(story_id, tmp_path)
+
+    out_path = tmp_path / "docs" / "phases" / "permissions" / f"{story_id}.json"
+    assert out_path.exists()
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert payload["allowed_paths"] == [story_spec_rel]
