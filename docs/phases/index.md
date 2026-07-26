@@ -125,7 +125,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 101 | Attempt recording and checkpoint reporting correctness | complete | [phase-101.md](phase-101.md) · cp101-attempt-recording-reporting-correctness |
 | 102 | Effort-recording smoke test and harness release-channel fast-forward | complete | [phase-102.md](phase-102.md) · cp102-effort-smoke-and-release-channel-ff |
 | 103 | Worktree and story-stub friction remediation (CER-090, CER-092) | complete | [phase-103.md](phase-103.md) |
-| 104 | Recording and checkpoint correctness | planned | [phase-104.md](phase-104.md) |
+| 104 | Recording and checkpoint correctness | complete | [phase-104.md](phase-104.md) |
 | 109 | Single-orchestrator parallel build concurrency (index-ordered after 104 — scaffolded 2026-07-25, builds before 105) | planned | [phase-109.md](phase-109.md) |
 | 105 | Campaign preflight: hooks, discovery, scope-guard, channel canon | planned | [phase-105.md](phase-105.md) |
 | 106 | Fleet migration campaign (driven from flex) | planned | [phase-106.md](phase-106.md) |

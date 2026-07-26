@@ -191,7 +191,7 @@ post-fold numeric phases; the era's earlier HARNESS phases are recorded in
 | 101 | Attempt recording and checkpoint reporting correctness | complete |
 | 102 | Effort-recording smoke test and harness release-channel fast-forward | complete |
 | 103 | Worktree and story-stub friction remediation (CER-090, CER-092) | complete |
-| 104 | Recording and checkpoint correctness | planned |
+| 104 | Recording and checkpoint correctness | complete |
 | 105 | Campaign preflight: hooks, discovery, scope-guard, channel canon | planned |
 | 106 | Fleet migration campaign (driven from flex) | planned |
 | 107 | CER backlog drain to zero | planned |
