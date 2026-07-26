@@ -379,6 +379,25 @@ class TestClaudeBuildMdTemplate:
         assert idx_git_tag != -1
         assert idx_cli < idx_git_tag
         assert "flex-harness" not in self.output
+
+    def test_checkpoint_section_carries_phase_key_flag(self):
+        """INFRA-265 (CER-077, A12): the rendered ## Checkpoint section shows
+        --phase-key on both the gate-step record-checkpoint-step call and on
+        step 1 of the checkpoint-tag sequence, names the CER-077 rationale,
+        and still omits flex-harness (no downstream project has that
+        sibling worktree)."""
+        checkpoint_idx = self.output.find("## Checkpoint")
+        assert checkpoint_idx != -1
+        next_heading_idx = self.output.find("## ", checkpoint_idx + len("## Checkpoint"))
+        section = self.output[checkpoint_idx:next_heading_idx if next_heading_idx != -1 else None]
+
+        assert section.count("--phase-key") >= 2
+        assert "record-checkpoint-step <action>" in section
+        assert "--phase-key <phase-key>" in section
+        assert "record-checkpoint-step checkpoint-tag" in section
+        assert "CER-077" in section
+        assert "flex-harness" not in self.output
+
     def test_loop_breaker_section(self):
         pytest.skip("HARNESS-001: thin dispatch loop removed this content from CLAUDE.build.md.j2")
 

@@ -838,7 +838,12 @@ class TestResolveNextActionCheckpoint:
     ) -> None:
         """Same regression as above, but with a second phase still planned:
         next-action must advance to the next phase's first action, never
-        re-emit checkpoint-security for the just-tagged phase."""
+        re-emit checkpoint-security for the just-tagged phase.
+
+        Two planned rows both present with files is exactly the multi-
+        candidate condition INFRA-265 (CER-077) requires an explicit
+        ``--phase-key`` for at the checkpoint-tag write — this test passes
+        it, matching the mandated ``CLAUDE.build.md`` loop path (A12)."""
         import subprocess
         import sys as _sys
 
@@ -879,6 +884,8 @@ class TestResolveNextActionCheckpoint:
                     step,
                     "--project-dir",
                     str(project_dir),
+                    "--phase-key",
+                    "1",
                 ],
                 capture_output=True,
                 text=True,
@@ -1461,6 +1468,45 @@ class TestNextActionCLI:
         after = set(tmp_path.rglob("*"))
         new_files = after - before
         assert not new_files, f"next-action wrote unexpected files: {new_files}"
+
+    def test_infra265_two_active_rows_exits_2_no_traceback(self, tmp_path: Any) -> None:
+        """INFRA-265 (CER-077, A11): a two-'active' index makes infer_position
+        raise AmbiguousActivePhaseError; the next-action --json CLI catches it
+        at the boundary and exits 2 without a traceback.
+
+        Uses the bare ``flex_build`` module (imported via the sys.path
+        bootstrap at the top of this file) rather than the dotted
+        ``skills.pairmode.scripts.flex_build`` path — ``next_action.py``'s
+        lazy import of ``AmbiguousActivePhaseError`` resolves against the
+        bare module, and the two import paths produce distinct module
+        objects (and therefore distinct exception classes) under pytest's
+        import machinery."""
+        from click.testing import CliRunner
+        from flex_build import flex_build
+
+        _write_index(
+            tmp_path,
+            [
+                ("1", "First phase", "active"),
+                ("2", "Second phase", "active"),
+            ],
+        )
+        (tmp_path / "docs" / "phases" / "phase-1.md").write_text(
+            "# Phase 1\n", encoding="utf-8"
+        )
+        (tmp_path / "docs" / "phases" / "phase-2.md").write_text(
+            "# Phase 2\n", encoding="utf-8"
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            flex_build,
+            ["next-action", "--project-dir", str(tmp_path), "--json"],
+        )
+        assert result.exit_code == 2, result.output
+        assert "1" in result.output
+        assert "2" in result.output
+        assert "Traceback (most recent call last)" not in result.output
 
 
 class TestNextActionCLISurfaceFreeze:

@@ -513,8 +513,8 @@ is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
     writes in the same CLI call (INFRA-239): it resets `state.json["checkpoint_step"]` to `[]`
     (RESOLVER-017) **and** flips the just-tagged phase's status cell to `complete` in
     `docs/phases/index.md`, via the shared `_mark_phase_complete_in_index` helper (the phase is
-    resolved with the same `resolve_current_phase` read-model the resolver itself uses — no phase
-    key is threaded through the orchestrator). Both writes landing in one call closes the gap where
+    resolved by an explicit `--phase-key`/stamp/re-derivation precedence chain — see
+    "Explicit phase-key precedence" below, INFRA-265). Both writes landing in one call closes the gap where
     an operator/orchestrator had to remember a second `mark-phase-complete` invocation: without the
     index write, the just-tagged phase kept re-resolving as active (its status cell was still not
     `complete`), the phase-completion guard passed vacuously (no unbuilt stories), and the freshly
@@ -543,6 +543,41 @@ is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
     this story keep resuming correctly. The resolver remains pure-read: it never writes
     `checkpoint_phase` or repairs a stale stamp it observes — only `record-checkpoint-step` writes
     it.
+
+    **Explicit phase-key precedence (INFRA-265 / CER-077).** INFRA-260 stamped the phase key but
+    left `_record_checkpoint_step` re-deriving it from `resolve_current_phase` on every call — a
+    read-model documented to pick the *first* candidate row, not the *correct* one. Live-hit
+    (2026-07-23): the `fold-prep` index had phase-97 and phase-98 both flagged `active`;
+    phase-98's `checkpoint-tag` resolved to phase-97 — the still-in-progress fold — and marked it
+    complete as a side effect of tagging 98 (caught and reverted by hand, commit `c6c2c6a`). The
+    fix threads an optional `--phase-key` through `record-checkpoint-step` (era 003's
+    additive-until-flip contract keeps every existing fleet call site working without it) and
+    replaces the single re-derivation with a fixed precedence, applied entirely before any write:
+    (1) `--phase-key` when given, first validated against `docs/phases/index.md` — a key naming no
+    row exits 2 with no write; (2) otherwise `state.json["checkpoint_phase"]` when non-empty —
+    recorded by an earlier step in the *same* checkpoint sequence, while that phase was provably
+    active; (3) otherwise `resolve_current_phase`'s underlying candidate set
+    (`_active_phase_candidates`), but **only** when it yields exactly one row — more than one
+    candidate is a loud, no-write exit 2 for the terminal step (naming every candidate key and
+    instructing `--phase-key`), and a stderr warning (stamp `""`, continue) for a non-terminal
+    step, since nothing irreversible happens until `checkpoint-tag`. An explicit `--phase-key` that
+    disagrees with a non-empty stamp is also an error, not a choice between the two — two
+    disagreeing sources are strictly less trustworthy than none. `CLAUDE.build.md` and
+    `skills/pairmode/templates/CLAUDE.build.md.j2` now pass `--phase-key <phase-key>` on every
+    `record-checkpoint-step` call, so the mandated loop path never depends on re-derivation at all.
+
+    **`resolve_current_phase`'s ambiguity contract (INFRA-265 / CER-077).** `resolve_current_phase`
+    (and `next_action._resolve_active_phase`, which composes the same `_active_phase_candidates`
+    helper rather than re-parsing the index) raises `AmbiguousActivePhaseError` when **more than
+    one** index row is flagged `active` (or `active`-prefixed) with an existing phase file — the
+    exact CER-077 condition. It deliberately does **not** raise when multiple rows are `planned`:
+    a queue of planned future phases (this repo's own 105–108 behind 104, at spec time) is the
+    normal, correct steady state of every index in the fleet, and raising there would break
+    `current-phase`/`next-action` on every multi-phase project. That multi-`planned` ambiguity is
+    instead caught only where it causes irreversible harm — the `checkpoint-tag` mark-complete
+    write — by the precedence chain above. `current-phase`, `checkpoint-report`, `next-action`,
+    `resolver-state`, and `record-checkpoint-step` each catch `AmbiguousActivePhaseError` at the CLI
+    boundary and exit 2 with the message on stderr, never a raw traceback.
 
 ### Release channel — flex-harness
 
@@ -1480,7 +1515,7 @@ is **read-only** on every row.
 |---------|-------------------------------|-----------------|
 | `state.json` `context_*` (context tokens: `context_current_tokens`, `context_current_tokens_recorded_at`, `context_session_reset_at`) | orchestrator hooks (`post_tool_use.py` / `session_start.py`), frozen | read-only |
 | `state.json` `checkpoint_step` | orchestrator (`flex_build.py record-checkpoint-step`); HARNESS009-main moved authority from LLM prose to CLI (RESOLVER-012); HARNESS015-main (RESOLVER-017) added reset-to-`[]` on `checkpoint-tag` completion, fixing a silent skip of the entire checkpoint sequence on every phase after the first; INFRA-260 (CER-083) — the resolver now honours this list only when the adjacent `checkpoint_phase` stamp is absent, empty, or matches the active phase's own key, so a list stamped for a *different* phase reads as `[]` instead of silently resuming a stale checkpoint | read-only (mismatched-stamp override, still no write) |
-| `state.json` `checkpoint_phase` | orchestrator (`flex_build.py record-checkpoint-step`), added INFRA-260 (CER-083) — every `record-checkpoint-step` call stamps the phase key resolved by `resolve_current_phase` (the same read-model the `checkpoint-tag` branch already used) in the same atomic write that appends the step; the terminal `checkpoint-tag` branch resets it to `""` alongside the `checkpoint_step` reset | read-only (`next_action.infer_position` reads it only to decide whether to honour or clear `checkpoint_step`; it never writes `checkpoint_phase`) |
+| `state.json` `checkpoint_phase` | orchestrator (`flex_build.py record-checkpoint-step`), added INFRA-260 (CER-083); INFRA-265 (CER-077) — the value stamped is now resolved by an explicit precedence chain, not a single re-derivation: an explicit `--phase-key` first (validated against the index; a mismatched stamp is an error, not a choice), then the existing non-empty stamp, then `resolve_current_phase`'s candidate set only when it is unambiguous (more than one candidate errors on the terminal step, warns and stamps `""` on a non-terminal one) — every `record-checkpoint-step` call stamps the precedence-resolved key in the same atomic write that appends the step; the terminal `checkpoint-tag` branch resets it to `""` alongside the `checkpoint_step` reset | read-only (`next_action.infer_position` reads it only to decide whether to honour or clear `checkpoint_step`; it never writes `checkpoint_phase`) |
 | `docs/phases/index.md` phase status cell | orchestrator, via `flex_build.py record-checkpoint-step checkpoint-tag` (INFRA-239) — the `checkpoint-tag` step's `_mark_phase_complete_in_index` call writes `complete` to the just-tagged phase's row in the same CLI invocation that resets `checkpoint_step`, so the two writes never land in separate orchestrator turns; the standalone `mark-phase-complete` command (`cmd_mark_phase_complete`) shares the same write helper for direct/manual use but is no longer required in the checkpoint path | read-only (`_resolve_active_phase` / `resolve_current_phase` skip `complete`/`deferred`/`backlog` rows when selecting the active phase) |
 | active story (`state.json` `current_story`) | orchestrator (`story_context.py`) | read-only |
 | `effort.db` | `hooks/post_tool_use.py` → `subagent_transcript.py` / `effort_recorder.py` (INFRA-236); `record_attempt.py` CLI for non-hook callers | read-only |

@@ -92,6 +92,20 @@ INFRA-260 (CER-083 — phase-stamped checkpoint state):
   empty, or matching stamps leave the stored list untouched, so state files
   predating this story keep resuming correctly. Still pure-read: this module
   never writes ``checkpoint_phase`` or ``checkpoint_step``.
+
+INFRA-265 (CER-077 -- ambiguous-active-phase read-model):
+  ``_resolve_active_phase`` composes ``flex_build._active_phase_candidates``
+  for its row walk (no second, independently-maintained index parse) and
+  raises ``flex_build.AmbiguousActivePhaseError`` when more than one
+  candidate row is flagged ``active`` -- the exception propagates out of
+  ``infer_position`` uncaught by this module (it is not swallowed by the
+  ``except Exception`` around the ``checkpoint_phase``/``checkpoint_step``
+  state read, whose scope stays limited to tolerating an unreadable
+  ``state.json``). Callers (``flex_build.py``'s CLI commands) catch it at
+  the CLI boundary and exit 2 with the message on stderr rather than a
+  traceback. Multiple ``planned`` rows are unaffected -- only a genuine
+  double-``active`` index raises. Still pure-read: this module never
+  repairs or clears a stamp/index row it observes.
 """
 
 from __future__ import annotations
@@ -534,9 +548,9 @@ def _count_ensures_nonblank_lines(text: str) -> "int | None":
 def _resolve_active_phase(project_path: "Path") -> "Path | None":
     """Return the active phase file using ``is_phase_inactive`` (CER-056 fix).
 
-    Reads ``docs/phases/index.md`` and walks the phase rows in order, keeping
-    the first row whose status is **not** inactive.  Inactive statuses are
-    ``complete``, ``deferred``, and ``backlog`` — as defined by
+    Reads ``docs/phases/index.md`` and finds the first candidate row whose
+    status is **not** inactive.  Inactive statuses are ``complete``,
+    ``deferred``, and ``backlog`` — as defined by
     ``index_integrity.is_phase_inactive``.
 
     Previously ``resolve_current_phase`` (flex_build) only skipped ``complete``
@@ -544,14 +558,24 @@ def _resolve_active_phase(project_path: "Path") -> "Path | None":
     the active phase.  This helper fixes that by composing ``is_phase_inactive``
     from the same source of truth used by the index-integrity checker.
 
+    Composes ``flex_build._active_phase_candidates`` (CER-077 — INFRA-265)
+    for the row walk itself — no second, independently-maintained parse of
+    ``docs/phases/index.md`` lives here. When more than one candidate row is
+    flagged ``active`` (or ``active``-prefixed), raises
+    ``flex_build.AmbiguousActivePhaseError`` rather than picking one, exactly
+    as ``resolve_current_phase`` does; the two functions apply the same rule
+    against the same candidate list. Multiple ``planned`` rows are not an
+    error here either, for the same reason ``resolve_current_phase``
+    tolerates them (see that function's docstring).
+
     Falls back to ``resolve_current_phase`` when no index file is present
     (legacy layout).
 
     Pure read: no writes.  Called only by ``infer_position``.
     """
-    from index_integrity import is_phase_inactive as _is_phase_inactive  # type: ignore[import]
     from flex_build import (  # type: ignore[import]
-        _parse_index_phases as _pip,
+        _active_phase_candidates as _apc,
+        AmbiguousActivePhaseError,
         resolve_current_phase as _rcp,
     )
 
@@ -559,26 +583,23 @@ def _resolve_active_phase(project_path: "Path") -> "Path | None":
     if not index_path.exists():
         return _rcp(project_path)
 
-    try:
-        index_text = index_path.read_text(encoding="utf-8")
-    except OSError:
-        return _rcp(project_path)
+    candidates = _apc(project_path)
 
-    phase_rows = _pip(index_text)
-    active_phase_ref: "str | None" = None
-    for phase_ref, status in phase_rows:
-        # ``_parse_index_phases`` already returns ``status`` ``.strip().lower()``'d,
-        # so no re-normalization is needed here.  ``is_phase_inactive`` covers
-        # ``complete``/``deferred``/``backlog`` via exact membership; the
-        # ``startswith("complete")`` fallback adds main's terminal semantics for
-        # annotated statuses like ``complete (partial)`` / ``complete (superseded
-        # — ...)`` — ported from ``flex_build.resolve_current_phase`` (INFRA-225).
-        if _is_phase_inactive(status) or status.startswith("complete"):
-            continue
-        active_phase_ref = phase_ref  # first non-inactive row wins
-        break
+    active_candidates = [
+        ref
+        for ref, status in candidates
+        if status == "active" or status.startswith("active")
+    ]
+    if len(active_candidates) > 1:
+        raise AmbiguousActivePhaseError(
+            "CER-077: docs/phases/index.md has more than one row flagged "
+            "'active' with an existing phase file: "
+            f"{', '.join(active_candidates)}. Refusing to guess which "
+            "phase is active — fix the index so only one row is active."
+        )
 
-    if active_phase_ref is not None:
+    if candidates:
+        active_phase_ref = candidates[0][0]  # first candidate row wins
         candidate = project_path / "docs" / "phases" / f"phase-{active_phase_ref}.md"
         if candidate.exists():
             return candidate

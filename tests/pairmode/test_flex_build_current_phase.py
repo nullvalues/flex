@@ -296,6 +296,63 @@ def test_release008_deferred_then_planned_fileless_returns_next_existing(
     assert "phase-70.md" not in result.stdout.strip()
 
 
+# ---------------------------------------------------------------------------
+# INFRA-265 (CER-077) — double-`active` row raises, current-phase CLI exits 2
+# ---------------------------------------------------------------------------
+
+
+def test_infra265_two_active_rows_raises_ambiguous(tmp_path: Path) -> None:
+    """Two rows flagged 'active' with existing phase files → resolve_current_phase
+    raises AmbiguousActivePhaseError; the current-phase CLI exits 2 with both
+    keys on stderr and no traceback (A9, A10)."""
+    _write_phase_index_4col(
+        tmp_path,
+        [
+            ("50", "First active", "active"),
+            ("51", "Second active", "active"),
+        ],
+    )
+    _write_phase_file(tmp_path, 50, "RAIL-050")
+    _write_phase_file(tmp_path, 51, "RAIL-051")
+
+    result = _run("current-phase", "--project-dir", str(tmp_path))
+    assert result.returncode == 2, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    assert "50" in result.stderr
+    assert "51" in result.stderr
+    assert "Traceback (most recent call last)" not in result.stdout
+    assert "Traceback (most recent call last)" not in result.stderr
+
+
+def test_infra265_one_active_plus_four_planned_returns_active(tmp_path: Path) -> None:
+    """One 'active' row plus four 'planned' rows → returns the active one
+    unchanged (A9)."""
+    rows = [("60", "Active phase", "active")] + [
+        (str(n), f"Phase {n}", "planned") for n in range(61, 65)
+    ]
+    _write_phase_index_4col(tmp_path, rows)
+    for n in [60, 61, 62, 63, 64]:
+        _write_phase_file(tmp_path, n, f"RAIL-0{n}")
+
+    result = _run("current-phase", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "phase-60.md" in result.stdout.strip()
+
+
+def test_infra265_zero_active_five_planned_returns_first_planned(
+    tmp_path: Path,
+) -> None:
+    """Zero 'active' rows plus five 'planned' rows → returns the first
+    planned row — unchanged behaviour (A9)."""
+    rows = [(str(n), f"Phase {n}", "planned") for n in range(70, 75)]
+    _write_phase_index_4col(tmp_path, rows)
+    for n in range(70, 75):
+        _write_phase_file(tmp_path, n, f"RAIL-0{n}")
+
+    result = _run("current-phase", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "phase-70.md" in result.stdout.strip()
+
+
 def test_build036_five_column_layout(tmp_path: Path) -> None:
     """5-column seeded layout resolves identically to 4-column layout."""
     _write_phase_index_5col(

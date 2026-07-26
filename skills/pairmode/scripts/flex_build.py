@@ -30,6 +30,18 @@ from pathlib import Path
 # Make sibling modules importable when invoked as a script.
 sys.path.insert(0, str(Path(__file__).parent))
 
+# When this file is executed directly (``__name__ == "__main__"``), alias
+# this already-loaded module object under its own filename ("flex_build")
+# in sys.modules *before* any sibling module runs ``from flex_build import
+# ...``. Without this, next_action.py's bare import would re-execute this
+# file as a second, distinct module object, and a module-level exception
+# class (``AmbiguousActivePhaseError``, CER-077 — INFRA-265) raised via
+# that copy would not match an ``except AmbiguousActivePhaseError`` clause
+# written against this one — surfacing as an uncaught traceback instead of
+# the loud CLI error A10 requires.
+if __name__ == "__main__" and "flex_build" not in sys.modules:
+    sys.modules["flex_build"] = sys.modules[__name__]
+
 # next_story is imported lazily inside cmd_current_phase to avoid circular
 # import issues when the module is loaded in test environments.
 
@@ -556,6 +568,62 @@ def _parse_index_phases(index_text: str) -> list[tuple[str, str]]:
     return rows
 
 
+class AmbiguousActivePhaseError(RuntimeError):
+    """Raised when ``docs/phases/index.md`` has more than one row whose status
+    is ``active`` (or ``active``-prefixed, e.g. ``active (paused)``) with an
+    existing phase file (CER-077).
+
+    Two rows simultaneously claiming ``active`` is a corrupt index, not a
+    steady state — unlike multiple ``planned`` rows (the normal queue of
+    future work), there is no non-arbitrary way to pick between two rows both
+    asserting they are the one currently being worked. The live incident this
+    guards against: on 2026-07-23 the ``fold-prep`` index had both phase-97
+    and phase-98 flagged ``active``; phase-98's ``checkpoint-tag`` resolved to
+    phase-97 — the still-in-progress fold — and marked it complete as a side
+    effect of tagging 98 (caught and reverted by hand, commit ``c6c2c6a``).
+    """
+
+
+def _active_phase_candidates(project_dir: Path) -> list[tuple[str, str]]:
+    """Return ``(phase_ref, status)`` for every index row that is a viable
+    "currently active" candidate: not inactive per
+    ``index_integrity.is_phase_inactive`` (plus the ``complete``-prefix guard
+    for annotated terminal statuses like ``complete (partial)``), **and**
+    whose ``docs/phases/phase-<ref>.md`` file exists.
+
+    Returns rows in index order (build order). Returns ``[]`` when
+    ``docs/phases/index.md`` does not exist.
+
+    This is the single row walk over ``docs/phases/index.md``; both
+    ``resolve_current_phase`` (below) and ``record-checkpoint-step``'s
+    key-resolution precedence (CER-077) reuse it rather than re-parsing the
+    index a second time. ``status`` is returned already ``.strip().lower()``'d
+    (as ``_parse_index_phases`` produces it).
+    """
+    from index_integrity import is_phase_inactive  # noqa: PLC0415
+
+    index_path = project_dir / "docs" / "phases" / "index.md"
+    if not index_path.exists():
+        return []
+
+    index_text = index_path.read_text(encoding="utf-8")
+    phase_rows = _parse_index_phases(index_text)
+
+    candidates: list[tuple[str, str]] = []
+    for phase_ref, status in phase_rows:
+        normalised = status.strip().lower()
+        if is_phase_inactive(normalised) or normalised.startswith("complete"):
+            continue
+        candidate = project_dir / "docs" / "phases" / f"phase-{phase_ref}.md"
+        if candidate.exists():
+            candidates.append((phase_ref, normalised))
+        # Non-inactive row with no file yet — fileless-phase guard: keep
+        # scanning for a later row that does have a file rather than
+        # returning here.
+
+    return candidates
+
+
 def resolve_current_phase(project_dir: Path) -> Path | None:
     """Return the active phase file Path, or None when all phases are complete.
 
@@ -573,6 +641,21 @@ def resolve_current_phase(project_dir: Path) -> Path | None:
     ``deferred``, ``backlog``) are skipped; an active-but-fileless row is
     skipped rather than terminating the walk, so a planned future row without
     a file never masks a later active phase that has one.
+
+    Raises ``AmbiguousActivePhaseError`` (CER-077) when more than one
+    candidate row's status is ``active`` or ``active``-prefixed — two rows
+    both claiming to be the phase currently being worked is a corrupt index,
+    not a fact this function may pick between. Deliberately does **not**
+    raise when multiple candidate rows are ``planned`` (or any other
+    non-``active`` status): a queue of planned future phases (e.g. 105, 106,
+    107, 108 all queued behind an active/first-planned 104) is the normal,
+    correct steady state of every index in the fleet, and raising there would
+    break ``current-phase``/``next-action`` on every project with more than
+    one queued phase. The multi-``planned`` ambiguity that CER-077 also
+    surfaced is instead caught where it actually causes harm — at the
+    irreversible ``checkpoint-tag`` mark-complete write — by
+    ``record-checkpoint-step``'s explicit precedence chain, not by
+    crippling this read-model.
     """
     # Import lazily to avoid issues in environments where next_story isn't on
     # sys.path at module load time.
@@ -581,28 +664,24 @@ def resolve_current_phase(project_dir: Path) -> Path | None:
     index_path = project_dir / "docs" / "phases" / "index.md"
 
     if index_path.exists():
-        index_text = index_path.read_text(encoding="utf-8")
-        phase_rows = _parse_index_phases(index_text)
+        candidates = _active_phase_candidates(project_dir)
 
-        # Walk rows in index order (build order) and return the FIRST active
-        # phase whose phase file exists.  Skip terminal statuses
-        # (``complete``, ``complete (partial)``, …) and parked phases
-        # (``deferred``).  A planned-but-fileless future row must never mask
-        # an earlier active phase that has a file.
-        from index_integrity import is_phase_inactive  # noqa: PLC0415
+        active_candidates = [
+            ref
+            for ref, status in candidates
+            if status == "active" or status.startswith("active")
+        ]
+        if len(active_candidates) > 1:
+            raise AmbiguousActivePhaseError(
+                "CER-077: docs/phases/index.md has more than one row flagged "
+                "'active' with an existing phase file: "
+                f"{', '.join(active_candidates)}. Refusing to guess which "
+                "phase is active — fix the index so only one row is active."
+            )
 
-        for phase_ref, status in phase_rows:
-            normalised = status.strip().lower()
-            # is_phase_inactive covers complete/deferred/backlog; the
-            # startswith check adds main's terminal semantics for annotated
-            # statuses like "complete (partial)".
-            if is_phase_inactive(normalised) or normalised.startswith("complete"):
-                continue
-            candidate = project_dir / "docs" / "phases" / f"phase-{phase_ref}.md"
-            if candidate.exists():
-                return candidate
-            # Active row but no file yet — keep scanning for a later
-            # active row that does have a file (fileless-phase guard).
+        if candidates:
+            phase_ref = candidates[0][0]
+            return project_dir / "docs" / "phases" / f"phase-{phase_ref}.md"
 
         # Index exists but no active phase with an existing file was found —
         # authoritative signal that no active phase remains.
@@ -634,6 +713,18 @@ def resolve_current_phase(project_dir: Path) -> Path | None:
     return None
 
 
+def _resolve_current_phase_or_exit(project_path: Path) -> Path | None:
+    """Call ``resolve_current_phase``, converting ``AmbiguousActivePhaseError``
+    (CER-077) into a loud CLI error — stderr message + ``sys.exit(2)`` —
+    instead of letting it reach click's default traceback handler (A10).
+    """
+    try:
+        return resolve_current_phase(project_path)
+    except AmbiguousActivePhaseError as exc:
+        click.echo(str(exc), err=True)
+        sys.exit(2)
+
+
 @flex_build.command("current-phase")
 @click.option(
     "--project-dir",
@@ -646,7 +737,7 @@ def cmd_current_phase(project_dir: str) -> None:
     project_path = Path(project_dir).resolve()
     _depth_guard(project_path)
 
-    result = resolve_current_phase(project_path)
+    result = _resolve_current_phase_or_exit(project_path)
     if result is not None:
         click.echo(str(result.relative_to(project_path)))
         sys.exit(0)
@@ -1832,7 +1923,11 @@ def cmd_next_action(project_dir: str, as_json: bool, warnings: tuple) -> None:
     _depth_guard(project_path)
 
     warnings_list = list(warnings) if warnings else None
-    position = infer_position(project_path)
+    try:
+        position = infer_position(project_path)
+    except AmbiguousActivePhaseError as exc:
+        click.echo(str(exc), err=True)
+        sys.exit(2)
     action = resolve_next_action(position, warnings=warnings_list)
 
     if as_json:
@@ -2039,7 +2134,11 @@ def cmd_resolver_state(project_dir: str) -> None:
     project_path = Path(project_dir).resolve()
     _depth_guard(project_path)
 
-    position = infer_position(project_path)
+    try:
+        position = infer_position(project_path)
+    except AmbiguousActivePhaseError as exc:
+        click.echo(str(exc), err=True)
+        sys.exit(2)
     action = resolve_next_action(position)
 
     # Serialize position: convert Path objects to strings for JSON.
@@ -2069,25 +2168,46 @@ def cmd_resolver_state(project_dir: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _record_checkpoint_step(step_id: str, project_dir: Path) -> int:
+def _record_checkpoint_step(
+    step_id: str, project_dir: Path, phase_key: "str | None" = None
+) -> int:
     """Atomically append *step_id* to state.json["checkpoint_step"].
 
     Returns 0 on success or when step_id is already present (idempotent).
     Returns 1 when step_id is not in _CHECKPOINT_SEQUENCE.
+    Returns 2 when the phase key cannot be resolved unambiguously — see the
+    precedence chain below (CER-077). No write to either ``state.json`` or
+    ``docs/phases/index.md`` occurs on a 2-exit path; every validation and
+    ambiguity check happens before the atomic state write and before
+    ``_mark_phase_complete_in_index``.
 
     Completing the terminal step (``checkpoint-tag``) also marks the
-    currently-active phase's row ``complete`` in ``docs/phases/index.md``,
-    via ``_mark_phase_complete_in_index`` (INFRA-239). This happens in the
-    same CLI call as the ``checkpoint_step`` reset — the orchestrator no
-    longer needs to remember to invoke ``mark-phase-complete`` separately.
-    Without this, the phase's index row stays non-``complete``, so the next
+    resolved phase's row ``complete`` in ``docs/phases/index.md``, via
+    ``_mark_phase_complete_in_index`` (INFRA-239). This happens in the same
+    CLI call as the ``checkpoint_step`` reset — the orchestrator no longer
+    needs to remember to invoke ``mark-phase-complete`` separately. Without
+    this, the phase's index row stays non-``complete``, so the next
     ``next-action`` resolution re-selects the same phase as active; combined
     with the ``checkpoint_step`` reset below, that re-emits
     ``checkpoint-security`` for a phase that was just tagged (INFRA-239
-    regression). Resolving the active phase is done here, before the
-    ``checkpoint_step`` reset takes effect, using the same
-    ``resolve_current_phase`` read-model the resolver itself uses — no
-    phase key is threaded through the CLI args.
+    regression).
+
+    Phase-key resolution precedence (CER-077 — INFRA-265). An explicit
+    ``--phase-key`` carries operator intent; the ``state.json`` stamp was
+    recorded by a prior call in this same checkpoint sequence while that
+    phase was provably active; re-derivation via ``resolve_current_phase`` is
+    a guess and is only trusted when the index yields exactly one candidate.
+    Disagreeing sources are an error, not a choice — picking either one when
+    two disagree is the CER-077 failure mode wearing a different hat:
+
+      1. ``phase_key`` when given (validated against the index first);
+      2. otherwise ``state.json["checkpoint_phase"]`` when non-empty;
+      3. otherwise the sole candidate from ``_active_phase_candidates`` — for
+         the terminal step, more than one candidate is a loud error (no
+         guessing which phase is being closed); for a non-terminal step it is
+         only a warning (nothing irreversible happens yet, and the terminal
+         step will demand the key anyway), and the stamp is left ``""`` (the
+         documented INFRA-260 backward-compatible value).
     """
     import tempfile  # noqa: PLC0415
 
@@ -2116,33 +2236,86 @@ def _record_checkpoint_step(step_id: str, project_dir: Path) -> int:
         current = []
 
     if step_id in current:
-        return 0  # idempotent — no write
+        return 0  # idempotent — no write, no validation needed
+
+    is_terminal = step_id == _CHECKPOINT_SEQUENCE[-1]
+
+    # --- A2: an explicit --phase-key must name a real index row before any
+    # write happens. ---
+    index_path = project_dir / "docs" / "phases" / "index.md"
+    if phase_key is not None and index_path.exists():
+        index_text = index_path.read_text(encoding="utf-8")
+        rows = _parse_index_phases(index_text)
+        if not any(ref == phase_key for ref, _status in rows):
+            click.echo(
+                f"record-checkpoint-step: --phase-key {phase_key!r} does not "
+                "match any row in docs/phases/index.md (CER-077). No write "
+                "performed — re-check the phase key.",
+                err=True,
+            )
+            return 2
+
+    # --- A4: an explicit --phase-key that disagrees with the recorded stamp
+    # is an error, not a choice between two sources. ---
+    stamp = state.get("checkpoint_phase")
+    stamp_is_set = isinstance(stamp, str) and stamp != ""
+    if phase_key is not None and stamp_is_set and stamp != phase_key:
+        click.echo(
+            f"record-checkpoint-step: --phase-key {phase_key!r} disagrees "
+            f"with state.json['checkpoint_phase'] {stamp!r} (CER-077). "
+            "Refusing to guess which is correct — no write performed.",
+            err=True,
+        )
+        return 2
+
+    # --- A3: resolve the effective key by precedence. ---
+    if phase_key is not None:
+        effective_key = phase_key
+    elif stamp_is_set:
+        effective_key = stamp
+    else:
+        try:
+            candidates = _active_phase_candidates(project_dir)
+        except AmbiguousActivePhaseError as exc:
+            click.echo(str(exc), err=True)
+            return 2
+
+        if len(candidates) == 1:
+            effective_key = candidates[0][0]
+        elif len(candidates) == 0:
+            effective_key = ""
+        else:
+            keys = ", ".join(ref for ref, _status in candidates)
+            message = (
+                "record-checkpoint-step: ambiguous active phase — "
+                f"candidate rows {keys} (CER-077). Re-run with "
+                "--phase-key <key>."
+            )
+            if is_terminal:
+                click.echo(message, err=True)
+                return 2
+            # Non-terminal step: nothing irreversible happens here, and the
+            # terminal step will demand the key anyway (A8) — degrade to a
+            # warning and stamp the documented INFRA-260 fallback value.
+            click.echo(f"warning: {message}", err=True)
+            effective_key = ""
 
     current.append(step_id)
 
-    # Resolve the active phase key once (INFRA-260 / CER-083), using the same
-    # resolve_current_phase read-model the resolver itself uses. This single
-    # resolution feeds both the checkpoint_phase stamp below and (for the
-    # terminal step) the existing index mark-complete call — no second,
-    # differently-derived source of the phase key.
-    _active_phase_file = resolve_current_phase(project_dir)
-    _phase_key = ""
-    if _active_phase_file is not None:
-        _phase_key = _active_phase_file.stem
-        if _phase_key.startswith("phase-"):
-            _phase_key = _phase_key[len("phase-") :]
-
-    if step_id == _CHECKPOINT_SEQUENCE[-1]:
+    if is_terminal:
         current = []
-        if _active_phase_file is not None:
-            _mark_phase_complete_in_index(_phase_key, project_dir)
+        if effective_key:
+            # A False return means "already complete" (idempotent, benign) —
+            # not an error; A2 already validated the row exists when an
+            # explicit --phase-key was given.
+            _mark_phase_complete_in_index(effective_key, project_dir)
         # Reset the phase stamp alongside the checkpoint_step reset, in the
         # same atomic write — a stamp naming a phase that was just tagged
         # must not be mistaken for a still-active phase's stamp.
-        _phase_key = ""
+        effective_key = ""
 
     state["checkpoint_step"] = current
-    state["checkpoint_phase"] = _phase_key
+    state["checkpoint_phase"] = effective_key
 
     # Atomic write: temp file in same dir, then rename.
     dir_ = state_path.parent
@@ -2202,7 +2375,7 @@ def cmd_checkpoint_report(project_dir: str) -> None:
     # Resolve the active phase and its story membership *before* the rollup,
     # so the same phase_key derivation feeds both the phase-scoped heading
     # and the existing next-phase pointer (INFRA-256 instruction 3).
-    active_phase_file = resolve_current_phase(project_path)
+    active_phase_file = _resolve_current_phase_or_exit(project_path)
     phase_key: str | None = None
     story_ids: list[str] = []
     scoping_unavailable_reason: str | None = None
@@ -2284,7 +2457,22 @@ def cmd_checkpoint_report(project_dir: str) -> None:
     type=click.Path(file_okay=False, dir_okay=True),
     help="Project root directory.",
 )
-def cmd_record_checkpoint_step(step_id: str, project_dir: str) -> None:
+@click.option(
+    "--phase-key",
+    "phase_key",
+    default=None,
+    type=str,
+    help=(
+        "Explicit phase key this checkpoint step belongs to (CER-077). "
+        "Takes precedence over the state.json checkpoint_phase stamp and "
+        "over any re-derivation from docs/phases/index.md; disagreement "
+        "with the stamp is an error, not a choice. Optional — every "
+        "existing fleet call site keeps working without it."
+    ),
+)
+def cmd_record_checkpoint_step(
+    step_id: str, project_dir: str, phase_key: "str | None"
+) -> None:
     """Atomically append *step_id* to state.json["checkpoint_step"].
 
     Validates step_id against the known checkpoint sequence before writing.
@@ -2292,7 +2480,7 @@ def cmd_record_checkpoint_step(step_id: str, project_dir: str) -> None:
     """
     project_path = Path(project_dir).resolve()
     _depth_guard(project_path)
-    rc = _record_checkpoint_step(step_id, project_path)
+    rc = _record_checkpoint_step(step_id, project_path, phase_key=phase_key)
     sys.exit(rc)
 
 
