@@ -5,7 +5,7 @@ phase_class: production
 
 # project — Phase 109: Single-orchestrator parallel build concurrency
 
-← [Phase 108: Era 003 close (gated on observability delivery)](phase-108.md)
+← [Phase 104: Recording and checkpoint correctness](phase-104.md) — build-order predecessor (index-ordered; numbering is non-sequential)
 
 <!-- Phase doc = planning surface only. Story-level detail (acceptance criteria,
      file paths, implementation guidance, test instructions, codebase recon)

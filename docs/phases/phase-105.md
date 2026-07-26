@@ -5,7 +5,7 @@ phase_class: production
 
 # project — Phase 105: Campaign preflight: hooks, discovery, scope-guard, channel canon
 
-← [Phase 104: Recording and checkpoint correctness](phase-104.md)
+← [Phase 109: Single-orchestrator parallel build concurrency](phase-109.md) — build-order predecessor (index-ordered; numbering is non-sequential)
 
 <!-- Phase doc = planning surface only. Story-level detail (acceptance criteria,
      file paths, implementation guidance, test instructions, codebase recon)
