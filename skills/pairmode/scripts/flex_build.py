@@ -1620,6 +1620,74 @@ _STUB_ACCEPTANCE_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+# Fence opener/closer: up to 3 leading spaces, then a run of >= 3 backticks
+# or >= 3 tildes (CER-076 code-region mask).
+_FENCE_MARKER_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+# Inline code span: a run of backticks closed by an equal-length run on the
+# same line (pragmatic, not CommonMark-exact).
+_INLINE_CODE_RE = re.compile(r"(`+)([^\n]*?)\1")
+
+
+def _mask_code_regions(text: str) -> str:
+    """Return *text* with code regions blanked to spaces, length preserved.
+
+    Every character inside a fenced code block (including the fence marker
+    lines themselves) or an inline code span is replaced by a space;
+    newlines are preserved verbatim. Because the result has exactly the
+    same length as the input, regex match offsets against the masked text
+    index the original text directly (CER-076: the stub gate searches the
+    masked body but reports the original line).
+
+    Handles: triple-backtick fences with or without an info string; tilde
+    (``~~~``) fences; fence openers indented up to three spaces; an
+    unterminated fence (masked to end of text); and inline spans delimited
+    by equal-length backtick runs on one line. This is a pragmatic two-pass
+    scanner, not a CommonMark implementation. Pure — no I/O, no state.
+
+    The gate must never crash on a malformed story: if the mask ever fails
+    to preserve length, the original text is returned unchanged (search
+    falls back to the unmasked body).
+    """
+
+    def _blank(line: str) -> str:
+        # Replace every non-newline character with a space; keep the line
+        # ending (\n or \r\n) verbatim.
+        stripped = line.rstrip("\r\n")
+        return " " * len(stripped) + line[len(stripped):]
+
+    # Pass 1 — fenced code blocks.
+    masked_lines: list[str] = []
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+    for line in text.splitlines(keepends=True):
+        m = _FENCE_MARKER_RE.match(line)
+        if not in_fence:
+            if m:
+                marker = m.group(1)
+                in_fence = True
+                fence_char = marker[0]
+                fence_len = len(marker)
+                masked_lines.append(_blank(line))
+            else:
+                masked_lines.append(line)
+        else:
+            # Inside a fence: everything is blanked, including the closer.
+            if m and m.group(1)[0] == fence_char and len(m.group(1)) >= fence_len:
+                in_fence = False
+            masked_lines.append(_blank(line))
+    masked = "".join(masked_lines)
+
+    # Pass 2 — inline code spans (applied to the fence-masked text only;
+    # fence content is already spaces, so no backticks remain there).
+    masked = _INLINE_CODE_RE.sub(lambda m: " " * len(m.group(0)), masked)
+
+    if len(masked) != len(text):
+        # Length-preservation guard: never crash, never mis-offset — search
+        # the unmasked body instead.
+        return text
+    return masked
+
 _SCHEMA_MGMT_KEYWORDS = re.compile(
     r"\b(?:management|ui|crud|admin|route|page|command|dashboard)\b",
     re.IGNORECASE,
@@ -1720,8 +1788,12 @@ def check_stub_gate(story_id: str, project_dir: Path) -> dict:
 
     reasons: list[str] = []
 
-    # Check for delegation language in the body.
-    m = _STUB_DELEGATION_RE.search(body)
+    # Check for delegation language in the body. The search runs over a
+    # length-preserving mask of the body with fenced code blocks and inline
+    # code spans blanked (CER-076: quoted text is data, not delegation), so
+    # the match offsets below index the ORIGINAL body directly and the
+    # reported line shows real text.
+    m = _STUB_DELEGATION_RE.search(_mask_code_regions(body))
     if m:
         line_start = body.rfind("\n", 0, m.start()) + 1
         line_end = body.find("\n", m.end())

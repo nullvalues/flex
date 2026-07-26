@@ -528,6 +528,149 @@ def test_check_stub_missing_story_file_exits_2(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# check-stub — quoted-text masking (CER-076, INFRA-268)
+# ---------------------------------------------------------------------------
+
+from flex_build import _STUB_DELEGATION_RE, check_stub_gate  # noqa: E402
+
+# Derive a delegation phrase from the compiled regex's own literals so these
+# tests cannot drift from the constant (never hard-code the phrase here).
+_DELEGATION_PHRASE = _STUB_DELEGATION_RE.pattern.split("|")[0]
+
+
+def test_check_stub_fenced_quote_passes(tmp_path: Path) -> None:
+    """A delegation phrase occurring only inside a fenced code block passes."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-910",
+        body=(
+            "## Ensures\n\n- Works.\n\n"
+            "Quoted deliverable text:\n\n"
+            "```\n"
+            f"{_DELEGATION_PHRASE} for the details.\n"
+            "```\n"
+        ),
+    )
+    result = check_stub_gate("BUILD-910", tmp_path)
+    assert result["ok"] is True, result["reasons"]
+    cli = _run("check-stub", "BUILD-910", "--project-dir", str(tmp_path))
+    assert cli.returncode == 0, cli.stdout + cli.stderr
+    assert cli.stdout.strip() == ""
+
+
+def test_check_stub_inline_code_span_passes(tmp_path: Path) -> None:
+    """A delegation phrase occurring only inside an inline code span passes."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-911",
+        body=(
+            "## Ensures\n\n- Works.\n\n"
+            f"The gate blocks on the phrase `{_DELEGATION_PHRASE}` in prose.\n"
+        ),
+    )
+    result = check_stub_gate("BUILD-911", tmp_path)
+    assert result["ok"] is True, result["reasons"]
+
+
+def test_check_stub_prose_delegation_still_blocks(tmp_path: Path) -> None:
+    """A delegation phrase in plain prose still blocks (unchanged behaviour)."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-912",
+        body=(
+            "## Ensures\n\n- Works.\n\n"
+            f"{_DELEGATION_PHRASE} for the full spec.\n"
+        ),
+    )
+    result = check_stub_gate("BUILD-912", tmp_path)
+    assert result["ok"] is False
+    assert any("Delegation language found" in r for r in result["reasons"])
+    cli = _run("check-stub", "BUILD-912", "--project-dir", str(tmp_path))
+    assert cli.returncode == 1
+    assert "PRE-STORY BLOCK" in cli.stdout
+
+
+def test_check_stub_mixed_fenced_and_prose_reports_prose_line(
+    tmp_path: Path,
+) -> None:
+    """Fenced quote plus a separate prose occurrence blocks; the reported
+    matched line is the prose line, not the fenced one."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-913",
+        body=(
+            "## Ensures\n\n- Works.\n\n"
+            "```\n"
+            f"FENCED-MARKER {_DELEGATION_PHRASE} quoted as data.\n"
+            "```\n\n"
+            f"PROSE-MARKER {_DELEGATION_PHRASE} in real prose.\n"
+        ),
+    )
+    result = check_stub_gate("BUILD-913", tmp_path)
+    assert result["ok"] is False
+    delegation_reasons = [
+        r for r in result["reasons"] if "Delegation language found" in r
+    ]
+    assert delegation_reasons
+    assert "PROSE-MARKER" in delegation_reasons[0]
+    assert "FENCED-MARKER" not in delegation_reasons[0]
+
+
+def test_check_stub_tilde_fence_passes(tmp_path: Path) -> None:
+    """A delegation phrase inside a tilde (~~~) fence passes."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-914",
+        body=(
+            "## Ensures\n\n- Works.\n\n"
+            "~~~\n"
+            f"{_DELEGATION_PHRASE} quoted inside a tilde fence.\n"
+            "~~~\n"
+        ),
+    )
+    result = check_stub_gate("BUILD-914", tmp_path)
+    assert result["ok"] is True, result["reasons"]
+
+
+def test_check_stub_unterminated_fence_passes(tmp_path: Path) -> None:
+    """An unterminated fence masks to end of text — the quoted phrase passes."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-915",
+        body=(
+            "## Ensures\n\n- Works.\n\n"
+            "```\n"
+            f"{_DELEGATION_PHRASE} inside an unterminated fence.\n"
+        ),
+    )
+    result = check_stub_gate("BUILD-915", tmp_path)
+    assert result["ok"] is True, result["reasons"]
+
+
+def test_check_stub_home_006_shape_passes(tmp_path: Path) -> None:
+    """The forqsite HOME-006 shape: instructions telling a builder to append a
+    resolution note whose fenced content contains a delegation phrase must
+    pass the gate (CER-076's originating false positive)."""
+    _write_stub_story_fm(
+        tmp_path,
+        "BUILD-916",
+        body=(
+            "## Ensures\n\n- The backlog row carries the resolution note.\n\n"
+            "## Instructions\n\n"
+            "Append the following resolution note to the backlog row:\n\n"
+            "```\n"
+            f"**RESOLVED** — details recorded; {_DELEGATION_PHRASE} "
+            "phase-PM066-main.md\n"
+            "```\n"
+        ),
+    )
+    result = check_stub_gate("BUILD-916", tmp_path)
+    assert result["ok"] is True, result["reasons"]
+    cli = _run("check-stub", "BUILD-916", "--project-dir", str(tmp_path))
+    assert cli.returncode == 0, cli.stdout + cli.stderr
+
+
+# ---------------------------------------------------------------------------
 # check-schema-gate (BUILD-034)
 # ---------------------------------------------------------------------------
 

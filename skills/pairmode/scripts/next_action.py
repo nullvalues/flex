@@ -133,6 +133,16 @@ SCHEMA_VERSION: int = 4
 SPAWN_BUILDER: str = "spawn-builder"
 SPAWN_LOOP_BREAKER: str = "spawn-loop-breaker"
 SPAWN_GATE_WORKER: str = "spawn-gate-worker"
+# SPAWN_REVIEWER is never emitted by resolve_next_action — by design, not by
+# omission (CER-074). The reviewer dispatch is intra-cycle: the orchestrator
+# dispatches the reviewer itself inside the same spawn-builder iteration
+# (builder spawn → reviewer spawn → merge-or-discard, one next-action poll per
+# story). DP3 outcome inference is git-authoritative (PASS ⇔ a story-<ID>
+# commit exists), and only the reviewer commits, so no resolver-legible state
+# exists between builder-return and merge from which to emit this action.
+# Retained in ACTIONS/_SPAWN_ACTIONS because the orchestrator's
+# ACTION_SUBAGENT_TYPE map and the model-override rule key on it.
+# See docs/agreements/HARNESS003-main.md § 2.
 SPAWN_REVIEWER: str = "spawn-reviewer"
 SPAWN_SECURITY_AUDITOR: str = "spawn-security-auditor"
 SPAWN_INTENT_REVIEWER: str = "spawn-intent-reviewer"
@@ -171,6 +181,8 @@ ACTIONS: frozenset[str] = frozenset(
 # builder-model decision), so it is NOT in _SPAWN_ACTIONS — model must be None.
 # spawn-reviewer, spawn-security-auditor, and spawn-intent-reviewer carry a
 # model override (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS.
+# (spawn-reviewer membership is for orchestrator dispatch only — the resolver
+# never emits it; see the CER-074 note at its declaration above.)
 # checkpoint-security, checkpoint-intent, checkpoint-docs carry a model override
 # (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS.
 # checkpoint-tag is an inline action and is NOT in _SPAWN_ACTIONS.

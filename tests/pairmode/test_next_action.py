@@ -592,6 +592,7 @@ from next_action import (  # noqa: E402
     SPAWN_BUILDER,
     SPAWN_LOOP_BREAKER,
     SPAWN_GATE_WORKER,
+    SPAWN_REVIEWER,
     CHECKPOINT,
     CHECKPOINT_SECURITY,
     CHECKPOINT_TAG,
@@ -1252,6 +1253,91 @@ class TestResolveNextActionAwaitUser:
         assert action["action"] == AWAIT_USER
         assert action["reason"] == "build-paused"
         assert action["model"] is None
+        assert validate_action(action) == []
+
+
+class TestResolveNextActionNeverEmitsSpawnReviewer:
+    """CER-074 invariant: resolve_next_action never emits spawn-reviewer.
+
+    The reviewer dispatch is intra-cycle — the orchestrator dispatches the
+    reviewer itself inside the same spawn-builder iteration (one next-action
+    poll per story). SPAWN_REVIEWER stays in ACTIONS/_SPAWN_ACTIONS for
+    orchestrator dispatch, but no resolver code path may construct it. This
+    test pins that invariant across every distinct position shape so a
+    future story cannot quietly start emitting it without noticing the
+    one-iteration-per-story contract (see docs/agreements/HARNESS003-main.md
+    and docs/architecture.md § Pairmode build loop).
+    """
+
+    @pytest.mark.parametrize(
+        "shape",
+        [
+            "no-active-phase",
+            "first-attempt",
+            "post-fail-retry",
+            "escalated-retry",
+            "gate-blocked",
+            "checkpoint-sequence",
+        ],
+    )
+    def test_resolver_never_emits_spawn_reviewer(
+        self, shape: str, tmp_path: Any
+    ) -> None:
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+
+        if shape == "no-active-phase":
+            # No active story / phase complete: everything done.
+            pos = _make_position(active_phase_file=None)
+            action = resolve_next_action(pos)
+        elif shape == "first-attempt":
+            pos = _make_position(
+                active_phase_file=phase_file,
+                next_story_id="TEST-074",
+                attempt_count=0,
+                last_attempt_outcome=OUTCOME_NONE,
+            )
+            action = resolve_next_action(pos)
+        elif shape == "post-fail-retry":
+            # attempt_count 1, no story commit → FAIL inference, retry.
+            pos = _make_position(
+                active_phase_file=phase_file,
+                next_story_id="TEST-074",
+                attempt_count=1,
+                builder_model="opus",
+                builder_model_reason="retry-upgrade",
+                last_attempt_outcome=OUTCOME_FAIL,
+            )
+            action = resolve_next_action(pos)
+        elif shape == "escalated-retry":
+            pos = _make_position(
+                active_phase_file=phase_file,
+                next_story_id="TEST-074",
+                attempt_count=2,
+                builder_model="opus",
+                builder_model_reason="retry-upgrade",
+                last_attempt_outcome=OUTCOME_FAIL,
+            )
+            action = resolve_next_action(pos)
+        elif shape == "gate-blocked":
+            pos = _make_position(
+                active_phase_file=phase_file,
+                next_story_id="TEST-074",
+                gate_stub={"ok": False, "blocked_reason": "stub detected"},
+            )
+            action = resolve_next_action(pos)
+        else:  # checkpoint-sequence
+            pos = _make_position(
+                active_phase_file=phase_file, next_story_id=None
+            )
+            action = resolve_next_action(pos, gate_fn=lambda: True)
+
+        assert action["action"] != SPAWN_REVIEWER, (
+            f"resolve_next_action emitted spawn-reviewer for shape {shape!r} — "
+            "the CER-074 one-iteration-per-story contract forbids a "
+            "resolver-emitted reviewer dispatch"
+        )
         assert validate_action(action) == []
 
 
