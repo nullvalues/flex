@@ -81,3 +81,9 @@ def test_old_prose_absent(rendered: str, phrase: str) -> None:
     assert phrase not in rendered, (
         f"Old procedure phrase found in reduced template: {phrase!r}"
     )
+
+
+def test_rendered_template_stages_eras(rendered: str) -> None:
+    """Rendered template names docs/eras/ as a staged commit path (INFRA-267,
+    Ensures 11) — an unstaged era-ledger row is silent working-tree drift."""
+    assert "docs/eras/" in rendered

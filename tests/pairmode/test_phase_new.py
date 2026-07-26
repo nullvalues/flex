@@ -1080,3 +1080,125 @@ class TestAppendIndexRow:
         _append_index_row(index_path, phase_key="2", phase_title="Second Phase")
         content = index_path.read_text()
         assert "phase-2.md" in content
+
+
+# ---------------------------------------------------------------------------
+# INFRA-267 (CER-082) — era ledger heading match
+# ---------------------------------------------------------------------------
+
+
+def _write_era_doc(project_dir: pathlib.Path, body: str, era_id: str = "003") -> pathlib.Path:
+    eras_dir = project_dir / "docs" / "eras"
+    eras_dir.mkdir(parents=True, exist_ok=True)
+    era_path = eras_dir / f"{era_id}-test-era.md"
+    era_path.write_text(
+        f"---\nid: {era_id}\nname: Test Era\nstatus: active\n---\n\n{body}",
+        encoding="utf-8",
+    )
+    return era_path
+
+
+def _ledger_rows(text: str) -> list[str]:
+    """Rows of the first pipe table following the first '## Phases' heading."""
+    rows: list[str] = []
+    in_section = False
+    in_table = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not in_section and (
+            stripped == "## Phases" or stripped.startswith("## Phases ")
+        ):
+            in_section = True
+            continue
+        if in_section:
+            if stripped.startswith("|"):
+                in_table = True
+                rows.append(stripped)
+            elif in_table and stripped:
+                break
+    return rows
+
+
+class TestEraLedgerHeadingMatch:
+    """_update_era_phases_table matches a qualified '## Phases' heading."""
+
+    def test_era_ledger_heading_with_trailing_qualifier_appends_row(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """A '## Phases (proposed — x)' heading is a ledger heading (A2).
+
+        Before INFRA-267 the equality-only match made this a silent no-op.
+        """
+        era_path = _write_era_doc(
+            tmp_path,
+            "## Phases (proposed — `HARNESS` predicate)\n\n"
+            "| Phase | Title | Status |\n"
+            "|-------|-------|--------|\n"
+            "| 96 | Existing | complete |\n\n"
+            "## Versioning\n\nTail prose.\n",
+        )
+        _update_era_phases_table(tmp_path, "003", "109", "T")
+        text = era_path.read_text(encoding="utf-8")
+        assert "| 109 | T | planned |" in text
+        rows = _ledger_rows(text)
+        assert rows[-1] == "| 109 | T | planned |"
+        # Nothing after the table was disturbed.
+        assert text.rstrip().endswith("Tail prose.")
+
+    def test_era_ledger_exact_heading_still_appends_row(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """The era_new.py-shaped doc keeps working, one row appended (A3)."""
+        era_path = _write_era_doc(
+            tmp_path,
+            "## Phases\n\n"
+            "| Phase | Title | Status |\n"
+            "|-------|-------|--------|\n"
+            "| 1 | First | complete |\n\n"
+            "## Notes\n",
+        )
+        _update_era_phases_table(tmp_path, "003", "2", "Second")
+        text = era_path.read_text(encoding="utf-8")
+        assert text.count("| 2 | Second | planned |") == 1
+        assert _ledger_rows(text)[-1] == "| 2 | Second | planned |"
+
+    def test_era_ledger_h3_phase_heading_does_not_match(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """A '### Phase G scope' heading is not a ledger heading (A1/A4)."""
+        body = (
+            "### Phase G scope\n\n"
+            "| Phase key | Title |\n"
+            "|-----------|-------|\n"
+            "| HARNESS007-main | Obs |\n"
+        )
+        era_path = _write_era_doc(tmp_path, body)
+        before = era_path.read_bytes()
+        _update_era_phases_table(tmp_path, "003", "109", "T")
+        assert era_path.read_bytes() == before
+
+    def test_prefix_match_does_not_fire_on_similar_heading(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """'## Phaseset' is not a ledger heading — the trailing space matters."""
+        era_path = _write_era_doc(
+            tmp_path,
+            "## Phaseset\n\n| Phase | Title | Status |\n|--|--|--|\n| 1 | A | planned |\n",
+        )
+        before = era_path.read_bytes()
+        _update_era_phases_table(tmp_path, "003", "109", "T")
+        assert era_path.read_bytes() == before
+
+    def test_no_eras_dir_is_silent(self, tmp_path: pathlib.Path) -> None:
+        """Missing docs/eras/ writes nothing and raises nothing (A4)."""
+        _update_era_phases_table(tmp_path, "003", "109", "T")
+        assert not (tmp_path / "docs" / "eras").exists()
+
+    def test_unknown_era_id_is_silent(self, tmp_path: pathlib.Path) -> None:
+        """No era file matching era_id: no write, no exception (A4)."""
+        era_path = _write_era_doc(
+            tmp_path, "## Phases\n\n| Phase | Title | Status |\n|--|--|--|\n"
+        )
+        before = era_path.read_bytes()
+        _update_era_phases_table(tmp_path, "999", "109", "T")
+        assert era_path.read_bytes() == before

@@ -121,6 +121,21 @@ def _detect_active_era(project_dir: Path) -> str | None:
     return active[-1][1]
 
 
+def _is_era_ledger_heading(stripped: str) -> bool:
+    """True for the era doc's machine-maintained ledger heading.
+
+    Matches the canonical ``## Phases`` exactly, and also a qualified variant
+    (``## Phases (proposed — ...)``) — the equality-only match this replaces was
+    a silent no-op on every era doc whose heading carried a qualifier (CER-082,
+    INFRA-267). The trailing space in the prefix is deliberate: a bare
+    ``startswith("## Phases")`` would also match ``## Phaseset``. Deeper
+    headings (``### Phase G scope``) never match.
+
+    Twin implementation: ``flex_build.py::_is_era_ledger_heading``.
+    """
+    return stripped == "## Phases" or stripped.startswith("## Phases ")
+
+
 def _update_era_phases_table(project_dir: Path, era_id: str, phase_key: str, phase_title: str) -> None:
     """Append a row to the Phases table in the era's .md file."""
     eras_dir = project_dir / "docs" / "eras"
@@ -160,7 +175,8 @@ def _update_era_phases_table(project_dir: Path, era_id: str, phase_key: str, pha
         new_lines.append(line)
         stripped = line.strip()
 
-        if stripped == "## Phases":
+        # First ledger heading in document order wins.
+        if not in_phases_section and _is_era_ledger_heading(stripped):
             in_phases_section = True
             continue
 

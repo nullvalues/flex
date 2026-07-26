@@ -875,6 +875,128 @@ def _mark_phase_complete_in_index(phase_key: str, project_dir: Path) -> bool:
     return True
 
 
+def _is_era_ledger_heading(stripped: str) -> bool:
+    """True for the era doc's machine-maintained ledger heading.
+
+    Matches ``## Phases`` exactly and the qualified variant
+    ``## Phases (...)``; never a deeper heading. Deliberately duplicated from
+    its twin ``phase_new._update_era_phases_table`` / ``phase_new.
+    _is_era_ledger_heading`` rather than imported — importing ``phase_new``
+    into ``flex_build`` would add a whole module dependency for two tokens
+    (INFRA-267). Keep the two in sync.
+    """
+    return stripped == "## Phases" or stripped.startswith("## Phases ")
+
+
+def _mark_phase_complete_in_era_ledger(phase_key: str, project_dir: Path) -> bool:
+    """Set the status cell of *phase_key*'s row in the **active** era doc's
+    ``## Phases`` ledger to 'complete'.
+
+    The era doc is the era's phase ledger: ``phase_new.py`` appends a
+    ``| <phase> | <title> | planned |`` row at scaffold time and this helper
+    advances it, keeping the ledger in parity with ``docs/phases/index.md``
+    (which ``check-index`` check 2c enforces). Before INFRA-267 nothing ever
+    advanced it, so every checkpointed phase read ``planned`` forever
+    (CER-082).
+
+    Idempotent no-op (returns ``False``, writes nothing, raises nothing) when
+    ``docs/eras/`` is absent, no era doc has ``status: active``, the active era
+    doc has no ledger heading or table, no ledger row's first cell equals
+    *phase_key*, or that row already reads ``complete``. Legacy eras with no
+    ledger row must never crash a checkpoint. Returns ``True`` when a write
+    happened.
+
+    Mirrors ``_mark_phase_complete_in_index``'s atomic-write contract
+    (``NamedTemporaryFile`` in the target's own directory + ``os.replace``) and
+    flips any non-``complete`` status, ``deferred`` included, so both writes
+    stay symmetric.
+    """
+    import tempfile  # noqa: PLC0415
+
+    eras_dir = project_dir / "docs" / "eras"
+    if not eras_dir.is_dir():
+        return False
+
+    # Collect active era docs. More than one: highest ID wins (last in sorted
+    # order), matching phase_new._detect_active_era — but silently; other
+    # tooling reads this CLI's stdout.
+    active: list[Path] = []
+    for era_path in sorted(eras_dir.glob("*.md")):
+        try:
+            text = era_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fm = _parse_frontmatter(text)
+        if fm is None:
+            continue
+        if fm.get("status") == "active":
+            active.append(era_path)
+
+    if not active:
+        return False
+
+    target = active[-1]
+    try:
+        text = target.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    new_lines: list[str] = []
+    in_ledger_section = False
+    in_ledger_table = False
+    replaced = False
+
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+
+        if not replaced and not in_ledger_section and _is_era_ledger_heading(stripped):
+            in_ledger_section = True
+            new_lines.append(line)
+            continue
+
+        if in_ledger_section and not replaced:
+            if stripped.startswith("|"):
+                in_ledger_table = True
+                # inner cells: drop the leading/trailing empty strings produced
+                # by splitting "| a | b | c |" on "|". Header and |---| rows
+                # never match phase_key, so they are skipped naturally.
+                cells = [p.strip() for p in stripped.split("|")[1:-1]]
+                if len(cells) >= 3 and cells[0] == phase_key:
+                    if cells[2] == "complete":
+                        return False
+                    cells[2] = "complete"
+                    new_lines.append("| " + " | ".join(cells) + " |\n")
+                    replaced = True
+                    continue
+            elif in_ledger_table and stripped:
+                # Left the first table in the ledger section without a match.
+                in_ledger_section = False
+
+        new_lines.append(line)
+
+    if not replaced:
+        return False
+
+    new_text = "".join(new_lines)
+
+    dir_ = target.parent
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=dir_,
+            delete=False,
+            suffix=".tmp",
+        ) as tf:
+            tf.write(new_text)
+            tmp_path_str = tf.name
+        os.replace(tmp_path_str, target)
+    except OSError:
+        return False
+
+    return True
+
+
 @flex_build.command("mark-phase-complete")
 @click.option(
     "--phase",
@@ -910,6 +1032,10 @@ def cmd_mark_phase_complete(phase_key: str, project_dir: str) -> None:
         raise SystemExit(1)
 
     _mark_phase_complete_in_index(phase_key, project_path)
+    # Same key, same invocation: the active era doc's ledger row tracks the
+    # index row (INFRA-267/CER-082). A no-op there never affects this command's
+    # exit status.
+    _mark_phase_complete_in_era_ledger(phase_key, project_path)
 
 
 _DELEGATION_RE = re.compile(
@@ -2309,6 +2435,10 @@ def _record_checkpoint_step(
             # not an error; A2 already validated the row exists when an
             # explicit --phase-key was given.
             _mark_phase_complete_in_index(effective_key, project_dir)
+            # Identical key — never a second lookup (the CER-077 failure mode
+            # INFRA-265 removed). Flips the active era doc's ledger row so the
+            # era ledger tracks the index (INFRA-267/CER-082).
+            _mark_phase_complete_in_era_ledger(effective_key, project_dir)
         # Reset the phase stamp alongside the checkpoint_step reset, in the
         # same atomic write — a stamp naming a phase that was just tagged
         # must not be mistaken for a still-active phase's stamp.

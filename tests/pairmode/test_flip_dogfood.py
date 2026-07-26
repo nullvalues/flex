@@ -93,3 +93,11 @@ def test_builder_procedure_exists() -> None:
     assert BUILDER_PROCEDURE.exists(), (
         f"Builder procedure skill does not exist: {BUILDER_PROCEDURE}"
     )
+
+
+def test_live_build_md_stages_eras() -> None:
+    """Live CLAUDE.build.md names docs/eras/ as a staged commit path
+    (INFRA-267, Ensures 11)."""
+    assert LIVE_BUILD_MD.exists(), "CLAUDE.build.md does not exist"
+    text = LIVE_BUILD_MD.read_text(encoding="utf-8")
+    assert "docs/eras/" in text, "Live CLAUDE.build.md does not mention docs/eras/"

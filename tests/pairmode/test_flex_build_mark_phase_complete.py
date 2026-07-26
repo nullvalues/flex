@@ -442,3 +442,147 @@ def test_five_column_round_trip(tmp_path: Path) -> None:
                 f"Column count drifted for row '{stripped}': "
                 f"expected 5, got {len(cells)}"
             )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-267 (CER-082) — active era doc's ## Phases ledger flips with the index
+# ---------------------------------------------------------------------------
+
+
+def _write_era_doc(
+    project_dir: Path,
+    era_id: str,
+    status: str,
+    ledger_rows: list[tuple[str, str, str]] | None,
+    heading: str = "## Phases",
+) -> Path:
+    """Write ``docs/eras/<era_id>-era.md``.
+
+    *ledger_rows* of ``None`` writes a doc with no ledger section at all.
+    """
+    eras_dir = project_dir / "docs" / "eras"
+    eras_dir.mkdir(parents=True, exist_ok=True)
+    era_path = eras_dir / f"{era_id}-era.md"
+    parts = [f"---\nid: {era_id}\nname: Era {era_id}\nstatus: {status}\n---\n\n"]
+    if ledger_rows is not None:
+        parts.append(f"{heading}\n\n| Phase | Title | Status |\n|-------|-------|--------|\n")
+        for phase_ref, title, row_status in ledger_rows:
+            parts.append(f"| {phase_ref} | {title} | {row_status} |\n")
+        parts.append("\n## Versioning\n\nTail prose.\n")
+    else:
+        parts.append("## Strategic intent\n\nNo ledger here.\n")
+    era_path.write_text("".join(parts), encoding="utf-8")
+    return era_path
+
+
+def _read_era(era_path: Path) -> str:
+    return era_path.read_text(encoding="utf-8")
+
+
+class TestMarkPhaseCompleteEraLedger:
+    """mark-phase-complete flips the active era ledger alongside the index."""
+
+    def test_mark_phase_complete_flips_active_era_ledger_row(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensures 8 — one invocation flips both index and era ledger."""
+        _write_phase_index(tmp_path, [("104", "Phase 104", "planned", "")])
+        era_path = _write_era_doc(
+            tmp_path, "003", "active", [("103", "Phase 103", "complete"), ("104", "Phase 104", "planned")]
+        )
+        result = _run("mark-phase-complete", "--phase", "104", "--project-dir", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+        assert "| 104 | Phase 104 | complete |" in _read_index(tmp_path)
+        era_text = _read_era(era_path)
+        assert "| 104 | Phase 104 | complete |" in era_text
+        assert "| 103 | Phase 103 | complete |" in era_text
+        assert era_text.rstrip().endswith("Tail prose.")
+
+    def test_mark_phase_complete_flips_qualified_heading_ledger(
+        self, tmp_path: Path
+    ) -> None:
+        """A '## Phases (proposed — x)' heading is still the ledger."""
+        _write_phase_index(tmp_path, [("104", "Phase 104", "planned", "")])
+        era_path = _write_era_doc(
+            tmp_path,
+            "003",
+            "active",
+            [("104", "Phase 104", "planned")],
+            heading="## Phases (proposed — predicate)",
+        )
+        result = _run("mark-phase-complete", "--phase", "104", "--project-dir", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+        assert "| 104 | Phase 104 | complete |" in _read_era(era_path)
+
+    def test_mark_phase_complete_flips_deferred_era_ledger_row(
+        self, tmp_path: Path
+    ) -> None:
+        """Any non-complete status flips, deferred included (symmetry with the index)."""
+        _write_phase_index(tmp_path, [("97", "Phase 97", "deferred", "")])
+        era_path = _write_era_doc(tmp_path, "003", "active", [("97", "Phase 97", "deferred")])
+        result = _run("mark-phase-complete", "--phase", "97", "--project-dir", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+        assert "| 97 | Phase 97 | complete |" in _read_era(era_path)
+
+    def test_mark_phase_complete_era_ledger_row_absent_is_tolerated(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensures 6 — legacy era with no row for the phase: exit 0, era untouched."""
+        _write_phase_index(tmp_path, [("104", "Phase 104", "planned", "")])
+        era_path = _write_era_doc(tmp_path, "003", "active", [("96", "Phase 96", "complete")])
+        before = era_path.read_bytes()
+        result = _run("mark-phase-complete", "--phase", "104", "--project-dir", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+        assert "| 104 | Phase 104 | complete |" in _read_index(tmp_path)
+        assert era_path.read_bytes() == before
+
+    def test_mark_phase_complete_era_doc_without_ledger_is_tolerated(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensures 6 — active era doc with no ledger heading at all."""
+        _write_phase_index(tmp_path, [("104", "Phase 104", "planned", "")])
+        era_path = _write_era_doc(tmp_path, "003", "active", None)
+        before = era_path.read_bytes()
+        result = _run("mark-phase-complete", "--phase", "104", "--project-dir", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+        assert "| 104 | Phase 104 | complete |" in _read_index(tmp_path)
+        assert era_path.read_bytes() == before
+
+    def test_mark_phase_complete_no_eras_dir_is_tolerated(self, tmp_path: Path) -> None:
+        """Ensures 6 — no docs/eras/ at all: exit 0, index flipped."""
+        _write_phase_index(tmp_path, [("104", "Phase 104", "planned", "")])
+        result = _run("mark-phase-complete", "--phase", "104", "--project-dir", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+        assert "| 104 | Phase 104 | complete |" in _read_index(tmp_path)
+        assert not (tmp_path / "docs" / "eras").exists()
+
+    def test_mark_phase_complete_no_active_era_is_tolerated(self, tmp_path: Path) -> None:
+        """Ensures 6/7 — every era doc is closed: exit 0, nothing written."""
+        _write_phase_index(tmp_path, [("104", "Phase 104", "planned", "")])
+        era_path = _write_era_doc(tmp_path, "002", "complete", [("104", "Phase 104", "planned")])
+        before = era_path.read_bytes()
+        result = _run("mark-phase-complete", "--phase", "104", "--project-dir", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+        assert era_path.read_bytes() == before
+
+    def test_mark_phase_complete_era_ledger_is_idempotent(self, tmp_path: Path) -> None:
+        """Ensures 6 — row already complete: era doc byte-identical."""
+        _write_phase_index(tmp_path, [("104", "Phase 104", "complete", "")])
+        era_path = _write_era_doc(tmp_path, "003", "active", [("104", "Phase 104", "complete")])
+        before = era_path.read_bytes()
+        result = _run("mark-phase-complete", "--phase", "104", "--project-dir", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+        assert era_path.read_bytes() == before
+
+    def test_mark_phase_complete_ignores_inactive_era_doc(self, tmp_path: Path) -> None:
+        """Ensures 7 — a closed era holding the row is never edited."""
+        _write_phase_index(tmp_path, [("104", "Phase 104", "planned", "")])
+        closed = _write_era_doc(tmp_path, "002", "complete", [("104", "Phase 104", "planned")])
+        active = _write_era_doc(tmp_path, "003", "active", [("96", "Phase 96", "complete")])
+        closed_before = closed.read_bytes()
+        active_before = active.read_bytes()
+        result = _run("mark-phase-complete", "--phase", "104", "--project-dir", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+        assert closed.read_bytes() == closed_before
+        assert active.read_bytes() == active_before
+        assert "| 104 | Phase 104 | complete |" in _read_index(tmp_path)

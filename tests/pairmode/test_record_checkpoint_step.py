@@ -502,3 +502,85 @@ class TestPhaseKeyPrecedence:
 
         state = _read_state(project_dir)
         assert state["checkpoint_phase"] == "2"
+
+
+# ---------------------------------------------------------------------------
+# INFRA-267 (CER-082) — checkpoint-tag flips the active era ledger row
+# ---------------------------------------------------------------------------
+
+
+def _write_active_era(
+    project_dir: Path, rows: list[tuple[str, str, str]], era_id: str = "003"
+) -> Path:
+    eras_dir = project_dir / "docs" / "eras"
+    eras_dir.mkdir(parents=True, exist_ok=True)
+    era_path = eras_dir / f"{era_id}-era.md"
+    parts = [
+        f"---\nid: {era_id}\nname: Era {era_id}\nstatus: active\n---\n\n",
+        "## Phases\n\n| Phase | Title | Status |\n|-------|-------|--------|\n",
+    ]
+    for phase_ref, title, status in rows:
+        parts.append(f"| {phase_ref} | {title} | {status} |\n")
+    parts.append("\n## Versioning\n\nTail prose.\n")
+    era_path.write_text("".join(parts), encoding="utf-8")
+    return era_path
+
+
+class TestCheckpointTagEraLedger:
+    """The checkpoint-tag branch flips the era ledger for the resolved key."""
+
+    def test_checkpoint_tag_flips_era_ledger_row(self, tmp_path: Path) -> None:
+        """Ensures 9/10 — same key as the index flip; state.json reset intact."""
+        project_dir = _setup_project(
+            tmp_path, {"checkpoint_step": ["checkpoint-docs"], "checkpoint_phase": ""}
+        )
+        rows = [(str(n), f"Phase {n}", "planned") for n in range(104, 109)]
+        index_path = _write_index(project_dir, rows)
+        era_path = _write_active_era(project_dir, rows)
+
+        result = _invoke_with_phase_key(project_dir, "checkpoint-tag", "104")
+        assert result.exit_code == 0, result.output
+
+        era_text = era_path.read_text(encoding="utf-8")
+        assert "| 104 | Phase 104 | complete |" in era_text
+        for n in range(105, 109):
+            assert f"| {n} | Phase {n} | planned |" in era_text
+        assert era_text.rstrip().endswith("Tail prose.")
+
+        # The index flipped for exactly the same key.
+        assert "| 104 | Phase 104 | complete |" in index_path.read_text(encoding="utf-8")
+
+        # Ensures 10 — state.json behaviour unchanged.
+        state = _read_state(project_dir)
+        assert state["checkpoint_step"] == []
+        assert state["checkpoint_phase"] == ""
+
+    def test_checkpoint_tag_missing_era_ledger_row_is_tolerated(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensures 10 — a legacy era doc never changes exit status or state."""
+        project_dir = _setup_project(
+            tmp_path, {"checkpoint_step": ["checkpoint-docs"], "checkpoint_phase": ""}
+        )
+        index_path = _write_index(project_dir, [("104", "Phase 104", "planned")])
+        era_path = _write_active_era(project_dir, [("96", "Phase 96", "complete")])
+        era_before = era_path.read_bytes()
+
+        result = _invoke_with_phase_key(project_dir, "checkpoint-tag", "104")
+        assert result.exit_code == 0, result.output
+        assert era_path.read_bytes() == era_before
+        assert "| 104 | Phase 104 | complete |" in index_path.read_text(encoding="utf-8")
+        state = _read_state(project_dir)
+        assert state["checkpoint_step"] == []
+        assert state["checkpoint_phase"] == ""
+
+    def test_checkpoint_tag_no_eras_dir_is_tolerated(self, tmp_path: Path) -> None:
+        """Ensures 10 — no docs/eras/ at all leaves the path byte-for-byte as before."""
+        project_dir = _setup_project(
+            tmp_path, {"checkpoint_step": ["checkpoint-docs"], "checkpoint_phase": ""}
+        )
+        index_path = _write_index(project_dir, [("104", "Phase 104", "planned")])
+        result = _invoke_with_phase_key(project_dir, "checkpoint-tag", "104")
+        assert result.exit_code == 0, result.output
+        assert "| 104 | Phase 104 | complete |" in index_path.read_text(encoding="utf-8")
+        assert _read_state(project_dir)["checkpoint_step"] == []

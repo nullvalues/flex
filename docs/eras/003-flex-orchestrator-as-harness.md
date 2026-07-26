@@ -93,7 +93,7 @@ These were agreed during design and frame every phase below:
 | CORE | _(fill in primary domain)_ |
 | TEST | _(fill in primary domain)_ |
 
-## Phases (proposed — `HARNESS` predicate, suffix scheme)
+## Planned phase design (HARNESS predicate, suffix scheme)
 
 Phases follow the documented suffix convention (`docs/architecture.md` §
 phase-naming; `phase_new.py --phase-id HARNESS00N --suffix <main|anteN|postN>`):
@@ -171,6 +171,32 @@ this fold is why Phase 64 was deferred rather than built.
    orchestrator no longer holds loop state — likely the resolver's index
    read-model + `effort.db`, surfaced per leaf worker.
 
+## Phases
+
+Machine-maintained ledger: `phase_new.py` appends a row on every scaffold,
+`flex_build.py mark-phase-complete` / `record-checkpoint-step checkpoint-tag`
+flips its status, and `check-index` (check 2c) enforces parity with
+`docs/phases/index.md`. Backfilled in INFRA-267 (CER-082) — until then the
+appender's heading match never fired on this doc. Coverage starts at the
+post-fold numeric phases; the era's earlier HARNESS phases are recorded in
+§ Planned phase design and § Era summary above.
+
+| Phase | Title | Status |
+|-------|-------|--------|
+| 96 | Build-loop revert safety and worktree-per-cycle isolation | complete |
+| 97 | Fold resume — pre-fold gate, fleet migration, merge to main, re-sync | deferred |
+| 98 | 0.2 → 0.3 regression remediation | complete |
+| 99 | Post-fold self-sync remediation | complete |
+| 100 | Scope-guard fail-closed completion (CER-048 close-out) | complete |
+| 101 | Attempt recording and checkpoint reporting correctness | complete |
+| 102 | Effort-recording smoke test and harness release-channel fast-forward | complete |
+| 103 | Worktree and story-stub friction remediation (CER-090, CER-092) | complete |
+| 104 | Recording and checkpoint correctness | planned |
+| 105 | Campaign preflight: hooks, discovery, scope-guard, channel canon | planned |
+| 106 | Fleet migration campaign (driven from flex) | planned |
+| 107 | CER backlog drain to zero | planned |
+| 108 | Era 003 close (gated on observability delivery) | planned |
+
 ## Versioning & compatibility
 
 This era restructures the skills and the bootstrapped build loop — a **breaking
@@ -234,7 +260,7 @@ scope above. The close-out record is `docs/agreements/era-002-closeout.md`.
 planned-phase work; the final era summary will be written at formal close, once
 field validation is complete.)*
 
-All 8 planned phases complete as of 2026-07-03:
+The 8 designed HARNESS phases below, plus the HARNESS009-016 follow-ons, completed by 2026-07-21; the era then entered a post-fold remediation arc running as numeric phases 96 onward (tracked in § Phases above), and formal close is gated on phase 108:
 
 - **HARNESS001-ante1** — version pinned (`v0.2.0` tag), `harness` worktree established, dev-line isolated from `main`.
 - **HARNESS001-main** — `next-action` resolver built as a pure CLI state machine; sequencing, counters, model-selection routing in code; fully unit-tested in isolation alongside the old orchestrator.
