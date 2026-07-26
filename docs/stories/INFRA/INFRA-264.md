@@ -297,6 +297,15 @@ synchronous PostToolUse bump in `record_attempt_from_transcript`
 for, so it is active by construction, and gating it would risk dropping a real
 first FAIL. This asymmetry is stated in a code comment with that reason.
 
+Forward-compatibility (CER-095.3): rule 2's semantics are per-story — "does
+`.companion/attempt_counter.json` already record *this* `story_id`, and does
+`.companion/state.json`'s `current_story` resolve to *this* `story_id`" — not
+"is there exactly one counter/current-story slot." The implementation must not
+assume either store can hold only one story at a time; when INFRA-282 (phase
+109) converts both to story-keyed dicts, `_story_accepts_late_bump`'s logic
+must keep working unchanged aside from a mechanical accessor swap (e.g. a dict
+lookup by `story_id` in place of a single-value read).
+
 **E10. The recording path leaves an attributable trace.**
 `subagent_transcript.log_recording_event(project_dir, **fields) -> None`
 appends one JSON object per line to `.companion/effort_recording.log`,
