@@ -56,4 +56,48 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-104 Cold-eyes checklist
 
-— developer fills in after phase completion —
+Filled by the orchestrator at cp-104 (2026-07-26).
+
+- **CER-071/073 closed (INFRA-263):** the `flex_build.py record-attempt` click
+  alias now forwards the full option set (ignore_unknown_options + variadic
+  UNPROCESSED pass-through, `--help` included); the exact CER-073 reproducer
+  and a full-flag round trip are pinned in
+  `test_flex_build_record_attempt_alias.py`.
+- **CER-091 closed (INFRA-264):** all four async effort-recording defects —
+  ALIGNED verdict recognition, atomic tokens+outcome reconciliation, the
+  nine-reason `classify_pending_reason` diagnostic surfaced via
+  `pairmode_effort.py pending` (plus age-gated quiescent retirement), and the
+  `_story_accepts_late_bump` guard against counter resurrection — with an
+  append-only recording trace (`.companion/effort_recording.log`) and an
+  explicit `reconcile` CLI trigger.
+- **CER-077 closed (INFRA-265):** `record-checkpoint-step`/`checkpoint-tag`
+  take an explicit `--phase-key` resolved through a strict precedence chain;
+  double-`active` index rows now raise `AmbiguousActivePhaseError` at every
+  CLI boundary (exit 2, no traceback) instead of silently mis-stamping.
+- **CER-088/089/016 closed (INFRA-266):** partial index on the pending
+  predicate (planner-verified), 14-day sweep age bound, spawn-output
+  containment (`_contained_spawn_output`) on `read_completed_spawn`, and
+  `--db-path` escape rejection in both CLI writers.
+- **CER-082 closed (INFRA-267):** era phase-ledger revived end to end —
+  qualified `## Phases` heading match, status flip wired into
+  `mark-phase-complete` and `checkpoint-tag`, `docs/eras/` staged in both
+  harness commit paths, era-003 ledger backfilled for phases 96–108.
+- **CER-074/076 closed (INFRA-268):** one-iteration-per-story contract
+  documented in the harness, template, and architecture; `SPAWN_REVIEWER`
+  marked orchestrator-dispatched-only with a six-shape never-emits regression
+  test; stub gate masks fenced/inline code regions before the delegation
+  search.
+- **Gates:** security PASS (0 CRITICAL/HIGH; MEDIUM — `_stream_spawn_output`
+  called on raw `output_file` in `classify_pending_reason`/quiescent sweep,
+  bypassing the INFRA-266 containment guard, filed as CER-099; INFORMATIONAL —
+  stale thin-delegation exception list in the security-auditor procedure
+  skill, filed as CER-100). Intent ALIGNED (all six stories trace
+  line-for-line to spec; three builder deviations — stale check-index
+  baseline, deliberate phase-109 ledger exclusion, `## Phases` wording
+  substitution — adjudicated legitimate at review). Docs gate: see
+  checkpoint record.
+- **New backlog from this phase:** CER-099 (containment parity), CER-100
+  (auditor-skill exception list).
+- **Schema delivery:** no new persistent schema objects introduced (table
+  intentionally empty; `effort_recording.log` is an append-only size-capped
+  diagnostic file, not a schema object).
