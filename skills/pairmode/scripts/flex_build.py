@@ -2335,24 +2335,35 @@ def cmd_check_index(project_dir: str) -> None:
     sys.exit(1)
 
 
-@flex_build.command("record-attempt")
-@click.pass_context
-def cmd_record_attempt(ctx: click.Context, **kwargs: object) -> None:
-    """Delegate to record_attempt.py's CLI with all forwarded arguments.
+@flex_build.command(
+    "record-attempt",
+    context_settings={"ignore_unknown_options": True},
+    add_help_option=False,
+)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+def cmd_record_attempt(args: tuple[str, ...]) -> None:
+    """Transparent passthrough to record_attempt.py's CLI.
 
     This alias exists so the orchestrator template can call
     ``flex_build.py record-attempt ...`` without knowing the path to
-    ``record_attempt.py`` directly.  All options accepted by
-    ``record_attempt.py`` are forwarded unchanged.
+    ``record_attempt.py`` directly. It declares no options of its own:
+    ``ignore_unknown_options`` + a ``click.UNPROCESSED`` variadic argument
+    collect every token verbatim (including ``--help``, which is forwarded
+    to the delegate rather than answered locally), and the alias exits with
+    the delegate's own exit code.
 
-    RELEASE-009.
+    RELEASE-009 (origin). INFRA-263 (CER-071, CER-073): the declaration was
+    previously empty, so Click rejected every real flag before the body ever
+    ran. WARNING: do not add any ``@click.option`` to this command — that
+    would re-introduce the exact defect this story closed. The alias must
+    stay a pure passthrough; ``record_attempt.py`` alone owns its option set.
     """
     import subprocess  # noqa: PLC0415
 
     _scripts_dir = Path(__file__).parent
     record_script = _scripts_dir / "record_attempt.py"
     result = subprocess.run(
-        [sys.executable, str(record_script)] + sys.argv[sys.argv.index("record-attempt") + 1 :],
+        [sys.executable, str(record_script), *args],
         check=False,
     )
     sys.exit(result.returncode)
