@@ -1484,7 +1484,8 @@ is **read-only** on every row.
 | `docs/phases/index.md` phase status cell | orchestrator, via `flex_build.py record-checkpoint-step checkpoint-tag` (INFRA-239) — the `checkpoint-tag` step's `_mark_phase_complete_in_index` call writes `complete` to the just-tagged phase's row in the same CLI invocation that resets `checkpoint_step`, so the two writes never land in separate orchestrator turns; the standalone `mark-phase-complete` command (`cmd_mark_phase_complete`) shares the same write helper for direct/manual use but is no longer required in the checkpoint path | read-only (`_resolve_active_phase` / `resolve_current_phase` skip `complete`/`deferred`/`backlog` rows when selecting the active phase) |
 | active story (`state.json` `current_story`) | orchestrator (`story_context.py`) | read-only |
 | `effort.db` | `hooks/post_tool_use.py` → `subagent_transcript.py` / `effort_recorder.py` (INFRA-236); `record_attempt.py` CLI for non-hook callers | read-only |
-| `attempt_counter.json` (attempt counters) | `hooks/post_tool_use.py` → `subagent_transcript.record_attempt_from_transcript` → `flex_build.bump_attempt_count` on builder/reviewer FAIL (INFRA-237); `subagent_transcript.reconcile_pending_attempts` → `flex_build.bump_attempt_count` as a *second, later* bump site for an async spawn's FAIL outcome that was only knowable after PostToolUse time (INFRA-258 — same function, same semantics, just a later call); `flex_build.py merge-story-worktree` → `flex_build.clear_attempt_count` on a successful land; the standalone `write-attempt-count` / `clear-attempt-count` CLI subcommands share the same underlying functions for direct/manual use but are no longer invoked from `CLAUDE.build.md.j2`'s loop | read-only |
+| `attempt_counter.json` (attempt counters) | `hooks/post_tool_use.py` → `subagent_transcript.record_attempt_from_transcript` → `flex_build.bump_attempt_count` on builder/reviewer FAIL (INFRA-237), **ungated** — the story was just spawned for, so it is active by construction, and gating it would risk dropping a real first FAIL; `subagent_transcript.reconcile_pending_attempts` → `flex_build.bump_attempt_count` as a *second, later* bump site for an async spawn's FAIL outcome that was only knowable after PostToolUse time (INFRA-258 — same function, same semantics, just a later call), **gated** since CER-091 defect 4 by `subagent_transcript._story_accepts_late_bump` — skipped when the story's own frontmatter `status` is `complete`/`merged`/`deferred`/`backlog`, or when the story is neither already counter-recorded nor `state.json`'s `current_story` (a reconciliation arriving arbitrarily later — possibly post-merge, possibly post-`/clear` — must not resurrect a counter file for a story nobody is building); `flex_build.py merge-story-worktree` → `flex_build.clear_attempt_count` on a successful land; the standalone `write-attempt-count` / `clear-attempt-count` CLI subcommands share the same underlying functions for direct/manual use but are no longer invoked from `CLAUDE.build.md.j2`'s loop | read-only |
+| `.companion/effort_recording.log` (diagnostic trace, CER-091) | `subagent_transcript.log_recording_event` — sole writer, called once per `record_attempt_from_transcript` invocation on every return path (including its outer `except`), and once by `hooks/post_tool_use.py`'s `SendMessage` branch (`decision="observed:non-spawn-tool"`); append-only, size-capped at `RECORDING_LOG_MAX_BYTES` (262 144 bytes, truncate-and-restart with a `log-truncated` marker line); not gated on `effort_tracking` — the log's purpose is explaining why recording did or did not happen, including when tracking itself is off | read-only (`pairmode_effort.py` and manual `tail` only; no resolver reads it) |
 | story `status` frontmatter | manual/advisory — `story_update.py` is the canonical CLI but no build-loop step calls it automatically; drift is caught after the fact by `flex_build.py check-index`'s git-commit status-drift check (RESOLVER-010), not prevented at write time | read-only |
 | permission files (`docs/phases/permissions/<story_id>.json`) | orchestrator (`flex_build.py permissions-create`) | read-only |
 | era/phase/story index (`docs/phases/index.md`) | orchestrator | read-only |
@@ -2046,7 +2047,7 @@ are left NULL for cross-skill rows because seed and sidebar work happens
 outside the phases/rails model. The `backend` column (`"anthropic"` or
 `"ollama"`) distinguishes the call path on sidebar rows.
 
-**How to use it.** `pairmode_effort.py` provides five read-time views over the
+**How to use it.** `pairmode_effort.py` provides six read-time views over the
 recorded attempts:
 
 - `pairmode_effort.py rollup` — totals by phase, rail, model
@@ -2058,6 +2059,13 @@ recorded attempts:
 - `pairmode_effort.py models` — breakdown by model
 - `pairmode_effort.py validate-rebalance` — evidence report for the
   sonnet-baseline-opus-on-demand methodology; see below.
+- `pairmode_effort.py pending` — read-only diagnostic view (CER-091) over
+  every row `pending_reconcilable` would still return, with an added
+  `reason` column (`classify_pending_reason`) and `age_hours` per row. Opens
+  the db via SQLite's `mode=ro` URI rather than `_connect_or_none`'s
+  read-write connection, so an invocation is guaranteed to leave the db file
+  byte-identical — the repair path is the separate `reconcile` sweep CLI
+  below, never this view.
 
 These are retrospective views. Future phases will add a real-time guardrail
 that surfaces effort overruns mid-loop rather than only after the fact.
@@ -2222,16 +2230,65 @@ spawn's own `agent_id`/`output_file` from `tool_response` (handling both the
 structured dict shape and the flattened text form) and persists them via
 `effort_db.set_spawn_ref`. **Phase 2 (deferred reconciliation):**
 `subagent_transcript.reconcile_pending_attempts` fetches up to
-`RECONCILE_MAX_ROWS` (5) rows matching `tokens_total IS NULL AND output_file
-IS NOT NULL` (`effort_db.pending_reconcilable`) and, for each, reads the
-spawn's own `output_file` JSONL directly via `read_completed_spawn` —
-streamed line-by-line (never `read_text()`/`readlines()`, capped at
-`RECONCILE_MAX_LINES` = 20 000 lines) — and writes the completed ones back
-via `effort_db.reconcile_attempt`, a conditional `UPDATE ... WHERE id = ? AND
-tokens_total IS NULL` that only ever touches the nine reconcilable columns
-(`tokens_total`, `tokens_in`, `tokens_out`, `cache_read_tokens`,
-`cache_write_tokens`, `duration_ms`, `outcome`, `notes`, `model`) — never
-`story_id`, `agent_role`, `attempt_number`, `phase`, `rail`, or `ts`.
+`RECONCILE_MAX_ROWS` (5) rows matching `(tokens_total IS NULL OR outcome IS
+NULL) AND output_file IS NOT NULL` (`effort_db.pending_reconcilable` —
+widened from the original `tokens_total IS NULL` by CER-091 defect 2/3, so a
+partially-backfilled row is reachable again rather than permanently invisible
+once tokens land) and, for each, reads the spawn's own `output_file` JSONL
+directly via `read_completed_spawn` — streamed line-by-line (never
+`read_text()`/`readlines()`, capped at `RECONCILE_MAX_LINES` = 20 000 lines)
+— and writes the completed ones back via `effort_db.reconcile_attempt`, a
+conditional `UPDATE ... WHERE id = ? AND (tokens_total IS NULL OR outcome IS
+NULL)` that only ever touches the nine reconcilable columns (`tokens_total`,
+`tokens_in`, `tokens_out`, `cache_read_tokens`, `cache_write_tokens`,
+`duration_ms`, `outcome`, `notes`, `model`) — never `story_id`, `agent_role`,
+`attempt_number`, `phase`, `rail`, or `ts`.
+
+**Atomic tokens+outcome (CER-091 defect 2).** `reconcile_attempt` additionally
+requires both `tokens_total` and `outcome` to be present and non-`None` in
+the caller's `fields` before it performs any `UPDATE` at all
+(`_ATOMIC_RECONCILE_FIELDS`); supplying `tokens_total` alone now returns
+`False` and writes nothing. This closes the exact failure mode observed live:
+row 344 (`phase:101`, intent-reviewer) committed `tokens_total = 6597` with
+`outcome` permanently `NULL`, because `parse_worker_outcome` dropped the
+intent-reviewer's honest `ALIGNED` verdict as unrecognised (fixed separately,
+below) and the write proceeded anyway. Once both columns are non-`NULL` the
+`(tokens_total IS NULL OR outcome IS NULL)` guard excludes the row from every
+future `reconcile_attempt` call *and* every future `pending_reconcilable`
+scan alike — single-shot on *fully reconciled*, not merely on `tokens_total`,
+which is what makes an existing partial row repairable while still making a
+double-bump on an already-reconciled row impossible.
+
+**`ALIGNED` and `UNKNOWN` as recorded outcome values (CER-091 defects 2, 3).**
+`parse_worker_outcome`'s recognised `REVIEW-RESULT` verdict set
+(`RECOGNISED_REVIEW_VERDICTS`) is `{"PASS", "FAIL", "ALIGNED"}`, mirroring
+`worker_result.py`'s `REVIEW_RESULT` schema enum — an intent-reviewer's
+`ALIGNED` return is a legitimate outcome, not "no outcome yet", and dropping
+it is exactly what stranded row 344. Separately, `include_quiescent=True`
+retirement (below) writes `outcome = "UNKNOWN"` when a quiescent row's output
+file has usable token data but no parseable verdict — `UNKNOWN` is a distinct
+value from both, naming "we know this spawn finished producing output but
+never got a clean result", never fabricated as `PASS`/`FAIL`/`ALIGNED`. Both
+values are write-side only in this story — see `## Out of scope` in
+`docs/stories/INFRA/INFRA-264.md`: `pairmode_effort.py models`'s PASS-rate
+column and `validate-rebalance`'s recommendation logic still count only
+`PASS`, so `ALIGNED`/`UNKNOWN` rows currently read as not-a-pass everywhere
+until a follow-on read-side story teaches those queries about the wider
+value set.
+
+**Pending-reason classifier (CER-091 defect 3).**
+`subagent_transcript.classify_pending_reason(row) -> str` is a pure function
+(no writes, no db access — takes an already-fetched row dict) that names
+exactly why a `pending_reconcilable` row has not completed, as one of nine
+enumerated values: `no-output-file`, `file-missing`, `file-empty`,
+`in-flight`, `not-terminated`, `no-usage`, `line-cap`, `no-outcome`, or
+`reconcilable` (the next default sweep will complete it). It shares its file
+walk with `read_completed_spawn` via a single streaming reader
+(`_stream_spawn_output`) rather than a second, independently-written reader
+— a second reader diverging from the first is exactly how
+`read_completed_spawn`'s six indistinguishable `None` cases became
+unattributable in the first place. Surfaced read-only via `pairmode_effort.py
+pending` (see "How to use it" above).
 
 **Completion detection.** `read_completed_spawn` treats a spawn as complete
 only when the **last parseable** JSONL entry in its output file is `type ==
@@ -2247,25 +2304,64 @@ stays single-sourced. `duration_ms` is the millisecond delta between the
 first and last parseable entry's `timestamp`, or `None` when either is
 absent/unparseable.
 
-**Reconciliation trigger points and their bounds.** Two call sites invoke
-`reconcile_pending_attempts`, both best-effort (own `try/except`, never
-raise, never block the caller): (1) `record_attempt_from_transcript` itself,
-immediately after the `effort_tracking` early return and before it derives
-the new spawn's own `attempt_number` — this is the next Task/Agent
-PostToolUse event, whenever it next fires; (2) `hooks/session_start.py`,
-once per new session — the earliest opportunity in the *next* session,
-covering the tail rows of a session (the last reviewer, or the checkpoint
-gate workers) that would otherwise never be swept, since the spawning
-session may end before another Task/Agent PostToolUse event occurs. A
-`SessionEnd` sweep was considered and rejected: `SessionEnd` is `async: true`
-with a 30 s timeout and is not a guaranteed-to-complete surface, while the
-next session's `SessionStart` sweep covers the same rows. Both call sites
-are bounded by construction, not by convention: at most `RECONCILE_MAX_ROWS`
-(5) rows per invocation, each output file capped at `RECONCILE_MAX_LINES`
-(20 000) lines and never loaded into memory at once, everything gated
-behind the `effort_tracking` early return, and neither call site is a new
-hook registration — `hooks/post_tool_use.py` and `hooks/hooks.json` are
-unmodified.
+**Reconciliation trigger points and their bounds.** Three trigger points now
+invoke `reconcile_pending_attempts`, all best-effort where hook-sourced (own
+`try/except`, never raise, never block the caller): (1)
+`record_attempt_from_transcript` itself, immediately after the
+`effort_tracking` early return and before it derives the new spawn's own
+`attempt_number` — this is the next Task/Agent PostToolUse event, whenever it
+next fires; (2) `hooks/session_start.py`, once per new session — the
+earliest opportunity in the *next* session, covering the tail rows of a
+session (the last reviewer, or the checkpoint gate workers) that would
+otherwise never be swept, since the spawning session may end before another
+Task/Agent PostToolUse event occurs; (3) an explicit operator-invoked CLI
+(CER-091, live-observed trigger-coverage gap 2026-07-25 — an async builder
+spawn's row sat `outcome = NULL` until a manual sweep was run by hand):
+
+```bash
+uv run python skills/pairmode/scripts/subagent_transcript.py reconcile \
+  --project-dir . [--limit N] [--include-quiescent] [--json]
+```
+
+a thin `argparse` (stdlib-only — this module is imported by hooks and must
+not gain a `click` dependency) shell over the *same*
+`reconcile_pending_attempts` function the two hook call sites use — no
+second reconciliation implementation exists in the tree. It lives on
+`subagent_transcript.py` rather than `flex_build.py` deliberately: phase
+104's `## Ordering` serialises `flex_build.py`-editing stories (INFRA-263,
+INFRA-265, INFRA-267) separately from this story's group to avoid worktree
+merge conflicts, and `subagent_transcript.py` already owns
+`reconcile_pending_attempts` and was already a primary file of this story.
+A `SessionEnd` sweep was considered and rejected in INFRA-258 and that
+rejection still stands: `SessionEnd` is `async: true` with a 30 s timeout and
+is not a guaranteed-to-complete surface, and the explicit CLI now covers the
+same "reconcile the tail rows now" need deterministically instead. All three
+trigger points are bounded by construction, not by convention: at most
+`RECONCILE_MAX_ROWS` (5, overridable via `--limit` on the CLI) rows per
+invocation, each output file capped at `RECONCILE_MAX_LINES` (20 000) lines
+and never loaded into memory at once, everything gated behind the
+`effort_tracking` early return, and neither hook call site is a new hook
+registration — `hooks/post_tool_use.py` and `hooks/hooks.json` are
+unchanged for these two triggers (the CLI is a third, no-hook path).
+
+**Quiescent-row retirement (CER-091 defect 3, `include_quiescent`).**
+`reconcile_pending_attempts` accepts a keyword-only `include_quiescent: bool
+= False`; both hook call sites leave it at the default — a row is only ever
+force-retired on the explicit operator-invoked sweep above, never
+automatically. When `True`, a row whose `classify_pending_reason` is not
+`reconcilable`/`in-flight`/`file-missing`/`no-output-file`, whose db row `ts`
+is older than `QUIESCENT_AGE_SECONDS` (900s default) **and** whose
+`output_file`'s own mtime is older than the same threshold, is reconciled
+from whatever usage the file contains, with `outcome = "UNKNOWN"` when no
+verdict is parseable and `notes` prefixed `reconciled-quiescent:` naming the
+classifier reason. Age is checked twice — the row's own age and the file's
+own mtime — because a row can be old while its agent is still actively
+writing; reconciling a live agent is exactly what INFRA-258's completion
+detection exists to prevent. A quiescent reconciliation never calls
+`bump_attempt_count` — `UNKNOWN` is not `FAIL`, and a fabricated escalation
+is worse than a missing one. A row with no usage data at all anywhere in its
+output file is still skipped even under `include_quiescent` — there is
+nothing truthful to write.
 
 **Message-id dedupe (token summation).** A subagent's own JSONL contains
 multiple entries per assistant message — streaming snapshots sharing one
@@ -2351,7 +2447,16 @@ NULL` guard makes reconciliation single-shot per row, so a repeated
   between sessions (eviction, reboot, disk pressure); a row whose
   `output_file` is gone by the time `reconcile_pending_attempts` next runs
   keeps its `NULL` tokens permanently. This residual loss is accepted rather
-  than mirrored into a second durable store.
+  than mirrored into a second durable store — `classify_pending_reason`
+  names this specific case `file-missing`, so at least the loss is *visible*
+  in `pairmode_effort.py pending` rather than an unattributable, indistinct
+  `None` (CER-091 defect 3).
+- A `SendMessage` continuation of an existing agent is logged
+  (`log_recording_event(decision="observed:non-spawn-tool")`) but never
+  recorded as an `attempts` row — deciding whether a continuation is a new
+  attempt (and if so how `attempt_number` and its `output_file` would be
+  derived for it) is a modelling question this story deliberately leaves
+  open, not a defect (CER-091 § Out of scope).
 
 **Context health check.** At checkpoint, the orchestrator calls
 `skills/pairmode/scripts/context_health.check_context_health(db_path, current_phase)`

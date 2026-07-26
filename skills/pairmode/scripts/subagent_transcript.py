@@ -63,7 +63,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -71,12 +71,12 @@ try:
     from skills.pairmode.scripts.context_budget import _derive_transcript_path
     from skills.pairmode.scripts import effort_db
     from skills.pairmode.scripts.effort_recorder import record_effort
-    from skills.pairmode.scripts.flex_build import bump_attempt_count
+    from skills.pairmode.scripts.flex_build import bump_attempt_count, read_attempt_count
 except ImportError:
     from context_budget import _derive_transcript_path  # type: ignore[no-redef]  # flat import via hook sys.path
     import effort_db  # type: ignore[no-redef]  # flat import via hook sys.path
     from effort_recorder import record_effort  # type: ignore[no-redef]  # flat import via hook sys.path
-    from flex_build import bump_attempt_count  # type: ignore[no-redef]  # flat import via hook sys.path
+    from flex_build import bump_attempt_count, read_attempt_count  # type: ignore[no-redef]  # flat import via hook sys.path
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -126,6 +126,55 @@ _PHASE_BARE_RE = re.compile(r"\bPhase\s+(" + _PHASE_KEY_CHARS + r")")
 #: hook-path invocation must never scan unbounded work.
 RECONCILE_MAX_ROWS = 5
 RECONCILE_MAX_LINES = 20000
+
+#: A quiescent-retirement row must be both this old (its DB row `ts`) *and*
+#: have an output file whose mtime is this old, before `include_quiescent`
+#: will retire it (CER-091 defect 3/8). Age is checked twice because a row
+#: can be old while its agent is still actively writing — reconciling a
+#: live agent is exactly what INFRA-258's completion detection exists to
+#: prevent.
+QUIESCENT_AGE_SECONDS = 900
+
+#: CER-091 defect 1: recognised `decision` values for `log_recording_event`.
+#: Not exhaustive — `error:<ExceptionClassName>` is dynamic — but every
+#: static decision this module emits is listed here so tests can enumerate
+#: the set.
+RECORDING_DECISIONS: frozenset[str] = frozenset({
+    "recorded",
+    "skip:not-recordable-role",
+    "skip:no-tool-input",
+    "skip:no-state",
+    "skip:effort-tracking-off",
+    "observed:non-spawn-tool",
+    "log-truncated",
+})
+
+#: Size cap for .companion/effort_recording.log (CER-091 defect 1). Exceeding
+#: this truncates and restarts the log with a single log-truncated marker.
+RECORDING_LOG_MAX_BYTES = 262_144
+
+#: CER-091 defect 4: a story whose frontmatter `status` is one of these is
+#: considered finished — a reconciliation-time FAIL bump must not resurrect
+#: `.companion/attempt_counter.json` for it.
+_LATE_BUMP_BLOCKED_STATUSES: frozenset[str] = frozenset(
+    {"complete", "merged", "deferred", "backlog"}
+)
+_STATUS_LINE_RE = re.compile(r'^\s*status:\s*["\']?([\w-]+)["\']?\s*$', re.MULTILINE)
+
+#: CER-091 defect 3: the enumerable set of reasons `classify_pending_reason`
+#: returns. `reconcilable` means "the next default sweep will complete this
+#: row"; every other value names a specific reason it will not.
+PENDING_REASONS: tuple[str, ...] = (
+    "no-output-file",
+    "file-missing",
+    "file-empty",
+    "in-flight",
+    "not-terminated",
+    "no-usage",
+    "line-cap",
+    "no-outcome",
+    "reconcilable",
+)
 
 _EMPTY_USAGE: dict[str, Any] = {
     "tokens_in": None,
@@ -192,6 +241,17 @@ def _flatten_tool_response(tool_response: Any) -> str:
         return ""
 
 
+# CER-091 defect 2: mirrors worker_result.py's `_SCHEMAS[REVIEW_RESULT]`
+# "verdict" enum ({"PASS", "FAIL", "ALIGNED"}) — the source of truth for
+# which verdicts are recognised. Not imported directly: this module is on
+# the hook path and must stay import-light (worker_result.py pulls in the
+# broader WORKER-004 grammar machinery this module has no other need for).
+# Dropping ALIGNED here is what stranded effort.db row 344 — an honest
+# intent-reviewer ALIGNED return was parsed as "no outcome" and its tokens
+# committed with outcome permanently NULL.
+RECOGNISED_REVIEW_VERDICTS: frozenset[str] = frozenset({"PASS", "FAIL", "ALIGNED"})
+
+
 def parse_worker_outcome(tool_response: Any) -> "tuple[str | None, str | None]":
     """Extract ``(outcome, fail_cause)`` from a completed Task/Agent's own
     returned result text.
@@ -224,7 +284,7 @@ def parse_worker_outcome(tool_response: Any) -> "tuple[str | None, str | None]":
             fail_cause = obj.get("fail_cause") or fail_cause
         elif rtype == "REVIEW-RESULT":
             verdict = obj.get("verdict")
-            if verdict in ("PASS", "FAIL"):
+            if verdict in RECOGNISED_REVIEW_VERDICTS:
                 outcome = verdict
             fail_cause = obj.get("fail_cause") or fail_cause
 
@@ -476,6 +536,123 @@ def _derive_attribution(
 # ---------------------------------------------------------------------------
 
 
+def _stream_spawn_output(path: Path) -> dict:
+    """Stream a spawn output JSONL file once, returning the raw structured
+    data both :func:`read_completed_spawn` and :func:`classify_pending_reason`
+    need (CER-091 defect 3).
+
+    A single shared reader means the two callers can never diverge on *how*
+    a file is read — a second, independently-written reader is exactly how
+    ``read_completed_spawn``'s six-way ``None`` became unattributable in the
+    first place.
+
+    Streams with a plain ``for line in fh:`` loop — never ``read_text()``/
+    ``readlines()`` — and stops (setting ``line_cap_exceeded``) past
+    :data:`RECONCILE_MAX_LINES` lines. Never raises; a missing path or any
+    read error yields the all-default shape with ``exists`` reflecting
+    reality where determinable.
+    """
+    result: dict = {
+        "exists": False,
+        "line_cap_exceeded": False,
+        "any_parsed": False,
+        "assistant_entries": [],
+        "last_entry": None,
+        "first_ts": None,
+        "last_ts": None,
+    }
+    try:
+        if not path.exists():
+            return result
+        result["exists"] = True
+
+        line_count = 0
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for raw in fh:
+                line_count += 1
+                if line_count > RECONCILE_MAX_LINES:
+                    result["line_cap_exceeded"] = True
+                    return result
+                stripped = raw.strip()
+                if not stripped:
+                    continue
+                try:
+                    entry = json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(entry, dict):
+                    continue
+
+                result["any_parsed"] = True
+                result["last_entry"] = entry
+                ts = entry.get("timestamp")
+                if isinstance(ts, str) and ts:
+                    if result["first_ts"] is None:
+                        result["first_ts"] = ts
+                    result["last_ts"] = ts
+
+                if entry.get("type") == "assistant":
+                    result["assistant_entries"].append(entry)
+    except Exception:
+        pass
+    return result
+
+
+def classify_pending_reason(row: dict) -> str:
+    """Return the single reason a ``pending_reconcilable`` row has not
+    reconciled (CER-091 defect 3).
+
+    Pure — no writes, no db access, takes an already-fetched row dict.
+    Never raises. Returns one of :data:`PENDING_REASONS`. Reuses
+    :func:`_stream_spawn_output` so this classifier and
+    :func:`read_completed_spawn` can never read the same file two different
+    ways.
+    """
+    try:
+        output_file = row.get("output_file") if isinstance(row, dict) else None
+        if not output_file:
+            return "no-output-file"
+
+        path = output_file if isinstance(output_file, Path) else Path(str(output_file))
+        data = _stream_spawn_output(path)
+
+        if not data["exists"]:
+            return "file-missing"
+        if data["line_cap_exceeded"]:
+            return "line-cap"
+        if not data["any_parsed"]:
+            return "file-empty"
+
+        last_entry = data["last_entry"]
+        if not isinstance(last_entry, dict) or last_entry.get("type") != "assistant":
+            return "not-terminated"
+
+        message = last_entry.get("message")
+        if not isinstance(message, dict):
+            return "not-terminated"
+
+        stop_reason = message.get("stop_reason")
+        if stop_reason and stop_reason != "end_turn":
+            return "in-flight"
+        if stop_reason != "end_turn":
+            # Falsy/absent stop_reason on an otherwise-assistant last entry —
+            # a mid-stream snapshot rather than a genuine terminator.
+            return "not-terminated"
+
+        usage = _sum_deduped_usage(data["assistant_entries"])
+        if usage.get("tokens_total") is None:
+            return "no-usage"
+
+        final_text = _flatten_tool_response(message)
+        outcome, _ = parse_worker_outcome(final_text)
+        if outcome is None:
+            return "no-outcome"
+
+        return "reconcilable"
+    except Exception:
+        return "file-empty"
+
+
 def read_completed_spawn(output_file: "str | Path | None") -> "dict | None":
     """Read a spawned agent's own JSONL output file (INFRA-258).
 
@@ -492,49 +669,21 @@ def read_completed_spawn(output_file: "str | Path | None") -> "dict | None":
     a nonexistent path all yield ``None`` — an in-flight agent is never
     reconciled.
 
-    Streams the file with a plain ``for line in fh:`` loop — never
-    ``read_text()``/``readlines()`` — and bails out (returns ``None``) past
-    :data:`RECONCILE_MAX_LINES` lines, so a hook-path caller never slurps or
-    scans an unbounded file. Never raises.
+    Public signature and return shape unchanged from pre-CER-091 (other
+    callers and INFRA-258's own tests depend on both); internally this now
+    delegates its file walk to :func:`_stream_spawn_output`, the same reader
+    :func:`classify_pending_reason` uses (CER-091 defect 3). Never raises.
     """
     try:
         if output_file is None:
             return None
         path = output_file if isinstance(output_file, Path) else Path(output_file)
-        if not path.exists():
+
+        data = _stream_spawn_output(path)
+        if not data["exists"] or data["line_cap_exceeded"]:
             return None
 
-        assistant_entries: "list[dict]" = []
-        first_ts: "str | None" = None
-        last_ts: "str | None" = None
-        last_entry: "dict | None" = None
-        line_count = 0
-
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            for raw in fh:
-                line_count += 1
-                if line_count > RECONCILE_MAX_LINES:
-                    return None
-                stripped = raw.strip()
-                if not stripped:
-                    continue
-                try:
-                    entry = json.loads(stripped)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(entry, dict):
-                    continue
-
-                last_entry = entry
-                ts = entry.get("timestamp")
-                if isinstance(ts, str) and ts:
-                    if first_ts is None:
-                        first_ts = ts
-                    last_ts = ts
-
-                if entry.get("type") == "assistant":
-                    assistant_entries.append(entry)
-
+        last_entry = data["last_entry"]
         if last_entry is None or last_entry.get("type") != "assistant":
             return None
 
@@ -544,11 +693,13 @@ def read_completed_spawn(output_file: "str | Path | None") -> "dict | None":
         if last_message.get("stop_reason") != "end_turn":
             return None
 
-        usage = _sum_deduped_usage(assistant_entries)
+        usage = _sum_deduped_usage(data["assistant_entries"])
         if usage.get("tokens_total") is None:
             # No usage data anywhere in the file — not reconcilable.
             return None
 
+        first_ts = data["first_ts"]
+        last_ts = data["last_ts"]
         duration_ms: "int | None" = None
         if first_ts and last_ts:
             try:
@@ -624,29 +775,167 @@ def _extract_spawn_ref(tool_response: Any) -> "tuple[str | None, str | None]":
     return agent_id, output_file
 
 
+def _story_accepts_late_bump(project_dir: "Path | str", story_id: str) -> bool:
+    """Gate a *reconciliation-time* FAIL bump of the attempt counter
+    (CER-091 defect 4).
+
+    Returns ``False`` (bump must be skipped) when **either**:
+
+    1. the story's own file ``docs/stories/<RAIL>/<story_id>.md`` is
+       readable and its frontmatter ``status:`` line is one of
+       :data:`_LATE_BUMP_BLOCKED_STATUSES`; or
+    2. ``.companion/attempt_counter.json`` does not already record this
+       ``story_id`` **and** ``.companion/state.json``'s ``current_story``
+       does not resolve to this ``story_id`` — the build loop is not
+       currently building it, so a bump would *create* a counter file for a
+       story nobody is working on.
+
+    Returns ``True`` otherwise. Pure read (no writes on any path); never
+    raises — an unreadable story file or state file falls through to rule 2
+    rather than propagating.
+
+    The synchronous PostToolUse-time bump in
+    :func:`record_attempt_from_transcript` is deliberately **not** gated by
+    this helper: the story was just spawned for, so it is active by
+    construction, and gating it would risk silently dropping a real first
+    FAIL. Only the reconciliation-time bump — arbitrarily later, possibly
+    post-merge, possibly post-``/clear`` — needs the guard.
+    """
+    try:
+        project_path = (
+            project_dir if isinstance(project_dir, Path) else Path(project_dir)
+        )
+
+        rail = story_id.split("-", 1)[0] if story_id and "-" in story_id else None
+        if rail:
+            try:
+                story_path = project_path / "docs" / "stories" / rail / f"{story_id}.md"
+                if story_path.exists():
+                    text = story_path.read_text(encoding="utf-8")
+                    m = _STATUS_LINE_RE.search(text)
+                    if m and m.group(1).strip().lower() in _LATE_BUMP_BLOCKED_STATUSES:
+                        return False
+            except Exception:
+                pass
+
+        counter_recorded = False
+        try:
+            counter_recorded = read_attempt_count(story_id, project_path) > 0
+        except Exception:
+            counter_recorded = False
+
+        is_current = False
+        try:
+            state = _read_state(project_path)
+            if isinstance(state, dict):
+                current = state.get("current_story")
+                if isinstance(current, dict) and current.get("id") == story_id:
+                    is_current = True
+        except Exception:
+            pass
+
+        if not counter_recorded and not is_current:
+            return False
+
+        return True
+    except Exception:
+        return False
+
+
+def log_recording_event(project_dir: "Path | str", **fields: Any) -> None:
+    """Append one diagnostic JSON line to ``.companion/effort_recording.log``
+    (CER-091 defect 1/3).
+
+    Carries at least ``ts`` (added here, UTC ISO-8601) plus whatever
+    *fields* the caller supplies — conventionally ``tool_name``,
+    ``subagent_type``, ``tool_use_id``, ``story_id``, ``decision``, and
+    ``row_id`` (see :data:`RECORDING_DECISIONS`). Plain append
+    (``open(path, "a")``) — this is an append-only diagnostic log, not
+    state, so the atomic-replace machinery in ``state_utils`` is neither
+    needed nor appropriate.
+
+    Bounded: when the file exceeds :data:`RECORDING_LOG_MAX_BYTES` it is
+    truncated and restarted with a single ``{"decision": "log-truncated"}``
+    line before the new entry is appended. Never raises — this is a
+    hook-path diagnostic; a logging failure must never surface as a
+    recording failure. Not gated on ``effort_tracking``: the log's entire
+    purpose is explaining why recording did or did not happen, including
+    when tracking itself is off.
+    """
+    try:
+        project_path = (
+            project_dir if isinstance(project_dir, Path) else Path(project_dir)
+        )
+        log_path = project_path / ".companion" / "effort_recording.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            if log_path.exists() and log_path.stat().st_size > RECORDING_LOG_MAX_BYTES:
+                log_path.write_text(
+                    json.dumps({
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "decision": "log-truncated",
+                    }) + "\n",
+                    encoding="utf-8",
+                )
+        except Exception:
+            pass
+
+        entry: dict = {"ts": datetime.now(timezone.utc).isoformat()}
+        entry.update(fields)
+        line = json.dumps(entry, default=str) + "\n"
+
+        with open(log_path, "a", encoding="utf-8") as fh:
+            fh.write(line)
+    except Exception:
+        pass
+
+
 def reconcile_pending_attempts(
     *,
     project_dir: "Path | str",
     limit: int = RECONCILE_MAX_ROWS,
     home: "Path | None" = None,
+    include_quiescent: bool = False,
 ) -> int:
-    """Sweep pending (``tokens_total IS NULL``) rows and reconcile the
-    completed ones (INFRA-258).
+    """Sweep pending (``tokens_total IS NULL OR outcome IS NULL``) rows and
+    reconcile the completed ones (INFRA-258, CER-091).
 
     Reads ``.companion/state.json``; returns ``0`` immediately unless
     ``effort_tracking`` is ``true``. Fetches at most *limit* pending rows via
     ``effort_db.pending_reconcilable``, calls ``read_completed_spawn`` on
     each, and writes the completed ones back via ``effort_db.reconcile_attempt``.
 
-    On a successful reconciliation whose resolved ``outcome`` is ``FAIL`` and
-    whose ``story_id`` is a real story id (no ``:`` — never a ``phase:`` or
-    ``unattributed:`` synthetic), also calls ``flex_build.bump_attempt_count``
-    in its own ``try/except`` — the escalation ladder's late-bump path for a
-    FAIL outcome that only became knowable after PostToolUse time (Ensures 19).
+    A ``read_completed_spawn`` result whose ``outcome`` is ``None`` is
+    skipped for the fully-terminated path — no ``reconcile_attempt`` call,
+    the row stays pending (CER-091 defect 2/4). With :data:`RECOGNISED_REVIEW_VERDICTS`
+    including ``ALIGNED``, the common case that used to hit this branch no
+    longer does; the branch still exists so a genuinely unparseable return
+    leaves a *pending* row rather than committing a *partial* one.
+
+    On a successful (non-quiescent) reconciliation whose resolved
+    ``outcome`` is ``FAIL`` and whose ``story_id`` is a real story id (no
+    ``:`` — never a ``phase:`` or ``unattributed:`` synthetic),
+    :func:`_story_accepts_late_bump` gates whether
+    ``flex_build.bump_attempt_count`` is called (CER-091 defect 4) — the
+    escalation ladder's late-bump path for a FAIL outcome that only became
+    knowable after PostToolUse time.
+
+    When *include_quiescent* is ``True`` (never the default for either hook
+    call site — see Instructions 8), a row whose :func:`classify_pending_reason`
+    is not ``reconcilable``/``in-flight``/``file-missing``/``no-output-file``,
+    whose row ``ts`` is older than :data:`QUIESCENT_AGE_SECONDS`, **and**
+    whose output file's own mtime is older than the same threshold, is
+    retired with ``outcome="UNKNOWN"`` (when no verdict is parseable) and a
+    ``reconciled-quiescent: <reason>`` note. A quiescent reconciliation never
+    calls ``bump_attempt_count`` — ``UNKNOWN`` is not ``FAIL``, and a
+    fabricated escalation is worse than a missing one. A row with no usage
+    data at all is still skipped even in the quiescent path (nothing
+    truthful to write).
 
     Returns the count of rows actually reconciled. Never raises — this is a
     hook-path entry point (called from both ``record_attempt_from_transcript``
-    and ``hooks/session_start.py``).
+    and ``hooks/session_start.py``, and from the explicit sweep CLI).
     """
     try:
         project_path = (
@@ -665,40 +954,117 @@ def reconcile_pending_attempts(
             if not output_file:
                 continue
 
-            result = read_completed_spawn(output_file)
-            if result is None:
+            path = output_file if isinstance(output_file, Path) else Path(str(output_file))
+            result = read_completed_spawn(path)
+
+            if result is not None and result.get("outcome") is not None:
+                fields: "dict[str, Any]" = {
+                    "tokens_total": result.get("tokens_total"),
+                    "tokens_in": result.get("tokens_in"),
+                    "tokens_out": result.get("tokens_out"),
+                    "cache_read_tokens": result.get("cache_read_tokens"),
+                    "cache_write_tokens": result.get("cache_write_tokens"),
+                    "duration_ms": result.get("duration_ms"),
+                    "outcome": result.get("outcome"),
+                    "notes": result.get("fail_cause"),
+                }
+                if row.get("model") is None and result.get("model"):
+                    fields["model"] = result.get("model")
+
+                updated = effort_db.reconcile_attempt(db_path, row["id"], **fields)
+                if not updated:
+                    continue
+
+                reconciled += 1
+
+                if result.get("outcome") == "FAIL":
+                    story_id = row.get("story_id")
+                    if story_id and ":" not in str(story_id):
+                        try:
+                            if _story_accepts_late_bump(project_path, story_id):
+                                bump_attempt_count(story_id, project_path)
+                        except Exception:
+                            pass
+
                 continue
 
-            fields: "dict[str, Any]" = {
-                "tokens_total": result.get("tokens_total"),
-                "tokens_in": result.get("tokens_in"),
-                "tokens_out": result.get("tokens_out"),
-                "cache_read_tokens": result.get("cache_read_tokens"),
-                "cache_write_tokens": result.get("cache_write_tokens"),
-                "duration_ms": result.get("duration_ms"),
-                "outcome": result.get("outcome"),
-                "notes": result.get("fail_cause"),
+            # Either in-flight/unreadable (result is None) or complete-but-
+            # no-outcome (CER-091 defect 2/4 shape) — never commit a partial
+            # row on the default sweep.
+            if not include_quiescent:
+                continue
+
+            reason = classify_pending_reason(row)
+            if reason in ("reconcilable", "in-flight", "file-missing", "no-output-file"):
+                continue
+
+            row_ts = row.get("ts")
+            if not _older_than_seconds(row_ts, QUIESCENT_AGE_SECONDS):
+                continue
+
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
+            now_epoch = datetime.now(timezone.utc).timestamp()
+            if (now_epoch - mtime) < QUIESCENT_AGE_SECONDS:
+                continue
+
+            data = _stream_spawn_output(path)
+            usage = _sum_deduped_usage(data["assistant_entries"])
+            if usage.get("tokens_total") is None:
+                # Nothing truthful to write — still skipped.
+                continue
+
+            outcome_val: "str | None" = None
+            last_entry = data["last_entry"]
+            if isinstance(last_entry, dict):
+                message = last_entry.get("message")
+                if isinstance(message, dict):
+                    final_text = _flatten_tool_response(message)
+                    outcome_val, _ = parse_worker_outcome(final_text)
+
+            quiescent_fields: "dict[str, Any]" = {
+                "tokens_total": usage.get("tokens_total"),
+                "tokens_in": usage.get("tokens_in"),
+                "tokens_out": usage.get("tokens_out"),
+                "cache_read_tokens": usage.get("cache_read_tokens"),
+                "cache_write_tokens": usage.get("cache_write_tokens"),
+                "duration_ms": None,
+                "outcome": outcome_val or "UNKNOWN",
+                "notes": f"reconciled-quiescent: {reason}",
             }
-            if row.get("model") is None and result.get("model"):
-                fields["model"] = result.get("model")
+            if row.get("model") is None and usage.get("model"):
+                quiescent_fields["model"] = usage.get("model")
 
-            updated = effort_db.reconcile_attempt(db_path, row["id"], **fields)
-            if not updated:
-                continue
-
-            reconciled += 1
-
-            if result.get("outcome") == "FAIL":
-                story_id = row.get("story_id")
-                if story_id and ":" not in str(story_id):
-                    try:
-                        bump_attempt_count(story_id, project_path)
-                    except Exception:
-                        pass
+            updated = effort_db.reconcile_attempt(db_path, row["id"], **quiescent_fields)
+            if updated:
+                reconciled += 1
+            # Never bump_attempt_count from the quiescent branch — UNKNOWN
+            # is not FAIL, and a fabricated escalation is worse than a
+            # missing one.
 
         return reconciled
     except Exception:
         return 0
+
+
+def _older_than_seconds(ts: Any, seconds: float) -> bool:
+    """Return ``True`` when ISO-8601 *ts* is more than *seconds* in the past.
+
+    Never raises: an unparseable/missing *ts* returns ``False`` (never
+    treated as old enough for the quiescent path — the conservative default).
+    """
+    if not isinstance(ts, str) or not ts:
+        return False
+    try:
+        parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        age = datetime.now(timezone.utc) - parsed
+        return age.total_seconds() > seconds
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -714,6 +1080,7 @@ def record_attempt_from_transcript(
     tool_response: Any = None,
     tool_use_id: "str | None" = None,
     home: "Path | None" = None,
+    tool_name: "str | None" = None,
 ) -> "int | None":
     """The hook's single delegated call for effort-attempt recording.
 
@@ -747,15 +1114,35 @@ def record_attempt_from_transcript(
     (extracted from ``tool_response``) via ``effort_db.set_spawn_ref``, and
     sweeps up to :data:`RECONCILE_MAX_ROWS` previously-pending rows via
     ``reconcile_pending_attempts`` before writing the new row.
+
+    CER-091 defect 1: calls :func:`log_recording_event` exactly once on
+    every return path (including the outer ``except``), so the *next*
+    silent-recording occurrence is attributable from one ``tail`` instead of
+    an archaeology session. Not gated on ``effort_tracking`` — the log
+    explains why recording did or did not happen, including when tracking
+    is off. *tool_name* (optional, defaults ``None``) is carried through
+    only for that log line; it does not affect recording behaviour.
     """
+    project_path = Path(project_dir) if not isinstance(project_dir, Path) else project_dir
+    subagent_type: Any = None
+    story_id: "str | None" = None
     try:
         if not isinstance(tool_input, dict):
+            log_recording_event(
+                project_path, tool_name=tool_name, subagent_type=None,
+                tool_use_id=tool_use_id, story_id=None,
+                decision="skip:no-tool-input", row_id=None,
+            )
             return None
         subagent_type = tool_input.get("subagent_type")
         if subagent_type not in RECORDABLE_SUBAGENT_ROLES:
+            log_recording_event(
+                project_path, tool_name=tool_name, subagent_type=subagent_type,
+                tool_use_id=tool_use_id, story_id=None,
+                decision="skip:not-recordable-role", row_id=None,
+            )
             return None
 
-        project_path = Path(project_dir) if not isinstance(project_dir, Path) else project_dir
         state = _read_state(project_path)
 
         story_id, phase_key, rail = _derive_attribution(tool_input, state, subagent_type)
@@ -767,6 +1154,8 @@ def record_attempt_from_transcript(
         # best-effort/non-raising like every other branch in this function.
         # INFRA-258: never bump on a synthetic phase:/unattributed: id — the
         # escalation ladder tracks real stories only (Ensures 21).
+        # CER-091 defect 4: this PostToolUse-time bump is deliberately
+        # ungated by _story_accepts_late_bump — see that helper's docstring.
         if story_id and outcome == "FAIL" and ":" not in story_id:
             try:
                 bump_attempt_count(story_id, project_path)
@@ -774,6 +1163,12 @@ def record_attempt_from_transcript(
                 pass
 
         if not state or not state.get("effort_tracking"):
+            log_recording_event(
+                project_path, tool_name=tool_name, subagent_type=subagent_type,
+                tool_use_id=tool_use_id, story_id=story_id,
+                decision="skip:no-state" if not state else "skip:effort-tracking-off",
+                row_id=None,
+            )
             return None
 
         # INFRA-258: sweep previously-pending (async, now-completed) rows
@@ -851,6 +1246,84 @@ def record_attempt_from_transcript(
             except Exception:
                 pass
 
+        log_recording_event(
+            project_path, tool_name=tool_name, subagent_type=subagent_type,
+            tool_use_id=tool_use_id, story_id=effective_story_id,
+            decision="recorded", row_id=row_id,
+        )
         return row_id
-    except Exception:
+    except Exception as exc:
+        try:
+            log_recording_event(
+                project_path, tool_name=tool_name, subagent_type=subagent_type,
+                tool_use_id=tool_use_id, story_id=story_id,
+                decision=f"error:{type(exc).__name__}", row_id=None,
+            )
+        except Exception:
+            pass
         return None
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point (CER-091 defect 4/trigger-coverage — Instructions 11)
+# ---------------------------------------------------------------------------
+
+
+def _cli_main(argv: "list[str] | None" = None) -> int:
+    """CLI entry point; returns the exit code.
+
+    A thin ``argparse`` shell (stdlib-only — this module is imported by
+    hooks and must not gain a ``click`` dependency) over the single
+    ``reconcile`` subcommand, which is itself a thin call into
+    :func:`reconcile_pending_attempts` — the same function both hook call
+    sites use. No second reconciliation implementation exists in this tree.
+    Behind ``if __name__ == "__main__":`` so importing this module (the
+    hook's import path) has no side effects.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="subagent_transcript CLI — explicit effort.db reconciliation sweep (CER-091)"
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    reconcile_parser = subparsers.add_parser(
+        "reconcile",
+        help="Sweep pending effort.db rows and reconcile the completed ones.",
+    )
+    reconcile_parser.add_argument(
+        "--project-dir", default=".", help="Project root directory (default: current directory)."
+    )
+    reconcile_parser.add_argument(
+        "--limit", type=int, default=RECONCILE_MAX_ROWS,
+        help=f"Maximum rows to sweep (default: {RECONCILE_MAX_ROWS}).",
+    )
+    reconcile_parser.add_argument(
+        "--include-quiescent", action="store_true",
+        help="Also retire quiescent rows (see reconcile_pending_attempts docstring).",
+    )
+    reconcile_parser.add_argument(
+        "--json", dest="as_json", action="store_true", help="Emit JSON instead of plain text."
+    )
+
+    args = parser.parse_args(argv)
+
+    if args.command == "reconcile":
+        count = reconcile_pending_attempts(
+            project_dir=args.project_dir,
+            limit=args.limit,
+            include_quiescent=args.include_quiescent,
+        )
+        if args.as_json:
+            print(json.dumps({"reconciled": count}))
+        else:
+            print(f"reconciled {count} row(s)")
+        return 0
+
+    parser.print_help()
+    return 1
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(_cli_main())

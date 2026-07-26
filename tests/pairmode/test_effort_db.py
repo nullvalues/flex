@@ -702,6 +702,35 @@ class TestPendingReconcilable:
         corrupt_path.write_text("not a sqlite file", encoding="utf-8")
         assert effort_db.pending_reconcilable(corrupt_path, 5) == []
 
+    def test_returns_tokens_set_outcome_null_row_the_row_344_shape(
+        self, db_path: Path
+    ) -> None:
+        """CER-091 defect 2/3: a row with tokens_total set but outcome still
+        NULL (row 344's shape) must be returned so it is reachable again."""
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path, **_required_fields(story_id="INFRA-344", tokens_total=6597)
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", "/tmp/out-344.jsonl")
+
+        rows = effort_db.pending_reconcilable(db_path, 10)
+        assert len(rows) == 1
+        assert rows[0]["id"] == row_id
+        assert rows[0]["tokens_total"] == 6597
+        assert rows[0]["outcome"] is None
+
+    def test_omits_fully_reconciled_row(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            **_required_fields(
+                story_id="INFRA-345", tokens_total=100, outcome="PASS"
+            ),
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", "/tmp/out-345.jsonl")
+
+        assert effort_db.pending_reconcilable(db_path, 10) == []
+
 
 class TestReconcileAttempt:
     def test_updates_reconcilable_columns_only(self, db_path: Path) -> None:
@@ -747,6 +776,7 @@ class TestReconcileAttempt:
             db_path,
             row_id,
             tokens_total=100,
+            outcome="PASS",
             story_id="INFRA-999",
             agent_role="reviewer",
             attempt_number=99,
@@ -767,8 +797,8 @@ class TestReconcileAttempt:
         effort_db.init_db(db_path)
         row_id = effort_db.insert_attempt(db_path, **_required_fields())
 
-        assert effort_db.reconcile_attempt(db_path, row_id, tokens_total=100) is True
-        assert effort_db.reconcile_attempt(db_path, row_id, tokens_total=200) is False
+        assert effort_db.reconcile_attempt(db_path, row_id, tokens_total=100, outcome="PASS") is True
+        assert effort_db.reconcile_attempt(db_path, row_id, tokens_total=200, outcome="FAIL") is False
 
         row = effort_db.query_by_story(db_path, "INFRA-028")[0]
         assert row["tokens_total"] == 100  # unchanged by the second call
@@ -782,6 +812,83 @@ class TestReconcileAttempt:
         corrupt_path.parent.mkdir(parents=True, exist_ok=True)
         corrupt_path.write_text("not a sqlite file", encoding="utf-8")
         assert effort_db.reconcile_attempt(corrupt_path, 1, tokens_total=100) is False
+
+
+class TestReconcileAttemptAtomic:
+    """CER-091 defect 2: reconcile_attempt is atomic over tokens *and*
+    outcome — writing tokens_total alone (the row-344 shape) must not
+    commit, and the row must be repairable once outcome is later known."""
+
+    def test_tokens_without_outcome_returns_false_and_leaves_row_unchanged(
+        self, db_path: Path
+    ) -> None:
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(db_path, **_required_fields())
+        before = effort_db.query_by_story(db_path, "INFRA-028")[0]
+
+        result = effort_db.reconcile_attempt(db_path, row_id, tokens_total=6597)
+        assert result is False
+
+        after = effort_db.query_by_story(db_path, "INFRA-028")[0]
+        assert after == before
+        assert after["tokens_total"] is None
+        assert after["outcome"] is None
+
+    def test_tokens_and_outcome_together_returns_true(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(db_path, **_required_fields())
+
+        result = effort_db.reconcile_attempt(
+            db_path, row_id, tokens_total=6597, outcome="ALIGNED"
+        )
+        assert result is True
+
+        row = effort_db.query_by_story(db_path, "INFRA-028")[0]
+        assert row["tokens_total"] == 6597
+        assert row["outcome"] == "ALIGNED"
+
+    def test_outcome_none_value_also_blocks_the_write(self, db_path: Path) -> None:
+        """Presence of the key with a None value must not satisfy the
+        atomic-pair requirement."""
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(db_path, **_required_fields())
+
+        result = effort_db.reconcile_attempt(
+            db_path, row_id, tokens_total=100, outcome=None
+        )
+        assert result is False
+        row = effort_db.query_by_story(db_path, "INFRA-028")[0]
+        assert row["tokens_total"] is None
+
+    def test_partial_row_is_repairable_by_a_later_call(self, db_path: Path) -> None:
+        """A row that already has tokens_total set (written before the
+        atomic guard existed, or via a direct test seed) but outcome NULL
+        must still be completable by a later call carrying both fields."""
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path, **_required_fields(tokens_total=6597)
+        )
+
+        # A repeat attempt to write tokens alone still cannot commit...
+        assert effort_db.reconcile_attempt(db_path, row_id, tokens_total=7000) is False
+
+        # ...but supplying the still-missing outcome alongside tokens does.
+        assert (
+            effort_db.reconcile_attempt(
+                db_path, row_id, tokens_total=6597, outcome="ALIGNED"
+            )
+            is True
+        )
+        row = effort_db.query_by_story(db_path, "INFRA-028")[0]
+        assert row["outcome"] == "ALIGNED"
+
+        # Now fully reconciled — a further call is single-shot and a no-op.
+        assert (
+            effort_db.reconcile_attempt(
+                db_path, row_id, tokens_total=1, outcome="PASS"
+            )
+            is False
+        )
 
 
 class TestGuardrailCheckCLI:

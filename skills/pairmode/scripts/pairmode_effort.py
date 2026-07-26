@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -780,6 +781,98 @@ def models_cmd(
     if pricing is not None:
         columns.append("dollars_estimate")
     _emit(rows, columns, as_json)
+
+
+@cli.command("pending")
+@_common
+def pending_cmd(
+    project_dir: str,
+    db_path: str | None,
+    dollars: str | None,
+    as_json: bool,
+) -> None:
+    """Read-only view of rows still awaiting reconciliation (CER-091).
+
+    Mirrors ``effort_db.pending_reconcilable``'s filter — ``(tokens_total IS
+    NULL OR outcome IS NULL) AND output_file IS NOT NULL`` — but opens the
+    database read-only (``mode=ro`` URI) rather than through
+    ``effort_db``'s read-write connection, and performs zero writes: this is
+    a diagnostic view, and the repair path (the ``reconcile`` sweep CLI on
+    ``subagent_transcript.py``) is deliberately a separate command so a
+    diagnostic read can never mutate what it is diagnosing.
+    """
+    # Imported lazily so the reporting CLI does not take a module-import
+    # dependency on the hook-path module at startup.
+    from skills.pairmode.scripts import subagent_transcript as _subagent_transcript
+
+    db = _resolve_db(project_dir, db_path)
+    if not db.exists():
+        _no_data_message()
+        return
+
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    except sqlite3.OperationalError:
+        _no_data_message()
+        return
+
+    try:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "SELECT * FROM attempts "
+                "WHERE (tokens_total IS NULL OR outcome IS NULL) "
+                "AND output_file IS NOT NULL "
+                "ORDER BY id DESC"
+            )
+        except sqlite3.OperationalError:
+            _no_data_message()
+            return
+        columns = [d[0] for d in cur.description]
+        raw_rows = [dict(zip(columns, r)) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+    if not raw_rows:
+        _no_data_message()
+        return
+
+    now = datetime.now(timezone.utc)
+    out_rows: list[dict[str, Any]] = []
+    for row in raw_rows:
+        age_hours: float | None = None
+        ts = row.get("ts")
+        if ts:
+            try:
+                parsed = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                age_hours = round((now - parsed).total_seconds() / 3600.0, 1)
+            except Exception:
+                age_hours = None
+
+        out_rows.append({
+            "id": row.get("id"),
+            "story_id": row.get("story_id"),
+            "agent_role": row.get("agent_role"),
+            "attempt_number": row.get("attempt_number"),
+            "age_hours": age_hours,
+            "has_tokens": row.get("tokens_total") is not None,
+            "has_outcome": row.get("outcome") is not None,
+            "reason": _subagent_transcript.classify_pending_reason(row),
+        })
+
+    columns_out = [
+        "id",
+        "story_id",
+        "agent_role",
+        "attempt_number",
+        "age_hours",
+        "has_tokens",
+        "has_outcome",
+        "reason",
+    ]
+    _emit(out_rows, columns_out, as_json)
 
 
 # ---------------------------------------------------------------------------

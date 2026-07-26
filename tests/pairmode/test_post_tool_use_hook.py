@@ -193,3 +193,39 @@ class TestGrowthRecordingEndToEnd:
         finally:
             conn.close()
         assert rows == [("INFRA-254", "builder", "PASS")]
+
+
+# ---------------------------------------------------------------------------
+# CER-091 defect 1/E11: SendMessage is observed, never recorded
+# ---------------------------------------------------------------------------
+
+
+class TestSendMessageBranch:
+    def test_sendmessage_logs_observed_and_writes_no_attempts_row(self, tmp_path: Path) -> None:
+        state_path = tmp_path / ".companion" / "state.json"
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps({"effort_tracking": True}), encoding="utf-8")
+
+        result = subprocess.run(
+            [sys.executable, str(HOOK_PATH)],
+            input=json.dumps({
+                "tool_name": "SendMessage",
+                "session_id": "sess-sm",
+                "cwd": str(tmp_path),
+                "tool_input": {"prompt": "continue INFRA-264"},
+                "tool_use_id": "toolu_sm",
+            }).encode(),
+            capture_output=True,
+            cwd=str(tmp_path),
+        )
+        assert result.returncode == 0
+        assert result.stdout.strip() == b""
+
+        log_path = tmp_path / ".companion" / "effort_recording.log"
+        assert log_path.exists()
+        entries = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+        assert entries[0]["decision"] == "observed:non-spawn-tool"
+        assert entries[0]["tool_name"] == "SendMessage"
+
+        db_path = tmp_path / ".companion" / "effort.db"
+        assert not db_path.exists()

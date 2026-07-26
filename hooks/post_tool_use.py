@@ -6,8 +6,9 @@ PostToolUse hook — Pair Partner + Validator roles.
 Fires after every file write/edit. Thin relay only.
 Sends file change event to sidebar for UML delta + spec check.
 
-Also fires after Task/Agent tool calls. Three delegated calls (never blocks —
-each wrapped independently, exits silently on any failure):
+Also fires after Task/Agent/SendMessage tool calls. Task/Agent get three
+delegated calls (never blocks — each wrapped independently, exits silently
+on any failure):
   1. context_budget.read_current_tokens() (INFRA-182) — reads the JSONL
      transcript and writes context_current_tokens +
      context_current_tokens_recorded_at to state.json. Also calls
@@ -22,6 +23,13 @@ each wrapped independently, exits silently on any failure):
      metric than (1) — a subagent's own resource cost never entered the
      orchestrator's own context window (DP7); the two calls must never be
      merged or have their outputs cross-written.
+  3. SendMessage (CER-091 defect 1) resumes an existing agent rather than
+     spawning one, so it gets exactly one delegated call —
+     subagent_transcript.log_recording_event(decision="observed:non-spawn-tool")
+     — and never reaches record_attempt_from_transcript: recording an
+     attempts row for a continuation is a modelling question, not this
+     story's scope (see docs/architecture.md § Accepted losses). The point
+     is visibility, not recording.
 
 Protected-file classification is intentionally NOT done here.
 The hook must stay a thin relay (millisecond exit, no file reads beyond
@@ -53,12 +61,30 @@ def main():
 
     tool_name = data.get("tool_name", "")
 
-    if tool_name in ("Task", "Agent"):
+    if tool_name in ("Task", "Agent", "SendMessage"):
+        project_dir = Path(data.get("cwd") or ".")
+        session_id = data.get("session_id", "")
+
+        if tool_name == "SendMessage":
+            # CER-091 defect 1: a continuation, not a spawn — observed only.
+            try:
+                import subagent_transcript
+                subagent_transcript.log_recording_event(
+                    project_dir,
+                    tool_name=tool_name,
+                    subagent_type=None,
+                    tool_use_id=data.get("tool_use_id"),
+                    story_id=None,
+                    decision="observed:non-spawn-tool",
+                    row_id=None,
+                )
+            except Exception:
+                pass
+            sys.exit(0)
+
         # Two delegated calls (INFRA-236), each independently wrapped so a
         # failure in one never blocks the other. Never blocks — exits
         # silently on any failure.
-        project_dir = Path(data.get("cwd") or ".")
-        session_id = data.get("session_id", "")
 
         # 1. context_current_tokens writer (INFRA-182) — read JSONL, write
         #    fresh count to state.json.
@@ -96,9 +122,19 @@ def main():
                 tool_input=data.get("tool_input", {}),
                 tool_response=data.get("tool_response"),
                 tool_use_id=data.get("tool_use_id"),
+                tool_name=tool_name,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            try:
+                import subagent_transcript
+                subagent_transcript.log_recording_event(
+                    project_dir,
+                    tool_name=tool_name,
+                    tool_use_id=data.get("tool_use_id"),
+                    decision=f"error:{type(exc).__name__}",
+                )
+            except Exception:
+                pass
 
         sys.exit(0)
 

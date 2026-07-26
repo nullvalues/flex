@@ -13,7 +13,10 @@ Covers:
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1101,12 +1104,18 @@ class TestReconcilePendingAttempts:
 
     def test_reconciled_fail_bumps_attempt_counter(self, tmp_path: Path) -> None:
         """Regression test (Ensures 29): a reconciled FAIL bumps the counter
-        and carries the parsed fail_cause in notes."""
+        and carries the parsed fail_cause in notes.
+
+        CER-091 defect 4: _story_accepts_late_bump requires the story be
+        either already counter-recorded or the build loop's current_story —
+        stamp current_story here so the fixture satisfies the new guard
+        without weakening the assertion below.
+        """
         from skills.pairmode.scripts.flex_build import read_attempt_count
 
         project_dir = tmp_path / "project"
         project_dir.mkdir(parents=True, exist_ok=True)
-        _enable_tracking(project_dir)
+        _enable_tracking(project_dir, current_story={"id": "INFRA-258"})
 
         db_path = project_dir / ".companion" / "effort.db"
         effort_db.init_db(db_path)
@@ -1141,12 +1150,16 @@ class TestReconcilePendingAttempts:
 
     def test_counter_bumps_at_most_once_per_row(self, tmp_path: Path) -> None:
         """Ensures 20: single-shot reconcile_attempt means a repeated call
-        cannot double-bump."""
+        cannot double-bump.
+
+        CER-091 defect 4: stamp current_story so the fixture satisfies
+        _story_accepts_late_bump's guard (see comment above).
+        """
         from skills.pairmode.scripts.flex_build import read_attempt_count
 
         project_dir = tmp_path / "project"
         project_dir.mkdir(parents=True, exist_ok=True)
-        _enable_tracking(project_dir)
+        _enable_tracking(project_dir, current_story={"id": "INFRA-258"})
 
         db_path = project_dir / ".companion" / "effort.db"
         effort_db.init_db(db_path)
@@ -1322,3 +1335,627 @@ class TestAsyncSpawnRegression:
         assert row["tokens_out"] == 500
         assert row["model"] == "claude-sonnet-5"
         assert row["outcome"] == "PASS"
+
+
+# ---------------------------------------------------------------------------
+# CER-091 defect 1: a repeat spawn of the same (story_id, agent_role) pair
+# ---------------------------------------------------------------------------
+
+
+class TestDefect1RepeatSpawnRecordsSecondRow:
+    def test_two_consecutive_reviewer_spawns_produce_two_rows(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        output_file = tmp_path / "tasks" / "agent-1.output"
+        async_response = {
+            "isAsync": True,
+            "agentId": "agent-1",
+            "outputFile": str(output_file),
+        }
+
+        row_id_1 = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="sess-repeat",
+            tool_input={"subagent_type": "reviewer", "prompt": "INFRA-259"},
+            tool_response=async_response,
+            tool_name="Task",
+        )
+        row_id_2 = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="sess-repeat",
+            tool_input={"subagent_type": "reviewer", "prompt": "INFRA-259"},
+            tool_response=async_response,
+            tool_name="Task",
+        )
+
+        assert row_id_1 is not None
+        assert row_id_2 is not None
+        assert row_id_1 != row_id_2
+
+        db_path = project_dir / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-259")
+        assert [r["agent_role"] for r in rows] == ["reviewer", "reviewer"]
+        assert [r["attempt_number"] for r in rows] == [1, 2]
+        # The first row's output file has no content yet — a pre-write sweep
+        # must not have suppressed the second row's insert, and the first
+        # row must not have been (incorrectly) reconciled.
+        assert rows[0]["tokens_total"] is None
+
+    def test_both_invocations_append_recorded_to_the_log(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        output_file = tmp_path / "tasks" / "agent-2.output"
+        async_response = {
+            "isAsync": True,
+            "agentId": "agent-2",
+            "outputFile": str(output_file),
+        }
+
+        for _ in range(2):
+            st.record_attempt_from_transcript(
+                project_dir=project_dir,
+                session_id="sess-repeat-2",
+                tool_input={"subagent_type": "reviewer", "prompt": "INFRA-259"},
+                tool_response=async_response,
+                tool_name="Task",
+            )
+
+        log_path = project_dir / ".companion" / "effort_recording.log"
+        assert log_path.exists()
+        entries = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+        recorded = [e for e in entries if e.get("decision") == "recorded"]
+        assert len(recorded) == 2
+        for entry in recorded:
+            assert entry.get("tool_name") == "Task"
+            assert entry.get("story_id") == "INFRA-259"
+
+
+# ---------------------------------------------------------------------------
+# CER-091 defect 2: ALIGNED reconciles end-to-end with non-NULL tokens
+# ---------------------------------------------------------------------------
+
+
+class TestDefect2AlignedReconcilesEndToEnd:
+    def test_aligned_verdict_reconciles_with_tokens(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-101",
+            agent_role="intent-reviewer",
+            attempt_number=1,
+            ts="2026-05-01T00:00:00+00:00",
+        )
+        output_file = tmp_path / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 5000, 1597, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "REVIEW-RESULT", "verdict": "ALIGNED",
+                        "findings": [], "reason": "matches intent",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", str(output_file))
+
+        count = st.reconcile_pending_attempts(project_dir=project_dir)
+        assert count == 1
+
+        row = effort_db.query_by_story(db_path, "INFRA-101")[0]
+        assert row["outcome"] == "ALIGNED"
+        assert row["tokens_total"] == 6597
+
+
+# ---------------------------------------------------------------------------
+# CER-091 defect 3: classify_pending_reason and quiescent retirement
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyPendingReason:
+    def test_no_output_file(self) -> None:
+        assert st.classify_pending_reason({"output_file": None}) == "no-output-file"
+        assert st.classify_pending_reason({}) == "no-output-file"
+
+    def test_file_missing(self, tmp_path: Path) -> None:
+        row = {"output_file": str(tmp_path / "nope.output")}
+        assert st.classify_pending_reason(row) == "file-missing"
+
+    def test_file_empty(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "empty.output"
+        output_file.write_text("", encoding="utf-8")
+        row = {"output_file": str(output_file)}
+        assert st.classify_pending_reason(row) == "file-empty"
+
+    def test_in_flight(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "inflight.output"
+        _write_output_file(
+            output_file, [_output_assistant_entry("msg_1", 10, 5, stop_reason="tool_use")]
+        )
+        row = {"output_file": str(output_file)}
+        assert st.classify_pending_reason(row) == "in-flight"
+
+    def test_not_terminated_when_last_entry_is_not_assistant(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "nt.output"
+        output_file.write_text(
+            json.dumps({"type": "user", "message": {"content": []}}) + "\n",
+            encoding="utf-8",
+        )
+        row = {"output_file": str(output_file)}
+        assert st.classify_pending_reason(row) == "not-terminated"
+
+    def test_no_usage(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "nousage.output"
+        entry = {
+            "type": "assistant",
+            "message": {
+                "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "hi"}],
+            },
+        }
+        _write_output_file(output_file, [entry])
+        row = {"output_file": str(output_file)}
+        assert st.classify_pending_reason(row) == "no-usage"
+
+    def test_line_cap(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "cap.output"
+        entries = [_output_assistant_entry(f"msg_{i}", 10, 5) for i in range(3)]
+        entries.append(
+            _output_assistant_entry(
+                "msg_last", 10, 5, stop_reason="end_turn",
+                text=json.dumps({
+                    "type": "BUILD-RESULT", "outcome": "PASS",
+                    "story_id": "x", "reason": "y",
+                }),
+            )
+        )
+        row = {"output_file": str(output_file)}
+        with patch.object(st, "RECONCILE_MAX_LINES", 2):
+            _write_output_file(output_file, entries)
+            assert st.classify_pending_reason(row) == "line-cap"
+
+    def test_no_outcome(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "nooutcome.output"
+        _write_output_file(
+            output_file,
+            [_output_assistant_entry("msg_1", 10, 5, stop_reason="end_turn", text="no result json here")],
+        )
+        row = {"output_file": str(output_file)}
+        assert st.classify_pending_reason(row) == "no-outcome"
+
+    def test_reconcilable(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "ok.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 10, 5, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "BUILD-RESULT", "outcome": "PASS",
+                        "story_id": "x", "reason": "y",
+                    }),
+                )
+            ],
+        )
+        row = {"output_file": str(output_file)}
+        assert st.classify_pending_reason(row) == "reconcilable"
+
+    def test_never_calls_path_read_text(self, tmp_path: Path) -> None:
+        """Ensures 5: reuses the same streaming-read discipline as
+        read_completed_spawn."""
+        output_file = tmp_path / "stream.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 10, 5, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "BUILD-RESULT", "outcome": "PASS",
+                        "story_id": "x", "reason": "y",
+                    }),
+                )
+            ],
+        )
+        row = {"output_file": str(output_file)}
+        with patch.object(Path, "read_text", side_effect=AssertionError("must not slurp")):
+            reason = st.classify_pending_reason(row)
+        assert reason == "reconcilable"
+
+
+class TestQuiescentReconciliation:
+    def test_not_terminated_row_left_pending_by_default_sweep(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        old_ts = (
+            datetime.now(timezone.utc) - timedelta(seconds=st.QUIESCENT_AGE_SECONDS + 100)
+        ).isoformat()
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-343",
+            agent_role="security-auditor",
+            attempt_number=1,
+            ts=old_ts,
+        )
+        output_file = tmp_path / "agent.output"
+        output_file.write_text(
+            json.dumps({"type": "user", "message": {"content": []}}) + "\n",
+            encoding="utf-8",
+        )
+        old_epoch = time.time() - (st.QUIESCENT_AGE_SECONDS + 100)
+        os.utime(output_file, (old_epoch, old_epoch))
+        effort_db.set_spawn_ref(db_path, row_id, "a1", str(output_file))
+
+        count = st.reconcile_pending_attempts(project_dir=project_dir)
+        assert count == 0
+
+        row = effort_db.query_by_story(db_path, "INFRA-343")[0]
+        assert row["tokens_total"] is None
+        assert row["outcome"] is None
+
+    def test_quiescent_sweep_retires_once_both_age_conditions_met(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        old_ts = (
+            datetime.now(timezone.utc) - timedelta(seconds=st.QUIESCENT_AGE_SECONDS + 100)
+        ).isoformat()
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-343",
+            agent_role="security-auditor",
+            attempt_number=1,
+            ts=old_ts,
+        )
+        output_file = tmp_path / "agent.output"
+        entries = [
+            _output_assistant_entry("msg_1", 100, 50),
+            {"type": "user", "message": {"content": []}},
+        ]
+        _write_output_file(output_file, entries)
+        old_epoch = time.time() - (st.QUIESCENT_AGE_SECONDS + 100)
+        os.utime(output_file, (old_epoch, old_epoch))
+        effort_db.set_spawn_ref(db_path, row_id, "a1", str(output_file))
+
+        count = st.reconcile_pending_attempts(project_dir=project_dir, include_quiescent=True)
+        assert count == 1
+
+        row = effort_db.query_by_story(db_path, "INFRA-343")[0]
+        assert row["outcome"] == "UNKNOWN"
+        assert row["notes"] == "reconciled-quiescent: not-terminated"
+        assert row["tokens_total"] == 150
+
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+        assert read_attempt_count("INFRA-343", project_dir) == 0
+
+    def test_too_young_row_not_retired_even_with_include_quiescent(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        recent_ts = datetime.now(timezone.utc).isoformat()
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-343",
+            agent_role="security-auditor",
+            attempt_number=1,
+            ts=recent_ts,
+        )
+        output_file = tmp_path / "agent.output"
+        entries = [
+            _output_assistant_entry("msg_1", 100, 50),
+            {"type": "user", "message": {"content": []}},
+        ]
+        _write_output_file(output_file, entries)
+        effort_db.set_spawn_ref(db_path, row_id, "a1", str(output_file))
+
+        count = st.reconcile_pending_attempts(project_dir=project_dir, include_quiescent=True)
+        assert count == 0
+
+    def test_session_start_hook_sweep_keeps_default_no_quiescent(self) -> None:
+        """Ensures 12: neither hook call site passes include_quiescent."""
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        session_start_source = (repo_root / "hooks" / "session_start.py").read_text(
+            encoding="utf-8"
+        )
+        assert "include_quiescent" not in session_start_source
+
+        subagent_transcript_source = (
+            repo_root / "skills" / "pairmode" / "scripts" / "subagent_transcript.py"
+        ).read_text(encoding="utf-8")
+        # The only call site inside record_attempt_from_transcript must not
+        # pass include_quiescent either (it relies on the default False).
+        assert (
+            "reconcile_pending_attempts(project_dir=project_path, home=home)"
+            in subagent_transcript_source
+        )
+
+
+# ---------------------------------------------------------------------------
+# CER-091 defect 4: reconciliation-time bump lifecycle guard
+# ---------------------------------------------------------------------------
+
+
+class TestLifecycleGuardOnReconciliationBump:
+    @staticmethod
+    def _write_story_file(project_dir: Path, story_id: str, status: str) -> None:
+        rail = story_id.split("-", 1)[0]
+        story_dir = project_dir / "docs" / "stories" / rail
+        story_dir.mkdir(parents=True, exist_ok=True)
+        (story_dir / f"{story_id}.md").write_text(
+            f"---\nid: {story_id}\nstatus: {status}\n---\n\nbody\n",
+            encoding="utf-8",
+        )
+
+    def test_complete_story_does_not_resurrect_counter(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+        self._write_story_file(project_dir, "INFRA-259", "complete")
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-259",
+            agent_role="reviewer",
+            attempt_number=2,
+            ts="2026-05-01T00:00:00+00:00",
+        )
+        output_file = tmp_path / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "REVIEW-RESULT", "verdict": "FAIL",
+                        "findings": ["x"], "reason": "y",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", str(output_file))
+
+        st.reconcile_pending_attempts(project_dir=project_dir)
+
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+        assert read_attempt_count("INFRA-259", project_dir) == 0
+        counter_path = project_dir / ".companion" / "attempt_counter.json"
+        assert not counter_path.exists()
+
+        row = effort_db.query_by_story(db_path, "INFRA-259")[0]
+        assert row["outcome"] == "FAIL"
+
+    def test_current_draft_story_still_bumps(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir, current_story={"id": "INFRA-260"})
+        self._write_story_file(project_dir, "INFRA-260", "draft")
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-260",
+            agent_role="reviewer",
+            attempt_number=1,
+            ts="2026-05-01T00:00:00+00:00",
+        )
+        output_file = tmp_path / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "REVIEW-RESULT", "verdict": "FAIL",
+                        "findings": ["x"], "reason": "y",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", str(output_file))
+
+        st.reconcile_pending_attempts(project_dir=project_dir)
+
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+        assert read_attempt_count("INFRA-260", project_dir) == 1
+
+    def test_neither_current_nor_counter_recorded_creates_no_file(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+        self._write_story_file(project_dir, "INFRA-261", "draft")
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-261",
+            agent_role="reviewer",
+            attempt_number=1,
+            ts="2026-05-01T00:00:00+00:00",
+        )
+        output_file = tmp_path / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "REVIEW-RESULT", "verdict": "FAIL",
+                        "findings": ["x"], "reason": "y",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", str(output_file))
+
+        st.reconcile_pending_attempts(project_dir=project_dir)
+
+        counter_path = project_dir / ".companion" / "attempt_counter.json"
+        assert not counter_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# CER-091 defect 1/3: log_recording_event and its bounded size
+# ---------------------------------------------------------------------------
+
+
+class TestLogRecordingEvent:
+    def test_appends_json_lines(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+
+        st.log_recording_event(project_dir, decision="recorded", story_id="INFRA-1", row_id=1)
+        st.log_recording_event(project_dir, decision="skip:not-recordable-role", story_id=None, row_id=None)
+
+        log_path = project_dir / ".companion" / "effort_recording.log"
+        lines = log_path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 2
+        entries = [json.loads(line) for line in lines]
+        assert entries[0]["decision"] == "recorded"
+        assert "ts" in entries[0]
+        assert entries[1]["decision"] == "skip:not-recordable-role"
+
+    def test_never_raises_on_unwritable_project_dir(self, tmp_path: Path) -> None:
+        # project_dir points at a file, not a directory — mkdir must fail
+        # internally without raising out of log_recording_event.
+        bogus = tmp_path / "not-a-dir"
+        bogus.write_text("x", encoding="utf-8")
+        st.log_recording_event(bogus, decision="recorded")  # must not raise
+
+    def test_truncates_past_max_bytes(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        log_path = project_dir / ".companion" / "effort_recording.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text("x" * (st.RECORDING_LOG_MAX_BYTES + 10), encoding="utf-8")
+
+        st.log_recording_event(project_dir, decision="recorded")
+
+        lines = log_path.read_text(encoding="utf-8").splitlines()
+        entries = [json.loads(line) for line in lines]
+        assert entries[0]["decision"] == "log-truncated"
+        assert entries[-1]["decision"] == "recorded"
+
+
+# ---------------------------------------------------------------------------
+# CER-091: SendMessage relay and the log-only path (E11)
+# ---------------------------------------------------------------------------
+
+
+class TestSendMessageIsObservedNotRecorded:
+    def test_log_recording_event_can_be_called_for_a_non_spawn_tool(self, tmp_path: Path) -> None:
+        """The hook (hooks/post_tool_use.py) is the actual SendMessage call
+        site; this pins log_recording_event's contract for that decision
+        value directly."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+
+        st.log_recording_event(
+            project_dir,
+            tool_name="SendMessage",
+            subagent_type=None,
+            tool_use_id="toolu_x",
+            story_id=None,
+            decision="observed:non-spawn-tool",
+            row_id=None,
+        )
+
+        log_path = project_dir / ".companion" / "effort_recording.log"
+        entries = [json.loads(l) for l in log_path.read_text().splitlines() if l.strip()]
+        assert entries[0]["decision"] == "observed:non-spawn-tool"
+        assert entries[0]["tool_name"] == "SendMessage"
+
+        # No effort.db row should exist — SendMessage is observed, never recorded.
+        db_path = project_dir / ".companion" / "effort.db"
+        assert not db_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# CER-091 defect 4/trigger-coverage: the explicit sweep CLI (E7)
+# ---------------------------------------------------------------------------
+
+
+class TestCLI:
+    def test_reconcile_subcommand_routes_through_reconcile_pending_attempts(
+        self, tmp_path: Path
+    ) -> None:
+        with patch.object(
+            st, "reconcile_pending_attempts", return_value=3
+        ) as mock_reconcile:
+            exit_code = st._cli_main(["reconcile", "--project-dir", str(tmp_path)])
+
+        assert exit_code == 0
+        mock_reconcile.assert_called_once()
+        _, kwargs = mock_reconcile.call_args
+        assert kwargs["project_dir"] == str(tmp_path)
+        assert kwargs["include_quiescent"] is False
+
+    def test_reconcile_subcommand_passes_through_flags(self, tmp_path: Path) -> None:
+        with patch.object(
+            st, "reconcile_pending_attempts", return_value=0
+        ) as mock_reconcile:
+            exit_code = st._cli_main([
+                "reconcile",
+                "--project-dir", str(tmp_path),
+                "--limit", "9",
+                "--include-quiescent",
+            ])
+
+        assert exit_code == 0
+        _, kwargs = mock_reconcile.call_args
+        assert kwargs["limit"] == 9
+        assert kwargs["include_quiescent"] is True
+
+    def test_reconcile_prints_count_and_exits_zero_even_when_zero(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        with patch.object(st, "reconcile_pending_attempts", return_value=0):
+            exit_code = st._cli_main(["reconcile", "--project-dir", str(tmp_path)])
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "0" in captured.out
+
+    def test_json_flag_emits_json(self, tmp_path: Path, capsys) -> None:
+        with patch.object(st, "reconcile_pending_attempts", return_value=2):
+            exit_code = st._cli_main([
+                "reconcile", "--project-dir", str(tmp_path), "--json",
+            ])
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert payload == {"reconciled": 2}
+
+    def test_no_subcommand_prints_help_and_exits_nonzero(self, capsys) -> None:
+        exit_code = st._cli_main([])
+        assert exit_code == 1
+
+    def test_module_import_has_no_side_effects(self) -> None:
+        """Importing the module (the hook's import path) must never invoke
+        the CLI — it lives strictly behind __main__."""
+        source = (
+            Path(__file__).resolve().parent.parent.parent
+            / "skills" / "pairmode" / "scripts" / "subagent_transcript.py"
+        ).read_text(encoding="utf-8")
+        assert 'if __name__ == "__main__":' in source

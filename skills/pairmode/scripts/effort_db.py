@@ -26,13 +26,17 @@ Public API
 - ``set_spawn_ref(path, row_id, agent_id, output_file)`` — sets the
   ``agent_id``/``output_file`` columns on one row (INFRA-258). Never raises;
   returns ``True``/``False``.
-- ``pending_reconcilable(path, limit)`` — rows with ``tokens_total IS NULL``
-  and an ``output_file`` on file, newest first, capped at ``limit``
-  (INFRA-258). Never raises; returns ``[]`` on failure.
+- ``pending_reconcilable(path, limit)`` — rows with ``(tokens_total IS NULL
+  OR outcome IS NULL)`` and an ``output_file`` on file, newest first, capped
+  at ``limit`` (INFRA-258; widened to the ``OR`` shape by CER-091 defect
+  2/3, so a partially-backfilled row is reachable again). Never raises;
+  returns ``[]`` on failure.
 - ``reconcile_attempt(path, row_id, **fields)`` — conditional ``UPDATE`` of
   the reconcilable columns (tokens/duration/outcome/notes/model) on one row,
-  single-shot via ``WHERE tokens_total IS NULL`` (INFRA-258). Never raises;
-  returns ``True``/``False``.
+  atomic over tokens *and* outcome and single-shot via
+  ``WHERE (tokens_total IS NULL OR outcome IS NULL)`` (INFRA-258; made
+  atomic/repairable by CER-091 defect 2). Never raises; returns
+  ``True``/``False``.
 """
 
 from __future__ import annotations
@@ -86,6 +90,13 @@ _MIGRATIONS: tuple[str, ...] = (
     "ALTER TABLE attempts ADD COLUMN agent_id TEXT",
     "ALTER TABLE attempts ADD COLUMN output_file TEXT",
 )
+
+#: CER-091 defect 2: the pair of columns that must BOTH be present
+#: (and non-None) in `reconcile_attempt`'s `fields` before any UPDATE runs.
+#: Writing `tokens_total` alone (a row-344 shape) stranded the row outcome
+#: permanently NULL, because the old single-shot guard (`tokens_total IS
+#: NULL`) then made the row invisible to every future sweep.
+_ATOMIC_RECONCILE_FIELDS: tuple[str, ...] = ("tokens_total", "outcome")
 
 #: Fixed allow-list of columns `reconcile_attempt` may write. Never built
 #: from caller-supplied keys (Instructions 3).
@@ -392,14 +403,19 @@ def set_spawn_ref(
 
 
 def pending_reconcilable(path: Path, limit: int) -> list[dict]:
-    """Return up to *limit* rows still awaiting reconciliation (INFRA-258).
+    """Return up to *limit* rows still awaiting reconciliation (INFRA-258,
+    CER-091 defect 2/3).
 
-    Matches ``tokens_total IS NULL AND output_file IS NOT NULL``, ordered by
-    ``id DESC``. *limit* is caller-supplied and always bound as a parameter —
-    this function never issues an unbounded query. Each dict carries at
-    least ``id``, ``story_id``, ``agent_role``, ``output_file``, ``model``.
-    Returns ``[]`` on any failure (missing db, missing table, corrupt file,
-    non-positive limit). Never raises.
+    Matches ``(tokens_total IS NULL OR outcome IS NULL) AND output_file IS
+    NOT NULL``, ordered by ``id DESC``. The ``OR`` (widened from the
+    original ``tokens_total IS NULL``) is what makes a partially-backfilled
+    row — tokens set, outcome still NULL, the row-344 shape — reachable by a
+    future sweep instead of permanently invisible. *limit* is caller-supplied
+    and always bound as a parameter — this function never issues an
+    unbounded query. Each dict carries at least ``id``, ``story_id``,
+    ``agent_role``, ``output_file``, ``model``. Returns ``[]`` on any
+    failure (missing db, missing table, corrupt file, non-positive limit).
+    Never raises.
     """
 
     try:
@@ -416,7 +432,7 @@ def pending_reconcilable(path: Path, limit: int) -> list[dict]:
             cur.execute(
                 """
                 SELECT * FROM attempts
-                 WHERE tokens_total IS NULL
+                 WHERE (tokens_total IS NULL OR outcome IS NULL)
                    AND output_file IS NOT NULL
                  ORDER BY id DESC
                  LIMIT ?
@@ -432,7 +448,8 @@ def pending_reconcilable(path: Path, limit: int) -> list[dict]:
 
 
 def reconcile_attempt(path: Path, row_id: int, **fields: Any) -> bool:
-    """Conditionally update the reconcilable columns on one row (INFRA-258).
+    """Conditionally update the reconcilable columns on one row (INFRA-258,
+    CER-091 defect 2).
 
     Only ``tokens_total``, ``tokens_in``, ``tokens_out``, ``cache_read_tokens``,
     ``cache_write_tokens``, ``duration_ms``, ``outcome``, ``notes``, and
@@ -441,13 +458,27 @@ def reconcile_attempt(path: Path, row_id: int, **fields: Any) -> bool:
     ignored (not written). ``story_id``, ``agent_role``, ``attempt_number``,
     ``phase``, ``rail``, and ``ts`` are never touched.
 
-    The update is guarded with ``AND tokens_total IS NULL`` so it is
-    single-shot: a repeat call for an already-reconciled row is a no-op
-    returning ``False``. Returns ``True`` only when a row was actually
-    updated. Never raises.
+    Atomic over tokens *and* outcome (CER-091 defect 2): both members of
+    :data:`_ATOMIC_RECONCILE_FIELDS` must be present in *fields* and
+    non-``None``, or this returns ``False`` and performs **no** ``UPDATE`` —
+    writing ``tokens_total`` alone (without a resolvable ``outcome``) is
+    exactly the shape that stranded effort.db row 344 permanently.
+
+    The update is guarded with ``AND (tokens_total IS NULL OR outcome IS
+    NULL)`` — single-shot on *fully reconciled*, not merely on
+    ``tokens_total``. This is what makes an existing partial row (tokens
+    set, outcome NULL) repairable by a later call while still making a
+    double-bump on an already-fully-reconciled row impossible: once both
+    columns are non-NULL, the guard excludes the row from every future
+    call and every future ``pending_reconcilable`` scan alike. Returns
+    ``True`` only when a row was actually updated. Never raises.
     """
 
     try:
+        for required in _ATOMIC_RECONCILE_FIELDS:
+            if required not in fields or fields[required] is None:
+                return False
+
         columns = [col for col in _RECONCILABLE_COLUMNS if col in fields]
         if not columns:
             return False
@@ -465,7 +496,7 @@ def reconcile_attempt(path: Path, row_id: int, **fields: Any) -> bool:
             cur = conn.cursor()
             cur.execute(
                 f"UPDATE attempts SET {set_clause} "
-                "WHERE id = ? AND tokens_total IS NULL",
+                "WHERE id = ? AND (tokens_total IS NULL OR outcome IS NULL)",
                 values,
             )
             conn.commit()

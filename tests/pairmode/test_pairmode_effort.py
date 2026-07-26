@@ -692,7 +692,7 @@ class TestEmptyAndMissing:
 
     def test_missing_db_all_subcommands(self, project_dir: Path) -> None:
         runner = CliRunner()
-        for subcmd in ("rollup", "rework", "expensive", "models"):
+        for subcmd in ("rollup", "rework", "expensive", "models", "pending"):
             result = runner.invoke(
                 cli,
                 [subcmd, "--project-dir", str(project_dir)],
@@ -700,3 +700,107 @@ class TestEmptyAndMissing:
             )
             assert result.exit_code == 0, (subcmd, result.output)
             assert "no effort data" in result.output.lower(), (subcmd, result.output)
+
+
+# ---------------------------------------------------------------------------
+# pending (CER-091 defect 3, E6)
+# ---------------------------------------------------------------------------
+
+
+class TestPending:
+    def test_renders_reason_and_age_hours_for_seeded_pending_row(
+        self, project_dir: Path
+    ) -> None:
+        import json as _json
+        from datetime import datetime, timedelta, timezone
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+
+        old_ts = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-343",
+            agent_role="security-auditor",
+            attempt_number=1,
+            ts=old_ts,
+        )
+        output_file = project_dir / "agent.output"
+        output_file.write_text(
+            _json.dumps({
+                "type": "assistant",
+                "message": {
+                    "id": "msg_1",
+                    "stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": "no result json here"}],
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 5,
+                        "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 0,
+                    },
+                },
+            }) + "\n",
+            encoding="utf-8",
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", str(output_file))
+
+        db_before = db_path.read_bytes()
+        mtime_before = db_path.stat().st_mtime
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["pending", "--project-dir", str(project_dir), "--json"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+        rows = _json.loads(result.output)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["story_id"] == "INFRA-343"
+        assert row["agent_role"] == "security-auditor"
+        assert row["reason"] == "no-outcome"
+        assert isinstance(row["age_hours"], (int, float))
+        assert row["age_hours"] >= 4.9
+        assert row["has_tokens"] is False
+        assert row["has_outcome"] is False
+
+        # Zero writes: the db file is byte-identical and its mtime unchanged.
+        assert db_path.read_bytes() == db_before
+        assert db_path.stat().st_mtime == mtime_before
+
+    def test_text_output_includes_columns(self, project_dir: Path) -> None:
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-344",
+            agent_role="reviewer",
+            attempt_number=1,
+            ts="2026-05-01T00:00:00+00:00",
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", "/tmp/does-not-exist.output")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["pending", "--project-dir", str(project_dir)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert "reason" in result.output
+        assert "file-missing" in result.output
+
+    def test_excludes_fully_reconciled_rows(self, project_dir: Path, seeded_db: Path) -> None:
+        """The seeded_db fixture's rows are all fully reconciled (tokens and
+        outcome both set) — none should appear as pending."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["pending", "--project-dir", str(project_dir)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert "no effort data" in result.output.lower()
