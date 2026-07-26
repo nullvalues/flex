@@ -26,17 +26,22 @@ Public API
 - ``set_spawn_ref(path, row_id, agent_id, output_file)`` — sets the
   ``agent_id``/``output_file`` columns on one row (INFRA-258). Never raises;
   returns ``True``/``False``.
-- ``pending_reconcilable(path, limit)`` — rows with ``(tokens_total IS NULL
-  OR outcome IS NULL)`` and an ``output_file`` on file, newest first, capped
-  at ``limit`` (INFRA-258; widened to the ``OR`` shape by CER-091 defect
-  2/3, so a partially-backfilled row is reachable again). Never raises;
-  returns ``[]`` on failure.
+- ``pending_reconcilable(path, limit, *, max_age_days=None)`` — rows with
+  ``(tokens_total IS NULL OR outcome IS NULL)`` and an ``output_file`` on
+  file, newest first, capped at ``limit`` (INFRA-258; widened to the ``OR``
+  shape by CER-091 defect 2/3, so a partially-backfilled row is reachable
+  again). ``max_age_days`` is an opt-in age cutoff, off by default (CER-088)
+  — only ``subagent_transcript.reconcile_pending_attempts``'s hook sweep
+  passes it. Never raises; returns ``[]`` on failure.
 - ``reconcile_attempt(path, row_id, **fields)`` — conditional ``UPDATE`` of
   the reconcilable columns (tokens/duration/outcome/notes/model) on one row,
   atomic over tokens *and* outcome and single-shot via
   ``WHERE (tokens_total IS NULL OR outcome IS NULL)`` (INFRA-258; made
   atomic/repairable by CER-091 defect 2). Never raises; returns
   ``True``/``False``.
+- ``resolve_db_path_arg(project_dir, db_path)`` — single-sourced containment
+  for an explicit ``--db-path`` CLI argument (CER-016); raises ``ValueError``
+  on an escaping path rather than silently falling back.
 """
 
 from __future__ import annotations
@@ -117,6 +122,34 @@ _SCHEMA_INDICES = (
     "CREATE INDEX IF NOT EXISTS idx_attempts_phase ON attempts(phase);",
     "CREATE INDEX IF NOT EXISTS idx_attempts_rail ON attempts(rail);",
 )
+
+#: Indices that reference ALTER-added columns and therefore must be created
+#: AFTER _MIGRATIONS has run (CER-088). Putting these in _SCHEMA_INDICES would
+#: crash init_db on exactly the legacy (pre-INFRA-258) databases the migrations
+#: exist to upgrade, because output_file does not exist yet at that point.
+#:
+#: The partial WHERE clause matches ``pending_reconcilable``'s predicate
+#: EXACTLY, including the ``OR`` between ``tokens_total`` and ``outcome``
+#: (widened by CER-091 defect 2/3, INFRA-264). SQLite only uses a partial
+#: index when the query's WHERE clause implies the index's partial
+#: condition; the original narrower ``tokens_total IS NULL`` predicate
+#: (correct pre-INFRA-264) no longer covers the widened query and the
+#: planner silently falls back to a full scan, defeating CER-088 without
+#: raising anything. Keep this clause byte-for-byte in step with
+#: ``pending_reconcilable``'s ``WHERE`` — a future edit to one without the
+#: other reintroduces the same silent regression.
+_POST_MIGRATION_INDICES: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS idx_attempts_pending "
+    "ON attempts(id DESC) "
+    "WHERE (tokens_total IS NULL OR outcome IS NULL) AND output_file IS NOT NULL;",
+)
+
+#: /tmp spawn-output files do not survive this long, so a pending row older
+#: than this window can never reconcile — scanning for it on the hook-path
+#: sweep is pure cost (CER-088). Opt-in only (see pending_reconcilable):
+#: INFRA-264's pending-row diagnostic (if it landed) must keep seeing
+#: permanently-pending rows, since surfacing them is its entire purpose.
+PENDING_MAX_AGE_DAYS: int = 14
 
 # Columns in the order they are bound by ``insert_attempt``.  ``id`` is
 # AUTOINCREMENT so it is omitted from the INSERT.
@@ -207,6 +240,57 @@ def resolve_effort_db_path(project_dir: Path) -> Path:
     return project_dir / ".companion" / "effort.db"
 
 
+def resolve_db_path_arg(
+    project_dir: Path, db_path: "str | Path | None"
+) -> Path:
+    """Single-source resolution for an explicit ``--db-path`` CLI argument
+    (CER-016).
+
+    When *db_path* is ``None``, delegates unchanged to
+    ``resolve_effort_db_path(project_dir)`` — including its silent fallback
+    for an escaping ``state.json`` value, which this function does not
+    change (that asymmetry is deliberate; see below).
+
+    When *db_path* is given: a relative value is joined to *project_dir*,
+    then both ``_depth_guard`` and a containment check
+    (``resolve().relative_to(Path(project_dir).resolve())``) are applied.
+    Either guard failing raises ``ValueError`` naming the rejected path and
+    *project_dir*.
+
+    The asymmetry between the two branches is deliberate: an escaping
+    ``state.json["effort_db_path"]`` falls back silently to the default
+    (unchanged behaviour, see ``resolve_effort_db_path``) because a config
+    value is project-owned and a silent default is recoverable, whereas an
+    escaping *explicit* ``db_path`` argument raises, because an operator who
+    named a specific file must not have their rows silently written
+    somewhere else.
+    """
+
+    project_path = Path(project_dir)
+    if db_path is None:
+        return resolve_effort_db_path(project_path)
+
+    candidate = Path(db_path)
+    if not candidate.is_absolute():
+        candidate = project_path / candidate
+
+    try:
+        guarded = _depth_guard(candidate)
+    except ValueError as exc:
+        raise ValueError(
+            f"--db-path {candidate} rejected: {exc} (project_dir={project_path})"
+        ) from exc
+
+    try:
+        guarded.resolve().relative_to(project_path.resolve())
+    except ValueError as exc:
+        raise ValueError(
+            f"--db-path {candidate} escapes project_dir {project_path}"
+        ) from exc
+
+    return guarded
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -237,6 +321,15 @@ def init_db(path: Path) -> None:
                 cur.execute(migration)
             except sqlite3.OperationalError:
                 # Column already exists — safe to ignore.
+                pass
+        # Post-migration indices reference ALTER-added columns (CER-088) and
+        # so must run after the migration loop above, each in its own guard —
+        # an ancient SQLite without partial-index support degrades to "no
+        # index", never breaks init_db.
+        for stmt in _POST_MIGRATION_INDICES:
+            try:
+                cur.execute(stmt)
+            except sqlite3.OperationalError:
                 pass
         conn.commit()
     finally:
@@ -402,7 +495,9 @@ def set_spawn_ref(
         return False
 
 
-def pending_reconcilable(path: Path, limit: int) -> list[dict]:
+def pending_reconcilable(
+    path: Path, limit: int, *, max_age_days: "int | None" = None
+) -> list[dict]:
     """Return up to *limit* rows still awaiting reconciliation (INFRA-258,
     CER-091 defect 2/3).
 
@@ -416,6 +511,21 @@ def pending_reconcilable(path: Path, limit: int) -> list[dict]:
     ``agent_role``, ``output_file``, ``model``. Returns ``[]`` on any
     failure (missing db, missing table, corrupt file, non-positive limit).
     Never raises.
+
+    *max_age_days* (CER-088) is an opt-in age cutoff, off by default. When it
+    is a positive ``int``, only rows whose ``ts >= now - max_age_days`` are
+    returned — bound as a SQL parameter, never interpolated. Anything else
+    (``None``, ``0``, negative, a non-``int``) means "no cutoff", identical
+    to today's behaviour. This is deliberately off by default at this shared
+    query layer: INFRA-264's pending-row diagnostic (if it landed) must keep
+    seeing permanently-pending rows, since surfacing them is its entire
+    purpose. Only the hook sweep (``subagent_transcript.reconcile_pending_attempts``)
+    opts in via an explicit ``max_age_days``.
+
+    The lexicographic ``ts >= ?`` comparison is valid only because every
+    writer stamps ``datetime.now(tz=timezone.utc).isoformat()`` — a
+    differently-formatted ``ts`` would silently break the bound, and the
+    failure would look like "reconciliation stopped working."
     """
 
     try:
@@ -426,19 +536,39 @@ def pending_reconcilable(path: Path, limit: int) -> list[dict]:
         if not resolved.exists():
             return []
 
+        use_cutoff = isinstance(max_age_days, int) and not isinstance(
+            max_age_days, bool
+        ) and max_age_days > 0
+
         conn = sqlite3.connect(str(resolved))
         try:
             cur = conn.cursor()
-            cur.execute(
-                """
-                SELECT * FROM attempts
-                 WHERE (tokens_total IS NULL OR outcome IS NULL)
-                   AND output_file IS NOT NULL
-                 ORDER BY id DESC
-                 LIMIT ?
-                """,
-                (limit,),
-            )
+            if use_cutoff:
+                cutoff = (
+                    datetime.now(timezone.utc) - timedelta(days=max_age_days)
+                ).isoformat()
+                cur.execute(
+                    """
+                    SELECT * FROM attempts
+                     WHERE (tokens_total IS NULL OR outcome IS NULL)
+                       AND output_file IS NOT NULL
+                       AND ts >= ?
+                     ORDER BY id DESC
+                     LIMIT ?
+                    """,
+                    (cutoff, limit),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT * FROM attempts
+                     WHERE (tokens_total IS NULL OR outcome IS NULL)
+                       AND output_file IS NOT NULL
+                     ORDER BY id DESC
+                     LIMIT ?
+                    """,
+                    (limit,),
+                )
             rows = cur.fetchall()
             return _rows_to_dicts(cur, rows)
         finally:

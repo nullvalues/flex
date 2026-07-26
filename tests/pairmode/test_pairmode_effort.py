@@ -703,6 +703,50 @@ class TestEmptyAndMissing:
 
 
 # ---------------------------------------------------------------------------
+# CER-016: --db-path containment (resolve_db_path_arg delegation)
+# ---------------------------------------------------------------------------
+
+
+class TestDbPathContainment:
+    def test_escaping_db_path_exits_nonzero_and_creates_no_file(
+        self, project_dir: Path
+    ) -> None:
+        """C6: an explicit --db-path escaping --project-dir must exit
+        non-zero on every subcommand and must not create a database file
+        outside project_dir."""
+        escaping_db = project_dir.parent / "escape-effort.db"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "rollup",
+                "--project-dir", str(project_dir),
+                "--db-path", str(escaping_db),
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code != 0
+        assert not escaping_db.exists()
+
+    def test_relative_db_path_inside_project_still_works(
+        self, project_dir: Path, seeded_db: Path
+    ) -> None:
+        """Sanity check alongside the escape test: a relative --db-path
+        resolving inside project_dir behaves identically to before."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "rollup",
+                "--project-dir", str(project_dir),
+                "--db-path", ".companion/effort.db",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+
+# ---------------------------------------------------------------------------
 # pending (CER-091 defect 3, E6)
 # ---------------------------------------------------------------------------
 

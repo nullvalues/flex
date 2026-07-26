@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -922,3 +924,286 @@ class TestGuardrailCheckCLI:
         )
         assert exit_code == 0
         assert warning_message in stdout
+
+
+# ---------------------------------------------------------------------------
+# CER-088: idx_attempts_pending partial index, created post-migration
+# ---------------------------------------------------------------------------
+
+
+class TestPendingIndex:
+    def test_idx_attempts_pending_exists_after_init(self, db_path: Path) -> None:
+        """A1: the partial index exists after init_db on a fresh database."""
+        effort_db.init_db(db_path)
+        conn = sqlite3.connect(str(db_path))
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND name='idx_attempts_pending'"
+            )
+            assert cur.fetchone() is not None
+        finally:
+            conn.close()
+
+    def test_schema_indices_unchanged_at_three(self) -> None:
+        """A2: _SCHEMA_INDICES still contains exactly its original three
+        story_id/phase/rail statements — the new index is not among them."""
+        assert len(effort_db._SCHEMA_INDICES) == 3
+        joined = " ".join(effort_db._SCHEMA_INDICES)
+        assert "idx_attempts_story" in joined
+        assert "idx_attempts_phase" in joined
+        assert "idx_attempts_rail" in joined
+        assert "idx_attempts_pending" not in joined
+
+    def test_pending_index_created_on_pre_infra_258_shaped_db(
+        self, db_path: Path
+    ) -> None:
+        """A2: init_db on a table with no output_file/agent_id column must
+        not raise, must add both columns, and must create the new index."""
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.execute(
+                """
+                CREATE TABLE attempts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    story_id TEXT NOT NULL,
+                    phase TEXT,
+                    rail TEXT,
+                    agent_role TEXT NOT NULL,
+                    attempt_number INTEGER NOT NULL,
+                    tokens_total INTEGER,
+                    outcome TEXT,
+                    ts TEXT NOT NULL
+                )
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        effort_db.init_db(db_path)  # must not raise
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            cur = conn.cursor()
+            cur.execute("PRAGMA table_info(attempts)")
+            col_names = {row[1] for row in cur.fetchall()}
+            cur.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND name='idx_attempts_pending'"
+            )
+            index_row = cur.fetchone()
+        finally:
+            conn.close()
+
+        assert "agent_id" in col_names
+        assert "output_file" in col_names
+        assert index_row is not None
+
+    def test_query_plan_uses_index_both_variants(self, db_path: Path) -> None:
+        """A3: EXPLAIN QUERY PLAN for pending_reconcilable's statement (with
+        and without the age cutoff) names idx_attempts_pending."""
+        effort_db.init_db(db_path)
+        row_1 = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-500",
+            agent_role="builder",
+            attempt_number=1,
+            ts="2026-05-01T00:00:00+00:00",
+        )
+        effort_db.set_spawn_ref(db_path, row_1, "a1", "/tmp/tasks/out1.output")
+        effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-501",
+            agent_role="builder",
+            attempt_number=1,
+            ts="2026-05-01T00:00:00+00:00",
+            tokens_total=100,
+            outcome="PASS",
+        )
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                EXPLAIN QUERY PLAN
+                SELECT * FROM attempts
+                 WHERE (tokens_total IS NULL OR outcome IS NULL)
+                   AND output_file IS NOT NULL
+                 ORDER BY id DESC
+                 LIMIT ?
+                """,
+                (10,),
+            )
+            plan_no_cutoff = " ".join(str(r) for r in cur.fetchall())
+
+            cur.execute(
+                """
+                EXPLAIN QUERY PLAN
+                SELECT * FROM attempts
+                 WHERE (tokens_total IS NULL OR outcome IS NULL)
+                   AND output_file IS NOT NULL
+                   AND ts >= ?
+                 ORDER BY id DESC
+                 LIMIT ?
+                """,
+                ("2000-01-01T00:00:00+00:00", 10),
+            )
+            plan_with_cutoff = " ".join(str(r) for r in cur.fetchall())
+        finally:
+            conn.close()
+
+        assert "idx_attempts_pending" in plan_no_cutoff
+        assert "idx_attempts_pending" in plan_with_cutoff
+
+
+class TestPendingReconcilableAgeCutoff:
+    def test_default_returns_two_year_old_pending_row(self, db_path: Path) -> None:
+        """A4: max_age_days=None (default) preserves today's behaviour — an
+        ancient pending row is still returned."""
+        effort_db.init_db(db_path)
+        old_ts = (
+            datetime.now(timezone.utc) - timedelta(days=730)
+        ).isoformat()
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-510",
+            agent_role="builder",
+            attempt_number=1,
+            ts=old_ts,
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", "/tmp/tasks/out.output")
+
+        rows = effort_db.pending_reconcilable(db_path, 10)
+        assert [r["id"] for r in rows] == [row_id]
+
+    def test_max_age_days_excludes_old_row_keeps_recent(self, db_path: Path) -> None:
+        """A4: max_age_days=14 excludes the two-year-old row but keeps a
+        pending row stamped 'now'."""
+        effort_db.init_db(db_path)
+        old_ts = (
+            datetime.now(timezone.utc) - timedelta(days=730)
+        ).isoformat()
+        old_row = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-511",
+            agent_role="builder",
+            attempt_number=1,
+            ts=old_ts,
+        )
+        effort_db.set_spawn_ref(db_path, old_row, "a1", "/tmp/tasks/old.output")
+
+        recent_ts = datetime.now(timezone.utc).isoformat()
+        recent_row = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-512",
+            agent_role="builder",
+            attempt_number=1,
+            ts=recent_ts,
+        )
+        effort_db.set_spawn_ref(db_path, recent_row, "a2", "/tmp/tasks/recent.output")
+
+        rows = effort_db.pending_reconcilable(db_path, 10, max_age_days=14)
+        assert [r["id"] for r in rows] == [recent_row]
+
+    def test_cutoff_is_bound_parameter_not_interpolated(self, db_path: Path) -> None:
+        """A4: a story_id containing SQL-meaningful characters must not
+        break the cutoff-bearing query — proof the cutoff is parameterised."""
+        effort_db.init_db(db_path)
+        recent_ts = datetime.now(timezone.utc).isoformat()
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-513'; DROP TABLE attempts; --",
+            agent_role="builder",
+            attempt_number=1,
+            ts=recent_ts,
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", "/tmp/tasks/x.output")
+
+        rows = effort_db.pending_reconcilable(db_path, 10, max_age_days=14)
+        assert [r["id"] for r in rows] == [row_id]
+
+    @pytest.mark.parametrize("bad_value", [0, -1, "14", False])
+    def test_non_positive_or_non_int_treated_as_no_cutoff(
+        self, db_path: Path, bad_value
+    ) -> None:
+        """A5: 0, negative, string, and bool values are all "no cutoff",
+        never an error — identical rows to max_age_days=None."""
+        effort_db.init_db(db_path)
+        old_ts = (
+            datetime.now(timezone.utc) - timedelta(days=730)
+        ).isoformat()
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-514",
+            agent_role="builder",
+            attempt_number=1,
+            ts=old_ts,
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", "/tmp/tasks/y.output")
+
+        rows = effort_db.pending_reconcilable(db_path, 10, max_age_days=bad_value)
+        assert [r["id"] for r in rows] == [row_id]
+
+    def test_never_raises_with_cutoff_on_corrupt_file(self, tmp_path: Path) -> None:
+        corrupt_path = tmp_path / ".companion" / "effort.db"
+        corrupt_path.parent.mkdir(parents=True, exist_ok=True)
+        corrupt_path.write_text("not a sqlite file", encoding="utf-8")
+        assert effort_db.pending_reconcilable(corrupt_path, 5, max_age_days=14) == []
+
+
+# ---------------------------------------------------------------------------
+# CER-016: single-sourced --db-path containment (resolve_db_path_arg)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveDbPathArg:
+    def test_none_returns_default(self, tmp_path: Path) -> None:
+        """C5: None delegates unchanged to resolve_effort_db_path."""
+        resolved = effort_db.resolve_db_path_arg(tmp_path, None)
+        assert resolved == tmp_path / ".companion" / "effort.db"
+
+    def test_relative_path_inside_project_is_accepted_and_absolute(
+        self, tmp_path: Path
+    ) -> None:
+        resolved = effort_db.resolve_db_path_arg(tmp_path, "custom/effort.db")
+        assert resolved.is_absolute()
+        assert resolved == (tmp_path / "custom" / "effort.db").resolve()
+
+    def test_absolute_path_outside_project_dir_raises(self, tmp_path: Path) -> None:
+        outside = tmp_path.parent / "outside.db"
+        with pytest.raises(ValueError):
+            effort_db.resolve_db_path_arg(tmp_path, outside)
+
+    def test_relative_escape_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            effort_db.resolve_db_path_arg(tmp_path, "../../escape.db")
+
+    def test_symlink_inside_project_pointing_outside_raises(
+        self, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir(parents=True, exist_ok=True)
+
+        link = project_dir / "escape_link.db"
+        os.symlink(outside_dir / "effort.db", link)
+
+        with pytest.raises(ValueError):
+            effort_db.resolve_db_path_arg(project_dir, "escape_link.db")
+
+    def test_shallow_path_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            effort_db.resolve_db_path_arg(tmp_path, "/x")
+
+    def test_existing_resolve_effort_db_path_tests_still_pass_state_json_default(
+        self, tmp_path: Path
+    ) -> None:
+        """C5: resolve_effort_db_path's own behaviour is untouched by this
+        story — sanity check alongside the new resolver's tests."""
+        resolved = effort_db.resolve_effort_db_path(tmp_path)
+        assert resolved == tmp_path / ".companion" / "effort.db"

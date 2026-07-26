@@ -740,7 +740,7 @@ class TestReadCompletedSpawn:
         })
 
     def test_completed_spawn_returns_usage_and_outcome(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         _write_output_file(
             output_file,
             [
@@ -767,7 +767,7 @@ class TestReadCompletedSpawn:
         assert result["model"] == "claude-sonnet-5"
 
     def test_dedupes_streaming_entries_in_output_file(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         _write_output_file(
             output_file,
             [
@@ -785,7 +785,7 @@ class TestReadCompletedSpawn:
 
     def test_last_entry_tool_use_returns_none(self, tmp_path: Path) -> None:
         """In-flight agent — last entry is stop_reason=tool_use — never reconciled."""
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         _write_output_file(
             output_file,
             [
@@ -823,7 +823,7 @@ class TestReadCompletedSpawn:
         assert st.read_completed_spawn(output_file) is None
 
     def test_fail_cause_parsed_from_final_text(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         fail_text = json.dumps({
             "type": "REVIEW-RESULT",
             "verdict": "FAIL",
@@ -842,7 +842,7 @@ class TestReadCompletedSpawn:
 
     def test_does_not_call_path_read_text(self, tmp_path: Path) -> None:
         """Ensures 15: the whole file is never loaded into memory at once."""
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         _write_output_file(
             output_file,
             [
@@ -856,7 +856,7 @@ class TestReadCompletedSpawn:
         assert result is not None
 
     def test_line_cap_treats_file_as_incomplete(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         entries = [_output_assistant_entry(f"msg_{i}", 10, 5) for i in range(3)]
         entries.append(
             _output_assistant_entry(
@@ -867,6 +867,228 @@ class TestReadCompletedSpawn:
             _write_output_file(output_file, entries)
             result = st.read_completed_spawn(output_file)
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# CER-089: _contained_spawn_output / read_completed_spawn containment
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultSpawnOutputRoots:
+    def test_includes_resolved_tempdir(self) -> None:
+        import tempfile
+
+        roots = st.default_spawn_output_roots()
+        assert Path(tempfile.gettempdir()).resolve() in roots
+
+    def test_includes_distinct_tmpdir_env(self, tmp_path: Path, monkeypatch) -> None:
+        other = tmp_path / "other-tmp"
+        other.mkdir()
+        monkeypatch.setenv("TMPDIR", str(other))
+        roots = st.default_spawn_output_roots()
+        assert other.resolve() in roots
+
+
+class TestContainedSpawnOutput:
+    def test_none_input_returns_none(self) -> None:
+        assert st._contained_spawn_output(None) is None
+
+    def test_default_rule_accepts_realistic_shape(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr(
+            st, "default_spawn_output_roots", lambda: (tmp_path.resolve(),)
+        )
+        output_file = tmp_path / "claude-1000" / "proj-slug" / "sess-1" / "tasks" / "a1.output"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text("x", encoding="utf-8")
+
+        result = st._contained_spawn_output(output_file)
+        assert result == output_file.resolve()
+
+    def test_default_rule_rejects_path_without_tasks_component(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            st, "default_spawn_output_roots", lambda: (tmp_path.resolve(),)
+        )
+        output_file = tmp_path / "no-tasks-dir" / "a1.output"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text("x", encoding="utf-8")
+
+        assert st._contained_spawn_output(output_file) is None
+
+    def test_default_rule_rejects_path_outside_temp_root(self, tmp_path: Path) -> None:
+        """A path outside every default root — e.g. under the repo's own
+        tests/ tree — must be rejected even with a 'tasks' component."""
+        repo_tests_dir = Path(__file__).resolve().parent
+        outside = repo_tests_dir / "tasks" / "not-really-temp.output"
+        # Do not actually write under the repo tree; a nonexistent path also
+        # fails is_file(), but assert on the containment rejection directly
+        # by pointing default roots away from tmp_path entirely.
+        assert st._contained_spawn_output(outside) is None
+
+    def test_default_rule_rejects_directory(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr(
+            st, "default_spawn_output_roots", lambda: (tmp_path.resolve(),)
+        )
+        a_dir = tmp_path / "tasks" / "a-directory"
+        a_dir.mkdir(parents=True, exist_ok=True)
+
+        assert st._contained_spawn_output(a_dir) is None
+
+    def test_explicit_tasks_root_accepts_file_inside(self, tmp_path: Path) -> None:
+        tasks_root = tmp_path / "tasks"
+        tasks_root.mkdir()
+        output_file = tasks_root / "a1.output"
+        output_file.write_text("x", encoding="utf-8")
+
+        result = st._contained_spawn_output(output_file, tasks_root=tasks_root)
+        assert result == output_file.resolve()
+
+    def test_explicit_tasks_root_rejects_traversal_string(self, tmp_path: Path) -> None:
+        tasks_root = tmp_path / "tasks"
+        tasks_root.mkdir()
+        outside_file = tmp_path / "outside.output"
+        outside_file.write_text("x", encoding="utf-8")
+
+        traversal = str(tasks_root / ".." / "outside.output")
+        assert st._contained_spawn_output(traversal, tasks_root=tasks_root) is None
+
+    def test_explicit_tasks_root_rejects_symlink_escaping_root(
+        self, tmp_path: Path
+    ) -> None:
+        tasks_root = tmp_path / "tasks"
+        tasks_root.mkdir()
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+        outside_target = outside_dir / "real.output"
+        outside_target.write_text("secret", encoding="utf-8")
+
+        link = tasks_root / "link.output"
+        os.symlink(outside_target, link)
+
+        assert st._contained_spawn_output(link, tasks_root=tasks_root) is None
+
+    def test_explicit_tasks_root_rejects_directory(self, tmp_path: Path) -> None:
+        tasks_root = tmp_path / "tasks"
+        sub_dir = tasks_root / "a-directory"
+        sub_dir.mkdir(parents=True, exist_ok=True)
+
+        assert st._contained_spawn_output(sub_dir, tasks_root=tasks_root) is None
+
+    def test_never_raises_on_bogus_input(self) -> None:
+        # A non-str/Path/None value must never raise — str() coercion inside
+        # the try/except handles it, and the result is rejected regardless.
+        assert st._contained_spawn_output(12345) is None
+
+
+class TestReadCompletedSpawnContainment:
+    def test_path_outside_temp_root_returns_none_without_opening(
+        self, tmp_path: Path
+    ) -> None:
+        """A path under the repo's own tests/ tree (not temp, no 'tasks'
+        component reachable under a default root) must be rejected before
+        any open() call."""
+        repo_tests_dir = Path(__file__).resolve().parent
+        outside = repo_tests_dir / "not_really_temp_output.jsonl"
+        outside.write_text(
+            json.dumps(
+                _output_assistant_entry(
+                    "msg_1", 10, 5, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "BUILD-RESULT", "outcome": "PASS",
+                        "story_id": "x", "reason": "y",
+                    }),
+                )
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        try:
+            assert st.read_completed_spawn(outside) is None
+        finally:
+            outside.unlink()
+
+    def test_traversal_string_outside_tasks_root_returns_none(
+        self, tmp_path: Path
+    ) -> None:
+        tasks_root = tmp_path / "tasks"
+        tasks_root.mkdir()
+        outside_file = tmp_path / "escape.output"
+        _write_output_file(
+            outside_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 10, 5, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "BUILD-RESULT", "outcome": "PASS",
+                        "story_id": "x", "reason": "y",
+                    }),
+                )
+            ],
+        )
+        traversal = str(tasks_root / ".." / "escape.output")
+        assert st.read_completed_spawn(traversal, tasks_root=tasks_root) is None
+
+    def test_symlink_inside_tasks_root_escaping_target_returns_none(
+        self, tmp_path: Path
+    ) -> None:
+        tasks_root = tmp_path / "tasks"
+        tasks_root.mkdir()
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+        outside_target = outside_dir / "real.output"
+        _write_output_file(
+            outside_target,
+            [
+                _output_assistant_entry(
+                    "msg_1", 10, 5, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "BUILD-RESULT", "outcome": "PASS",
+                        "story_id": "x", "reason": "y",
+                    }),
+                )
+            ],
+        )
+        link = tasks_root / "link.output"
+        os.symlink(outside_target, link)
+
+        assert st.read_completed_spawn(link, tasks_root=tasks_root) is None
+
+    def test_directory_returns_none(self, tmp_path: Path) -> None:
+        tasks_root = tmp_path / "tasks"
+        a_dir = tasks_root / "a-directory"
+        a_dir.mkdir(parents=True, exist_ok=True)
+
+        assert st.read_completed_spawn(a_dir, tasks_root=tasks_root) is None
+
+    def test_well_formed_completed_spawn_at_real_shape_still_works(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The observed live shape
+        <tmp>/claude-x/<slug>/<session>/tasks/<id>.output still reconciles —
+        unchanged from today."""
+        monkeypatch.setattr(
+            st, "default_spawn_output_roots", lambda: (tmp_path.resolve(),)
+        )
+        output_file = (
+            tmp_path / "claude-1000" / "proj-slug" / "sess-1" / "tasks" / "a1.output"
+        )
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 1000, 500, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "BUILD-RESULT", "outcome": "PASS",
+                        "story_id": "INFRA-266", "reason": "done",
+                    }),
+                )
+            ],
+        )
+        result = st.read_completed_spawn(output_file)
+        assert result is not None
+        assert result["outcome"] == "PASS"
+        assert result["tokens_total"] == 1500
 
 
 # ---------------------------------------------------------------------------
@@ -1050,9 +1272,9 @@ class TestReconcilePendingAttempts:
             story_id="INFRA-258",
             agent_role="builder",
             attempt_number=1,
-            ts="2026-05-01T00:00:00+00:00",
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
         )
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         _write_output_file(
             output_file,
             [
@@ -1087,9 +1309,9 @@ class TestReconcilePendingAttempts:
             story_id="INFRA-258",
             agent_role="builder",
             attempt_number=1,
-            ts="2026-05-01T00:00:00+00:00",
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
         )
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         _write_output_file(
             output_file,
             [_output_assistant_entry("msg_1", 1000, 500, stop_reason="tool_use")],
@@ -1124,9 +1346,9 @@ class TestReconcilePendingAttempts:
             story_id="INFRA-258",
             agent_role="reviewer",
             attempt_number=1,
-            ts="2026-05-01T00:00:00+00:00",
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
         )
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         _write_output_file(
             output_file,
             [
@@ -1168,9 +1390,9 @@ class TestReconcilePendingAttempts:
             story_id="INFRA-258",
             agent_role="reviewer",
             attempt_number=1,
-            ts="2026-05-01T00:00:00+00:00",
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
         )
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         _write_output_file(
             output_file,
             [
@@ -1207,9 +1429,9 @@ class TestReconcilePendingAttempts:
             phase="101",
             agent_role="security-auditor",
             attempt_number=1,
-            ts="2026-05-01T00:00:00+00:00",
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
         )
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         _write_output_file(
             output_file,
             [
@@ -1253,9 +1475,9 @@ class TestReconcilePendingAttempts:
             story_id="INFRA-258",
             agent_role="builder",
             attempt_number=1,
-            ts="2026-05-01T00:00:00+00:00",
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
         )
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         _write_output_file(
             output_file,
             [
@@ -1432,9 +1654,9 @@ class TestDefect2AlignedReconcilesEndToEnd:
             story_id="INFRA-101",
             agent_role="intent-reviewer",
             attempt_number=1,
-            ts="2026-05-01T00:00:00+00:00",
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
         )
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         _write_output_file(
             output_file,
             [
@@ -1718,9 +1940,9 @@ class TestLifecycleGuardOnReconciliationBump:
             story_id="INFRA-259",
             agent_role="reviewer",
             attempt_number=2,
-            ts="2026-05-01T00:00:00+00:00",
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
         )
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         _write_output_file(
             output_file,
             [
@@ -1758,9 +1980,9 @@ class TestLifecycleGuardOnReconciliationBump:
             story_id="INFRA-260",
             agent_role="reviewer",
             attempt_number=1,
-            ts="2026-05-01T00:00:00+00:00",
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
         )
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         _write_output_file(
             output_file,
             [
@@ -1793,9 +2015,9 @@ class TestLifecycleGuardOnReconciliationBump:
             story_id="INFRA-261",
             agent_role="reviewer",
             attempt_number=1,
-            ts="2026-05-01T00:00:00+00:00",
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
         )
-        output_file = tmp_path / "agent.output"
+        output_file = tmp_path / "tasks" / "agent.output"
         _write_output_file(
             output_file,
             [

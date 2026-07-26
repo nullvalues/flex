@@ -140,13 +140,22 @@ def _project_dollars(
 
 
 def _resolve_db(project_dir: str, db_path: str | None) -> Path:
+    """Resolve the effort-db path for a CLI invocation (CER-016).
+
+    Delegates to ``effort_db.resolve_db_path_arg`` — the single-sourced
+    containment rule for an explicit ``--db-path`` — converting its
+    ``ValueError`` into a ``SystemExit(2)`` with the message on stderr, so
+    every one of this module's click commands exits non-zero on an escaping
+    ``--db-path`` rather than silently reading/writing outside the project
+    directory. Prefer this single conversion here over five identical
+    try/excepts at each call site.
+    """
     project_path = Path(project_dir).resolve()
-    if db_path is not None:
-        resolved = Path(db_path)
-        if not resolved.is_absolute():
-            resolved = project_path / resolved
-        return resolved
-    return _effort_db.resolve_effort_db_path(project_path)
+    try:
+        return _effort_db.resolve_db_path_arg(project_path, db_path)
+    except ValueError as exc:
+        click.echo(str(exc), err=True)
+        raise SystemExit(2) from exc
 
 
 def _connect_or_none(db: Path) -> sqlite3.Connection | None:

@@ -2493,6 +2493,42 @@ NULL` guard makes reconciliation single-shot per row, so a repeated
   derived for it) is a modelling question this story deliberately leaves
   open, not a defect (CER-091 § Out of scope).
 
+**Pending-sweep index and age bound (INFRA-266, CER-088).** The
+`pending_reconcilable` predicate is covered by a partial index,
+`idx_attempts_pending`, created *after* `_MIGRATIONS` runs (not in
+`_SCHEMA_INDICES`) because its `WHERE` clause references `output_file`, an
+ALTER-added column that does not exist yet on the legacy (pre-INFRA-258)
+databases the migrations upgrade — creating it earlier would crash `init_db`
+on exactly those databases. The sweep also accepts an opt-in
+`max_age_days` cutoff (`effort_db.PENDING_MAX_AGE_DAYS = 14`, since a `/tmp`
+spawn-output file does not survive that long, so scanning for a row older
+than the window is pure cost), but the cutoff is bound only at
+`reconcile_pending_attempts`'s hook-sweep call site — `pending_reconcilable`
+itself still defaults to no cutoff, because the shared query is also used
+by diagnostics (e.g. a pending-row diagnostic) whose entire purpose is
+surfacing permanently-pending rows; baking the cutoff into the query itself
+would hide the exact rows such a diagnostic exists to find.
+
+**Spawn-output containment (INFRA-266, CER-089).** `read_completed_spawn`
+routes its `output_file` argument through `_contained_spawn_output` before
+opening anything. Two containment rules exist: `--db-path` (below) raises
+on escape, but spawn-output uses a looser accept/reject rule instead —
+temp-root-contained with a `tasks` path component, not a raise — because the
+value is harness-generated launch metadata rather than an operator-supplied
+argument, and pinning the containment to the exact observed shape
+(`claude-<uid>/<slug>/<session>/tasks/<hash>.output`) would make every row
+uncontained the moment the harness changes its directory layout, silently
+halting all reconciliation.
+
+**`--db-path` containment (INFRA-266, CER-016).** `effort_db.resolve_db_path_arg`
+is the single source for resolving an explicit `--db-path` CLI argument,
+used by both `record_attempt.py` and `pairmode_effort.py` (previously each
+did its own unguarded `Path(db_path)` join). It applies `_depth_guard` and
+project-dir containment and raises `ValueError` on an escaping path — unlike
+`resolve_effort_db_path`'s silent fallback for an escaping `state.json`
+value (project-owned, recoverable), an operator who names a specific
+`--db-path` must not have it silently redirected.
+
 **Context health check.** At checkpoint, the orchestrator calls
 `skills/pairmode/scripts/context_health.check_context_health(db_path, current_phase)`
 to produce a per-phase retry burden signal. The function sums output tokens from

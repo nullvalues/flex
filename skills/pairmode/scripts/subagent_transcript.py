@@ -62,7 +62,9 @@ attributed to ``phase:<key>`` rather than to a story id.
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -126,6 +128,14 @@ _PHASE_BARE_RE = re.compile(r"\bPhase\s+(" + _PHASE_KEY_CHARS + r")")
 #: hook-path invocation must never scan unbounded work.
 RECONCILE_MAX_ROWS = 5
 RECONCILE_MAX_LINES = 20000
+
+#: CER-088: the sweep's age cutoff, single-sourced from effort_db so the
+#: number is never re-literalled at this call site.
+RECONCILE_MAX_AGE_DAYS = effort_db.PENDING_MAX_AGE_DAYS
+
+#: Directory component every Claude Code spawn-output file sits under
+#: (CER-089). Observed live shape: `/tmp/claude-<uid>/<slug>/<session>/tasks/<hash>.output`.
+SPAWN_TASKS_DIR_NAME = "tasks"
 
 #: A quiescent-retirement row must be both this old (its DB row `ts`) *and*
 #: have an output file whose mtime is this old, before `include_quiescent`
@@ -536,6 +546,101 @@ def _derive_attribution(
 # ---------------------------------------------------------------------------
 
 
+def default_spawn_output_roots() -> "tuple[Path, ...]":
+    """Return the containment roots used by :func:`_contained_spawn_output`
+    when no explicit ``tasks_root`` is supplied (CER-089).
+
+    Always includes the resolved ``tempfile.gettempdir()``. Also includes a
+    resolved ``$TMPDIR`` when set and distinct from the first root — some
+    environments point ``TMPDIR`` at a different location than the Python
+    default. Never raises.
+    """
+    roots: "list[Path]" = []
+    try:
+        roots.append(Path(tempfile.gettempdir()).resolve())
+    except Exception:
+        pass
+
+    tmpdir_env = os.environ.get("TMPDIR")
+    if tmpdir_env:
+        try:
+            candidate = Path(tmpdir_env).resolve()
+            if candidate not in roots:
+                roots.append(candidate)
+        except Exception:
+            pass
+
+    return tuple(roots)
+
+
+def _contained_spawn_output(
+    output_file: "str | Path | None", tasks_root: "Path | str | None" = None
+) -> "Path | None":
+    """Return a resolved, contained spawn-output ``Path``, or ``None`` when
+    *output_file* is not an acceptable spawn-output location (CER-089).
+
+    Pure: never raises, never opens the file, performs no writes. Only
+    ``Path.resolve()`` (which stats the filesystem to follow symlinks) and
+    ``Path.is_file()`` are used.
+
+    Default rule (``tasks_root=None``): the resolved path must (1) be
+    contained under one of :func:`default_spawn_output_roots`, (2) have the
+    literal component ``"tasks"`` (:data:`SPAWN_TASKS_DIR_NAME`) somewhere in
+    its ``.parts``, and (3) be an existing file. Explicit ``tasks_root``
+    (used by tests, and available to callers that know the real root):
+    the resolved path must be ``.relative_to()`` the resolved *tasks_root*
+    and be an existing file — the temp-root and ``tasks``-component rules do
+    not apply in this mode.
+
+    Design note — deliberately looser than the observed live shape. The
+    observed shape is
+    `/tmp/claude-<uid>/<project-slug>/<session-id>/tasks/<hash>.output`
+    (effort.db rows 357-362, 2026-07-25), but this guard checks only *temp
+    root + a `tasks` path component*, not the full `claude-<uid>/<slug>/
+    <session>` shape. Pinning the fuller shape would make every
+    ``output_file`` uncontained the moment the harness changes its directory
+    layout — silently stopping all reconciliation, rows pending forever,
+    exactly the CER-091 failure class this phase closes. The looser rule
+    still blocks what CER-089 is about: a persisted path pointing at
+    `/etc/passwd`, a repository file, or `~/.ssh/*`.
+    """
+    if output_file is None:
+        return None
+
+    try:
+        candidate = output_file if isinstance(output_file, Path) else Path(str(output_file))
+        resolved = candidate.resolve()
+
+        if tasks_root is not None:
+            root = Path(tasks_root).resolve()
+            resolved.relative_to(root)
+            if not resolved.is_file():
+                return None
+            return resolved
+
+        roots = default_spawn_output_roots()
+        if not any(_is_relative_to(resolved, root) for root in roots):
+            return None
+        if SPAWN_TASKS_DIR_NAME not in resolved.parts:
+            return None
+        if not resolved.is_file():
+            return None
+        return resolved
+    except Exception:
+        return None
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    """``Path.is_relative_to`` back-port (Python 3.9+ has it natively, but
+    guard against older stdlib behaviour differences by implementing it
+    directly). Never raises — any failure is treated as "not relative"."""
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
 def _stream_spawn_output(path: Path) -> dict:
     """Stream a spawn output JSONL file once, returning the raw structured
     data both :func:`read_completed_spawn` and :func:`classify_pending_reason`
@@ -653,11 +758,16 @@ def classify_pending_reason(row: dict) -> str:
         return "file-empty"
 
 
-def read_completed_spawn(output_file: "str | Path | None") -> "dict | None":
+def read_completed_spawn(
+    output_file: "str | Path | None",
+    *,
+    tasks_root: "Path | str | None" = None,
+) -> "dict | None":
     """Read a spawned agent's own JSONL output file (INFRA-258).
 
     Returns ``None`` when the spawn is not yet complete, the file is
-    unreadable/missing/empty, or no usage data is found. Otherwise returns a
+    unreadable/missing/empty, no usage data is found, or *output_file* is not
+    a contained spawn-output path (CER-089 — see below). Otherwise returns a
     dict with ``tokens_in``, ``tokens_out``, ``tokens_total``,
     ``cache_read_tokens``, ``cache_write_tokens``, ``duration_ms``,
     ``model``, ``outcome``, ``fail_cause``, ``final_text``.
@@ -669,15 +779,25 @@ def read_completed_spawn(output_file: "str | Path | None") -> "dict | None":
     a nonexistent path all yield ``None`` — an in-flight agent is never
     reconciled.
 
-    Public signature and return shape unchanged from pre-CER-091 (other
-    callers and INFRA-258's own tests depend on both); internally this now
-    delegates its file walk to :func:`_stream_spawn_output`, the same reader
+    CER-089 containment: before anything is opened, *output_file* is routed
+    through :func:`_contained_spawn_output` (default rule when *tasks_root*
+    is ``None``: temp-root-contained with a ``tasks`` path component; strict
+    ``tasks_root`` containment otherwise). A rejected path returns ``None``
+    immediately — no ``open()`` call is ever made on it. The failure mode
+    this creates: an ``output_file`` value that fails containment leaves its
+    ``effort.db`` row pending forever (the same shape as an evicted `/tmp`
+    file) — a future reader debugging a stuck row should look here.
+
+    Public signature (besides the new keyword-only ``tasks_root``) and
+    return shape unchanged from pre-CER-091 (other callers and INFRA-258's
+    own tests depend on both); internally this now delegates its file walk
+    to :func:`_stream_spawn_output`, the same reader
     :func:`classify_pending_reason` uses (CER-091 defect 3). Never raises.
     """
     try:
-        if output_file is None:
+        path = _contained_spawn_output(output_file, tasks_root=tasks_root)
+        if path is None:
             return None
-        path = output_file if isinstance(output_file, Path) else Path(output_file)
 
         data = _stream_spawn_output(path)
         if not data["exists"] or data["line_cap_exceeded"]:
@@ -897,6 +1017,8 @@ def reconcile_pending_attempts(
     limit: int = RECONCILE_MAX_ROWS,
     home: "Path | None" = None,
     include_quiescent: bool = False,
+    max_age_days: "int | None" = None,
+    tasks_root: "Path | str | None" = None,
 ) -> int:
     """Sweep pending (``tokens_total IS NULL OR outcome IS NULL``) rows and
     reconcile the completed ones (INFRA-258, CER-091).
@@ -905,6 +1027,21 @@ def reconcile_pending_attempts(
     ``effort_tracking`` is ``true``. Fetches at most *limit* pending rows via
     ``effort_db.pending_reconcilable``, calls ``read_completed_spawn`` on
     each, and writes the completed ones back via ``effort_db.reconcile_attempt``.
+
+    *max_age_days* (CER-088): ``None`` (the default) means "use
+    :data:`RECONCILE_MAX_AGE_DAYS`" — the sweep is always bounded; an
+    explicitly-passed value overrides it. This is deliberately unlike
+    ``effort_db.pending_reconcilable``'s own default (off) — that shared
+    query is also used by diagnostics (e.g. INFRA-264's pending-row
+    diagnostic) that must keep seeing permanently-pending rows, since
+    surfacing them is their entire purpose. Only this sweep, which cannot
+    act on a permanently-pending row anyway, opts into the bound.
+
+    *tasks_root* (CER-089) is forwarded to every :func:`read_completed_spawn`
+    call this sweep makes. Its default (``None``) means "use the default
+    allow-rule" — production behaviour is unchanged except that an
+    uncontained ``output_file`` is now skipped (left pending) instead of
+    opened.
 
     A ``read_completed_spawn`` result whose ``outcome`` is ``None`` is
     skipped for the fully-terminated path — no ``reconcile_attempt`` call,
@@ -945,8 +1082,14 @@ def reconcile_pending_attempts(
         if not state or not state.get("effort_tracking"):
             return 0
 
+        resolved_max_age_days = (
+            RECONCILE_MAX_AGE_DAYS if max_age_days is None else max_age_days
+        )
+
         db_path = effort_db.resolve_effort_db_path(project_path)
-        rows = effort_db.pending_reconcilable(db_path, limit)
+        rows = effort_db.pending_reconcilable(
+            db_path, limit, max_age_days=resolved_max_age_days
+        )
 
         reconciled = 0
         for row in rows:
@@ -955,7 +1098,7 @@ def reconcile_pending_attempts(
                 continue
 
             path = output_file if isinstance(output_file, Path) else Path(str(output_file))
-            result = read_completed_spawn(path)
+            result = read_completed_spawn(path, tasks_root=tasks_root)
 
             if result is not None and result.get("outcome") is not None:
                 fields: "dict[str, Any]" = {

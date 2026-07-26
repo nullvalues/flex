@@ -274,12 +274,11 @@ def record_attempt(
         )
         sys.exit(0)
 
-    if db_path is not None:
-        resolved_db = Path(db_path)
-        if not resolved_db.is_absolute():
-            resolved_db = project_path / resolved_db
-    else:
-        resolved_db = _effort_db.resolve_effort_db_path(project_path)
+    try:
+        resolved_db = _effort_db.resolve_db_path_arg(project_path, db_path)
+    except ValueError as exc:
+        click.echo(str(exc), err=True)
+        sys.exit(2)
 
     # Auto-fill ts if omitted.
     if not ts:

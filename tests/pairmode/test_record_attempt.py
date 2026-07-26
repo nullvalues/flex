@@ -232,6 +232,23 @@ class TestDbPathResolution:
         assert result.exit_code == 0, result.output
         assert custom_db.exists()
 
+    def test_db_path_escaping_project_dir_exits_nonzero_and_writes_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        """C6: an explicit --db-path that escapes --project-dir must exit
+        non-zero and must not create a database file outside project_dir."""
+        _enable_tracking(tmp_path)
+        escaping_db = tmp_path.parent / "escape-effort.db"
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            _required_args(tmp_path) + ["--db-path", str(escaping_db)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code != 0
+        assert not escaping_db.exists()
+        assert not (tmp_path / ".companion" / "effort.db").exists()
+
 
 # ---------------------------------------------------------------------------
 # Schema integrity
