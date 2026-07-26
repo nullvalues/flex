@@ -2,7 +2,7 @@
 id: INFRA-266
 rail: INFRA
 title: "Effort-DB hardening: bounded pending_reconcilable scan, output_file containment, path-guard parity (CER-088, CER-089, CER-016)"
-status: draft
+status: complete
 phase: "104"
 story_class: code
 auth_gated: false

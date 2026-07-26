@@ -2,7 +2,7 @@
 id: INFRA-268
 rail: INFRA
 title: Document the one-iteration-per-story contract, retire the dead spawn-reviewer action, fix stub-gate quoted-text false positive (CER-074, CER-076)
-status: draft
+status: complete
 phase: "104"
 story_class: code
 auth_gated: false

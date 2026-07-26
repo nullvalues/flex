@@ -2,7 +2,7 @@
 id: INFRA-265
 rail: INFRA
 title: Thread an explicit phase key through record-checkpoint-step and checkpoint-tag (CER-077)
-status: draft
+status: complete
 phase: "104"
 story_class: code
 auth_gated: false

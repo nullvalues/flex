@@ -21,12 +21,12 @@ Make attempt recording, effort-DB integrity, and the checkpoint sequence provabl
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-263 | Fix record-attempt click alias to forward the full option set (CER-071, CER-073) | draft |
-| INFRA-264 | Fix the four async effort-recording defects from the INFRA-259 smoke test (CER-091) | draft |
-| INFRA-265 | Thread an explicit phase key through record-checkpoint-step and checkpoint-tag (CER-077) | draft |
-| INFRA-266 | Effort-DB hardening: bounded pending_reconcilable scan, output_file containment, path-guard parity (CER-088, CER-089, CER-016) | draft |
-| INFRA-267 | Stage docs/eras in commit paths, era-ledger status updates, backfill phases 96-103 (CER-082) | draft |
-| INFRA-268 | Document the one-iteration-per-story contract, retire the dead spawn-reviewer action, fix stub-gate quoted-text false positive (CER-074, CER-076) | draft |
+| INFRA-263 | Fix record-attempt click alias to forward the full option set (CER-071, CER-073) | complete |
+| INFRA-264 | Fix the four async effort-recording defects from the INFRA-259 smoke test (CER-091) | complete |
+| INFRA-265 | Thread an explicit phase key through record-checkpoint-step and checkpoint-tag (CER-077) | complete |
+| INFRA-266 | Effort-DB hardening: bounded pending_reconcilable scan, output_file containment, path-guard parity (CER-088, CER-089, CER-016) | complete |
+| INFRA-267 | Stage docs/eras in commit paths, era-ledger status updates, backfill phases 96-103 (CER-082) | complete |
+| INFRA-268 | Document the one-iteration-per-story contract, retire the dead spawn-reviewer action, fix stub-gate quoted-text false positive (CER-074, CER-076) | complete |
 
 ## Ordering
 

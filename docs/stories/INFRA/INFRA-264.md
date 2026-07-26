@@ -2,7 +2,7 @@
 id: INFRA-264
 rail: INFRA
 title: Fix the four async effort-recording defects from the INFRA-259 smoke test (CER-091)
-status: draft
+status: complete
 phase: "104"
 story_class: code
 auth_gated: false

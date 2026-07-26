@@ -2,7 +2,7 @@
 id: INFRA-267
 rail: INFRA
 title: Stage docs/eras in commit paths, era-ledger status updates, backfill phases 96-103 (CER-082)
-status: draft
+status: complete
 phase: "104"
 story_class: code
 auth_gated: false

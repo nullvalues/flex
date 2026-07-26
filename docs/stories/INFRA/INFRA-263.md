@@ -2,7 +2,7 @@
 id: INFRA-263
 rail: INFRA
 title: Fix record-attempt click alias to forward the full option set (CER-071, CER-073)
-status: draft
+status: complete
 phase: "104"
 story_class: code
 auth_gated: false
