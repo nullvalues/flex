@@ -1577,6 +1577,18 @@ Behaviour:
 - Reads and writes flex's own `.companion/state.json` (cwd-relative), not the target
   project's state.json.
 
+**CER-058 single-writer invariant (INFRA-270).** `registered_projects` has exactly one
+writer by invariant: `pairmode_register.py`'s `register`/`unregister`, named in the
+module constant `REGISTERED_PROJECTS_WRITERS`. The invariant is enforced by
+`test_registered_projects_has_a_single_writer`, which walks every `.py` file under
+`skills/`/`hooks/` and fails if any file besides those named in
+`REGISTERED_PROJECTS_WRITERS` assigns the key. Entries predating this story (including
+the `meander` entry that prompted CER-058) carry `source: unknown` in the
+`registered_projects_provenance` sidecar because their provenance is genuinely
+unrecoverable — the audit found no in-repo writer bypasses `register`, so an
+out-of-band edit of `state.json` remains the only explanation, and the invariant
+covers *code paths*, not the filesystem.
+
 ### Per-project parameterization surface (INFRA-240)
 
 The builder and reviewer procedure skills (`skills/pairmode/skills/builder/procedure.md`,
@@ -2030,6 +2042,12 @@ Fields:
   `list-projects` subcommands (INFRA-070); hand-editing `state.json` is discouraged.
   The key is created on first `register` call when absent; it is never written by
   `bootstrap.py`. Each entry is a resolved absolute path string.
+- `registered_projects_provenance` — **optional**; a sidecar dict (INFRA-270, CER-058)
+  mapping each `registered_projects` path string to `{"source": str, "registered_at":
+  iso8601}`, written by `register` in the same atomic write (`--source` defaults to
+  `"cli"`) and pruned by `unregister`. Entries with no sidecar record (pre-INFRA-270, or
+  an out-of-band `state.json` edit) audit as `source: "unknown"` via `audit-projects`
+  rather than being retroactively invented.
 
 `.companion/attempt_counter.json` is an ephemeral single-record file read by
 `flex_build.read_attempt_count` (composed by `next_action.infer_position`, RESOLVER-002).
@@ -3007,6 +3025,19 @@ era, so the pre-fold run (HARNESS006 / RELEASE-006 runbook) is what licenses the
 
 **`registered_projects` stays drift-opt-in:** the discovery tool never writes to
 `registered_projects`. Manual seeding from discovery results is allowed; forced sync is not.
+
+**Signal-1 absence is diagnosable (INFRA-270, CER-059a).** A bare `absent` boolean
+conflated three different situations, so `signal1_absence_reason()` classifies why
+Signal 1 is absent into four reason codes surfaced in the CLI, `--json`, and the
+snapshot: `no-build-md` (not a pairmode project), `no-declaration` (the expected 0.2.x
+shape — a `pairmode_scripts_dir` key-value line is only written by `sync-all --apply` at
+0.3.0 migration, so a zero-hit result across a 0.2.x fleet is correct, not a bug),
+`inline-only` (the project's build loop shells out to THIS checkout's scripts inline —
+bound today and breaks at the fold despite firing neither signal), and
+`foreign-checkout` (a `pairmode_scripts_dir` declaration resolving under a *different*
+flex checkout — a genuine mis-binding to investigate). `discover()` now includes
+`inline-only`/`foreign-checkout` projects (`binding: "inline"`/`"foreign"`) that
+previously fired no signal and were invisible to the pre-fold blast-radius gate.
 
 CLI:
 ```bash

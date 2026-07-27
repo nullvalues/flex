@@ -422,6 +422,219 @@ class TestJsonAndTextOutputDuplicateHooks:
         )
 
 
+class TestSignal1AbsenceReason:
+    """CER-059(a): signal1_absence_reason classifies why Signal 1 is absent."""
+
+    def test_none_when_signal1_matched(self, fleet: dict) -> None:
+        reason, detail = fd.signal1_absence_reason(fleet["proj_a"])
+        assert reason is None
+        assert detail is None
+
+    def test_no_build_md(self, tmp_path: Path) -> None:
+        proj = tmp_path / "no_build_md_project"
+        proj.mkdir()
+        reason, detail = fd.signal1_absence_reason(proj)
+        assert reason == fd.SIGNAL1_ABSENT_NO_BUILD_MD
+        assert detail is None
+
+    def test_no_declaration(self, fleet: dict) -> None:
+        # proj_d has a CLAUDE.build.md with no pairmode_scripts_dir and no
+        # inline mention of this checkout's identity.
+        reason, detail = fd.signal1_absence_reason(fleet["proj_d"])
+        assert reason == fd.SIGNAL1_ABSENT_NO_DECLARATION
+        assert detail is None
+
+    def test_inline_only(self, fleet: dict, tmp_path: Path) -> None:
+        """A project whose CLAUDE.build.md embeds this checkout's scripts path
+        only inline (no key-value pairmode_scripts_dir declaration)."""
+        proj = tmp_path / "inline_bound_project"
+        proj.mkdir()
+        (proj / "CLAUDE.build.md").write_text(
+            f"# Build\n\nRun: uv run python {fd._THIS_SCRIPTS_DIR}/flex_build.py next-action\n",
+            encoding="utf-8",
+        )
+        reason, detail = fd.signal1_absence_reason(proj)
+        assert reason == fd.SIGNAL1_ABSENT_INLINE_ONLY
+        assert detail == str(fd._THIS_SCRIPTS_DIR)
+
+        # And _check_signal1 (unwidened contract) still reports absent.
+        matched, value = fd._check_signal1(proj)
+        assert matched is False
+        assert value is None
+
+    def test_foreign_checkout(self, fleet: dict, tmp_path: Path) -> None:
+        """A pairmode_scripts_dir declaration that resolves under neither this
+        checkout's scripts dir nor its flex root."""
+        other_checkout = tmp_path / "some_other_flex" / "skills" / "pairmode" / "scripts"
+        other_checkout.mkdir(parents=True)
+        proj = tmp_path / "foreign_bound_project"
+        proj.mkdir()
+        (proj / "CLAUDE.build.md").write_text(
+            f"# Build\n\npairmode_scripts_dir = {other_checkout}\n",
+            encoding="utf-8",
+        )
+        reason, detail = fd.signal1_absence_reason(proj)
+        assert reason == fd.SIGNAL1_ABSENT_FOREIGN_CHECKOUT
+        assert detail == str(other_checkout)
+
+    def test_does_not_write(self, fleet: dict, tmp_path: Path) -> None:
+        before = _record_mtimes(tmp_path)
+        fd.signal1_absence_reason(fleet["proj_a"])
+        fd.signal1_absence_reason(fleet["proj_d"])
+        after = _record_mtimes(tmp_path)
+        for path, mtime in before.items():
+            assert after.get(path) == mtime
+        # No new files created either.
+        assert set(after.keys()) == set(before.keys())
+
+    def test_never_raises_on_unreadable_build_md(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        proj = tmp_path / "unreadable_project"
+        proj.mkdir()
+        (proj / "CLAUDE.build.md").write_text("pairmode_scripts_dir = /x\n", encoding="utf-8")
+
+        real_read_text = Path.read_text
+
+        def _boom(self, *a, **kw):
+            if self.name == "CLAUDE.build.md":
+                raise OSError("simulated read failure")
+            return real_read_text(self, *a, **kw)
+
+        monkeypatch.setattr(Path, "read_text", _boom)
+        reason, detail = fd.signal1_absence_reason(proj)
+        assert reason == fd.SIGNAL1_ABSENT_NO_BUILD_MD
+        assert detail is None
+
+
+# ---------------------------------------------------------------------------
+# B4/B5/B6/B7 — discover()/CLI/snapshot carry the absence reason
+# ---------------------------------------------------------------------------
+
+class TestDiscoverSignal1AbsentReason:
+    def test_matched_signal1_has_none_reason(self, fleet: dict) -> None:
+        results = fd.discover([fleet["proj_a"]])
+        r = results[0]
+        assert r["signal1_absent_reason"] is None
+        assert r["signal1_absent_detail"] is None
+
+    def test_existing_classifications_unperturbed(self, fleet: dict) -> None:
+        """B5: pre-existing bindings keep their exact classification strings."""
+        assert fd.discover([fleet["proj_a"]])[0]["binding"] == "scripts"
+        assert fd.discover([fleet["proj_b"]])[0]["binding"] == "version"
+        assert fd.discover([fleet["proj_c"]])[0]["binding"] == "both"
+
+    def test_no_signal_no_declaration_still_skipped(self, fleet: dict) -> None:
+        """proj_d fires neither signal and its reason is no-declaration — still skipped."""
+        results = fd.discover([fleet["proj_d"]])
+        assert results == []
+
+    def test_inline_only_project_now_included(self, fleet: dict, tmp_path: Path) -> None:
+        proj = tmp_path / "inline_bound_project"
+        proj.mkdir()
+        (proj / "CLAUDE.build.md").write_text(
+            f"# Build\n\nRun: uv run python {fd._THIS_SCRIPTS_DIR}/flex_build.py next-action\n",
+            encoding="utf-8",
+        )
+        results = fd.discover([proj])
+        assert len(results) == 1
+        r = results[0]
+        assert r["signal1"] is False
+        assert r["signal2"] is False
+        assert r["binding"] == "inline"
+        assert r["signal1_absent_reason"] == fd.SIGNAL1_ABSENT_INLINE_ONLY
+
+    def test_foreign_checkout_project_now_included(self, fleet: dict, tmp_path: Path) -> None:
+        other_checkout = tmp_path / "some_other_flex" / "skills" / "pairmode" / "scripts"
+        other_checkout.mkdir(parents=True)
+        proj = tmp_path / "foreign_bound_project"
+        proj.mkdir()
+        (proj / "CLAUDE.build.md").write_text(
+            f"# Build\n\npairmode_scripts_dir = {other_checkout}\n",
+            encoding="utf-8",
+        )
+        results = fd.discover([proj])
+        assert len(results) == 1
+        r = results[0]
+        assert r["signal1"] is False
+        assert r["signal2"] is False
+        assert r["binding"] == "foreign"
+        assert r["signal1_absent_reason"] == fd.SIGNAL1_ABSENT_FOREIGN_CHECKOUT
+
+
+class TestCliSignal1AbsentReason:
+    def test_text_output_includes_reason(self, fleet: dict, tmp_path: Path) -> None:
+        from click.testing import CliRunner
+
+        proj = tmp_path / "inline_bound_project"
+        proj.mkdir()
+        (proj / "CLAUDE.build.md").write_text(
+            f"# Build\n\nRun: uv run python {fd._THIS_SCRIPTS_DIR}/flex_build.py next-action\n",
+            encoding="utf-8",
+        )
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli, ["--candidate-dir", str(proj), "--no-snapshot"], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert "signal1 (scripts path): absent" in result.output
+        assert fd.SIGNAL1_ABSENT_INLINE_ONLY in result.output
+
+    def test_json_output_includes_new_keys(self, fleet: dict) -> None:
+        from click.testing import CliRunner
+
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli, ["--candidate-dir", str(fleet["proj_b"]), "--json", "--no-snapshot"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        entry = payload["fleet"][0]
+        assert "signal1_absent_reason" in entry
+        assert "signal1_absent_detail" in entry
+
+
+class TestSnapshotSignal1AbsentReason:
+    def test_snapshot_appends_reason_as_suffix(self, fleet: dict, tmp_path: Path) -> None:
+        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+        results = fd.discover([fleet["proj_b"]])  # signal1 absent, no-declaration path
+        fd._write_snapshot(results, dest)
+        content = dest.read_text()
+        assert "Signal 1 (scripts path):** absent" in content
+
+    def test_snapshot_reason_text_present_for_inline(self, fleet: dict, tmp_path: Path) -> None:
+        proj = tmp_path / "inline_bound_project"
+        proj.mkdir()
+        (proj / "CLAUDE.build.md").write_text(
+            f"# Build\n\nRun: uv run python {fd._THIS_SCRIPTS_DIR}/flex_build.py next-action\n",
+            encoding="utf-8",
+        )
+        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+        results = fd.discover([proj])
+        fd._write_snapshot(results, dest)
+        content = dest.read_text()
+        assert "Signal 1 (scripts path):** absent" in content
+        assert fd.SIGNAL1_ABSENT_INLINE_ONLY in content
+
+
+# ---------------------------------------------------------------------------
+# D4 — legacy state.json (no provenance sidecar) reads correctly
+# ---------------------------------------------------------------------------
+
+class TestLegacyStateCompat:
+    def test_read_registered_projects_handles_pre_infra270_state(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_flex_root = tmp_path / "legacy_flex"
+        (fake_flex_root / ".companion").mkdir(parents=True)
+        (fake_flex_root / ".companion" / "state.json").write_text(
+            json.dumps({"registered_projects": ["/mnt/work/coherra", "/mnt/work/caddy"]}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(fd, "_FLEX_ROOT", fake_flex_root)
+        projects = fd._read_registered_projects()
+        assert [str(p) for p in projects] == ["/mnt/work/coherra", "/mnt/work/caddy"]
+
+
 class TestSnapshotDuplicateHooksSection:
     def test_snapshot_has_duplicate_hooks_section(
         self, project_with_duplicate_hooks: Path, fleet: dict

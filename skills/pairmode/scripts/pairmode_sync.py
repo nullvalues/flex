@@ -1181,12 +1181,14 @@ pairmode_cli.add_command(sync_build)
 pairmode_cli.add_command(sync_all)
 pairmode_cli.add_command(audit_hooks)
 
-# Register the register/unregister/list-projects commands from pairmode_register.py
-from pairmode_register import register, unregister, list_projects  # noqa: E402
+# Register the register/unregister/list-projects/audit-projects commands
+# from pairmode_register.py
+from pairmode_register import register, unregister, list_projects, audit_projects  # noqa: E402
 
 pairmode_cli.add_command(register)
 pairmode_cli.add_command(unregister)
 pairmode_cli.add_command(list_projects)
+pairmode_cli.add_command(audit_projects)
 
 
 if __name__ == "__main__":
