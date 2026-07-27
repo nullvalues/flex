@@ -55,4 +55,42 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-105 Cold-eyes checklist
 
-— developer fills in after phase completion —
+Filled by the orchestrator at cp-105 (2026-07-27).
+
+- **CER-081 closed (INFRA-269):** registrar dedupe (`_find_all_entries_by_command_basename`,
+  `_prune_stale_hook_entries`) wired into both bootstrap registrars so stale same-basename
+  sibling hook entries are pruned on every write; `pairmode_sync.py audit-hooks`
+  (dry-run/`--apply`) reuses the same prune helper; `fleet_discovery.py` surfaces a
+  read-only `duplicate_hooks` signal in `discover()`/`--json`/text/snapshot.
+- **CER-058/059 closed (INFRA-270):** single-writer invariant test and provenance sidecar
+  (`source`/`registered_at`, `audit-projects` CLI) for `registered_projects`; Signal-1
+  absence classifier (`signal1_absence_reason`, four reason codes) threaded through
+  discovery CLI and snapshot; CER-059(b)/(c) verified as already-correct.
+- **CER-080/087 closed (INFRA-271):** scope-guard staleness ageing
+  (`STATE_STORY_MAX_AGE_HOURS`, `entry_is_fresh`, `stale` resolution source) plus
+  harness-owned out-of-root allow-list (`harness_owned_prefixes`/`_out_of_root_decision`);
+  `flex_build.py clear-stale-stories` operator CLI. One justified builder self-expansion
+  (collateral fixture fix in `test_pre_tool_use_hook.py`, verified non-reproducing on
+  clean HEAD) upheld at review.
+- **CER-040/041 closed (INFRA-272):** fail-open stderr signalling
+  (`_FAIL_OPEN_PREFIX`/`_warn_fail_open`/`_staleness_unverifiable_reason`) on all
+  context-budget pass-through branches and the hook's blanket except; dead CER-041 TTL
+  removed end-to-end; observability route gained `gate_stale`/`DISPLAY_STALE_SECONDS`.
+  `hooks/pre_tool_use.py` touch was declared in `touches` and passed the hook-performance
+  check (stderr print on exception path only).
+- **RELEASE-062 (channel canon, 3 attempts):** spec-writer returned `revised` (stub had
+  no `primary_files`, empty `touches`; operator populated). Attempt 1 (haiku) missed
+  RELEASE-018.md/phase-HARNESS016-main.md entirely (E3); attempt 2 (haiku) annotated
+  RELEASE-018 but left its live teardown directive intact; attempt 3 (sonnet, manual
+  escalation) neutralized the body as historical-record blockquotes — E3 grep now clean,
+  every remaining teardown hit sits inside a superseded/historical note.
+- **Gates:** security PASS (0 findings at any severity). Intent ALIGNED (all five stories
+  trace to spec; seven CERs closed with matching backlog annotations). Docs PASS on second
+  run (first run failed on missing CHANGELOG entry, added at checkpoint as
+  `docs(phase-105)` — same pattern as cp-109).
+- **Known process gaps this checkpoint:** story statuses again flipped post-merge by the
+  orchestrator (same as cp-104/cp-109); checkpoint-report again printed "no attempts
+  recorded" for the whole phase (CER-101, still open); NEW: the FAIL escalation ladder
+  never engaged across RELEASE-062's two reviewer FAILs — attempt counter never bumped,
+  resolver kept prescribing haiku attempt 1 — filed as **CER-102** (likely CER-101-adjacent).
+- **New backlog from this phase:** CER-102 (dead FAIL-escalation ladder in the live loop).
