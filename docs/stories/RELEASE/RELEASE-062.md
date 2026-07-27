@@ -2,7 +2,7 @@
 id: RELEASE-062
 rail: RELEASE
 title: Canonize the permanent release channel: retire RELEASE-061, rewrite RELEASE-060, amend runbook final-fold steps
-status: draft
+status: complete
 phase: "105"
 story_class: doc
 auth_gated: false

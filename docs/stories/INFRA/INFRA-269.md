@@ -2,7 +2,7 @@
 id: INFRA-269
 rail: INFRA
 title: Hook-registration dedupe with audit subcommand and DP8 duplicate-hook check (CER-081)
-status: draft
+status: complete
 phase: "105"
 story_class: code
 auth_gated: false

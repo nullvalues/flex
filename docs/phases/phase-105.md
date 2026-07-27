@@ -21,11 +21,11 @@ De-risk the fleet campaign: hook-registration dedupe, discovery accuracy, scope-
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-269 | Hook-registration dedupe with audit subcommand and DP8 duplicate-hook check (CER-081) | draft |
-| INFRA-270 | Audit registered_projects writers and fix Signal-1 false negatives (CER-058, CER-059) | draft |
-| INFRA-271 | Scope-guard campaign readiness: stale current_story clear, idle-checkout tolerance, harness-owned write allow-list (CER-080, CER-087) | draft |
-| INFRA-272 | Context-state hygiene: surface context_budget fail-open, clear token-staleness residue (CER-040, CER-041) | draft |
-| RELEASE-062 | Canonize the permanent release channel: retire RELEASE-061, rewrite RELEASE-060, amend runbook final-fold steps | draft |
+| INFRA-269 | Hook-registration dedupe with audit subcommand and DP8 duplicate-hook check (CER-081) | complete |
+| INFRA-270 | Audit registered_projects writers and fix Signal-1 false negatives (CER-058, CER-059) | complete |
+| INFRA-271 | Scope-guard campaign readiness: stale current_story clear, idle-checkout tolerance, harness-owned write allow-list (CER-080, CER-087) | complete |
+| INFRA-272 | Context-state hygiene: surface context_budget fail-open, clear token-staleness residue (CER-040, CER-041) | complete |
+| RELEASE-062 | Canonize the permanent release channel: retire RELEASE-061, rewrite RELEASE-060, amend runbook final-fold steps | complete |
 
 ## Ordering
 

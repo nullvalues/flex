@@ -2,7 +2,7 @@
 id: INFRA-271
 rail: INFRA
 title: "Scope-guard campaign readiness: stale current_story clear, idle-checkout tolerance, harness-owned write allow-list (CER-080, CER-087)"
-status: draft
+status: complete
 phase: "105"
 story_class: code
 auth_gated: false

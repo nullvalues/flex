@@ -2,7 +2,7 @@
 id: INFRA-272
 rail: INFRA
 title: "Context-state hygiene: surface context_budget fail-open, clear token-staleness residue (CER-040, CER-041)"
-status: draft
+status: complete
 phase: "105"
 story_class: code
 auth_gated: false

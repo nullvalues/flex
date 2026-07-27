@@ -2,7 +2,7 @@
 id: INFRA-270
 rail: INFRA
 title: Audit registered_projects writers and fix Signal-1 false negatives (CER-058, CER-059)
-status: draft
+status: complete
 phase: "105"
 story_class: code
 auth_gated: false
