@@ -359,3 +359,298 @@ step 1 rather than trusting this note.
   fleet. If that is wanted after the canary, it is a new story informed by E10 —
   not a shortcut taken during the run that was supposed to evaluate the manual
   procedure.
+
+
+## Evidence
+
+Recorded live during orchestrator-level execution with the operator present,
+2026-07-27. Pairmode CLIs invoked exclusively from
+`/mnt/work/flex-harness/skills/pairmode/scripts` (the permanent release channel).
+
+### Precondition resolution (operator, pre-E1)
+
+meander's tree was dirty at step 1 (stop condition): `D .companion/attempt_counter.json`,
+`M .companion/effort.db`, `M .companion/state.json`, `M docs/phases/index.md`, untracked
+`docs/phases/phase-MN030-main.md` + `docs/stories/INFRA/INFRA-012.md`. Operator chose
+discard (`git checkout -- . && git clean -fd`); committed index verified free of
+references to the removed files, leaving meander as-if rolled back to `12a967d`.
+
+### E1 — pre-migration baseline
+
+Command: `uv run python /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py --candidate-dir /mnt/work/meander --no-snapshot`
+(plus `git -C /mnt/work/meander log --oneline -5` and `status --porcelain`; status printed nothing = clean)
+
+```
+Flex checkout: /mnt/work/flex-harness
+Candidates scanned: 16
+Bound projects found: 16
+
+  /mnt/work/aab
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/asp
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/base56
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+  /mnt/work/caddy
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+  /mnt/work/coherra
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/cora
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.1.0
+  /mnt/work/forqsite
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/forqsite.help
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+  /mnt/work/halfhorse
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+  /mnt/work/lumin
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+  /mnt/work/meander
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+  /mnt/work/pokus
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+  /mnt/work/radar
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/rockue
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/stackabid
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/ud
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+Projects with duplicate hooks: 0
+12a967d fix(phase-proposed): correct pairmode tooling path to flex-harness, not flex
+75fabde docs(phase-proposed): propose pairmode 0.3.0 migration
+8f2b410 chore(orchestrator): pairmode fleet rollout — wire context-budget-gate hooks (INFRA-209)
+725e056 chore(checkpoint): record cp-MN026-main summary in checkpoints.md
+4376d7a chore(checkpoint): Phase MN026-main intent review + doc updates
+```
+
+### E2 / E3 — post-migration discovery (same command form)
+
+```
+Flex checkout: /mnt/work/flex-harness
+Candidates scanned: 16
+Bound projects found: 16
+
+  /mnt/work/aab
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/asp
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/base56
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+  /mnt/work/caddy
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+  /mnt/work/coherra
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/cora
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.1.0
+  /mnt/work/forqsite
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/forqsite.help
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+  /mnt/work/halfhorse
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+  /mnt/work/lumin
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+  /mnt/work/meander
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/pokus
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+  /mnt/work/radar
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/rockue
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/stackabid
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+  /mnt/work/ud
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+Projects with duplicate hooks: 0
+```
+
+meander: `binding: both`, signal1 `/mnt/work/flex-harness/skills/pairmode/scripts`,
+signal2 `0.3.0`; `Projects with duplicate hooks: 0` (E3 single-block).
+
+### E4 — thin-harness template check
+
+```
+$ grep -c "flex_build.py next-action" /mnt/work/meander/CLAUDE.build.md
+2
+$ head -5 /mnt/work/meander/CLAUDE.build.md
+# CLAUDE.build.md — meander Build Orchestrator
+
+You are the build orchestrator for the meander project. Drive the build loop by
+delegating to `/mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py next-action` and the appropriate leaf worker. Do not write code,
+review code, or commit directly — those are leaf-worker responsibilities.
+```
+
+sync-build diff replaced the 1054-line 0.2 prose loop with the 13-line thin dispatcher
+(`@@ -1,1054 +1,13 @@` in the sync-all apply output).
+
+### E5 — proving story cycle
+
+Story: **LEGAL-001** ("Commit project LICENSE"), meander's own numbering, resolved by
+meander's own loop (`flex_build.py next-action --project-dir /mnt/work/meander` →
+`spawn-spec-writer LEGAL-001`, then `spawn-builder LEGAL-001 sonnet auto-baseline`).
+Full cycle ran: spec-writer (returned `revised` — operator license decision required;
+operator decided AGPL-3.0 whole-repo live, recorded in the spec) → story worktree →
+builder PASS → reviewer PASS (10/10 checks, worker suite 726 passed / 0 failed) →
+`merge-story-worktree` landed `5af2cb5 feat(story-LEGAL-001)` on meander main.
+Real, genuinely-wanted work: closes the legal gate skipped before meander Era 003.
+
+### E6 — effort.db attempt rows: **FAIL (stop condition)**
+
+```
+$ sqlite3 /mnt/work/meander/.companion/effort.db \
+    "SELECT * FROM attempts WHERE story_id='LEGAL-001'"
+rows for LEGAL-001: 0
+```
+
+The rows exist — but in **flex's** effort.db (session-project misattribution):
+
+```
+(420, 'LEGAL-001', 'reviewer', None, None, None, '2026-07-27T18:16:02.618301+00:00')
+(419, 'LEGAL-001', 'builder', 'sonnet', None, None, '2026-07-27T18:13:14.512095+00:00')
+```
+
+Both rows also show `tokens_total`/`outcome` NULL (CER-101 pending-reconciliation
+pattern). Zero rows in meander's db = E6 fail as specified. Caveat recorded under
+Playbook notes: the proving cycle was executed from the flex orchestrator session,
+so the recording hooks in play were flex's session hooks; a native meander session
+may record correctly — untested in this run.
+
+### E7 — meander migration commits
+
+```
+$ git -C /mnt/work/meander log --oneline -4
+5af2cb5 feat(story-LEGAL-001): commit project LICENSE (AGPL-3.0, whole repo)
+221313a spec(LEGAL-001): elaborate spec; record operator license decision (AGPL-3.0 whole repo)
+1adb2ac sync: migrate to pairmode 0.3.0 thin-harness loop
+12a967d fix(phase-proposed): correct pairmode tooling path to flex-harness, not flex
+```
+
+### E8 / E9 — cleanliness
+
+```
+$ git -C /mnt/work/flex diff --name-only          # (before this Evidence write)
+$ git -C /mnt/work/flex status --porcelain
+$ git -C /mnt/work/flex-harness status --porcelain
+```
+All three printed nothing. Post-write, the flex diff is this file only, as required.
+
+### E12 — flex suite
+
+```
+$ uv run pytest tests/pairmode/ -q
+3936 passed, 211 skipped, 14 warnings in 166.13s (0:02:46)
+```
+
+(The known CER-090 environmental failure did not appear.)
+
+### Playbook notes (E10)
+
+1. **Dirty-tree stop condition is real and the runbook has no step for it.** The
+   mechanic assumes a clean tree; meander had uncommitted session residue. Resolution
+   (discard + verify index consistency) was an operator call outside the runbook.
+2. **Runbook step-5 command form is wrong**: it says `fleet_discovery.py discover
+   --project-dir P`; the actual CLI has no `discover` subcommand and takes
+   `--candidate-dir` (repeatable). Used `--candidate-dir /mnt/work/meander`.
+3. **Runbook step-6 commit ordering conflicts with the 0.3.0 worktree loop**: the
+   proving story's worktree snapshots git HEAD, so the sync/migration changes must be
+   committed *before* the proving cycle, not after as written. Migration committed as
+   its own commit (`1adb2ac`) first.
+4. **`to-030` agent-cleanup output is noise**: it flags all five freshly-synced 0.3.0
+   agent files as "content differs from known 0.2.x template (or allowlist not
+   populated). Manual porting required" while admitting the 0.2.x template is
+   "(not available)". No action was needed; new adopters will be confused.
+5. **`sync-all --apply` leaves `.companion/state.json.lock` behind** (INFRA-285
+   advisory lock artifact) — transient, must not be committed; removed by hand.
+6. **`expected_step_tokens=53416` kept** by to-030 with a WARN (custom value, not the
+   Era 2 stamp) — accepted as-is.
+7. **Auto-mode permission classifier blocked the first `sync-all --apply`** (out-of-repo
+   write from the flex session); operator toggled auto mode off and the retry ran with
+   normal prompting. Follow-on stories driven from flex sessions will hit the same wall.
+8. **E6 execution-mode ambiguity**: attempt recording is session-hook-bound, so a
+   canary driven from a flex session cannot land rows in meander's effort.db even
+   when everything works. Either the campaign accepts flex-side attribution, or the
+   proving cycle must run in a native meander session, or the recorder must key on
+   the spawn's target project. Operator decision needed before RELEASE-064..070.
+
+### Follow-ups filed, not fixed here (E11)
+
+- **CER follow-up (to file): effort-recording attribution** — hook records attempt rows
+  into the session project's effort.db, keyed neither on the spawn's cwd nor
+  `--project-dir`; cross-repo campaign work is therefore invisible to the consumer
+  project's db (this canary: LEGAL-001 rows 419/420 in flex's db, zero in meander's).
+  Related: CER-101 (NULL tokens/outcome pending reconciliation), CER-102 (dead FAIL
+  escalation), and the row-416 curiosity (`story_id='phase:key'` — phase-attribution
+  parses the spawn prompt loosely).
+- **Runbook amendments (to file)**: fix step-5 command form; add dirty-tree
+  precondition step; reorder step-6 commit before the proving cycle for 0.3.0
+  worktree loops; document the state.json.lock artifact and agent-cleanup noise.
+
+**Campaign gate (Instructions step 8): E6 FAILED. RELEASE-064..070 are BLOCKED
+pending operator decision on Playbook note 8.**
