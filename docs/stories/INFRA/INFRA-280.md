@@ -2,7 +2,7 @@
 id: INFRA-280
 rail: INFRA
 title: "Resolver in-flight claim: next-action skips stories with a live worktree, claim semantics documented (CER-095.1)"
-status: draft
+status: complete
 phase: "109"
 story_class: code
 auth_gated: false

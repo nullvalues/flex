@@ -2,7 +2,7 @@
 id: INFRA-283
 rail: INFRA
 title: Phase-keyed checkpoint step state on top of INFRA-265's explicit phase key (CER-095.4)
-status: draft
+status: complete
 phase: "109"
 story_class: code
 auth_gated: false

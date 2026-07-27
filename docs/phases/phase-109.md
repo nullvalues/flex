@@ -21,13 +21,13 @@ Restore the intended single-orchestrator parallel story/phase build capability b
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-280 | Resolver in-flight claim: next-action skips stories with a live worktree, claim semantics documented (CER-095.1) | draft |
-| INFRA-281 | Story-keyed current_story and scope_guard resolution; merge/discard clear only their own key (CER-095.2) | draft |
-| INFRA-282 | Story-keyed attempt counter with per-key escalation and E9 guard compatibility (CER-095.3) | draft |
-| INFRA-283 | Phase-keyed checkpoint step state on top of INFRA-265's explicit phase key (CER-095.4) | draft |
-| INFRA-284 | effort.db concurrency: WAL, busy_timeout, atomic attempt-number derivation, sweep ownership and cursor (CER-096) | draft |
-| INFRA-285 | Side-session safety: session-scoped context accounting, atomic state writers, advisory state lock (CER-097) | draft |
-| INFRA-286 | Merge robustness: return-code checks, failed-merge cleanup contract, merge serialization; amend serialism doc debt (CER-098) | draft |
+| INFRA-280 | Resolver in-flight claim: next-action skips stories with a live worktree, claim semantics documented (CER-095.1) | complete |
+| INFRA-281 | Story-keyed current_story and scope_guard resolution; merge/discard clear only their own key (CER-095.2) | complete |
+| INFRA-282 | Story-keyed attempt counter with per-key escalation and E9 guard compatibility (CER-095.3) | complete |
+| INFRA-283 | Phase-keyed checkpoint step state on top of INFRA-265's explicit phase key (CER-095.4) | complete |
+| INFRA-284 | effort.db concurrency: WAL, busy_timeout, atomic attempt-number derivation, sweep ownership and cursor (CER-096) | complete |
+| INFRA-285 | Side-session safety: session-scoped context accounting, atomic state writers, advisory state lock (CER-097) | complete |
+| INFRA-286 | Merge robustness: return-code checks, failed-merge cleanup contract, merge serialization; amend serialism doc debt (CER-098) | complete |
 
 **Position note:** numbered 109 (scaffolded 2026-07-25, after 105–108 already existed) but
 index-ordered directly after 104 — it builds between cp-104 and phase 105. The full

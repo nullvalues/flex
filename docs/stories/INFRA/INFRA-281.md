@@ -2,7 +2,7 @@
 id: INFRA-281
 rail: INFRA
 title: Story-keyed current_story and scope_guard resolution; merge/discard clear only their own key (CER-095.2)
-status: draft
+status: complete
 phase: "109"
 story_class: code
 auth_gated: false

@@ -2,7 +2,7 @@
 id: INFRA-286
 rail: INFRA
 title: "Merge robustness: return-code checks, failed-merge cleanup contract, merge serialization; amend serialism doc debt (CER-098)"
-status: draft
+status: complete
 phase: "109"
 story_class: code
 auth_gated: false

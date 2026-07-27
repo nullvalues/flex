@@ -2,7 +2,7 @@
 id: INFRA-284
 rail: INFRA
 title: "effort.db concurrency: WAL, busy_timeout, atomic attempt-number derivation, sweep ownership and cursor (CER-096)"
-status: draft
+status: complete
 phase: "109"
 story_class: code
 auth_gated: false

@@ -2,7 +2,7 @@
 id: INFRA-285
 rail: INFRA
 title: "Side-session safety: session-scoped context accounting, atomic state writers, advisory state lock (CER-097)"
-status: draft
+status: complete
 phase: "109"
 story_class: code
 auth_gated: false

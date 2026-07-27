@@ -2,7 +2,7 @@
 id: INFRA-282
 rail: INFRA
 title: Story-keyed attempt counter with per-key escalation and E9 guard compatibility (CER-095.3)
-status: draft
+status: complete
 phase: "109"
 story_class: code
 auth_gated: false
