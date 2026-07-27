@@ -142,6 +142,84 @@ class TestCheckpointStepInPosition:
 # ---------------------------------------------------------------------------
 
 
+class TestKeyedCheckpointStepsInPosition:
+    """INFRA-283 (CER-095.4): infer_position prefers state.json["checkpoint_steps"]
+    (a dict[phase_key, list[step_id]]) as the authority, keyed by the active
+    phase's own key. Legacy behaviour, including the CER-083 stale-stamp
+    rule, survives on the legacy fallback path."""
+
+    def test_keyed_record_read_for_active_phase(self, tmp_path: Path) -> None:
+        """Assertion 14: keyed record present -> position["checkpoint_step"]
+        is the active phase's own entry."""
+        project = _write_minimal_project(
+            tmp_path,
+            {"checkpoint_steps": {"1": ["checkpoint-security", "checkpoint-intent"]}},
+        )
+        pos = infer_position(project)
+        assert pos["checkpoint_step"] == ["checkpoint-security", "checkpoint-intent"]
+
+    def test_two_phases_resolve_independently(self, tmp_path: Path) -> None:
+        """Assertion 15: with {"1": [...], "105": []} recorded and the active
+        phase file naming "1", position["checkpoint_step"] reflects "1"'s
+        own list regardless of what checkpoint_phase (if present) names."""
+        project = _write_minimal_project(
+            tmp_path,
+            {
+                "checkpoint_steps": {"1": ["checkpoint-security"], "105": []},
+                "checkpoint_phase": "105",
+            },
+        )
+        pos = infer_position(project)
+        assert pos["checkpoint_step"] == ["checkpoint-security"]
+
+    def test_keyed_record_present_but_active_phase_absent_yields_empty(
+        self, tmp_path: Path
+    ) -> None:
+        """Assertion 14: the active phase has no entry in the keyed record
+        -> []."""
+        project = _write_minimal_project(
+            tmp_path, {"checkpoint_steps": {"105": ["checkpoint-security"]}}
+        )
+        pos = infer_position(project)
+        assert pos["checkpoint_step"] == []
+
+    def test_legacy_cer083_stale_stamp_still_clears_on_mismatch(
+        self, tmp_path: Path
+    ) -> None:
+        """Assertion 16: no keyed record present -> the original cp99 ->
+        phase-100 scenario still clears on a stamp mismatch (unchanged
+        legacy fallback behaviour)."""
+        project = _write_minimal_project(
+            tmp_path,
+            {
+                "checkpoint_step": ["checkpoint-security", "checkpoint-intent"],
+                "checkpoint_phase": "99",
+            },
+        )
+        pos = infer_position(project)
+        assert pos["checkpoint_step"] == []
+
+    def test_legacy_matching_stamp_is_honoured(self, tmp_path: Path) -> None:
+        """No keyed record; stamp matches the active phase key -> the stored
+        list is trusted (legacy path, unchanged)."""
+        project = _write_minimal_project(
+            tmp_path,
+            {"checkpoint_step": ["checkpoint-security"], "checkpoint_phase": "1"},
+        )
+        pos = infer_position(project)
+        assert pos["checkpoint_step"] == ["checkpoint-security"]
+
+    def test_malformed_state_json_yields_empty_list(self, tmp_path: Path) -> None:
+        """Assertion 17: an unreadable/malformed state.json still yields []
+        and infer_position never raises."""
+        project = _write_minimal_project(tmp_path, {})
+        (project / ".companion" / "state.json").write_text(
+            "{not valid json", encoding="utf-8"
+        )
+        pos = infer_position(project)
+        assert pos["checkpoint_step"] == []
+
+
 class TestCheckpointActionVocabulary:
     def test_schema_version_is_4(self) -> None:
         """SCHEMA_VERSION must be 4 after RESOLVER-009."""

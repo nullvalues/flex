@@ -2498,22 +2498,79 @@ def cmd_resolver_state(project_dir: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# record-checkpoint-step (RESOLVER-012)
+# record-checkpoint-step (RESOLVER-012, phase-keyed per INFRA-283/CER-095.4)
 # ---------------------------------------------------------------------------
+
+# Top-level state.json key holding the phase-keyed checkpoint-step record —
+# one completed-step list per in-flight phase, so two phases checkpointing
+# under one orchestrator cannot clobber each other's progress (CER-095.4).
+_CHECKPOINT_STEPS_KEY = "checkpoint_steps"
+
+
+def _read_checkpoint_steps(state: dict) -> "dict[str, list[str]]":
+    """Return the phase-key -> completed-step-list view of *state*.
+
+    Pure: takes the already-loaded state dict, performs no file I/O and no
+    writes on any path — including when it derives the keyed view from a
+    legacy flat file (INFRA-283 assertion 2).
+
+    Two shapes are normalised:
+
+    - keyed: ``state["checkpoint_steps"]`` is a dict — kept as-is, but only
+      string keys whose value is a list survive, and each list is filtered
+      to its ``str`` members.
+    - legacy: the keyed key is absent or not a dict — derived from the flat
+      ``state["checkpoint_step"]`` / ``state["checkpoint_phase"]`` pair,
+      under the stamp when it is a non-empty string, else under the empty
+      key ``""``. Returns ``{}`` when the flat list is absent, empty, or not
+      a list.
+    """
+    steps_raw = state.get(_CHECKPOINT_STEPS_KEY)
+    if isinstance(steps_raw, dict):
+        result: dict[str, list[str]] = {}
+        for key, value in steps_raw.items():
+            if not isinstance(key, str) or not isinstance(value, list):
+                continue
+            result[key] = [item for item in value if isinstance(item, str)]
+        return result
+
+    # Legacy flat shape.
+    flat = state.get("checkpoint_step")
+    if not isinstance(flat, list) or not flat:
+        return {}
+    stamp = state.get("checkpoint_phase")
+    key = stamp if isinstance(stamp, str) and stamp != "" else ""
+    return {key: [item for item in flat if isinstance(item, str)]}
 
 
 def _record_checkpoint_step(
     step_id: str, project_dir: Path, phase_key: "str | None" = None
 ) -> int:
-    """Atomically append *step_id* to state.json["checkpoint_step"].
+    """Atomically append *step_id* to the phase-keyed checkpoint-step record.
 
-    Returns 0 on success or when step_id is already present (idempotent).
+    Returns 0 on success or when step_id is already present for the
+    resolved phase key (idempotent, per-key — INFRA-283 assertion 5).
     Returns 1 when step_id is not in _CHECKPOINT_SEQUENCE.
     Returns 2 when the phase key cannot be resolved unambiguously — see the
     precedence chain below (CER-077). No write to either ``state.json`` or
     ``docs/phases/index.md`` occurs on a 2-exit path; every validation and
     ambiguity check happens before the atomic state write and before
     ``_mark_phase_complete_in_index``.
+
+    Storage shape (INFRA-283, CER-095.4). Completed steps are stored in
+    ``state.json["checkpoint_steps"]``, a ``dict[phase_key, list[step_id]]``
+    — one entry per in-flight phase, so two phases checkpointing
+    concurrently under one orchestrator cannot silently record one
+    another's progress or wipe one another's list. ``state["checkpoint_step"]``
+    and ``state["checkpoint_phase"]`` survive as a **derived mirror**, written
+    on every call but never read to decide what to append — they exist only
+    for readers outside this fix's scope
+    (``skills/observability/api/src/readers/resolverState.ts``,
+    ``skills/observability/ui/src/api/client.ts``). A legacy-shape
+    ``state.json`` (no keyed record yet) is read correctly via
+    ``_read_checkpoint_steps`` and upgraded to the keyed shape on the next
+    successful write — there is no migration command and no bootstrap
+    change.
 
     Completing the terminal step (``checkpoint-tag``) also marks the
     resolved phase's row ``complete`` in ``docs/phases/index.md``, via
@@ -2524,7 +2581,9 @@ def _record_checkpoint_step(
     ``next-action`` resolution re-selects the same phase as active; combined
     with the ``checkpoint_step`` reset below, that re-emits
     ``checkpoint-security`` for a phase that was just tagged (INFRA-239
-    regression).
+    regression). The terminal step now clears only its own key from the
+    keyed record (``steps.pop(effective_key, None)``) — a sibling phase's
+    mid-sequence progress is untouched (INFRA-283 assertion 7).
 
     Phase-key resolution precedence (CER-077 — INFRA-265). An explicit
     ``--phase-key`` carries operator intent; the ``state.json`` stamp was
@@ -2542,6 +2601,15 @@ def _record_checkpoint_step(
          only a warning (nothing irreversible happens yet, and the terminal
          step will demand the key anyway), and the stamp is left ``""`` (the
          documented INFRA-260 backward-compatible value).
+
+    Note (INFRA-283 instruction 16 — accepted limitation): the read-write
+    window between the state read above and the atomic ``os.replace`` below
+    is not serialised. Two calls that interleave inside that window can
+    still lose one update; atomic replacement guarantees no reader ever sees
+    a truncated or corrupt file, it does not guarantee no lost update.
+    File-level serialisation of ``.companion/`` writers is INFRA-285's
+    advisory state lock (CER-097) — deliberately deferred rather than
+    pre-empted here, to avoid a second, competing locking scheme.
     """
     import tempfile  # noqa: PLC0415
 
@@ -2565,13 +2633,6 @@ def _record_checkpoint_step(
     else:
         state = {}
 
-    current: list[str] = state.get("checkpoint_step") or []
-    if not isinstance(current, list):
-        current = []
-
-    if step_id in current:
-        return 0  # idempotent — no write, no validation needed
-
     is_terminal = step_id == _CHECKPOINT_SEQUENCE[-1]
 
     # --- A2: an explicit --phase-key must name a real index row before any
@@ -2591,9 +2652,32 @@ def _record_checkpoint_step(
 
     # --- A4: an explicit --phase-key that disagrees with the recorded stamp
     # is an error, not a choice between two sources. ---
+    #
+    # INFRA-283 (CER-095.4): once state.json has been upgraded to the keyed
+    # shape (state["checkpoint_steps"] is a dict), the flat stamp can no
+    # longer be trusted as "the phase currently mid-sequence" — with two
+    # phases genuinely in flight, the stamp only ever names whichever one
+    # wrote most recently (it is a single-slot mirror of a now-multi-slot
+    # record), so a mismatch is no longer evidence of an operator mistake.
+    # Applying A4 there would resurrect exactly the CER-095.4 bug this story
+    # closes: "the A4 disagreement guard starts rejecting the other phase's
+    # perfectly correct calls" (see docs/architecture.md's checkpoint-state
+    # paragraph). A2's index-row validation still catches a genuinely
+    # unknown --phase-key regardless of shape. On a legacy-shaped state (no
+    # keyed record yet — at most one phase has ever been stamped), the stamp
+    # is still a reliable single-phase-in-flight signal, so A4 keeps
+    # protecting against the operator-typo case it was built for — this
+    # mirrors the CER-083 stale-stamp rule on the resolver side, which is
+    # likewise scoped to the legacy read path only (see next_action.py).
+    keyed_present = isinstance(state.get(_CHECKPOINT_STEPS_KEY), dict)
     stamp = state.get("checkpoint_phase")
     stamp_is_set = isinstance(stamp, str) and stamp != ""
-    if phase_key is not None and stamp_is_set and stamp != phase_key:
+    if (
+        not keyed_present
+        and phase_key is not None
+        and stamp_is_set
+        and stamp != phase_key
+    ):
         click.echo(
             f"record-checkpoint-step: --phase-key {phase_key!r} disagrees "
             f"with state.json['checkpoint_phase'] {stamp!r} (CER-077). "
@@ -2634,10 +2718,44 @@ def _record_checkpoint_step(
             click.echo(f"warning: {message}", err=True)
             effective_key = ""
 
+    # --- Idempotency is now checked here, after the key is resolved, not
+    # before A2/A4/A3 (INFRA-283). Idempotency is per-key: whether step_id is
+    # "already recorded" can only be decided once we know *which* phase's
+    # list to check, so the check cannot run before effective_key exists. A
+    # future reader who sees this below the precedence chain instead of at
+    # the top should read it as a deliberate reorder, not an accidental
+    # behaviour change — the pre-story code checked the flat list before any
+    # key was known, which is exactly the bug this story fixes (a second
+    # phase's identical step_id short-circuited as "done" against the first
+    # phase's list).
+    if isinstance(state.get(_CHECKPOINT_STEPS_KEY), dict):
+        # Keyed record already exists: this project has already been
+        # through at least one phase-keyed write, so each phase's list
+        # lives at its own key and this call reads its own.
+        steps = _read_checkpoint_steps(state)
+        current = list(steps.get(effective_key, []))
+    else:
+        # Legacy state: before the first phase-keyed write there was only
+        # ever one shared list, regardless of which key (if any) the stamp
+        # named — including the A8 case where the stamp was deliberately
+        # left "" while a step was recorded. Whichever phase THIS call
+        # resolves to (via the A3 precedence chain above) inherits that
+        # single list whole; this is what keeps a legacy sequence's single
+        # phase behaviourally identical to today (assertion 9) even when an
+        # explicit --phase-key only shows up on a later call in the
+        # sequence than the one that started accumulating the list.
+        flat = state.get("checkpoint_step")
+        current = (
+            [s for s in flat if isinstance(s, str)] if isinstance(flat, list) else []
+        )
+        steps = {}
+    if step_id in current:
+        return 0  # idempotent — no write, per-key
+
     current.append(step_id)
+    steps[effective_key] = current
 
     if is_terminal:
-        current = []
         if effective_key:
             # A False return means "already complete" (idempotent, benign) —
             # not an error; A2 already validated the row exists when an
@@ -2647,13 +2765,55 @@ def _record_checkpoint_step(
             # INFRA-265 removed). Flips the active era doc's ledger row so the
             # era ledger tracks the index (INFRA-267/CER-082).
             _mark_phase_complete_in_era_ledger(effective_key, project_dir)
+        # Clear only this call's own key — a sibling phase's mid-sequence
+        # progress must survive a terminal call for a different phase
+        # (INFRA-283 assertion 7; the pre-story code cleared the single
+        # shared list unconditionally here).
+        steps.pop(effective_key, None)
+        current = []
         # Reset the phase stamp alongside the checkpoint_step reset, in the
         # same atomic write — a stamp naming a phase that was just tagged
         # must not be mistaken for a still-active phase's stamp.
         effective_key = ""
 
-    state["checkpoint_step"] = current
-    state["checkpoint_phase"] = effective_key
+    # Store the keyed record — omit the key entirely once it is empty, so an
+    # untouched project's state.json stays free of a stray empty dict.
+    if steps:
+        state[_CHECKPOINT_STEPS_KEY] = steps
+    else:
+        state.pop(_CHECKPOINT_STEPS_KEY, None)
+
+    # Mirror block (INFRA-283, assertions 11-12): checkpoint_step /
+    # checkpoint_phase are written here purely as a *derived* view of the
+    # keyed record above — never the authority, never read to decide what to
+    # append (see the read at "steps = _read_checkpoint_steps(state)"). They
+    # exist only for readers outside this fix's scope
+    # (skills/observability/api/src/readers/resolverState.ts,
+    # skills/observability/ui/src/api/client.ts), which still expect one
+    # flat list + one stamp. A bare "mirror, don't read" comment invites a
+    # future simplification back into the single-slot bug this story fixes,
+    # so the reason is spelled out here deliberately.
+    if not is_terminal:
+        # Non-terminal: mirror this call's own key, unambiguous.
+        state["checkpoint_step"] = current
+        state["checkpoint_phase"] = effective_key
+    elif not steps:
+        # Terminal and no keyed entries remain: today's exact post-tag value.
+        state["checkpoint_step"] = []
+        state["checkpoint_phase"] = ""
+    elif len(steps) == 1:
+        # Terminal, exactly one sibling phase remains in flight: the mirror
+        # can name it without ambiguity.
+        only_key, only_list = next(iter(steps.items()))
+        state["checkpoint_step"] = list(only_list)
+        state["checkpoint_phase"] = only_key
+    else:
+        # Terminal, two or more phases remain: a single flat slot cannot
+        # name more than one live checkpoint without lying to a reader that
+        # doesn't know about the keyed record, so it falls back to the safe
+        # "no active checkpoint" value rather than guessing which one.
+        state["checkpoint_step"] = []
+        state["checkpoint_phase"] = ""
 
     # Atomic write: temp file in same dir, then rename.
     dir_ = state_path.parent

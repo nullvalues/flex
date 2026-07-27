@@ -682,6 +682,52 @@ still a caller error the rule exists to prevent.
     `resolver-state`, and `record-checkpoint-step` each catch `AmbiguousActivePhaseError` at the CLI
     boundary and exit 2 with the message on stderr, never a raw traceback.
 
+    **Phase-keyed checkpoint step state (INFRA-283 / CER-095.4).** Phase 109 restores single-
+    orchestrator parallel builds, and `state.json["checkpoint_step"]` / `["checkpoint_phase"]` were
+    the last of CER-095's four single-slot coordination structures still shared across an entire
+    project: every `record-checkpoint-step` call appended to the same list and stamped the same
+    slot regardless of which phase was being checkpointed, so two phases checkpointing concurrently
+    interleaved into each other's progress — a step recorded for phase Q could read as already-done
+    against phase P's list, and `checkpoint-tag` for one phase reset the shared list out from under
+    the other phase's mid-sequence gates. (a) Completed steps now live in
+    `state.json["checkpoint_steps"]`, a `dict[phase_key, list[step_id]]` — one entry per in-flight
+    phase, so concurrent phases cannot silently record or wipe one another's progress. (b) The key
+    used is exactly the one INFRA-265's `--phase-key`/stamp/re-derivation precedence chain already
+    resolves; no new resolution logic exists, and the chain's ordering (A2 index validation, then
+    A4 stamp disagreement, then A3 precedence) still runs entirely before the idempotency check,
+    which is now per-key rather than global. (c) A legacy-shape `state.json` (no keyed record yet)
+    is read correctly and upgraded to the keyed shape on its next successful write; there is no
+    migration command and no bootstrap change. Because a genuinely legacy state predates all
+    phase-keying, its accumulated list is treated as this call's own list regardless of which key
+    the old stamp happened to name — matching the single-shared-list behaviour it always had — and
+    only lands under a specific phase key once the keyed record exists. (d) `checkpoint-tag` removes
+    only its own key (`steps.pop(effective_key, None)`) — a sibling phase's mid-sequence progress
+    survives a terminal call for a different phase. (e) `checkpoint_step` / `checkpoint_phase`
+    survive as a **derived mirror**, written on every call but never read to decide what to append —
+    they exist only for readers outside this fix's scope
+    (`skills/observability/api/src/readers/resolverState.ts`,
+    `skills/observability/ui/src/api/client.ts`), which still expect one flat list and one stamp. A
+    single flat slot cannot name more than one live checkpoint, so on a non-terminal step it mirrors
+    that call's own key/list; on the terminal step it mirrors the sole remaining entry if exactly
+    one keyed phase remains, and falls back to `[]` / `""` (today's exact post-tag value) when zero
+    or two-or-more remain, rather than guessing which one to name. The CER-083 stale-stamp rule
+    (above) now applies only on the legacy read path — once the keyed record exists,
+    `next_action.infer_position` reads the active phase's own keyed entry directly and the stamp
+    comparison is structurally unnecessary, since keying by the active phase's own key means a
+    sibling phase's entry can never be mistaken for this one's. The same reasoning applies to
+    `record-checkpoint-step`'s A4 disagreement check: on a legacy-shape state (at most one phase has
+    ever been stamped) it still protects against an operator typo exactly as before; once the keyed
+    record exists, the flat stamp only ever names whichever phase wrote most recently and a
+    mismatch is no longer evidence of an operator mistake, so A4 is not applied there — applying it
+    unconditionally would resurrect the exact interleave bug this story closes, rejecting a second
+    phase's perfectly correct call. **Accepted limitation:** the read-modify-write window between
+    a `record-checkpoint-step` call's state read and its atomic `os.replace` is not itself
+    serialised by this story — two calls that interleave inside that window can still lose one
+    update. Atomic replacement guarantees no reader ever observes a truncated or corrupt file; it
+    does not guarantee no lost update. File-level serialisation of `.companion/` writers is
+    INFRA-285's advisory state lock (CER-097), deliberately deferred rather than pre-empted here to
+    avoid a second, competing locking scheme.
+
 ### Release channel — flex-harness
 
 flex dogfoods its own pairmode: `CLAUDE.build.md` sets `pairmode_scripts_dir =
@@ -1631,8 +1677,9 @@ is **read-only** on every row.
 | Surface | Sole writer (additive window) | Resolver access |
 |---------|-------------------------------|-----------------|
 | `state.json` `context_*` (context tokens: `context_current_tokens`, `context_current_tokens_recorded_at`, `context_session_reset_at`) | orchestrator hooks (`post_tool_use.py` / `session_start.py`), frozen | read-only |
-| `state.json` `checkpoint_step` | orchestrator (`flex_build.py record-checkpoint-step`); HARNESS009-main moved authority from LLM prose to CLI (RESOLVER-012); HARNESS015-main (RESOLVER-017) added reset-to-`[]` on `checkpoint-tag` completion, fixing a silent skip of the entire checkpoint sequence on every phase after the first; INFRA-260 (CER-083) — the resolver now honours this list only when the adjacent `checkpoint_phase` stamp is absent, empty, or matches the active phase's own key, so a list stamped for a *different* phase reads as `[]` instead of silently resuming a stale checkpoint | read-only (mismatched-stamp override, still no write) |
-| `state.json` `checkpoint_phase` | orchestrator (`flex_build.py record-checkpoint-step`), added INFRA-260 (CER-083); INFRA-265 (CER-077) — the value stamped is now resolved by an explicit precedence chain, not a single re-derivation: an explicit `--phase-key` first (validated against the index; a mismatched stamp is an error, not a choice), then the existing non-empty stamp, then `resolve_current_phase`'s candidate set only when it is unambiguous (more than one candidate errors on the terminal step, warns and stamps `""` on a non-terminal one) — every `record-checkpoint-step` call stamps the precedence-resolved key in the same atomic write that appends the step; the terminal `checkpoint-tag` branch resets it to `""` alongside the `checkpoint_step` reset | read-only (`next_action.infer_position` reads it only to decide whether to honour or clear `checkpoint_step`; it never writes `checkpoint_phase`) |
+| `state.json` `checkpoint_steps` (dict, keyed by phase key; INFRA-283, CER-095.4) | orchestrator (`flex_build.py record-checkpoint-step`) — **the authority** as of INFRA-283: one completed-step list per in-flight phase, so concurrent phases checkpointing under one orchestrator cannot record or wipe one another's progress. `checkpoint-tag` removes only its own key (`steps.pop(effective_key, None)`); a legacy-shape `state.json` (no keyed record) is read correctly and upgraded to this shape on its next successful write — no migration command exists | read-only (`next_action.infer_position` reads the active phase's own entry directly by key when this record is present; never writes it) |
+| `state.json` `checkpoint_step` | orchestrator (`flex_build.py record-checkpoint-step`); HARNESS009-main moved authority from LLM prose to CLI (RESOLVER-012); HARNESS015-main (RESOLVER-017) added reset-to-`[]` on `checkpoint-tag` completion, fixing a silent skip of the entire checkpoint sequence on every phase after the first; INFRA-260 (CER-083) — the resolver now honours this list only when the adjacent `checkpoint_phase` stamp is absent, empty, or matches the active phase's own key, so a list stamped for a *different* phase reads as `[]` instead of silently resuming a stale checkpoint. **As of INFRA-283 (CER-095.4), this is a derived mirror of `checkpoint_steps` above, not the authority** — written on every call (this call's own key's list on a non-terminal step; the sole remaining entry, or `[]` on ambiguity/exhaustion, on the terminal step) purely for readers outside this fix's scope, and the CER-083 mismatch rule above now applies only on the legacy path, before a keyed record exists | read-only (mismatched-stamp override on the legacy path only, still no write) |
+| `state.json` `checkpoint_phase` | orchestrator (`flex_build.py record-checkpoint-step`), added INFRA-260 (CER-083); INFRA-265 (CER-077) — the value stamped is now resolved by an explicit precedence chain, not a single re-derivation: an explicit `--phase-key` first (validated against the index; a mismatched stamp is an error, not a choice, **on the legacy path only as of INFRA-283 — see below**), then the existing non-empty stamp, then `resolve_current_phase`'s candidate set only when it is unambiguous (more than one candidate errors on the terminal step, warns and stamps `""` on a non-terminal one) — every `record-checkpoint-step` call stamps the precedence-resolved key in the same atomic write that appends the step; the terminal `checkpoint-tag` branch resets it to `""` alongside the `checkpoint_step` reset. **As of INFRA-283 (CER-095.4), this is a derived mirror of `checkpoint_steps` above, not the authority**: once a keyed record exists, the stamp only ever names whichever phase wrote most recently, so a mismatch against a different explicit `--phase-key` is no longer evidence of an operator mistake and the A4 disagreement check (CER-077) is skipped — applying it unconditionally would reject a second phase's perfectly correct concurrent call, the exact bug this story closes | read-only (`next_action.infer_position` reads it only on the legacy path, to decide whether to honour or clear `checkpoint_step`; it never writes `checkpoint_phase`) |
 | `docs/phases/index.md` phase status cell | orchestrator, via `flex_build.py record-checkpoint-step checkpoint-tag` (INFRA-239) — the `checkpoint-tag` step's `_mark_phase_complete_in_index` call writes `complete` to the just-tagged phase's row in the same CLI invocation that resets `checkpoint_step`, so the two writes never land in separate orchestrator turns; the standalone `mark-phase-complete` command (`cmd_mark_phase_complete`) shares the same write helper for direct/manual use but is no longer required in the checkpoint path | read-only (`_resolve_active_phase` / `resolve_current_phase` skip `complete`/`deferred`/`backlog` rows when selecting the active phase) |
 | active era doc (`docs/eras/NNN-*.md`, `status: active`) `## Phases` ledger status cell | orchestrator, via `flex_build.py mark-phase-complete` / `record-checkpoint-step checkpoint-tag` (INFRA-267, CER-082) — both call `_mark_phase_complete_in_era_ledger` with the *same* phase key already passed to `_mark_phase_complete_in_index`, never a second re-derivation, so the ledger row and the index row flip in one invocation; the helper is a silent no-op (returns `False`, writes nothing, raises nothing) when `docs/eras/` is missing, no era doc is `active`, the active doc has no ledger heading/table, no row matches the key, or the row already reads `complete`, and it never edits a non-`active` era doc — a legacy era without a ledger row must not change the exit status of either command. The row itself is created by `phase_new.py` at scaffold time | read-only (`index_integrity` check 2c compares ledger rows against `docs/phases/index.md`; the resolver never reads or writes era docs) |
 | active stories (`state.json` `current_stories`, keyed by story ID; INFRA-281/CER-095.2, superseding the single-slot `current_story`) | `story_context.py` — sole writer, via `set_current_story()` / `clear_current_story()`; `create-story-worktree` **adds** its story's key, `merge-story-worktree` / `discard-story-worktree` **remove only their own key**. The flat `current_story` mirror is a **derived** read compatibility shim for readers outside `scope_guard.py`'s scope (`hooks/session_start.py`, `global_session_check`, `skills/observability/api/src/routes/context.ts`, `subagent_transcript._story_accepts_late_bump`) — it is written only inside `set_current_story()`/`clear_current_story()`, never independently | read-only |
@@ -1717,6 +1764,12 @@ Returns `None` if `product.json` is missing or has no `config` key. Returns a di
     "title": "optional title",
     "set_at": "2026-04-20T00:00:00+00:00"
   },
+  "checkpoint_steps": {
+    "109": ["checkpoint-security", "checkpoint-intent"],
+    "105": ["checkpoint-security"]
+  },
+  "checkpoint_step": ["checkpoint-security", "checkpoint-intent"],
+  "checkpoint_phase": "109",
   "registered_projects": [
     "/absolute/path/to/project-a",
     "/absolute/path/to/project-b"
@@ -1750,6 +1803,23 @@ Fields:
   they are working on (or a builder stamped one). Contains `id` (required), optional
   `title`, and `set_at` (UTC ISO-8601 timestamp). Absent when the user skips the prompt
   and no `current_stories` entry exists.
+- `checkpoint_steps` — **optional**; dict keyed by phase key (INFRA-283, CER-095.4). Each
+  entry is the list of completed checkpoint step IDs for that phase. This is the
+  **authority**: with two phases checkpointing concurrently under one orchestrator, only
+  a keyed record can answer "which phase is this step for?" per call — a single global
+  slot cannot. Written only by `flex_build.py record-checkpoint-step`; `checkpoint-tag`
+  removes only its own key on completion, never the whole dict. Absent when no phase has
+  ever completed a checkpoint step in this state.json, or once the last in-flight phase's
+  entry is popped by its own `checkpoint-tag`.
+- `checkpoint_step` / `checkpoint_phase` — **optional**; as of INFRA-283, these are a
+  **derived mirror** of one `checkpoint_steps` entry, written only by
+  `record-checkpoint-step` on every call and never read by it to decide what to append.
+  They exist for readers outside this fix's scope
+  (`skills/observability/api/src/readers/resolverState.ts`,
+  `skills/observability/ui/src/api/client.ts`), which still expect one flat list and one
+  stamp. `checkpoint_step` is a `list[str]` of completed step IDs; `checkpoint_phase` is
+  the phase key that list belongs to, or `""` when no single phase can be named
+  unambiguously (see the architecture § Checkpoint prose above for the exact mirror rule).
 - `context_story_tokens` — **optional**; dict keyed by story ID (e.g. `"INFRA-181"`);
   written by `flex_build.py set-context-tokens`. **Legacy after INFRA-182**: `decide()` no
   longer reads this field. Entries remain in state.json but are inert for gate enforcement.

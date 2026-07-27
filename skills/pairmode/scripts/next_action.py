@@ -106,6 +106,20 @@ INFRA-265 (CER-077 -- ambiguous-active-phase read-model):
   traceback. Multiple ``planned`` rows are unaffected -- only a genuine
   double-``active`` index raises. Still pure-read: this module never
   repairs or clears a stamp/index row it observes.
+
+INFRA-283 (CER-095.4 -- phase-keyed checkpoint step state):
+  ``infer_position`` now prefers ``state.json["checkpoint_steps"]`` (a
+  ``dict[phase_key, list[step_id]]`` written by ``flex_build.py``'s
+  ``_record_checkpoint_step``) as the authority for
+  ``position["checkpoint_step"]``: when present, the exposed list is the
+  active phase's own entry, keyed by the same
+  ``Path(active_phase_file).stem`` derivation used elsewhere in this module.
+  Two phases resolve independently under this path, because each has its
+  own key -- the INFRA-260/CER-083 stamp comparison below is only reachable
+  on the legacy fallback, where no keyed record exists yet and a single flat
+  ``checkpoint_step`` + ``checkpoint_phase`` stamp is all there is to read.
+  Still pure-read: this module writes neither the keyed record nor the flat
+  ``checkpoint_step``/``checkpoint_phase`` mirror keys.
 """
 
 from __future__ import annotations
@@ -902,30 +916,49 @@ def infer_position(project_dir: "str | Path") -> dict:
         if state_path.exists():
             raw_state = _json_cs.loads(state_path.read_text(encoding="utf-8"))
             if isinstance(raw_state, dict):
-                raw_cs = raw_state.get("checkpoint_step")
-                if isinstance(raw_cs, list):
-                    checkpoint_step = [s for s in raw_cs if isinstance(s, str)]
+                # The active phase's own key, computed once and used by
+                # either read path below (INFRA-283).
+                _active_phase_key = ""
+                if active_phase_file is not None:
+                    _active_phase_key = Path(active_phase_file).stem
+                    if _active_phase_key.startswith("phase-"):
+                        _active_phase_key = _active_phase_key[len("phase-") :]
 
-                # CER-083: a checkpoint_step list stamped for a phase other
-                # than the one currently active is stale — honouring it would
-                # silently skip the newly-active phase's checkpoint gates
-                # (the cp99→phase-100 incident). Compare the stamp against
-                # the active phase's own key (same file-stem derivation used
-                # elsewhere in this module — no second index parse); a
-                # mismatch clears the exposed list. Absent/empty stamp, or a
-                # stamp equal to the active phase key, means "trust the
-                # stored list" (backward compatible with state files written
-                # before this story). Pure read: this module never writes
-                # checkpoint_phase.
-                raw_phase_stamp = raw_state.get("checkpoint_phase")
-                if isinstance(raw_phase_stamp, str) and raw_phase_stamp:
-                    _active_phase_key = ""
-                    if active_phase_file is not None:
-                        _active_phase_key = Path(active_phase_file).stem
-                        if _active_phase_key.startswith("phase-"):
-                            _active_phase_key = _active_phase_key[len("phase-") :]
-                    if raw_phase_stamp != _active_phase_key:
+                raw_keyed = raw_state.get("checkpoint_steps")
+                if isinstance(raw_keyed, dict):
+                    # INFRA-283 (CER-095.4): the keyed record is the
+                    # authority. Two phases checkpointing concurrently each
+                    # get their own entry, so this call resolves the active
+                    # phase's own list directly — no second index parse, no
+                    # new I/O, and the CER-083 stamp comparison below is
+                    # structurally unnecessary on this path: keying by the
+                    # active phase's own key means a sibling phase's entry
+                    # can never be mistaken for this one's.
+                    raw_cs = raw_keyed.get(_active_phase_key)
+                    if isinstance(raw_cs, list):
+                        checkpoint_step = [s for s in raw_cs if isinstance(s, str)]
+                    else:
                         checkpoint_step = []
+                else:
+                    # Legacy fallback: no keyed record present yet.
+                    raw_cs = raw_state.get("checkpoint_step")
+                    if isinstance(raw_cs, list):
+                        checkpoint_step = [s for s in raw_cs if isinstance(s, str)]
+
+                    # CER-083: a checkpoint_step list stamped for a phase
+                    # other than the one currently active is stale —
+                    # honouring it would silently skip the newly-active
+                    # phase's checkpoint gates (the cp99→phase-100 incident).
+                    # Compare the stamp against the active phase's own key; a
+                    # mismatch clears the exposed list. Absent/empty stamp,
+                    # or a stamp equal to the active phase key, means "trust
+                    # the stored list" (backward compatible with state files
+                    # written before this story). Pure read: this module
+                    # never writes checkpoint_phase or the keyed record.
+                    raw_phase_stamp = raw_state.get("checkpoint_phase")
+                    if isinstance(raw_phase_stamp, str) and raw_phase_stamp:
+                        if raw_phase_stamp != _active_phase_key:
+                            checkpoint_step = []
     except Exception:  # noqa: BLE001
         pass
 

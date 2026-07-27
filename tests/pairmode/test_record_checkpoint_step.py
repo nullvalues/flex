@@ -260,6 +260,51 @@ class TestRecordCheckpointStep:
         assert state["checkpoint_step"] == []
         assert not (project_dir / "docs" / "phases" / "index.md").exists()
 
+    def test_read_checkpoint_steps_helper(self) -> None:
+        """_read_checkpoint_steps (INFRA-283 assertion 2): pure, no I/O; both
+        shapes normalise; malformed values are dropped."""
+        from flex_build import _read_checkpoint_steps  # noqa: PLC0415
+
+        # Absent key entirely.
+        assert _read_checkpoint_steps({}) == {}
+
+        # Legacy, with a stamp.
+        assert _read_checkpoint_steps(
+            {"checkpoint_step": ["checkpoint-security"], "checkpoint_phase": "109"}
+        ) == {"109": ["checkpoint-security"]}
+
+        # Legacy, no stamp -> empty-string key.
+        assert _read_checkpoint_steps(
+            {"checkpoint_step": ["checkpoint-security"], "checkpoint_phase": ""}
+        ) == {"": ["checkpoint-security"]}
+        assert _read_checkpoint_steps(
+            {"checkpoint_step": ["checkpoint-security"]}
+        ) == {"": ["checkpoint-security"]}
+
+        # Legacy, empty/absent flat list -> {}.
+        assert _read_checkpoint_steps({"checkpoint_step": []}) == {}
+        assert _read_checkpoint_steps({"checkpoint_step": "not-a-list"}) == {}
+
+        # Keyed shape: kept, with malformed entries filtered.
+        assert _read_checkpoint_steps(
+            {
+                "checkpoint_steps": {
+                    "109": ["checkpoint-security", 42, "checkpoint-intent"],
+                    "105": ["checkpoint-security"],
+                    "not-a-list-value": "bogus",
+                    7: ["ignored-non-string-key"],
+                }
+            }
+        ) == {
+            "109": ["checkpoint-security", "checkpoint-intent"],
+            "105": ["checkpoint-security"],
+        }
+
+        # No I/O: passing a plain dict with no filesystem access does not raise.
+        assert _read_checkpoint_steps(
+            {"checkpoint_steps": "not-a-dict"}
+        ) == {}
+
     def test_depth_guard_rejects_shallow_project_dir(self, tmp_path: Path) -> None:
         """A project_dir with fewer than 3 path components → exits non-zero (CER-061)."""
         runner = CliRunner()
@@ -584,3 +629,235 @@ class TestCheckpointTagEraLedger:
         assert result.exit_code == 0, result.output
         assert "| 104 | Phase 104 | complete |" in index_path.read_text(encoding="utf-8")
         assert _read_state(project_dir)["checkpoint_step"] == []
+
+
+# ---------------------------------------------------------------------------
+# INFRA-283 (CER-095.4) — phase-keyed checkpoint step state
+# ---------------------------------------------------------------------------
+
+
+class TestPhaseKeyedCheckpointSteps:
+    """Two phases can checkpoint concurrently without clobbering each
+    other's progress (assertions 1, 5-12, 19)."""
+
+    def test_two_phase_coexistence(self, tmp_path: Path) -> None:
+        """Assertion 1: recording the same step for two different phases
+        stores both under the keyed record, neither truncating the other."""
+        project_dir = _setup_project(tmp_path, {"checkpoint_step": []})
+        result_p = _invoke_with_phase_key(
+            project_dir, "checkpoint-security", "109"
+        )
+        assert result_p.exit_code == 0, result_p.output
+        result_q = _invoke_with_phase_key(
+            project_dir, "checkpoint-security", "105"
+        )
+        assert result_q.exit_code == 0, result_q.output
+
+        state = _read_state(project_dir)
+        steps = state["checkpoint_steps"]
+        assert steps["109"] == ["checkpoint-security"]
+        assert steps["105"] == ["checkpoint-security"]
+
+    def test_per_key_idempotency(self, tmp_path: Path) -> None:
+        """Assertion 5: idempotent no-write for the recorded key, but a
+        write DOES occur for a different key with the same step_id — the
+        pre-story regression this assertion pins."""
+        project_dir = _setup_project(
+            tmp_path, {"checkpoint_steps": {"109": ["checkpoint-security"]}}
+        )
+        state_path = project_dir / ".companion" / "state.json"
+
+        mtime_before = state_path.stat().st_mtime_ns
+        result_same = _invoke_with_phase_key(
+            project_dir, "checkpoint-security", "109"
+        )
+        assert result_same.exit_code == 0, result_same.output
+        assert state_path.stat().st_mtime_ns == mtime_before
+
+        result_other = _invoke_with_phase_key(
+            project_dir, "checkpoint-security", "105"
+        )
+        assert result_other.exit_code == 0, result_other.output
+        state = _read_state(project_dir)
+        assert state["checkpoint_steps"]["105"] == ["checkpoint-security"]
+        assert state["checkpoint_steps"]["109"] == ["checkpoint-security"]
+
+    def test_checkpoint_tag_clears_only_its_own_key(self, tmp_path: Path) -> None:
+        """Assertion 7: checkpoint-tag for phase 109 removes only the "109"
+        entry; phase 105's list survives intact."""
+        project_dir = _setup_project(
+            tmp_path,
+            {
+                "checkpoint_steps": {
+                    "109": [
+                        "checkpoint-security",
+                        "checkpoint-intent",
+                        "checkpoint-docs",
+                    ],
+                    "105": ["checkpoint-security"],
+                }
+            },
+        )
+        result = _invoke_with_phase_key(project_dir, "checkpoint-tag", "109")
+        assert result.exit_code == 0, result.output
+
+        state = _read_state(project_dir)
+        steps = state.get("checkpoint_steps", {})
+        assert "109" not in steps
+        assert steps["105"] == ["checkpoint-security"]
+
+    def test_single_phase_sequence_byte_identical_flat_mirror(
+        self, tmp_path: Path
+    ) -> None:
+        """Assertion 9: with only one phase ever recorded, the flat mirror
+        matches today's exact values at every step of the full sequence,
+        ending at [] / ""."""
+        project_dir = _setup_project(tmp_path, {"checkpoint_step": []})
+
+        expected_after = {
+            "checkpoint-security": ["checkpoint-security"],
+            "checkpoint-intent": ["checkpoint-security", "checkpoint-intent"],
+            "checkpoint-docs": [
+                "checkpoint-security",
+                "checkpoint-intent",
+                "checkpoint-docs",
+            ],
+        }
+        for step in ["checkpoint-security", "checkpoint-intent", "checkpoint-docs"]:
+            result = _invoke_with_phase_key(project_dir, step, "109")
+            assert result.exit_code == 0, result.output
+            state = _read_state(project_dir)
+            assert state["checkpoint_step"] == expected_after[step]
+            assert state["checkpoint_phase"] == "109"
+
+        result = _invoke_with_phase_key(project_dir, "checkpoint-tag", "109")
+        assert result.exit_code == 0, result.output
+        state = _read_state(project_dir)
+        assert state["checkpoint_step"] == []
+        assert state["checkpoint_phase"] == ""
+
+    def test_mirror_two_remaining_falls_back_to_empty(self, tmp_path: Path) -> None:
+        """Assertion 12: terminal call with two-or-more siblings remaining
+        after the pop -> mirror falls back to [] / ""."""
+        project_dir = _setup_project(
+            tmp_path,
+            {
+                "checkpoint_steps": {
+                    "109": ["checkpoint-security"],
+                    "105": ["checkpoint-security"],
+                    "101": ["checkpoint-security"],
+                }
+            },
+        )
+        result = _invoke_with_phase_key(project_dir, "checkpoint-tag", "109")
+        assert result.exit_code == 0, result.output
+        state = _read_state(project_dir)
+        assert state["checkpoint_step"] == []
+        assert state["checkpoint_phase"] == ""
+        # Untouched siblings survive under the keyed record.
+        assert state["checkpoint_steps"]["105"] == ["checkpoint-security"]
+        assert state["checkpoint_steps"]["101"] == ["checkpoint-security"]
+
+    def test_mirror_one_remaining_repoints_to_it(self, tmp_path: Path) -> None:
+        """Assertion 12: terminal call with exactly one sibling remaining
+        after the pop -> mirror re-points to it."""
+        project_dir = _setup_project(
+            tmp_path,
+            {
+                "checkpoint_steps": {
+                    "109": ["checkpoint-security"],
+                    "105": ["checkpoint-security", "checkpoint-intent"],
+                }
+            },
+        )
+        result = _invoke_with_phase_key(project_dir, "checkpoint-tag", "109")
+        assert result.exit_code == 0, result.output
+        state = _read_state(project_dir)
+        assert state["checkpoint_step"] == [
+            "checkpoint-security",
+            "checkpoint-intent",
+        ]
+        assert state["checkpoint_phase"] == "105"
+
+    def test_legacy_state_upgraded_in_place_on_next_write(
+        self, tmp_path: Path
+    ) -> None:
+        """Assertions 3-4: a legacy-shape state.json is read correctly and,
+        on the next successful write, upgraded to the keyed shape with the
+        pre-existing legacy list preserved under its stamped phase."""
+        project_dir = _setup_project(
+            tmp_path,
+            {"checkpoint_step": ["checkpoint-security"], "checkpoint_phase": "109"},
+        )
+        result = _invoke_with_phase_key(project_dir, "checkpoint-intent", "109")
+        assert result.exit_code == 0, result.output
+
+        state = _read_state(project_dir)
+        assert state["checkpoint_steps"]["109"] == [
+            "checkpoint-security",
+            "checkpoint-intent",
+        ]
+        assert state["checkpoint_step"] == [
+            "checkpoint-security",
+            "checkpoint-intent",
+        ]
+        assert state["checkpoint_phase"] == "109"
+
+    def test_no_write_on_bad_phase_key_exit_2(self, tmp_path: Path) -> None:
+        """Assertion 6: a bad --phase-key (A2 rejection) performs no write,
+        even with a pre-existing keyed record in state.json."""
+        project_dir = _setup_project(
+            tmp_path, {"checkpoint_steps": {"109": ["checkpoint-security"]}}
+        )
+        index_path = _write_index(project_dir, [("109", "Phase 109", "planned")])
+        _write_phase_file(project_dir, "109")
+        state_path = project_dir / ".companion" / "state.json"
+        state_before = state_path.read_bytes()
+
+        result = _invoke_with_phase_key(project_dir, "checkpoint-tag", "999")
+        assert result.exit_code == 2, result.output
+        assert state_path.read_bytes() == state_before
+        assert index_path.exists()
+
+    def test_no_write_on_ambiguous_terminal_exit_2(self, tmp_path: Path) -> None:
+        """Assertion 6: an ambiguous terminal call (no --phase-key, multiple
+        active candidates) performs no write."""
+        project_dir = _setup_project(
+            tmp_path, {"checkpoint_steps": {"109": ["checkpoint-security"]}}
+        )
+        _write_index(
+            project_dir,
+            [("109", "Phase 109", "planned"), ("105", "Phase 105", "planned")],
+        )
+        _write_phase_file(project_dir, "109")
+        _write_phase_file(project_dir, "105")
+        state_path = project_dir / ".companion" / "state.json"
+        state_before = state_path.read_bytes()
+
+        result = _invoke_with_phase_key(project_dir, "checkpoint-tag", None)
+        assert result.exit_code == 2, result.output
+        assert state_path.read_bytes() == state_before
+
+    def test_parallel_interleave_regression(self, tmp_path: Path) -> None:
+        """Assertion 19 — the named CER-095.4 regression: record
+        checkpoint-security for 109 and for 105; assert both are stored;
+        advance 109 to checkpoint-tag; assert 105's list is still
+        ["checkpoint-security"]. Fails against pre-story flex_build.py."""
+        project_dir = _setup_project(tmp_path, {"checkpoint_step": []})
+
+        r1 = _invoke_with_phase_key(project_dir, "checkpoint-security", "109")
+        assert r1.exit_code == 0, r1.output
+        r2 = _invoke_with_phase_key(project_dir, "checkpoint-security", "105")
+        assert r2.exit_code == 0, r2.output
+
+        state = _read_state(project_dir)
+        assert state["checkpoint_steps"]["109"] == ["checkpoint-security"]
+        assert state["checkpoint_steps"]["105"] == ["checkpoint-security"]
+
+        for step in ["checkpoint-intent", "checkpoint-docs", "checkpoint-tag"]:
+            r = _invoke_with_phase_key(project_dir, step, "109")
+            assert r.exit_code == 0, r.output
+
+        state = _read_state(project_dir)
+        assert "109" not in state.get("checkpoint_steps", {})
+        assert state["checkpoint_steps"]["105"] == ["checkpoint-security"]
