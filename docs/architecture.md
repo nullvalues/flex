@@ -267,22 +267,35 @@ still a caller error the rule exists to prevent.
    directly (not via a separate `story_context.py --set` template step) to stamp the active story
    into the **main checkout's** `.companion/state.json` — the worktree has no `.companion/` of its
    own, and `scope_guard.py` always resolves state from the main checkout root regardless of the
-   spawn's cwd (a git worktree carries a `.git` pointer file back to the main repo). On PASS,
-   `merge-story-worktree` clears both the `current_story` stamp and the Layer 1 permission
-   artifact via `story_context.clear_current_story()` / `clear_permissions_artifact()`; on FAIL,
-   `discard-story-worktree` clears both identically, so a discarded attempt never leaves stale
-   scope state behind for whatever the orchestrator runs next.
+   spawn's cwd (a git worktree carries a `.git` pointer file back to the main repo). INFRA-281
+   (CER-095.2): `set_current_story()` stamps `state.json["current_stories"][story_id]` (the
+   keyed record — authoritative once more than one story can be in flight) *and* the flat
+   `current_story` mirror in one write, and `clear_current_story()` now takes the story ID —
+   `create-story-worktree`, `merge-story-worktree` and `discard-story-worktree` all pass their
+   own `story_id` through, so on PASS `merge-story-worktree` clears only *its own*
+   `current_stories` entry (and the Layer 1 permission artifact for that story) via
+   `story_context.clear_current_story(companion_dir, story_id)` / `clear_permissions_artifact()`;
+   on FAIL `discard-story-worktree` clears both identically. Before INFRA-281 both teardown
+   commands called `clear_current_story()` unconditionally: with two builders in flight, the
+   first to land wiped the *global* `current_story` slot out from under whichever sibling story
+   was still building, silently disabling that sibling's scope enforcement for every subsequent
+   write (CER-095 defect 2) — the story-scoped clear is what closes that gap.
    The `pre_tool_use.py` hook enforces the declared scope via `scope_guard.py` on
    every Edit/Write call during the builder session, including when the spawn's cwd is the
    story's worktree (`.pairmode-worktrees/<story_id>/`): `scope_guard._normalise()` strips a
    leading `.pairmode-worktrees/<segment>/` prefix from the candidate path before comparing it
    against `allowed_paths`, but **only when `<segment>` equals the currently active story's ID**
-   read via `_read_current_story()`. A path under a *different* story's worktree
-   (`.pairmode-worktrees/INFRA-999/...` while `INFRA-238` is active) is never treated as an
-   in-scope match by this stripping, even if its trailing path segments happen to match an
-   `allowed_paths` entry name for the active story — per-story worktree isolation depends on this
-   distinction; stripping unconditionally would let a spawn write into a concurrently in-progress
-   different story's worktree while scope_guard reports it as allowed.
+   — as of INFRA-281 resolved **per call** by `scope_guard.resolve_call_story()` (§ 9.5) rather
+   than read from the single global slot `_read_current_story()` used to consult. A path under a
+   *different* story's worktree (`.pairmode-worktrees/INFRA-999/...` while `INFRA-238` is active)
+   is never treated as an in-scope match by this stripping, even if its trailing path segments
+   happen to match an `allowed_paths` entry name for the active story — per-story worktree
+   isolation depends on this distinction; stripping unconditionally would let a spawn write into
+   a concurrently in-progress different story's worktree while scope_guard reports it as allowed.
+   This is also why `resolve_call_story()`'s path-derived signal (`worktree-path`, § 9.5) requires
+   the named worktree directory to exist on disk before it is trusted: an unverified path-string
+   ID fed straight back into this same stripping check would always agree with itself by
+   construction, silently defeating the guarantee this paragraph describes.
    Layer 2 (`write-permissions`/`clear-permissions`) remains a manual/on-demand mechanism —
    `flex_build.py write-permissions` calls `write_story_permissions()` to write `Edit` allow
    rules (never `Write` — the Claude Code permission engine only matches `Edit(path)` against
@@ -353,13 +366,16 @@ still a caller error the rule exists to prevent.
    (unless acknowledged within the reprompt margin).
    The `decide()` signature is `(project_dir, flex_factor=1.0)` — no `story_id`.
    `pre_tool_use.py` resolves `flex_factor` itself (RELEASE-020) via
-   `_resolve_flex_factor()`, which reuses `scope_guard._read_current_story`
-   (current-story lookup) and `flex_build._story_path` /
-   `flex_build._read_story_frontmatter` (frontmatter parsing) rather than
-   duplicating story-lookup logic; it fails open to `1.0` when there is no
-   active story, the story file is missing, no `flex_factor` is set, or any
-   error occurs — the no-override path is unchanged. This closes the gap
-   where a story's declared `flex_factor` raised the ceiling shown by the
+   `_resolve_flex_factor()`, which reuses `scope_guard.resolve_call_story()`
+   (INFRA-281 — per-call resolution, superseding `_read_current_story` here)
+   and `flex_build._story_path` / `flex_build._read_story_frontmatter`
+   (frontmatter parsing) rather than duplicating story-lookup logic; it
+   fails open to `1.0` when there is no active story, resolution is
+   ambiguous (two or more stories in flight, which a `Task`/`Agent` spawn's
+   main-checkout cwd cannot disambiguate), the story file is missing, no
+   `flex_factor` is set, or any error occurs — the no-override path is
+   unchanged. This closes the gap where a story's declared `flex_factor`
+   raised the ceiling shown by the
    observability SPA (see `/context` route below) but not the ceiling the
    gate actually enforced, found via cold-eyes review 2026-07-17.
    No manual `set-context-tokens` call is required during normal operation;
@@ -477,10 +493,32 @@ still a caller error the rule exists to prevent.
 
 9.5 **Story file-scope enforcement** — `hooks/pre_tool_use.py` also intercepts
    `Edit` and `Write` tool calls. It delegates to
-   `skills/pairmode/scripts/scope_guard.py`, which reads
-   `<project_dir>/.companion/state.json["current_story"]["id"]` and then reads
+   `skills/pairmode/scripts/scope_guard.py`, which resolves which story the
+   call belongs to via `resolve_call_story(project_dir, file_path)`
+   (INFRA-281, CER-095.2 — superseding the single-slot
+   `state.json["current_story"]["id"]` read a prior revision of this
+   paragraph described) and then reads
    `<project_dir>/docs/phases/permissions/<story_id>.json` to verify the target
-   path is declared in the active story's `primary_files` or `touches`. If the
+   path is declared in the active story's `primary_files` or `touches`.
+   `resolve_call_story` tries, in order: (1) `worktree-cwd` — *project_dir*
+   is, or is inside, `<main>/.pairmode-worktrees/<ID>/`; (2) `worktree-path`
+   — otherwise, the target path is under a worktree directory that exists on
+   disk (deliberately filesystem-verified, not path-string-only: trusting an
+   unverified path segment would let `_strip_worktree_prefix`'s own
+   "segment == active story" guarantee be satisfied by construction for any
+   spelled-out worktree path, defeating it — see
+   `test_scope_guard_blocks_foreign_story_worktree_path_bypass`);
+   (3) `state-single` — `state.json["current_stories"]` holds exactly one
+   entry; (4) `state-legacy` — `current_stories` is empty/absent and the flat
+   `current_story` names a story; (5) `ambiguous` — `current_stories` holds
+   two or more entries: resolves to *no story*, never a guess; (6) `none` —
+   no signal at all. The ambiguous case is treated identically to
+   no-active-story (fail-open for ordinary paths, fail-closed for
+   `PROTECTED_GLOBS`) rather than picking the most recently stamped story,
+   because a wrong attribution would hand one story's allow-list to another
+   story's write — worse than the already-understood no-active-story
+   semantics that already cover orchestrator work between stories
+   (`docs/ideology.md` § "Never silently pass contradictions"). If the
    path is not declared, the hook emits `{"decision": "block", "reason": "..."}`.
    On any error (missing state, missing permissions file, malformed JSON), the
    check fails open for **non-protected** paths so non-story orchestrator work
@@ -1574,7 +1612,7 @@ is **read-only** on every row.
 | `state.json` `checkpoint_phase` | orchestrator (`flex_build.py record-checkpoint-step`), added INFRA-260 (CER-083); INFRA-265 (CER-077) — the value stamped is now resolved by an explicit precedence chain, not a single re-derivation: an explicit `--phase-key` first (validated against the index; a mismatched stamp is an error, not a choice), then the existing non-empty stamp, then `resolve_current_phase`'s candidate set only when it is unambiguous (more than one candidate errors on the terminal step, warns and stamps `""` on a non-terminal one) — every `record-checkpoint-step` call stamps the precedence-resolved key in the same atomic write that appends the step; the terminal `checkpoint-tag` branch resets it to `""` alongside the `checkpoint_step` reset | read-only (`next_action.infer_position` reads it only to decide whether to honour or clear `checkpoint_step`; it never writes `checkpoint_phase`) |
 | `docs/phases/index.md` phase status cell | orchestrator, via `flex_build.py record-checkpoint-step checkpoint-tag` (INFRA-239) — the `checkpoint-tag` step's `_mark_phase_complete_in_index` call writes `complete` to the just-tagged phase's row in the same CLI invocation that resets `checkpoint_step`, so the two writes never land in separate orchestrator turns; the standalone `mark-phase-complete` command (`cmd_mark_phase_complete`) shares the same write helper for direct/manual use but is no longer required in the checkpoint path | read-only (`_resolve_active_phase` / `resolve_current_phase` skip `complete`/`deferred`/`backlog` rows when selecting the active phase) |
 | active era doc (`docs/eras/NNN-*.md`, `status: active`) `## Phases` ledger status cell | orchestrator, via `flex_build.py mark-phase-complete` / `record-checkpoint-step checkpoint-tag` (INFRA-267, CER-082) — both call `_mark_phase_complete_in_era_ledger` with the *same* phase key already passed to `_mark_phase_complete_in_index`, never a second re-derivation, so the ledger row and the index row flip in one invocation; the helper is a silent no-op (returns `False`, writes nothing, raises nothing) when `docs/eras/` is missing, no era doc is `active`, the active doc has no ledger heading/table, no row matches the key, or the row already reads `complete`, and it never edits a non-`active` era doc — a legacy era without a ledger row must not change the exit status of either command. The row itself is created by `phase_new.py` at scaffold time | read-only (`index_integrity` check 2c compares ledger rows against `docs/phases/index.md`; the resolver never reads or writes era docs) |
-| active story (`state.json` `current_story`) | orchestrator (`story_context.py`) | read-only |
+| active stories (`state.json` `current_stories`, keyed by story ID; INFRA-281/CER-095.2, superseding the single-slot `current_story`) | `story_context.py` — sole writer, via `set_current_story()` / `clear_current_story()`; `create-story-worktree` **adds** its story's key, `merge-story-worktree` / `discard-story-worktree` **remove only their own key**. The flat `current_story` mirror is a **derived** read compatibility shim for readers outside `scope_guard.py`'s scope (`hooks/session_start.py`, `global_session_check`, `skills/observability/api/src/routes/context.ts`, `subagent_transcript._story_accepts_late_bump`) — it is written only inside `set_current_story()`/`clear_current_story()`, never independently | read-only |
 | `effort.db` | `hooks/post_tool_use.py` → `subagent_transcript.py` / `effort_recorder.py` (INFRA-236); `record_attempt.py` CLI for non-hook callers | read-only |
 | `attempt_counter.json` (attempt counters) | `hooks/post_tool_use.py` → `subagent_transcript.record_attempt_from_transcript` → `flex_build.bump_attempt_count` on builder/reviewer FAIL (INFRA-237), **ungated** — the story was just spawned for, so it is active by construction, and gating it would risk dropping a real first FAIL; `subagent_transcript.reconcile_pending_attempts` → `flex_build.bump_attempt_count` as a *second, later* bump site for an async spawn's FAIL outcome that was only knowable after PostToolUse time (INFRA-258 — same function, same semantics, just a later call), **gated** since CER-091 defect 4 by `subagent_transcript._story_accepts_late_bump` — skipped when the story's own frontmatter `status` is `complete`/`merged`/`deferred`/`backlog`, or when the story is neither already counter-recorded nor `state.json`'s `current_story` (a reconciliation arriving arbitrarily later — possibly post-merge, possibly post-`/clear` — must not resurrect a counter file for a story nobody is building); `flex_build.py merge-story-worktree` → `flex_build.clear_attempt_count` on a successful land; the standalone `write-attempt-count` / `clear-attempt-count` CLI subcommands share the same underlying functions for direct/manual use but are no longer invoked from `CLAUDE.build.md.j2`'s loop | read-only |
 | `.companion/effort_recording.log` (diagnostic trace, CER-091) | `subagent_transcript.log_recording_event` — sole writer, called once per `record_attempt_from_transcript` invocation on every return path (including its outer `except`), and once by `hooks/post_tool_use.py`'s `SendMessage` branch (`decision="observed:non-spawn-tool"`); append-only, size-capped at `RECORDING_LOG_MAX_BYTES` (262 144 bytes, truncate-and-restart with a `log-truncated` marker line); not gated on `effort_tracking` — the log's purpose is explaining why recording did or did not happen, including when tracking itself is off | read-only (`pairmode_effort.py` and manual `tail` only; no resolver reads it) |
@@ -1644,6 +1682,13 @@ Returns `None` if `product.json` is missing or has no `config` key. Returns a di
 {
   "pairmode_version": "1.0",
   "last_loaded_modules": ["module-name"],
+  "current_stories": {
+    "2.3": {
+      "id": "2.3",
+      "title": "optional title",
+      "set_at": "2026-04-20T00:00:00+00:00"
+    }
+  },
   "current_story": {
     "id": "2.3",
     "title": "optional title",
@@ -1661,9 +1706,27 @@ Fields:
   to scaffold the project. Read by `/flex:pairmode audit` to compute the delta.
 - `last_loaded_modules` — updated on every companion session start; lists the module names
   the user chose to load for that session.
-- `current_story` — **optional**; present only when pairmode is active and the user
-  confirmed which story they are working on. Contains `id` (required), optional `title`,
-  and `set_at` (UTC ISO-8601 timestamp). Absent when the user skips the prompt.
+- `current_stories` — **optional**; dict keyed by story ID (INFRA-281, CER-095.2). Each
+  entry has the same shape as `current_story` below (`id`, optional `title`, `set_at`).
+  This is the **authority**: with two builders in flight (parallel worktree dispatch),
+  `state.json` can legitimately hold more than one active story, and only a keyed record
+  can answer "which story is this write for?" per call — a single global slot cannot.
+  `create-story-worktree` adds a key on stamp; `merge-story-worktree` /
+  `discard-story-worktree` remove **only their own** key on teardown, never the whole
+  dict — see § 9.5 for how `scope_guard.resolve_call_story()` consumes this. Absent
+  when no story has ever been stamped in this state.json.
+- `current_story` — **optional**; a **derived mirror** of one `current_stories` entry
+  (whichever was written most recently, or re-pointed deterministically on a scoped
+  clear — see `story_context.clear_current_story()`), kept only for backward
+  compatibility with readers outside `scope_guard.py`'s scope: `hooks/session_start.py`,
+  `global_session_check`, `skills/observability/api/src/routes/context.ts`, and
+  `subagent_transcript._story_accepts_late_bump`. It is never written independently of
+  `current_stories` — `set_current_story()` and `clear_current_story()` write both in
+  the same atomic write, so the mirror can never diverge from the keyed record through a
+  partial write. Present only when pairmode is active and the user confirmed which story
+  they are working on (or a builder stamped one). Contains `id` (required), optional
+  `title`, and `set_at` (UTC ISO-8601 timestamp). Absent when the user skips the prompt
+  and no `current_stories` entry exists.
 - `context_story_tokens` — **optional**; dict keyed by story ID (e.g. `"INFRA-181"`);
   written by `flex_build.py set-context-tokens`. **Legacy after INFRA-182**: `decide()` no
   longer reads this field. Entries remain in state.json but are inert for gate enforcement.
@@ -1834,10 +1897,17 @@ assume they must agree.
 Pairmode is considered active when `.claude/settings.deny-rationale.json` exists in the
 project root. The helper `skills/pairmode/scripts/story_context.py` provides:
 - `is_pairmode_active(project_dir)` — returns True when the deny-rationale file is present.
-- `set_current_story(companion_dir, story_id, title=None)` — writes the `current_story`
-  entry and returns the updated state dict.
-- `get_current_story(companion_dir)` — returns the `current_story` dict or None.
-- `clear_current_story(companion_dir)` — removes `current_story` from state.json.
+- `set_current_story(companion_dir, story_id, title=None)` — writes the entry into
+  `current_stories[story_id]` and the `current_story` mirror (same entry, one atomic
+  write; INFRA-281) and returns the updated state dict.
+- `get_current_story(companion_dir)` — returns the `current_story` mirror dict or None.
+- `get_current_stories(companion_dir)` — returns the `current_stories` keyed dict
+  (INFRA-281); derives a single-entry dict from the flat `current_story` when the state
+  file predates this key, so a project mid-migration never reads as zero active stories.
+- `clear_current_story(companion_dir, story_id=None)` — with `story_id`, removes only
+  that entry from `current_stories` and re-points/removes the `current_story` mirror
+  deterministically (INFRA-281); with `story_id=None` (the CLI's `--clear`), clears both
+  keys entirely — today's "clear the slate" behaviour.
 - `read_state(companion_dir)` / `write_state(companion_dir, state)` — low-level helpers.
 
 ---
@@ -1856,9 +1926,11 @@ Hooks must:
 `pre_tool_use.py` dispatches to three modules. As of RELEASE-020, the
 `Task`/`Agent` branch also makes a fourth, read-only import — `flex_build`
 (for `_story_path` / `_read_story_frontmatter`) alongside `scope_guard`
-(for `_read_current_story`) — solely to resolve `flex_factor` before
-calling `decide()`; no state is written by this resolution and no new
-dispatch branch is added.
+(for `resolve_call_story`, INFRA-281 — the per-call resolver superseding
+`_read_current_story` here; ambiguous/ no-signal resolutions both fall back
+to the documented `1.0` default rather than guessing) — solely to resolve
+`flex_factor` before calling `decide()`; no state is written by this
+resolution and no new dispatch branch is added.
 
 - **`Task`/`Agent` → `context_budget.py` (CER-027, CER-039, CER-040, CER-049, INFRA-182, INFRA-199):**
   the dispatch is additionally scoped (INFRA-199) to

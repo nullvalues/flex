@@ -81,8 +81,17 @@ def _stamp_active_story(project_path: Path, story_id: str) -> None:
     set_current_story(companion_dir, story_id, title=fm.get("title"))
 
 
-def _clear_active_story(project_path: Path) -> None:
-    """Clear ``current_story`` from the main checkout's ``.companion/state.json``.
+def _clear_active_story(project_path: Path, story_id: str) -> None:
+    """Clear *story_id*'s entry from ``current_stories`` in the main
+    checkout's ``.companion/state.json`` — and only that entry.
+
+    INFRA-281 (CER-095.2): an unconditional clear here used to wipe the
+    single global ``current_story`` slot on every merge/discard, which
+    silently disabled scope enforcement for a *different* builder that is
+    still running in its own worktree the moment the first story landed.
+    Passing ``story_id`` through to ``clear_current_story`` makes the clear
+    story-scoped, so a still-building sibling's entry (and therefore its
+    scope enforcement) survives.
 
     Silent no-op when ``.companion/`` does not exist — merge/discard must
     never fail because the story was never stamped in the first place (e.g.
@@ -93,7 +102,7 @@ def _clear_active_story(project_path: Path) -> None:
     if not companion_dir.is_dir():
         return
     try:
-        clear_current_story(companion_dir)
+        clear_current_story(companion_dir, story_id)
     except Exception:  # noqa: BLE001
         pass
 
@@ -2931,8 +2940,11 @@ def cmd_merge_story_worktree(story_id: str, project_dir: str) -> None:
     # INFRA-238: clear both artifacts create-story-worktree stamped — the
     # active-story marker and the Layer 1 permission artifact — so the next
     # story starts with a clean slate rather than inheriting this story's
-    # scope.
-    _clear_active_story(project_path)
+    # scope. INFRA-281 (CER-095.2): the active-story clear is scoped to this
+    # story's own ID — an unconditional clear would disable scope
+    # enforcement for a different builder that is still running in its own
+    # worktree.
+    _clear_active_story(project_path, story_id)
     clear_permissions_artifact(story_id, project_path)
     click.echo(f"merged {branch} into {main_branch}")
 
@@ -2982,8 +2994,11 @@ def cmd_discard_story_worktree(story_id: str, project_dir: str) -> None:
     # active-story marker and the Layer 1 permission artifact — so a
     # discarded attempt does not leave stale scope state behind for whatever
     # runs next (a retry re-stamps via create-story-worktree; a different
-    # story must not inherit this one's scope).
-    _clear_active_story(project_path)
+    # story must not inherit this one's scope). INFRA-281 (CER-095.2): the
+    # active-story clear is scoped to this story's own ID — an unconditional
+    # clear would disable scope enforcement for a different builder that is
+    # still running in its own worktree.
+    _clear_active_story(project_path, story_id)
     clear_permissions_artifact(story_id, project_path)
 
     click.echo(f"discarded {branch}")

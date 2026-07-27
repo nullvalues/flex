@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import re
 from pathlib import Path
 
 PROTECTED_GLOBS = [
@@ -42,18 +43,40 @@ def check_path(
     # works regardless of the spawn's cwd.
     project = _resolve_main_project_root(Path(project_dir).resolve())
 
-    story_id = _read_current_story(project)
+    # INFRA-281 (CER-095.2): resolve_call_story is handed the *raw*
+    # project_dir, not `project` — the worktree identity `project` just
+    # collapsed away is exactly the signal resolve_call_story needs to tell
+    # concurrent builders apart.
+    story_id, source = resolve_call_story(project_dir, file_path)
     if not story_id:
         relative_path = _normalise(file_path, project)
         if relative_path is None:
             return False, "path escapes project root"
+        ambiguous_note = None
+        if source == "ambiguous":
+            claimed = sorted(_read_current_stories_keyed(project))
+            ambiguous_note = (
+                "ambiguous — multiple stories claimed ("
+                + ", ".join(claimed)
+                + "); resolving to no active story rather than guessing"
+            )
         if _is_protected(relative_path):
+            if ambiguous_note:
+                return (
+                    False,
+                    f"{relative_path} is a protected path — {ambiguous_note}; "
+                    "requires an active story with this file in primary_files "
+                    "or touches, authorized via "
+                    "docs/phases/permissions/<story_id>.json",
+                )
             return (
                 False,
                 f"{relative_path} is a protected path — requires an active story "
                 "with this file in primary_files or touches, authorized via "
                 "docs/phases/permissions/<story_id>.json",
             )
+        if ambiguous_note:
+            return True, ambiguous_note
         return True, "no active story — allowing"
 
     normalised = _normalise(file_path, project)
@@ -137,12 +160,173 @@ def _resolve_main_project_root(project: Path) -> Path:
     return candidate if candidate.is_dir() else project
 
 
-def _read_current_story(project: Path) -> str | None:
+# Copied from flex_build._STORY_ID_RE (source of truth for the story-ID
+# shape) rather than imported: this module sits on the pre_tool_use hook
+# path and must stay import-light — flex_build pulls in click, effort_db,
+# next_action and more.
+_STORY_ID_RE = re.compile(r"^[A-Z][A-Z0-9_]*-\d{3}$")
+
+# The literal `source` values `resolve_call_story` can return, defined once
+# so tests can enumerate them without hardcoding the strings twice.
+RESOLVE_CALL_STORY_SOURCES = frozenset(
+    {
+        "worktree-cwd",
+        "worktree-path",
+        "state-single",
+        "state-legacy",
+        "ambiguous",
+        "none",
+    }
+)
+
+
+def _read_state_dict(project: Path) -> dict:
     try:
-        state = json.loads((project / ".companion" / "state.json").read_text())
-        # current_story is stored as {"id": "RAIL-NNN", "set_at": "..."} by story_context.py
-        val = state.get("current_story", {}).get("id")
+        return json.loads((project / ".companion" / "state.json").read_text())
+    except Exception:
+        return {}
+
+
+def _read_current_stories_keyed(project: Path) -> dict:
+    """Return the ``current_stories`` dict from *project*'s state.json.
+
+    Read-only; never raises. Returns ``{}`` when the key is absent, empty,
+    or the state file can't be read — deliberately does **not** fall back to
+    the flat ``current_story`` key, so callers that need the legacy fallback
+    (``resolve_call_story``'s ``state-legacy`` step) apply it explicitly and
+    the two fallback conditions in B5 stay distinguishable.
+    """
+    state = _read_state_dict(project)
+    keyed = state.get("current_stories")
+    return keyed if isinstance(keyed, dict) else {}
+
+
+def _read_legacy_story_id(project: Path) -> str | None:
+    state = _read_state_dict(project)
+    legacy = state.get("current_story")
+    if isinstance(legacy, dict):
+        val = legacy.get("id")
         return str(val).strip() if val else None
+    return None
+
+
+def resolve_call_story(
+    project_dir: str | Path,
+    file_path: str | Path | None = None,
+) -> tuple[str | None, str]:
+    """Resolve which story a tool call belongs to, per-call, from the call
+    itself (INFRA-281 / CER-095.2).
+
+    A single global ``state.json["current_story"]`` slot cannot answer "which
+    story is this write for?" once more than one story can be in flight —
+    whichever story was stamped last wins for every builder. The answer is
+    already carried by the call: a builder's tool calls come from its own
+    worktree (``.pairmode-worktrees/<ID>/``), the same claim INFRA-280 taught
+    the resolver to read. Only when the call demonstrably comes from the main
+    checkout, with no worktree signal in either the cwd or the target path,
+    does this fall back to ``state.json`` — and even then it refuses to guess
+    when more than one story is claimed there.
+
+    Returns ``(story_id, source)`` where ``source`` is one of
+    ``RESOLVE_CALL_STORY_SOURCES``. Resolution order:
+
+    1. ``worktree-cwd`` — *project_dir* is, or is inside,
+       ``<main>/.pairmode-worktrees/<ID>/`` with ``<ID>`` matching
+       ``_STORY_ID_RE``;
+    2. ``worktree-path`` — otherwise, the repo-relative *file_path* begins
+       with ``.pairmode-worktrees/<ID>/`` with ``<ID>`` matching
+       ``_STORY_ID_RE``;
+    3. ``state-single`` — otherwise, ``current_stories`` holds exactly one
+       entry;
+    4. ``state-legacy`` — otherwise, ``current_stories`` is absent/empty and
+       the flat ``current_story`` names a story;
+    5. ``ambiguous`` — otherwise, ``current_stories`` holds two or more
+       entries: ``story_id`` is ``None`` (never "pick the most recent" —
+       false confidence here is worse than no answer);
+    6. ``none`` — no signal at all: ``story_id`` is ``None``.
+
+    Performs no writes, never raises (any exception resolves to
+    ``(None, "none")``), and does not require the resolved worktree ID to
+    appear in ``current_stories`` — the worktree itself is the claim
+    (INFRA-280), authoritative over the state file, not subordinate to it.
+    """
+    try:
+        raw = Path(project_dir).resolve()
+        main = _resolve_main_project_root(raw)
+
+        # 1. worktree-cwd
+        try:
+            rel_parts = raw.relative_to(main).parts
+        except ValueError:
+            rel_parts = ()
+        if (
+            len(rel_parts) >= 2
+            and rel_parts[0] == _WORKTREE_PREFIX.rstrip("/")
+            and _STORY_ID_RE.match(rel_parts[1])
+        ):
+            return rel_parts[1], "worktree-cwd"
+
+        # 2. worktree-path. SECURITY (regression guard for
+        # test_scope_guard_blocks_foreign_story_worktree_path_bypass): a
+        # story ID lifted straight out of the *target path* must not be fed
+        # back into `_strip_worktree_prefix` for that same path — the two
+        # would always agree by construction, silently defeating that
+        # function's "only strip when the segment equals the caller's real
+        # active story" guarantee, and letting any caller impersonate any
+        # story merely by spelling a worktree-shaped path. Unlike
+        # worktree-cwd (where the cwd's mere existence as the process's real
+        # working directory *is* the INFRA-280 claim), a path string proves
+        # nothing about who issued the call. So this step additionally
+        # requires the named worktree directory to exist on disk — the same
+        # standard INFRA-280's claim reader (`flex_build.claimed_story_ids`)
+        # applies to a cwd-based claim, applied here to a path-based one.
+        if file_path is not None:
+            normalised = _normalise(file_path, main)
+            if normalised is not None and normalised.startswith(_WORKTREE_PREFIX):
+                remainder = normalised[len(_WORKTREE_PREFIX):]
+                segment, _sep, rest = remainder.partition("/")
+                if (
+                    rest
+                    and _STORY_ID_RE.match(segment)
+                    and (main / _WORKTREE_PREFIX.rstrip("/") / segment).is_dir()
+                ):
+                    return segment, "worktree-path"
+
+        # 3-6: state.json fallback, main-checkout calls only.
+        return _resolve_story_from_state(main)
+    except Exception:
+        return None, "none"
+
+
+def _resolve_story_from_state(main: Path) -> tuple[str | None, str]:
+    """Steps 3-6 of ``resolve_call_story``'s order: the state.json-only
+    fallback rules, given the already-resolved main checkout root.
+    """
+    keyed = _read_current_stories_keyed(main)
+    if len(keyed) == 1:
+        return next(iter(keyed)), "state-single"
+    if not keyed:
+        legacy_id = _read_legacy_story_id(main)
+        if legacy_id:
+            return legacy_id, "state-legacy"
+        return None, "none"
+    return None, "ambiguous"
+
+
+def _read_current_story(project: Path) -> str | None:
+    """Thin wrapper over ``resolve_call_story``'s state-only rules.
+
+    Kept for ``hooks/pre_tool_use.py``'s (pre-INFRA-281) import and for any
+    other caller that only has *project* — not a raw call cwd or target
+    path — to resolve against. ``state-single``/``state-legacy`` return the
+    resolved ID; ``ambiguous``/``none`` return ``None`` rather than a guess,
+    exactly as ``resolve_call_story`` does when two stories are active.
+    Never raises.
+    """
+    try:
+        main = _resolve_main_project_root(Path(project).resolve())
+        story_id, _source = _resolve_story_from_state(main)
+        return story_id
     except Exception:
         return None
 

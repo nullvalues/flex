@@ -521,3 +521,230 @@ def test_worktree_prefixed_relative_path_still_matches_allowed_paths(tmp_path: P
     allowed, reason = scope_guard.check_path(worktree_relative, tmp_path)
     assert allowed is True
     assert reason == "allowed"
+
+
+# ---------------------------------------------------------------------------
+# INFRA-281 (CER-095.2): resolve_call_story — per-call story resolution
+# ---------------------------------------------------------------------------
+
+
+def _write_keyed_state(tmp_path: Path, stories: dict[str, str]) -> None:
+    """Write a story-keyed ``current_stories`` record (no flat mirror)."""
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    current_stories = {
+        sid: {"id": sid, "set_at": set_at} for sid, set_at in stories.items()
+    }
+    (companion / "state.json").write_text(json.dumps({"current_stories": current_stories}))
+
+
+def _make_worktree_dir(main_root: Path, story_id: str) -> Path:
+    """Create only the ``.pairmode-worktrees/<story_id>/`` directory — no
+    ``.git`` pointer file, so this is NOT a linked-worktree cwd, only a
+    worktree-shaped path on disk."""
+    worktree_dir = main_root / ".pairmode-worktrees" / story_id
+    worktree_dir.mkdir(parents=True)
+    return worktree_dir
+
+
+class TestResolveCallStorySources:
+    """B5: one case per RESOLVE_CALL_STORY_SOURCES literal."""
+
+    def test_worktree_cwd(self, tmp_path: Path) -> None:
+        main_root = tmp_path / "main"
+        main_root.mkdir()
+        worktree_dir = _make_linked_worktree(main_root, STORY_ID)
+        story_id, source = scope_guard.resolve_call_story(worktree_dir)
+        assert (story_id, source) == (STORY_ID, "worktree-cwd")
+
+    def test_worktree_path_nested(self, tmp_path: Path) -> None:
+        """A nested path inside the worktree directory still resolves."""
+        main_root = tmp_path / "main"
+        main_root.mkdir()
+        _make_worktree_dir(main_root, STORY_ID)
+        file_path = (
+            main_root / ".pairmode-worktrees" / STORY_ID / "skills" / "pairmode" / "foo.py"
+        )
+        story_id, source = scope_guard.resolve_call_story(main_root, file_path)
+        assert (story_id, source) == (STORY_ID, "worktree-path")
+
+    def test_worktree_path(self, tmp_path: Path) -> None:
+        """cwd is the main checkout (no worktree signal); the target path,
+        under a worktree directory that genuinely exists on disk, supplies
+        the story ID instead."""
+        main_root = tmp_path / "main"
+        main_root.mkdir()
+        _make_worktree_dir(main_root, STORY_ID)
+        file_path = main_root / ".pairmode-worktrees" / STORY_ID / "skills" / "foo.py"
+        story_id, source = scope_guard.resolve_call_story(main_root, file_path)
+        assert (story_id, source) == (STORY_ID, "worktree-path")
+
+    def test_worktree_path_non_matching_segment_falls_through(self, tmp_path: Path) -> None:
+        """A worktree-shaped path segment that does not match _STORY_ID_RE
+        must not be treated as a story ID."""
+        main_root = tmp_path / "main"
+        main_root.mkdir()
+        (main_root / ".pairmode-worktrees" / "not-a-story-id").mkdir(parents=True)
+        file_path = main_root / ".pairmode-worktrees" / "not-a-story-id" / "skills" / "foo.py"
+        story_id, source = scope_guard.resolve_call_story(main_root, file_path)
+        assert story_id is None
+        assert source == "none"
+
+    def test_worktree_path_requires_directory_to_exist(self, tmp_path: Path) -> None:
+        """SECURITY: a worktree-shaped path segment that names a directory
+        which does NOT exist on disk must not be trusted as a story
+        identity — this is the corroboration that keeps a path-only claim
+        from defeating _strip_worktree_prefix's guarantee (see
+        test_scope_guard_blocks_foreign_story_worktree_path_bypass)."""
+        main_root = tmp_path / "main"
+        main_root.mkdir()
+        # No .pairmode-worktrees/INFRA-111 directory created.
+        file_path = main_root / ".pairmode-worktrees" / "INFRA-111" / "skills" / "foo.py"
+        story_id, source = scope_guard.resolve_call_story(main_root, file_path)
+        assert story_id is None
+        assert source == "none"
+
+    def test_state_single(self, tmp_path: Path) -> None:
+        _write_keyed_state(tmp_path, {"A-001": "2026-01-01T00:00:00+00:00"})
+        story_id, source = scope_guard.resolve_call_story(tmp_path)
+        assert (story_id, source) == ("A-001", "state-single")
+
+    def test_state_legacy(self, tmp_path: Path) -> None:
+        _write_state(tmp_path, STORY_ID)
+        story_id, source = scope_guard.resolve_call_story(tmp_path)
+        assert (story_id, source) == (STORY_ID, "state-legacy")
+
+    def test_ambiguous(self, tmp_path: Path) -> None:
+        _write_keyed_state(
+            tmp_path,
+            {
+                "A-001": "2026-01-01T00:00:00+00:00",
+                "B-002": "2026-01-02T00:00:00+00:00",
+            },
+        )
+        story_id, source = scope_guard.resolve_call_story(tmp_path)
+        assert story_id is None
+        assert source == "ambiguous"
+
+    def test_none(self, tmp_path: Path) -> None:
+        story_id, source = scope_guard.resolve_call_story(tmp_path)
+        assert story_id is None
+        assert source == "none"
+
+    def test_never_raises_on_garbage_input(self) -> None:
+        story_id, source = scope_guard.resolve_call_story(object())  # type: ignore[arg-type]
+        assert story_id is None
+        assert source == "none"
+
+    def test_sources_enumerable(self) -> None:
+        assert scope_guard.RESOLVE_CALL_STORY_SOURCES == {
+            "worktree-cwd",
+            "worktree-path",
+            "state-single",
+            "state-legacy",
+            "ambiguous",
+            "none",
+        }
+
+
+class TestCheckPathAmbiguous:
+    """B6: the ambiguous case degrades to no-active-story, never a guess."""
+
+    def test_ambiguous_non_protected_path_allowed(self, tmp_path: Path) -> None:
+        _write_keyed_state(
+            tmp_path,
+            {
+                "A-001": "2026-01-01T00:00:00+00:00",
+                "B-002": "2026-01-02T00:00:00+00:00",
+            },
+        )
+        allowed, reason = scope_guard.check_path("src/app.py", tmp_path)
+        assert allowed is True
+        assert "ambiguous" in reason
+        assert "A-001" in reason
+        assert "B-002" in reason
+
+    def test_ambiguous_protected_path_denied(self, tmp_path: Path) -> None:
+        _write_keyed_state(
+            tmp_path,
+            {
+                "A-001": "2026-01-01T00:00:00+00:00",
+                "B-002": "2026-01-02T00:00:00+00:00",
+            },
+        )
+        allowed, reason = scope_guard.check_path("hooks/pre_tool_use.py", tmp_path)
+        assert allowed is False
+        assert "ambiguous" in reason
+        assert "A-001" in reason
+        assert "B-002" in reason
+        assert "protected path" in reason
+
+
+class TestTwoConcurrentBuildersScopedIndependently:
+    """B7: the phase-109 checkpoint-proves scenario — stamping order must
+    not affect any of the four results."""
+
+    def _setup(self, tmp_path: Path, stamp_order: list[str]) -> tuple[Path, Path, Path]:
+        main_root = tmp_path / "main"
+        main_root.mkdir()
+        wt_a = _make_linked_worktree(main_root, "A-001")
+        wt_b = _make_linked_worktree(main_root, "B-002")
+        _write_permissions(main_root, "A-001", ["a.py"])
+        _write_permissions(main_root, "B-002", ["b.py"])
+        entries = {
+            "A-001": {"id": "A-001", "set_at": "2026-01-01T00:00:00+00:00"},
+            "B-002": {"id": "B-002", "set_at": "2026-01-02T00:00:00+00:00"},
+        }
+        companion = main_root / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        ordered = {sid: entries[sid] for sid in stamp_order}
+        (companion / "state.json").write_text(json.dumps({"current_stories": ordered}))
+        return main_root, wt_a, wt_b
+
+    def _assert_matrix(self, main_root: Path, wt_a: Path, wt_b: Path) -> None:
+        allowed, reason = scope_guard.check_path("a.py", wt_a)
+        assert allowed is True
+
+        allowed, reason = scope_guard.check_path("b.py", wt_a)
+        assert allowed is False
+        assert "A-001" in reason
+
+        allowed, reason = scope_guard.check_path("b.py", wt_b)
+        assert allowed is True
+
+        allowed, reason = scope_guard.check_path("a.py", wt_b)
+        assert allowed is False
+        assert "B-002" in reason
+
+    def test_matrix_stamped_a_then_b(self, tmp_path: Path) -> None:
+        main_root, wt_a, wt_b = self._setup(tmp_path, ["A-001", "B-002"])
+        self._assert_matrix(main_root, wt_a, wt_b)
+
+    def test_matrix_stamped_b_then_a(self, tmp_path: Path) -> None:
+        main_root, wt_a, wt_b = self._setup(tmp_path, ["B-002", "A-001"])
+        self._assert_matrix(main_root, wt_a, wt_b)
+
+
+class TestReadCurrentStoryWrapper:
+    """B10: _read_current_story is a thin wrapper over the state-only rules."""
+
+    def test_state_single_returns_id(self, tmp_path: Path) -> None:
+        _write_keyed_state(tmp_path, {"A-001": "2026-01-01T00:00:00+00:00"})
+        assert scope_guard._read_current_story(tmp_path) == "A-001"
+
+    def test_state_legacy_returns_id(self, tmp_path: Path) -> None:
+        _write_state(tmp_path, STORY_ID)
+        assert scope_guard._read_current_story(tmp_path) == STORY_ID
+
+    def test_ambiguous_returns_none(self, tmp_path: Path) -> None:
+        _write_keyed_state(
+            tmp_path,
+            {
+                "A-001": "2026-01-01T00:00:00+00:00",
+                "B-002": "2026-01-02T00:00:00+00:00",
+            },
+        )
+        assert scope_guard._read_current_story(tmp_path) is None
+
+    def test_none_returns_none(self, tmp_path: Path) -> None:
+        assert scope_guard._read_current_story(tmp_path) is None

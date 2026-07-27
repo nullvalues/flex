@@ -9,8 +9,10 @@ import pytest
 from click.testing import CliRunner
 
 from skills.pairmode.scripts.story_context import (
+    CURRENT_STORIES_KEY,
     clear_current_story,
     cli,
+    get_current_stories,
     get_current_story,
     is_pairmode_active,
     match_file_to_module,
@@ -478,3 +480,181 @@ class TestCLI:
 
         assert result.exit_code != 0
         assert "suspiciously shallow" in result.output
+
+
+# ---------------------------------------------------------------------------
+# INFRA-281 (CER-095.2): current_stories keyed record
+# ---------------------------------------------------------------------------
+
+
+class TestCurrentStoriesKeyedRecord:
+    """B1, B2: set_current_story writes both the keyed record and the mirror."""
+
+    def test_set_current_story_writes_keyed_entry(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        state = set_current_story(companion, "A-001", title="Story A")
+        assert state[CURRENT_STORIES_KEY]["A-001"]["id"] == "A-001"
+        assert state[CURRENT_STORIES_KEY]["A-001"]["title"] == "Story A"
+
+    def test_second_stamp_preserves_first_entry_byte_identical(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        set_current_story(companion, "A-001", title="Story A")
+        first_entry = read_state(companion)[CURRENT_STORIES_KEY]["A-001"]
+
+        state = set_current_story(companion, "B-002", title="Story B")
+
+        assert state[CURRENT_STORIES_KEY]["A-001"] == first_entry
+        assert state[CURRENT_STORIES_KEY]["B-002"]["id"] == "B-002"
+
+    def test_mirror_equals_latest_keyed_entry(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        set_current_story(companion, "A-001", title="Story A")
+        state = set_current_story(companion, "B-002", title="Story B")
+        assert state["current_story"] == state[CURRENT_STORIES_KEY]["B-002"]
+
+    def test_get_current_stories_returns_keyed_dict(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        set_current_story(companion, "A-001")
+        set_current_story(companion, "B-002")
+        result = get_current_stories(companion)
+        assert set(result) == {"A-001", "B-002"}
+
+    def test_get_current_stories_empty_dict_when_absent(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        assert get_current_stories(companion) == {}
+
+    def test_get_current_stories_derives_single_entry_from_legacy_state(self, tmp_path):
+        """B4: pre-INFRA-281 state.json (flat current_story, no current_stories key)."""
+        companion = make_companion_dir(tmp_path)
+        write_state(
+            companion,
+            {"current_story": {"id": "LEGACY-001", "set_at": "2026-01-01T00:00:00+00:00"}},
+        )
+        result = get_current_stories(companion)
+        assert set(result) == {"LEGACY-001"}
+        assert result["LEGACY-001"]["id"] == "LEGACY-001"
+
+    def test_get_current_stories_no_write_on_legacy_state(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        write_state(
+            companion,
+            {"current_story": {"id": "LEGACY-001", "set_at": "2026-01-01T00:00:00+00:00"}},
+        )
+        state_path = companion / "state.json"
+        before_mtime = state_path.stat().st_mtime_ns
+        before_bytes = state_path.read_bytes()
+
+        get_current_stories(companion)
+
+        assert state_path.stat().st_mtime_ns == before_mtime
+        assert state_path.read_bytes() == before_bytes
+
+    def test_get_current_stories_empty_dict_when_neither_key_present(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        write_state(companion, {"last_loaded_modules": ["auth"]})
+        assert get_current_stories(companion) == {}
+
+    def test_get_current_story_unchanged_signature_and_shape(self, tmp_path):
+        """B2: get_current_story is unchanged — still returns the flat entry."""
+        companion = make_companion_dir(tmp_path)
+        set_current_story(companion, "A-001", title="Story A")
+        result = get_current_story(companion)
+        assert result == {"id": "A-001", "title": "Story A", "set_at": result["set_at"]}
+
+
+class TestClearCurrentStoryScoped:
+    """B3: scoped clear_current_story(companion_dir, story_id)."""
+
+    def test_scoped_clear_removes_only_named_story(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        set_current_story(companion, "A-001", title="Story A")
+        set_current_story(companion, "B-002", title="Story B")
+
+        state = clear_current_story(companion, "A-001")
+
+        assert "A-001" not in state[CURRENT_STORIES_KEY]
+        assert "B-002" in state[CURRENT_STORIES_KEY]
+
+    def test_scoped_clear_leaves_other_entries_byte_identical(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        set_current_story(companion, "A-001", title="Story A")
+        set_current_story(companion, "B-002", title="Story B")
+        b_entry_before = read_state(companion)[CURRENT_STORIES_KEY]["B-002"]
+
+        state = clear_current_story(companion, "A-001")
+
+        assert state[CURRENT_STORIES_KEY]["B-002"] == b_entry_before
+
+    def test_scoped_clear_repoints_mirror_when_mirrored_story_removed(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        set_current_story(companion, "A-001", title="Story A")
+        set_current_story(companion, "B-002", title="Story B")
+        # B-002 is the mirror (stamped last).
+        state = clear_current_story(companion, "B-002")
+        assert state["current_story"]["id"] == "A-001"
+
+    def test_scoped_clear_repoint_ties_broken_by_ascending_story_id(self, tmp_path):
+        """Deterministic re-point: identical set_at, tie-break by story ID ascending."""
+        companion = make_companion_dir(tmp_path)
+        same_ts = "2026-01-01T00:00:00+00:00"
+        write_state(
+            companion,
+            {
+                CURRENT_STORIES_KEY: {
+                    "B-002": {"id": "B-002", "set_at": same_ts},
+                    "A-001": {"id": "A-001", "set_at": same_ts},
+                    "C-003": {"id": "C-003", "set_at": same_ts},
+                },
+                "current_story": {"id": "C-003", "set_at": same_ts},
+            },
+        )
+        state = clear_current_story(companion, "C-003")
+        assert state["current_story"]["id"] == "A-001"
+
+    def test_scoped_clear_leaves_mirror_unchanged_when_not_mirrored_story(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        set_current_story(companion, "A-001", title="Story A")
+        set_current_story(companion, "B-002", title="Story B")
+        # Mirror currently points at B-002; clear A-001 instead.
+        state = clear_current_story(companion, "A-001")
+        assert state["current_story"]["id"] == "B-002"
+
+    def test_scoped_clear_removes_mirror_entirely_when_no_entries_remain(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        set_current_story(companion, "A-001", title="Story A")
+        state = clear_current_story(companion, "A-001")
+        assert "current_story" not in state
+        assert CURRENT_STORIES_KEY not in state or state[CURRENT_STORIES_KEY] == {}
+
+    def test_unscoped_clear_still_clears_the_whole_slate(self, tmp_path):
+        """The legacy call shape (story_id defaulted to None) keeps its old behaviour."""
+        companion = make_companion_dir(tmp_path)
+        set_current_story(companion, "A-001", title="Story A")
+        set_current_story(companion, "B-002", title="Story B")
+        state = clear_current_story(companion)
+        assert "current_story" not in state
+        assert CURRENT_STORIES_KEY not in state
+
+    def test_scoped_clear_retains_context_tokens(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        write_state(
+            companion,
+            {
+                CURRENT_STORIES_KEY: {
+                    "A-001": {"id": "A-001", "set_at": "2026-01-01T00:00:00+00:00"},
+                },
+                "current_story": {"id": "A-001", "set_at": "2026-01-01T00:00:00+00:00"},
+                "context_current_tokens": 50_000,
+                "context_current_tokens_recorded_at": "2026-01-01T00:00:00+00:00",
+            },
+        )
+        state = clear_current_story(companion, "A-001")
+        assert state["context_current_tokens"] == 50_000
+        assert state["context_current_tokens_recorded_at"] == "2026-01-01T00:00:00+00:00"
+
+    def test_scoped_clear_of_unknown_story_is_a_noop(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        set_current_story(companion, "A-001", title="Story A")
+        state = clear_current_story(companion, "NOT-A-REAL-STORY")
+        assert state[CURRENT_STORIES_KEY]["A-001"]["id"] == "A-001"
+        assert state["current_story"]["id"] == "A-001"

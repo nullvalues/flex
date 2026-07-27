@@ -27,6 +27,13 @@ import click
 
 from state_utils import _atomic_write_json
 
+# Key under which the story-keyed record of active stories lives in
+# state.json (INFRA-281 / CER-095.2). One story is no longer allowed to
+# answer "which story is active" for every builder — with two worktrees in
+# flight there can legitimately be two active stories at once, so state.json
+# tracks all of them, keyed by story ID.
+CURRENT_STORIES_KEY = "current_stories"
+
 
 def is_pairmode_active(project_dir: Path) -> bool:
     """Return True if the project has pairmode active.
@@ -64,6 +71,17 @@ def set_current_story(
     Creates state.json if it does not exist.  Existing keys are preserved.
     Returns the updated state dict.
 
+    INFRA-281 (CER-095.2): the same entry is written to both
+    ``state["current_stories"][story_id]`` (the keyed record — the authority
+    once more than one story can be in flight) and ``state["current_story"]``
+    (a derived mirror, kept only for readers outside this story's scope:
+    ``hooks/session_start.py``, ``global_session_check``,
+    ``skills/observability/api/src/routes/context.ts``, and
+    ``subagent_transcript._story_accepts_late_bump``). Both writes happen in
+    the same ``write_state`` call so the mirror can never diverge from the
+    keyed record through a partial write — it is derived, never
+    independently written.
+
     Args:
         companion_dir: Path to the .companion directory.
         story_id: Story identifier, e.g. "2.3".
@@ -79,23 +97,71 @@ def set_current_story(
     }
     if title is not None:
         entry["title"] = title
+    state.setdefault(CURRENT_STORIES_KEY, {})[story_id] = entry
     state["current_story"] = entry
     write_state(companion_dir, state)
     return state
 
 
-def clear_current_story(companion_dir: Path) -> dict:
-    """Remove current_story from state.json if present.
+def clear_current_story(companion_dir: Path, story_id: str | None = None) -> dict:
+    """Remove a story from ``current_stories`` (and, when unscoped, the
+    ``current_story`` mirror) in state.json.
+
+    INFRA-281 (CER-095.2): with two builders in flight, an unconditional
+    clear silently switches off scope enforcement for whichever *other*
+    story is still building. So this function supports two modes:
+
+    - ``story_id`` given — removes only ``current_stories[story_id]``; every
+      other entry survives untouched. If the removed entry was the one
+      mirrored in ``current_story``, the mirror is re-pointed to the
+      remaining entry with the latest ``set_at`` (ties broken by story ID,
+      ascending, for a deterministic result independent of dict ordering),
+      or removed entirely when no entries remain. If the removed entry was
+      not the mirrored one, ``current_story`` is left unchanged.
+    - ``story_id=None`` (the legacy/operator path, e.g. the CLI's
+      ``--clear``) — clears ``current_stories`` entirely and removes
+      ``current_story``, i.e. today's "clear the slate" behaviour. An
+      operator asking to clear the slate means the slate.
 
     ``context_current_tokens`` and ``context_current_tokens_recorded_at`` are
-    intentionally retained so accumulated token counts survive story transitions
-    within a session.  Cross-session staleness is handled by the TTL check in
-    ``context_budget.read_context_tokens_from_state``.
+    intentionally retained in both modes so accumulated token counts survive
+    story transitions within a session.  Cross-session staleness is handled
+    by the TTL check in ``context_budget.read_context_tokens_from_state``.
 
     Returns the updated state dict.
     """
     state = read_state(companion_dir)
-    state.pop("current_story", None)
+    if story_id is None:
+        state.pop(CURRENT_STORIES_KEY, None)
+        state.pop("current_story", None)
+        write_state(companion_dir, state)
+        return state
+
+    current_stories = state.get(CURRENT_STORIES_KEY, {})
+    removed = current_stories.pop(story_id, None)
+    if CURRENT_STORIES_KEY in state and not current_stories:
+        state.pop(CURRENT_STORIES_KEY, None)
+    elif current_stories:
+        state[CURRENT_STORIES_KEY] = current_stories
+
+    mirror = state.get("current_story")
+    was_mirrored = removed is not None and mirror is not None and mirror.get("id") == story_id
+    if was_mirrored:
+        if current_stories:
+            # Deterministic re-point: latest set_at wins; ties broken by
+            # ascending story ID so the result never depends on dict order.
+            latest_set_at = max(
+                entry.get("set_at", "") for entry in current_stories.values()
+            )
+            next_id = min(
+                sid
+                for sid, entry in current_stories.items()
+                if entry.get("set_at", "") == latest_set_at
+            )
+            state["current_story"] = current_stories[next_id]
+        else:
+            state.pop("current_story", None)
+
     write_state(companion_dir, state)
     return state
 
@@ -104,6 +170,29 @@ def get_current_story(companion_dir: Path) -> dict | None:
     """Return the current_story dict from state.json, or None if not set."""
     state = read_state(companion_dir)
     return state.get("current_story")
+
+
+def get_current_stories(companion_dir: Path) -> dict[str, dict]:
+    """Return the story-keyed ``current_stories`` dict from state.json.
+
+    INFRA-281 (CER-095.2). Read-only — performs no writes, even when the
+    state file predates this key.
+
+    For a state file that already has ``current_stories``, that dict is
+    returned as-is. For a pre-INFRA-281 state file that has the flat
+    ``current_story`` but no ``current_stories`` key, a single-entry dict
+    derived from the flat key is returned, so a project mid-migration is
+    never seen as having zero active stories. For a state file with neither
+    key, ``{}`` is returned.
+    """
+    state = read_state(companion_dir)
+    keyed = state.get(CURRENT_STORIES_KEY)
+    if isinstance(keyed, dict):
+        return keyed
+    legacy = state.get("current_story")
+    if isinstance(legacy, dict) and legacy.get("id"):
+        return {legacy["id"]: legacy}
+    return {}
 
 
 def match_file_to_module(file_path: str, modules: list[dict]) -> str | None:

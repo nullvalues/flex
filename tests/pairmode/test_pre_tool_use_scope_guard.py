@@ -188,3 +188,72 @@ def test_unknown_tool_name_exits_cleanly(tmp_path):
     assert stdout.strip() == ""
     assert mock_check.called is False
     assert mock_decide.called is False
+
+
+# ---------------------------------------------------------------------------
+# INFRA-281 (CER-095.2), B11: _resolve_flex_factor uses resolve_call_story
+# ---------------------------------------------------------------------------
+
+
+def _write_story_with_flex_factor(project_dir: Path, story_id: str, flex_factor: float) -> None:
+    rail = story_id.split("-")[0]
+    story_dir = project_dir / "docs" / "stories" / rail
+    story_dir.mkdir(parents=True, exist_ok=True)
+    (story_dir / f"{story_id}.md").write_text(
+        f"---\nid: {story_id}\nrail: {rail}\ntitle: T\nstatus: draft\nphase: \"1\"\n"
+        f"flex_factor: {flex_factor}\nprimary_files:\n---\n\n## Ensures\n\n- Done.\n"
+    )
+
+
+def _make_linked_worktree(main_root: Path, story_id: str) -> Path:
+    worktree_dir = main_root / ".pairmode-worktrees" / story_id
+    worktree_dir.mkdir(parents=True)
+    git_worktrees_dir = main_root / ".git" / "worktrees" / story_id
+    git_worktrees_dir.mkdir(parents=True)
+    (worktree_dir / ".git").write_text(f"gitdir: {git_worktrees_dir}\n")
+    return worktree_dir
+
+
+def test_resolve_flex_factor_from_worktree_cwd(tmp_path):
+    """flex_factor resolves via resolve_call_story's worktree-cwd signal."""
+    hook = _load_hook_module()
+    main_root = tmp_path / "main"
+    main_root.mkdir()
+    worktree_dir = _make_linked_worktree(main_root, "INFRA-300")
+    # A real worktree checkout mirrors the repo tree, story files included —
+    # _story_path resolves docs/stories/ against project_dir as passed
+    # (the worktree cwd), not against the resolved main root.
+    _write_story_with_flex_factor(worktree_dir, "INFRA-300", 1.5)
+
+    result = hook._resolve_flex_factor(worktree_dir)
+    assert result == 1.5
+
+
+def test_resolve_flex_factor_defaults_to_1_0_when_ambiguous(tmp_path):
+    """Two stories active, cwd is the main checkout — no worktree signal —
+    resolution is ambiguous, so the gate falls back to the documented 1.0
+    default rather than guessing which story's flex_factor applies."""
+    hook = _load_hook_module()
+    companion = tmp_path / ".companion"
+    companion.mkdir()
+    (companion / "state.json").write_text(
+        json.dumps(
+            {
+                "current_stories": {
+                    "INFRA-301": {"id": "INFRA-301", "set_at": "2026-01-01T00:00:00+00:00"},
+                    "INFRA-302": {"id": "INFRA-302", "set_at": "2026-01-02T00:00:00+00:00"},
+                }
+            }
+        )
+    )
+    _write_story_with_flex_factor(tmp_path, "INFRA-301", 2.0)
+    _write_story_with_flex_factor(tmp_path, "INFRA-302", 3.0)
+
+    result = hook._resolve_flex_factor(tmp_path)
+    assert result == 1.0
+
+
+def test_resolve_flex_factor_defaults_to_1_0_when_no_active_story(tmp_path):
+    hook = _load_hook_module()
+    result = hook._resolve_flex_factor(tmp_path)
+    assert result == 1.0

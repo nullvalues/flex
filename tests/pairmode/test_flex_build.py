@@ -1590,6 +1590,92 @@ class TestStoryWorktreeActiveStoryStamping:
         assert (tmp_path / ".pairmode-worktrees" / "WT-203").is_dir()
 
 
+class TestScopedActiveStoryClear:
+    """INFRA-281 (CER-095.2): merge/discard clear only their own key.
+
+    B8: current_stories retains the sibling entry after merge/discard.
+    B9: the CER-095.2 regression — a still-building sibling's scope
+    enforcement must not go dark when the first story lands.
+    """
+
+    def test_merge_clears_only_its_own_key(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-210", primary_files=["a.py"])
+        _write_story(tmp_path, "WT-211", primary_files=["b.py"])
+        _run("create-story-worktree", "--story-id", "WT-210", "--project-dir", str(tmp_path))
+        _run("create-story-worktree", "--story-id", "WT-211", "--project-dir", str(tmp_path))
+
+        wt_a = tmp_path / ".pairmode-worktrees" / "WT-210"
+        _commit_in(wt_a, "a.py", "done\n", "add a")
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-210",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert "WT-210" not in state.get("current_stories", {})
+        assert "WT-211" in state.get("current_stories", {})
+
+    def test_discard_clears_only_its_own_key(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-212", primary_files=["a.py"])
+        _write_story(tmp_path, "WT-213", primary_files=["b.py"])
+        _run("create-story-worktree", "--story-id", "WT-212", "--project-dir", str(tmp_path))
+        _run("create-story-worktree", "--story-id", "WT-213", "--project-dir", str(tmp_path))
+
+        result = _run(
+            "discard-story-worktree",
+            "--story-id", "WT-212",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert "WT-212" not in state.get("current_stories", {})
+        assert "WT-213" in state.get("current_stories", {})
+
+    def test_cer_095_2_regression_sibling_scope_enforcement_survives_merge(
+        self, tmp_path: Path
+    ) -> None:
+        """After merging WT-214, a write from WT-215's worktree to a path
+        NOT in WT-215's allow-list must still be DENIED — never allowed via
+        the pre-fix 'no active story — allowing' fall-through."""
+        import sys as _sys
+
+        scripts_dir = str(Path(__file__).parent.parent.parent / "skills" / "pairmode" / "scripts")
+        if scripts_dir not in _sys.path:
+            _sys.path.insert(0, scripts_dir)
+        import scope_guard  # noqa: E402  (import after sys.path setup, matches module convention)
+
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-214", primary_files=["a.py"])
+        _write_story(tmp_path, "WT-215", primary_files=["b.py"])
+        _run("create-story-worktree", "--story-id", "WT-214", "--project-dir", str(tmp_path))
+        _run("create-story-worktree", "--story-id", "WT-215", "--project-dir", str(tmp_path))
+
+        wt_a = tmp_path / ".pairmode-worktrees" / "WT-214"
+        wt_b = tmp_path / ".pairmode-worktrees" / "WT-215"
+        _commit_in(wt_a, "a.py", "done\n", "add a")
+        merge_result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-214",
+            "--project-dir", str(tmp_path),
+        )
+        assert merge_result.returncode == 0, merge_result.stderr
+
+        # WT-215's builder is still writing — a.py is NOT in its allow-list.
+        allowed, reason = scope_guard.check_path("a.py", wt_b)
+        assert allowed is False
+        assert reason != "no active story — allowing"
+        assert "no active story — allowing" not in reason
+
+        # And its own declared file remains allowed.
+        allowed, reason = scope_guard.check_path("b.py", wt_b)
+        assert allowed is True
+
+
 def test_spec_writer_procedure_references_spec_preflight() -> None:
     """INFRA-191 fold location (RELEASE-008): the fat CLAUDE.build.md.j2 step was
     superseded by the thin harness; spec-preflight is wired as a
