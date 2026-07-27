@@ -2252,3 +2252,208 @@ class TestCLI:
             / "skills" / "pairmode" / "scripts" / "subagent_transcript.py"
         ).read_text(encoding="utf-8")
         assert 'if __name__ == "__main__":' in source
+
+
+# ---------------------------------------------------------------------------
+# CER-096: PostToolUse recording stops pre-computing (C5, C6)
+# ---------------------------------------------------------------------------
+
+
+class TestPostToolUseStopsPrecomputing:
+    def test_next_attempt_number_not_referenced_in_module(self) -> None:
+        """C5: grep-checkable — next_attempt_number is gone from this
+        module's source entirely, not just from the hot path."""
+        source = (
+            Path(__file__).resolve().parent.parent.parent
+            / "skills" / "pairmode" / "scripts" / "subagent_transcript.py"
+        ).read_text(encoding="utf-8")
+        assert "next_attempt_number" not in source
+
+    def test_stale_serialism_comment_removed(self) -> None:
+        """C6: the "serial (no-nested-spawning)" phrase must not survive
+        anywhere under skills/pairmode/scripts/."""
+        scripts_dir = (
+            Path(__file__).resolve().parent.parent.parent
+            / "skills" / "pairmode" / "scripts"
+        )
+        for py_file in scripts_dir.glob("*.py"):
+            assert "serial (no-nested-spawning)" not in py_file.read_text(
+                encoding="utf-8"
+            )
+
+    def test_derived_attempt_number_end_to_end_via_record_attempt_from_transcript(
+        self, tmp_path: Path
+    ) -> None:
+        """Regression: the row-level effect of C5 — three consecutive
+        spawns for the same (story_id, agent_role) still number 1, 2, 3,
+        even though the derivation now happens inside record_effort rather
+        than being pre-computed here."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        for _ in range(3):
+            _record_spawn(project_dir, "builder", "INFRA-960")
+
+        db_path = project_dir / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-960")
+        assert [r["attempt_number"] for r in rows] == [1, 2, 3]
+
+
+# ---------------------------------------------------------------------------
+# CER-096, item D: sweep ownership and two-ended cursor
+# ---------------------------------------------------------------------------
+
+
+class TestReconcileOldestRowsConstant:
+    def test_value_is_two(self) -> None:
+        assert st.RECONCILE_OLDEST_ROWS == 2
+
+
+class TestSweepStarvation:
+    def test_lowest_id_reached_across_three_sweeps(self, tmp_path: Path) -> None:
+        """D4: inserts 12 pending rows, runs the sweep with a stub
+        read_completed_spawn that records which row ids it was asked about
+        (via the output_file path -> row id mapping) and returns None for
+        all of them, then asserts that across three consecutive sweeps the
+        set of visited ids includes the lowest id in the table. Under the
+        pre-CER-096 ``ORDER BY id DESC LIMIT 5`` shape this assertion
+        fails — the oldest of 12 pending rows is never reached."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+
+        path_to_id: dict = {}
+        row_ids = []
+        for i in range(12):
+            row_id = effort_db.insert_attempt(
+                db_path,
+                story_id=f"INFRA-{1200 + i}",
+                agent_role="builder",
+                attempt_number=1,
+                ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+            )
+            output_file = tmp_path / "tasks" / f"agent{i}.output"
+            _write_output_file(output_file, [])
+            effort_db.set_spawn_ref(db_path, row_id, f"agent-{i}", str(output_file))
+            path_to_id[str(output_file)] = row_id
+            row_ids.append(row_id)
+
+        lowest_id = min(row_ids)
+
+        visited: set = set()
+
+        def _stub_read_completed_spawn(path, tasks_root=None):
+            visited.add(path_to_id[str(path)])
+            return None
+
+        with patch.object(st, "read_completed_spawn", side_effect=_stub_read_completed_spawn):
+            for _ in range(3):
+                st.reconcile_pending_attempts(project_dir=project_dir)
+
+        assert lowest_id in visited
+
+    def test_read_completed_spawn_call_count_bounded_with_fifty_rows(
+        self, tmp_path: Path
+    ) -> None:
+        """D6: read_completed_spawn is called at most limit +
+        RECONCILE_OLDEST_ROWS times per invocation, even with 50 pending
+        rows."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+
+        for i in range(50):
+            row_id = effort_db.insert_attempt(
+                db_path,
+                story_id=f"INFRA-{1300 + i}",
+                agent_role="builder",
+                attempt_number=1,
+                ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+            )
+            output_file = tmp_path / "tasks" / f"agent{i}.output"
+            _write_output_file(output_file, [])
+            effort_db.set_spawn_ref(db_path, row_id, f"agent-{i}", str(output_file))
+
+        call_count = {"n": 0}
+        real_read_completed_spawn = st.read_completed_spawn
+
+        def _counting_read_completed_spawn(path, tasks_root=None):
+            call_count["n"] += 1
+            return real_read_completed_spawn(path, tasks_root=tasks_root)
+
+        with patch.object(st, "read_completed_spawn", side_effect=_counting_read_completed_spawn):
+            st.reconcile_pending_attempts(project_dir=project_dir, limit=5)
+
+        assert call_count["n"] <= 5 + st.RECONCILE_OLDEST_ROWS
+
+    def test_at_most_two_pending_reconcilable_queries_per_sweep(
+        self, tmp_path: Path
+    ) -> None:
+        """D6: the sweep issues at most two pending_reconcilable queries."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+
+        call_count = {"n": 0}
+        real_pending_reconcilable = effort_db.pending_reconcilable
+
+        def _counting_pending_reconcilable(*args, **kwargs):
+            call_count["n"] += 1
+            return real_pending_reconcilable(*args, **kwargs)
+
+        with patch.object(effort_db, "pending_reconcilable", side_effect=_counting_pending_reconcilable):
+            st.reconcile_pending_attempts(project_dir=project_dir)
+
+        assert call_count["n"] == 2
+
+
+class TestSweepOwnershipForwarded:
+    def test_output_prefix_forwarded_to_both_queries(self, tmp_path: Path) -> None:
+        """D5: reconcile_pending_attempts forwards output_prefix, unchanged,
+        to both pending_reconcilable calls it makes."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+
+        seen_prefixes = []
+        real_pending_reconcilable = effort_db.pending_reconcilable
+
+        def _capturing_pending_reconcilable(*args, **kwargs):
+            seen_prefixes.append(kwargs.get("output_prefix"))
+            return real_pending_reconcilable(*args, **kwargs)
+
+        with patch.object(effort_db, "pending_reconcilable", side_effect=_capturing_pending_reconcilable):
+            st.reconcile_pending_attempts(
+                project_dir=project_dir, output_prefix="/tmp/session-x/"
+            )
+
+        assert seen_prefixes == ["/tmp/session-x/", "/tmp/session-x/"]
+
+    def test_default_output_prefix_is_none_and_hook_call_sites_pass_none(
+        self, tmp_path: Path
+    ) -> None:
+        """D5: production behaviour is unchanged — internal call sites and
+        hooks/session_start.py do not pass output_prefix."""
+        import inspect
+
+        sig = inspect.signature(st.reconcile_pending_attempts)
+        assert sig.parameters["output_prefix"].default is None
+
+        hook_source = (
+            Path(__file__).resolve().parent.parent.parent
+            / "hooks" / "session_start.py"
+        ).read_text(encoding="utf-8")
+        assert "output_prefix" not in hook_source

@@ -129,7 +129,7 @@ def record_effort(
     agent_role: str,
     model: str | None = None,
     usage: Any = None,
-    attempt_number: int = 1,
+    attempt_number: "int | None" = 1,
     duration_ms: int | None = None,
     outcome: str | None = None,
     notes: str | None = None,
@@ -145,6 +145,12 @@ def record_effort(
 
     Required fields are passed as kwargs to make the call site self-documenting
     and avoid positional ambiguity at every wrapped call site.
+
+    ``attempt_number`` defaults to ``1`` (unchanged behaviour for existing
+    callers). When it is explicitly ``None`` (CER-096, item C), the ordinal
+    is derived atomically on the write side via
+    ``effort_db.insert_attempt_derived`` instead of being passed in —
+    the caller no longer pre-computes it with a separate, racy read.
     """
 
     project_path = Path(project_dir).resolve()
@@ -162,7 +168,33 @@ def record_effort(
 
     try:
         db_path = _effort_db.resolve_effort_db_path(project_path)
-        _effort_db.init_db(db_path)
+        # CER-096, item B: ensure_db runs the schema-bootstrap DDL (table +
+        # index creation, column migrations) at most once per process per
+        # resolved path, instead of on every recording — the old
+        # per-recording bootstrap held the write lock across six DDL
+        # statements on a path that only ever needs to run them once.
+        _effort_db.ensure_db(db_path)
+        if attempt_number is None:
+            _row_id, _attempt_number = _effort_db.insert_attempt_derived(
+                db_path,
+                story_id=story_id,
+                phase=phase,
+                rail=rail,
+                agent_role=agent_role,
+                model=model,
+                tokens_total=tokens["tokens_total"],
+                tokens_in=tokens["tokens_in"],
+                tokens_out=tokens["tokens_out"],
+                cache_read_tokens=tokens["cache_read_tokens"],
+                cache_write_tokens=tokens["cache_write_tokens"],
+                tool_uses=None,
+                duration_ms=duration_ms,
+                outcome=outcome,
+                notes=notes,
+                ts=ts,
+                backend=backend,
+            )
+            return _row_id
         return _effort_db.insert_attempt(
             db_path,
             story_id=story_id,

@@ -1207,3 +1207,337 @@ class TestResolveDbPathArg:
         story — sanity check alongside the new resolver's tests."""
         resolved = effort_db.resolve_effort_db_path(tmp_path)
         assert resolved == tmp_path / ".companion" / "effort.db"
+
+
+# ---------------------------------------------------------------------------
+# CER-096, item A: WAL + busy_timeout concurrency configuration
+# ---------------------------------------------------------------------------
+
+
+class TestConnectConcurrencyConstants:
+    def test_busy_timeout_ms_matches_seconds(self) -> None:
+        """A1: the two constants must never drift apart."""
+        assert effort_db.BUSY_TIMEOUT_MS == int(effort_db.BUSY_TIMEOUT_SECONDS * 1000)
+
+    def test_only_one_sqlite3_connect_call_site(self) -> None:
+        """A2: every connection in effort_db.py goes through _connect."""
+        import subprocess as _subprocess
+
+        module_path = Path(effort_db.__file__)
+        out = _subprocess.run(
+            ["grep", "-c", "sqlite3.connect", str(module_path)],
+            capture_output=True,
+            text=True,
+        )
+        assert out.stdout.strip() == "1"
+
+
+class TestWalMode:
+    def test_wal_enabled_and_persists(self, db_path: Path) -> None:
+        """A3: WAL is a persisted database property, not per-connection."""
+        effort_db.init_db(db_path)
+        conn = sqlite3.connect(str(db_path))
+        try:
+            mode = conn.execute("PRAGMA journal_mode").fetchone()[0].lower()
+        finally:
+            conn.close()
+        assert mode == "wal"
+
+    def test_wal_failure_is_not_fatal(self, db_path: Path, monkeypatch) -> None:
+        """A4: a WAL-pragma failure must not prevent schema creation."""
+        real_connect = sqlite3.connect
+
+        class _FailingWalConn:
+            def __init__(self, real_conn):
+                self._real = real_conn
+
+            def execute(self, sql, *args, **kwargs):
+                if "journal_mode" in sql:
+                    raise sqlite3.OperationalError("cannot enable WAL")
+                return self._real.execute(sql, *args, **kwargs)
+
+            def __getattr__(self, item):
+                return getattr(self._real, item)
+
+        def _connect(*args, **kwargs):
+            return _FailingWalConn(real_connect(*args, **kwargs))
+
+        monkeypatch.setattr(sqlite3, "connect", _connect)
+
+        effort_db.init_db(db_path)  # must not raise
+
+        conn = real_connect(str(db_path))
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='attempts'"
+            )
+            assert cur.fetchone() is not None
+        finally:
+            conn.close()
+
+
+# ---------------------------------------------------------------------------
+# CER-096, item B: ensure_db — per-process init cache
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureDb:
+    def test_returns_resolved_path(self, db_path: Path) -> None:
+        resolved = effort_db.ensure_db(db_path)
+        assert resolved == db_path.resolve()
+        assert db_path.exists()
+
+    def test_second_call_same_spelling_does_not_reinit(
+        self, db_path: Path, monkeypatch
+    ) -> None:
+        calls = {"n": 0}
+        real_init_db = effort_db.init_db
+
+        def _counting_init_db(path):
+            calls["n"] += 1
+            return real_init_db(path)
+
+        monkeypatch.setattr(effort_db, "init_db", _counting_init_db)
+
+        effort_db.ensure_db(db_path)
+        effort_db.ensure_db(db_path)
+        assert calls["n"] == 1
+
+    def test_two_spellings_of_same_file_init_once(
+        self, db_path: Path, monkeypatch
+    ) -> None:
+        """B2: cache is keyed by resolved path, not argument spelling."""
+        calls = {"n": 0}
+        real_init_db = effort_db.init_db
+
+        def _counting_init_db(path):
+            calls["n"] += 1
+            return real_init_db(path)
+
+        monkeypatch.setattr(effort_db, "init_db", _counting_init_db)
+
+        alt_spelling = db_path.parent / "." / db_path.name
+        effort_db.ensure_db(db_path)
+        effort_db.ensure_db(alt_spelling)
+        assert calls["n"] == 1
+
+    def test_deleted_database_reinitialises(self, db_path: Path) -> None:
+        """B3: the cache must not make a missing database permanently
+        un-creatable."""
+        effort_db.ensure_db(db_path)
+        assert db_path.exists()
+        db_path.unlink()
+        assert not db_path.exists()
+
+        effort_db.ensure_db(db_path)
+        assert db_path.exists()
+
+    def test_insert_attempt_bootstrap_still_works_unchanged(self, db_path: Path) -> None:
+        """B5: insert_attempt's own on-demand init branch is untouched by
+        ensure_db's existence."""
+        assert not db_path.exists()
+        row_id = effort_db.insert_attempt(db_path, **_required_fields())
+        assert row_id == 1
+        assert db_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# CER-096, item C: atomic write-side attempt-number derivation
+# ---------------------------------------------------------------------------
+
+
+class TestInsertAttemptDerived:
+    def test_first_row_gets_attempt_number_one(self, db_path: Path) -> None:
+        row_id, attempt_number = effort_db.insert_attempt_derived(
+            db_path,
+            story_id="INFRA-600",
+            agent_role="builder",
+            ts="2026-07-26T00:00:00+00:00",
+        )
+        assert attempt_number == 1
+        rows = effort_db.query_by_story(db_path, "INFRA-600")
+        assert rows[0]["id"] == row_id
+        assert rows[0]["attempt_number"] == 1
+
+    def test_second_row_same_pair_gets_two(self, db_path: Path) -> None:
+        effort_db.insert_attempt_derived(
+            db_path, story_id="INFRA-601", agent_role="builder", ts="2026-07-26T00:00:00+00:00"
+        )
+        _, attempt_number = effort_db.insert_attempt_derived(
+            db_path, story_id="INFRA-601", agent_role="builder", ts="2026-07-26T00:01:00+00:00"
+        )
+        assert attempt_number == 2
+
+    def test_different_pair_does_not_increment(self, db_path: Path) -> None:
+        effort_db.insert_attempt_derived(
+            db_path, story_id="INFRA-602", agent_role="builder", ts="2026-07-26T00:00:00+00:00"
+        )
+        _, attempt_number = effort_db.insert_attempt_derived(
+            db_path, story_id="INFRA-602", agent_role="reviewer", ts="2026-07-26T00:01:00+00:00"
+        )
+        assert attempt_number == 1
+
+    def test_missing_required_field_raises(self, db_path: Path) -> None:
+        with pytest.raises(ValueError, match="missing required"):
+            effort_db.insert_attempt_derived(db_path, agent_role="builder", ts="2026-07-26T00:00:00+00:00")
+
+    def test_attempt_number_kwarg_rejected(self, db_path: Path) -> None:
+        """C1: attempt_number is derived, not accepted."""
+        with pytest.raises(ValueError):
+            effort_db.insert_attempt_derived(
+                db_path,
+                story_id="INFRA-603",
+                agent_role="builder",
+                ts="2026-07-26T00:00:00+00:00",
+                attempt_number=5,
+            )
+
+    def test_unknown_field_raises(self, db_path: Path) -> None:
+        with pytest.raises(ValueError, match="unknown"):
+            effort_db.insert_attempt_derived(
+                db_path,
+                story_id="INFRA-604",
+                agent_role="builder",
+                ts="2026-07-26T00:00:00+00:00",
+                bogus="x",
+            )
+
+    def test_historical_attempt_number_one_row_yields_two_next(
+        self, db_path: Path
+    ) -> None:
+        """Instructions 3: a pre-INFRA-257 row (attempt_number=1, written by
+        insert_attempt directly) makes the first derived value 2, not a
+        collision with the existing row's ordinal."""
+        effort_db.insert_attempt(
+            db_path,
+            **_required_fields(story_id="INFRA-605", attempt_number=1),
+        )
+        _, attempt_number = effort_db.insert_attempt_derived(
+            db_path, story_id="INFRA-605", agent_role="builder", ts="2026-07-26T00:01:00+00:00"
+        )
+        assert attempt_number == 2
+
+
+class TestInsertAttemptUnchanged:
+    """C3: insert_attempt keeps its original name, signature, and contract."""
+
+    def test_still_requires_attempt_number(self, db_path: Path) -> None:
+        fields = _required_fields()
+        del fields["attempt_number"]
+        with pytest.raises(ValueError, match="missing required"):
+            effort_db.insert_attempt(db_path, **fields)
+
+
+class TestNextAttemptNumberAdvisoryDocstring:
+    def test_docstring_mentions_advisory(self) -> None:
+        """C7: next_attempt_number's docstring gains an advisory/read-only
+        note pointing at insert_attempt_derived as the write path."""
+        doc = effort_db.next_attempt_number.__doc__ or ""
+        assert "advisory" in doc.lower()
+        assert "insert_attempt_derived" in doc
+
+
+# ---------------------------------------------------------------------------
+# CER-096, item D: sweep ownership (output_prefix) and cursor (order)
+# ---------------------------------------------------------------------------
+
+
+class TestPendingReconcilableOwnership:
+    def _seed_two_rows(self, db_path: Path) -> tuple[int, int]:
+        effort_db.init_db(db_path)
+        row_a = effort_db.insert_attempt(db_path, **_required_fields(story_id="INFRA-700"))
+        effort_db.set_spawn_ref(db_path, row_a, "a1", "/tmp/session-alpha/out1.output")
+        row_b = effort_db.insert_attempt(db_path, **_required_fields(story_id="INFRA-701"))
+        effort_db.set_spawn_ref(db_path, row_b, "a2", "/tmp/session-beta/out2.output")
+        return row_a, row_b
+
+    def test_no_prefix_returns_both(self, db_path: Path) -> None:
+        row_a, row_b = self._seed_two_rows(db_path)
+        rows = effort_db.pending_reconcilable(db_path, 10)
+        assert {r["id"] for r in rows} == {row_a, row_b}
+
+    def test_prefix_matching_one_row_returns_only_that_row(self, db_path: Path) -> None:
+        row_a, _row_b = self._seed_two_rows(db_path)
+        rows = effort_db.pending_reconcilable(
+            db_path, 10, output_prefix="/tmp/session-alpha/"
+        )
+        assert [r["id"] for r in rows] == [row_a]
+
+    def test_prefix_matching_neither_returns_empty(self, db_path: Path) -> None:
+        self._seed_two_rows(db_path)
+        rows = effort_db.pending_reconcilable(
+            db_path, 10, output_prefix="/tmp/session-gamma/"
+        )
+        assert rows == []
+
+    def test_prefix_with_percent_does_not_widen_match(self, db_path: Path) -> None:
+        """D1: a literal '%' in the prefix must be escaped, never treated as
+        a SQL LIKE wildcard."""
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path, **_required_fields(story_id="INFRA-702")
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", "/tmp/weird%dir/out.output")
+
+        # A prefix with a literal % that does NOT match the actual path
+        # must not accidentally match via wildcard expansion.
+        rows = effort_db.pending_reconcilable(
+            db_path, 10, output_prefix="/tmp/other%dir/"
+        )
+        assert rows == []
+
+        # But the exact literal prefix (with its % escaped) must match.
+        rows = effort_db.pending_reconcilable(
+            db_path, 10, output_prefix="/tmp/weird%dir/"
+        )
+        assert [r["id"] for r in rows] == [row_id]
+
+    def test_empty_string_and_none_and_non_string_mean_no_filter(
+        self, db_path: Path
+    ) -> None:
+        row_a, row_b = self._seed_two_rows(db_path)
+        for bad in (None, "", 123):
+            rows = effort_db.pending_reconcilable(db_path, 10, output_prefix=bad)
+            assert {r["id"] for r in rows} == {row_a, row_b}
+
+
+class TestPendingReconcilableOrder:
+    def test_default_is_newest_first(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        ids = []
+        for i in range(3):
+            row_id = effort_db.insert_attempt(
+                db_path, **_required_fields(story_id=f"INFRA-{800+i}")
+            )
+            effort_db.set_spawn_ref(db_path, row_id, f"a{i}", f"/tmp/out{i}.output")
+            ids.append(row_id)
+
+        rows = effort_db.pending_reconcilable(db_path, 10)
+        assert [r["id"] for r in rows] == list(reversed(ids))
+
+    def test_oldest_order(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        ids = []
+        for i in range(3):
+            row_id = effort_db.insert_attempt(
+                db_path, **_required_fields(story_id=f"INFRA-{810+i}")
+            )
+            effort_db.set_spawn_ref(db_path, row_id, f"a{i}", f"/tmp/out{i}.output")
+            ids.append(row_id)
+
+        rows = effort_db.pending_reconcilable(db_path, 10, order="oldest")
+        assert [r["id"] for r in rows] == ids
+
+    def test_unrecognised_order_falls_back_to_newest(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        ids = []
+        for i in range(2):
+            row_id = effort_db.insert_attempt(
+                db_path, **_required_fields(story_id=f"INFRA-{820+i}")
+            )
+            effort_db.set_spawn_ref(db_path, row_id, f"a{i}", f"/tmp/out{i}.output")
+            ids.append(row_id)
+
+        rows = effort_db.pending_reconcilable(db_path, 10, order="sideways")
+        assert [r["id"] for r in rows] == list(reversed(ids))

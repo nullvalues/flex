@@ -129,6 +129,15 @@ _PHASE_BARE_RE = re.compile(r"\bPhase\s+(" + _PHASE_KEY_CHARS + r")")
 RECONCILE_MAX_ROWS = 5
 RECONCILE_MAX_LINES = 20000
 
+#: CER-096, item D3: the sweep also fetches this many rows from the
+#: *oldest* end (``order="oldest"``) on every invocation, so the oldest
+#: legitimately-pending rows are reached even while ``RECONCILE_MAX_ROWS``
+#: newest-first rows are re-examined every sweep. Kept small — this is a
+#: hook-path bound, not a general query — because the newest-first fetch is
+#: already the common, high-value case; the oldest-first fetch exists only
+#: to stop the tail from starving, not to compete with it for budget.
+RECONCILE_OLDEST_ROWS: int = 2
+
 #: CER-088: the sweep's age cutoff, single-sourced from effort_db so the
 #: number is never re-literalled at this call site.
 RECONCILE_MAX_AGE_DAYS = effort_db.PENDING_MAX_AGE_DAYS
@@ -1029,14 +1038,30 @@ def reconcile_pending_attempts(
     include_quiescent: bool = False,
     max_age_days: "int | None" = None,
     tasks_root: "Path | str | None" = None,
+    output_prefix: "str | None" = None,
 ) -> int:
     """Sweep pending (``tokens_total IS NULL OR outcome IS NULL``) rows and
-    reconcile the completed ones (INFRA-258, CER-091).
+    reconcile the completed ones (INFRA-258, CER-091; two-ended cursor and
+    ownership added CER-096, item D).
 
     Reads ``.companion/state.json``; returns ``0`` immediately unless
-    ``effort_tracking`` is ``true``. Fetches at most *limit* pending rows via
-    ``effort_db.pending_reconcilable``, calls ``read_completed_spawn`` on
-    each, and writes the completed ones back via ``effort_db.reconcile_attempt``.
+    ``effort_tracking`` is ``true``. Fetches candidate rows as the union of
+    two bounded ``effort_db.pending_reconcilable`` queries — up to *limit*
+    rows with ``order="newest"`` and up to :data:`RECONCILE_OLDEST_ROWS`
+    rows with ``order="oldest"``, deduplicated by ``id`` and merged
+    preserving newest-first processing order — then calls
+    ``read_completed_spawn`` on each and writes the completed ones back via
+    ``effort_db.reconcile_attempt``.
+
+    The two-ended fetch (CER-096, item D3) exists because
+    ``ORDER BY id DESC LIMIT <limit>`` alone re-examines the same newest
+    rows on every sweep while older pending rows — a busy parallel build
+    can hold ten or more legitimately-pending rows at once — are never
+    reached again until they age out under :data:`RECONCILE_MAX_AGE_DAYS`
+    and are lost. The sweep still issues at most two
+    ``pending_reconcilable`` queries and calls ``read_completed_spawn`` at
+    most ``limit + RECONCILE_OLDEST_ROWS`` times per invocation — bounded
+    work is preserved.
 
     *max_age_days* (CER-088): ``None`` (the default) means "use
     :data:`RECONCILE_MAX_AGE_DAYS`" — the sweep is always bounded; an
@@ -1045,7 +1070,19 @@ def reconcile_pending_attempts(
     query is also used by diagnostics (e.g. INFRA-264's pending-row
     diagnostic) that must keep seeing permanently-pending rows, since
     surfacing them is their entire purpose. Only this sweep, which cannot
-    act on a permanently-pending row anyway, opts into the bound.
+    act on a permanently-pending row anyway, opts into the bound. Both the
+    newest-first and oldest-first queries receive the same
+    *max_age_days*/*output_prefix* values.
+
+    *output_prefix* (CER-096, item D5) is forwarded, unchanged, to both
+    ``pending_reconcilable`` calls — it exposes the query layer's ownership
+    filter but does not invent an ownership value. Its default (``None``)
+    means "no filter", and neither of this module's own call sites nor
+    ``hooks/session_start.py`` pass one — production sweep behaviour is
+    unchanged except for the two-ended fetch. Deriving a real session-scoped
+    prefix (which session a hook belongs to) is INFRA-285's (CER-097's) job;
+    this parameter is not dead code, it is the mechanism INFRA-285 will
+    wire up.
 
     *tasks_root* (CER-089) is forwarded to every :func:`read_completed_spawn`
     call this sweep makes. Its default (``None``) means "use the default
@@ -1097,9 +1134,31 @@ def reconcile_pending_attempts(
         )
 
         db_path = effort_db.resolve_effort_db_path(project_path)
-        rows = effort_db.pending_reconcilable(
-            db_path, limit, max_age_days=resolved_max_age_days
+        # CER-096, item D3: fetch both ends so no pending row starves. The
+        # newest-first batch is the common, high-value case; the
+        # oldest-first batch (bounded by RECONCILE_OLDEST_ROWS) is what
+        # stops the tail of a busy parallel build's pending rows from
+        # being permanently re-shadowed by the newest ones. Deduplicated
+        # by id, merged preserving newest-first processing order — two
+        # queries total, never more.
+        newest_rows = effort_db.pending_reconcilable(
+            db_path,
+            limit,
+            max_age_days=resolved_max_age_days,
+            output_prefix=output_prefix,
+            order="newest",
         )
+        oldest_rows = effort_db.pending_reconcilable(
+            db_path,
+            RECONCILE_OLDEST_ROWS,
+            max_age_days=resolved_max_age_days,
+            output_prefix=output_prefix,
+            order="oldest",
+        )
+        seen_ids = {row["id"] for row in newest_rows}
+        rows = list(newest_rows) + [
+            row for row in oldest_rows if row["id"] not in seen_ids
+        ]
 
         reconciled = 0
         for row in rows:
@@ -1344,24 +1403,15 @@ def record_attempt_from_transcript(
 
         model = tool_input.get("model") or usage.get("model")
 
-        # INFRA-257: derive the lifetime spawn ordinal for this
-        # (story_id, agent_role) pair from effort.db's own row history
-        # rather than .companion/attempt_counter.json (which counts
-        # failures and is cleared on merge — see docs/architecture.md
-        # § Effort tracking). Best-effort: a derivation failure degrades to
-        # 1 rather than losing the row. Single COUNT(*) query, no
-        # transaction spanning this read and the recorder's write — the
-        # era's serial (no-nested-spawning) build loop makes the resulting
-        # race a non-issue for best-effort observability.
-        try:
-            attempt_number = effort_db.next_attempt_number(
-                effort_db.resolve_effort_db_path(project_path),
-                effective_story_id,
-                str(subagent_type),
-            )
-        except Exception:
-            attempt_number = 1
-
+        # CER-096, item C: the lifetime spawn ordinal for this
+        # (story_id, agent_role) pair is derived atomically on the write
+        # side by record_effort/insert_attempt_derived — inside the same
+        # transaction as the insert — rather than pre-computed here with a
+        # separate read. Phase 109 makes parallel spawns real, so a
+        # read-then-write pair across two separate calls (the pre-CER-096
+        # shape, once justified by a serial build loop) would let two
+        # concurrent spawns for the same pair read the same count and
+        # write duplicate ordinals.
         row_id = record_effort(
             project_dir=project_path,
             story_id=effective_story_id,
@@ -1373,7 +1423,7 @@ def record_attempt_from_transcript(
                 "cache_read_input_tokens": usage.get("cache_read_tokens"),
                 "cache_creation_input_tokens": usage.get("cache_write_tokens"),
             },
-            attempt_number=attempt_number,
+            attempt_number=None,
             duration_ms=usage.get("duration_ms"),
             outcome=outcome,
             notes=fail_cause,

@@ -42,6 +42,17 @@ Public API
 - ``resolve_db_path_arg(project_dir, db_path)`` — single-sourced containment
   for an explicit ``--db-path`` CLI argument (CER-016); raises ``ValueError``
   on an escaping path rather than silently falling back.
+- ``ensure_db(path)`` — run ``init_db`` at most once per process per
+  resolved path (CER-096, item B). Use this instead of ``init_db`` on any
+  per-recording hot path.
+- ``insert_attempt_derived(path, **fields)`` — like ``insert_attempt`` but
+  derives ``attempt_number`` atomically on the write side, inside the same
+  transaction as the insert (CER-096, item C). Returns
+  ``(row_id, attempt_number)``.
+
+Every connection this module opens goes through the module-private
+``_connect`` helper, which sets ``busy_timeout``/``synchronous`` pragmas;
+``init_db`` additionally enables WAL, once, persistently (CER-096, item A).
 """
 
 from __future__ import annotations
@@ -150,6 +161,15 @@ _POST_MIGRATION_INDICES: tuple[str, ...] = (
 #: INFRA-264's pending-row diagnostic (if it landed) must keep seeing
 #: permanently-pending rows, since surfacing them is its entire purpose.
 PENDING_MAX_AGE_DAYS: int = 14
+
+#: CER-096: concurrency configuration shared by every connection this module
+#: opens (see ``_connect``). ``BUSY_TIMEOUT_SECONDS`` covers Python's own
+#: connect-time ``timeout=`` lock wait; ``BUSY_TIMEOUT_MS`` covers
+#: SQLite's internal ``PRAGMA busy_timeout`` — different mechanisms, both
+#: needed under parallel-build contention. A test asserts the two cannot
+#: drift apart.
+BUSY_TIMEOUT_SECONDS: float = 15.0
+BUSY_TIMEOUT_MS: int = 15000
 
 # Columns in the order they are bound by ``insert_attempt``.  ``id`` is
 # AUTOINCREMENT so it is omitted from the INSERT.
@@ -296,6 +316,26 @@ def resolve_db_path_arg(
 # ---------------------------------------------------------------------------
 
 
+def _connect(resolved: Path) -> sqlite3.Connection:
+    """Open effort.db with the concurrency configuration (CER-096).
+
+    ``timeout=`` covers Python's own lock wait; ``PRAGMA busy_timeout``
+    covers SQLite's internal one — they are different mechanisms and both
+    are needed. WAL itself is set once, persistently, by init_db — NOT
+    here. Setting ``journal_mode = WAL`` is a *persistent database
+    property*, not a per-connection setting, so re-issuing it on every
+    connect (the "set it everywhere to be safe" reflex) would cost a
+    pragma round-trip on every call for zero benefit.
+    """
+    conn = sqlite3.connect(str(resolved), timeout=BUSY_TIMEOUT_SECONDS)
+    try:
+        conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+        conn.execute("PRAGMA synchronous = NORMAL")
+    except sqlite3.Error:
+        pass
+    return conn
+
+
 def init_db(path: Path) -> None:
     """Create (or upgrade) the schema at *path*.  Idempotent.
 
@@ -309,8 +349,17 @@ def init_db(path: Path) -> None:
     resolved = _depth_guard(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(str(resolved))
+    conn = _connect(resolved)
     try:
+        # WAL is persistent database state (set once here, not in
+        # _connect — see that function's docstring). Tolerate failure: a
+        # filesystem that cannot support WAL (e.g. some network mounts)
+        # must leave the database usable in its default journal mode, not
+        # raise (CER-096).
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+        except sqlite3.Error:
+            pass
         cur = conn.cursor()
         cur.executescript(_SCHEMA_TABLE)
         for stmt in _SCHEMA_INDICES:
@@ -334,6 +383,41 @@ def init_db(path: Path) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+#: CER-096: per-process cache of resolved db paths that have already run
+#: ``init_db`` this process. Deliberately process-local and unbounded — a
+#: process opens a handful of distinct effort.db files at most, and a
+#: bounded cache would need eviction logic that could re-introduce the
+#: very cost (repeated per-recording DDL) this cache exists to remove.
+_INITIALISED: "set[str]" = set()
+
+
+def ensure_db(path: Path) -> Path:
+    """Resolve *path* and run :func:`init_db` at most once per process
+    per resolved path (CER-096, item B).
+
+    ``init_db`` runs a ``CREATE TABLE IF NOT EXISTS``, three index
+    creations, five ``ALTER TABLE`` migrations, and a post-migration
+    index, all inside one write transaction. Doing that before *every*
+    recording (the pre-CER-096 shape) maximised the window a write lock
+    was held under parallel spawns for a bootstrap that only ever needs
+    to happen once. This cache makes it happen once.
+
+    The cache is keyed by the *resolved* path string, not the caller's
+    argument spelling, and is consulted together with
+    ``resolved.exists()`` — a cached path whose file has since been
+    deleted (test teardown, an operator ``rm``) must re-initialise, or
+    the cache would turn a recoverable state into a permanently broken
+    one. Never raises for a path ``init_db`` would accept.
+    """
+
+    resolved = _depth_guard(path)
+    key = str(resolved)
+    if key not in _INITIALISED or not resolved.exists():
+        init_db(resolved)
+        _INITIALISED.add(key)
+    return resolved
 
 
 def insert_attempt(path: Path, **fields: Any) -> int:
@@ -369,7 +453,7 @@ def insert_attempt(path: Path, **fields: Any) -> int:
     placeholders = ", ".join(["?"] * len(_INSERT_COLUMNS))
     columns_sql = ", ".join(_INSERT_COLUMNS)
 
-    conn = sqlite3.connect(str(resolved))
+    conn = _connect(resolved)
     try:
         cur = conn.cursor()
         cur.execute(
@@ -378,6 +462,108 @@ def insert_attempt(path: Path, **fields: Any) -> int:
         )
         conn.commit()
         return int(cur.lastrowid)
+    finally:
+        conn.close()
+
+
+#: Required fields for :func:`insert_attempt_derived` — like
+#: ``_REQUIRED_FIELDS`` but WITHOUT ``attempt_number``, which this function
+#: derives rather than accepts.
+_DERIVED_REQUIRED_FIELDS: "tuple[str, ...]" = ("story_id", "agent_role", "ts")
+
+
+def insert_attempt_derived(path: Path, **fields: Any) -> "tuple[int, int]":
+    """Insert a row whose ``attempt_number`` is derived atomically on the
+    write side (CER-096, item C).
+
+    Requires ``story_id``, ``agent_role`` and ``ts`` — but explicitly NOT
+    ``attempt_number``, which this function computes. All other columns
+    behave exactly as in :func:`insert_attempt` (default ``None``, unknown
+    keys raise ``ValueError``).
+
+    The derivation and the insert happen inside a single ``BEGIN
+    IMMEDIATE`` transaction, as one ``INSERT ... SELECT`` statement, so the
+    read of the current max ordinal and the write of the new row occupy
+    the same write lock — nothing else can observe or race the value in
+    between. ``story_id``/``agent_role`` are bound as SQL parameters in
+    both the SELECT column list's filter and the outer INSERT, never
+    interpolated.
+
+    ``COALESCE(MAX(attempt_number), 0) + 1`` — not ``COUNT(*) + 1`` — is
+    deliberate: ``COUNT(*)`` re-derives an ordinal that a deleted row, or a
+    historical ``attempt_number = 1`` row (see below), would make collide,
+    whereas ``MAX`` is monotone over whatever rows are actually present.
+    Rows written before INFRA-257 all carry ``attempt_number = 1``, so the
+    first derived value for such a pair will be ``2`` — that is correct;
+    no backfill is performed.
+
+    Returns ``(row_id, attempt_number)``.
+    """
+
+    missing = [f for f in _DERIVED_REQUIRED_FIELDS if fields.get(f) in (None, "")]
+    if missing:
+        raise ValueError(
+            f"insert_attempt_derived missing required field(s): {', '.join(missing)}"
+        )
+
+    unknown = [
+        k for k in fields if k not in _INSERT_COLUMNS or k == "attempt_number"
+    ]
+    if unknown:
+        raise ValueError(
+            f"insert_attempt_derived got unknown field(s): {', '.join(unknown)}"
+        )
+
+    resolved = _depth_guard(path)
+    if not resolved.exists():
+        init_db(resolved)
+
+    story_id = fields["story_id"]
+    agent_role = fields["agent_role"]
+
+    # Build the SELECT list from _INSERT_COLUMNS so a future column
+    # addition cannot silently misalign the derived expression's position
+    # with attempt_number's position in the INSERT column list.
+    select_parts: list[str] = []
+    values: list[Any] = []
+    for col in _INSERT_COLUMNS:
+        if col == "attempt_number":
+            select_parts.append("COALESCE(MAX(attempt_number), 0) + 1")
+        else:
+            select_parts.append("?")
+            values.append(fields.get(col))
+    values.append(story_id)
+    values.append(agent_role)
+
+    columns_sql = ", ".join(_INSERT_COLUMNS)
+    select_sql = ", ".join(select_parts)
+    sql = (
+        f"INSERT INTO attempts ({columns_sql}) "
+        f"SELECT {select_sql} FROM attempts "
+        "WHERE story_id = ? AND agent_role = ?"
+    )
+
+    conn = _connect(resolved)
+    try:
+        # isolation_level=None puts the connection in autocommit mode so
+        # our own BEGIN IMMEDIATE (rather than sqlite3's implicit
+        # deferred BEGIN) is what actually takes the write lock — that is
+        # what makes the read of MAX(attempt_number) and the INSERT
+        # atomic together.
+        conn.isolation_level = None
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        try:
+            cur.execute(sql, values)
+            attempt_number = cur.execute(
+                "SELECT attempt_number FROM attempts WHERE id = ?",
+                (cur.lastrowid,),
+            ).fetchone()[0]
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        return int(cur.lastrowid), int(attempt_number)
     finally:
         conn.close()
 
@@ -394,7 +580,7 @@ def query_by_story(path: Path, story_id: str) -> list[dict]:
     if not resolved.exists():
         return []
 
-    conn = sqlite3.connect(str(resolved))
+    conn = _connect(resolved)
     try:
         cur = conn.cursor()
         cur.execute(
@@ -414,7 +600,7 @@ def query_by_phase(path: Path, phase: str) -> list[dict]:
     if not resolved.exists():
         return []
 
-    conn = sqlite3.connect(str(resolved))
+    conn = _connect(resolved)
     try:
         cur = conn.cursor()
         cur.execute(
@@ -439,6 +625,13 @@ def next_attempt_number(path: Path, story_id: str, agent_role: str) -> int:
     failure — missing file, missing table, corrupt/non-sqlite file, or
     empty/``None`` inputs — degrades to ``1``, the honest default for an
     indistinguishable-from-empty history.
+
+    Advisory/read-only since CER-096: this is a plain read with no
+    transaction spanning it and a caller's later write, so it must not be
+    used to compute a value that is then written back — two concurrent
+    callers would read the same count and collide. ``insert_attempt_derived``
+    is the write path; it derives the ordinal atomically inside the same
+    transaction as the insert.
     """
 
     try:
@@ -449,7 +642,7 @@ def next_attempt_number(path: Path, story_id: str, agent_role: str) -> int:
         if not resolved.exists():
             return 1
 
-        conn = sqlite3.connect(str(resolved))
+        conn = _connect(resolved)
         try:
             cur = conn.cursor()
             cur.execute(
@@ -480,7 +673,7 @@ def set_spawn_ref(
         if not resolved.exists():
             return False
 
-        conn = sqlite3.connect(str(resolved))
+        conn = _connect(resolved)
         try:
             cur = conn.cursor()
             cur.execute(
@@ -495,22 +688,47 @@ def set_spawn_ref(
         return False
 
 
+#: The only two accepted ``order`` values for :func:`pending_reconcilable`
+#: (CER-096, item D2). The ``ORDER BY`` clause is always selected from this
+#: literal mapping in Python — the caller-supplied *order* value is never
+#: string-formatted into the SQL, so an unexpected value cannot inject a
+#: clause; it just falls back to "newest".
+_PENDING_ORDER_CLAUSES: "dict[str, str]" = {
+    "newest": "ORDER BY id DESC",
+    "oldest": "ORDER BY id ASC",
+}
+
+
+def _escape_like_prefix(prefix: str) -> str:
+    """Escape ``%``, ``_`` and ``\\`` in *prefix* for a ``LIKE ... ESCAPE '\\'``
+    clause, so an ownership prefix can never accidentally widen the filter
+    it exists to narrow (CER-096, item D1)."""
+
+    return (
+        prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    )
+
+
 def pending_reconcilable(
-    path: Path, limit: int, *, max_age_days: "int | None" = None
+    path: Path,
+    limit: int,
+    *,
+    max_age_days: "int | None" = None,
+    output_prefix: "str | None" = None,
+    order: str = "newest",
 ) -> list[dict]:
     """Return up to *limit* rows still awaiting reconciliation (INFRA-258,
-    CER-091 defect 2/3).
+    CER-091 defect 2/3; ownership/ordering added CER-096 item D).
 
     Matches ``(tokens_total IS NULL OR outcome IS NULL) AND output_file IS
-    NOT NULL``, ordered by ``id DESC``. The ``OR`` (widened from the
-    original ``tokens_total IS NULL``) is what makes a partially-backfilled
-    row — tokens set, outcome still NULL, the row-344 shape — reachable by a
-    future sweep instead of permanently invisible. *limit* is caller-supplied
-    and always bound as a parameter — this function never issues an
-    unbounded query. Each dict carries at least ``id``, ``story_id``,
-    ``agent_role``, ``output_file``, ``model``. Returns ``[]`` on any
-    failure (missing db, missing table, corrupt file, non-positive limit).
-    Never raises.
+    NOT NULL``. The ``OR`` (widened from the original ``tokens_total IS
+    NULL``) is what makes a partially-backfilled row — tokens set, outcome
+    still NULL, the row-344 shape — reachable by a future sweep instead of
+    permanently invisible. *limit* is caller-supplied and always bound as a
+    parameter — this function never issues an unbounded query. Each dict
+    carries at least ``id``, ``story_id``, ``agent_role``, ``output_file``,
+    ``model``. Returns ``[]`` on any failure (missing db, missing table,
+    corrupt file, non-positive limit). Never raises.
 
     *max_age_days* (CER-088) is an opt-in age cutoff, off by default. When it
     is a positive ``int``, only rows whose ``ts >= now - max_age_days`` are
@@ -521,6 +739,23 @@ def pending_reconcilable(
     seeing permanently-pending rows, since surfacing them is its entire
     purpose. Only the hook sweep (``subagent_transcript.reconcile_pending_attempts``)
     opts in via an explicit ``max_age_days``.
+
+    *output_prefix* (CER-096, item D1) is an opt-in ownership filter. When
+    it is a non-empty string, the query adds
+    ``AND output_file LIKE ? || '%' ESCAPE '\\'`` with the prefix bound as a
+    parameter (never interpolated) and ``%``/``_``/``\\`` in the prefix
+    escaped, so a prefix that happens to contain a wildcard character
+    cannot silently widen an ownership filter into matching rows it should
+    not. Anything else (``None``, ``""``, a non-``string``) means "no
+    ownership filter" — byte-identical to pre-CER-096 behaviour. Deriving a
+    real session-scoped prefix is INFRA-285's (CER-097's) job; this
+    function only exposes the mechanism.
+
+    *order* (CER-096, item D2) selects ``"newest"`` (``ORDER BY id DESC``,
+    the default and pre-CER-096 behaviour) or ``"oldest"``
+    (``ORDER BY id ASC``). Any other value falls back to ``"newest"``
+    without raising — the clause is chosen from a fixed two-entry mapping,
+    never string-formatted from the parameter.
 
     The lexicographic ``ts >= ?`` comparison is valid only because every
     writer stamps ``datetime.now(tz=timezone.utc).isoformat()`` — a
@@ -540,35 +775,36 @@ def pending_reconcilable(
             max_age_days, bool
         ) and max_age_days > 0
 
-        conn = sqlite3.connect(str(resolved))
+        use_prefix = isinstance(output_prefix, str) and output_prefix != ""
+
+        where_fragments = [
+            "(tokens_total IS NULL OR outcome IS NULL)",
+            "output_file IS NOT NULL",
+        ]
+        params: list[Any] = []
+
+        if use_cutoff:
+            cutoff = (
+                datetime.now(timezone.utc) - timedelta(days=max_age_days)
+            ).isoformat()
+            where_fragments.append("ts >= ?")
+            params.append(cutoff)
+
+        if use_prefix:
+            where_fragments.append("output_file LIKE ? || '%' ESCAPE '\\'")
+            params.append(_escape_like_prefix(output_prefix))
+
+        order_clause = _PENDING_ORDER_CLAUSES.get(order, _PENDING_ORDER_CLAUSES["newest"])
+        where_sql = " AND ".join(where_fragments)
+        params.append(limit)
+
+        conn = _connect(resolved)
         try:
             cur = conn.cursor()
-            if use_cutoff:
-                cutoff = (
-                    datetime.now(timezone.utc) - timedelta(days=max_age_days)
-                ).isoformat()
-                cur.execute(
-                    """
-                    SELECT * FROM attempts
-                     WHERE (tokens_total IS NULL OR outcome IS NULL)
-                       AND output_file IS NOT NULL
-                       AND ts >= ?
-                     ORDER BY id DESC
-                     LIMIT ?
-                    """,
-                    (cutoff, limit),
-                )
-            else:
-                cur.execute(
-                    """
-                    SELECT * FROM attempts
-                     WHERE (tokens_total IS NULL OR outcome IS NULL)
-                       AND output_file IS NOT NULL
-                     ORDER BY id DESC
-                     LIMIT ?
-                    """,
-                    (limit,),
-                )
+            cur.execute(
+                f"SELECT * FROM attempts WHERE {where_sql} {order_clause} LIMIT ?",
+                params,
+            )
             rows = cur.fetchall()
             return _rows_to_dicts(cur, rows)
         finally:
@@ -621,7 +857,7 @@ def reconcile_attempt(path: Path, row_id: int, **fields: Any) -> bool:
         values = [fields[col] for col in columns]
         values.append(row_id)
 
-        conn = sqlite3.connect(str(resolved))
+        conn = _connect(resolved)
         try:
             cur = conn.cursor()
             cur.execute(
@@ -644,7 +880,7 @@ def query_all(path: Path) -> list[dict]:
     if not resolved.exists():
         return []
 
-    conn = sqlite3.connect(str(resolved))
+    conn = _connect(resolved)
     try:
         cur = conn.cursor()
         cur.execute("SELECT * FROM attempts ORDER BY id ASC")
@@ -722,7 +958,7 @@ def check_guardrail(
         datetime.now(timezone.utc) - timedelta(days=lookback_days)
     ).isoformat()
 
-    conn = sqlite3.connect(str(resolved))
+    conn = _connect(resolved)
     try:
         cur = conn.cursor()
         cur.execute(
