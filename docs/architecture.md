@@ -950,6 +950,15 @@ and the divergence is investigated and resolved (e.g. by rebuilding the harness 
 tag, or by determining the divergent commits were themselves a mistake) before any fast-forward is
 attempted.
 
+**The channel is permanent — no fold or teardown removes it.** `docs/harness-cutover-runbook.md`
+§ *Final fold sequence* was originally authored (`HARNESS001-ante1`) against a topology where this
+worktree was temporary; that premise never held past phase 102. `/mnt/work/flex-harness` is not
+scheduled for removal at any future fold, and the worktree/branch-removal steps the runbook once
+planned (and the story that would have executed them, `docs/stories/RELEASE/RELEASE-061.md`, now
+`status: skipped`) are retired and must never be run — see RELEASE-062 (phase 105). This section
+is the canonical statement of the release channel's disposition; the cutover runbook and any story
+file defer to it, not the reverse, on any disagreement.
+
 ---
 
 ## The canonical spec format

@@ -122,7 +122,7 @@ RELEASE-015's pass/fail condition — see "Deferred stories" below.
 | RELEASE-015 | Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects | deferred |
 | RELEASE-016 | Fold merge — fold-prep → main, tag v0.3.0 | deferred |
 | RELEASE-017 | Post-fold re-sync of migrated projects + RELEASE-002 status reconciliation | deferred |
-| RELEASE-018 | Worktree and branch retirement — remove /mnt/work/flex-harness | deferred |
+| RELEASE-018 | Worktree and branch retirement — remove /mnt/work/flex-harness | skipped (superseded by RELEASE-062, phase 105 — see § Deferred stories) |
 
 ## Deferred stories
 
@@ -166,6 +166,16 @@ HARNESS016-main-equivalent phase for the remaining fold-prep work — new
 story IDs will be assigned at resume time per the phase-continuity policy;
 this phase doc remains the historical record for the original RELEASE-0NN
 IDs above.
+
+**RELEASE-018** (*"Worktree and branch retirement — remove
+/mnt/work/flex-harness"*) was renumbered/resumed as **RELEASE-061** under
+phase 97, and RELEASE-061 is itself now **superseded by RELEASE-062**
+(phase 105) — not awaiting resume. `/mnt/work/flex-harness` turned out to be
+the permanent release channel (phase 102, `complete`), not a temporary
+worktree, so the teardown RELEASE-018/RELEASE-061 would have performed must
+never be executed — see `docs/stories/RELEASE/RELEASE-018.md`
+§ *Superseded*, `docs/stories/RELEASE/RELEASE-061.md` § *Superseded*, and
+`docs/architecture.md` § *Release channel — flex-harness*.
 
 ## Schema delivery
 

@@ -420,6 +420,24 @@ Confirm the output shows `Signal 1 (scripts path): present` before proceeding to
 
 **Executor:** the flex repo owner / release manager.
 
+> **permanent release channel.** This sequence was authored (HARNESS001-ante1)
+> against a topology where `/mnt/work/flex-harness` was a temporary worktree
+> torn down after the fold. Reality diverged: phase 102 (*"Effort-recording
+> smoke test and harness release-channel fast-forward"*, `complete`) kept the
+> harness checkout alive and promoted it to the channel the fleet consumes
+> flex from, and phase 97's RELEASE-061 (*"Worktree and branch retirement —
+> remove /mnt/work/flex-harness"*) is retired as a result (see
+> `docs/stories/RELEASE/RELEASE-061.md` § *Superseded*, RELEASE-062, phase
+> 105). Four facts now govern this sequence:
+> (a) `/mnt/work/flex-harness` survives the fold — it is the channel the
+> fleet consumes flex from; (b) `/mnt/work/flex` remains the `main` checkout;
+> (c) the fold does **not** end with a worktree or branch removal — the
+> previously planned removal (RELEASE-061) is retired and must never be
+> executed; (d) `docs/architecture.md` § *Release channel — flex-harness* is
+> the canonical statement of this policy — this runbook defers to it on any
+> disagreement. Steps 5 and 6 below are retired accordingly and retained only
+> as a historical record of the original plan.
+
 **Steps:**
 
 1. **Fold harness → main:**
@@ -450,16 +468,19 @@ Confirm the output shows `Signal 1 (scripts path): present` before proceeding to
 4. **Verify no binding breakage:** spot-check one or two project builds after re-sync to confirm
    they still work.
 
-5. **Remove the transient worktree:**
-   ```bash
-   rm -rf /mnt/work/flex-harness
-   git worktree remove /mnt/work/flex-harness
-   ```
+5. **RETIRED — do not execute.** *Historical record only, superseded by
+   RELEASE-062 (phase 105):* the original plan step 5 read "Remove the
+   transient worktree" and instructed
+   `rm -rf /mnt/work/flex-harness` followed by
+   `git worktree remove /mnt/work/flex-harness`. `/mnt/work/flex-harness` is
+   the permanent release channel (`docs/architecture.md` §
+   *Release channel — flex-harness*) and this step must never be run.
 
-6. **Clean up harness branch** (optional, but recommended):
-   ```bash
-   git branch -d harness  # or keep as a historical ref; team decision
-   ```
+6. **RETIRED — do not execute.** *Historical record only, superseded by
+   RELEASE-062 (phase 105):* the original plan step 6, "Clean up harness
+   branch" (optional), instructed `git branch -d harness` or keeping it as a
+   historical ref. The `harness` branch remains in active use as the branch
+   backing the permanent release-channel worktree and is not deleted.
 
 7. **Reconcile RELEASE-002 status (CER-059c):** The fold merge brings the harness branch (where
    `docs/stories/RELEASE/RELEASE-002.md` carries `status: complete`) into `main`. After the merge,
@@ -473,7 +494,9 @@ Confirm the output shows `Signal 1 (scripts path): present` before proceeding to
    correct version; investigate and correct before tagging v0.3.0.
 
 **Final state:** `/mnt/work/flex` is 0.3.0, all migrated projects are using the unified line,
-the harness development worktree is gone, and the version nag hook on migrated projects is satisfied.
+`/mnt/work/flex-harness` survives as the permanent release channel (steps 5 and 6 above are
+retired, not executed — see the *permanent release channel* call-out), and the version nag hook
+on migrated projects is satisfied.
 Any non-migrated projects remain on 0.2.x indefinitely (do-nothing-stays-stable).
 
 ---

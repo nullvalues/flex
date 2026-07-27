@@ -46,7 +46,7 @@ Resume HARNESS016-main's deferred tail: retry the doc sweep, migrate the fleet t
 | RELEASE-058 | Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects | backlog |
 | RELEASE-059 | Fold merge — fold-prep into main, tag v0.3.0 | complete |
 | RELEASE-060 | Post-fold re-sync of migrated projects + RELEASE-002 status reconciliation | draft |
-| RELEASE-061 | Worktree and branch retirement — remove /mnt/work/flex-harness | draft |
+| RELEASE-061 | Worktree and branch retirement — remove /mnt/work/flex-harness | skipped (superseded by RELEASE-062, phase 105 — see § Deferred stories) |
 | INFRA-225 | Port startswith("complete") annotated-status fallback into next_action.py's _resolve_active_phase | complete |
 | INFRA-226 | Add fable as an escalation-tier model; document mandatory custom-model entry at model-upgrade gates | complete |
 | INFRA-227 | Port Model-upgrade prompts subsection into CLAUDE.build.md.j2 sync template | complete |
@@ -126,6 +126,14 @@ Resumed per-project, in each project's own session, as described above — no
 target phase number in *this* repo, since the work no longer happens here.
 RELEASE-058 (DP8 gate) remains blocked, correctly, until the fleet actually
 migrates via this new per-project path.
+
+**RELEASE-061** (*"Worktree and branch retirement — remove
+/mnt/work/flex-harness"*) is superseded by **RELEASE-062** (phase 105), not
+awaiting resume. `/mnt/work/flex-harness` turned out to be the permanent
+release channel (phase 102, `complete`), not a temporary worktree, so the
+teardown this story would have performed must never be executed — see
+`docs/stories/RELEASE/RELEASE-061.md` § *Superseded* and
+`docs/architecture.md` § *Release channel — flex-harness*.
 
 ## DP8 gate override
 
