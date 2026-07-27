@@ -480,6 +480,55 @@ class TestInferPositionFailOutcome:
         assert pos["builder_model_reason"] == expected_reason == "auto-baseline"
 
 
+class TestInferPositionPerKeyEscalation:
+    """INFRA-282 (CER-095.3), assertion 12: with attempt_counter.json holding
+    entries for two stories, each story's Position escalates on its own
+    count from the same file. No source change to next_action.py is
+    required — it already passes the resolved story ID to
+    read_attempt_count."""
+
+    def test_two_stories_escalate_independently_from_the_same_file(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from flex_build import write_attempt_count  # noqa: E402
+
+        # Write the keyed counter file directly: A absent (0), B at 2.
+        write_attempt_count("INFRA-283", 2, tmp_path)
+
+        # Phase 1: story A (INFRA-282) is next, no commit yet → FAIL,
+        # attempt_count resolved as 0 even though B has an entry in the
+        # same file.
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("INFRA-282", "planned")])
+        _write_story(tmp_path, "INFRA-282")
+        _patch_git_log(monkeypatch, "")
+
+        pos_a = infer_position(tmp_path)
+        assert pos_a["next_story_id"] == "INFRA-282"
+        assert pos_a["attempt_count"] == 0
+        assert pos_a["last_attempt_outcome"] == OUTCOME_NONE
+
+        # Confirm B's entry is untouched by resolving A's position.
+        from flex_build import read_attempt_count as _rac
+        assert _rac("INFRA-283", tmp_path) == 2
+
+        # Phase 2: story B (INFRA-283) is next, no commit yet → FAIL,
+        # attempt_count resolved as 2 from the same counter file.
+        _write_index(
+            tmp_path,
+            [("1", "Phase 1", "complete"), ("2", "Phase 2", "active")],
+        )
+        _write_phase(tmp_path, "1", [("INFRA-282", "complete")])
+        _write_phase(tmp_path, "2", [("INFRA-283", "planned")])
+        _write_story(tmp_path, "INFRA-283", phase="2")
+        _patch_git_log(monkeypatch, "")
+
+        pos_b = infer_position(tmp_path)
+        assert pos_b["next_story_id"] == "INFRA-283"
+        assert pos_b["attempt_count"] == 2
+        assert pos_b["last_attempt_outcome"] == OUTCOME_FAIL
+
+
 class TestInferPositionGateBlocked:
     """A gate signalling blocked ⇒ Position carries that gate's blocked signal."""
 

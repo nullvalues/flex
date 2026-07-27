@@ -905,10 +905,16 @@ def _story_accepts_late_bump(project_dir: "Path | str", story_id: str) -> bool:
        readable and its frontmatter ``status:`` line is one of
        :data:`_LATE_BUMP_BLOCKED_STATUSES`; or
     2. ``.companion/attempt_counter.json`` does not already record this
-       ``story_id`` **and** ``.companion/state.json``'s ``current_story``
-       does not resolve to this ``story_id`` — the build loop is not
-       currently building it, so a bump would *create* a counter file for a
-       story nobody is working on.
+       ``story_id`` **and** ``.companion/state.json`` does not show it as
+       currently being built — the build loop is not currently building it,
+       so a bump would *create* a counter file for a story nobody is working
+       on. Liveness is resolved against the story-keyed ``current_stories``
+       record (INFRA-281's authority) when present; the flat
+       ``current_story`` key is a fallback for pre-INFRA-281 state files
+       only. With two builders in flight the flat mirror names only one of
+       them, so keying the check on it would refuse the *other* story's
+       first late FAIL bump and stall its escalation ladder at attempt 1
+       (INFRA-282, CER-095.3).
 
     Returns ``True`` otherwise. Pure read (no writes on any path); never
     raises — an unreadable story file or state file falls through to rule 2
@@ -948,9 +954,13 @@ def _story_accepts_late_bump(project_dir: "Path | str", story_id: str) -> bool:
         try:
             state = _read_state(project_path)
             if isinstance(state, dict):
-                current = state.get("current_story")
-                if isinstance(current, dict) and current.get("id") == story_id:
-                    is_current = True
+                current_stories = state.get("current_stories")
+                if isinstance(current_stories, dict):
+                    is_current = story_id in current_stories
+                else:
+                    current = state.get("current_story")
+                    if isinstance(current, dict) and current.get("id") == story_id:
+                        is_current = True
         except Exception:
             pass
 

@@ -1618,6 +1618,34 @@ class TestScopedActiveStoryClear:
         assert "WT-210" not in state.get("current_stories", {})
         assert "WT-211" in state.get("current_stories", {})
 
+    def test_merge_clears_only_its_own_attempt_counter_key(
+        self, tmp_path: Path
+    ) -> None:
+        """INFRA-282 (CER-095.3): merging one story clears only its own
+        attempt-counter entry, leaving a still-building sibling's count
+        intact (assertion 10)."""
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-220", primary_files=["a.py"])
+        _write_story(tmp_path, "WT-221", primary_files=["b.py"])
+        _run("write-attempt-count", "--story-id", "WT-220", "--count", "2", "--project-dir", str(tmp_path))
+        _run("write-attempt-count", "--story-id", "WT-221", "--count", "1", "--project-dir", str(tmp_path))
+        _run("create-story-worktree", "--story-id", "WT-220", "--project-dir", str(tmp_path))
+        _run("create-story-worktree", "--story-id", "WT-221", "--project-dir", str(tmp_path))
+
+        wt_a = tmp_path / ".pairmode-worktrees" / "WT-220"
+        _commit_in(wt_a, "a.py", "done\n", "add a")
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-220",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+
+        read_a = _run("read-attempt-count", "--story-id", "WT-220", "--project-dir", str(tmp_path))
+        read_b = _run("read-attempt-count", "--story-id", "WT-221", "--project-dir", str(tmp_path))
+        assert read_a.stdout.strip() == "0"
+        assert read_b.stdout.strip() == "1"
+
     def test_discard_clears_only_its_own_key(self, tmp_path: Path) -> None:
         _init_git_repo(tmp_path)
         _write_story(tmp_path, "WT-212", primary_files=["a.py"])

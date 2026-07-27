@@ -67,7 +67,7 @@ def test_write_attempt_count_creates_file_with_expected_shape(tmp_path: Path) ->
     counter_file = _counter_path(tmp_path)
     assert counter_file.exists()
     data = json.loads(counter_file.read_text(encoding="utf-8"))
-    assert data == {"story_id": _STORY_ID, "attempt_count": 2}
+    assert data == {"stories": {_STORY_ID: 2}}
 
 
 def test_write_attempt_count_creates_companion_dir(tmp_path: Path) -> None:
@@ -102,7 +102,7 @@ def test_write_attempt_count_overwrites_existing_file(tmp_path: Path) -> None:
     assert result.returncode == 0, f"stderr: {result.stderr}"
 
     data = json.loads(_counter_path(tmp_path).read_text(encoding="utf-8"))
-    assert data["attempt_count"] == 3
+    assert data["stories"][_STORY_ID] == 3
 
 
 # ---------------------------------------------------------------------------
@@ -236,3 +236,235 @@ def test_write_attempt_count_depth_guard(tmp_path: Path) -> None:
     )
     assert result.returncode == 1
     assert "depth guard" in result.stderr.lower() or "too shallow" in result.stderr.lower()
+
+
+# ---------------------------------------------------------------------------
+# Tests — story-keyed storage (INFRA-282, CER-095.3)
+# ---------------------------------------------------------------------------
+
+sys.path.insert(0, str(_REPO_ROOT / "skills" / "pairmode" / "scripts"))
+from flex_build import (  # noqa: E402
+    _read_attempt_counters,
+    bump_attempt_count,
+    clear_attempt_count,
+    read_attempt_count,
+    write_attempt_count,
+)
+
+_STORY_A = "INFRA-282"
+_STORY_B = "INFRA-283"
+
+
+def test_two_stories_coexist_in_the_same_file(tmp_path: Path) -> None:
+    """Writing A then B leaves both entries present (assertion 1)."""
+    write_attempt_count(_STORY_A, 2, tmp_path)
+    write_attempt_count(_STORY_B, 1, tmp_path)
+
+    data = json.loads(_counter_path(tmp_path).read_text(encoding="utf-8"))
+    assert data["stories"][_STORY_A] == 2
+    assert data["stories"][_STORY_B] == 1
+
+
+def test_read_attempt_counters_absent_file_returns_empty_dict(tmp_path: Path) -> None:
+    """_read_attempt_counters returns {} when the file does not exist (assertion 2)."""
+    assert _read_attempt_counters(tmp_path) == {}
+
+
+def test_read_attempt_counters_malformed_file_returns_empty_dict(tmp_path: Path) -> None:
+    """_read_attempt_counters returns {} on malformed JSON (assertion 2)."""
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    _counter_path(tmp_path).write_text("not json {{{", encoding="utf-8")
+    assert _read_attempt_counters(tmp_path) == {}
+
+
+def test_read_attempt_counters_legacy_shape(tmp_path: Path) -> None:
+    """_read_attempt_counters normalises the legacy flat shape (assertion 3)."""
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    _counter_path(tmp_path).write_text(
+        json.dumps({"story_id": _STORY_A, "attempt_count": 3}), encoding="utf-8"
+    )
+    assert _read_attempt_counters(tmp_path) == {_STORY_A: 3}
+
+
+def test_read_attempt_counters_keyed_shape(tmp_path: Path) -> None:
+    """_read_attempt_counters returns the keyed shape unchanged."""
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    _counter_path(tmp_path).write_text(
+        json.dumps({"stories": {_STORY_A: 2, _STORY_B: 1}}), encoding="utf-8"
+    )
+    assert _read_attempt_counters(tmp_path) == {_STORY_A: 2, _STORY_B: 1}
+
+
+def test_legacy_file_read_does_not_mutate_bytes(tmp_path: Path) -> None:
+    """Reading a legacy-shape file via read_attempt_count performs no migration
+    write — the file's bytes are unchanged after the read (assertion 3)."""
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    path = _counter_path(tmp_path)
+    path.write_text(
+        json.dumps({"story_id": _STORY_A, "attempt_count": 3}), encoding="utf-8"
+    )
+    before = path.read_bytes()
+
+    assert read_attempt_count(_STORY_A, tmp_path) == 3
+    assert read_attempt_count("INFRA-999", tmp_path) == 0
+
+    assert path.read_bytes() == before
+
+
+def test_legacy_file_upgraded_in_place_on_next_write(tmp_path: Path) -> None:
+    """A write against a legacy-shape file upgrades it to the keyed shape and
+    preserves the pre-existing legacy entry (assertion 4)."""
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    _counter_path(tmp_path).write_text(
+        json.dumps({"story_id": _STORY_A, "attempt_count": 3}), encoding="utf-8"
+    )
+
+    write_attempt_count(_STORY_B, 1, tmp_path)
+
+    data = json.loads(_counter_path(tmp_path).read_text(encoding="utf-8"))
+    assert "stories" in data
+    assert data["stories"][_STORY_A] == 3
+    assert data["stories"][_STORY_B] == 1
+
+
+def test_reads_are_per_key_and_never_cross_attribute(tmp_path: Path) -> None:
+    """A count stored under one story is never returned for another, and is
+    still returned for its own story even with siblings present (assertion 5)."""
+    write_attempt_count(_STORY_A, 2, tmp_path)
+    write_attempt_count(_STORY_B, 5, tmp_path)
+
+    assert read_attempt_count(_STORY_A, tmp_path) == 2
+    assert read_attempt_count(_STORY_B, tmp_path) == 5
+    assert read_attempt_count("INFRA-999", tmp_path) == 0
+
+
+def test_malformed_per_key_value_yields_zero_without_affecting_others(
+    tmp_path: Path,
+) -> None:
+    """A non-coercible per-key value yields 0 for that key only (assertion 5)."""
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    _counter_path(tmp_path).write_text(
+        json.dumps({"stories": {_STORY_A: "not-an-int", _STORY_B: 2}}),
+        encoding="utf-8",
+    )
+
+    assert read_attempt_count(_STORY_A, tmp_path) == 0
+    assert read_attempt_count(_STORY_B, tmp_path) == 2
+
+
+def test_bumps_are_independent(tmp_path: Path) -> None:
+    """Independent bumps across stories (assertion 6)."""
+    write_attempt_count(_STORY_A, 2, tmp_path)
+    write_attempt_count(_STORY_B, 1, tmp_path)
+
+    assert bump_attempt_count(_STORY_B, tmp_path) == 2
+    assert read_attempt_count(_STORY_A, tmp_path) == 2
+
+    assert bump_attempt_count(_STORY_A, tmp_path) == 3
+
+
+def test_bump_for_absent_story_starts_at_one_and_leaves_others_untouched(
+    tmp_path: Path,
+) -> None:
+    """A bump for a story with no entry returns 1 and does not disturb siblings
+    (assertion 6)."""
+    write_attempt_count(_STORY_A, 4, tmp_path)
+
+    assert bump_attempt_count(_STORY_B, tmp_path) == 1
+    assert read_attempt_count(_STORY_A, tmp_path) == 4
+
+
+def test_writes_are_atomic_not_write_text() -> None:
+    """No write_text call inside the attempt-counter block (assertion 7)."""
+    script_text = _SCRIPT.read_text(encoding="utf-8")
+    start = script_text.index("# Per-story attempt counter")
+    end = script_text.index("# Story cost estimate")
+    block = script_text[start:end]
+    assert "write_text" not in block
+
+
+def test_scoped_clear_leaves_sibling_intact(tmp_path: Path) -> None:
+    """clear_attempt_count(p, story_id) removes only that story's entry
+    (assertion 8)."""
+    write_attempt_count(_STORY_A, 2, tmp_path)
+    write_attempt_count(_STORY_B, 1, tmp_path)
+
+    clear_attempt_count(tmp_path, _STORY_A)
+
+    assert read_attempt_count(_STORY_A, tmp_path) == 0
+    assert read_attempt_count(_STORY_B, tmp_path) == 1
+    assert _counter_path(tmp_path).exists()
+
+
+def test_scoped_clear_of_last_entry_removes_file(tmp_path: Path) -> None:
+    """Removing the last entry via a scoped clear deletes the file
+    (assertion 8)."""
+    write_attempt_count(_STORY_A, 2, tmp_path)
+
+    clear_attempt_count(tmp_path, _STORY_A)
+
+    assert not _counter_path(tmp_path).exists()
+
+
+def test_unscoped_clear_still_removes_whole_file(tmp_path: Path) -> None:
+    """clear_attempt_count(p) with no story_id keeps today's behaviour: whole
+    file removed (assertion 8/9)."""
+    write_attempt_count(_STORY_A, 2, tmp_path)
+    write_attempt_count(_STORY_B, 1, tmp_path)
+
+    clear_attempt_count(tmp_path)
+
+    assert not _counter_path(tmp_path).exists()
+
+
+def test_clear_attempt_count_cli_scoped_by_story_id(tmp_path: Path) -> None:
+    """clear-attempt-count --story-id exits 0 and scopes the clear to that
+    story (assertion 9)."""
+    write_attempt_count(_STORY_A, 2, tmp_path)
+    write_attempt_count(_STORY_B, 1, tmp_path)
+
+    result = _run(
+        "clear-attempt-count",
+        "--story-id", _STORY_A,
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert read_attempt_count(_STORY_A, tmp_path) == 0
+    assert read_attempt_count(_STORY_B, tmp_path) == 1
+
+
+def test_clear_attempt_count_cli_no_story_id_still_removes_file(
+    tmp_path: Path,
+) -> None:
+    """clear-attempt-count with no --story-id still exits 0 and removes the
+    file (assertion 9)."""
+    write_attempt_count(_STORY_A, 2, tmp_path)
+
+    result = _run("clear-attempt-count", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert not _counter_path(tmp_path).exists()
+
+
+def test_parallel_cross_story_clobber_regression(tmp_path: Path) -> None:
+    """Reproduces the CER-095 cross-clobber sequence end-to-end: bump A twice,
+    bump B once, A must still be 2; then merge-clear A, B must still be 1
+    (assertion 13). Fails against pre-story flex_build.py, where B's bump —
+    reading 0 because of the story-ID mismatch — would rewrite the whole file
+    and silently reset A's count."""
+    bump_attempt_count(_STORY_A, tmp_path)
+    bump_attempt_count(_STORY_A, tmp_path)
+    bump_attempt_count(_STORY_B, tmp_path)
+
+    assert read_attempt_count(_STORY_A, tmp_path) == 2
+    assert read_attempt_count(_STORY_B, tmp_path) == 1
+
+    clear_attempt_count(tmp_path, _STORY_A)
+
+    assert read_attempt_count(_STORY_A, tmp_path) == 0
+    assert read_attempt_count(_STORY_B, tmp_path) == 1

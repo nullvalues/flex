@@ -2039,6 +2039,77 @@ class TestLifecycleGuardOnReconciliationBump:
 
 
 # ---------------------------------------------------------------------------
+# INFRA-282 (CER-095.3): E9 late-bump guard resolves liveness from the
+# story-keyed current_stories record, not the flat current_story mirror.
+# ---------------------------------------------------------------------------
+
+
+class TestStoryAcceptsLateBumpKeyedLiveness:
+    @staticmethod
+    def _write_story_file(project_dir: Path, story_id: str, status: str) -> None:
+        rail = story_id.split("-", 1)[0]
+        story_dir = project_dir / "docs" / "stories" / rail
+        story_dir.mkdir(parents=True, exist_ok=True)
+        (story_dir / f"{story_id}.md").write_text(
+            f"---\nid: {story_id}\nstatus: {status}\n---\n\nbody\n",
+            encoding="utf-8",
+        )
+
+    def test_two_live_stories_in_current_stories_both_pass(
+        self, tmp_path: Path
+    ) -> None:
+        """With current_stories holding both A and B and no counter file at
+        all, both resolve True — under pre-story code exactly one would
+        (assertion 16)."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(
+            project_dir,
+            current_stories={"INFRA-282": {"id": "INFRA-282"}, "INFRA-283": {"id": "INFRA-283"}},
+        )
+        self._write_story_file(project_dir, "INFRA-282", "draft")
+        self._write_story_file(project_dir, "INFRA-283", "draft")
+
+        assert st._story_accepts_late_bump(project_dir, "INFRA-282") is True
+        assert st._story_accepts_late_bump(project_dir, "INFRA-283") is True
+
+    def test_story_in_neither_current_stories_nor_counter_fails(
+        self, tmp_path: Path
+    ) -> None:
+        """A story that is neither counter-recorded nor a current_stories
+        key still returns False (assertion 17)."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir, current_stories={"INFRA-282": {"id": "INFRA-282"}})
+        self._write_story_file(project_dir, "INFRA-999", "draft")
+
+        assert st._story_accepts_late_bump(project_dir, "INFRA-999") is False
+
+    def test_blocked_status_story_still_fails(self, tmp_path: Path) -> None:
+        """A blocked-status story still returns False regardless of
+        current_stories (assertion 17)."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir, current_stories={"INFRA-282": {"id": "INFRA-282"}})
+        self._write_story_file(project_dir, "INFRA-282", "complete")
+
+        assert st._story_accepts_late_bump(project_dir, "INFRA-282") is False
+
+    def test_pre_infra_281_flat_current_story_still_passes(
+        self, tmp_path: Path
+    ) -> None:
+        """A pre-INFRA-281 state file with only the flat current_story (no
+        current_stories key) still passes for that story — the fallback
+        path (assertion 15)."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir, current_story={"id": "INFRA-282"})
+        self._write_story_file(project_dir, "INFRA-282", "draft")
+
+        assert st._story_accepts_late_bump(project_dir, "INFRA-282") is True
+
+
+# ---------------------------------------------------------------------------
 # CER-091 defect 1/3: log_recording_event and its bounded size
 # ---------------------------------------------------------------------------
 

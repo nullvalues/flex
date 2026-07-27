@@ -1155,12 +1155,61 @@ def cmd_check_stubs(project_dir: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Per-story attempt counter (BUILD-022)
+# Per-story attempt counter (BUILD-022; story-keyed storage: INFRA-282, CER-095.3)
 # ---------------------------------------------------------------------------
+
+# Top-level key under which the story-ID -> attempt-count map is stored in
+# .companion/attempt_counter.json (INFRA-282, CER-095.3).
+_ATTEMPT_COUNTER_STORIES_KEY = "stories"
 
 
 def _attempt_counter_path(project_dir: Path) -> Path:
     return project_dir / ".companion" / "attempt_counter.json"
+
+
+def _read_attempt_counters(project_dir: Path) -> dict[str, int]:
+    """Return the full story-ID -> attempt-count mapping.
+
+    Pure read — never writes, on any path, including when it normalises a
+    legacy-shape file in memory (INFRA-282, CER-095.3, assertion 2/3).
+
+    Returns ``{}`` when the file is absent, unreadable, or malformed JSON.
+    Normalises both on-disk shapes:
+
+    - keyed (current): ``{"stories": {"<story_id>": <count>, ...}}`` — each
+      value is coerced with ``int()``; a key whose value will not coerce is
+      dropped.
+    - legacy (pre-INFRA-282): ``{"story_id": "<id>", "attempt_count": <n>}``
+      — the single entry is returned as a one-item mapping, or dropped if
+      the count will not coerce. Legacy files are read as-is here and
+      upgraded to the keyed shape only on the next write
+      (``write_attempt_count``) — there is no migration step.
+    """
+    path = _attempt_counter_path(project_dir)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    stories = data.get(_ATTEMPT_COUNTER_STORIES_KEY)
+    if isinstance(stories, dict):
+        counters: dict[str, int] = {}
+        for story_id, count in stories.items():
+            try:
+                counters[story_id] = int(count)
+            except (TypeError, ValueError):
+                continue
+        return counters
+    legacy_story_id = data.get("story_id")
+    if isinstance(legacy_story_id, str):
+        try:
+            return {legacy_story_id: int(data.get("attempt_count", 0))}
+        except (TypeError, ValueError):
+            return {}
+    return {}
 
 
 @flex_build.command("write-attempt-count")
@@ -1180,28 +1229,42 @@ def cmd_write_attempt_count(story_id: str, count: int, project_dir: str) -> None
 
 
 def write_attempt_count(story_id: str, count: int, project_dir: Path) -> None:
-    """Persist ``{story_id, attempt_count}`` to ``.companion/attempt_counter.json``.
+    """Persist *story_id*'s attempt count into the story-keyed counter file.
+
+    Read-modify-write over the full keyed map (``_read_attempt_counters``),
+    so a write for one story never removes or alters another in-flight
+    story's entry (INFRA-282, CER-095.3) — the pre-story whole-file rewrite
+    silently clobbered a sibling builder's escalation state under parallel
+    story builds (CER-095 item 3). A legacy flat-shape file is upgraded to
+    the keyed shape as a side effect of this write, with its existing entry
+    preserved as one of the keys.
 
     Extracted as a module-level helper (mirrors ``read_attempt_count``) so
     other modules — ``subagent_transcript.record_attempt_from_transcript``
     and ``cmd_merge_story_worktree`` — can compose it as a library call
     instead of shelling out to the CLI (INFRA-237).
+
+    Persists via ``state_utils._atomic_write_json`` (temp-file + os.replace),
+    not a direct in-place write, so a reader never observes a
+    truncated/partial file.
     """
     path = _attempt_counter_path(project_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps({"story_id": story_id, "attempt_count": count}),
-        encoding="utf-8",
-    )
+    counters = _read_attempt_counters(project_dir)
+    counters[story_id] = count
+    _atomic_write_json(path, {_ATTEMPT_COUNTER_STORIES_KEY: counters})
 
 
 def bump_attempt_count(story_id: str, project_dir: Path) -> int:
     """Increment and persist the attempt counter for *story_id*; return the new count.
 
-    Reads the current count via ``read_attempt_count`` (0 when absent or
-    recorded against a different story — a mismatched story_id resets the
-    counter to 1 for the new story rather than continuing the old story's
-    count) and writes ``count + 1``.
+    Reads the current count via ``read_attempt_count`` and writes
+    ``count + 1`` under *story_id*'s own key. Bumps are per-key: each story
+    has its own entry in the counter file, so another story's entry is
+    neither read nor overwritten by this call — a story with no existing
+    entry starts at 1, not at whatever count a different story happens to
+    hold (INFRA-282, CER-095.3; this replaces the pre-story "a mismatched
+    story_id resets the counter to 1" whole-file semantics).
 
     Called on builder/reviewer FAIL (INFRA-237). The persisted counter is
     ``next_action.infer_position``'s sole durable signal that a story
@@ -1214,28 +1277,21 @@ def bump_attempt_count(story_id: str, project_dir: Path) -> int:
 
 
 def read_attempt_count(story_id: str, project_dir: Path) -> int:
-    """Return the persisted attempt count for *story_id* (0 if absent/mismatched).
+    """Return the persisted attempt count for *story_id* (0 if absent).
 
-    Reads ``.companion/attempt_counter.json``; returns 0 when the file is
-    absent, unreadable, or records a different story ID.  Pure read — no
-    state writes.
+    Pure read — no state writes, including no upgrade write for a
+    legacy-shape file (that upgrade only happens on the next
+    ``write_attempt_count``/``bump_attempt_count`` call). Reads are per-key:
+    a count stored for a different story never satisfies a read for
+    *story_id*, and a count stored for *story_id* is returned even when
+    other stories also have entries in the same file (INFRA-282, CER-095.3).
+    Also reads the legacy flat shape (``{"story_id": ..., "attempt_count":
+    ...}``) transparently via ``_read_attempt_counters``.
 
     Extracted from ``cmd_read_attempt_count`` as a module-level helper so that
     ``next_action.infer_position`` can compose it as a library call (RESOLVER-002).
     """
-    path = _attempt_counter_path(project_dir)
-    if not path.exists():
-        return 0
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return 0
-    if data.get("story_id") != story_id:
-        return 0
-    try:
-        return int(data.get("attempt_count", 0))
-    except (TypeError, ValueError):
-        return 0
+    return _read_attempt_counters(project_dir).get(story_id, 0)
 
 
 @flex_build.command("read-attempt-count")
@@ -1255,28 +1311,62 @@ def cmd_read_attempt_count(story_id: str, project_dir: str) -> None:
 
 @flex_build.command("clear-attempt-count")
 @click.option(
+    "--story-id",
+    default=None,
+    help=(
+        "Story ID to clear (e.g. BUILD-022). When omitted, the whole "
+        "counter file is removed (unchanged legacy behaviour, retained for "
+        "operator recovery)."
+    ),
+)
+@click.option(
     "--project-dir",
     default=".",
     type=click.Path(file_okay=False, dir_okay=True),
     help="Project root directory.",
 )
-def cmd_clear_attempt_count(project_dir: str) -> None:
-    """Delete .companion/attempt_counter.json if present."""
+def cmd_clear_attempt_count(story_id: str | None, project_dir: str) -> None:
+    """Delete .companion/attempt_counter.json, or just one story's entry."""
     project_path = Path(project_dir).resolve()
     _depth_guard(project_path)
-    clear_attempt_count(project_path)
+    clear_attempt_count(project_path, story_id)
 
 
-def clear_attempt_count(project_dir: Path) -> None:
-    """Delete ``.companion/attempt_counter.json`` if present.
+def clear_attempt_count(project_dir: Path, story_id: str | None = None) -> None:
+    """Clear the attempt counter, scoped to *story_id* when given.
+
+    ``story_id is None``: delete ``.companion/attempt_counter.json`` if
+    present (today's behaviour, preserved for operator recovery via the
+    ``clear-attempt-count`` CLI with no ``--story-id``).
+
+    ``story_id`` given: remove only that story's entry from the keyed map,
+    leaving every other story's entry — and the file itself — intact
+    (deleting the file only when the removed entry was the last one). This
+    scoped form exists because an unconditional clear on merge would wipe a
+    sibling builder's still-live escalation state the moment any other
+    story lands (INFRA-282, CER-095.3 — the same class of cross-story
+    clobber INFRA-281 fixed for the ``current_story`` stamp). Missing file
+    or missing key is a silent no-op either way.
 
     Extracted as a module-level helper (mirrors ``read_attempt_count``) so
     ``cmd_merge_story_worktree`` can clear the counter on a successful merge
     without shelling out to the CLI (INFRA-237).
     """
     path = _attempt_counter_path(project_dir)
-    if path.exists():
-        path.unlink()
+    if story_id is None:
+        if path.exists():
+            path.unlink()
+        return
+    counters = _read_attempt_counters(project_dir)
+    if story_id not in counters:
+        return
+    counters.pop(story_id, None)
+    if not counters:
+        if path.exists():
+            path.unlink()
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_json(path, {_ATTEMPT_COUNTER_STORIES_KEY: counters})
 
 
 # ---------------------------------------------------------------------------
@@ -2936,7 +3026,11 @@ def cmd_merge_story_worktree(story_id: str, project_dir: str) -> None:
     # INFRA-237: a successful land is the durable "story is done" signal —
     # clear the per-story attempt counter so the next story starts at
     # attempt_count == 0 rather than carrying over a stale FAIL count.
-    clear_attempt_count(project_path)
+    # INFRA-282 (CER-095.3): scoped to this story's own ID — an
+    # unconditional clear wipes a still-building sibling's live escalation
+    # state, the same class of cross-story clobber INFRA-281 fixed for the
+    # active-story stamp below.
+    clear_attempt_count(project_path, story_id)
     # INFRA-238: clear both artifacts create-story-worktree stamped — the
     # active-story marker and the Layer 1 permission artifact — so the next
     # story starts with a clean slate rather than inheriting this story's
