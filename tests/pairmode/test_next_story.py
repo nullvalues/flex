@@ -378,3 +378,140 @@ def test_unresolved_story_file(tmp_path):
     assert result is not None
     assert result["story_id"] == "INFRA-100"
     assert result["story_file"] == "UNRESOLVED"
+
+
+# ---------------------------------------------------------------------------
+# claimed_skipped filter (CER-095.1, INFRA-280) — A3, A4, A5
+# ---------------------------------------------------------------------------
+
+
+def test_no_claimed_argument_is_byte_for_byte_unchanged(tmp_path):
+    """A3: calling with no `claimed` argument returns exactly what it did
+    before the filter existed — same keys plus an empty `claimed_skipped`."""
+    project = _make_project_layout(tmp_path)
+    phase = _write_phase(
+        project,
+        45,
+        [
+            ("INFRA-100", "First", "planned"),
+            ("INFRA-101", "Second", "planned"),
+        ],
+    )
+    _write_story(project, "INFRA-100")
+    _write_story(project, "INFRA-101")
+
+    result = find_next_story(phase, project)
+
+    assert result is not None
+    assert result["story_id"] == "INFRA-100"
+    assert result["git_verified"] is False
+    assert result["claimed_skipped"] == []
+
+
+def test_claimed_story_is_skipped_and_reported(tmp_path):
+    """A4: claimed={"A"} over table A, B (neither has a commit) returns B,
+    and `claimed_skipped` names the skipped story."""
+    project = _make_project_layout(tmp_path)
+    phase = _write_phase(
+        project,
+        45,
+        [
+            ("INFRA-100", "First", "planned"),
+            ("INFRA-101", "Second", "planned"),
+        ],
+    )
+    _write_story(project, "INFRA-100")
+    _write_story(project, "INFRA-101")
+
+    result = find_next_story(phase, project, claimed={"INFRA-100"})
+
+    assert result is not None
+    assert result["story_id"] == "INFRA-101"
+    assert result["claimed_skipped"] == ["INFRA-100"]
+
+
+def test_claimed_skipped_empty_when_nothing_skipped(tmp_path):
+    """A4: `claimed_skipped` is `[]` when the claim set doesn't intersect
+    any story on the walk before the returned one."""
+    project = _make_project_layout(tmp_path)
+    phase = _write_phase(
+        project,
+        45,
+        [("INFRA-100", "First", "planned")],
+    )
+    _write_story(project, "INFRA-100")
+
+    result = find_next_story(phase, project, claimed={"INFRA-999"})
+
+    assert result is not None
+    assert result["story_id"] == "INFRA-100"
+    assert result["claimed_skipped"] == []
+
+
+def test_claim_never_overrides_a_completed_commit(tmp_path):
+    """A5: a story with a matching git commit is passed over as complete
+    before the claim is consulted — it never lands in `claimed_skipped`."""
+    project = _make_project_layout(tmp_path)
+    phase = _write_phase(
+        project,
+        45,
+        [
+            ("INFRA-100", "First", "complete"),
+            ("INFRA-101", "Second", "planned"),
+        ],
+    )
+    _write_story(project, "INFRA-100", status="complete")
+    _write_story(project, "INFRA-101")
+    _commit(project, "feat(story-INFRA-100): done")
+
+    result = find_next_story(phase, project, claimed={"INFRA-100"})
+
+    assert result is not None
+    assert result["story_id"] == "INFRA-101"
+    # INFRA-100 is claimed, but it's excluded by the commit check first, so
+    # it never reaches (and never appears in) claimed_skipped.
+    assert result["claimed_skipped"] == []
+
+
+def test_claim_never_overrides_deferred_status(tmp_path):
+    """A5: a `deferred` story stays excluded regardless of claim state, and
+    it does not appear in `claimed_skipped` (the skip status excluded it
+    before the claim check ran)."""
+    project = _make_project_layout(tmp_path)
+    phase = _write_phase(
+        project,
+        45,
+        [
+            ("INFRA-100", "First", "deferred"),
+            ("INFRA-101", "Second", "planned"),
+        ],
+    )
+    _write_story(project, "INFRA-100")
+    _write_story(project, "INFRA-101")
+
+    result = find_next_story(
+        phase, project, claimed={"INFRA-100", "INFRA-101"}
+    )
+
+    assert result is None or result["story_id"] != "INFRA-100"
+    # INFRA-101 is claimed, so nothing is returned; INFRA-100 never reaches
+    # the claim check because `deferred` excludes it first.
+    assert result is None
+
+
+def test_unknown_claimed_id_is_inert(tmp_path):
+    """A5: a claimed story ID absent from the phase's table has no effect
+    on the result."""
+    project = _make_project_layout(tmp_path)
+    phase = _write_phase(
+        project,
+        45,
+        [("INFRA-100", "First", "planned")],
+    )
+    _write_story(project, "INFRA-100")
+
+    result = find_next_story(phase, project, claimed={"NOPE-999"})
+
+    assert result is not None
+    assert result["story_id"] == "INFRA-100"
+    assert result["claimed_skipped"] == []

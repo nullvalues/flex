@@ -17,7 +17,10 @@ any of them. A commit match is authoritative over the table's status column.
 
 Returns the first story that:
   - has no matching git commit, AND
-  - whose table status is not `deferred` or `skipped`.
+  - whose table status is not `deferred` or `skipped`, AND
+  - (when a `claimed` set is supplied) is not in that set — a story whose
+    build is already in flight in another worktree (CER-095.1). Skipped
+    claimed IDs are reported in the returned dict's `claimed_skipped` key.
 
 When a story's table status is `complete` but no matching git commit exists,
 the story is still returned as the next unbuilt one with `git_verified=true`
@@ -166,11 +169,25 @@ def _has_story_commit(story_id: str, git_log: str) -> bool:
     return False
 
 
-def find_next_story(phase_file: Path, project_dir: Path) -> dict | None:
+def find_next_story(
+    phase_file: Path,
+    project_dir: Path,
+    *,
+    claimed: set[str] | None = None,
+) -> dict | None:
     """Return the next unbuilt story or None if all are complete.
 
     Result dict keys: `story_id`, `story_file` (str path or 'UNRESOLVED'),
-    `git_verified` (bool).
+    `git_verified` (bool), `claimed_skipped` (list[str]).
+
+    `claimed` is an opt-in filter (CER-095.1): when supplied and non-empty,
+    a story whose ID is in `claimed` is skipped (its build is already in
+    flight in another worktree) and appended to the returned
+    `claimed_skipped` list. Called with no `claimed` argument, behaviour is
+    byte-for-byte identical to before this filter existed — callers such as
+    `flex_build.resolve_current_phase`'s no-index fallback, which only asks
+    "does this phase file still have an unbuilt story?", intentionally do not
+    pass it.
     """
     text = phase_file.read_text(encoding="utf-8")
 
@@ -180,6 +197,8 @@ def find_next_story(phase_file: Path, project_dir: Path) -> dict | None:
     statuses = _parse_stories_table_statuses(text)
 
     git_log = _git_log_oneline(project_dir)
+
+    skipped: list[str] = []
 
     for story_id in story_ids:
         status = statuses.get(story_id, "")
@@ -191,6 +210,13 @@ def find_next_story(phase_file: Path, project_dir: Path) -> dict | None:
         # Deferred/skipped stories are deliberately excluded from "next up"
         # regardless of git state.
         if status in _SKIP_STATUSES:
+            continue
+
+        # A claimed story is already being built in another worktree
+        # (CER-095.1). This check runs after the commit and skip-status
+        # checks so a claim never overrides either of them (A5).
+        if claimed and story_id in claimed:
+            skipped.append(story_id)
             continue
 
         # If the table says complete but no commit exists, git overrides the
@@ -215,6 +241,7 @@ def find_next_story(phase_file: Path, project_dir: Path) -> dict | None:
             "story_id": story_id,
             "story_file": story_file,
             "git_verified": git_verified,
+            "claimed_skipped": skipped,
         }
 
     return None

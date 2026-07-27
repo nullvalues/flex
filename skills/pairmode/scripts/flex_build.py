@@ -195,6 +195,43 @@ def _worktree_paths(story_id: str, project_dir: Path) -> tuple[Path, Path, str]:
     return wt_rel, wt_abs, branch
 
 
+def claimed_story_ids(project_dir: Path) -> set[str]:
+    """Return the set of story IDs currently claimed by an in-flight worktree.
+
+    A story is "claimed" (CER-095.1) for exactly the window between
+    ``create-story-worktree`` and whichever of ``merge-story-worktree`` /
+    ``discard-story-worktree`` ends its build cycle — both of those commands
+    remove ``.pairmode-worktrees/<ID>/`` and delete the ``pairmode/<ID>``
+    branch, which is what releases the claim. This function reads that single
+    piece of state; it introduces no second record of what is in flight.
+
+    A leftover ``pairmode/<ID>`` branch with no matching worktree directory is
+    deliberately **not** treated as a claim: ``create-story-worktree`` already
+    refuses to run (with its own clear error) against an existing branch, so
+    duplicating that check here would make the resolver silently hide a story
+    for a condition the claim-taking command already reports loudly.
+
+    Returns an empty set when ``.pairmode-worktrees/`` does not exist or is
+    unreadable. Performs no filesystem writes.
+    """
+    wt_root = project_dir / ".pairmode-worktrees"
+    if not wt_root.exists():
+        return set()
+    try:
+        entries = list(wt_root.iterdir())
+    except OSError:
+        return set()
+    claimed: set[str] = set()
+    for entry in entries:
+        try:
+            is_dir = entry.is_dir()
+        except OSError:
+            continue
+        if is_dir and _STORY_ID_RE.match(entry.name):
+            claimed.add(entry.name)
+    return claimed
+
+
 def _validate_story_id_or_exit(story_id: str) -> None:
     """Exit non-zero with a clear message if ``story_id`` is malformed.
 

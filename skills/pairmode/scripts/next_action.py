@@ -670,6 +670,18 @@ def infer_position(project_dir: "str | Path") -> dict:
         contains fewer than 5 non-blank lines (stub heuristic, RESOLVER-009).
         False when the section is present and sufficiently detailed.
         Defaults to False when ``next_story_id`` is None.
+    claimed_stories : list[str]
+        Sorted story IDs currently claimed by a live in-flight story
+        worktree, per ``flex_build.claimed_story_ids`` (CER-095.1). Present
+        on every call, including when ``active_phase_file`` is None.
+    claimed_skipped : list[str]
+        Claimed story IDs skipped while selecting ``next_story_id``, or —
+        when ``all_stories_claimed`` is True — every remaining claimed story
+        in the active phase's table.
+    all_stories_claimed : bool
+        True when a claim-filtered pass over the active phase found no
+        story, but an unfiltered pass over the same phase did — i.e. every
+        remaining story is claimed, not that the phase is complete.
     """
     from next_story import find_next_story  # type: ignore[import]
     from model_selector import select_builder_model  # type: ignore[import]
@@ -678,10 +690,23 @@ def infer_position(project_dir: "str | Path") -> dict:
         check_stub_gate,
         check_schema_gate_result,
         check_auth_gate_result,
+        claimed_story_ids,
     )
     from schema_validator import _parse_frontmatter  # type: ignore[import]
 
     project_path = Path(project_dir).resolve()
+
+    # ------------------------------------------------------------------
+    # 0. In-flight claims (CER-095.1). Computed unconditionally so the three
+    #    claim keys are present on every Position, even with no active phase.
+    # ------------------------------------------------------------------
+    try:
+        claimed = claimed_story_ids(project_path)
+    except Exception:  # noqa: BLE001
+        claimed = set()
+    claimed_stories: "list[str]" = sorted(claimed)
+    claimed_skipped: "list[str]" = []
+    all_stories_claimed: bool = False
 
     # ------------------------------------------------------------------
     # 1. Active phase (CER-056: uses is_phase_inactive to skip deferred/backlog)
@@ -699,9 +724,38 @@ def infer_position(project_dir: "str | Path") -> dict:
 
     if active_phase_file is not None:
         try:
-            result = find_next_story(active_phase_file, project_path)
+            result = find_next_story(active_phase_file, project_path, claimed=claimed)
         except Exception:  # noqa: BLE001
             result = None
+
+        if result is not None:
+            claimed_skipped = list(result.get("claimed_skipped") or [])
+        elif claimed:
+            # The claim-filtered pass found nothing, but stories are claimed:
+            # this may be "every remaining story is claimed" rather than
+            # "phase complete" (A7/CER-095.1). Distinguish with a second,
+            # unfiltered pass — strictly conditional so the extra
+            # `_git_log_oneline` subprocess never runs on the hot path
+            # (nothing claimed, or a story found on the first pass).
+            try:
+                unfiltered = find_next_story(active_phase_file, project_path)
+            except Exception:  # noqa: BLE001
+                unfiltered = None
+            if unfiltered is not None:
+                all_stories_claimed = True
+                try:
+                    from story_resolver import (  # type: ignore[import]
+                        _parse_stories_table,
+                    )
+
+                    table_ids = set(
+                        _parse_stories_table(
+                            active_phase_file.read_text(encoding="utf-8")
+                        )
+                    )
+                    claimed_skipped = sorted(claimed & table_ids)
+                except Exception:  # noqa: BLE001
+                    claimed_skipped = sorted(claimed)
 
         if result is not None:
             next_story_id = result.get("story_id")
@@ -888,6 +942,9 @@ def infer_position(project_dir: "str | Path") -> dict:
         "last_attempt_outcome": last_attempt_outcome,
         "checkpoint_step": checkpoint_step,
         "needs_spec": needs_spec,
+        "claimed_stories": claimed_stories,
+        "claimed_skipped": claimed_skipped,
+        "all_stories_claimed": all_stories_claimed,
     }
 
 
@@ -933,6 +990,11 @@ def resolve_next_action(
     DP2 state table (evaluated in precedence order)
     ------------------------------------------------
     Row 1  — no active phase / all complete                → done
+    Row "all-stories-claimed" (CER-095.1) — no next story, but every
+               remaining story in the phase table is claimed by an
+               in-flight worktree; evaluated before Row 9 so a
+               still-building phase never checkpoints → await-user
+               (all-stories-claimed, meta.claimed_stories)
     Row 9  — all phase stories done → checkpoint routing (RESOLVER-008):
                guard fail → await-user (checkpoint-guard-failed:<which>)
                guards pass → next uncompleted checkpoint step
@@ -973,12 +1035,36 @@ def resolve_next_action(
     gate_stub: dict = position.get("gate_stub") or {"ok": True, "blocked_reason": ""}
     gate_schema: dict = position.get("gate_schema") or {"ok": True, "blocked_reason": ""}
     gate_auth: dict = position.get("gate_auth") or {"ok": True, "blocked_reason": ""}
+    claimed_stories: "list[str]" = list(position.get("claimed_stories") or [])
+    claimed_skipped: "list[str]" = list(position.get("claimed_skipped") or [])
+    all_stories_claimed: bool = bool(position.get("all_stories_claimed"))
 
     # ------------------------------------------------------------------
     # Row 1 — no active phase (all phases complete, or no phases at all)
     # ------------------------------------------------------------------
     if active_phase_file is None:
         return make_action(DONE, scalar="", model=None, reason="", meta=meta_base)
+
+    # ------------------------------------------------------------------
+    # All-stories-claimed (CER-095.1) — MUST be evaluated before Row 9.
+    #
+    # next_story_id is None here for two different reasons: the phase is
+    # genuinely complete, or every remaining story is claimed by an
+    # in-flight worktree. Row 9 treats "no next story" as "phase done" and
+    # its terminal step tags the phase complete — if this branch were placed
+    # below Row 9 it would be dead code and a still-building phase would get
+    # checkpointed (the CER-077 class of failure: an irreversible write
+    # derived from an ambiguous read). Placed here, a claimed-but-unfinished
+    # phase stops and reports rather than silently proceeding to checkpoint.
+    # ------------------------------------------------------------------
+    if next_story_id is None and all_stories_claimed:
+        return make_action(
+            AWAIT_USER,
+            scalar="",
+            model=None,
+            reason="all-stories-claimed",
+            meta={**meta_base, "claimed_stories": claimed_stories},
+        )
 
     # ------------------------------------------------------------------
     # Row 9 — active phase, no next story (all stories done → checkpoint)
@@ -1029,6 +1115,19 @@ def resolve_next_action(
     # From here, next_story_id is non-None — there is an unbuilt story.
 
     # ------------------------------------------------------------------
+    # A10 (CER-095.1): spawn actions surface any claim skips that shaped the
+    # selection of next_story_id, so an operator watching the loop can see
+    # that a story was passed over because it is already in flight. Absent
+    # any skip, the meta key is omitted — an action for a phase with nothing
+    # in flight looks exactly as it did before this story.
+    # ------------------------------------------------------------------
+    def _with_claimed_skipped(meta_dict: dict) -> dict:
+        if claimed_skipped:
+            meta_dict = dict(meta_dict)
+            meta_dict["claimed_skipped"] = list(claimed_skipped)
+        return meta_dict
+
+    # ------------------------------------------------------------------
     # Row 8 — story just committed (PASS) but more stories remain.
     # The orchestrator hasn't cleared the counter yet, so we check outcome.
     # Attempt number for the next story resets to 1.
@@ -1041,7 +1140,7 @@ def resolve_next_action(
             scalar=next_story_id,
             model=builder_model,
             reason=builder_model_reason or "auto-baseline",
-            meta=meta,
+            meta=_with_claimed_skipped(meta),
         )
 
     # ------------------------------------------------------------------
@@ -1083,7 +1182,7 @@ def resolve_next_action(
             scalar=next_story_id,
             model=None,
             reason="judged-gate-tripped",
-            meta=meta,
+            meta=_with_claimed_skipped(meta),
         )
 
     # ------------------------------------------------------------------
@@ -1117,7 +1216,7 @@ def resolve_next_action(
                 scalar=next_story_id,
                 model="opus",
                 reason="needs-spec",
-                meta=meta_base,
+                meta=_with_claimed_skipped(meta_base),
             )
         meta = dict(meta_base)
         meta["attempt"] = 1
@@ -1126,7 +1225,7 @@ def resolve_next_action(
             scalar=next_story_id,
             model=builder_model,
             reason=builder_model_reason or "auto-baseline",
-            meta=meta,
+            meta=_with_claimed_skipped(meta),
         )
 
     # ------------------------------------------------------------------
@@ -1150,7 +1249,7 @@ def resolve_next_action(
             scalar=next_story_id,
             model=builder_model if builder_model is not None else "opus",
             reason=builder_model_reason if builder_model is not None else "retry-upgrade",
-            meta=meta,
+            meta=_with_claimed_skipped(meta),
         )
 
     # Row 6 — attempt 2 failed → loop-breaker
@@ -1166,7 +1265,7 @@ def resolve_next_action(
             scalar=next_story_id,
             model=loop_breaker_model,
             reason="",
-            meta=meta,
+            meta=_with_claimed_skipped(meta),
         )
 
     # Row 7 — attempt 3+ failed (or any other pause: user-pause, DEVELOPER-ACTION)

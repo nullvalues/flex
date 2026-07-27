@@ -2070,3 +2070,202 @@ class TestAttemptCounterWritePathIntegration:
         assert action["action"] == SPAWN_BUILDER
         assert action["scalar"] == "TEST-240"
         assert action["meta"]["attempt"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests — claimed-story resolver support (CER-095.1, INFRA-280)
+# ---------------------------------------------------------------------------
+
+
+class TestInferPositionClaimedStories:
+    """A6: the three claim keys are present on every Position."""
+
+    def test_keys_present_with_no_active_phase(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        # No docs/phases at all → active_phase_file is None.
+        pos = infer_position(tmp_path)
+        assert pos["active_phase_file"] is None
+        assert pos["claimed_stories"] == []
+        assert pos["claimed_skipped"] == []
+        assert pos["all_stories_claimed"] is False
+
+    def test_keys_present_and_populated_with_active_phase(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(
+            tmp_path, "1", [("TEST-001", "planned"), ("TEST-002", "planned")]
+        )
+        _write_story(tmp_path, "TEST-001")
+        _write_story(tmp_path, "TEST-002")
+        _patch_git_log(monkeypatch, "")
+
+        wt_root = tmp_path / ".pairmode-worktrees"
+        (wt_root / "TEST-001").mkdir(parents=True)
+
+        pos = infer_position(tmp_path)
+        assert pos["claimed_stories"] == ["TEST-001"]
+        assert pos["next_story_id"] == "TEST-002"
+        assert pos["claimed_skipped"] == ["TEST-001"]
+        assert pos["all_stories_claimed"] is False
+
+
+class TestInferPositionAllStoriesClaimed:
+    """A7: "all remaining claimed" is distinguished from "phase complete"."""
+
+    def test_all_remaining_claimed_sets_flag_true(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        (tmp_path / ".pairmode-worktrees" / "TEST-001").mkdir(parents=True)
+
+        pos = infer_position(tmp_path)
+        assert pos["next_story_id"] is None
+        assert pos["all_stories_claimed"] is True
+        assert pos["claimed_stories"] == ["TEST-001"]
+        assert pos["claimed_skipped"] == ["TEST-001"]
+
+    def test_genuinely_complete_phase_leaves_flag_false(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        _write_index(tmp_path, [("1", "Phase 1", "complete")])
+        _write_phase(tmp_path, "1", [("TEST-001", "complete")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "abc123 story-TEST-001 complete\n")
+
+        pos = infer_position(tmp_path)
+        assert pos["next_story_id"] is None
+        assert pos["all_stories_claimed"] is False
+        assert pos["claimed_stories"] == []
+
+
+class TestResolveNextActionAllStoriesClaimed:
+    """A8: the resolver refuses to checkpoint a phase that is still building."""
+
+    def test_await_user_all_stories_claimed_before_row_9(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+        (tmp_path / ".pairmode-worktrees" / "TEST-001").mkdir(parents=True)
+
+        pos = infer_position(tmp_path)
+
+        def _guard_should_not_fire(*_a: Any, **_kw: Any) -> dict:
+            raise AssertionError(
+                "check_checkpoint_guards must not be called when "
+                "all_stories_claimed is True"
+            )
+
+        import next_action as _na  # type: ignore[import]
+
+        monkeypatch.setattr(_na, "check_checkpoint_guards", _guard_should_not_fire)
+
+        action = resolve_next_action(pos)
+        assert action["action"] == AWAIT_USER
+        assert action["scalar"] == ""
+        assert action["model"] is None
+        assert action["reason"] == "all-stories-claimed"
+        assert action["meta"]["claimed_stories"] == ["TEST-001"]
+        assert validate_action(action) == []
+
+    def test_row_9_checkpoint_still_fires_when_nothing_claimed(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Sanity check: with no claims, Row 9's normal checkpoint routing
+        (not all-stories-claimed) is what fires."""
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "complete")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "abc123 story-TEST-001 complete\n")
+
+        pos = infer_position(tmp_path)
+        assert pos["all_stories_claimed"] is False
+
+        action = resolve_next_action(pos, gate_fn=lambda: True)
+        assert action["action"] != AWAIT_USER or action["reason"] != "all-stories-claimed"
+
+
+class TestNextActionThreePollSequence:
+    """A9: consecutive polls offer different stories as claims accrue."""
+
+    def test_offer_a_then_b_then_await_user(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(
+            tmp_path, "1", [("TEST-101", "planned"), ("TEST-102", "planned")]
+        )
+        _write_story(tmp_path, "TEST-101")
+        _write_story(tmp_path, "TEST-102")
+        _patch_git_log(monkeypatch, "")
+
+        # Poll 1 — nothing claimed, A is offered.
+        pos1 = infer_position(tmp_path)
+        action1 = resolve_next_action(pos1)
+        assert action1["action"] == SPAWN_BUILDER
+        assert action1["scalar"] == "TEST-101"
+        assert "claimed_skipped" not in action1["meta"]
+
+        # Claim A (simulating create-story-worktree).
+        (tmp_path / ".pairmode-worktrees" / "TEST-101").mkdir(parents=True)
+
+        # Poll 2 — A is claimed, B is offered, claimed_skipped names A.
+        pos2 = infer_position(tmp_path)
+        action2 = resolve_next_action(pos2)
+        assert action2["action"] == SPAWN_BUILDER
+        assert action2["scalar"] == "TEST-102"
+        assert action2["meta"]["claimed_skipped"] == ["TEST-101"]
+
+        # Claim B too.
+        (tmp_path / ".pairmode-worktrees" / "TEST-102").mkdir(parents=True)
+
+        # Poll 3 — everything claimed → await-user/all-stories-claimed.
+        pos3 = infer_position(tmp_path)
+        action3 = resolve_next_action(pos3)
+        assert action3["action"] == AWAIT_USER
+        assert action3["reason"] == "all-stories-claimed"
+        assert action3["meta"]["claimed_stories"] == ["TEST-101", "TEST-102"]
+
+
+class TestResolveNextActionClaimedSkippedMeta:
+    """A10: spawn actions surface claimed_skipped when non-empty, omit it
+    when empty."""
+
+    def test_meta_absent_when_nothing_claimed(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert "claimed_skipped" not in action["meta"]
+
+    def test_meta_present_when_a_story_was_skipped(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(
+            tmp_path, "1", [("TEST-001", "planned"), ("TEST-002", "planned")]
+        )
+        _write_story(tmp_path, "TEST-001")
+        _write_story(tmp_path, "TEST-002")
+        _patch_git_log(monkeypatch, "")
+        (tmp_path / ".pairmode-worktrees" / "TEST-001").mkdir(parents=True)
+
+        pos = infer_position(tmp_path)
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["scalar"] == "TEST-002"
+        assert action["meta"]["claimed_skipped"] == ["TEST-001"]

@@ -189,6 +189,31 @@ checkpoint-stage workers (`checkpoint-security`, `checkpoint-intent`, `checkpoin
 are read-mostly, never commit, and stay on the main worktree unwrapped. `.pairmode-worktrees/`
 is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
 
+**Worktree as in-flight claim (CER-095.1, INFRA-280).** The worktree created above is not
+only an isolation boundary — it is also the *only* record of which stories are currently
+being built, and the resolver reads it. The claim is taken by `create-story-worktree` (it
+fails loudly rather than silently reusing an existing directory or branch) and released by
+whichever of `merge-story-worktree` / `discard-story-worktree` ends the cycle; there is no
+second claim file, lock, PID, or TTL — `flex_build.claimed_story_ids` reads
+`.pairmode-worktrees/` directly. `next-action` skips a claimed story when selecting the next
+one (`next_story.find_next_story(..., claimed=...)`), which is what lets a single orchestrator
+dispatch a second story while the first is still building: the resolver names story B on the
+poll that follows story A's claim, rather than repeating A until it lands. This is only sound
+under one ordering rule: **the worktree must be created before the next `next-action` poll** —
+the poll is what selects a story and the worktree is what claims it, so a poll issued before
+the claim exists could hand the same story to two dispatches. When every remaining story in the
+active phase is claimed, `infer_position` sets `all_stories_claimed = True` and
+`resolve_next_action` returns `await-user` with `reason="all-stories-claimed"` — never a
+checkpoint action. This is deliberate: `next_story_id is None` is otherwise read as "the phase
+is finished," and Row 9's terminal step tags a phase complete; treating "every remaining story
+is claimed" as a synonym for "done" would let the loop checkpoint a phase that is still
+building — an irreversible write derived from an ambiguous read (the CER-077 failure class).
+Stale-claim recovery is manual and deliberately so: a worktree left behind by a crashed loop
+hides its story from the resolver indefinitely, and the operator clears it with
+`discard-story-worktree --story-id <ID>`. The resolver never prunes a worktree it observes —
+a reader that self-heals a claim would become a second writer of build state, which is exactly
+the two-sources-of-truth condition CER-095 exists to close.
+
 **One-iteration-per-story contract (CER-074).** The resolver never emits `spawn-reviewer` —
 it is orchestrator-dispatched only. The constant is a live member of `ACTIONS`/`_SPAWN_ACTIONS`
 (the orchestrator's `ACTION_SUBAGENT_TYPE` map and the model-override rule key on it), but no
@@ -200,7 +225,11 @@ model over durable state. The operational rule that follows: exactly one `next-a
 story — the builder spawn, the reviewer spawn, and the merge-or-discard all happen inside that
 single iteration. A mid-story poll sees `attempt_count > 0` with no story commit, infers `FAIL`,
 and re-dispatches a wasteful attempt 2 over a finished build. Originating decision:
-`docs/agreements/HARNESS003-main.md`.
+`docs/agreements/HARNESS003-main.md`. "One poll per story" is one poll per story
+**dispatch** (CER-095.1): the no-re-poll-before-merge rule above is unaffected by claim
+filtering — a re-poll mid-story now returns a *different* story (whichever one is next
+unclaimed) rather than silently re-offering the same one, which is worse, not better, and
+still a caller error the rule exists to prevent.
 
 1. **Story spec** — the phase doc names the story; the story file at
    `docs/stories/<RAIL>/<RAIL>-NNN.md` defines `## Requires`, `## Ensures`, and

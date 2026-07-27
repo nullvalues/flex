@@ -1436,6 +1436,67 @@ class TestStoryWorktreeLifecycle:
         assert (main_untracked / "keep.md").read_text() == "precious\n"
 
 
+class TestClaimedStoryIds:
+    """claimed_story_ids (CER-095.1, INFRA-280) — A1, A2."""
+
+    def test_empty_when_worktrees_dir_absent(self, tmp_path: Path) -> None:
+        import flex_build  # noqa: E402
+
+        assert flex_build.claimed_story_ids(tmp_path) == set()
+
+    def test_ignores_plain_file_and_non_matching_directory(
+        self, tmp_path: Path
+    ) -> None:
+        import flex_build  # noqa: E402
+
+        wt_root = tmp_path / ".pairmode-worktrees"
+        wt_root.mkdir()
+        (wt_root / "INFRA-999").write_text("not a directory\n", encoding="utf-8")
+        (wt_root / "tmp").mkdir()
+        (wt_root / ".DS_Store").mkdir()
+        assert flex_build.claimed_story_ids(tmp_path) == set()
+
+    def test_tracks_create_merge_discard_lifecycle(self, tmp_path: Path) -> None:
+        import flex_build  # noqa: E402
+
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-201",
+            "--project-dir", str(tmp_path),
+        )
+        assert flex_build.claimed_story_ids(tmp_path) == {"WT-201"}
+
+        wt = tmp_path / ".pairmode-worktrees" / "WT-201"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+        merge_result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-201",
+            "--project-dir", str(tmp_path),
+        )
+        assert merge_result.returncode == 0, merge_result.stderr
+        assert flex_build.claimed_story_ids(tmp_path) == set()
+
+    def test_tracks_create_discard_lifecycle(self, tmp_path: Path) -> None:
+        import flex_build  # noqa: E402
+
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-202",
+            "--project-dir", str(tmp_path),
+        )
+        assert flex_build.claimed_story_ids(tmp_path) == {"WT-202"}
+
+        discard_result = _run(
+            "discard-story-worktree",
+            "--story-id", "WT-202",
+            "--project-dir", str(tmp_path),
+        )
+        assert discard_result.returncode == 0, discard_result.stderr
+        assert flex_build.claimed_story_ids(tmp_path) == set()
+
+
 class TestStoryWorktreeActiveStoryStamping:
     """create/merge/discard-story-worktree stamp/clear current_story + the
     Layer 1 permission artifact (INFRA-238)."""
