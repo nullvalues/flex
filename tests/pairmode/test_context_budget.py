@@ -457,63 +457,34 @@ def test_read_context_tokens_from_state_non_dict_returns_none():
 
 
 # ---------------------------------------------------------------------------
-# read_context_tokens_from_state — CER-041 staleness handling
+# read_context_tokens_from_state — CER-041: the TTL was retired (INFRA-272).
+# read_context_tokens_from_state no longer takes a recorded_at/TTL opinion at
+# all; the equivalent operator-visible outcomes are covered by
+# _is_stale()/decide() below (see TestIsStale, TestFailOpenSignals).
 # ---------------------------------------------------------------------------
 
 
-def test_read_context_tokens_fresh():
-    """recorded_at 10 minutes ago under default TTL=60 → returns the value."""
-    now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
-    recorded_at = (now - timedelta(minutes=10)).isoformat()
+def test_read_context_tokens_ignores_recorded_at_and_ttl_fields():
+    """recorded_at/ttl fields present are simply ignored — value returned.
+
+    Replaces the pre-INFRA-272 TTL staleness tests: the function's contract
+    is now value-validation only, so a "fresh" or "stale-looking" recorded_at
+    makes no difference to its return value.
+    """
     state = {
         "context_current_tokens": 50_000,
-        "context_current_tokens_recorded_at": recorded_at,
+        "context_current_tokens_recorded_at": "not-a-date",
+        "context_current_tokens_ttl_minutes": 20,
     }
-    assert (
-        context_budget.read_context_tokens_from_state(state, _now=now) == 50_000
-    )
-
-
-def test_read_context_tokens_stale():
-    """recorded_at 90 minutes ago under default TTL=60 → returns None."""
-    now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
-    recorded_at = (now - timedelta(minutes=90)).isoformat()
-    state = {
-        "context_current_tokens": 50_000,
-        "context_current_tokens_recorded_at": recorded_at,
-    }
-    assert context_budget.read_context_tokens_from_state(state, _now=now) is None
+    assert context_budget.read_context_tokens_from_state(state) == 50_000
 
 
 def test_read_context_tokens_no_recorded_at():
-    """recorded_at absent → TTL not enforced; returns the value."""
+    """recorded_at absent → value still returned (no staleness opinion here)."""
     state = {"context_current_tokens": 50_000}
     assert (
         context_budget.read_context_tokens_from_state(state) == 50_000
     )
-
-
-def test_read_context_tokens_unparseable_recorded_at():
-    """recorded_at not parseable → staleness skipped; returns the value."""
-    state = {
-        "context_current_tokens": 50_000,
-        "context_current_tokens_recorded_at": "not-a-date",
-    }
-    assert (
-        context_budget.read_context_tokens_from_state(state) == 50_000
-    )
-
-
-def test_read_context_tokens_custom_ttl():
-    """recorded_at 30 minutes ago under custom TTL=20 → stale; returns None."""
-    now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
-    recorded_at = (now - timedelta(minutes=30)).isoformat()
-    state = {
-        "context_current_tokens": 50_000,
-        "context_current_tokens_recorded_at": recorded_at,
-        "context_current_tokens_ttl_minutes": 20,
-    }
-    assert context_budget.read_context_tokens_from_state(state, _now=now) is None
 
 
 # ---------------------------------------------------------------------------
@@ -1656,35 +1627,14 @@ def test_decide_companion_dir_present_state_absent_returns_check_required(tmp_pa
 
 
 # ---------------------------------------------------------------------------
-# INFRA-203: CER-041 — recorded_at TTL staleness
+# INFRA-203 / INFRA-272: CER-041 — the scalar TTL was removed; the equivalent
+# staleness assertions now live against _is_stale()/decide() (TestIsStale,
+# TestFailOpenSignals). The value-only contract is covered above.
 # ---------------------------------------------------------------------------
 
 
-def test_read_context_tokens_stale_at_exactly_60_minutes(tmp_path):
-    """recorded_at exactly 60 minutes old is NOT stale (boundary: age > TTL, not >=)."""
-    now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
-    recorded_at = (now - timedelta(minutes=60)).isoformat()
-    state = {
-        "context_current_tokens": 50_000,
-        "context_current_tokens_recorded_at": recorded_at,
-    }
-    # age_minutes == ttl_minutes (60 == 60) → NOT stale (>) → value returned
-    assert context_budget.read_context_tokens_from_state(state, _now=now) == 50_000
-
-
-def test_read_context_tokens_stale_at_61_minutes(tmp_path):
-    """recorded_at 61 minutes old is stale → returns None."""
-    now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
-    recorded_at = (now - timedelta(minutes=61)).isoformat()
-    state = {
-        "context_current_tokens": 50_000,
-        "context_current_tokens_recorded_at": recorded_at,
-    }
-    assert context_budget.read_context_tokens_from_state(state, _now=now) is None
-
-
 def test_read_context_tokens_backward_compat_no_recorded_at():
-    """recorded_at absent → TTL not enforced; value returned (backward-compat).
+    """recorded_at absent → value returned (backward-compat).
 
     CER-041: existing state.json files without context_current_tokens_recorded_at
     must continue to work as before.
@@ -2186,3 +2136,139 @@ def test_decide_reads_a_pre_infra_285_state_file(tmp_path):
     assert flat is not None and flat["block"] is True
     # No context_sessions key at all → no live sibling → same result as flat.
     assert keyed is not None and keyed["tokens"] == flat["tokens"]
+
+
+# ---------------------------------------------------------------------------
+# B7 (INFRA-272) — _is_stale direct coverage (A3)
+# ---------------------------------------------------------------------------
+
+
+class TestIsStale:
+    """_is_stale()'s signature and verdicts are unchanged by this story (A3);
+    this class gives it direct coverage instead of only exercising it
+    indirectly through decide()."""
+
+    def test_absent_reset_at_returns_false(self):
+        """No context_session_reset_at recorded → fail-open, not stale."""
+        assert context_budget._is_stale({}) is False
+
+    def test_unparseable_reset_at_returns_false(self):
+        """context_session_reset_at present but unparseable → fail-open."""
+        state = {
+            "context_session_reset_at": "not-a-date",
+            "context_current_tokens_recorded_at": "2026-06-01T12:00:00+00:00",
+        }
+        assert context_budget._is_stale(state) is False
+
+    def test_unparseable_recorded_at_returns_false(self):
+        """context_current_tokens_recorded_at present but unparseable → fail-open."""
+        state = {
+            "context_session_reset_at": "2026-06-01T12:00:00+00:00",
+            "context_current_tokens_recorded_at": "not-a-date",
+        }
+        assert context_budget._is_stale(state) is False
+
+    def test_missing_recorded_at_with_reset_at_present_is_stale(self):
+        """reset_at present, recorded_at absent → cannot compare → stale (True)."""
+        state = {"context_session_reset_at": "2026-06-01T12:00:00+00:00"}
+        assert context_budget._is_stale(state) is True
+
+    def test_recorded_before_reset_is_stale(self):
+        """recorded_at strictly before reset_at → stale."""
+        state = {
+            "context_session_reset_at": "2026-06-01T12:00:00+00:00",
+            "context_current_tokens_recorded_at": "2026-06-01T11:00:00+00:00",
+        }
+        assert context_budget._is_stale(state) is True
+
+    def test_recorded_equal_to_reset_is_not_stale(self):
+        """Equal timestamps are NOT stale — the baseline was just written."""
+        state = {
+            "context_session_reset_at": "2026-06-01T12:00:00+00:00",
+            "context_current_tokens_recorded_at": "2026-06-01T12:00:00+00:00",
+        }
+        assert context_budget._is_stale(state) is False
+
+    def test_recorded_after_reset_is_not_stale(self):
+        """recorded_at after reset_at → fresh."""
+        state = {
+            "context_session_reset_at": "2026-06-01T12:00:00+00:00",
+            "context_current_tokens_recorded_at": "2026-06-01T13:00:00+00:00",
+        }
+        assert context_budget._is_stale(state) is False
+
+
+# ---------------------------------------------------------------------------
+# A8 (INFRA-272) — every fail-open branch emits an operator signal (CER-040)
+# ---------------------------------------------------------------------------
+
+
+class TestFailOpenSignals:
+    """Every remaining decide() pass-through path now warns to stderr
+    (CER-040) without changing decide()'s return value (A9/E1)."""
+
+    def test_staleness_absent_reset_at_warns(self, tmp_path, capsys):
+        """A4: absent context_session_reset_at → decide() passes, and warns."""
+        state = dict(_BASE_BUDGET_STATE)
+        state["context_current_tokens"] = 25_000
+        project_dir = _setup_project(tmp_path, state=state)
+
+        result = context_budget.decide(project_dir)
+
+        assert result is None
+        err = capsys.readouterr().err
+        assert context_budget._FAIL_OPEN_PREFIX in err
+
+    def test_staleness_unparseable_timestamp_warns(self, tmp_path, capsys):
+        """A4: unparseable context_session_reset_at → decide() passes, and warns."""
+        state = dict(_BASE_BUDGET_STATE)
+        state["context_current_tokens"] = 25_000
+        state["context_session_reset_at"] = "not-a-date"
+        state["context_current_tokens_recorded_at"] = "also-not-a-date"
+        project_dir = _setup_project(tmp_path, state=state)
+
+        result = context_budget.decide(project_dir)
+
+        assert result is None
+        err = capsys.readouterr().err
+        assert context_budget._FAIL_OPEN_PREFIX in err
+
+    def test_session_state_import_failure_warns_and_degrades(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """A5: a broken session_state import warns and falls through to the
+        flat, project-global read rather than raising out of decide()."""
+        state = dict(_BASE_BUDGET_STATE)
+        state["context_current_tokens"] = 25_000
+        project_dir = _setup_project(tmp_path, state=state)
+
+        monkeypatch.setattr(
+            context_budget,
+            "_import_session_state",
+            lambda: None,
+        )
+
+        result = context_budget.decide(project_dir, session_id="LOOP")
+
+        assert result is None
+        err = capsys.readouterr().err
+        assert context_budget._FAIL_OPEN_PREFIX in err
+        assert "session_state" in err
+
+    def test_non_pairmode_project_stays_silent(self, tmp_path, capsys):
+        """A6: no .companion/ directory at all → decide() returns None and
+        writes nothing to stderr — the one deliberate silent pass-through."""
+        result = context_budget.decide(tmp_path)
+
+        assert result is None
+        assert capsys.readouterr().err == ""
+
+    def test_state_json_as_directory_does_not_raise(self, tmp_path):
+        """A9: .companion/state.json being a directory (not a file) must not
+        raise out of decide() — it returns a dict or None."""
+        companion = tmp_path / ".companion"
+        (companion / "state.json").mkdir(parents=True)
+
+        result = context_budget.decide(tmp_path)
+
+        assert result is None or isinstance(result, dict)

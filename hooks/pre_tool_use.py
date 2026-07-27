@@ -132,7 +132,21 @@ def main():
                 flex_factor=flex_factor,
                 session_id=data.get("session_id"),
             )
-        except Exception:
+        except Exception as exc:
+            # CER-040 (A7): this except is correctly non-blocking — a hook
+            # bug must never wedge a build — but "never block" and "never
+            # mention it" are different properties. Report what was
+            # swallowed before falling through to the same sys.exit(0); the
+            # print is itself wrapped so a failure to print cannot change
+            # the exit code.
+            try:
+                print(
+                    f"context_budget: gate not enforced — decide() raised "
+                    f"{exc!r}",
+                    file=sys.stderr,
+                )
+            except Exception:
+                pass
             sys.exit(0)
 
         if result and result.get("block"):

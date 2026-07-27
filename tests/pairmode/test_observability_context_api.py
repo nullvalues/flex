@@ -116,8 +116,9 @@ def test_server_calls_registerContextRoutes() -> None:
 # Threshold definitions test
 # ---------------------------------------------------------------------------
 
-def test_context_route_has_six_thresholds() -> None:
-    """routes/context.ts must define exactly 6 threshold entries."""
+def test_context_route_has_five_thresholds() -> None:
+    """routes/context.ts must define exactly 5 threshold entries (INFRA-272:
+    context_current_tokens_ttl_minutes was removed — it tuned nothing)."""
     content = (ROUTES / "context.ts").read_text()
     # Count occurrences of threshold name entries
     threshold_names = [
@@ -125,13 +126,27 @@ def test_context_route_has_six_thresholds() -> None:
         "context_budget_overrun_pct",
         "expected_step_tokens",
         "context_budget_reprompt_margin",
-        "context_current_tokens_ttl_minutes",
         "flex_factor",
     ]
     for name in threshold_names:
         assert f"'{name}'" in content or f'"{name}"' in content, (
             f"Threshold '{name}' not found in routes/context.ts"
         )
+
+    assert "context_current_tokens_ttl_minutes" not in content, (
+        "context_current_tokens_ttl_minutes must not appear in routes/context.ts "
+        "at all (INFRA-272 — the dead knob was removed, not just its threshold entry)"
+    )
+
+
+def test_context_route_exposes_gate_stale_and_display_stale_seconds() -> None:
+    """C4: the gate's own verdict (gate_stale) and the display heuristic's
+    named constant (DISPLAY_STALE_SECONDS) must both be present."""
+    content = (ROUTES / "context.ts").read_text()
+    assert "gate_stale" in content, "gate_stale not found in routes/context.ts"
+    assert "DISPLAY_STALE_SECONDS" in content, (
+        "DISPLAY_STALE_SECONDS not found in routes/context.ts"
+    )
 
 
 def test_effortDb_uses_read_only() -> None:

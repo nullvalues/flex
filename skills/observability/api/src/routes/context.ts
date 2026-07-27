@@ -56,13 +56,6 @@ const THRESHOLD_DEFS: ThresholdDef[] = [
     phase2_writable: true,
   },
   {
-    name: 'context_current_tokens_ttl_minutes',
-    stateKey: 'context_current_tokens_ttl_minutes',
-    default: 60,
-    editable_via: null,
-    phase2_writable: false,
-  },
-  {
     name: 'flex_factor',
     stateKey: null,
     default: 1.0,
@@ -91,6 +84,7 @@ interface CurrentOut {
   recorded_at: string | null;
   age_seconds: number | null;
   stale: boolean;
+  gate_stale: boolean;
   story_id: string | null;
   phase: string | null;
 }
@@ -119,13 +113,51 @@ const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<ContextOut>>();
 const CACHE_TTL_MS = 2000;
 
+// Display-staleness heuristic ("is this number old?") for the SPA's `stale`
+// badge — CER-045/CER-054's resolution note leans on this badge existing to
+// distinguish a genuinely idle project from a broken writer. It is
+// deliberately NOT the gate's own rule: the gate
+// (`context_budget._is_stale`, Python) compares
+// `context_current_tokens_recorded_at` against `context_session_reset_at`
+// (a session-invalidation anchor), which this route has no way to evaluate
+// client-side without duplicating that logic — see `gate_stale` below,
+// which does duplicate it, for the field that answers the gate's actual
+// question. CER-041 (INFRA-272): this used to be sourced from a per-project
+// state.json TTL key that no code ever actually read for a decision; it is
+// now a fixed, named local rather than a state-tunable knob (see
+// `docs/architecture.md`'s state-key reference for that key's retirement).
+const DISPLAY_STALE_SECONDS = 3600;
+
 // ---------------------------------------------------------------------------
 // Build the context payload for one repo
 // ---------------------------------------------------------------------------
 
+/**
+ * gate_stale mirrors context_budget._is_stale()'s verdict exactly:
+ * false when context_session_reset_at is absent or either timestamp is
+ * unparseable (fail-open, same as the Python gate); true when
+ * context_current_tokens_recorded_at is absent while context_session_reset_at
+ * is present; otherwise recorded < reset.
+ */
+function computeGateStale(state: Record<string, unknown>): boolean {
+  const resetAt = state['context_session_reset_at'];
+  if (typeof resetAt !== 'string' || !resetAt) {
+    return false;
+  }
+  const recordedAt = state['context_current_tokens_recorded_at'];
+  if (typeof recordedAt !== 'string' || !recordedAt) {
+    return true;
+  }
+  const resetMs = new Date(resetAt).getTime();
+  const recordedMs = new Date(recordedAt).getTime();
+  if (!Number.isFinite(resetMs) || !Number.isFinite(recordedMs)) {
+    return false;
+  }
+  return recordedMs < resetMs;
+}
+
 function buildCurrentField(
   state: Record<string, unknown>,
-  ttlMinutes: number,
   resolverState: ResolverStateDoc | null,
 ): CurrentOut {
   const tokens =
@@ -147,18 +179,20 @@ function buildCurrentField(
       const recordedMs = new Date(recorded_at).getTime();
       if (Number.isFinite(recordedMs)) {
         age_seconds = Math.floor((Date.now() - recordedMs) / 1000);
-        stale = age_seconds > ttlMinutes * 60;
+        stale = age_seconds > DISPLAY_STALE_SECONDS;
       }
     } catch {
       // Unparseable timestamp — leave age_seconds null, stale false
     }
   }
 
+  const gate_stale = computeGateStale(state);
+
   // story_id and phase from resolver state position (OBS-002: replaced orchestrator-signal reads)
   const story_id = resolverState?.position.next_story_id ?? null;
   const phase = resolverState?.position.active_phase_file ?? null;
 
-  return { tokens, recorded_at, age_seconds, stale, story_id, phase };
+  return { tokens, recorded_at, age_seconds, stale, gate_stale, story_id, phase };
 }
 
 async function buildThresholds(
@@ -234,26 +268,20 @@ async function buildContextPayload(
   // 1. Read state.json
   const state = await readStateJson(projectDir);
 
-  // 2. Derive TTL (for staleness check)
-  const ttlMinutes =
-    typeof state['context_current_tokens_ttl_minutes'] === 'number'
-      ? state['context_current_tokens_ttl_minutes']
-      : 60;
-
-  // 3. Read resolver state first (used for current field position)
+  // 2. Read resolver state first (used for current field position)
   const resolver_state = readResolverState(projectDir);
 
-  // 4. Build current field from token state + resolver position
-  const current = buildCurrentField(state, ttlMinutes, resolver_state);
+  // 3. Build current field from token state + resolver position
+  const current = buildCurrentField(state, resolver_state);
 
-  // 5. Build thresholds (async — reads story frontmatter for flex_factor)
+  // 4. Build thresholds (async — reads story frontmatter for flex_factor)
   const thresholds = await buildThresholds(projectDir, state);
 
-  // 6. Determine context_budget_threshold value for waypoints/misses queries
+  // 5. Determine context_budget_threshold value for waypoints/misses queries
   const thresholdValue =
     thresholds.find((t) => t.name === 'context_budget_threshold')?.value ?? 120000;
 
-  // 7. Open effort.db
+  // 6. Open effort.db
   const dbPath = path.join(projectDir, '.companion', 'effort.db');
   const db = openEffortDb(dbPath);
 

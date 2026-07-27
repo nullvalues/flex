@@ -59,15 +59,18 @@ class TestConstants:
             "expected_step_tokens",
         }
 
-    def test_session_live_ttl_is_180_and_not_the_token_ttl(self) -> None:
-        """A6 / step 1: deliberately longer than the 60-minute token TTL."""
-        import context_budget
+    def test_session_live_ttl_is_180(self) -> None:
+        """A6 / step 1: deliberately longer than any display-staleness heuristic.
 
+        INFRA-272: the scalar token-staleness TTL this constant used to be
+        contrasted against was removed as dead code (decide() never read
+        it). SESSION_LIVE_TTL_MINUTES answers a different question ("might
+        that process still be running?") from the SPA's
+        DISPLAY_STALE_SECONDS display heuristic that replaced it as the
+        contrast point (see the comment above this constant in
+        session_state.py).
+        """
         assert session_state.SESSION_LIVE_TTL_MINUTES == 180
-        assert (
-            session_state.SESSION_LIVE_TTL_MINUTES
-            != context_budget._CONTEXT_TOKEN_STALE_MINUTES
-        )
 
 
 # ---------------------------------------------------------------------------

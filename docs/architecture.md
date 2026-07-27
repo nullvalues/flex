@@ -347,10 +347,11 @@ still a caller error the rule exists to prevent.
    resolves through `session_state.session_view()` when the PreToolUse hook passes its
    `session_id`, and fails safe with the existing CONTEXT CHECK REQUIRED block (no new reason
    string) when that session is unregistered while another entry is live within
-   `SESSION_LIVE_TTL_MINUTES` (180 — deliberately not `context_budget`'s 60-minute token
-   staleness TTL: one asks "is this number trustworthy?", the other "might that process still
-   be running?"). A pre-INFRA-285 state file reads correctly and is upgraded on its next
-   write; there is no migration step.
+   `SESSION_LIVE_TTL_MINUTES` (180 — deliberately not the observability SPA's
+   `DISPLAY_STALE_SECONDS` display-staleness heuristic (60 minutes,
+   `skills/observability/api/src/routes/context.ts`): one asks "might that process still be
+   running?", the other "is this number trustworthy to look at?"). A pre-INFRA-285 state file
+   reads correctly and is upgraded on its next write; there is no migration step.
    Sweep ownership is filtered in **opposite directions at the two call sites, on purpose.**
    `record_attempt_from_transcript`'s PostToolUse sweep runs inside a session that just
    spawned, so it passes that session's own stored `spawn_output_prefix` as
@@ -2034,8 +2035,12 @@ Fields:
   Used by `_is_stale()` to detect whether the recorded count predates the last
   `context_session_reset_at`. INFRA-182.
 - `context_current_tokens_ttl_minutes` — **optional**; integer; legacy field from the
-  scalar TTL-based staleness check. No longer used after INFRA-182 replaced TTL-based
-  staleness with `context_session_reset_at` comparison. Safe to leave in state.json.
+  scalar TTL-based staleness check. INFRA-182 replaced TTL-based staleness with
+  `context_session_reset_at` comparison; INFRA-272 removed the last reader of this key
+  in both Python (`context_budget.read_context_tokens_from_state`) and TypeScript
+  (`skills/observability/api/src/routes/context.ts`'s threshold list). The key is now
+  read by **no** code path. Safe to leave in state.json — no migration, no state
+  rewrite.
 - `expected_step_tokens` — **optional**; positive integer; the per-step context-growth
   constant `decide()` passes as `estimate_next_step_tokens()`'s `seeded_default` (the ceiling
   arithmetic is `context_current_tokens + expected_step_tokens > threshold * (1 +
@@ -2223,6 +2228,14 @@ resolution and no new dispatch branch is added.
   stale (recorded_at < context_session_reset_at); when `state.json` is malformed
   (CER-040). Does not write to the pipe. Accepts both `Task` (legacy) and `Agent`
   (current harness) — see CER-049.
+  **INFRA-272 (CER-040):** every remaining pass-through branch — an unanchored or
+  unparseable staleness comparison, a failed `session_state` import, and the hook's
+  own blanket `except` around `decide()` — now emits a single
+  `context_budget: gate not enforced — ` line on stderr before continuing (never
+  blocking, never writing state). The one deliberate silent pass-through is a project
+  with no `.companion/` directory at all (non-pairmode; CER-040 states this
+  explicitly). The hook's blanket `except Exception:` is unchanged in scope; it now
+  reports what it swallows before its existing `sys.exit(0)`.
 - **`Edit`/`Write` → `scope_guard.py` (Phase 55):** decides whether to block
   a file write based on the active story's declared `primary_files`/`touches`.
   Read-only; no state writes. Fails open when state or permissions file absent.

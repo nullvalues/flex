@@ -130,8 +130,14 @@ def clear_current_story(companion_dir: Path, story_id: str | None = None) -> dic
 
     ``context_current_tokens`` and ``context_current_tokens_recorded_at`` are
     intentionally retained in both modes so accumulated token counts survive
-    story transitions within a session.  Cross-session staleness is handled
-    by the TTL check in ``context_budget.read_context_tokens_from_state``.
+    story transitions within a session. Cross-session staleness is handled by
+    ``context_budget._is_stale``'s comparison of
+    ``context_current_tokens_recorded_at`` against
+    ``context_session_reset_at`` — the latter written by ``session_start.py``
+    on ``clear``/``startup``. (INFRA-272: this docstring previously named a
+    TTL check in ``context_budget.read_context_tokens_from_state``; that TTL
+    was removed as dead code — ``decide()`` never called it — the retention
+    behaviour above is unchanged.)
 
     Returns the updated state dict.
     """

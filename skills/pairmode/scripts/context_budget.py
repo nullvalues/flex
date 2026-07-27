@@ -99,8 +99,30 @@ _CONTEXT_CHECK_REQUIRED_MSG = (
     "   these are not gated by this check.\n"
 )
 
-# CER-041: named constant for the staleness TTL (minutes).
-_CONTEXT_TOKEN_STALE_MINUTES = 60
+# CER-040: the prefix every fail-open (pass-through-while-not-enforcing)
+# branch prints to stderr before continuing.
+_FAIL_OPEN_PREFIX = "context_budget: gate not enforced — "
+
+
+def _warn_fail_open(reason: str) -> None:
+    """Print one line to stderr recording that the gate is passing through
+    without having actually enforced anything (CER-040).
+
+    A gate that fails open *silently* is indistinguishable from a gate that
+    genuinely decided you were within budget — that false confidence is
+    exactly what ``docs/ideology.md`` § *Never silently pass contradictions*
+    forbids. This function exists so every such branch says so instead of
+    staying quiet. Modeled on the ``flex_factor`` clamp warnings above
+    (same "print to stderr and carry on" posture): it never raises (wrapped
+    so a closed/replaced stderr cannot propagate an exception into the hook
+    path), never writes state, and never blocks.
+    """
+    try:
+        import sys as _sys
+
+        print(_FAIL_OPEN_PREFIX + reason, file=_sys.stderr)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -264,22 +286,24 @@ def read_current_tokens(
 # ---------------------------------------------------------------------------
 
 
-def read_context_tokens_from_state(
-    state: dict,
-    _now: datetime | None = None,
-) -> int | None:
+def read_context_tokens_from_state(state: dict) -> int | None:
     """Return the recorded scalar token count from state.json.
 
     Reads ``state["context_current_tokens"]`` and returns it as a positive
-    integer, or ``None`` when:
-    - The key is absent.
-    - The value is zero, negative, or non-numeric.
-    - CER-041 staleness TTL: ``context_current_tokens_recorded_at`` is older
-      than ``context_current_tokens_ttl_minutes`` (default 60 minutes).
+    integer, or ``None`` when the key is absent, or the value is zero,
+    negative, or non-numeric.
 
-    The ``_now`` parameter is private and exists solely for test injection
-    (so tests can freeze the wall clock). Production callers (``decide()``)
-    must not pass it.
+    CER-041 → CER-047: this function does **not** decide staleness. A
+    60-minute TTL used to live here (Phase 59, INFRA-151); it was retired
+    (this story, INFRA-272) because CER-047 demonstrated in production that
+    a TTL cannot answer the cross-session question — an operator who clears
+    within the TTL window still gets the phantom pre-clear number. The
+    single staleness authority is ``_is_stale()``, which compares
+    ``context_current_tokens_recorded_at`` against the session-invalidation
+    anchor ``context_session_reset_at`` (Phase 68/74, INFRA-175/182) — that
+    is the check ``decide()`` actually gates on. Do not re-add a staleness
+    check here; the next reader who wants one should look at ``_is_stale``
+    first.
     """
     if not isinstance(state, dict):
         return None
@@ -292,29 +316,6 @@ def read_context_tokens_from_state(
     except (TypeError, ValueError):
         return None
     if value <= 0:
-        return None
-
-    # CER-041 staleness check. A missing or unparseable recorded_at falls
-    # through to returning ``value`` (preserving the pre-CER-041 contract).
-    recorded_at = state.get("context_current_tokens_recorded_at")
-    if not recorded_at:
-        return value
-    try:
-        recorded_at_dt = datetime.fromisoformat(recorded_at)
-    except (TypeError, ValueError):
-        return value
-
-    now = _now if _now is not None else datetime.now(timezone.utc)
-    try:
-        ttl_minutes = int(
-            state.get("context_current_tokens_ttl_minutes", _CONTEXT_TOKEN_STALE_MINUTES)
-            or _CONTEXT_TOKEN_STALE_MINUTES
-        )
-    except (TypeError, ValueError):
-        ttl_minutes = _CONTEXT_TOKEN_STALE_MINUTES
-
-    age_minutes = (now - recorded_at_dt).total_seconds() / 60
-    if age_minutes > ttl_minutes:
         return None
     return value
 
@@ -665,21 +666,71 @@ def _is_stale(state: dict) -> bool:
     return recorded_dt < reset_dt
 
 
+def _staleness_unverifiable_reason(state: dict) -> "str | None":
+    """Return a human-readable reason when ``_is_stale()`` will fail open
+    without having compared anything, or ``None`` when the comparison is
+    genuinely performable.
+
+    CER-040: ``_is_stale()`` itself must keep its existing signature and
+    verdicts (A3) — this is a separate, pure helper that names *why* a
+    fail-open branch was taken, without duplicating or calling ``_is_stale``'s
+    verdict. It answers "can staleness even be judged here?", not "is it
+    stale?".
+
+    Returns a reason string for exactly the two ways ``_is_stale()`` fails
+    open on an unanchored/unparseable comparison:
+    - ``context_session_reset_at`` is absent entirely.
+    - Either ``context_session_reset_at`` or
+      ``context_current_tokens_recorded_at`` is present but not parseable by
+      ``datetime.fromisoformat``.
+    """
+    reset_at_str = state.get("context_session_reset_at")
+    if not reset_at_str:
+        return (
+            "context_session_reset_at is absent; staleness cannot be "
+            "verified (mid-upgrade project or pre-INFRA-175 state.json)"
+        )
+    recorded_at_str = state.get("context_current_tokens_recorded_at", "")
+    if not recorded_at_str:
+        # A missing recorded_at is judged (True — stale) by _is_stale, not
+        # unverifiable; nothing to report here.
+        return None
+    try:
+        datetime.fromisoformat(reset_at_str)
+        datetime.fromisoformat(recorded_at_str)
+    except (TypeError, ValueError, AttributeError):
+        return (
+            "context_session_reset_at or context_current_tokens_recorded_at "
+            "is not parseable as an ISO-8601 timestamp; staleness cannot be "
+            "verified"
+        )
+    return None
+
+
 def _import_session_state():
     """Import ``session_state`` under either import style.
 
     Imported lazily from inside :func:`decide` (rather than at module scope) to
     keep ``context_budget``'s import cost exactly where it is — this module is
     imported on the PreToolUse hook path.
+
+    Returns ``None`` (CER-040) rather than propagating ``ImportError`` when
+    neither import style resolves — a missing/renamed ``session_state``
+    module must degrade the gate to its flat, project-global read, not kill
+    it for the rest of the session.
     """
     try:
         from skills.pairmode.scripts import session_state  # type: ignore
 
         return session_state
     except ImportError:
+        pass
+    try:
         import session_state  # type: ignore[no-redef]
 
         return session_state
+    except ImportError:
+        return None
 
 
 def decide(
@@ -764,18 +815,30 @@ def decide(
     # INFRA-285 (CER-097): resolve through this session's own keyed record.
     if session_id:
         session_state = _import_session_state()
-        sessions = state.get(session_state.CONTEXT_SESSIONS_KEY)
-        if isinstance(sessions, dict) and session_id not in sessions:
-            # Unregistered session with live siblings: the flat mirror belongs
-            # to someone else's window. Fail safe rather than gate against it.
-            if session_state.live_session_ids(state, exclude=session_id):
-                return {
-                    "block": True,
-                    "reason": _CONTEXT_CHECK_REQUIRED_MSG,
-                    "tokens": 0,
-                    "acknowledged_at": 0,
-                }
-        state = session_state.session_view(state, session_id)
+        if session_state is None:
+            # CER-040 / A5: a missing/renamed session_state module must not
+            # kill the gate for the rest of the session — warn and fall
+            # through to the flat, project-global read exactly as if
+            # session_id had been falsy.
+            _warn_fail_open(
+                "session_state module could not be imported; the "
+                "session-keyed read was skipped and the flat project-global "
+                "state.json mirror was used instead"
+            )
+        else:
+            sessions = state.get(session_state.CONTEXT_SESSIONS_KEY)
+            if isinstance(sessions, dict) and session_id not in sessions:
+                # Unregistered session with live siblings: the flat mirror
+                # belongs to someone else's window. Fail safe rather than
+                # gate against it.
+                if session_state.live_session_ids(state, exclude=session_id):
+                    return {
+                        "block": True,
+                        "reason": _CONTEXT_CHECK_REQUIRED_MSG,
+                        "tokens": 0,
+                        "acknowledged_at": 0,
+                    }
+            state = session_state.session_view(state, session_id)
 
     # Read context_current_tokens directly (bypass TTL; session-reset check below).
     current_tokens: int | None = None
@@ -805,6 +868,16 @@ def decide(
             "tokens": 0,
             "acknowledged_at": 0,
         }
+
+    # CER-040 / A4: _is_stale() returned False on the pass-through path — but
+    # two of its branches are fail-opens rather than a genuine "fresh"
+    # verdict (absent context_session_reset_at, or an unparseable
+    # timestamp). Warn when that's what happened; a state that produced the
+    # CONTEXT CHECK REQUIRED block above does not additionally warn (the
+    # block is already the signal).
+    unverifiable_reason = _staleness_unverifiable_reason(state)
+    if unverifiable_reason is not None:
+        _warn_fail_open(unverifiable_reason)
 
     threshold = int(state.get("context_budget_threshold", 130000) or 130000)
     overrun_pct = float(state.get("context_budget_overrun_pct", 0.10) or 0.10)

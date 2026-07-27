@@ -87,9 +87,11 @@ SESSION_SCOPED_KEYS = frozenset(
 #: How long a ``context_sessions`` entry is treated as belonging to a possibly-
 #: still-running process.
 #:
-#: Deliberately much longer than ``context_budget._CONTEXT_TOKEN_STALE_MINUTES``
-#: (60), and the two must never be conflated — they answer different questions.
-#: The token TTL asks "is this *number* still trustworthy?"; this TTL asks
+#: Deliberately much longer than the observability SPA's display-staleness
+#: heuristic (``DISPLAY_STALE_SECONDS`` in
+#: ``skills/observability/api/src/routes/context.ts``, 60 minutes), and the
+#: two must never be conflated — they answer different questions. The SPA
+#: badge asks "is this *number* still trustworthy to look at?"; this TTL asks
 #: "might that other *process* still be running?". An unattended build loop can
 #: sit idle far longer than its counter stays fresh (a long builder spawn, an
 #: operator away from the keyboard), and treating such a loop as dead is exactly
