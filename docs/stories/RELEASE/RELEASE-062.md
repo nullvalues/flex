@@ -12,6 +12,8 @@ primary_files:
   - docs/stories/RELEASE/RELEASE-061.md
   - docs/harness-cutover-runbook.md
   - docs/phases/phase-97.md
+  - docs/stories/RELEASE/RELEASE-018.md
+  - docs/phases/phase-HARNESS016-main.md
 touches:
   - docs/stories/RELEASE/RELEASE-060.md
   - docs/stories/RELEASE/RELEASE-061.md
@@ -19,6 +21,8 @@ touches:
   - docs/phases/phase-97.md
   - docs/architecture.md
   - docs/stories/RELEASE/RELEASE-062.md
+  - docs/stories/RELEASE/RELEASE-018.md
+  - docs/phases/phase-HARNESS016-main.md
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
