@@ -24,6 +24,7 @@ import json
 import os
 import re
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -62,7 +63,7 @@ from permission_scope import (  # noqa: E402
 from effort_db import check_guardrail, resolve_effort_db_path  # noqa: E402
 from context_health import check_context_health  # noqa: E402
 from next_action import _CHECKPOINT_SEQUENCE  # noqa: E402
-from state_utils import _atomic_write_json  # noqa: E402
+from state_utils import _atomic_write_json, state_lock  # noqa: E402
 from story_context import set_current_story, clear_current_story  # noqa: E402
 
 
@@ -202,6 +203,128 @@ def _worktree_paths(story_id: str, project_dir: Path) -> tuple[Path, Path, str]:
     wt_abs = (project_dir / wt_rel).resolve()
     branch = f"pairmode/{story_id}"
     return wt_rel, wt_abs, branch
+
+
+def _teardown_story_worktree(project_path: Path, story_id: str) -> list[str]:
+    """Remove a story's worktree and branch; return residue descriptions.
+
+    Returns [] on full success. Never raises, never exits, never writes
+    companion state — the caller decides what a residue means, because it
+    means opposite things on the merge path (the story landed; clear the
+    stamps anyway) and the discard path (nothing landed; leave them).
+
+    Runs ``worktree remove --force`` first and, only when that succeeds,
+    ``branch -D``: git refuses to delete a branch still checked out in a
+    worktree, so attempting the delete after a failed removal would only
+    produce a second, guaranteed, misleading error (CER-098(a), Ensures A2).
+    """
+    wt_rel, _wt_abs, branch = _worktree_paths(story_id, project_path)
+    residue: list[str] = []
+
+    remove = _run_git(["worktree", "remove", "--force", str(wt_rel)], project_path)
+    if remove.returncode != 0:
+        detail = (remove.stderr or remove.stdout or "").strip() or (
+            f"failed to remove worktree {wt_rel}"
+        )
+        residue.append(f"worktree {wt_rel} still exists: {detail}")
+        residue.append(f"branch {branch} still exists (removal skipped: worktree removal failed)")
+        return residue
+
+    delete = _run_git(["branch", "-D", branch], project_path)
+    if delete.returncode != 0:
+        detail = (delete.stderr or delete.stdout or "").strip() or (
+            f"failed to delete branch {branch}"
+        )
+        residue.append(f"branch {branch} still exists: {detail}")
+
+    return residue
+
+
+def _residue_lines(story_id: str, residue: list[str]) -> list[str]:
+    """Render *residue* (from ``_teardown_story_worktree``) plus repair
+    commands for whichever artifacts remain (CER-098(a), Ensures A4).
+
+    Both ``merge-story-worktree`` and ``discard-story-worktree`` call this so
+    the operator sees identical text from either path.
+    """
+    if not residue:
+        return []
+    wt_rel = Path(".pairmode-worktrees") / story_id
+    branch = f"pairmode/{story_id}"
+    lines = list(residue)
+    lines.append(f"repair: git worktree remove --force {wt_rel}")
+    lines.append(f"repair: git branch -D {branch}")
+    return lines
+
+
+def _recovery_block(story_id: str, project_path: Path, *, reason: str) -> list[str]:
+    """Return the ``recovery: ``-prefixed lines for a failed land (CER-098(b)).
+
+    *reason* is ``"rebase"`` or ``"merge"`` and only changes the first line's
+    wording — both failure modes leave the exact same state behind (nothing
+    torn down, nothing cleared) and share the same re-run recovery.
+    """
+    branch = f"pairmode/{story_id}"
+    wt_rel = Path(".pairmode-worktrees") / story_id
+    if reason == "rebase":
+        first = (
+            f"recovery: rebase of {branch} failed — resolve the conflict in "
+            f"{wt_rel}/ (or re-run to retry against a new tip); nothing was "
+            "torn down or cleared"
+        )
+    else:
+        first = (
+            f"recovery: fast-forward merge of {branch} failed (a lost race — "
+            "another merge-story-worktree landed first); nothing was torn "
+            "down or cleared"
+        )
+    return [
+        first,
+        f"recovery: {branch} still holds the story's commits; they were not discarded",
+        f"recovery: {wt_rel}/ still exists and still holds the in-flight claim",
+        "recovery: the attempt counter, current_stories entry and permission "
+        "artifact are deliberately untouched",
+        "recovery: re-run to retry — this is the supported recovery, no "
+        "manual repair step is required:",
+        f"recovery:   flex_build.py merge-story-worktree --story-id {story_id} "
+        f"--project-dir {project_path}",
+    ]
+
+
+MERGE_LOCK_TIMEOUT_SECONDS: float = 120.0
+# Matches _run_git's own subprocess timeout (flex_build.py:177) — a waiter
+# must not give up before the holder's longest single git call (rebase,
+# merge, worktree remove) can finish; a shorter bound would time the waiter
+# out while the holder is still doing legitimate work.
+
+
+@contextmanager
+def _merge_lock(project_path: Path):
+    """Advisory, bounded, fail-open lock serializing merge/discard critical
+    sections against ``.companion/merge.lock`` (CER-098(c)).
+
+    This narrows — it does not close — the window in which two
+    ``merge-story-worktree`` (or a merge and a discard) calls contend on the
+    repository's own ``index.lock``. It does not make concurrent merges safe
+    against an external ``git`` process or a second orchestrator; that is out
+    of scope for the whole phase (``docs/phases/phase-109.md`` § Scope
+    statement). "Make it reliable" changes — an unbounded wait, a retry loop,
+    a lock daemon — are regressions for the same reason
+    ``state_utils.state_lock``'s own docstring gives
+    (``state_utils.py:180-194``): they trade a rare loud failure (a
+    precisely-reported, re-runnable exit 1) for a common stall. Non-
+    acquisition is not fatal: callers proceed exactly as they do today and
+    emit a warning (CER-098(c), Ensures C4).
+    """
+    companion_dir = project_path / ".companion"
+    try:
+        companion_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
+    with state_lock(
+        companion_dir / "merge", timeout_seconds=MERGE_LOCK_TIMEOUT_SECONDS
+    ) as acquired:
+        yield acquired
 
 
 def claimed_story_ids(project_dir: Path) -> set[str]:
@@ -3141,6 +3264,12 @@ def cmd_merge_story_worktree(story_id: str, project_dir: str) -> None:
     and deletes the branch. On any rebase conflict the rebase is aborted and
     the command exits non-zero with git's error output — no partial state
     change, no automatic conflict resolution. (INFRA-224, Ensures 3.)
+
+    CER-098(c): the whole critical section — from the main-branch check
+    through the final echo — runs inside the bounded advisory merge lock, so
+    a concurrent ``merge-story-worktree``/``discard-story-worktree`` call is
+    less likely to contend with this one on git's own ``index.lock``. Lock
+    non-acquisition is fail-open (a warning, never fatal) — see `_merge_lock`.
     """
     _validate_story_id_or_exit(story_id)
     project_path = Path(project_dir).resolve()
@@ -3150,57 +3279,97 @@ def cmd_merge_story_worktree(story_id: str, project_dir: str) -> None:
         click.echo(f"error: no worktree for story: {wt_abs}", err=True)
         sys.exit(1)
 
-    main_branch = _current_branch(project_path)
-    if not main_branch or main_branch == "HEAD":
-        click.echo(
-            "error: main worktree is not on a named branch (detached HEAD)",
-            err=True,
-        )
-        sys.exit(1)
+    with _merge_lock(project_path) as locked:
+        if not locked:
+            click.echo(
+                "warning: merge lock not acquired — proceeding without "
+                "serialization (advisory, fail-open; CER-098(c))",
+                err=True,
+            )
 
-    # Rebase the story branch onto the main branch. Run via `git -C <worktree>`
-    # because the branch is checked out in the linked worktree; the invocation
-    # itself is issued from the main worktree (cwd = project_dir), never by
-    # cd-ing into the directory that is about to be torn down.
-    rebase = _run_git(["-C", str(wt_abs), "rebase", main_branch], project_path)
-    if rebase.returncode != 0:
-        _run_git(["-C", str(wt_abs), "rebase", "--abort"], project_path)
-        click.echo(
-            (rebase.stdout + rebase.stderr).strip()
-            or f"error: rebase of {branch} onto {main_branch} failed",
-            err=True,
-        )
-        sys.exit(1)
+        main_branch = _current_branch(project_path)
+        if not main_branch or main_branch == "HEAD":
+            click.echo(
+                "error: main worktree is not on a named branch (detached HEAD)",
+                err=True,
+            )
+            sys.exit(1)
 
-    merge = _run_git(["merge", "--ff-only", branch], project_path)
-    if merge.returncode != 0:
-        click.echo(
-            (merge.stderr or merge.stdout).strip()
-            or f"error: fast-forward merge of {branch} failed",
-            err=True,
-        )
-        sys.exit(1)
+        # Rebase the story branch onto the main branch. Run via `git -C <worktree>`
+        # because the branch is checked out in the linked worktree; the invocation
+        # itself is issued from the main worktree (cwd = project_dir), never by
+        # cd-ing into the directory that is about to be torn down.
+        rebase = _run_git(["-C", str(wt_abs), "rebase", main_branch], project_path)
+        if rebase.returncode != 0:
+            _run_git(["-C", str(wt_abs), "rebase", "--abort"], project_path)
+            click.echo(
+                (rebase.stdout + rebase.stderr).strip()
+                or f"error: rebase of {branch} onto {main_branch} failed",
+                err=True,
+            )
+            # CER-098(b): a lost race here means the story branch may now be
+            # rebased onto a stale tip while the worktree, the branch and the
+            # loop's stamps (attempt counter, current_stories, permission
+            # artifact) are all still exactly as they were. Nothing is torn
+            # down and nothing is cleared: the story's commits exist only on
+            # `pairmode/<story_id>`, so releasing the claim or clearing the
+            # scope stamps here would orphan them and free the resolver to
+            # hand the same story to a second dispatch while this one's work
+            # sits unmerged on a branch nobody is watching. Re-running the
+            # command is the supported recovery — it re-rebases onto whatever
+            # the new tip is and lands normally.
+            for line in _recovery_block(story_id, project_path, reason="rebase"):
+                click.echo(line, err=True)
+            sys.exit(1)
 
-    _run_git(["worktree", "remove", "--force", str(wt_rel)], project_path)
-    _run_git(["branch", "-D", branch], project_path)
-    # INFRA-237: a successful land is the durable "story is done" signal —
-    # clear the per-story attempt counter so the next story starts at
-    # attempt_count == 0 rather than carrying over a stale FAIL count.
-    # INFRA-282 (CER-095.3): scoped to this story's own ID — an
-    # unconditional clear wipes a still-building sibling's live escalation
-    # state, the same class of cross-story clobber INFRA-281 fixed for the
-    # active-story stamp below.
-    clear_attempt_count(project_path, story_id)
-    # INFRA-238: clear both artifacts create-story-worktree stamped — the
-    # active-story marker and the Layer 1 permission artifact — so the next
-    # story starts with a clean slate rather than inheriting this story's
-    # scope. INFRA-281 (CER-095.2): the active-story clear is scoped to this
-    # story's own ID — an unconditional clear would disable scope
-    # enforcement for a different builder that is still running in its own
-    # worktree.
-    _clear_active_story(project_path, story_id)
-    clear_permissions_artifact(story_id, project_path)
-    click.echo(f"merged {branch} into {main_branch}")
+        merge = _run_git(["merge", "--ff-only", branch], project_path)
+        if merge.returncode != 0:
+            click.echo(
+                (merge.stderr or merge.stdout).strip()
+                or f"error: fast-forward merge of {branch} failed",
+                err=True,
+            )
+            # CER-098(b): same rationale as the rebase-failure branch above —
+            # this is the lost-race case proper (another merge-story-worktree
+            # landed between our rebase and our --ff-only merge). Nothing is
+            # torn down, nothing is cleared; re-running rebases onto the new
+            # tip and lands.
+            for line in _recovery_block(story_id, project_path, reason="merge"):
+                click.echo(line, err=True)
+            sys.exit(1)
+
+        # CER-098(a): the merge already landed — the story *is* done — so the
+        # loop stamps below must not survive a cleanup hiccup (a failed
+        # `git worktree remove`/`branch -D` must not carry a stale FAIL count
+        # or scope stamp into the next story, re-creating the INFRA-237 bug
+        # from a cleanup failure rather than a build failure). Residue is
+        # still an operator-facing error, so it is captured and reported
+        # after the clears run, not instead of them.
+        residue = _teardown_story_worktree(project_path, story_id)
+
+        # INFRA-237: a successful land is the durable "story is done" signal —
+        # clear the per-story attempt counter so the next story starts at
+        # attempt_count == 0 rather than carrying over a stale FAIL count.
+        # INFRA-282 (CER-095.3): scoped to this story's own ID — an
+        # unconditional clear wipes a still-building sibling's live escalation
+        # state, the same class of cross-story clobber INFRA-281 fixed for the
+        # active-story stamp below.
+        clear_attempt_count(project_path, story_id)
+        # INFRA-238: clear both artifacts create-story-worktree stamped — the
+        # active-story marker and the Layer 1 permission artifact — so the next
+        # story starts with a clean slate rather than inheriting this story's
+        # scope. INFRA-281 (CER-095.2): the active-story clear is scoped to this
+        # story's own ID — an unconditional clear would disable scope
+        # enforcement for a different builder that is still running in its own
+        # worktree.
+        _clear_active_story(project_path, story_id)
+        clear_permissions_artifact(story_id, project_path)
+        click.echo(f"merged {branch} into {main_branch}")
+
+        if residue:
+            for line in _residue_lines(story_id, residue):
+                click.echo(line, err=True)
+            sys.exit(1)
 
 
 @flex_build.command("discard-story-worktree")
@@ -3219,43 +3388,47 @@ def cmd_discard_story_worktree(story_id: str, project_dir: str) -> None:
     a FAIL in a story's worktree cannot touch the main worktree's files,
     tracked or untracked, regardless of the reviewer's revert logic.
     (INFRA-224, Ensures 4.)
+
+    CER-098(c): the critical section — teardown through the final echo —
+    runs inside the bounded advisory merge lock (shared with
+    ``merge-story-worktree``), for the same fail-open reasoning; see
+    `_merge_lock`.
     """
     _validate_story_id_or_exit(story_id)
     project_path = Path(project_dir).resolve()
-    wt_rel, _wt_abs, branch = _worktree_paths(story_id, project_path)
+    _wt_rel, _wt_abs, branch = _worktree_paths(story_id, project_path)
 
-    remove = _run_git(
-        ["worktree", "remove", "--force", str(wt_rel)], project_path
-    )
-    if remove.returncode != 0:
-        click.echo(
-            (remove.stderr or remove.stdout).strip()
-            or f"error: failed to remove worktree {wt_rel}",
-            err=True,
-        )
-        sys.exit(1)
+    with _merge_lock(project_path) as locked:
+        if not locked:
+            click.echo(
+                "warning: merge lock not acquired — proceeding without "
+                "serialization (advisory, fail-open; CER-098(c))",
+                err=True,
+            )
 
-    delete = _run_git(["branch", "-D", branch], project_path)
-    if delete.returncode != 0:
-        click.echo(
-            (delete.stderr or delete.stdout).strip()
-            or f"error: failed to delete branch {branch}",
-            err=True,
-        )
-        sys.exit(1)
+        # CER-098(a): on a discard nothing has landed, so — unlike the merge
+        # path — residue keeps the loop stamps in place and exits *before*
+        # clearing them, preserving the discard path's existing behaviour
+        # exactly: the asymmetry with the merge path is deliberate, not an
+        # oversight to "unify".
+        residue = _teardown_story_worktree(project_path, story_id)
+        if residue:
+            for line in _residue_lines(story_id, residue):
+                click.echo(line, err=True)
+            sys.exit(1)
 
-    # INFRA-238: clear both artifacts create-story-worktree stamped — the
-    # active-story marker and the Layer 1 permission artifact — so a
-    # discarded attempt does not leave stale scope state behind for whatever
-    # runs next (a retry re-stamps via create-story-worktree; a different
-    # story must not inherit this one's scope). INFRA-281 (CER-095.2): the
-    # active-story clear is scoped to this story's own ID — an unconditional
-    # clear would disable scope enforcement for a different builder that is
-    # still running in its own worktree.
-    _clear_active_story(project_path, story_id)
-    clear_permissions_artifact(story_id, project_path)
+        # INFRA-238: clear both artifacts create-story-worktree stamped — the
+        # active-story marker and the Layer 1 permission artifact — so a
+        # discarded attempt does not leave stale scope state behind for whatever
+        # runs next (a retry re-stamps via create-story-worktree; a different
+        # story must not inherit this one's scope). INFRA-281 (CER-095.2): the
+        # active-story clear is scoped to this story's own ID — an unconditional
+        # clear would disable scope enforcement for a different builder that is
+        # still running in its own worktree.
+        _clear_active_story(project_path, story_id)
+        clear_permissions_artifact(story_id, project_path)
 
-    click.echo(f"discarded {branch}")
+        click.echo(f"discarded {branch}")
 
 
 if __name__ == "__main__":

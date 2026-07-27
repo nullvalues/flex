@@ -214,6 +214,37 @@ hides its story from the resolver indefinitely, and the operator clears it with
 a reader that self-heals a claim would become a second writer of build state, which is exactly
 the two-sources-of-truth condition CER-095 exists to close.
 
+**Merge robustness (INFRA-286, CER-098).** Landing a story is the one moment in the loop that
+touches git directly, and it has three closed gaps. (a) `merge-story-worktree` and
+`discard-story-worktree` both route their `git worktree remove --force` / `git branch -D` pair
+through the shared `_teardown_story_worktree` helper, which checks both return codes: a failed
+removal short-circuits the branch delete (git refuses to delete a branch still checked out in a
+worktree) and reports exactly what remains, with the exact repair commands, rather than printing
+success over a stale claim. On `merge-story-worktree` the three loop-state clears
+(`clear_attempt_count`, the `current_stories` entry, the Layer 1 permission artifact) still run
+**unconditionally** after teardown — the merge already landed, so the story *is* done, and a
+cleanup hiccup must not carry a stale FAIL count into the next story — with residue reported to
+stderr and a non-zero exit *after* the clears, not instead of them. On `discard-story-worktree`
+nothing has landed, so residue short-circuits **before** the clears, preserving the pre-existing
+behaviour; the asymmetry is deliberate, not an inconsistency. (b) A failed `--ff-only` merge — the
+rebase and the merge are two separate git invocations against a shared main branch, so another
+`merge-story-worktree` can land between them — tears down nothing and clears nothing: the story's
+commits exist only on `pairmode/<ID>`, and releasing the claim or clearing the scope stamps would
+orphan them and free the resolver to hand the same story to a second dispatch while its work sits
+unmerged on a branch nobody is watching. Both failure branches print a `recovery: `-prefixed block
+naming exactly what survives and the copy-pasteable re-run command; re-running is the supported
+recovery — it rebases again onto the new tip and lands — and is idempotent. (c) Both commands hold
+`_merge_lock` (`state_utils.state_lock` on `.companion/merge`, `MERGE_LOCK_TIMEOUT_SECONDS = 120.0`,
+chosen to match `_run_git`'s own subprocess timeout) across their whole critical section, narrowing
+the window in which two landings contend on git's own `index.lock`. This is deliberately a bounded
+advisory lock, not a queue and not a retry loop and not a multi-orchestrator guarantee
+(`docs/phases/phase-109.md` § Scope statement): non-acquisition is fail-open — the command
+proceeds exactly as it does today and prints a `warning: merge lock not acquired` line — because an
+unbounded wait or a lock daemon would trade a rare loud, precisely-recoverable failure for a common
+stall, the same trade-off `state_utils.state_lock`'s own docstring rejects. `.companion/merge.lock`
+is a zero-byte advisory lock file, not persistent state — it holds no data and is never read for
+content, so it owes no management-surface story.
+
 **One-iteration-per-story contract (CER-074).** The resolver never emits `spawn-reviewer` —
 it is orchestrator-dispatched only. The constant is a live member of `ACTIONS`/`_SPAWN_ACTIONS`
 (the orchestrator's `ACTION_SUBAGENT_TYPE` map and the model-override rule key on it), but no
@@ -769,7 +800,9 @@ still a caller error the rule exists to prevent.
     update. Atomic replacement guarantees no reader ever observes a truncated or corrupt file; it
     does not guarantee no lost update. File-level serialisation of `.companion/` writers is
     INFRA-285's advisory state lock (CER-097), deliberately deferred rather than pre-empted here to
-    avoid a second, competing locking scheme.
+    avoid a second, competing locking scheme. **That deferred lock now exists** —
+    `state_utils.state_lock` / `update_state_json` (INFRA-285) — and is bounded, advisory and
+    fail-open, matching the reasoning above: it narrows this window rather than closing it.
 
 ### Release channel — flex-harness
 
@@ -2499,15 +2532,20 @@ subcommand. Row counts (not `attempt_number` values) remain the correct way
 to read historical effort — this is why INFRA-256's checkpoint rollup above
 counts rows, not `attempt_number`, and continues to do so unchanged.
 
-The derivation is a read-then-write with no transaction spanning both steps;
-two genuinely concurrent spawns for the same `(story_id, agent_role)` pair
-could read the same count and write the same `attempt_number`. This is
-accepted, not fixed: the era's no-nested-spawning invariant keeps the build
-loop serial (one worker in flight at a time), so the race cannot occur in
-practice, and `effort.db` is best-effort observability rather than a
-strongly-consistent ledger — spanning the hook's read and the recorder's
-write in one transaction would add locking risk to a hook path to guard
-against a race the loop's own structure already prevents.
+**Amended Phase 109 — INFRA-286 (CER-098).** The paragraph above described this
+as a read-then-write with no transaction spanning both steps, accepted rather
+than fixed because the era's no-nested-spawning invariant was said to keep
+only one worker in flight at a time, so the race supposedly could not occur
+in practice. That justification is retired: Phase 109's target capability is
+parallel story builds under one orchestrator, so the loop is no longer serial
+by construction. INFRA-284 (CER-096) closed
+the underlying race directly — `effort_db.insert_attempt_derived` now derives
+`attempt_number` as `COALESCE(MAX(attempt_number), 0) + 1` inside a single
+`BEGIN IMMEDIATE` transaction, so two genuinely concurrent spawns for the same
+`(story_id, agent_role)` pair can no longer read the same count and write the
+same `attempt_number`. `next_attempt_number` survives unchanged as an
+advisory, read-only helper for callers that only need an estimate (e.g.
+display), not the derivation the recorder itself now uses.
 
 **Async-spawn recording — deferred reconciliation (INFRA-258).** Agent
 spawns are asynchronous in current Claude Code sessions: at PostToolUse time

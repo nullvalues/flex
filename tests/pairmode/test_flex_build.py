@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _SCRIPT = _REPO_ROOT / "skills" / "pairmode" / "scripts" / "flex_build.py"
@@ -1702,6 +1703,489 @@ class TestScopedActiveStoryClear:
         # And its own declared file remains allowed.
         allowed, reason = scope_guard.check_path("b.py", wt_b)
         assert allowed is True
+
+
+class TestStoryWorktreeMergeRobustness:
+    """CER-098: return-code checks, failed-land contract, merge lock
+    (INFRA-286)."""
+
+    # -- A1-A4: unit tests over _teardown_story_worktree / _residue_lines --
+
+    def test_teardown_full_success_returns_empty_and_deletes_branch(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import flex_build  # noqa: E402
+
+        calls: list[list[str]] = []
+
+        def fake_run_git(args, cwd, timeout=120):
+            calls.append(list(args))
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(flex_build, "_run_git", fake_run_git)
+        residue = flex_build._teardown_story_worktree(tmp_path, "WT-300")
+        assert residue == []
+        assert calls[0][:2] == ["worktree", "remove"]
+        assert calls[1][:2] == ["branch", "-D"]
+
+    def test_teardown_failed_worktree_remove_skips_branch_delete(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A2: a failed removal short-circuits the branch delete and
+        reports exactly two residue entries."""
+        import flex_build  # noqa: E402
+
+        calls: list[list[str]] = []
+
+        def fake_run_git(args, cwd, timeout=120):
+            calls.append(list(args))
+            if args[0] == "worktree":
+                return subprocess.CompletedProcess(
+                    args, 1, stdout="", stderr="fatal: worktree is dirty"
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(flex_build, "_run_git", fake_run_git)
+        residue = flex_build._teardown_story_worktree(tmp_path, "WT-301")
+        assert len(residue) == 2
+        assert not any(c[0] == "branch" for c in calls)
+
+    def test_teardown_failed_branch_delete_reported_alone(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A3: a failed branch delete after a successful removal reports
+        exactly one entry, naming the branch."""
+        import flex_build  # noqa: E402
+
+        def fake_run_git(args, cwd, timeout=120):
+            if args[0] == "worktree":
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                args, 1, stdout="", stderr="fatal: branch checked out"
+            )
+
+        monkeypatch.setattr(flex_build, "_run_git", fake_run_git)
+        residue = flex_build._teardown_story_worktree(tmp_path, "WT-302")
+        assert len(residue) == 1
+        assert "pairmode/WT-302" in residue[0]
+
+    def test_residue_lines_carry_git_text_and_repair_commands(self) -> None:
+        """A4: residue rendering includes the failing call's own message and
+        the exact repair commands."""
+        import flex_build  # noqa: E402
+
+        residue = ["worktree .pairmode-worktrees/WT-303 still exists: fatal: xyz"]
+        lines = flex_build._residue_lines("WT-303", residue)
+        assert lines[0] == residue[0]
+        assert any(
+            "git worktree remove --force .pairmode-worktrees/WT-303" in line
+            for line in lines
+        )
+        assert any("git branch -D pairmode/WT-303" in line for line in lines)
+
+    def test_residue_lines_empty_when_no_residue(self) -> None:
+        import flex_build  # noqa: E402
+
+        assert flex_build._residue_lines("WT-304", []) == []
+
+    # -- A5-A7: end-to-end through the CLI --
+
+    def test_clean_merge_reports_no_residue(self, tmp_path: Path) -> None:
+        """A5/A7: a fully clean merge exits 0 and emits no residue text."""
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-305",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-305"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-305",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        assert "merged pairmode/WT-305 into" in result.stdout
+        assert "residue" not in result.stderr.lower()
+
+    def test_discard_delegates_to_shared_teardown(self, tmp_path: Path) -> None:
+        """A6: discard-story-worktree still exits 0 on a clean removal."""
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-306",
+            "--project-dir", str(tmp_path),
+        )
+        result = _run(
+            "discard-story-worktree",
+            "--story-id", "WT-306",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        assert "discarded pairmode/WT-306" in result.stdout
+
+    def test_merge_reports_residue_and_exits_1_after_clearing_state(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A5: state is cleared even when teardown leaves residue, and the
+        residue is reported on stderr with exit 1."""
+        import flex_build  # noqa: E402
+
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-307", primary_files=["feature.txt"])
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-307",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-307"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+
+        original_run_git = flex_build._run_git
+
+        def fake_run_git(args, cwd, timeout=120):
+            if args and args[0] == "worktree" and args[1] == "remove":
+                return subprocess.CompletedProcess(
+                    args, 1, stdout="", stderr="fatal: worktree busy"
+                )
+            return original_run_git(args, cwd, timeout)
+
+        monkeypatch.setattr(flex_build, "_run_git", fake_run_git)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            flex_build.flex_build,
+            [
+                "merge-story-worktree",
+                "--story-id", "WT-307",
+                "--project-dir", str(tmp_path),
+            ],
+        )
+        assert result.exit_code == 1
+        assert "merged pairmode/WT-307 into" in result.output
+        assert "repair: git worktree remove --force" in result.output
+        assert "repair: git branch -D pairmode/WT-307" in result.output
+        # The clears still ran despite the residue (A5's load-bearing order).
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert "WT-307" not in state.get("current_stories", {})
+        assert not (
+            tmp_path / "docs" / "phases" / "permissions" / "WT-307.json"
+        ).exists()
+
+    def test_discard_exits_before_clearing_state_on_residue(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A6: on discard, residue short-circuits BEFORE the stamps clear —
+        the asymmetry with the merge path is deliberate."""
+        import flex_build  # noqa: E402
+
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-308", primary_files=["scratch.txt"])
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-308",
+            "--project-dir", str(tmp_path),
+        )
+
+        original_run_git = flex_build._run_git
+
+        def fake_run_git(args, cwd, timeout=120):
+            if args and args[0] == "worktree" and args[1] == "remove":
+                return subprocess.CompletedProcess(
+                    args, 1, stdout="", stderr="fatal: worktree busy"
+                )
+            return original_run_git(args, cwd, timeout)
+
+        monkeypatch.setattr(flex_build, "_run_git", fake_run_git)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            flex_build.flex_build,
+            [
+                "discard-story-worktree",
+                "--story-id", "WT-308",
+                "--project-dir", str(tmp_path),
+            ],
+        )
+        assert result.exit_code == 1
+        assert "discarded" not in result.output
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert "WT-308" in state.get("current_stories", {})
+        assert (
+            tmp_path / "docs" / "phases" / "permissions" / "WT-308.json"
+        ).exists()
+
+    # -- B3/B4: the lost-race path and the failed-land recovery contract --
+
+    def test_b3_second_merge_succeeds_via_rebase_absorbing_first(
+        self, tmp_path: Path
+    ) -> None:
+        """The normal, serialized-by-lock outcome: two sequential merges
+        from the same tip both succeed, the second rebasing past the
+        first's commit."""
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-201",
+            "--project-dir", str(tmp_path),
+        )
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-202",
+            "--project-dir", str(tmp_path),
+        )
+        wt1 = tmp_path / ".pairmode-worktrees" / "WT-201"
+        wt2 = tmp_path / ".pairmode-worktrees" / "WT-202"
+        _commit_in(wt1, "one.txt", "one\n", "add one")
+        _commit_in(wt2, "two.txt", "two\n", "add two")
+
+        r1 = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-201",
+            "--project-dir", str(tmp_path),
+        )
+        assert r1.returncode == 0, r1.stderr
+        r2 = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-202",
+            "--project-dir", str(tmp_path),
+        )
+        assert r2.returncode == 0, r2.stderr
+        assert (tmp_path / "one.txt").exists()
+        assert (tmp_path / "two.txt").exists()
+
+    def test_b3_genuine_ff_only_failure_leaves_state_untouched_with_recovery(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A forced --ff-only failure: exit 1, no 'merged' text, a
+        'recovery: ' block, and the worktree/branch/counter all survive
+        untouched."""
+        import flex_build  # noqa: E402
+
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-203", primary_files=["three.txt"])
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-203",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-203"
+        _commit_in(wt, "three.txt", "three\n", "add three")
+        _run(
+            "write-attempt-count",
+            "--story-id", "WT-203",
+            "--count", "1",
+            "--project-dir", str(tmp_path),
+        )
+
+        original_run_git = flex_build._run_git
+
+        def fake_run_git(args, cwd, timeout=120):
+            if args and args[0] == "merge" and "--ff-only" in args:
+                return subprocess.CompletedProcess(
+                    args,
+                    1,
+                    stdout="",
+                    stderr="fatal: Not possible to fast-forward, aborting.",
+                )
+            return original_run_git(args, cwd, timeout)
+
+        monkeypatch.setattr(flex_build, "_run_git", fake_run_git)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            flex_build.flex_build,
+            [
+                "merge-story-worktree",
+                "--story-id", "WT-203",
+                "--project-dir", str(tmp_path),
+            ],
+        )
+        assert result.exit_code == 1
+        assert "merged" not in result.output
+        assert "recovery: " in result.output
+        assert (tmp_path / ".pairmode-worktrees" / "WT-203").exists()
+        branch = _git(
+            tmp_path, "rev-parse", "--verify", "refs/heads/pairmode/WT-203"
+        )
+        assert branch.returncode == 0
+        counter = json.loads(
+            (tmp_path / ".companion" / "attempt_counter.json").read_text()
+        )
+        assert counter["stories"]["WT-203"] == 1
+
+    def test_b4_rerun_after_failed_land_is_idempotent(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """B4: after a forced failure, removing the monkeypatch and re-
+        running lands the story with no manual repair step."""
+        import flex_build  # noqa: E402
+
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-204",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-204"
+        _commit_in(wt, "four.txt", "four\n", "add four")
+
+        original_run_git = flex_build._run_git
+        fail_next = {"on": True}
+
+        def fake_run_git(args, cwd, timeout=120):
+            if fail_next["on"] and args and args[0] == "merge" and "--ff-only" in args:
+                return subprocess.CompletedProcess(
+                    args,
+                    1,
+                    stdout="",
+                    stderr="fatal: Not possible to fast-forward, aborting.",
+                )
+            return original_run_git(args, cwd, timeout)
+
+        monkeypatch.setattr(flex_build, "_run_git", fake_run_git)
+        runner = CliRunner()
+        first = runner.invoke(
+            flex_build.flex_build,
+            [
+                "merge-story-worktree",
+                "--story-id", "WT-204",
+                "--project-dir", str(tmp_path),
+            ],
+        )
+        assert first.exit_code == 1
+
+        fail_next["on"] = False
+        second = runner.invoke(
+            flex_build.flex_build,
+            [
+                "merge-story-worktree",
+                "--story-id", "WT-204",
+                "--project-dir", str(tmp_path),
+            ],
+        )
+        assert second.exit_code == 0, second.output
+        assert (tmp_path / "four.txt").read_text() == "four\n"
+        assert not (tmp_path / ".pairmode-worktrees" / "WT-204").exists()
+        branch = _git(
+            tmp_path, "rev-parse", "--verify", "refs/heads/pairmode/WT-204"
+        )
+        assert branch.returncode != 0
+
+    # -- C1-C6: the merge lock --
+
+    def test_c1_c2_lock_file_created_beside_companion_state(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-401",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-401"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-401",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        assert (tmp_path / ".companion" / "merge.lock").exists()
+
+    def test_c4_non_acquisition_is_fail_open_and_warned(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import flex_build  # noqa: E402
+        from contextlib import contextmanager
+
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-402",
+            "--project-dir", str(tmp_path),
+        )
+        wt = tmp_path / ".pairmode-worktrees" / "WT-402"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+
+        @contextmanager
+        def fake_state_lock(path, timeout_seconds=None):
+            yield False
+
+        monkeypatch.setattr(flex_build, "state_lock", fake_state_lock)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            flex_build.flex_build,
+            [
+                "merge-story-worktree",
+                "--story-id", "WT-402",
+                "--project-dir", str(tmp_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "merged pairmode/WT-402 into" in result.output
+        assert "warning: merge lock not acquired" in result.output
+
+    def test_c6_two_concurrent_merges_both_land_cleanly(
+        self, tmp_path: Path
+    ) -> None:
+        """C6: two genuinely concurrent merge-story-worktree processes for
+        two different stories both succeed and neither leaves a claim
+        behind. Skipped where fcntl is unavailable."""
+        pytest.importorskip("fcntl")
+
+        _init_git_repo(tmp_path)
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-501",
+            "--project-dir", str(tmp_path),
+        )
+        _run(
+            "create-story-worktree",
+            "--story-id", "WT-502",
+            "--project-dir", str(tmp_path),
+        )
+        wt1 = tmp_path / ".pairmode-worktrees" / "WT-501"
+        wt2 = tmp_path / ".pairmode-worktrees" / "WT-502"
+        _commit_in(wt1, "wt501.txt", "one\n", "add wt501")
+        _commit_in(wt2, "wt502.txt", "two\n", "add wt502")
+
+        env = {**os.environ, "PYTHONPATH": str(_REPO_ROOT)}
+        p1 = subprocess.Popen(
+            [
+                sys.executable, str(_SCRIPT),
+                "merge-story-worktree",
+                "--story-id", "WT-501",
+                "--project-dir", str(tmp_path),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        p2 = subprocess.Popen(
+            [
+                sys.executable, str(_SCRIPT),
+                "merge-story-worktree",
+                "--story-id", "WT-502",
+                "--project-dir", str(tmp_path),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        out1, err1 = p1.communicate(timeout=60)
+        out2, err2 = p2.communicate(timeout=60)
+
+        assert p1.returncode == 0, err1
+        assert p2.returncode == 0, err2
+        assert (tmp_path / "wt501.txt").exists()
+        assert (tmp_path / "wt502.txt").exists()
+        assert not (tmp_path / ".pairmode-worktrees" / "WT-501").exists()
+        assert not (tmp_path / ".pairmode-worktrees" / "WT-502").exists()
 
 
 def test_spec_writer_procedure_references_spec_preflight() -> None:
