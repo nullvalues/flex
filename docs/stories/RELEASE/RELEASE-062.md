@@ -7,7 +7,18 @@ phase: "105"
 story_class: doc
 auth_gated: false
 schema_introduces: false
-touches: []
+primary_files:
+  - docs/stories/RELEASE/RELEASE-060.md
+  - docs/stories/RELEASE/RELEASE-061.md
+  - docs/harness-cutover-runbook.md
+  - docs/phases/phase-97.md
+touches:
+  - docs/stories/RELEASE/RELEASE-060.md
+  - docs/stories/RELEASE/RELEASE-061.md
+  - docs/harness-cutover-runbook.md
+  - docs/phases/phase-97.md
+  - docs/architecture.md
+  - docs/stories/RELEASE/RELEASE-062.md
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
