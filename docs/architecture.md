@@ -2161,6 +2161,38 @@ The four remaining companion/sidebar blocks (`Stop`, `PermissionRequest`/
 `ExitPlanMode`, `PostToolUse` matcher `Write|Edit|MultiEdit`, `SessionEnd`)
 remain opt-in and are not registered by this path.
 
+**Dedupe-on-write (CER-081, INFRA-269):** both registrars are dedupe-on-write —
+at most one inner hook entry per (event, command-basename) pair survives a
+registrar run. Prior to INFRA-269, `_register_pretooluse_hook` and
+`_register_context_budget_hooks` located their target block by an exact-command
+scan, falling back to `_find_block_by_command_basename`'s in-place migration
+only when the exact-command scan found nothing. That fallback was therefore
+unreachable once a project already carried *both* a stale (e.g.
+`/mnt/work/flex`-pointing) entry and a correct (`plugin_root`-pointing) entry
+for the same hook file — the exact match short-circuited before the basename
+fallback ever ran, so the stale sibling was never removed and both commands
+executed independently on every event (Claude Code does not dedupe hooks
+itself). INFRA-269 closes this by adding `_prune_stale_hook_entries`, called
+after each registrar's find/migrate/append logic resolves the correct entry:
+it removes every stale same-basename entry whose command is not the correct
+one, and removes any block left with an empty `hooks` list. Placing the prune
+after the correct entry is guaranteed present means a prune run can never
+leave an event with zero flex hooks. `_find_block_by_command_basename`'s
+"first match" in-place migration behaviour (still used when no correct entry
+exists yet) is unchanged.
+
+Two further instruments cover state this write-time fix cannot reach
+retroactively: `pairmode_sync.py audit-hooks` is the retroactive cleaner and
+periodic drift check for `.claude/settings.json` files that already carry
+duplicate registrations from a pre-INFRA-269 registrar run — dry-run by
+default (exits 1 if duplicates are found, 0 if clean), `--apply` removes them
+using the same `_prune_stale_hook_entries` helper. `fleet_discovery.py`'s
+`discover()` result gains a `duplicate_hooks` field (populated by
+`_check_duplicate_hooks`, read-only with respect to scanned projects) as the
+DP8 fleet-level signal that surfaces the condition before the fold; discovery
+reports the condition, it does not enforce against it — `audit-hooks` is the
+enforcing instrument.
+
 All decision logic lives in the named modules; the hook is a thin dispatcher.
 
 **Documented exception — `hooks/post_tool_use.py` Task/Agent branch (INFRA-182, INFRA-236):**

@@ -277,3 +277,165 @@ class TestSnapshot:
             assert after.get(path) == mtime, (
                 f"Scanned project file was modified by _write_snapshot: {path}"
             )
+
+# ---------------------------------------------------------------------------
+# INFRA-269: duplicate hook registration check (CER-081, DP8)
+# ---------------------------------------------------------------------------
+
+def _write_hook_settings(project_dir: Path, hooks: dict) -> Path:
+    settings_dir = project_dir / ".claude"
+    settings_dir.mkdir(parents=True, exist_ok=True)
+    settings_path = settings_dir / "settings.json"
+    settings_path.write_text(json.dumps({"hooks": hooks}, indent=2) + "\n", encoding="utf-8")
+    return settings_path
+
+
+@pytest.fixture()
+def project_with_duplicate_hooks(fleet: dict) -> Path:
+    """A project bound via Signal 2 that also carries a doubled PreToolUse
+    hook registration (a stale + a correct entry for pre_tool_use.py)."""
+    proj = fleet["proj_c"]  # already has both signals from the base fixture
+    _write_hook_settings(proj, {
+        "PreToolUse": [
+            {"matcher": "Task", "hooks": [
+                {"type": "command", "command": "uv run python /mnt/work/flex/hooks/pre_tool_use.py"},
+            ]},
+            {"matcher": "Task", "hooks": [
+                {"type": "command", "command": "uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py"},
+            ]},
+        ]
+    })
+    return proj
+
+
+class TestCheckDuplicateHooks:
+    def test_check_duplicate_hooks_finds_doubled_event(self, project_with_duplicate_hooks: Path) -> None:
+        dups = fd._check_duplicate_hooks(project_with_duplicate_hooks)
+        assert len(dups) == 1
+        dup = dups[0]
+        assert dup["event"] == "PreToolUse"
+        assert dup["basename"] == "pre_tool_use.py"
+        assert len(dup["commands"]) == 2
+
+    def test_check_duplicate_hooks_empty_for_clean_project(self, tmp_path: Path) -> None:
+        proj = tmp_path / "clean_project"
+        proj.mkdir()
+        _write_hook_settings(proj, {
+            "PreToolUse": [
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /a/hooks/pre_tool_use.py"},
+                ]},
+            ]
+        })
+        assert fd._check_duplicate_hooks(proj) == []
+
+    def test_check_duplicate_hooks_empty_for_missing_settings(self, tmp_path: Path) -> None:
+        proj = tmp_path / "no_settings"
+        proj.mkdir()
+        assert fd._check_duplicate_hooks(proj) == []
+
+    def test_check_duplicate_hooks_empty_for_unparseable_settings(self, tmp_path: Path) -> None:
+        proj = tmp_path / "bad_settings"
+        (proj / ".claude").mkdir(parents=True)
+        (proj / ".claude" / "settings.json").write_text("{not valid json", encoding="utf-8")
+        assert fd._check_duplicate_hooks(proj) == []
+
+    def test_check_duplicate_hooks_does_not_write(self, project_with_duplicate_hooks: Path, tmp_path: Path) -> None:
+        before = _record_mtimes(tmp_path)
+        fd._check_duplicate_hooks(project_with_duplicate_hooks)
+        after = _record_mtimes(tmp_path)
+        for path, mtime in before.items():
+            assert after.get(path) == mtime, (
+                f"File was modified by _check_duplicate_hooks: {path}"
+            )
+        # No new files created under the project either.
+        assert set(after.keys()) == set(before.keys())
+
+
+class TestDiscoverDuplicateHooksKey:
+    def test_discover_includes_duplicate_hooks_key(self, fleet: dict) -> None:
+        results = fd.discover(fleet["candidates"])
+        assert results, "expected at least one discovered project"
+        for r in results:
+            assert "duplicate_hooks" in r
+            assert "path" in r
+            assert "signal1" in r
+            assert "signal1_value" in r
+            assert "signal2" in r
+            assert "signal2_value" in r
+            assert "binding" in r
+
+    def test_discover_reports_duplicate_hooks_for_affected_project(
+        self, project_with_duplicate_hooks: Path, fleet: dict
+    ) -> None:
+        results = fd.discover(fleet["candidates"])
+        matching = [r for r in results if r["path"] == str(project_with_duplicate_hooks.resolve())]
+        assert len(matching) == 1
+        assert matching[0]["duplicate_hooks"], "expected non-empty duplicate_hooks for the affected project"
+
+
+class TestJsonAndTextOutputDuplicateHooks:
+    def _candidate_dir_argv(self, fleet: dict) -> list[str]:
+        argv: list[str] = []
+        for c in fleet["candidates"]:
+            argv += ["--candidate-dir", str(c)]
+        return argv
+
+    def test_json_output_includes_duplicate_hooks(self, fleet: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+        from click.testing import CliRunner
+
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli, [*self._candidate_dir_argv(fleet), "--json", "--no-snapshot"], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert "flex_root" in payload
+        assert "fleet" in payload
+        for entry in payload["fleet"]:
+            assert "duplicate_hooks" in entry
+
+    def test_text_output_reports_duplicate_hooks(
+        self, project_with_duplicate_hooks: Path, fleet: dict
+    ) -> None:
+        from click.testing import CliRunner
+
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli, [*self._candidate_dir_argv(fleet), "--no-snapshot"], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert "DUPLICATE HOOKS" in result.output
+        assert "Projects with duplicate hooks:" in result.output
+
+    def test_cli_exit_status_unchanged_with_duplicates(
+        self, project_with_duplicate_hooks: Path, fleet: dict
+    ) -> None:
+        from click.testing import CliRunner
+
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli, [*self._candidate_dir_argv(fleet), "--no-snapshot"], catch_exceptions=False
+        )
+        assert result.exit_code == 0, (
+            "discovery reports duplicates but must not fail the CLI (audit-hooks enforces)"
+        )
+
+
+class TestSnapshotDuplicateHooksSection:
+    def test_snapshot_has_duplicate_hooks_section(
+        self, project_with_duplicate_hooks: Path, fleet: dict
+    ) -> None:
+        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+        results = fd.discover(fleet["candidates"])
+        fd._write_snapshot(results, dest)
+        content = dest.read_text()
+        assert "## Duplicate hook registrations (CER-081)" in content
+        assert "## Pre-fold gate notice (DP8)" in content
+
+    def test_snapshot_reports_none_found_when_clean(self, fleet: dict) -> None:
+        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+        results = fd.discover(fleet["candidates"])
+        fd._write_snapshot(results, dest)
+        content = dest.read_text()
+        assert "no duplicate" in content.lower() or "none found" in content.lower()

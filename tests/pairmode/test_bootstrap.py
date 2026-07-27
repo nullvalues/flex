@@ -3246,6 +3246,7 @@ class TestAllowRules:
 from skills.pairmode.scripts.bootstrap import (
     _register_pretooluse_hook,
     PRETOOLUSE_MATCHER,
+    _prune_stale_hook_entries,
 )
 import pathlib as _pathlib
 
@@ -3488,6 +3489,181 @@ class TestRegisterPreToolUseHook:
         assert stale_command not in commands, (
             f"Stale plugin_root command must not survive: {commands}"
         )
+
+    def test_register_pretooluse_hook_removes_stale_sibling_block(self, tmp_path):
+        """CER-081 regression test: when a project already has BOTH a
+        plugin_root block AND a stale /mnt/work/flex block for the same
+        event, the stale sibling is removed rather than left as a dead
+        duplicate that keeps firing."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = tmp_path / "flex-harness"
+
+        correct_command = f"uv run python {plugin_root / 'hooks' / 'pre_tool_use.py'}"
+        stale_command = "uv run python /mnt/work/flex/hooks/pre_tool_use.py"
+
+        existing_data = {
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": PRETOOLUSE_MATCHER, "hooks": [
+                        {"type": "command", "command": correct_command},
+                    ]},
+                    {"matcher": "Task", "hooks": [
+                        {"type": "command", "command": stale_command},
+                    ]},
+                ]
+            }
+        }
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+
+        _register_pretooluse_hook(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        pre_tool_use_list = data["hooks"]["PreToolUse"]
+
+        all_pre_tool_use_commands = [
+            h.get("command")
+            for block in pre_tool_use_list
+            for h in block.get("hooks", [])
+            if isinstance(h.get("command"), str)
+            and h["command"].rsplit("/", 1)[-1] == "pre_tool_use.py"
+        ]
+        assert all_pre_tool_use_commands == [correct_command], (
+            f"Expected exactly one surviving pre_tool_use.py entry (the "
+            f"plugin_root one), got: {all_pre_tool_use_commands}"
+        )
+
+    def test_register_pretooluse_hook_preserves_unrelated_basename_block(self, tmp_path):
+        """A sibling block whose entries all have a different basename (e.g.
+        a local my_guard.py hook) is left untouched by the prune."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = tmp_path / "flex-harness"
+
+        local_command = "uv run python /some/project/my_guard.py"
+        existing_data = {
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "Edit", "hooks": [
+                        {"type": "command", "command": local_command},
+                    ]},
+                ]
+            }
+        }
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+
+        _register_pretooluse_hook(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        pre_tool_use_list = data["hooks"]["PreToolUse"]
+
+        local_block = self._find_block_with_command(pre_tool_use_list, local_command)
+        assert local_block is not None, "Unrelated basename block should survive untouched"
+        assert local_block.get("matcher") == "Edit"
+        local_commands = [h.get("command") for h in local_block.get("hooks", [])]
+        assert local_commands == [local_command]
+
+    def test_register_hooks_idempotent_after_dedupe(self, tmp_path):
+        """Running the registrar twice against a settings file that starts
+        with a stale sibling block produces byte-identical output the second
+        time around."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = tmp_path / "flex-harness"
+
+        correct_command = f"uv run python {plugin_root / 'hooks' / 'pre_tool_use.py'}"
+        stale_command = "uv run python /mnt/work/flex/hooks/pre_tool_use.py"
+
+        existing_data = {
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": PRETOOLUSE_MATCHER, "hooks": [
+                        {"type": "command", "command": correct_command},
+                    ]},
+                    {"matcher": "Task", "hooks": [
+                        {"type": "command", "command": stale_command},
+                    ]},
+                ]
+            }
+        }
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+
+        _register_pretooluse_hook(settings_path, plugin_root)
+        first_pass = settings_path.read_text(encoding="utf-8")
+
+        _register_pretooluse_hook(settings_path, plugin_root)
+        second_pass = settings_path.read_text(encoding="utf-8")
+
+        assert first_pass == second_pass, "Second run must be byte-identical to the first"
+
+
+class TestPruneStaleHookEntries:
+    """Direct unit tests for _prune_stale_hook_entries (CER-081)."""
+
+    def test_prune_stale_hook_entries_removes_emptied_block(self):
+        keep_command = "uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py"
+        stale_command = "uv run python /mnt/work/flex/hooks/pre_tool_use.py"
+        unrelated_command = "uv run python /some/other/hook.py"
+
+        block_list = [
+            {"matcher": PRETOOLUSE_MATCHER, "hooks": [
+                {"type": "command", "command": keep_command},
+            ]},
+            {"matcher": "Task", "hooks": [
+                {"type": "command", "command": stale_command},
+            ]},
+            {"matcher": "Edit", "hooks": [
+                {"type": "command", "command": unrelated_command},
+            ]},
+        ]
+
+        removed = _prune_stale_hook_entries(block_list, "pre_tool_use.py", keep_command)
+
+        assert removed == 1
+        # The now-empty stale block was removed entirely.
+        assert len(block_list) == 2
+        all_commands = [
+            h["command"] for b in block_list for h in b["hooks"]
+        ]
+        assert all_commands == [keep_command, unrelated_command]
+
+    def test_prune_stale_hook_entries_never_removes_different_basename(self):
+        keep_command = "uv run python /plugin/hooks/pre_tool_use.py"
+        block_list = [
+            {"matcher": "Edit", "hooks": [
+                {"type": "command", "command": "uv run python /some/my_guard.py"},
+            ]},
+        ]
+
+        removed = _prune_stale_hook_entries(block_list, "pre_tool_use.py", keep_command)
+
+        assert removed == 0
+        assert len(block_list) == 1
+        assert block_list[0]["hooks"][0]["command"] == "uv run python /some/my_guard.py"
+
+    def test_registrars_tolerate_malformed_hooks_shape(self, tmp_path):
+        """A settings file whose top-level "hooks" value is a list, or whose
+        event value is a string, is treated as absent rather than raising."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = tmp_path / "flex-harness"
+
+        # hooks value is a list, not a dict
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps({"hooks": ["not", "a", "dict"]}), encoding="utf-8")
+        _register_pretooluse_hook(settings_path, plugin_root)  # must not raise
+        _register_context_budget_hooks(settings_path, plugin_root)  # must not raise
+
+        # event value is a string, not a list
+        settings_path.write_text(
+            json.dumps({"hooks": {"PreToolUse": "not-a-list", "UserPromptSubmit": "nope"}}),
+            encoding="utf-8",
+        )
+        _register_pretooluse_hook(settings_path, plugin_root)  # must not raise
+        _register_context_budget_hooks(settings_path, plugin_root)  # must not raise
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        assert isinstance(data["hooks"]["PreToolUse"], list)
+        assert isinstance(data["hooks"]["UserPromptSubmit"], list)
 
 
 # ---------------------------------------------------------------------------
@@ -3916,6 +4092,81 @@ class TestRegisterContextBudgetHooks:
         block = self._find_block_with_command(pre_tool_use_list, expected_command)
         assert block is not None
         assert block.get("matcher") == PRETOOLUSE_MATCHER
+
+    def test_context_budget_hooks_remove_stale_sibling_blocks(self, tmp_path):
+        """CER-081 regression test: all three events doubled (plugin_root
+        block + stale /mnt/work/flex block); after the call each event has
+        exactly one surviving entry, and it is the plugin_root one."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = tmp_path / "flex-harness"
+
+        specs = [
+            ("UserPromptSubmit", "user_prompt_submit.py", None),
+            ("SessionStart", "session_start.py", None),
+            ("PostToolUse", "post_tool_use.py", "Task|Agent"),
+        ]
+
+        existing_hooks: dict = {}
+        for event, hook_file, matcher in specs:
+            correct_command = f"uv run python {plugin_root / 'hooks' / hook_file}"
+            stale_command = f"uv run python /mnt/work/flex/hooks/{hook_file}"
+            correct_block: dict = {"hooks": [{"type": "command", "command": correct_command}]}
+            stale_block: dict = {"hooks": [{"type": "command", "command": stale_command}]}
+            if matcher is not None:
+                correct_block["matcher"] = matcher
+                stale_block["matcher"] = matcher
+            existing_hooks[event] = [correct_block, stale_block]
+
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            json.dumps({"hooks": existing_hooks}, indent=2), encoding="utf-8"
+        )
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        for event, hook_file, _matcher in specs:
+            correct_command = f"uv run python {plugin_root / 'hooks' / hook_file}"
+            event_list = data["hooks"][event]
+            all_commands = [
+                h.get("command")
+                for block in event_list
+                for h in block.get("hooks", [])
+            ]
+            assert all_commands == [correct_command], (
+                f"{event}: expected exactly one surviving entry (plugin_root), "
+                f"got: {all_commands}"
+            )
+
+    def test_context_budget_hooks_preserve_unrelated_posttooluse_block(self, tmp_path):
+        """A local pytest-runner PostToolUse block with a different basename
+        is left present and unmodified by the prune."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        pytest_command = "uv run python /some/pytest_runner.py"
+        existing_data = {
+            "hooks": {
+                "PostToolUse": [
+                    {"matcher": "Edit|Write", "hooks": [
+                        {"type": "command", "command": pytest_command},
+                    ]},
+                ]
+            }
+        }
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        event_list = data["hooks"]["PostToolUse"]
+
+        pytest_block = self._find_block_with_command(event_list, pytest_command)
+        assert pytest_block is not None, "Unrelated basename block should survive untouched"
+        assert pytest_block.get("matcher") == "Edit|Write"
+        pytest_commands = [h.get("command") for h in pytest_block.get("hooks", [])]
+        assert pytest_commands == [pytest_command]
 
 
 # ---------------------------------------------------------------------------

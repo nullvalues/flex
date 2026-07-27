@@ -1433,3 +1433,250 @@ def test_sync_build_apply_replaces_old_gate_sections(tmp_path: pathlib.Path) -> 
     assert "See phase doc" not in written, (
         "Old delegation-language prose ('See phase doc') still present in written file."
     )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-269: audit-hooks subcommand (CER-081)
+# ---------------------------------------------------------------------------
+
+
+def _write_settings(project_dir: pathlib.Path, hooks: dict, extra_top_level: dict | None = None) -> pathlib.Path:
+    settings_path = project_dir / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    data: dict = {"hooks": hooks}
+    if extra_top_level:
+        data.update(extra_top_level)
+    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return settings_path
+
+
+def test_audit_hooks_registered_on_group() -> None:
+    """audit-hooks is registered on pairmode_cli alongside all six pre-existing names."""
+    assert "audit-hooks" in pairmode_cli.commands
+    for name in (
+        "sync-agents",
+        "sync-build",
+        "sync-all",
+        "register",
+        "unregister",
+        "list-projects",
+    ):
+        assert name in pairmode_cli.commands, f"{name} missing from pairmode_cli.commands"
+
+
+def test_audit_hooks_dry_run_writes_nothing_and_exits_1(tmp_path: pathlib.Path) -> None:
+    from click.testing import CliRunner
+
+    settings_path = _write_settings(
+        tmp_path,
+        {
+            "PreToolUse": [
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /a/hooks/pre_tool_use.py"},
+                ]},
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /b/hooks/pre_tool_use.py"},
+                ]},
+            ]
+        },
+    )
+    before = settings_path.read_text(encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path), "--dry-run"],
+        catch_exceptions=False,
+    )
+
+    after = settings_path.read_text(encoding="utf-8")
+    assert before == after, "dry-run must not write anything"
+    assert result.exit_code == 1, f"Expected exit 1 for duplicates found, got {result.exit_code}"
+
+
+def test_audit_hooks_clean_project_exits_0(tmp_path: pathlib.Path) -> None:
+    from click.testing import CliRunner
+
+    _write_settings(
+        tmp_path,
+        {
+            "PreToolUse": [
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /a/hooks/pre_tool_use.py"},
+                ]},
+            ]
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path)],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "no duplicate" in result.output.lower()
+
+
+def test_audit_hooks_apply_removes_duplicates(tmp_path: pathlib.Path) -> None:
+    from click.testing import CliRunner
+
+    settings_path = _write_settings(
+        tmp_path,
+        {
+            "PreToolUse": [
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /a/hooks/pre_tool_use.py"},
+                ]},
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /b/hooks/pre_tool_use.py"},
+                ]},
+            ]
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path), "--apply", "--yes"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
+    pre_tool_use_list = data["hooks"]["PreToolUse"]
+    all_commands = [
+        h["command"] for b in pre_tool_use_list for h in b.get("hooks", [])
+    ]
+    assert len(all_commands) == 1, f"Expected exactly one surviving entry, got: {all_commands}"
+    # No empty blocks left behind.
+    assert all(b.get("hooks") for b in pre_tool_use_list)
+
+
+def test_audit_hooks_apply_keeps_local_plugin_root_entry(tmp_path: pathlib.Path) -> None:
+    """--apply prefers the entry whose command path is under this checkout's
+    plugin root (the flex root pairmode_sync.py resolves from __file__)."""
+    from click.testing import CliRunner
+
+    flex_root = pathlib.Path(__file__).parent.parent.parent
+    correct_command = f"uv run python {flex_root / 'hooks' / 'pre_tool_use.py'}"
+    stale_command = "uv run python /mnt/work/flex-stale/hooks/pre_tool_use.py"
+
+    settings_path = _write_settings(
+        tmp_path,
+        {
+            "PreToolUse": [
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": stale_command},
+                ]},
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": correct_command},
+                ]},
+            ]
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path), "--apply", "--yes"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert correct_command in result.output
+
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
+    all_commands = [
+        h["command"]
+        for b in data["hooks"]["PreToolUse"]
+        for h in b.get("hooks", [])
+    ]
+    assert all_commands == [correct_command], (
+        f"Expected the plugin_root entry to survive, got: {all_commands}"
+    )
+
+
+def test_audit_hooks_apply_is_idempotent(tmp_path: pathlib.Path) -> None:
+    from click.testing import CliRunner
+
+    _write_settings(
+        tmp_path,
+        {
+            "PreToolUse": [
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /a/hooks/pre_tool_use.py"},
+                ]},
+            ]
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path), "--apply", "--yes"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+
+    settings_path = tmp_path / ".claude" / "settings.json"
+    before = settings_path.read_text(encoding="utf-8")
+
+    result2 = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path), "--apply", "--yes"],
+        catch_exceptions=False,
+    )
+    assert result2.exit_code == 0
+    after = settings_path.read_text(encoding="utf-8")
+    assert before == after, "Second --apply run on a clean project must be byte-identical"
+
+
+def test_audit_hooks_preserves_non_hook_keys(tmp_path: pathlib.Path) -> None:
+    from click.testing import CliRunner
+
+    settings_path = _write_settings(
+        tmp_path,
+        {
+            "PreToolUse": [
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /a/hooks/pre_tool_use.py"},
+                ]},
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /b/hooks/pre_tool_use.py"},
+                ]},
+            ]
+        },
+        extra_top_level={
+            "permissions": {"allow": ["Read(**)"]},
+            "some_unknown_key": {"foo": "bar"},
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path), "--apply", "--yes"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert data["permissions"] == {"allow": ["Read(**)"]}
+    assert data["some_unknown_key"] == {"foo": "bar"}
+
+
+def test_audit_hooks_no_settings_file_exits_0(tmp_path: pathlib.Path) -> None:
+    from click.testing import CliRunner
+
+    settings_path = tmp_path / ".claude" / "settings.json"
+    assert not settings_path.exists()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path)],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert not settings_path.exists(), "audit-hooks must not create a settings file"
+    assert "no" in result.output.lower() and "settings" in result.output.lower()

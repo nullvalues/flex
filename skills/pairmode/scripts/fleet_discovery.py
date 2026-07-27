@@ -172,6 +172,60 @@ def _check_signal2(project_dir: Path) -> tuple[bool, Optional[str]]:
     return False, None
 
 
+def _check_duplicate_hooks(project_dir: Path) -> list[dict]:
+    """DP8 fleet-level signal for CER-081: doubled hook registrations left by
+    a project whose bootstrap.py registrars ran before INFRA-269's dedupe fix.
+
+    Returns one dict per duplicated (event, command-basename) pair found in
+    project_dir's .claude/settings.json, with keys "event", "basename", and
+    "commands" (the list of full command strings sharing that basename under
+    that event, in document order). Returns [] on a missing file, an
+    unparseable one, or no duplicates. Read-only — never writes to
+    project_dir (same discipline as _check_signal1/_check_signal2).
+    """
+    settings_path = project_dir / ".claude" / "settings.json"
+    if not settings_path.exists():
+        return []
+
+    try:
+        with settings_path.open() as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+
+    hooks_top = data.get("hooks")
+    if not isinstance(hooks_top, dict):
+        return []
+
+    duplicates: list[dict] = []
+    for event, block_list in hooks_top.items():
+        if not isinstance(block_list, list):
+            continue
+        by_basename: dict[str, list[str]] = {}
+        for block in block_list:
+            if not isinstance(block, dict):
+                continue
+            inner_hooks = block.get("hooks")
+            if not isinstance(inner_hooks, list):
+                continue
+            for entry in inner_hooks:
+                if not isinstance(entry, dict):
+                    continue
+                command = entry.get("command")
+                if not isinstance(command, str):
+                    continue
+                basename = command.rsplit("/", 1)[-1]
+                by_basename.setdefault(basename, []).append(command)
+
+        for basename, commands in by_basename.items():
+            if len(commands) > 1:
+                duplicates.append(
+                    {"event": event, "basename": basename, "commands": commands}
+                )
+
+    return duplicates
+
+
 def discover(candidate_dirs: list[Path]) -> list[dict]:
     """Scan candidate_dirs and return discovery results.
 
@@ -209,6 +263,7 @@ def discover(candidate_dirs: list[Path]) -> list[dict]:
             "signal2": s2,
             "signal2_value": s2_val,
             "binding": binding,
+            "duplicate_hooks": _check_duplicate_hooks(d),
         })
 
     return results
@@ -262,6 +317,18 @@ def _write_snapshot(results: list[dict], snapshot_path: Path) -> None:
             else:
                 lines.append("- **Signal 2 (pairmode_version):** absent")
             lines.append("")
+
+    lines.append("## Duplicate hook registrations (CER-081)")
+    lines.append("")
+
+    dup_results = [r for r in results if r.get("duplicate_hooks")]
+    if not dup_results:
+        lines.append("_No duplicate hook registrations found._")
+    else:
+        for r in dup_results:
+            events = ", ".join(dh["event"] for dh in r["duplicate_hooks"])
+            lines.append(f"- `{r['path']}` — duplicated events: {events}")
+    lines.append("")
 
     snapshot_path.parent.mkdir(parents=True, exist_ok=True)
     snapshot_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -357,6 +424,12 @@ def cli(
                     click.echo(f"    signal1 (scripts path): {r['signal1_value']}")
                 if r["signal2"]:
                     click.echo(f"    signal2 (pairmode_version): {r['signal2_value']}")
+                if r["duplicate_hooks"]:
+                    events = ", ".join(dh["event"] for dh in r["duplicate_hooks"])
+                    click.echo(f"    DUPLICATE HOOKS: {r['path']} — events: {events}")
+
+        projects_with_duplicates = sum(1 for r in results if r["duplicate_hooks"])
+        click.echo(f"Projects with duplicate hooks: {projects_with_duplicates}")
 
     if not no_snapshot:
         dest = Path(snapshot_path) if snapshot_path else _FLEX_ROOT / "docs" / "fleet-snapshot.md"

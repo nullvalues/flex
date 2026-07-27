@@ -358,6 +358,71 @@ def _find_block_by_command_basename(
     return None
 
 
+def _find_all_entries_by_command_basename(
+    block_list: list[dict], basename: str
+) -> list[tuple[dict, dict]]:
+    """Find every (block, inner-hook-entry) pair whose command's final path
+    segment equals *basename* (e.g. "pre_tool_use.py"), in document order.
+
+    Same full-segment match discipline as _find_block_by_command_basename
+    (``command.rsplit("/", 1)[-1] == basename``, not ``endswith``), but returns
+    every match rather than just the first. Used by _prune_stale_hook_entries
+    to locate all stale same-basename entries across sibling blocks (CER-081)
+    — the state _find_block_by_command_basename's "first match" semantics
+    cannot see once a correct entry already exists alongside a stale one.
+    Returns [] when no entry matches.
+    """
+    matches: list[tuple[dict, dict]] = []
+    for block in block_list:
+        for entry in block.get("hooks", []):
+            command = entry.get("command")
+            if isinstance(command, str) and command.rsplit("/", 1)[-1] == basename:
+                matches.append((block, entry))
+    return matches
+
+
+def _prune_stale_hook_entries(
+    block_list: list[dict], basename: str, keep_command: str
+) -> int:
+    """Remove every inner hook entry in *block_list* whose command basename
+    equals *basename* and whose command is not *keep_command* (CER-081).
+
+    Removes any block left with an empty ``hooks`` list afterward. Mutates
+    *block_list* in place (both call sites hold it via
+    ``hooks_top.setdefault(...)``) and returns the number of entries removed.
+    Never removes an entry whose basename differs from *basename*, and skips
+    non-dict blocks or non-list ``hooks`` values rather than raising — a
+    hand-edited settings file must not crash the registrar.
+    """
+    removed = 0
+    for block in block_list:
+        if not isinstance(block, dict):
+            continue
+        inner_hooks = block.get("hooks")
+        if not isinstance(inner_hooks, list):
+            continue
+        kept: list[dict] = []
+        for entry in inner_hooks:
+            command = entry.get("command") if isinstance(entry, dict) else None
+            if (
+                isinstance(command, str)
+                and command.rsplit("/", 1)[-1] == basename
+                and command != keep_command
+            ):
+                removed += 1
+                continue
+            kept.append(entry)
+        block["hooks"] = kept
+
+    block_list[:] = [
+        block
+        for block in block_list
+        if not (isinstance(block, dict) and isinstance(block.get("hooks"), list) and not block["hooks"])
+    ]
+
+    return removed
+
+
 def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> None:
     """Merge a PreToolUse hook entry into .claude/settings.json.
 
@@ -387,8 +452,15 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
     else:
         data = {}
 
-    hooks_top = data.setdefault("hooks", {})
-    pre_tool_use_list: list[dict] = hooks_top.setdefault("PreToolUse", [])
+    # A hand-edited settings file may hold a malformed "hooks" shape (not a
+    # dict) or event value (not a list). Treat either as absent rather than
+    # crashing (Ensures 10).
+    if not isinstance(data.get("hooks"), dict):
+        data["hooks"] = {}
+    hooks_top = data["hooks"]
+    if not isinstance(hooks_top.get("PreToolUse"), list):
+        hooks_top["PreToolUse"] = []
+    pre_tool_use_list: list[dict] = hooks_top["PreToolUse"]
 
     # Find the block carrying our command, by command — not by matcher string.
     # This finds a legacy "Task" block, a legacy "Task|Agent" block, or an
@@ -427,6 +499,11 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
     )
     if not already_registered:
         inner_hooks.append({"type": "command", "command": command})
+
+    # Remove any stale same-basename sibling entries (CER-081): the correct
+    # entry is guaranteed present above, so pruning here can never leave the
+    # event with zero flex hooks.
+    _prune_stale_hook_entries(pre_tool_use_list, pre_tool_use_path.name, command)
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(
@@ -482,14 +559,21 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
     else:
         data = {}
 
-    hooks_top = data.setdefault("hooks", {})
+    # A hand-edited settings file may hold a malformed "hooks" shape (not a
+    # dict) or event value (not a list). Treat either as absent rather than
+    # crashing (Ensures 10).
+    if not isinstance(data.get("hooks"), dict):
+        data["hooks"] = {}
+    hooks_top = data["hooks"]
 
     for spec in CONTEXT_BUDGET_HOOK_SPECS:
         hook_path = plugin_root / spec["hook_file"]
         command = f"uv run python {hook_path}"
         matcher = spec["matcher"]
 
-        event_list: list[dict] = hooks_top.setdefault(spec["event"], [])
+        if not isinstance(hooks_top.get(spec["event"]), list):
+            hooks_top[spec["event"]] = []
+        event_list: list[dict] = hooks_top[spec["event"]]
 
         # Find the block by command, not by matcher/event alone — see
         # _register_pretooluse_hook for the same discipline. This preserves
@@ -528,6 +612,11 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
         already_registered = any(h.get("command") == command for h in inner_hooks)
         if not already_registered:
             inner_hooks.append({"type": "command", "command": command})
+
+        # Remove any stale same-basename sibling entries for this event
+        # (CER-081). The basename isolates this event's hook from unrelated
+        # sibling blocks (a different basename entirely).
+        _prune_stale_hook_entries(event_list, hook_path.name, command)
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(

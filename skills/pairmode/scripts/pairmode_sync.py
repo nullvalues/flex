@@ -46,6 +46,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import click
 import jinja2
 
+# Sibling-script import, same style as the pairmode_register import below
+# (from pairmode_register import register, unregister, list_projects).
+# audit-hooks reuses bootstrap's dedupe helper rather than re-implementing it.
+from bootstrap import _prune_stale_hook_entries  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -992,6 +997,176 @@ def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# audit-hooks (CER-081) — dry-run/apply audit and cleaner for duplicate hook
+# registrations left behind by pre-INFRA-269 bootstrap runs. Twin of
+# fleet_discovery._check_duplicate_hooks (same {"event", "basename",
+# "commands"} shape); deliberately not imported from/into fleet_discovery.py
+# — a fleet-scanning module and a per-project sync module must not take a
+# dependency on each other for a dozen lines of dict grouping.
+# ---------------------------------------------------------------------------
+
+
+def _audit_duplicate_hooks(settings_path: Path) -> list[dict]:
+    """Return one dict per duplicated (event, command-basename) pair found in
+    *settings_path*'s ``hooks`` section.
+
+    Each dict has keys ``event``, ``basename``, and ``commands`` (the list of
+    full command strings sharing that basename under that event, in document
+    order). Returns ``[]`` when the file is absent, unparseable, or has no
+    duplicates. Read-only — never writes.
+    """
+    if not settings_path.exists():
+        return []
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+
+    hooks_top = data.get("hooks")
+    if not isinstance(hooks_top, dict):
+        return []
+
+    duplicates: list[dict] = []
+    for event, block_list in hooks_top.items():
+        if not isinstance(block_list, list):
+            continue
+        by_basename: dict[str, list[str]] = {}
+        for block in block_list:
+            if not isinstance(block, dict):
+                continue
+            inner_hooks = block.get("hooks")
+            if not isinstance(inner_hooks, list):
+                continue
+            for entry in inner_hooks:
+                if not isinstance(entry, dict):
+                    continue
+                command = entry.get("command")
+                if not isinstance(command, str):
+                    continue
+                basename = command.rsplit("/", 1)[-1]
+                by_basename.setdefault(basename, []).append(command)
+
+        for basename, commands in by_basename.items():
+            if len(commands) > 1:
+                duplicates.append(
+                    {"event": event, "basename": basename, "commands": commands}
+                )
+
+    return duplicates
+
+
+def _resolve_flex_root() -> Path:
+    """Resolve this checkout's plugin root by walking up from this file's own
+    path, past scripts/, pairmode/, skills/ (mirrors bootstrap.py's own
+    plugin_root resolution).
+    """
+    return Path(__file__).resolve().parent.parent.parent.parent
+
+
+@click.command("audit-hooks")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root (defaults to current directory).",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=True,
+    help="Safe-by-default: report duplicates without writing. Pass --apply to write.",
+)
+@click.option(
+    "--apply",
+    is_flag=True,
+    default=False,
+    help="Apply changes to disk. Overrides --dry-run when set.",
+)
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    default=False,
+    help="Suppress confirmation prompts.",
+)
+def audit_hooks(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
+    """Audit .claude/settings.json for duplicate hook registrations (CER-081).
+
+    Without --apply, reports duplicate (event, command-basename) pairs and
+    exits 1 if any are found, 0 if clean — usable as a drift check in a shell
+    conditional. With --apply, removes every duplicate so each (event,
+    command-basename) pair retains exactly one entry, preferring the entry
+    whose command path is under this checkout's plugin root.
+    """
+    project_path = Path(project_dir).resolve()
+    settings_path = project_path / ".claude" / "settings.json"
+
+    if not settings_path.exists():
+        click.echo("no .claude/settings.json found — nothing to audit")
+        sys.exit(0)
+
+    duplicates = _audit_duplicate_hooks(settings_path)
+
+    effective_apply = bool(apply)
+
+    if not duplicates:
+        click.echo("no duplicate hook registrations found")
+        sys.exit(0)
+
+    for dup in duplicates:
+        click.echo(
+            f"DUPLICATE: event={dup['event']} basename={dup['basename']} "
+            f"commands={dup['commands']}"
+        )
+
+    if not effective_apply:
+        sys.exit(1)
+
+    if not yes:
+        confirmed = click.confirm("Apply? [y/N]", default=False, prompt_suffix="")
+        if not confirmed:
+            click.echo("Aborted.")
+            sys.exit(0)
+
+    flex_root = _resolve_flex_root()
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
+    hooks_top = data.get("hooks", {})
+
+    for dup in duplicates:
+        event = dup["event"]
+        basename = dup["basename"]
+        commands = dup["commands"]
+
+        keep_command = None
+        for candidate in commands:
+            # Command strings look like "uv run python <path>"; extract the
+            # path portion for the plugin-root check.
+            path_part = candidate.split(" ", 3)[-1]
+            try:
+                if Path(path_part).resolve().is_relative_to(flex_root):
+                    keep_command = candidate
+                    break
+            except (OSError, ValueError):
+                continue
+        if keep_command is None:
+            keep_command = commands[0]
+
+        block_list = hooks_top.get(event)
+        if isinstance(block_list, list):
+            _prune_stale_hook_entries(block_list, basename, keep_command)
+
+        click.echo(f"kept: {keep_command}")
+        for command in commands:
+            if command != keep_command:
+                click.echo(f"removed: {command}")
+
+    settings_path.write_text(
+        json.dumps(data, indent=2) + "\n", encoding="utf-8"
+    )
+    sys.exit(0)
+
+
+# ---------------------------------------------------------------------------
 # CLI group
 # ---------------------------------------------------------------------------
 
@@ -1004,6 +1179,7 @@ def pairmode_cli() -> None:
 pairmode_cli.add_command(sync_agents)
 pairmode_cli.add_command(sync_build)
 pairmode_cli.add_command(sync_all)
+pairmode_cli.add_command(audit_hooks)
 
 # Register the register/unregister/list-projects commands from pairmode_register.py
 from pairmode_register import register, unregister, list_projects  # noqa: E402
