@@ -127,7 +127,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 103 | Worktree and story-stub friction remediation (CER-090, CER-092) | complete | [phase-103.md](phase-103.md) |
 | 104 | Recording and checkpoint correctness | complete | [phase-104.md](phase-104.md) |
 | 109 | Single-orchestrator parallel build concurrency (index-ordered after 104 — scaffolded 2026-07-25, builds before 105) | complete | [phase-109.md](phase-109.md) |
-| 105 | Campaign preflight: hooks, discovery, scope-guard, channel canon | planned | [phase-105.md](phase-105.md) |
+| 105 | Campaign preflight: hooks, discovery, scope-guard, channel canon | complete | [phase-105.md](phase-105.md) |
 | 106 | Fleet migration campaign (driven from flex) | planned | [phase-106.md](phase-106.md) |
 | 107 | CER backlog drain to zero | planned | [phase-107.md](phase-107.md) |
 | 108 | Era 003 close (gated on observability delivery) | planned | [phase-108.md](phase-108.md) |
