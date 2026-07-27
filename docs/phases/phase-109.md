@@ -71,4 +71,50 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-109 Cold-eyes checklist
 
-— developer fills in after phase completion —
+Filled by the orchestrator at cp-109 (2026-07-27).
+
+- **CER-095 closed, all four items (INFRA-280..283):** (1) the resolver now reads
+  `.pairmode-worktrees/` as an in-flight claim (`flex_build.claimed_story_ids`,
+  opt-in `claimed=` filter in `find_next_story`, `await-user`/`all-stories-claimed`
+  ahead of Row 9); (2) `current_story` became a story-keyed `current_stories`
+  record with per-call `scope_guard.resolve_call_story` resolution that refuses to
+  guess on ambiguity — landing one story no longer wipes a sibling's scope
+  enforcement; (3) the attempt counter is story-keyed with scoped clears (merge
+  clears only its own key, discard clears nothing so the count survives to
+  escalate); (4) checkpoint step state is phase-keyed (`checkpoint_steps`), with
+  the flat pair kept as a derived mirror and the CER-083 stale-stamp rule demoted
+  to the legacy-only path.
+- **CER-096 closed (INFRA-284):** WAL + busy_timeout via a single `_connect`,
+  per-process `ensure_db` cache, atomic `BEGIN IMMEDIATE` write-side
+  attempt-number derivation, and a two-ended ownership-filtered reconcile sweep.
+- **CER-097 closed (INFRA-285):** session-keyed `context_sessions` accounting
+  (flat keys as display-only mirror), session-resolved `context_budget.decide`,
+  sweep ownership exclusion, and a bounded (2s) advisory fail-open
+  `state_utils.state_lock` adopted by every named `state.json` writer. Explicitly
+  NOT a multi-orchestrator guarantee — the row and architecture.md both say so.
+- **CER-098 closed (INFRA-286):** return-code-checked `_teardown_story_worktree`
+  shared by merge/discard with deliberate clear-vs-residue ordering asymmetry,
+  `recovery:`-prefixed failed-land blocks with exact re-run commands, and a
+  bounded `.companion/merge` advisory lock around both critical sections;
+  CER-050's "concurrent writers are not expected" doctrine amended.
+- **Builder deviations adjudicated at review (all upheld):** INFRA-281's
+  worktree-path directory-existence requirement (closes a self-corroborating
+  path-impersonation bypass); INFRA-285's ring-buffer pin
+  (`setdefault(context_step_growth_samples, [])` prevents cross-session mirror
+  re-inheritance), session_start no-op skip preserving INFRA-175 byte-identity,
+  and two CER-096 source-assertion tests rewritten per INFRA-284's own deferral
+  note; INFRA-286's D5 grep discrepancy traced to the pre-existing CER-097 row.
+- **Gates:** security PASS (0 findings at any severity; informational notes on
+  the advisory lock's bounded/fail-open design and parameterized SQL). Intent
+  ALIGNED (all seven stories trace to spec; no scope creep; downstream note for
+  Phase 105's INFRA-271 spec-writer to read the new keyed scope-guard model).
+  Docs PASS on second run (first run failed on a missing CHANGELOG entry, added
+  at checkpoint as `docs(phase-109)`).
+- **Known process gaps this checkpoint:** story statuses were flipped
+  post-merge by the orchestrator (no worker in the loop owns the flip — same as
+  cp-104); one MEDIUM reviewer finding on INFRA-285
+  (`test_post_tool_use_hook.py` modified but undeclared in `touches`).
+- **New backlog from this phase:** CER-101 (checkpoint-report reads "no attempts
+  recorded" for a fully-built phase because spawn rows were still pending
+  reconciliation, and the sweep and `classify_pending_reason` disagree about
+  reconcilability of the same rows).
