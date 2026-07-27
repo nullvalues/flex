@@ -639,6 +639,16 @@ $ uv run pytest tests/pairmode/ -q
    proving cycle must run in a native meander session, or the recorder must key on
    the spawn's target project. Operator decision needed before RELEASE-064..070.
 
+9. **Legacy `settings.local.json` permission sediment survives migration and floods
+   the first post-migration session with warnings.** meander carried 133 accumulated
+   allow rules (42 stale `Write(path)` — now warned dead by Claude Code, 49 per-file
+   `Edit(path)`, obsolete under 0.3 story-scoped permissions). sync-all correctly does
+   not touch `settings.local.json`, so the operator's first native session opened with
+   a wall of warnings. Operator chose prune: all 91 Write()/Edit() rules removed
+   post-migration (backup retained). Campaign implication: add a settings.local.json
+   hygiene step to the per-project mechanic — the other 0.2-era projects will have
+   the same sediment.
+
 ### Follow-ups filed, not fixed here (E11)
 
 - **CER follow-up (to file): effort-recording attribution** — hook records attempt rows
@@ -650,7 +660,8 @@ $ uv run pytest tests/pairmode/ -q
   parses the spawn prompt loosely).
 - **Runbook amendments (to file)**: fix step-5 command form; add dirty-tree
   precondition step; reorder step-6 commit before the proving cycle for 0.3.0
-  worktree loops; document the state.json.lock artifact and agent-cleanup noise.
+  worktree loops; document the state.json.lock artifact and agent-cleanup noise; add a
+  settings.local.json hygiene step (prune legacy Write()/per-file Edit() rules).
 
 **Campaign gate (Instructions step 8): E6 FAILED. RELEASE-064..070 are BLOCKED
 pending operator decision on Playbook note 8.**
