@@ -665,9 +665,28 @@ def _is_stale(state: dict) -> bool:
     return recorded_dt < reset_dt
 
 
+def _import_session_state():
+    """Import ``session_state`` under either import style.
+
+    Imported lazily from inside :func:`decide` (rather than at module scope) to
+    keep ``context_budget``'s import cost exactly where it is — this module is
+    imported on the PreToolUse hook path.
+    """
+    try:
+        from skills.pairmode.scripts import session_state  # type: ignore
+
+        return session_state
+    except ImportError:
+        import session_state  # type: ignore[no-redef]
+
+        return session_state
+
+
 def decide(
     project_dir: Path,
     flex_factor: float = 1.0,
+    *,
+    session_id: "str | None" = None,
 ) -> "dict | None":
     """End-to-end glue. Reads ``state["context_current_tokens"]`` from state.json
     (written by ``post_tool_use.py`` after each Task/Agent completion, or by the
@@ -685,6 +704,17 @@ def decide(
     ``ceiling = threshold * (1 + overrun_pct) * flex_factor``.
     Values <= 0 are clamped to 1.0; values > 5.0 are clamped to 5.0.
     The default of 1.0 preserves the pre-INFRA-160 behaviour exactly.
+
+    ``session_id`` (INFRA-285 / CER-097) resolves the read through the calling
+    session's own ``context_sessions`` record rather than the flat, project-
+    global mirror. When it is falsy, behaviour is byte-for-byte what it was
+    before that story — a single-session project is unaffected. When it is
+    truthy but the session has **no** ``context_sessions`` entry and at least
+    one *other* entry is live, this returns the existing CONTEXT CHECK REQUIRED
+    block rather than reading the mirror: the mirror at that moment holds some
+    other session's window, and gating this session's spawn against a window it
+    is not in is precisely the under-blocking CER-097 reported. No new block
+    reason string is introduced — the operator remedy is unchanged.
 
     The caller (the hook) is responsible for writing ``acknowledged_at`` back
     to state.json when blocking. ``post_tool_use.py`` is the sole writer of
@@ -730,6 +760,22 @@ def decide(
                 "acknowledged_at": 0,
             }
         return None
+
+    # INFRA-285 (CER-097): resolve through this session's own keyed record.
+    if session_id:
+        session_state = _import_session_state()
+        sessions = state.get(session_state.CONTEXT_SESSIONS_KEY)
+        if isinstance(sessions, dict) and session_id not in sessions:
+            # Unregistered session with live siblings: the flat mirror belongs
+            # to someone else's window. Fail safe rather than gate against it.
+            if session_state.live_session_ids(state, exclude=session_id):
+                return {
+                    "block": True,
+                    "reason": _CONTEXT_CHECK_REQUIRED_MSG,
+                    "tokens": 0,
+                    "acknowledged_at": 0,
+                }
+        state = session_state.session_view(state, session_id)
 
     # Read context_current_tokens directly (bypass TTL; session-reset check below).
     current_tokens: int | None = None

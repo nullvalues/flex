@@ -303,6 +303,49 @@ still a caller error the rule exists to prevent.
    interleaved read-modify-write calls — a genuine advisory lock across `.companion/` writers is
    deferred to INFRA-285 (CER-097) rather than being pre-empted here with a second, competing
    locking scheme.
+   **INFRA-285 (CER-097):** the context-budget accounting is the fourth structure this era
+   keys, and the deferred lock above now exists. `state.json["context_sessions"][<session_id>]`
+   holds `context_current_tokens`, `context_current_tokens_recorded_at`,
+   `context_session_reset_at`, `context_step_growth_samples` and `expected_step_tokens`
+   (`session_state.SESSION_SCOPED_KEYS`) plus that session's `spawn_output_prefix` and a
+   `last_seen_at` stamp; the flat top-level copies of those five keys survive as a
+   **derived mirror**, written in the same read-modify-write and never consulted to *gate*
+   once a keyed record exists. The mirror is kept for exactly two readers that have no
+   session id to resolve against — `skills/observability/api/src/routes/context.ts` and any
+   CLI reader invoked outside a session — and re-keying them is OBS-rail work. `decide()`
+   resolves through `session_state.session_view()` when the PreToolUse hook passes its
+   `session_id`, and fails safe with the existing CONTEXT CHECK REQUIRED block (no new reason
+   string) when that session is unregistered while another entry is live within
+   `SESSION_LIVE_TTL_MINUTES` (180 — deliberately not `context_budget`'s 60-minute token
+   staleness TTL: one asks "is this number trustworthy?", the other "might that process still
+   be running?"). A pre-INFRA-285 state file reads correctly and is upgraded on its next
+   write; there is no migration step.
+   Sweep ownership is filtered in **opposite directions at the two call sites, on purpose.**
+   `record_attempt_from_transcript`'s PostToolUse sweep runs inside a session that just
+   spawned, so it passes that session's own stored `spawn_output_prefix` as
+   `pending_reconcilable(output_prefix=...)` — an inclusive "only my rows" filter, and the
+   cheapest correct query. `hooks/session_start.py`'s sweep instead passes
+   `exclude_output_prefixes=session_state.other_live_session_prefixes(...)`: its whole reason
+   for existing (INFRA-258) is collecting orphan rows left by sessions that have since died,
+   and an inclusive filter there would strand every one of them. Both filters reach both ends
+   of INFRA-284's two-ended cursor, so the anti-starvation oldest-first query cannot route
+   around an exclusion. This is also what stops a side session's SessionStart from bumping
+   `attempt_counter.json` for a story the build loop is actively building — the row is never
+   reached, so `_story_accepts_late_bump` (which cannot tell "live elsewhere" from "live
+   here") never needs to.
+   `state_utils.state_lock(path)` is the advisory lock, and `state_utils.update_state_json`
+   the single locked read-modify-write helper every `state.json` writer now routes through
+   (`user_turn_seq`, `sync`, `story_context`, and all three hooks; `phase_new` and
+   `story_update`'s markdown rewrites use the sibling `_atomic_write_text`). It is
+   **advisory, bounded and fail-open** by design, because "hooks are thin relays only"
+   (`docs/ideology.md` § Accepted constraints, no override permitted) forbids unbounded
+   blocking on the hook path: a non-blocking `flock(LOCK_EX|LOCK_NB)` poll loop bounded at
+   `STATE_LOCK_TIMEOUT_SECONDS` (2 s), yielding anyway on timeout, on a missing `fcntl`, or
+   on any `OSError`. It therefore **reduces but does not eliminate** lost-update risk, and it
+   does not make the system safe for two competing build loops — multi-orchestrator operation
+   remains out of scope (`docs/phases/phase-109.md` § Scope statement). Making it "reliable"
+   (retry-until-success, a lock daemon, contention telemetry) would be a regression, trading a
+   rare lost update for a common session stall.
    The `pre_tool_use.py` hook enforces the declared scope via `scope_guard.py` on
    every Edit/Write call during the builder session, including when the spawn's cwd is the
    story's worktree (`.pairmode-worktrees/<story_id>/`): `scope_guard._normalise()` strips a

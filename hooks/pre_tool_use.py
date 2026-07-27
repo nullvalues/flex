@@ -53,7 +53,7 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN_ROOT / "skills" / "pairmode" / "scripts"))
 
-from state_utils import _atomic_write_json  # noqa: E402
+from state_utils import update_state_json  # noqa: E402
 
 # Build-cycle subagent types the context-budget gate governs (INFRA-199).
 # The gate models context growth across the pairmode build loop only; a
@@ -123,7 +123,15 @@ def main():
 
             project_dir = Path(data.get("cwd") or ".")
             flex_factor = _resolve_flex_factor(project_dir)
-            result = context_budget.decide(project_dir=project_dir, flex_factor=flex_factor)
+            # INFRA-285 (CER-097): pass this session's id so the gate resolves
+            # context_current_tokens through the session's own
+            # context_sessions entry, not the project-global flat mirror a
+            # concurrent side session may have last written.
+            result = context_budget.decide(
+                project_dir=project_dir,
+                flex_factor=flex_factor,
+                session_id=data.get("session_id"),
+            )
         except Exception:
             sys.exit(0)
 
@@ -138,16 +146,23 @@ def main():
             # margin, at which point starting a fresh acknowledgment cycle
             # at the new level/turn is the correct INFRA-193 contract, not a
             # bug. See skills/pairmode/scripts/context_budget.py::should_block.
+            #
+            # INFRA-285 (CER-097, item E4): the read-modify-write runs under
+            # the advisory state lock via update_state_json. The two
+            # acknowledgment keys are deliberately NOT session-scoped — the
+            # acknowledgment is a project-level operator decision, and the
+            # gate compares user_turn_seq ordinally against it.
             try:
                 state_path = project_dir / ".companion" / "state.json"
-                if state_path.exists():
-                    state = json.loads(state_path.read_text())
+
+                def _mutate(state):
                     state["context_budget_acknowledged_at"] = result["acknowledged_at"]
                     if "user_turn_seq_at_block" in result:
                         state["context_budget_acknowledged_user_turn_seq"] = result[
                             "user_turn_seq_at_block"
                         ]
-                    _atomic_write_json(state_path, state)
+
+                update_state_json(state_path, _mutate)
             except Exception:
                 pass
             print(json.dumps({"decision": "block", "reason": result["reason"]}))

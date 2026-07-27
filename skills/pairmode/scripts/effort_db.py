@@ -715,6 +715,7 @@ def pending_reconcilable(
     *,
     max_age_days: "int | None" = None,
     output_prefix: "str | None" = None,
+    exclude_output_prefixes: "tuple[str, ...] | list[str] | None" = None,
     order: str = "newest",
 ) -> list[dict]:
     """Return up to *limit* rows still awaiting reconciliation (INFRA-258,
@@ -750,6 +751,27 @@ def pending_reconcilable(
     ownership filter" — byte-identical to pre-CER-096 behaviour. Deriving a
     real session-scoped prefix is INFRA-285's (CER-097's) job; this
     function only exposes the mechanism.
+
+    *exclude_output_prefixes* (CER-097, item D3) is the opposite filter, and the
+    two may be supplied together. Each non-empty string member contributes
+    ``AND (output_file IS NULL OR output_file NOT LIKE ? ESCAPE '\\')`` with
+    ``_escape_like_prefix(prefix) + '%'`` bound as a parameter — never
+    interpolated into the query text, and escaped through the same single
+    routine as the inclusive filter so the two can never disagree about what a
+    literal ``%`` means. ``None``, an empty sequence, and non-string members are
+    ignored rather than errors.
+
+    The ``output_file IS NULL OR`` disjunct is required, not defensive:
+    ``NOT LIKE`` against a ``NULL`` yields ``NULL``, which SQLite treats as
+    false, so without it every row whose ``output_file`` has not been set yet
+    would be silently dropped from the sweep.
+
+    The two directions exist because the two call sites own different things:
+    ``record_attempt_from_transcript``'s PostToolUse sweep runs *inside* a
+    session that just spawned, where an inclusive own-prefix filter is correct
+    and cheapest; ``hooks/session_start.py``'s sweep must still collect orphan
+    rows from *dead* sessions (the rows INFRA-258 built it for) and so can only
+    exclude the live ones.
 
     *order* (CER-096, item D2) selects ``"newest"`` (``ORDER BY id DESC``,
     the default and pre-CER-096 behaviour) or ``"oldest"``
@@ -793,6 +815,15 @@ def pending_reconcilable(
         if use_prefix:
             where_fragments.append("output_file LIKE ? || '%' ESCAPE '\\'")
             params.append(_escape_like_prefix(output_prefix))
+
+        if isinstance(exclude_output_prefixes, (tuple, list)):
+            for excluded in exclude_output_prefixes:
+                if not isinstance(excluded, str) or excluded == "":
+                    continue
+                where_fragments.append(
+                    "(output_file IS NULL OR output_file NOT LIKE ? ESCAPE '\\')"
+                )
+                params.append(_escape_like_prefix(excluded) + "%")
 
         order_clause = _PENDING_ORDER_CLAUSES.get(order, _PENDING_ORDER_CLAUSES["newest"])
         where_sql = " AND ".join(where_fragments)

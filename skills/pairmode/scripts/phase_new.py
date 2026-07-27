@@ -21,6 +21,7 @@ import click
 import jinja2
 
 from schema_validator import _parse_frontmatter, VALID_PHASE_CLASSES, DEFAULT_PHASE_CLASS
+from state_utils import _atomic_write_text
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -198,7 +199,9 @@ def _update_era_phases_table(project_dir: Path, era_id: str, phase_key: str, pha
                 new_lines.append("\n")
             new_lines.append(row + "\n")
 
-    target_file.write_text("".join(new_lines), encoding="utf-8")
+    # INFRA-285 (CER-097, item E4): whole-file rewrite of a derived document —
+    # a torn write truncates the era phase ledger, it does not lose one row.
+    _atomic_write_text(target_file, "".join(new_lines))
 
 
 def _append_index_row(index_path: Path, phase_key: str, phase_title: str) -> None:
@@ -228,7 +231,8 @@ def _append_index_row(index_path: Path, phase_key: str, phase_title: str) -> Non
             new_lines.append("\n")
         new_lines.append(row + "\n")
 
-    index_path.write_text("".join(new_lines), encoding="utf-8")
+    # INFRA-285 (CER-097, item E4): see _append_phase_row above.
+    _atomic_write_text(index_path, "".join(new_lines))
 
 
 def _create_index(index_path: Path, phase_key: str, phase_title: str, project_name: str = "project") -> None:
@@ -244,7 +248,7 @@ def _create_index(index_path: Path, phase_key: str, phase_title: str, project_na
         }
     ]
     content = tmpl.render(project_name=project_name, phases=phases)
-    index_path.write_text(content, encoding="utf-8")
+    _atomic_write_text(index_path, content)
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +387,7 @@ def phase_new(
         for line in rendered.splitlines()[:20]:
             click.echo(line)
     else:
-        phase_file.write_text(rendered, encoding="utf-8")
+        _atomic_write_text(phase_file, rendered)
         click.echo(f"Created {phase_file.relative_to(project_path)}")
         # Update era Phases table if an active era was found
         if era_id:

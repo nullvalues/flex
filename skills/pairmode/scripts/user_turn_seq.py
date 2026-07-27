@@ -49,7 +49,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
+
+# Allow the flat import below under every invocation style this module has
+# (the hook's own sys.path injection, a direct CLI run, and the package-style
+# ``skills.pairmode.scripts.user_turn_seq`` import used by some tests).
+sys.path.insert(0, str(Path(__file__).parent))
+
+from state_utils import update_state_json  # noqa: E402
 
 
 def compute_fingerprint(data: dict | None) -> str:
@@ -90,7 +98,7 @@ def record_user_turn(project_dir: "str | Path", data: dict | None) -> None:
       untouched.
     - Otherwise, ``context_budget_user_turn_seq`` is incremented by 1
       (treated as 0 when absent or non-numeric) and the new fingerprint is
-      stored, in a single ``write_text()`` call.
+      stored.
 
     Fails open (returns silently, no write) when: ``project_dir`` does not
     contain ``.companion/state.json``; the file is unreadable or malformed;
@@ -99,29 +107,38 @@ def record_user_turn(project_dir: "str | Path", data: dict | None) -> None:
     This function owns the entirety of the read-modify-write for this hook
     (D11 thin-hook contract) — ``hooks/user_prompt_submit.py`` makes exactly
     one call to this function and performs no state.json I/O itself.
+
+    INFRA-285 (CER-097, item E4/E5): the whole read-check-write is one
+    ``state_utils.update_state_json`` call, so it happens under the advisory
+    state lock and persists via atomic replace. The previous shape — a bare
+    bare ``write_text()`` of the entire state dict on every prompt in
+    every session — could tear the file, and because every reader in the system
+    fails open on ``JSONDecodeError`` the observable symptom was not a lost
+    counter but the whole companion state silently reverting to defaults. The
+    idempotency check is expressed as the mutate callback's ``return False``
+    branch rather than an early return, because the decision to write is part
+    of the critical section and cannot be hoisted outside the lock. The
+    fingerprint algorithm and ``compute_fingerprint``'s signature are unchanged
+    (INFRA-248: the counter is only ever compared ordinally).
     """
     try:
         project_dir = Path(project_dir)
         state_path = project_dir / ".companion" / "state.json"
-        if not state_path.exists():
-            return
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        if not isinstance(state, dict):
-            return
-
         fingerprint = compute_fingerprint(data)
-        previous_fingerprint = state.get("context_budget_user_turn_seq_fingerprint")
-        if previous_fingerprint == fingerprint:
-            # Duplicate firing of the same UserPromptSubmit event — skip.
-            return
 
-        current = state.get("context_budget_user_turn_seq", 0)
-        try:
-            current = int(current)
-        except (TypeError, ValueError):
-            current = 0
-        state["context_budget_user_turn_seq"] = current + 1
-        state["context_budget_user_turn_seq_fingerprint"] = fingerprint
-        state_path.write_text(json.dumps(state, indent=2))
+        def _mutate(state: dict) -> "bool | None":
+            if state.get("context_budget_user_turn_seq_fingerprint") == fingerprint:
+                # Duplicate firing of the same UserPromptSubmit event — skip.
+                return False
+            current = state.get("context_budget_user_turn_seq", 0)
+            try:
+                current = int(current)
+            except (TypeError, ValueError):
+                current = 0
+            state["context_budget_user_turn_seq"] = current + 1
+            state["context_budget_user_turn_seq_fingerprint"] = fingerprint
+            return None
+
+        update_state_json(state_path, _mutate)
     except Exception:
         pass

@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import click
 
-from state_utils import _atomic_write_json
+from state_utils import _atomic_write_json, state_lock
 
 # Key under which the story-keyed record of active stories lives in
 # state.json (INFRA-281 / CER-095.2). One story is no longer allowed to
@@ -90,16 +90,21 @@ def set_current_story(
     Returns:
         The updated state dict (also written to disk).
     """
-    state = read_state(companion_dir)
-    entry: dict = {
-        "id": story_id,
-        "set_at": datetime.now(timezone.utc).isoformat(),
-    }
-    if title is not None:
-        entry["title"] = title
-    state.setdefault(CURRENT_STORIES_KEY, {})[story_id] = entry
-    state["current_story"] = entry
-    write_state(companion_dir, state)
+    # INFRA-285 (CER-097, item E4): the read-modify-write runs under the
+    # advisory state lock. INFRA-281 made ``current_stories`` concurrency-
+    # critical — with two worktrees in flight, two `create-story-worktree`
+    # stamps racing here would drop one story's scope enforcement entirely.
+    with state_lock(companion_dir / "state.json"):
+        state = read_state(companion_dir)
+        entry: dict = {
+            "id": story_id,
+            "set_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if title is not None:
+            entry["title"] = title
+        state.setdefault(CURRENT_STORIES_KEY, {})[story_id] = entry
+        state["current_story"] = entry
+        write_state(companion_dir, state)
     return state
 
 
@@ -130,6 +135,17 @@ def clear_current_story(companion_dir: Path, story_id: str | None = None) -> dic
 
     Returns the updated state dict.
     """
+    # INFRA-285 (CER-097, item E4): locked read-modify-write — see
+    # set_current_story. A racing clear here is how a still-building story
+    # silently loses its scope entry.
+    with state_lock(companion_dir / "state.json"):
+        return _clear_current_story_locked(companion_dir, story_id)
+
+
+def _clear_current_story_locked(
+    companion_dir: Path, story_id: str | None
+) -> dict:
+    """Body of :func:`clear_current_story`, executed inside the state lock."""
     state = read_state(companion_dir)
     if story_id is None:
         state.pop(CURRENT_STORIES_KEY, None)

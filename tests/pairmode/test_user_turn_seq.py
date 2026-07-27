@@ -179,3 +179,52 @@ def test_record_user_turn_non_numeric_counter_treated_as_zero(tmp_path):
     user_turn_seq.record_user_turn(tmp_path, {"session_id": "s1", "prompt": "p1"})
     state = _read_state(state_path)
     assert state["context_budget_user_turn_seq"] == 1
+
+
+# ---------------------------------------------------------------------------
+# INFRA-285 (CER-097, item E4) — locked, atomic conversion
+# ---------------------------------------------------------------------------
+
+
+def test_record_user_turn_no_longer_uses_a_bare_write_text():
+    """E4: the non-atomic whole-file write is gone."""
+    source = (
+        REPO_ROOT / "skills" / "pairmode" / "scripts" / "user_turn_seq.py"
+    ).read_text(encoding="utf-8")
+    assert "state_path.write_text" not in source
+    assert "update_state_json(" in source
+
+
+def test_record_user_turn_writes_under_the_advisory_lock(tmp_path, monkeypatch):
+    """E4: the read-check-write happens inside one update_state_json call."""
+    import state_utils
+
+    calls = []
+    real = state_utils.update_state_json
+
+    def _spy(path, mutate):
+        calls.append(str(path))
+        return real(path, mutate)
+
+    monkeypatch.setattr(user_turn_seq, "update_state_json", _spy)
+    _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+    user_turn_seq.record_user_turn(tmp_path, {"session_id": "s1", "prompt": "p1"})
+    assert len(calls) == 1
+    assert calls[0].endswith(".companion/state.json")
+
+
+def test_record_user_turn_persists_atomically_leaving_no_tmp_files(tmp_path):
+    """E4: the atomic-replace contract — no .tmp sibling survives the write."""
+    _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+    user_turn_seq.record_user_turn(tmp_path, {"session_id": "s1", "prompt": "p1"})
+    assert list((tmp_path / ".companion").glob("*.tmp")) == []
+
+
+def test_record_user_turn_duplicate_leaves_the_file_byte_identical(tmp_path):
+    """E4: the `return False` skip path performs no write at all."""
+    state_path = _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+    payload = {"session_id": "s1", "prompt": "same"}
+    user_turn_seq.record_user_turn(tmp_path, payload)
+    before = state_path.read_bytes()
+    user_turn_seq.record_user_turn(tmp_path, payload)
+    assert state_path.read_bytes() == before

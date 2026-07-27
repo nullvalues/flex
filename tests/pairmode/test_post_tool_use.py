@@ -197,3 +197,143 @@ class TestTaskAgentBranchEndToEnd:
         })
         assert result.returncode == 0
         assert result.stdout.strip() == b""
+
+
+# ---------------------------------------------------------------------------
+# INFRA-285 (CER-097) — session-scoped token writer and sweep ownership
+# ---------------------------------------------------------------------------
+
+import os  # noqa: E402
+
+SCRIPTS = REPO_ROOT / "skills" / "pairmode" / "scripts"
+
+
+def _write_transcript(home: Path, project_dir: Path, session_id: str, tokens: int) -> None:
+    cwd_key = str(project_dir.resolve()).replace("/", "-")
+    transcript_dir = home / ".claude" / "projects" / cwd_key
+    transcript_dir.mkdir(parents=True, exist_ok=True)
+    (transcript_dir / f"{session_id}.jsonl").write_text(
+        json.dumps(
+            {
+                "type": "assistant",
+                "isSidechain": False,
+                "message": {
+                    "model": "claude-sonnet-5",
+                    "usage": {
+                        "input_tokens": tokens,
+                        "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 0,
+                        "output_tokens": 1,
+                    },
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _run_task_hook(
+    project_dir: Path, home: Path, session_id: str, *, tool_response=None
+) -> "subprocess.CompletedProcess[bytes]":
+    env = dict(os.environ)
+    env["HOME"] = str(home)
+    return subprocess.run(
+        [sys.executable, str(HOOK_PATH)],
+        input=json.dumps(
+            {
+                "tool_name": "Task",
+                "session_id": session_id,
+                "cwd": str(project_dir),
+                "tool_input": {"subagent_type": "builder", "prompt": "INFRA-285"},
+                "tool_response": tool_response,
+                "tool_use_id": f"toolu_{session_id}",
+            }
+        ).encode(),
+        capture_output=True,
+        cwd=str(project_dir),
+        env=env,
+    )
+
+
+class TestSessionScopedTokenWriter:
+    def test_two_sessions_keep_separate_growth_ring_buffers(self, tmp_path: Path) -> None:
+        """C4: a session's deltas are derived only from its own observations."""
+        _enable_tracking(tmp_path)
+        home = tmp_path / "home"
+
+        # LOOP: 140000 -> 150000 ; SIDE: 30000 -> 45000, interleaved.
+        _write_transcript(home, tmp_path, "LOOP", 140_000)
+        _run_task_hook(tmp_path, home, "LOOP")
+        _write_transcript(home, tmp_path, "SIDE", 30_000)
+        _run_task_hook(tmp_path, home, "SIDE")
+        _write_transcript(home, tmp_path, "LOOP", 150_000)
+        _run_task_hook(tmp_path, home, "LOOP")
+        _write_transcript(home, tmp_path, "SIDE", 45_000)
+        _run_task_hook(tmp_path, home, "SIDE")
+
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        sessions = state["context_sessions"]
+        assert sessions["SIDE"]["context_step_growth_samples"] == [15_000]
+        assert sessions["LOOP"]["context_step_growth_samples"] == [10_000]
+        assert sessions["LOOP"]["context_current_tokens"] == 150_000
+        assert sessions["SIDE"]["context_current_tokens"] == 45_000
+
+    def test_flat_mirror_still_tracks_the_last_writer(self, tmp_path: Path) -> None:
+        """A5: the flat keys remain a display-only, last-writer-wins mirror."""
+        _enable_tracking(tmp_path)
+        home = tmp_path / "home"
+        _write_transcript(home, tmp_path, "SIDE", 33_000)
+        _run_task_hook(tmp_path, home, "SIDE")
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert state["context_current_tokens"] == 33_000
+
+
+class TestSpawnPrefixCapture:
+    def test_prefix_is_stored_inside_the_single_state_write(self, tmp_path: Path) -> None:
+        """D2: the prefix rides inside the write the hook already performs."""
+        _enable_tracking(tmp_path)
+        home = tmp_path / "home"
+        _write_transcript(home, tmp_path, "S1", 40_000)
+        output_file = tmp_path / "spawnroot" / "S1" / "tasks" / "x.output"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text("", encoding="utf-8")
+
+        result = _run_task_hook(
+            tmp_path, home, "S1", tool_response={"output_file": str(output_file)}
+        )
+        assert result.returncode == 0
+
+        entry = json.loads(
+            (tmp_path / ".companion" / "state.json").read_text()
+        )["context_sessions"]["S1"]
+        assert entry["spawn_output_prefix"] == str(tmp_path / "spawnroot" / "S1") + os.sep
+
+    def test_hook_performs_exactly_one_state_write(self) -> None:
+        """D2: no additional state.json write, read, or open() was introduced."""
+        source = HOOK_PATH.read_text(encoding="utf-8")
+        task_branch = source.split('if tool_name in ("Task", "Agent", "SendMessage"):')[1]
+        task_branch = task_branch.split("if tool_name not in WATCHED_TOOLS:")[0]
+        assert task_branch.count("update_state_json(") == 1
+        assert "_atomic_write_json" not in task_branch
+        assert "read_text()" not in task_branch
+        assert "open(" not in task_branch
+
+    def test_second_delegated_call_passes_the_stored_prefix(self) -> None:
+        """D6: the sweep in call 2 is scoped to this session's own rows."""
+        source = HOOK_PATH.read_text(encoding="utf-8")
+        assert "output_prefix=stored_prefix," in source
+        # A None prefix must not become an exclusion (see D6).
+        assert "exclude_output_prefixes" not in source
+
+    def test_first_spawn_of_a_session_sweeps_globally(self, tmp_path: Path) -> None:
+        """D6: with no stored prefix yet, the sweep keeps today's global reach."""
+        _enable_tracking(tmp_path)
+        home = tmp_path / "home"
+        _write_transcript(home, tmp_path, "S1", 40_000)
+        result = _run_task_hook(tmp_path, home, "S1", tool_response=None)
+        assert result.returncode == 0
+        entry = json.loads(
+            (tmp_path / ".companion" / "state.json").read_text()
+        )["context_sessions"]["S1"]
+        assert entry["spawn_output_prefix"] is None

@@ -88,32 +88,76 @@ def main():
 
         # 1. context_current_tokens writer (INFRA-182) — read JSONL, write
         #    fresh count to state.json.
+        #    INFRA-285 (CER-097): the count, its stamp, the step-growth ring
+        #    buffer and expected_step_tokens are read and written through this
+        #    session's own context_sessions entry, so two interleaving sessions
+        #    can no longer mix deltas from two unrelated context windows into
+        #    one buffer. The spawn-output prefix (item D2) is captured inside
+        #    this same read-modify-write — the hook performs exactly one state
+        #    write per invocation, as it did before.
+        stored_prefix = None
         try:
             import context_budget
-            from state_utils import _atomic_write_json
+            import session_state
+            import state_utils
+            from datetime import datetime, timezone
+
             live_tokens = context_budget.read_current_tokens(
                 project_dir=project_dir,
                 session_id=session_id,
             )
-            if live_tokens is not None:
-                from datetime import datetime, timezone
-                state_path = project_dir / ".companion" / "state.json"
-                if state_path.exists():
-                    state = json.loads(state_path.read_text())
-                    previous_tokens = state.get("context_current_tokens")
-                    state["context_current_tokens"] = live_tokens
-                    state["context_current_tokens_recorded_at"] = (
+
+            import subagent_transcript
+            _agent_id, spawn_output = subagent_transcript._extract_spawn_ref(
+                data.get("tool_response")
+            )
+            spawn_prefix = subagent_transcript.session_output_prefix(spawn_output)
+
+            def _mutate(state: dict) -> None:
+                view = session_state.session_view(state, session_id)
+                if live_tokens is not None:
+                    previous_tokens = view.get("context_current_tokens")
+                    view["context_current_tokens"] = live_tokens
+                    view["context_current_tokens_recorded_at"] = (
                         datetime.now(timezone.utc).isoformat()
                     )
                     context_budget.record_step_growth(
-                        state, previous_tokens, live_tokens
+                        view, previous_tokens, live_tokens
                     )
-                    _atomic_write_json(state_path, state)
+                # The ring buffer must become session-owned on this session's
+                # FIRST write, not on its first positive delta. session_view()
+                # inherits any key the session's entry lacks from the flat
+                # mirror (A3) — correct for a cold-start seed, but if the key
+                # were left absent from the entry, the NEXT write would inherit
+                # again from a mirror another session had since advanced, and
+                # the two sessions' deltas would remix. Pinning it here is what
+                # makes C4 hold.
+                view.setdefault(context_budget.CONTEXT_STEP_GROWTH_SAMPLES_KEY, [])
+                session_state.apply_session_view(state, session_id, view)
+                if spawn_prefix and session_id:
+                    entry = state.get(
+                        session_state.CONTEXT_SESSIONS_KEY, {}
+                    ).get(session_id)
+                    if isinstance(entry, dict):
+                        entry["spawn_output_prefix"] = spawn_prefix
+
+            state_path = project_dir / ".companion" / "state.json"
+            updated = state_utils.update_state_json(state_path, _mutate)
+            if isinstance(updated, dict) and session_id:
+                entry = updated.get(session_state.CONTEXT_SESSIONS_KEY, {}).get(
+                    session_id
+                )
+                if isinstance(entry, dict):
+                    stored_prefix = entry.get("spawn_output_prefix")
         except Exception:
             pass
 
         # 2. effort.db attempt-row writer (INFRA-236) — separate metric,
         #    separate store. See module docstring above.
+        #    INFRA-285 (CER-097, item D6): the sweep this call performs is
+        #    scoped to this session's own rows via the prefix stored above. A
+        #    None prefix (first spawn of a session) means "no filter" — today's
+        #    global sweep — never an exclusion, or orphan rows would strand.
         try:
             import subagent_transcript
             subagent_transcript.record_attempt_from_transcript(
@@ -123,6 +167,7 @@ def main():
                 tool_response=data.get("tool_response"),
                 tool_use_id=data.get("tool_use_id"),
                 tool_name=tool_name,
+                output_prefix=stored_prefix,
             )
         except Exception as exc:
             try:

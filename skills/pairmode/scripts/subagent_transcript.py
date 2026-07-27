@@ -639,6 +639,43 @@ def _contained_spawn_output(
         return None
 
 
+def session_output_prefix(output_file: "str | Path | None") -> "str | None":
+    """Return the owning session's spawn-output path prefix, or ``None``.
+
+    INFRA-285 (CER-097, item D1). Claude Code writes an async spawn's output to
+    ``<tmp>/claude-<uid>/<project-slug>/<session-id>/tasks/<hash>.output``, so
+    the path up to and including the parent of the
+    :data:`SPAWN_TASKS_DIR_NAME` component identifies the *session* that
+    produced it — which is what lets one session's effort.db rows be told apart
+    from another's without adding a column::
+
+        /tmp/claude-1000/-mnt-work-flex/abc-123/tasks/x.output
+            -> /tmp/claude-1000/-mnt-work-flex/abc-123/
+
+    The trailing separator matters: without it, a prefix filter for session
+    ``abc-123`` would also match ``abc-1234``.
+
+    Pure. Performs no I/O beyond ``Path.resolve()`` — in particular it does not
+    require the file to exist, because a prefix is derived at spawn time while
+    the output file may still be being written. Returns ``None`` for ``None``,
+    for a path with no ``tasks`` component, and for anything that raises. Never
+    raises.
+    """
+    if output_file is None:
+        return None
+    try:
+        candidate = output_file if isinstance(output_file, Path) else Path(str(output_file))
+        parts = candidate.resolve().parts
+        if SPAWN_TASKS_DIR_NAME not in parts:
+            return None
+        index = parts.index(SPAWN_TASKS_DIR_NAME)
+        if index == 0:
+            return None
+        return str(Path(*parts[:index])) + os.sep
+    except Exception:
+        return None
+
+
 def _is_relative_to(path: Path, root: Path) -> bool:
     """``Path.is_relative_to`` back-port (Python 3.9+ has it natively, but
     guard against older stdlib behaviour differences by implementing it
@@ -1039,6 +1076,7 @@ def reconcile_pending_attempts(
     max_age_days: "int | None" = None,
     tasks_root: "Path | str | None" = None,
     output_prefix: "str | None" = None,
+    exclude_output_prefixes: "tuple[str, ...] | list[str] | None" = None,
 ) -> int:
     """Sweep pending (``tokens_total IS NULL OR outcome IS NULL``) rows and
     reconcile the completed ones (INFRA-258, CER-091; two-ended cursor and
@@ -1081,8 +1119,26 @@ def reconcile_pending_attempts(
     ``hooks/session_start.py`` pass one — production sweep behaviour is
     unchanged except for the two-ended fetch. Deriving a real session-scoped
     prefix (which session a hook belongs to) is INFRA-285's (CER-097's) job;
-    this parameter is not dead code, it is the mechanism INFRA-285 will
-    wire up.
+    that story wires it at the ``record_attempt_from_transcript`` call site via
+    :func:`session_output_prefix`.
+
+    *exclude_output_prefixes* (CER-097, item D4) is likewise forwarded,
+    unchanged, to **both** ``pending_reconcilable`` calls — passing it to the
+    newest-first query alone would let INFRA-284's anti-starvation oldest-first
+    cursor route straight around the exclusion and reach exactly the rows the
+    caller said it must not touch.
+
+    The two ownership filters point in **opposite directions on purpose**, and
+    the asymmetry is the whole design:
+
+    - the PostToolUse sweep (``record_attempt_from_transcript``) runs *inside* a
+      session that just spawned, so an inclusive ``output_prefix`` — "only my
+      own rows" — is both correct and the cheapest possible query;
+    - the SessionStart sweep runs at a moment when the only rows it must not
+      touch are *other live sessions'*. An inclusive filter there would strand
+      every orphan row left by a session that has since died — the exact rows
+      INFRA-258 built this sweep to collect — so it uses
+      ``exclude_output_prefixes`` instead and keeps its global reach.
 
     *tasks_root* (CER-089) is forwarded to every :func:`read_completed_spawn`
     call this sweep makes. Its default (``None``) means "use the default
@@ -1146,6 +1202,7 @@ def reconcile_pending_attempts(
             limit,
             max_age_days=resolved_max_age_days,
             output_prefix=output_prefix,
+            exclude_output_prefixes=exclude_output_prefixes,
             order="newest",
         )
         oldest_rows = effort_db.pending_reconcilable(
@@ -1153,6 +1210,7 @@ def reconcile_pending_attempts(
             RECONCILE_OLDEST_ROWS,
             max_age_days=resolved_max_age_days,
             output_prefix=output_prefix,
+            exclude_output_prefixes=exclude_output_prefixes,
             order="oldest",
         )
         seen_ids = {row["id"] for row in newest_rows}
@@ -1293,6 +1351,7 @@ def record_attempt_from_transcript(
     tool_use_id: "str | None" = None,
     home: "Path | None" = None,
     tool_name: "str | None" = None,
+    output_prefix: "str | None" = None,
 ) -> "int | None":
     """The hook's single delegated call for effort-attempt recording.
 
@@ -1334,6 +1393,15 @@ def record_attempt_from_transcript(
     explains why recording did or did not happen, including when tracking
     is off. *tool_name* (optional, defaults ``None``) is carried through
     only for that log line; it does not affect recording behaviour.
+
+    CER-097 item D6: *output_prefix* (optional) is forwarded to the internal
+    :func:`reconcile_pending_attempts` call so this sweep only reconciles rows
+    belonging to the calling session — the hook passes the
+    ``spawn_output_prefix`` it stored for that session. ``None`` (the default,
+    and the real case on a session's very first spawn, before any prefix has
+    been observed) deliberately means "no filter", i.e. today's global sweep:
+    turning an unknown prefix into an *exclusion* would make that first sweep a
+    no-op and strand orphan rows forever.
     """
     project_path = Path(project_dir) if not isinstance(project_dir, Path) else project_dir
     subagent_type: Any = None
@@ -1389,7 +1457,9 @@ def record_attempt_from_transcript(
         # does zero additional db work. Its own try/except so a sweep
         # failure never prevents the new row from being written.
         try:
-            reconcile_pending_attempts(project_dir=project_path, home=home)
+            reconcile_pending_attempts(
+                project_dir=project_path, home=home, output_prefix=output_prefix
+            )
         except Exception:
             pass
 

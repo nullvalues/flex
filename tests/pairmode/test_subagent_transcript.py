@@ -1905,10 +1905,14 @@ class TestQuiescentReconciliation:
         ).read_text(encoding="utf-8")
         # The only call site inside record_attempt_from_transcript must not
         # pass include_quiescent either (it relies on the default False).
+        # INFRA-285 (CER-097 D6) added `output_prefix=` to that call; the
+        # include_quiescent assertion is what this test is about.
         assert (
-            "reconcile_pending_attempts(project_dir=project_path, home=home)"
-            in subagent_transcript_source
-        )
+            "reconcile_pending_attempts(\n"
+            "                project_dir=project_path, home=home, "
+            "output_prefix=output_prefix\n"
+            "            )"
+        ) in subagent_transcript_source
 
 
 # ---------------------------------------------------------------------------
@@ -2445,15 +2449,168 @@ class TestSweepOwnershipForwarded:
     def test_default_output_prefix_is_none_and_hook_call_sites_pass_none(
         self, tmp_path: Path
     ) -> None:
-        """D5: production behaviour is unchanged — internal call sites and
-        hooks/session_start.py do not pass output_prefix."""
+        """D5: the inclusive ``output_prefix`` filter still defaults to None,
+        and ``hooks/session_start.py`` still does not use it.
+
+        INFRA-285 (CER-097, item D5) superseded the second half of CER-096's
+        original assertion: the SessionStart sweep is now scoped, but by
+        *exclusion* (``exclude_output_prefixes``), never by the inclusive
+        filter — an inclusive filter there would strand every orphan row left
+        by a dead session, which is the sweep's entire reason for existing.
+        """
         import inspect
+        import re
 
         sig = inspect.signature(st.reconcile_pending_attempts)
         assert sig.parameters["output_prefix"].default is None
+        assert sig.parameters["exclude_output_prefixes"].default is None
 
         hook_source = (
             Path(__file__).resolve().parent.parent.parent
             / "hooks" / "session_start.py"
         ).read_text(encoding="utf-8")
-        assert "output_prefix" not in hook_source
+        # No inclusive `output_prefix=` keyword anywhere in the hook...
+        assert not re.search(r"(?<!_)output_prefix\s*=", hook_source)
+        # ...but the exclusion filter is wired.
+        assert "exclude_output_prefixes=" in hook_source
+
+
+# ---------------------------------------------------------------------------
+# CER-097, item D4/D6: sweep-exclusion threading and per-session ownership
+# ---------------------------------------------------------------------------
+
+
+class TestSweepExclusionForwarded:
+    def test_exclusion_reaches_both_pending_queries(self, tmp_path: Path) -> None:
+        """D4: the anti-starvation oldest-first cursor cannot route around it."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+        effort_db.init_db(project_dir / ".companion" / "effort.db")
+
+        seen = []
+        real = effort_db.pending_reconcilable
+
+        def _capturing(*args, **kwargs):
+            seen.append((kwargs.get("order"), kwargs.get("exclude_output_prefixes")))
+            return real(*args, **kwargs)
+
+        with patch.object(effort_db, "pending_reconcilable", side_effect=_capturing):
+            st.reconcile_pending_attempts(
+                project_dir=project_dir,
+                exclude_output_prefixes=("/tmp/other-session/",),
+            )
+
+        assert seen == [
+            ("newest", ("/tmp/other-session/",)),
+            ("oldest", ("/tmp/other-session/",)),
+        ]
+
+    def test_default_is_none_and_docstring_states_the_asymmetry(self) -> None:
+        import inspect
+
+        sig = inspect.signature(st.reconcile_pending_attempts)
+        assert sig.parameters["exclude_output_prefixes"].default is None
+        doc = st.reconcile_pending_attempts.__doc__ or ""
+        assert "opposite directions" in doc
+
+    def test_excluded_rows_are_left_pending(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-810",
+            agent_role="reviewer",
+            attempt_number=1,
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+        )
+        output_file = tmp_path / "sessB" / "tasks" / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "REVIEW-RESULT", "verdict": "PASS",
+                        "findings": [], "reason": "ok",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", str(output_file))
+
+        reconciled = st.reconcile_pending_attempts(
+            project_dir=project_dir,
+            exclude_output_prefixes=(str(tmp_path / "sessB") + os.sep,),
+        )
+        assert reconciled == 0
+        assert effort_db.query_by_story(db_path, "INFRA-810")[0]["outcome"] is None
+
+        # Without the exclusion, the same row reconciles.
+        assert st.reconcile_pending_attempts(project_dir=project_dir) == 1
+
+
+class TestRecordAttemptSweepOwnership:
+    def test_output_prefix_is_forwarded_to_the_internal_sweep(
+        self, tmp_path: Path
+    ) -> None:
+        """D6: record_attempt_from_transcript scopes its sweep to one session."""
+        import inspect
+
+        sig = inspect.signature(st.record_attempt_from_transcript)
+        assert sig.parameters["output_prefix"].default is None
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        seen = []
+        real = st.reconcile_pending_attempts
+
+        def _capturing(**kwargs):
+            seen.append(kwargs.get("output_prefix"))
+            return real(**kwargs)
+
+        with patch.object(st, "reconcile_pending_attempts", side_effect=_capturing):
+            st.record_attempt_from_transcript(
+                project_dir=project_dir,
+                session_id="S1",
+                tool_input={"subagent_type": "builder", "prompt": "INFRA-811"},
+                tool_response=None,
+                tool_use_id="toolu_1",
+                output_prefix="/tmp/session-one/",
+            )
+
+        assert seen == ["/tmp/session-one/"]
+
+    def test_none_prefix_means_no_filter_not_an_exclusion(
+        self, tmp_path: Path
+    ) -> None:
+        """D6: a session's first spawn legitimately sweeps globally."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        seen = []
+        real = st.reconcile_pending_attempts
+
+        def _capturing(**kwargs):
+            seen.append(
+                (kwargs.get("output_prefix"), kwargs.get("exclude_output_prefixes"))
+            )
+            return real(**kwargs)
+
+        with patch.object(st, "reconcile_pending_attempts", side_effect=_capturing):
+            st.record_attempt_from_transcript(
+                project_dir=project_dir,
+                session_id="S1",
+                tool_input={"subagent_type": "builder", "prompt": "INFRA-812"},
+                tool_response=None,
+                tool_use_id="toolu_1",
+            )
+
+        assert seen == [(None, None)]

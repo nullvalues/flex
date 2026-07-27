@@ -35,6 +35,10 @@ from skills.pairmode.scripts.audit import (  # noqa: E402
 )
 from skills.pairmode.scripts._version import PAIRMODE_VERSION  # noqa: E402
 from skills.pairmode.scripts.context_model import THIN_HARNESS_STEP_TOKENS
+from skills.pairmode.scripts.state_utils import (  # noqa: E402
+    _atomic_write_json,
+    state_lock,
+)
 from skills.pairmode.scripts.bootstrap import (  # noqa: E402
     DEFAULT_DENY,
     PAIRMODE_DEFAULT_RAILS,
@@ -623,31 +627,39 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
     _prune_superseded_deny_entries(settings_path, _SUPERSEDED_DENY_ENTRIES)
 
     # Update .companion/state.json
+    #
+    # INFRA-285 (CER-097, item E4): the read-merge-write runs under the advisory
+    # state lock and persists via atomic replace. Sync is a whole-file rewrite
+    # of state.json that deliberately preserves every key it does not own, so a
+    # concurrent hook write landing between the read and the write would be
+    # silently discarded — and a torn write would revert the entire companion
+    # state to defaults.
     state_path = project_dir / ".companion" / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
 
-    existing_state: dict = {}
-    if state_path.exists():
-        try:
-            existing_state = json.loads(state_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            existing_state = {}
+    with state_lock(state_path):
+        existing_state: dict = {}
+        if state_path.exists():
+            try:
+                existing_state = json.loads(state_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                existing_state = {}
 
-    # Merge — do not overwrite other fields
-    existing_state["pairmode_version"] = result.pairmode_version
-    existing_state["last_sync"] = result.last_sync
-    existing_state["lessons_applied"] = result.lessons_applied
+        # Merge — do not overwrite other fields
+        existing_state["pairmode_version"] = result.pairmode_version
+        existing_state["last_sync"] = result.last_sync
+        existing_state["lessons_applied"] = result.lessons_applied
 
-    # Seed context budget defaults when absent (INFRA-133)
-    for key, default in [
-        ("context_budget_threshold", 120000),
-        ("context_budget_overrun_pct", 0.10),
-        ("expected_step_tokens", THIN_HARNESS_STEP_TOKENS),
-        ("context_budget_reprompt_margin", 10000),
-    ]:
-        existing_state.setdefault(key, default)
+        # Seed context budget defaults when absent (INFRA-133)
+        for key, default in [
+            ("context_budget_threshold", 120000),
+            ("context_budget_overrun_pct", 0.10),
+            ("expected_step_tokens", THIN_HARNESS_STEP_TOKENS),
+            ("context_budget_reprompt_margin", 10000),
+        ]:
+            existing_state.setdefault(key, default)
 
-    state_path.write_text(json.dumps(existing_state, indent=2), encoding="utf-8")
+        _atomic_write_json(state_path, existing_state)
 
     return result
 

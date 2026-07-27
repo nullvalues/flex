@@ -125,7 +125,10 @@ class TestGrowthRecordingEndToEnd:
 
         state = json.loads(state_path.read_text())
         assert state["context_current_tokens"] == 50_000
-        assert "context_step_growth_samples" not in state
+        # INFRA-285 (CER-097 C4): the ring buffer is pinned into this session's
+        # entry on its FIRST write so a later write cannot re-inherit another
+        # session's mirror. No SAMPLE was recorded — the buffer is empty.
+        assert state["context_step_growth_samples"] == []
         assert state["expected_step_tokens"] == 5_000  # THIN_HARNESS_STEP_TOKENS default
 
     def test_second_observation_appends_growth_sample(self, tmp_path: Path) -> None:
@@ -165,7 +168,8 @@ class TestGrowthRecordingEndToEnd:
         assert result.returncode == 0
 
         state = json.loads(state_path.read_text())
-        assert "context_step_growth_samples" not in state
+        # INFRA-285 (CER-097 C4): key pinned, but no sample appended.
+        assert state["context_step_growth_samples"] == []
 
     def test_never_blocks_and_never_touches_effort_db_write(self, tmp_path: Path) -> None:
         """Growth recording never blocks the hook and never interferes with

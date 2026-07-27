@@ -1541,3 +1541,102 @@ class TestPendingReconcilableOrder:
 
         rows = effort_db.pending_reconcilable(db_path, 10, order="sideways")
         assert [r["id"] for r in rows] == list(reversed(ids))
+
+
+# ---------------------------------------------------------------------------
+# CER-097, item D3: sweep exclusion (exclude_output_prefixes)
+# ---------------------------------------------------------------------------
+
+
+class TestPendingReconcilableExclusion:
+    def _seed_two_rows(self, db_path: Path) -> "tuple[int, int]":
+        effort_db.init_db(db_path)
+        row_a = effort_db.insert_attempt(db_path, **_required_fields(story_id="INFRA-800"))
+        effort_db.set_spawn_ref(db_path, row_a, "a1", "/tmp/session-alpha/out1.output")
+        row_b = effort_db.insert_attempt(db_path, **_required_fields(story_id="INFRA-801"))
+        effort_db.set_spawn_ref(db_path, row_b, "a2", "/tmp/session-beta/out2.output")
+        return row_a, row_b
+
+    def test_excluded_prefix_drops_only_that_row(self, db_path: Path) -> None:
+        row_a, row_b = self._seed_two_rows(db_path)
+        rows = effort_db.pending_reconcilable(
+            db_path, 10, exclude_output_prefixes=("/tmp/session-beta/",)
+        )
+        assert [r["id"] for r in rows] == [row_a]
+
+    def test_multiple_exclusions_are_all_applied(self, db_path: Path) -> None:
+        self._seed_two_rows(db_path)
+        rows = effort_db.pending_reconcilable(
+            db_path,
+            10,
+            exclude_output_prefixes=["/tmp/session-alpha/", "/tmp/session-beta/"],
+        )
+        assert rows == []
+
+    def test_none_empty_and_non_string_members_are_ignored(self, db_path: Path) -> None:
+        row_a, row_b = self._seed_two_rows(db_path)
+        for bad in (None, (), [], ("",), (123, None), "a string, not a sequence"):
+            rows = effort_db.pending_reconcilable(
+                db_path, 10, exclude_output_prefixes=bad
+            )
+            assert {r["id"] for r in rows} == {row_a, row_b}, bad
+
+    def test_percent_in_excluded_prefix_is_escaped(self, db_path: Path) -> None:
+        """D3: a literal '%' must never widen an exclusion into a blanket drop."""
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path, **_required_fields(story_id="INFRA-802")
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", "/tmp/weird%dir/out.output")
+
+        # A non-matching prefix containing '%' must not drop the row.
+        rows = effort_db.pending_reconcilable(
+            db_path, 10, exclude_output_prefixes=("/tmp/other%dir/",)
+        )
+        assert [r["id"] for r in rows] == [row_id]
+
+        # The exact literal prefix does drop it.
+        rows = effort_db.pending_reconcilable(
+            db_path, 10, exclude_output_prefixes=("/tmp/weird%dir/",)
+        )
+        assert rows == []
+
+    def test_both_filters_may_be_supplied_together(self, db_path: Path) -> None:
+        row_a, _row_b = self._seed_two_rows(db_path)
+        rows = effort_db.pending_reconcilable(
+            db_path,
+            10,
+            output_prefix="/tmp/session-",
+            exclude_output_prefixes=("/tmp/session-beta/",),
+        )
+        assert [r["id"] for r in rows] == [row_a]
+
+    def test_order_and_max_age_still_work_alongside_exclusion(
+        self, db_path: Path
+    ) -> None:
+        row_a, _row_b = self._seed_two_rows(db_path)
+        rows = effort_db.pending_reconcilable(
+            db_path,
+            10,
+            max_age_days=None,
+            exclude_output_prefixes=("/tmp/session-beta/",),
+            order="oldest",
+        )
+        assert [r["id"] for r in rows] == [row_a]
+
+    def test_never_raises_on_a_missing_database(self, tmp_path: Path) -> None:
+        missing = tmp_path / ".companion" / "nope.db"
+        assert (
+            effort_db.pending_reconcilable(
+                missing, 10, exclude_output_prefixes=("/tmp/x/",)
+            )
+            == []
+        )
+
+    def test_sql_is_parameterised_not_interpolated(self, db_path: Path) -> None:
+        """D3: the prefix is bound, never formatted into the query text."""
+        row_a, row_b = self._seed_two_rows(db_path)
+        rows = effort_db.pending_reconcilable(
+            db_path, 10, exclude_output_prefixes=("' OR 1=1 --",)
+        )
+        assert {r["id"] for r in rows} == {row_a, row_b}

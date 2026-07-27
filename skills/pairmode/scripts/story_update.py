@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import click
 
 from schema_validator import _parse_frontmatter
+from state_utils import _atomic_write_text
 
 # ---------------------------------------------------------------------------
 # Story ID parsing
@@ -108,7 +109,9 @@ def update_story_status(story_id: str, project_dir: Path, status: str) -> Path:
         # No frontmatter — just write the file as-is (no-op)
         new_text = text
 
-    story_path.write_text(new_text, encoding="utf-8")
+    # INFRA-285 (CER-097, item E4): whole-file rewrite — a torn write would
+    # truncate the story spec, not merely lose the status line.
+    _atomic_write_text(story_path, new_text)
     return story_path
 
 
@@ -208,7 +211,8 @@ def update_phase_story_status(story_id: str, project_dir: Path, status: str) -> 
         text = phase_path.read_text(encoding="utf-8")
         new_text = _update_story_row_in_phase(text, story_id, status)
         if new_text != text:
-            phase_path.write_text(new_text, encoding="utf-8")
+            # INFRA-285 (CER-097, item E4): see update_story_status above.
+            _atomic_write_text(phase_path, new_text)
             updated.append(phase_path)
 
     return updated

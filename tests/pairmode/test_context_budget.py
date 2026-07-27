@@ -2007,3 +2007,182 @@ def test_decide_growth_based_rearm_does_not_fire_before_margin_crossed(tmp_path)
     project_dir = _setup_project(tmp_path, state=state)
     result = context_budget.decide(project_dir)
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# INFRA-285 (CER-097) — session-scoped resolution of decide()
+# ---------------------------------------------------------------------------
+
+
+def _live_stamp(minutes_ago: float = 1) -> str:
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).isoformat()
+
+
+_BASE_BUDGET_STATE = {
+    "context_budget_threshold": 120_000,
+    "context_budget_overrun_pct": 0.10,
+    "expected_step_tokens": 10_000,
+    "context_budget_reprompt_margin": 10_000,
+}
+
+
+def test_decide_signature_takes_keyword_only_session_id():
+    """C1: session_id is keyword-only and defaults to None."""
+    import inspect
+
+    sig = inspect.signature(context_budget.decide)
+    param = sig.parameters["session_id"]
+    assert param.kind is inspect.Parameter.KEYWORD_ONLY
+    assert param.default is None
+
+
+def test_decide_resolves_tokens_through_the_session_record(tmp_path):
+    """C1: with a session id, the keyed value is used, not the flat mirror."""
+    state = dict(_BASE_BUDGET_STATE)
+    state["context_current_tokens"] = 25_000  # side session's mirror
+    state["context_sessions"] = {
+        "LOOP": {
+            "context_current_tokens": 140_000,
+            "last_seen_at": _live_stamp(),
+        }
+    }
+    project_dir = _setup_project(tmp_path, state=state)
+
+    # Flat read (no session id): under the ceiling → no block.
+    assert context_budget.decide(project_dir) is None
+
+    # Session-resolved read: the loop's own 140k window → block.
+    result = context_budget.decide(project_dir, session_id="LOOP")
+    assert result is not None
+    assert result["block"] is True
+    assert result["tokens"] == 140_000
+
+
+def test_decide_falsy_session_id_is_byte_for_byte_the_flat_read(tmp_path):
+    """C1: session_id=None reproduces today's behaviour exactly."""
+    state = dict(_BASE_BUDGET_STATE)
+    state["context_current_tokens"] = 125_000
+    state["context_sessions"] = {
+        "OTHER": {"context_current_tokens": 10, "last_seen_at": _live_stamp()}
+    }
+    project_dir = _setup_project(tmp_path, state=state)
+    assert context_budget.decide(project_dir) == context_budget.decide(
+        project_dir, session_id=None
+    )
+    assert context_budget.decide(project_dir, session_id="")["tokens"] == 125_000
+
+
+def test_decide_is_read_only_across_a_session_resolved_call(tmp_path):
+    """C1 (D11): decide() writes nothing — content and mtime are unchanged."""
+    state = dict(_BASE_BUDGET_STATE)
+    state["context_current_tokens"] = 125_000
+    state["context_sessions"] = {
+        "LOOP": {"context_current_tokens": 130_000, "last_seen_at": _live_stamp()}
+    }
+    project_dir = _setup_project(tmp_path, state=state)
+    state_path = project_dir / ".companion" / "state.json"
+
+    before_bytes = state_path.read_bytes()
+    before_mtime = state_path.stat().st_mtime_ns
+
+    context_budget.decide(project_dir, session_id="LOOP")
+
+    assert state_path.read_bytes() == before_bytes
+    assert state_path.stat().st_mtime_ns == before_mtime
+
+
+def test_decide_unregistered_session_with_live_sibling_fails_safe(tmp_path):
+    """C2: the mirror belongs to someone else — block, do not gate against it."""
+    state = dict(_BASE_BUDGET_STATE)
+    state["context_current_tokens"] = 25_000
+    state["context_sessions"] = {
+        "LOOP": {"context_current_tokens": 140_000, "last_seen_at": _live_stamp()}
+    }
+    project_dir = _setup_project(tmp_path, state=state)
+
+    result = context_budget.decide(project_dir, session_id="SIDE")
+    assert result == {
+        "block": True,
+        "reason": context_budget._CONTEXT_CHECK_REQUIRED_MSG,
+        "tokens": 0,
+        "acknowledged_at": 0,
+    }
+
+
+def test_decide_unregistered_session_with_empty_record_reads_the_mirror(tmp_path):
+    """C2 companion: a single-session project is completely unaffected."""
+    state = dict(_BASE_BUDGET_STATE)
+    state["context_current_tokens"] = 25_000
+    state["context_sessions"] = {}
+    project_dir = _setup_project(tmp_path, state=state)
+
+    # 25_000 + 1_000 is far under the ceiling → today's flat-read result (None).
+    assert context_budget.decide(project_dir, session_id="SIDE") is None
+    assert context_budget.decide(project_dir, session_id="SIDE") == context_budget.decide(
+        project_dir
+    )
+
+
+def test_decide_unregistered_session_with_only_dead_siblings_reads_the_mirror(tmp_path):
+    """C2: liveness is what matters — a long-dead entry does not fail-safe."""
+    state = dict(_BASE_BUDGET_STATE)
+    state["context_current_tokens"] = 25_000
+    state["context_sessions"] = {
+        "GHOST": {"context_current_tokens": 140_000, "last_seen_at": _live_stamp(600)}
+    }
+    project_dir = _setup_project(tmp_path, state=state)
+    assert context_budget.decide(project_dir, session_id="SIDE") is None
+
+
+def test_decide_derives_expected_step_tokens_from_the_session_ring_buffer(tmp_path):
+    """C5: derive_expected_step_tokens reads the session's own samples."""
+    state = dict(_BASE_BUDGET_STATE)
+    state["context_current_tokens"] = 100_000
+    state["expected_step_tokens"] = 1_000
+    state["context_step_growth_samples"] = [1_000] * 5
+    state["context_sessions"] = {
+        "LOOP": {
+            "context_current_tokens": 100_000,
+            "context_step_growth_samples": [60_000] * 5,
+            "last_seen_at": _live_stamp(),
+        }
+    }
+    project_dir = _setup_project(tmp_path, state=state)
+
+    # Flat: 100k + 1k (median of the flat ring buffer) is under the 132k
+    # ceiling → no block.
+    assert context_budget.decide(project_dir) is None
+    # Session-resolved: 100k + 60k crosses it → block.
+    result = context_budget.decide(project_dir, session_id="LOOP")
+    assert result is not None and result["block"] is True
+    assert "60,000" in result["reason"]
+
+
+def test_decide_growth_helpers_are_unchanged_by_this_story():
+    """C5: record_step_growth / derive_expected_step_tokens still take a flat dict."""
+    import inspect
+
+    assert list(inspect.signature(context_budget.record_step_growth).parameters) == [
+        "state",
+        "previous_tokens",
+        "new_tokens",
+    ]
+    assert list(
+        inspect.signature(context_budget.derive_expected_step_tokens).parameters
+    ) == ["state"]
+
+
+def test_decide_reads_a_pre_infra_285_state_file(tmp_path):
+    """F4: a state.json with no context_sessions key still works, unmigrated."""
+    legacy = dict(_BASE_BUDGET_STATE)
+    legacy["context_current_tokens"] = 125_000
+    project_dir = _setup_project(tmp_path, state=legacy)
+    assert "context_sessions" not in json.loads(
+        (project_dir / ".companion" / "state.json").read_text()
+    )
+
+    flat = context_budget.decide(project_dir)
+    keyed = context_budget.decide(project_dir, session_id="ANY")
+    assert flat is not None and flat["block"] is True
+    # No context_sessions key at all → no live sibling → same result as flat.
+    assert keyed is not None and keyed["tokens"] == flat["tokens"]
