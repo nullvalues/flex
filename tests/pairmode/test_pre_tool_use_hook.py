@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -566,7 +567,18 @@ def test_flex_factor_raises_ceiling_and_avoids_block(tmp_path):
         "expected_step_tokens": 100,
         "context_budget_reprompt_margin": 0,
         "context_current_tokens": 1200,
-        "current_story": {"id": "RELF-001"},
+        # INFRA-271 (CER-080): a `current_story` entry with no `set_at` is
+        # treated as stale, not fresh, by scope_guard.entry_is_fresh — stamp
+        # a fresh one here so this fixture still resolves to RELF-001 via
+        # the state-legacy fallback (this is collateral from that story's
+        # fixture-timestamp repair, the same class of fix Step 2 of its
+        # Instructions applied to test_scope_guard.py/
+        # test_pre_tool_use_scope_guard.py, just in a third file its Requires
+        # section did not enumerate).
+        "current_story": {
+            "id": "RELF-001",
+            "set_at": datetime.now(timezone.utc).isoformat(),
+        },
     }
     _seed_state(tmp_path, state)
     _seed_story(tmp_path, "RELF-001", flex_factor=2.0)

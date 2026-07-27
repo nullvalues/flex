@@ -14,8 +14,20 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import os
 import re
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
+
+# INFRA-271 (CER-080): a single-story build never legitimately spans a day —
+# a `current_stories` stamp older than this is far more likely to be an
+# uncleaned/idle checkout (the observed case: INFRA-209, stamped 2026-07-20
+# and never cleared, blocked every Edit/Write from every worktree of the
+# repo indefinitely) than an in-flight build. Ageing a stamp out only ever
+# *removes* authorization for the state-file fallback — it never grants any
+# (see A7/`check_path`'s protected-path handling of `source == "stale"`).
+STATE_STORY_MAX_AGE_HOURS: float = 24.0
 
 PROTECTED_GLOBS = [
     "hooks/**",
@@ -51,7 +63,7 @@ def check_path(
     if not story_id:
         relative_path = _normalise(file_path, project)
         if relative_path is None:
-            return False, "path escapes project root"
+            return _out_of_root_decision(file_path, project, project_dir)
         ambiguous_note = None
         if source == "ambiguous":
             claimed = sorted(_read_current_stories_keyed(project))
@@ -60,11 +72,25 @@ def check_path(
                 + ", ".join(claimed)
                 + "); resolving to no active story rather than guessing"
             )
+        # INFRA-271 (CER-080): a fully-aged-out state.json produces its own
+        # note, built once and reused for both the protected-path denial and
+        # the fail-open allow — so the two can never describe the state
+        # differently (the same shape `ambiguous_note` already uses above).
+        stale_note = None
+        if source == "stale":
+            stale_note = (
+                f"stale — the only current_stories/current_story stamp(s) are "
+                f"older than STATE_STORY_MAX_AGE_HOURS ({STATE_STORY_MAX_AGE_HOURS}h); "
+                "resolving to no active story rather than trusting an idle "
+                "checkout's stamp indefinitely; run "
+                "`flex_build.py clear-stale-stories` to sweep it"
+            )
+        note = ambiguous_note or stale_note
         if _is_protected(relative_path):
-            if ambiguous_note:
+            if note:
                 return (
                     False,
-                    f"{relative_path} is a protected path — {ambiguous_note}; "
+                    f"{relative_path} is a protected path — {note}; "
                     "requires an active story with this file in primary_files "
                     "or touches, authorized via "
                     "docs/phases/permissions/<story_id>.json",
@@ -75,13 +101,13 @@ def check_path(
                 "with this file in primary_files or touches, authorized via "
                 "docs/phases/permissions/<story_id>.json",
             )
-        if ambiguous_note:
-            return True, ambiguous_note
+        if note:
+            return True, note
         return True, "no active story — allowing"
 
     normalised = _normalise(file_path, project)
     if normalised is None:
-        return False, "path escapes project root"
+        return _out_of_root_decision(file_path, project, project_dir)
 
     # INFRA-253: protected-path status is checked against the worktree-stripped
     # candidate (the real repo-relative identity of the path), not the raw
@@ -123,6 +149,132 @@ def check_path(
     if candidate in allowed_paths:
         return True, "allowed"
     return False, f"not in story scope for {story_id}: {normalised}"
+
+
+def harness_owned_prefixes(
+    project: Path,
+    raw_project_dir: "str | Path | None" = None,
+    home: "Path | None" = None,
+) -> list[Path]:
+    """Return the resolved absolute path prefixes that harness-owned writes
+    outside the project root are permitted under (INFRA-271, CER-087).
+
+    This is deliberately narrow (B2) — an allow-list of *harness-owned*
+    paths, not a relaxation of `_normalise`'s containment (B4). Only two
+    kinds of out-of-root path are listed:
+
+    - ``<home>/.claude/projects/<key>/memory`` — the orchestrator's
+      auto-memory notes directory. Allow-listed *only* at its ``memory/``
+      subdirectory: the sibling ``<session>.jsonl`` transcripts one level up
+      are what `subagent_transcript.py` derives the effort ledger from, so
+      an agent that could write those could forge its own effort record —
+      the transcript directory itself must never appear in this list.
+    - ``<tmp>/claude-<uid>/<key>`` — the session scratchpad root.
+
+    plus, once, ``<home>/.claude/plans``. Nothing else under ``~/.claude/``
+    is listed: ``settings.json``, ``policies/``, ``plugins/`` and ``skills/``
+    are harness *configuration*, not harness scratch state, and must stay
+    denied like any other out-of-root path.
+
+    ``key = str(p).replace("/", "-")`` is the same derivation
+    `context_budget.py`'s `_derive_transcript_path` already uses for the
+    transcript directory. Both ``project`` (the resolved main checkout root)
+    and, when different, the resolved *raw_project_dir* (the tool call's
+    raw cwd — e.g. a session anchored in a differently-named worktree of
+    the same repo) are keyed, because a harness session's memory/scratchpad
+    directories are keyed on the cwd the session actually started in, which
+    `_resolve_main_project_root` has already collapsed away by the time this
+    function is called.
+
+    Every entry is ``.resolve()``-d. Never raises: any failure (no
+    ``os.getuid``, an unresolvable home) drops that entry and returns
+    whatever else resolved.
+    """
+    prefixes: list[Path] = []
+    try:
+        resolved_home = (home if home is not None else Path.home()).resolve()
+    except Exception:
+        return prefixes
+
+    keys: list[str] = []
+    try:
+        keys.append(str(project.resolve()).replace("/", "-"))
+    except Exception:
+        pass
+    if raw_project_dir is not None:
+        try:
+            raw_resolved = Path(raw_project_dir).resolve()
+            if project.resolve() != raw_resolved:
+                keys.append(str(raw_resolved).replace("/", "-"))
+        except Exception:
+            pass
+
+    for key in keys:
+        try:
+            prefixes.append((resolved_home / ".claude" / "projects" / key / "memory").resolve())
+        except Exception:
+            pass
+
+    try:
+        prefixes.append((resolved_home / ".claude" / "plans").resolve())
+    except Exception:
+        pass
+
+    try:
+        tmp_root = Path(tempfile.gettempdir())
+        uid = os.getuid()
+        for key in keys:
+            prefixes.append((tmp_root / f"claude-{uid}" / key).resolve())
+    except Exception:
+        pass
+
+    return prefixes
+
+
+def _out_of_root_decision(
+    file_path: "str | Path",
+    project: Path,
+    raw_project_dir: "str | Path | None",
+) -> tuple[bool, str]:
+    """The sole decision point for a path that `_normalise` has already
+    determined resolves outside *project* (INFRA-271, CER-087).
+
+    Resolves *file_path* using the exact same semantics `_normalise` uses
+    (`Path(file_path)`, joined onto *project* when relative, then
+    `.resolve()`) and compares the *resolved* path against
+    `harness_owned_prefixes()` with `Path.is_relative_to` — never a string
+    `startswith` check, which is the same class of mistake INFRA-255's
+    `_normalise` docstring already warns about for `..`, and which would let
+    a symlink under an allow-listed prefix launder a write to anywhere.
+
+    Returns an allow decision naming the matched prefix when the resolved
+    path is relative to one of the allow-listed prefixes, and the module's
+    single out-of-root deny result otherwise — this function is the ONLY
+    site in the module that produces that deny string (B5).
+
+    `_normalise` itself is unchanged (B4): this function is a decision layered
+    on top of its containment result, never a hole punched in it.
+    """
+    resolved: "Path | None" = None
+    try:
+        p = Path(file_path)
+        candidate = p if p.is_absolute() else project / p
+        resolved = candidate.resolve()
+    except Exception:
+        resolved = None
+
+    if resolved is not None:
+        for prefix in harness_owned_prefixes(project, raw_project_dir):
+            try:
+                if resolved.is_relative_to(prefix):
+                    return (
+                        True,
+                        f"harness-owned path outside project root — allowing: {prefix}",
+                    )
+            except Exception:
+                continue
+
+    return False, "path escapes project root"
 
 
 def _resolve_main_project_root(project: Path) -> Path:
@@ -175,9 +327,63 @@ RESOLVE_CALL_STORY_SOURCES = frozenset(
         "state-single",
         "state-legacy",
         "ambiguous",
+        "stale",
         "none",
     }
 )
+
+
+def entry_is_fresh(
+    entry: dict,
+    now: "datetime | None" = None,
+    max_age_hours: "float | None" = None,
+) -> bool:
+    """Return whether a ``current_stories``/``current_story`` *entry* dict's
+    ``set_at`` stamp is fresh enough to still authorise scope enforcement
+    (INFRA-271, CER-080).
+
+    Public (no leading underscore): ``flex_build.py``'s ``clear-stale-stories``
+    command calls this directly so the CLI and the guard can never disagree
+    about what "stale" means.
+
+    Never raises for any input. Returns ``False`` when *entry* is not a dict,
+    when ``set_at`` is absent, empty, or not a string, or when
+    ``datetime.fromisoformat`` cannot parse it — a stamp that cannot even be
+    dated is strictly less trustworthy than one that can, and ageing it out
+    only removes authorization (protected paths stay fail-closed regardless;
+    see `check_path`'s `source == "stale"` handling), so treating an
+    unparseable stamp as stale is safe.
+
+    A naive (no-tzinfo) ``set_at`` is treated as UTC rather than raising —
+    ``datetime.now(timezone.utc).isoformat()`` (the only writer,
+    `story_context.set_current_story`) always includes an offset, but this
+    keeps the predicate defensive against a hand-edited or legacy stamp.
+
+    A *future* ``set_at`` is always fresh: clock skew between the process
+    stamping the entry and the process evaluating it must never silently
+    switch scope enforcement off, so a forward-dated stamp fails toward
+    enforcement rather than toward staleness.
+    """
+    try:
+        if not isinstance(entry, dict):
+            return False
+        set_at = entry.get("set_at")
+        if not isinstance(set_at, str) or not set_at:
+            return False
+        parsed = datetime.fromisoformat(set_at)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        now_dt = now if now is not None else datetime.now(timezone.utc)
+        if now_dt.tzinfo is None:
+            now_dt = now_dt.replace(tzinfo=timezone.utc)
+        if parsed > now_dt:
+            # Future stamp — clock skew must not disable enforcement.
+            return True
+        cutoff = max_age_hours if max_age_hours is not None else STATE_STORY_MAX_AGE_HOURS
+        age_hours = (now_dt - parsed).total_seconds() / 3600.0
+        return age_hours <= cutoff
+    except Exception:
+        return False
 
 
 def _read_state_dict(project: Path) -> dict:
@@ -208,6 +414,23 @@ def _read_legacy_story_id(project: Path) -> str | None:
         val = legacy.get("id")
         return str(val).strip() if val else None
     return None
+
+
+def _read_legacy_story_entry(project: Path) -> "tuple[str, dict] | None":
+    """Return ``(story_id, entry)`` for the flat ``current_story`` mirror, or
+    ``None`` when absent/malformed. Kept separate from `_read_legacy_story_id`
+    (which only ever returns the ID) because INFRA-271's staleness check
+    (A4/A9) needs the entry's `set_at`, not just its ID.
+    """
+    state = _read_state_dict(project)
+    legacy = state.get("current_story")
+    if not isinstance(legacy, dict):
+        return None
+    val = legacy.get("id")
+    story_id = str(val).strip() if val else None
+    if not story_id:
+        return None
+    return story_id, legacy
 
 
 def resolve_call_story(
@@ -301,16 +524,38 @@ def resolve_call_story(
 def _resolve_story_from_state(main: Path) -> tuple[str | None, str]:
     """Steps 3-6 of ``resolve_call_story``'s order: the state.json-only
     fallback rules, given the already-resolved main checkout root.
+
+    INFRA-271 (CER-080): the state fallback ages out per-entry staleness
+    (`entry_is_fresh`) before applying the single/ambiguous/legacy/none
+    rules. A worktree claim (steps 1-2 in `resolve_call_story`) never
+    consults this — the worktree directory's existence on disk is the claim,
+    not `state.json`. Order, given
+    ``keyed = _read_current_stories_keyed(main)`` and
+    ``fresh = {k: v for k, v in keyed.items() if entry_is_fresh(v)}``:
+
+    - exactly one fresh entry -> ``(that_id, "state-single")``;
+    - two or more fresh entries -> ``(None, "ambiguous")`` (unchanged refusal
+      to guess; a stale entry is not counted towards ambiguity);
+    - no fresh entries but ``keyed`` non-empty -> ``(None, "stale")``;
+    - ``keyed`` empty and the flat ``current_story`` names a story: fresh ->
+      ``(id, "state-legacy")``, stale -> ``(None, "stale")``;
+    - nothing at all -> ``(None, "none")``.
     """
     keyed = _read_current_stories_keyed(main)
-    if len(keyed) == 1:
-        return next(iter(keyed)), "state-single"
-    if not keyed:
-        legacy_id = _read_legacy_story_id(main)
-        if legacy_id:
+    if keyed:
+        fresh = {k: v for k, v in keyed.items() if entry_is_fresh(v)}
+        if len(fresh) == 1:
+            return next(iter(fresh)), "state-single"
+        if len(fresh) >= 2:
+            return None, "ambiguous"
+        return None, "stale"
+    legacy = _read_legacy_story_entry(main)
+    if legacy is not None:
+        legacy_id, entry = legacy
+        if entry_is_fresh(entry):
             return legacy_id, "state-legacy"
-        return None, "none"
-    return None, "ambiguous"
+        return None, "stale"
+    return None, "none"
 
 
 def _read_current_story(project: Path) -> str | None:

@@ -10,6 +10,7 @@ import importlib
 import io
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -236,12 +237,19 @@ def test_resolve_flex_factor_defaults_to_1_0_when_ambiguous(tmp_path):
     hook = _load_hook_module()
     companion = tmp_path / ".companion"
     companion.mkdir()
+    # INFRA-271 (CER-080): fresh, distinct timestamps — a stale-both-entries
+    # fixture here would resolve to "stale" rather than "ambiguous" and no
+    # longer test what this test's name claims.
+    now = datetime.now(timezone.utc)
     (companion / "state.json").write_text(
         json.dumps(
             {
                 "current_stories": {
-                    "INFRA-301": {"id": "INFRA-301", "set_at": "2026-01-01T00:00:00+00:00"},
-                    "INFRA-302": {"id": "INFRA-302", "set_at": "2026-01-02T00:00:00+00:00"},
+                    "INFRA-301": {"id": "INFRA-301", "set_at": now.isoformat()},
+                    "INFRA-302": {
+                        "id": "INFRA-302",
+                        "set_at": (now + timedelta(seconds=1)).isoformat(),
+                    },
                 }
             }
         )

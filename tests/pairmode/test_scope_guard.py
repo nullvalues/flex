@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -20,11 +24,36 @@ import scope_guard
 STORY_ID = "INFRA-999"
 
 
+def _fresh_iso() -> str:
+    """A `set_at` timestamp that is always fresh under
+    `scope_guard.entry_is_fresh` regardless of when the suite runs
+    (INFRA-271, CER-080)."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _stale_iso(days: float) -> str:
+    """A `set_at` timestamp *days* old — always stale under
+    `scope_guard.STATE_STORY_MAX_AGE_HOURS` (INFRA-271, CER-080). Used only
+    in tests that mean to exercise staleness; every other fixture in this
+    file stamps a fresh timestamp so pre-INFRA-271 "active story" cases do
+    not silently become "no active story" cases."""
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+# Two distinct FRESH timestamps, one second apart, for fixtures that need two
+# entries with a defined relative order but both still well within
+# STATE_STORY_MAX_AGE_HOURS (the two-builder and ambiguity fixtures below —
+# INFRA-271 replaces the old one-day-apart 2026-01-01/2026-01-02 literals,
+# which became stale under the new staleness rule).
+_FRESH_1 = _fresh_iso()
+_FRESH_2 = (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat()
+
+
 def _write_state(tmp_path: Path, story_id: str | None) -> None:
     companion = tmp_path / ".companion"
     companion.mkdir(parents=True, exist_ok=True)
     if story_id is not None:
-        state = {"current_story": {"id": story_id, "set_at": "2026-01-01T00:00:00+00:00"}}
+        state = {"current_story": {"id": story_id, "set_at": _fresh_iso()}}
     else:
         state = {}
     (companion / "state.json").write_text(json.dumps(state))
@@ -464,30 +493,45 @@ GUARD_STATES = [
 
 
 @pytest.mark.parametrize("setup_state", GUARD_STATES)
-def test_relative_traversal_denied_in_every_guard_state(tmp_path: Path, setup_state) -> None:
+def test_relative_traversal_denied_in_every_guard_state(
+    tmp_path: Path, setup_state, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Ensures 6/9: a relative traversal path must be denied with
     'path escapes project root' regardless of guard state — it must never
-    reach a fail-open return."""
+    reach a fail-open return.
+
+    INFRA-271 (CER-087, B7/B8): `home` is faked here (never the developer's
+    real one) so this regression proves the allow-list layer added on top of
+    `_normalise`'s containment does not weaken it, without this test's
+    outcome ever depending on what actually exists under the real `~/.claude`."""
     setup_state(tmp_path)
-    allowed, reason = scope_guard.check_path(TRAVERSAL_PATH, tmp_path)
+    fake_home = tmp_path / "fake-home"
+    with patch.object(scope_guard.Path, "home", staticmethod(lambda: fake_home)):
+        allowed, reason = scope_guard.check_path(TRAVERSAL_PATH, tmp_path)
     assert allowed is False
     assert "escapes project root" in reason
 
 
 @pytest.mark.parametrize("setup_state", GUARD_STATES)
 def test_dotslash_disguised_traversal_denied_in_every_guard_state(
-    tmp_path: Path, setup_state
+    tmp_path: Path, setup_state, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     setup_state(tmp_path)
-    allowed, reason = scope_guard.check_path(DOTSLASH_TRAVERSAL_PATH, tmp_path)
+    fake_home = tmp_path / "fake-home"
+    with patch.object(scope_guard.Path, "home", staticmethod(lambda: fake_home)):
+        allowed, reason = scope_guard.check_path(DOTSLASH_TRAVERSAL_PATH, tmp_path)
     assert allowed is False
     assert "escapes project root" in reason
 
 
 @pytest.mark.parametrize("setup_state", GUARD_STATES)
-def test_absolute_out_of_root_denied_in_every_guard_state(tmp_path: Path, setup_state) -> None:
+def test_absolute_out_of_root_denied_in_every_guard_state(
+    tmp_path: Path, setup_state, monkeypatch: pytest.MonkeyPatch
+) -> None:
     setup_state(tmp_path)
-    allowed, reason = scope_guard.check_path("/etc/passwd", tmp_path)
+    fake_home = tmp_path / "fake-home"
+    with patch.object(scope_guard.Path, "home", staticmethod(lambda: fake_home)):
+        allowed, reason = scope_guard.check_path("/etc/passwd", tmp_path)
     assert allowed is False
     assert "escapes project root" in reason
 
@@ -605,7 +649,7 @@ class TestResolveCallStorySources:
         assert source == "none"
 
     def test_state_single(self, tmp_path: Path) -> None:
-        _write_keyed_state(tmp_path, {"A-001": "2026-01-01T00:00:00+00:00"})
+        _write_keyed_state(tmp_path, {"A-001": _FRESH_1})
         story_id, source = scope_guard.resolve_call_story(tmp_path)
         assert (story_id, source) == ("A-001", "state-single")
 
@@ -618,8 +662,8 @@ class TestResolveCallStorySources:
         _write_keyed_state(
             tmp_path,
             {
-                "A-001": "2026-01-01T00:00:00+00:00",
-                "B-002": "2026-01-02T00:00:00+00:00",
+                "A-001": _FRESH_1,
+                "B-002": _FRESH_2,
             },
         )
         story_id, source = scope_guard.resolve_call_story(tmp_path)
@@ -637,12 +681,15 @@ class TestResolveCallStorySources:
         assert source == "none"
 
     def test_sources_enumerable(self) -> None:
+        # INFRA-271 (CER-080, A3): "stale" joins the set of resolution
+        # sources once the state fallback ages out an untrusted stamp.
         assert scope_guard.RESOLVE_CALL_STORY_SOURCES == {
             "worktree-cwd",
             "worktree-path",
             "state-single",
             "state-legacy",
             "ambiguous",
+            "stale",
             "none",
         }
 
@@ -654,8 +701,8 @@ class TestCheckPathAmbiguous:
         _write_keyed_state(
             tmp_path,
             {
-                "A-001": "2026-01-01T00:00:00+00:00",
-                "B-002": "2026-01-02T00:00:00+00:00",
+                "A-001": _FRESH_1,
+                "B-002": _FRESH_2,
             },
         )
         allowed, reason = scope_guard.check_path("src/app.py", tmp_path)
@@ -668,8 +715,8 @@ class TestCheckPathAmbiguous:
         _write_keyed_state(
             tmp_path,
             {
-                "A-001": "2026-01-01T00:00:00+00:00",
-                "B-002": "2026-01-02T00:00:00+00:00",
+                "A-001": _FRESH_1,
+                "B-002": _FRESH_2,
             },
         )
         allowed, reason = scope_guard.check_path("hooks/pre_tool_use.py", tmp_path)
@@ -692,8 +739,8 @@ class TestTwoConcurrentBuildersScopedIndependently:
         _write_permissions(main_root, "A-001", ["a.py"])
         _write_permissions(main_root, "B-002", ["b.py"])
         entries = {
-            "A-001": {"id": "A-001", "set_at": "2026-01-01T00:00:00+00:00"},
-            "B-002": {"id": "B-002", "set_at": "2026-01-02T00:00:00+00:00"},
+            "A-001": {"id": "A-001", "set_at": _FRESH_1},
+            "B-002": {"id": "B-002", "set_at": _FRESH_2},
         }
         companion = main_root / ".companion"
         companion.mkdir(parents=True, exist_ok=True)
@@ -729,7 +776,7 @@ class TestReadCurrentStoryWrapper:
     """B10: _read_current_story is a thin wrapper over the state-only rules."""
 
     def test_state_single_returns_id(self, tmp_path: Path) -> None:
-        _write_keyed_state(tmp_path, {"A-001": "2026-01-01T00:00:00+00:00"})
+        _write_keyed_state(tmp_path, {"A-001": _FRESH_1})
         assert scope_guard._read_current_story(tmp_path) == "A-001"
 
     def test_state_legacy_returns_id(self, tmp_path: Path) -> None:
@@ -740,11 +787,353 @@ class TestReadCurrentStoryWrapper:
         _write_keyed_state(
             tmp_path,
             {
-                "A-001": "2026-01-01T00:00:00+00:00",
-                "B-002": "2026-01-02T00:00:00+00:00",
+                "A-001": _FRESH_1,
+                "B-002": _FRESH_2,
             },
         )
         assert scope_guard._read_current_story(tmp_path) is None
 
     def test_none_returns_none(self, tmp_path: Path) -> None:
         assert scope_guard._read_current_story(tmp_path) is None
+
+
+
+
+# ---------------------------------------------------------------------------
+# INFRA-271 (CER-080): idle-checkout tolerance — entry_is_fresh,
+# _resolve_story_from_state staleness ordering, and check_path's stale
+# no-story branch.
+# ---------------------------------------------------------------------------
+
+
+class TestEntryIsFresh:
+    """A2: `entry_is_fresh` predicate — never raises, fails toward
+    enforcement on ambiguous input."""
+
+    def test_fresh_entry_is_fresh(self) -> None:
+        assert scope_guard.entry_is_fresh({"set_at": _fresh_iso()}) is True
+
+    def test_stale_entry_is_not_fresh(self) -> None:
+        assert scope_guard.entry_is_fresh({"set_at": _stale_iso(30)}) is False
+
+    def test_boundary_just_under_cutoff_is_fresh(self) -> None:
+        just_under = (
+            datetime.now(timezone.utc)
+            - timedelta(hours=scope_guard.STATE_STORY_MAX_AGE_HOURS - 0.01)
+        ).isoformat()
+        assert scope_guard.entry_is_fresh({"set_at": just_under}) is True
+
+    def test_boundary_just_over_cutoff_is_stale(self) -> None:
+        just_over = (
+            datetime.now(timezone.utc)
+            - timedelta(hours=scope_guard.STATE_STORY_MAX_AGE_HOURS + 0.01)
+        ).isoformat()
+        assert scope_guard.entry_is_fresh({"set_at": just_over}) is False
+
+    def test_non_dict_entry_is_not_fresh(self) -> None:
+        assert scope_guard.entry_is_fresh("not-a-dict") is False  # type: ignore[arg-type]
+        assert scope_guard.entry_is_fresh(None) is False  # type: ignore[arg-type]
+
+    def test_missing_set_at_is_not_fresh(self) -> None:
+        assert scope_guard.entry_is_fresh({}) is False
+
+    def test_empty_set_at_is_not_fresh(self) -> None:
+        assert scope_guard.entry_is_fresh({"set_at": ""}) is False
+
+    def test_non_string_set_at_is_not_fresh(self) -> None:
+        assert scope_guard.entry_is_fresh({"set_at": 12345}) is False  # type: ignore[dict-item]
+
+    def test_unparseable_set_at_is_not_fresh(self) -> None:
+        assert scope_guard.entry_is_fresh({"set_at": "not-a-timestamp"}) is False
+
+    def test_naive_set_at_treated_as_utc(self) -> None:
+        naive_fresh = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        assert scope_guard.entry_is_fresh({"set_at": naive_fresh}) is True
+
+    def test_future_set_at_is_fresh(self) -> None:
+        """Clock skew must not silently switch enforcement off."""
+        future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+        assert scope_guard.entry_is_fresh({"set_at": future}) is True
+
+    def test_custom_max_age_hours_honoured(self) -> None:
+        three_hours_old = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
+        assert scope_guard.entry_is_fresh({"set_at": three_hours_old}, max_age_hours=1) is False
+        assert scope_guard.entry_is_fresh({"set_at": three_hours_old}, max_age_hours=48) is True
+
+    def test_never_raises_on_garbage(self) -> None:
+        assert scope_guard.entry_is_fresh(object()) is False  # type: ignore[arg-type]
+        assert scope_guard.entry_is_fresh({"set_at": object()}) is False  # type: ignore[dict-item]
+
+
+class TestResolveStoryFromStateStaleness:
+    """A4/A9: the five-branch resolution order once per-entry staleness is
+    applied, including the ambiguity-beats-staleness cases."""
+
+    def test_single_fresh_entry(self, tmp_path: Path) -> None:
+        _write_keyed_state(tmp_path, {"A-001": _fresh_iso()})
+        assert scope_guard._resolve_story_from_state(tmp_path) == ("A-001", "state-single")
+
+    def test_two_fresh_entries_ambiguous(self, tmp_path: Path) -> None:
+        second = (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat()
+        _write_keyed_state(tmp_path, {"A-001": _fresh_iso(), "B-002": second})
+        assert scope_guard._resolve_story_from_state(tmp_path) == (None, "ambiguous")
+
+    def test_no_fresh_entries_but_keyed_non_empty_is_stale(self, tmp_path: Path) -> None:
+        _write_keyed_state(tmp_path, {"A-001": _stale_iso(30)})
+        assert scope_guard._resolve_story_from_state(tmp_path) == (None, "stale")
+
+    def test_empty_keyed_fresh_legacy_is_state_legacy(self, tmp_path: Path) -> None:
+        _write_state(tmp_path, STORY_ID)
+        assert scope_guard._resolve_story_from_state(tmp_path) == (STORY_ID, "state-legacy")
+
+    def test_empty_keyed_stale_legacy_is_stale(self, tmp_path: Path) -> None:
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        state = {"current_story": {"id": STORY_ID, "set_at": _stale_iso(30)}}
+        (companion / "state.json").write_text(json.dumps(state))
+        assert scope_guard._resolve_story_from_state(tmp_path) == (None, "stale")
+
+    def test_nothing_at_all_is_none(self, tmp_path: Path) -> None:
+        assert scope_guard._resolve_story_from_state(tmp_path) == (None, "none")
+
+    def test_one_fresh_one_stale_resolves_state_single_on_fresh(self, tmp_path: Path) -> None:
+        """A9: the stale entry is not counted — this is state-single, not
+        ambiguous."""
+        _write_keyed_state(tmp_path, {"A-001": _fresh_iso(), "B-002": _stale_iso(30)})
+        assert scope_guard._resolve_story_from_state(tmp_path) == ("A-001", "state-single")
+
+    def test_two_fresh_is_ambiguous(self, tmp_path: Path) -> None:
+        second = (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat()
+        _write_keyed_state(tmp_path, {"A-001": _fresh_iso(), "B-002": second})
+        assert scope_guard._resolve_story_from_state(tmp_path) == (None, "ambiguous")
+
+    def test_two_stale_is_stale(self, tmp_path: Path) -> None:
+        _write_keyed_state(tmp_path, {"A-001": _stale_iso(30), "B-002": _stale_iso(45)})
+        assert scope_guard._resolve_story_from_state(tmp_path) == (None, "stale")
+
+
+class TestWorktreeClaimNeverAgesOut:
+    """A5: worktree-cwd/worktree-path resolution ignores set_at entirely."""
+
+    def test_worktree_cwd_with_30_day_old_state_entry(self, tmp_path: Path) -> None:
+        main_root = tmp_path / "main"
+        main_root.mkdir()
+        worktree_dir = _make_linked_worktree(main_root, STORY_ID)
+        _write_keyed_state(main_root, {STORY_ID: _stale_iso(30)})
+        story_id, source = scope_guard.resolve_call_story(worktree_dir)
+        assert (story_id, source) == (STORY_ID, "worktree-cwd")
+
+
+class TestCheckPathStale:
+    """A6/A7/A8: a stale-only state fails open for ordinary paths (naming
+    the cutoff and remedy) but stays fail-closed for protected paths."""
+
+    def test_stale_state_allows_ordinary_path(self, tmp_path: Path) -> None:
+        _write_keyed_state(tmp_path, {STORY_ID: _stale_iso(30)})
+        allowed, reason = scope_guard.check_path("src/app.py", tmp_path)
+        assert allowed is True
+        assert "stale" in reason
+        assert str(scope_guard.STATE_STORY_MAX_AGE_HOURS) in reason
+        assert "clear-stale-stories" in reason
+        assert reason != "no active story — allowing"
+
+    def test_stale_state_denies_protected_path(self, tmp_path: Path) -> None:
+        _write_keyed_state(tmp_path, {STORY_ID: _stale_iso(30)})
+        allowed, reason = scope_guard.check_path("hooks/pre_tool_use.py", tmp_path)
+        assert allowed is False
+        assert "is a protected path" in reason
+
+    def test_read_current_story_wrapper_stale_only_returns_none(self, tmp_path: Path) -> None:
+        _write_keyed_state(tmp_path, {STORY_ID: _stale_iso(30)})
+        assert scope_guard._read_current_story(tmp_path) is None
+
+
+# ---------------------------------------------------------------------------
+# INFRA-271 (CER-087): harness-owned out-of-root write allow-list.
+# ---------------------------------------------------------------------------
+
+
+def _harness_home(tmp_path: Path) -> Path:
+    home = tmp_path / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    return home
+
+
+class TestHarnessOwnedPrefixes:
+    """B1: the allow-list is derived, resolved, narrow, and never raises."""
+
+    def test_memory_and_plans_and_scratchpad_prefixes_present(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        home = _harness_home(tmp_path)
+        tmp_root = tmp_path / "tmproot"
+        tmp_root.mkdir()
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_root))
+        monkeypatch.setattr(os, "getuid", lambda: 4242, raising=False)
+
+        prefixes = scope_guard.harness_owned_prefixes(project, home=home)
+        key = str(project.resolve()).replace("/", "-")
+
+        assert (home / ".claude" / "projects" / key / "memory").resolve() in prefixes
+        assert (home / ".claude" / "plans").resolve() in prefixes
+        assert (tmp_root / "claude-4242" / key).resolve() in prefixes
+
+    def test_raw_project_dir_key_also_included_when_different(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        raw = tmp_path / "project-harness"
+        raw.mkdir()
+        home = _harness_home(tmp_path)
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path / "tmproot"))
+        monkeypatch.setattr(os, "getuid", lambda: 1, raising=False)
+
+        prefixes = scope_guard.harness_owned_prefixes(project, raw_project_dir=raw, home=home)
+        raw_key = str(raw.resolve()).replace("/", "-")
+        assert (home / ".claude" / "projects" / raw_key / "memory").resolve() in prefixes
+
+    def test_never_raises_when_home_lookup_fails(self, tmp_path: Path) -> None:
+        class _BoomHome:
+            def resolve(self):
+                raise OSError("boom")
+
+        result = scope_guard.harness_owned_prefixes(tmp_path, home=_BoomHome())  # type: ignore[arg-type]
+        assert result == []
+
+
+class TestOutOfRootAllowList:
+    """B2/B3/B6/B7/B8: allowed harness prefixes vs. everything else."""
+
+    def _key(self, project: Path) -> str:
+        return str(project.resolve()).replace("/", "-")
+
+    def test_harness_memory_write_allowed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        home = _harness_home(tmp_path)
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path / "tmproot"))
+        monkeypatch.setattr(os, "getuid", lambda: 7, raising=False)
+        key = self._key(project)
+        memory_dir = home / ".claude" / "projects" / key / "memory"
+        memory_dir.mkdir(parents=True)
+        target = memory_dir / "note.md"
+
+        with patch.object(scope_guard.Path, "home", staticmethod(lambda: home)):
+            allowed, reason = scope_guard._out_of_root_decision(target, project, project)
+        assert allowed is True
+        assert "harness-owned" in reason
+
+    def test_excluded_paths_still_denied(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """B2: the allow-list is narrow — these all still deny."""
+        project = tmp_path / "project"
+        project.mkdir()
+        home = _harness_home(tmp_path)
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path / "tmproot"))
+        monkeypatch.setattr(os, "getuid", lambda: 7, raising=False)
+        key = self._key(project)
+
+        excluded = [
+            home / ".claude" / "settings.json",
+            home / ".claude" / "CLAUDE.md",
+            home / ".claude" / "policies" / "auth-rbac.md",
+            home / ".claude" / "plugins" / "x.json",
+            home / ".claude" / "skills" / "x" / "SKILL.md",
+            home / ".claude" / "projects" / key / "session-uuid.jsonl",
+            Path("/etc/passwd"),
+        ]
+
+        with patch.object(scope_guard.Path, "home", staticmethod(lambda: home)):
+            for path in excluded:
+                allowed, reason = scope_guard._out_of_root_decision(path, project, project)
+                assert allowed is False, f"{path} unexpectedly allowed: {reason}"
+                assert reason == "path escapes project root"
+
+    def test_transcript_jsonl_directory_excluded_memory_subdir_included(
+        self, tmp_path: Path
+    ) -> None:
+        """B2: the transcript exclusion is load-bearing — an agent that
+        could write .jsonl transcripts could forge its own effort record."""
+        project = tmp_path / "project"
+        project.mkdir()
+        home = _harness_home(tmp_path)
+        key = self._key(project)
+        prefixes = scope_guard.harness_owned_prefixes(project, home=home)
+        transcript_dir = (home / ".claude" / "projects" / key).resolve()
+        assert transcript_dir not in prefixes
+        memory_dir = (home / ".claude" / "projects" / key / "memory").resolve()
+        assert memory_dir in prefixes
+
+    def test_relative_traversal_that_resolves_into_memory_dir_allowed(
+        self, tmp_path: Path
+    ) -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        home = _harness_home(tmp_path)
+        key = self._key(project)
+        memory_dir = home / ".claude" / "projects" / key / "memory"
+        memory_dir.mkdir(parents=True)
+
+        # A relative traversal string that genuinely resolves into the
+        # allow-listed memory directory (nothing to forge — it lands where
+        # it lands) is allowed, exactly like any other path that resolves
+        # there.
+        traversal_into_memory = str(memory_dir / ".." / "memory" / "note.md")
+        with patch.object(scope_guard.Path, "home", staticmethod(lambda: home)):
+            allowed, reason = scope_guard._out_of_root_decision(traversal_into_memory, project, project)
+        assert allowed is True
+        assert "harness-owned" in reason
+
+    def test_symlink_under_memory_pointing_elsewhere_denied(self, tmp_path: Path) -> None:
+        """A path string that merely *contains* the allow-listed prefix text
+        but resolves elsewhere (a symlink under the memory dir pointing at
+        an outside target) must be denied — string containment is not the
+        comparison; `Path.is_relative_to` on the *resolved* path is."""
+        project = tmp_path / "project"
+        project.mkdir()
+        home = _harness_home(tmp_path)
+        key = self._key(project)
+        memory_dir = home / ".claude" / "projects" / key / "memory"
+        memory_dir.mkdir(parents=True)
+        outside_target = tmp_path / "outside" / "secret.txt"
+        outside_target.parent.mkdir(parents=True)
+        outside_target.write_text("secret")
+        link = memory_dir / "escape-link"
+        link.symlink_to(outside_target)
+
+        with patch.object(scope_guard.Path, "home", staticmethod(lambda: home)):
+            allowed, reason = scope_guard._out_of_root_decision(link, project, project)
+        assert allowed is False
+        assert reason == "path escapes project root"
+
+    @pytest.mark.parametrize("setup_state", GUARD_STATES)
+    def test_harness_owned_write_allowed_in_every_guard_state(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, setup_state
+    ) -> None:
+        """B6: an out-of-repo harness path is not story scope and is not
+        scored against allowed_paths, in any guard state."""
+        # `project` must NOT contain `home` — otherwise the memory-dir target
+        # would resolve INSIDE the project root and never reach the
+        # out-of-root decision this test means to exercise.
+        project = tmp_path / "project"
+        project.mkdir()
+        setup_state(project)
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path / "tmproot"))
+        monkeypatch.setattr(os, "getuid", lambda: 7, raising=False)
+        key = self._key(project)
+        memory_dir = home / ".claude" / "projects" / key / "memory"
+        memory_dir.mkdir(parents=True)
+        target = memory_dir / "note.md"
+
+        with patch.object(scope_guard.Path, "home", staticmethod(lambda: home)):
+            allowed, reason = scope_guard.check_path(target, project)
+        assert allowed is True
+        assert "harness-owned" in reason

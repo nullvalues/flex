@@ -14,10 +14,21 @@ touches:
   - tests/pairmode/test_scope_guard.py
   - tests/pairmode/test_pre_tool_use_scope_guard.py
   - tests/pairmode/test_flex_build_clear_stale_stories.py
+  - tests/pairmode/test_pre_tool_use_hook.py
   - docs/architecture.md
   - docs/cer/backlog.md
   - docs/stories/INFRA/INFRA-271.md
 ---
+
+<!-- Build note: tests/pairmode/test_pre_tool_use_hook.py was added to
+touches during the build. `test_flex_factor_raises_ceiling_and_avoids_block`
+seeded a `current_story: {"id": "RELF-001"}` entry with no `set_at` — under
+A2/A4 that is stale, not fresh, so the fixture stopped resolving to
+RELF-001's flex_factor via the state-legacy fallback. This is the same class
+of fixture-timestamp repair Instructions Step 2 applied to
+test_scope_guard.py / test_pre_tool_use_scope_guard.py, just in a third file
+the Requires section did not enumerate; verified it does not reproduce on
+clean HEAD before attributing it to this story. -->
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
 

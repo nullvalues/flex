@@ -53,7 +53,7 @@ flex/
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
-        flex_build.py             ← CLI wrapping pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stub, check-schema-gate, check-auth-gate, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count (INFRA-282: `--story-id` is now an optional scope — omitted clears the whole counter file, given clears only that story's entry), story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope, next-action, resolver-state, record-checkpoint-step, record-attempt); next-action added in HARNESS001-main (since the flip, HARNESS006, the sequencing core the thin dispatch loop in CLAUDE.build.md calls each iteration); resolver-state added in HARNESS007-main (pure-read resolver state dump); record-checkpoint-step added in HARNESS009-main (RESOLVER-012) — atomically appends a validated checkpoint step ID to state.json["checkpoint_step"], replacing LLM-prose writes; replaces inline python -c blocks in CLAUDE.build.md.j2; INFRA-239 wires the `checkpoint-tag` step of record-checkpoint-step to also call `_mark_phase_complete_in_index` (the write side `mark-phase-complete` shares) in the same invocation, so the checkpoint_step reset and the phase-index `complete` write happen atomically in one CLI call rather than requiring a second, separately-remembered `mark-phase-complete` call; INFRA-267 (CER-082) adds a second write to that same path — `_mark_phase_complete_in_era_ledger` flips the matching row in the active `docs/eras/` doc's `## Phases` ledger, from the same phase key, so era ledger and phase index never diverge; record-attempt added in RELEASE-009 (HARNESS012-main) — Click alias delegating to record_attempt.py, so the orchestrator template can call a single entry point; the alias is a transparent passthrough (INFRA-263): it declares no options of its own, forwards all arguments including --help to record_attempt.py, and exits with the delegate's exit code; `checkpoint-report`'s printed rollup is scoped to the active phase's stories as of INFRA-256 — story IDs are derived from the resolved phase doc's `## Stories` table (via `_parse_phase_stories_with_status`), not from `attempts.phase` or a timestamp window; a lifetime rollup (unchanged, all-phases) is printed separately underneath it — see § Effort tracking for the scoping rationale
+        flex_build.py             ← CLI wrapping pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stub, check-schema-gate, check-auth-gate, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count (INFRA-282: `--story-id` is now an optional scope — omitted clears the whole counter file, given clears only that story's entry), clear-stale-stories (INFRA-271, CER-080 — reports, or with `--apply` clears, `current_stories`/`current_story` stamps older than `scope_guard.STATE_STORY_MAX_AGE_HOURS`; imports the staleness rule from `scope_guard` rather than re-deriving it; never raises, never exits non-zero), story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope, next-action, resolver-state, record-checkpoint-step, record-attempt); next-action added in HARNESS001-main (since the flip, HARNESS006, the sequencing core the thin dispatch loop in CLAUDE.build.md calls each iteration); resolver-state added in HARNESS007-main (pure-read resolver state dump); record-checkpoint-step added in HARNESS009-main (RESOLVER-012) — atomically appends a validated checkpoint step ID to state.json["checkpoint_step"], replacing LLM-prose writes; replaces inline python -c blocks in CLAUDE.build.md.j2; INFRA-239 wires the `checkpoint-tag` step of record-checkpoint-step to also call `_mark_phase_complete_in_index` (the write side `mark-phase-complete` shares) in the same invocation, so the checkpoint_step reset and the phase-index `complete` write happen atomically in one CLI call rather than requiring a second, separately-remembered `mark-phase-complete` call; INFRA-267 (CER-082) adds a second write to that same path — `_mark_phase_complete_in_era_ledger` flips the matching row in the active `docs/eras/` doc's `## Phases` ledger, from the same phase key, so era ledger and phase index never diverge; record-attempt added in RELEASE-009 (HARNESS012-main) — Click alias delegating to record_attempt.py, so the orchestrator template can call a single entry point; the alias is a transparent passthrough (INFRA-263): it declares no options of its own, forwards all arguments including --help to record_attempt.py, and exits with the delegate's exit code; `checkpoint-report`'s printed rollup is scoped to the active phase's stories as of INFRA-256 — story IDs are derived from the resolved phase doc's `## Stories` table (via `_parse_phase_stories_with_status`), not from `attempts.phase` or a timestamp window; a lifetime rollup (unchanged, all-phases) is printed separately underneath it — see § Effort tracking for the scoping rationale
         refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
@@ -65,7 +65,7 @@ flex/
         era_transition.py         ← formally close the current active era and open the next; CLI: uv run era_transition.py --project-dir DIR [--name NAME] [--intent INTENT] [--yes]; also registered as flex_build.py transition-era
         schema_validator.py       ← validate story/era/phase manifest frontmatter
         permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json (legacy; Phase 55 replaces runtime use with scope_guard.py + permissions-create for new projects)
-        scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json; fails open on non-protected paths when no active story, but fails closed (blocks) on PROTECTED_GLOBS paths even without an active story (INFRA-196), on protected paths in the active-story missing/malformed/empty-artifact branches (INFRA-253), and on any path that resolves outside the project root — all inputs resolved+contained before glob/permission checks (INFRA-255)
+        scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json; fails open on non-protected paths when no active story, but fails closed (blocks) on PROTECTED_GLOBS paths even without an active story (INFRA-196), on protected paths in the active-story missing/malformed/empty-artifact branches (INFRA-253), and on any path that resolves outside the project root — all inputs resolved+contained before glob/permission checks (INFRA-255); INFRA-271 (CER-080/CER-087) adds two more layers: (1) the state.json fallback (`_resolve_story_from_state`) ages a `current_stories`/`current_story` entry out at `STATE_STORY_MAX_AGE_HOURS` (24h) via the public `entry_is_fresh()` predicate — a stamp missing/unparseable `set_at` or older than the cutoff resolves to the `"stale"` source (fail-open for ordinary paths, naming the cutoff and the `clear-stale-stories` remedy; still fail-closed for `PROTECTED_GLOBS`), while a worktree claim (`worktree-cwd`/`worktree-path`) never ages out; (2) `harness_owned_prefixes()` derives a narrow allow-list of out-of-root paths the harness itself owns (the session's `~/.claude/projects/<key>/memory/` notes directory and `<tmp>/claude-<uid>/<key>/` scratchpad root, plus `~/.claude/plans`), and `_out_of_root_decision()` consults it — on the *resolved* path, never a string prefix — before either `"path escapes project root"` deny site returns; `_normalise`'s containment itself is unchanged
         state_utils.py            ← shared helper for atomic state.json writes (`_atomic_write_json`); adopted by all remaining state.json writers as of HARNESS015-main (INFRA-202) — hooks/post_tool_use.py, story_context.py, bootstrap.py, skills/companion/scripts/sidebar.py (pairmode_sync.py/pairmode_register.py already had their own inline atomic implementation)
         session_reset.py          ← pure decision logic for SessionStart counter reset; no I/O (mirrors context_budget.py D11 boundary); CER-047 / Phase 68 INFRA-175
         spec_preflight.py         ← INFRA-190/191 — scans story body sections for unverifiable route and constant references; informational only (always exits 0)
@@ -606,17 +606,59 @@ still a caller error the rule exists to prevent.
    spelled-out worktree path, defeating it — see
    `test_scope_guard_blocks_foreign_story_worktree_path_bypass`);
    (3) `state-single` — `state.json["current_stories"]` holds exactly one
-   entry; (4) `state-legacy` — `current_stories` is empty/absent and the flat
-   `current_story` names a story; (5) `ambiguous` — `current_stories` holds
-   two or more entries: resolves to *no story*, never a guess; (6) `none` —
-   no signal at all. The ambiguous case is treated identically to
-   no-active-story (fail-open for ordinary paths, fail-closed for
-   `PROTECTED_GLOBS`) rather than picking the most recently stamped story,
-   because a wrong attribution would hand one story's allow-list to another
-   story's write — worse than the already-understood no-active-story
-   semantics that already cover orchestrator work between stories
-   (`docs/ideology.md` § "Never silently pass contradictions"). If the
+   *fresh* entry; (4) `state-legacy` — `current_stories` is empty/absent and
+   the flat `current_story` names a story with a fresh `set_at`; (5)
+   `ambiguous` — `current_stories` holds two or more fresh entries: resolves
+   to *no story*, never a guess; (6) `stale` — every candidate entry
+   (keyed or legacy) that would otherwise apply has aged out (INFRA-271,
+   CER-080 — see below); (7) `none` — no signal at all. The ambiguous case is
+   treated identically to no-active-story (fail-open for ordinary paths,
+   fail-closed for `PROTECTED_GLOBS`) rather than picking the most recently
+   stamped story, because a wrong attribution would hand one story's
+   allow-list to another story's write — worse than the already-understood
+   no-active-story semantics that already cover orchestrator work between
+   stories (`docs/ideology.md` § "Never silently pass contradictions"). If the
    path is not declared, the hook emits `{"decision": "block", "reason": "..."}`.
+
+   **State-fallback staleness (INFRA-271, CER-080):** steps (3)-(6) above —
+   the `state.json`-only fallback — age a candidate entry out via the public
+   `scope_guard.entry_is_fresh(entry, now=None, max_age_hours=None)`
+   predicate against the module constant `STATE_STORY_MAX_AGE_HOURS` (24.0
+   hours: a single-story build never legitimately spans a day). A stamp
+   missing, empty, or unparseable `set_at` is treated as stale, not fresh —
+   a stamp that cannot even be dated is strictly less trustworthy than one
+   that can, and this is safe because ageing a stamp out only ever *removes*
+   authorization (protected paths stay fail-closed either way). A *future*
+   `set_at` is always fresh — clock skew between the stamping process and
+   the evaluating one must never silently switch scope enforcement off. A
+   stale-only state resolves `check_path` to `(True, reason)` for ordinary
+   paths, with `reason` naming both the cutoff and the remedy
+   (`flex_build.py clear-stale-stories`) rather than the bare
+   `"no active story — allowing"` string, so the operator can tell "no story
+   is active" apart from "a story is stamped but I stopped believing it" —
+   but stays `(False, reason)` for `PROTECTED_GLOBS` paths exactly as the
+   ordinary no-active-story case does. Steps (1)-(2) — a worktree claim —
+   never consult `set_at` at all: the worktree directory's existence on disk
+   is the claim (INFRA-280), and a long build must not have its scope
+   enforcement silently switched off partway through. The observed motivating
+   case was `/mnt/work/flex`'s own `.companion/state.json`, which carried a
+   `current_story: INFRA-209` stamp dated 2026-07-20 and never cleared
+   (CER-080): because `_resolve_main_project_root` correctly resolves file
+   operations from any linked worktree back to the main checkout's state,
+   that stale stamp silently blocked `Edit`/`Write` for any legitimate work
+   whose target fell outside `INFRA-209`'s declared scope, indefinitely.
+   `flex_build.py clear-stale-stories [--project-dir DIR] [--max-age-hours N]
+   [--apply]` reports (default) or clears (`--apply`) exactly this shape
+   ahead of a fleet campaign — it imports `entry_is_fresh` and
+   `STATE_STORY_MAX_AGE_HOURS` from `scope_guard.py` rather than re-deriving
+   the rule, clears every stale keyed entry through
+   `story_context.clear_current_story(companion_dir, story_id)` (the scoped
+   mode, so a concurrently-building fresh story keeps its own scope
+   enforcement), and falls back to the unscoped clear-the-slate call only for
+   the legacy-only shape (`current_stories` empty/absent, flat
+   `current_story` stale) where there is no keyed entry to scope to. It never
+   raises and never exits non-zero, since it is intended to run unattended
+   across every registered project in a sweep.
    On any error (missing state, missing permissions file, malformed JSON), the
    check fails open for **non-protected** paths so non-story orchestrator work
    (checkpointing, spec mode) is never blocked. `PROTECTED_GLOBS` paths fail
@@ -657,6 +699,37 @@ still a caller error the rule exists to prevent.
    returns. `resolve()` also follows symlinks, so a repo-internal symlink
    pointing outside the project root is denied by the same containment
    check — a deliberate fail-closed reading, not a bug.
+
+   **Harness-owned out-of-root allow-list (INFRA-271, CER-087):** the
+   containment rule above is unchanged — `_normalise()` still returns `None`
+   for every out-of-root path, unconditionally. What changed is what happens
+   at the two `"path escapes project root"` deny sites in `check_path()`:
+   both now call `_out_of_root_decision(file_path, project, raw_project_dir)`,
+   which consults `harness_owned_prefixes(project, raw_project_dir, home)`
+   *after* `_normalise` has already determined the path resolves outside the
+   root — never before, and never on the unresolved string. The prefix set is
+   deliberately narrow: `<home>/.claude/projects/<key>/memory/` (the
+   orchestrator's auto-memory notes directory — allow-listed only at this
+   subdirectory, because the sibling `<session>.jsonl` transcripts one level
+   up are what `subagent_transcript.py` derives the effort ledger from, so an
+   agent that could write those could forge its own effort record),
+   `<tmp>/claude-<uid>/<key>/` (the session scratchpad root), and
+   `<home>/.claude/plans` — where `key = str(p).replace("/", "-")` is the
+   same derivation `context_budget.py`'s `_derive_transcript_path` already
+   uses, computed for both the resolved main-checkout root and, when
+   different, the resolved raw `project_dir` (a session anchored in a
+   differently-named worktree of the same repo). Nothing else under
+   `~/.claude/` is listed — `settings.json`, `policies/`, `plugins/`, and
+   `skills/` are harness *configuration*, not harness scratch state, and stay
+   denied like any other out-of-root path. This is an allow-list of
+   *harness-owned* paths the orchestrator writes to constantly during a fleet
+   campaign (auto-memory notes, scratchpad files) — not a relaxation of
+   containment, and not story scope: a harness-owned out-of-root write is
+   allowed in every guard state, including mid-story with a populated
+   `allowed_paths` that does not list it. The motivating case (CER-087): a
+   `Write` to `~/.claude/projects/-mnt-work-flex/memory/…` was denied with
+   `"path escapes project root"` minutes after a checkpoint, where
+   pre-INFRA-255 it had fallen through to `"no active story — allowing"`.
 
    **`.claude/settings.json` end-state doctrine (INFRA-253):** settings.json
    carries tooling only — the PostToolUse pytest hook, `Bash` allow rules for
@@ -1878,7 +1951,16 @@ Fields:
   `create-story-worktree` adds a key on stamp; `merge-story-worktree` /
   `discard-story-worktree` remove **only their own** key on teardown, never the whole
   dict — see § 9.5 for how `scope_guard.resolve_call_story()` consumes this. Absent
-  when no story has ever been stamped in this state.json.
+  when no story has ever been stamped in this state.json. **INFRA-271 (CER-080):**
+  the `state.json`-fallback resolution steps age each entry's `set_at` out at
+  `scope_guard.STATE_STORY_MAX_AGE_HOURS` (24h, via the public
+  `entry_is_fresh()` predicate) — a stamp missing, unparseable, or older than
+  the cutoff no longer authorises scope enforcement for that entry (resolving
+  to the `"stale"` source, fail-open for ordinary paths, still fail-closed for
+  `PROTECTED_GLOBS`); a worktree claim (`worktree-cwd`/`worktree-path`) never
+  consults `set_at` and never ages out — see § 9.5. `flex_build.py
+  clear-stale-stories` reports or (`--apply`) clears exactly the entries this
+  ageing identifies as stale.
 - `current_story` — **optional**; a **derived mirror** of one `current_stories` entry
   (whichever was written most recently, or re-pointed deterministically on a scoped
   clear — see `story_context.clear_current_story()`), kept only for backward
@@ -1889,7 +1971,9 @@ Fields:
   the same atomic write, so the mirror can never diverge from the keyed record through a
   partial write. Present only when pairmode is active and the user confirmed which story
   they are working on (or a builder stamped one). Contains `id` (required), optional
-  `title`, and `set_at` (UTC ISO-8601 timestamp). Absent when the user skips the prompt
+  `title`, and `set_at` (UTC ISO-8601 timestamp). Same INFRA-271 staleness ageing applies
+  to this flat mirror when `current_stories` is empty/absent (the `state-legacy`
+  resolution step). Absent when the user skips the prompt
   and no `current_stories` entry exists.
 - `checkpoint_steps` — **optional**; dict keyed by phase key (INFRA-283, CER-095.4). Each
   entry is the list of completed checkpoint step IDs for that phase. This is the

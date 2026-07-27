@@ -64,7 +64,13 @@ from effort_db import check_guardrail, resolve_effort_db_path  # noqa: E402
 from context_health import check_context_health  # noqa: E402
 from next_action import _CHECKPOINT_SEQUENCE  # noqa: E402
 from state_utils import _atomic_write_json, state_lock  # noqa: E402
-from story_context import set_current_story, clear_current_story  # noqa: E402
+from story_context import (  # noqa: E402
+    set_current_story,
+    clear_current_story,
+    read_state,
+    CURRENT_STORIES_KEY,
+)
+from scope_guard import entry_is_fresh, STATE_STORY_MAX_AGE_HOURS  # noqa: E402
 
 
 def _stamp_active_story(project_path: Path, story_id: str) -> None:
@@ -1490,6 +1496,130 @@ def clear_attempt_count(project_dir: Path, story_id: str | None = None) -> None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write_json(path, {_ATTEMPT_COUNTER_STORIES_KEY: counters})
+
+
+# ---------------------------------------------------------------------------
+# Stale current_stories reporting and clearing (INFRA-271, CER-080)
+# ---------------------------------------------------------------------------
+
+
+@flex_build.command("clear-stale-stories")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+@click.option(
+    "--max-age-hours",
+    default=None,
+    type=float,
+    help=(
+        "Override scope_guard.STATE_STORY_MAX_AGE_HOURS for this run. "
+        "Defaults to the module constant so the CLI and the guard can "
+        "never disagree about what 'stale' means."
+    ),
+)
+@click.option(
+    "--apply",
+    is_flag=True,
+    default=False,
+    help="Actually clear stale entries. Without this flag, only reports.",
+)
+def cmd_clear_stale_stories(project_dir: str, max_age_hours: float | None, apply: bool) -> None:
+    """Report (default) or clear (--apply) stale current_stories/current_story
+    stamps in .companion/state.json (INFRA-271, CER-080).
+
+    A `current_stories` entry older than the cutoff is far more likely to be
+    an uncleaned/idle checkout than an in-flight build (the observed case:
+    INFRA-209, stamped 2026-07-20, never cleared, blocked every Edit/Write
+    from every worktree of the repo indefinitely). This command sweeps a
+    project's state.json for exactly that shape ahead of a fleet campaign,
+    rather than discovering each stale stamp as a mid-build denial.
+
+    Never raises and never exits non-zero (C6) — this is run across
+    eight-plus fleet projects in a loop during the Phase 106 campaign; one
+    malformed state.json must not abort the sweep.
+    """
+    try:
+        _clear_stale_stories_body(Path(project_dir), max_age_hours, apply)
+    except Exception:
+        # C6: no input may produce a non-zero exit or an uncaught traceback.
+        pass
+
+
+def _clear_stale_stories_body(
+    project_path: Path, max_age_hours: "float | None", apply: bool
+) -> None:
+    """Body of ``clear-stale-stories``, isolated so the CLI wrapper's
+    blanket ``except Exception`` (C6) never hides a bug in this from tests
+    that call the body function directly."""
+    cutoff = max_age_hours if max_age_hours is not None else STATE_STORY_MAX_AGE_HOURS
+    companion_dir = project_path / ".companion"
+
+    try:
+        state = read_state(companion_dir)
+    except Exception:
+        state = {}
+    if not isinstance(state, dict):
+        state = {}
+
+    keyed = state.get(CURRENT_STORIES_KEY)
+    keyed = keyed if isinstance(keyed, dict) else {}
+
+    stale_keyed_ids: list[str] = []
+    for story_id, entry in keyed.items():
+        if not entry_is_fresh(entry, max_age_hours=cutoff):
+            stale_keyed_ids.append(story_id)
+            set_at = entry.get("set_at") if isinstance(entry, dict) else None
+            age = _format_age_hours(set_at)
+            click.echo(f"STALE {story_id} set_at={set_at if set_at else '<none>'} age={age}h")
+
+    legacy_stale_id: "str | None" = None
+    if not keyed:
+        legacy = state.get("current_story")
+        if isinstance(legacy, dict):
+            legacy_id = legacy.get("id")
+            legacy_id = str(legacy_id).strip() if legacy_id else None
+            if legacy_id and not entry_is_fresh(legacy, max_age_hours=cutoff):
+                legacy_stale_id = legacy_id
+                set_at = legacy.get("set_at")
+                age = _format_age_hours(set_at)
+                click.echo(
+                    f"STALE {legacy_id} set_at={set_at if set_at else '<none>'} age={age}h"
+                )
+
+    if not apply:
+        return
+
+    # C3: prefer the scoped clear for every keyed entry — a concurrently-
+    # building fresh story must keep its own scope enforcement.
+    for story_id in stale_keyed_ids:
+        clear_current_story(companion_dir, story_id)
+        click.echo(f"CLEARED {story_id}")
+
+    # C4: the legacy-only shape has no keyed entry to scope to, so the
+    # unscoped clear-the-slate call is correct here precisely because there
+    # is nothing else in the slate to protect.
+    if legacy_stale_id is not None:
+        clear_current_story(companion_dir, None)
+        click.echo(f"CLEARED {legacy_stale_id}")
+
+
+def _format_age_hours(set_at: "str | None") -> str:
+    """Render *set_at*'s age in hours for the report line, tolerating a
+    missing/unparseable stamp (C6)."""
+    if not isinstance(set_at, str) or not set_at:
+        return "?"
+    try:
+        parsed = datetime.fromisoformat(set_at)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        age = (now - parsed).total_seconds() / 3600.0
+        return f"{age:.1f}"
+    except Exception:
+        return "?"
 
 
 # ---------------------------------------------------------------------------
