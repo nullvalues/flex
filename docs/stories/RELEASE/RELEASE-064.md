@@ -2,7 +2,7 @@
 id: RELEASE-064
 rail: RELEASE
 title: Migrate lumin to pairmode 0.3.0
-status: draft
+status: complete
 phase: "106"
 auth_gated: false
 schema_introduces: false
@@ -604,3 +604,291 @@ invocation; confirm via `--help`.
 - **Automating the campaign.** No script is written to loop the mechanic over the
   fleet. If that is wanted, it is a new story informed by E12 — not a shortcut
   taken during the run that is supposed to evaluate the manual procedure.
+
+## Evidence
+
+Executed 2026-07-28 at orchestrator level with the operator present, per this
+story's § Execution model. **Partial run:** E0–E4 and E8–E14 are evidenced below;
+**E5/E6/E7 (proving cycle) were NOT run** — operator decision, recorded verbatim
+under § E5–E7 below. This section does not claim them as passed.
+
+### E0 — gate proof
+
+```
+$ git -C /mnt/work/flex tag --list 'cp-110*'
+cp-110
+
+$ git -C /mnt/work/flex-harness log --oneline -5
+5113c862 chore(phase-110): mark phase complete in index and era ledger (cp-110)
+c060db1e docs(phase-110): fill CP-110 cold-eyes checklist at checkpoint
+6cf90db2 docs(phase-110): name phase 110 in architecture.md; add CHANGELOG entry (checkpoint-docs findings)
+a04e3d24 chore(phase-110): sync story statuses to complete after merges
+601351a6 feat(story-INFRA-290): add data-flow checks to cold-eyes procedures and clear recording-state residue
+
+$ git -C /mnt/work/flex rev-parse cp-110 ; git -C /mnt/work/flex-harness rev-parse HEAD
+5113c8622c27a503018a6a648c274a14b5069ca3
+5113c8622c27a503018a6a648c274a14b5069ca3   ← channel HEAD == cp-110 exactly
+```
+
+Preconditions: cp-105 tagged; RELEASE-063 `## Evidence` + *Playbook notes (E10)* +
+*Follow-ups filed (E11)* present (lines 364/638/677); RELEASE-065..071 all `draft`;
+lumin tree clean.
+
+### E1 — pre-migration baseline
+
+```
+$ PATH=$HOME/.local/bin:$PATH uv run python \
+    /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
+    --candidate-dir /mnt/work/lumin --no-snapshot
+Flex checkout: /mnt/work/flex-harness
+Candidates scanned: 16
+Bound projects found: 16
+[14 sibling project blocks elided — lumin block verbatim:]
+  /mnt/work/lumin
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+    DUPLICATE HOOKS: /mnt/work/lumin — events: SessionStart, PostToolUse
+Projects with duplicate hooks: 16
+```
+
+Matches RELEASE-063's recorded E1 baseline for lumin exactly. NOTE: the
+duplicate-hooks line is 16/16 fleet-wide — the canary run printed 0 from the
+settings-only view; cp-110's merged view (INFRA-288 `hook_view.py`) now sees
+plugin-sourced entries. See Playbook notes (new-1).
+
+```
+$ git -C /mnt/work/lumin log --oneline -5
+e4cb3b0 fix(phase-proposed): correct pairmode tooling path to flex-harness, not flex
+9766197 docs(phase-proposed): propose pairmode 0.3.0 migration
+7fcfa5e chore(orchestrator): pairmode fleet rollout — wire context-budget-gate hooks (INFRA-209)
+5ab420a chore(pairmode): commit bootstrap scaffold, with corrected PreToolUse matcher
+bad490f Phase 1 MVP scaffold: FCA RSS → Claude analyst → markdown digest
+
+$ git -C /mnt/work/lumin status --porcelain
+(no output — clean)
+```
+
+### Mechanic run (steps 2–4 of the runbook, as corrected by this spec)
+
+- `sync-all --dry-run`: methodology skip + 5 agent-file re-renders +
+  `CLAUDE.build.md` 0.2.x prose loop (1088 lines) → 0.3.0 thin-harness template.
+  Reviewed by operator; approved.
+- `sync-all --project-dir /mnt/work/lumin --apply --yes`: exit 0. **Canary note 7
+  did NOT recur** — no permission-classifier block; no auto-mode toggle needed.
+- `.companion/state.json.lock` (0 bytes) left behind — **note 5 recurred**;
+  removed, not committed.
+- `to-030 --apply` output (key lines):
+
+```
+[apply] rewrote expected_step_tokens: 53000 → 5000
+[apply] backfilled missing 'effort_tracking': true in state.json
+[agent-cleanup] builder.md: content differs from known 0.2.x template (or allowlist not populated). Manual porting required.
+  ... (same for reviewer.md, loop-breaker.md, security-auditor.md, intent-reviewer.md;
+       each diff shows "0.2.x template ... (not available)")
+to-030 complete.
+```
+
+**Note 4 recurred identically** (agent-cleanup noise; no action). **Note 6
+DEVIATED:** the canary's custom `expected_step_tokens` was kept with a WARN;
+here to-030 silently REWROTE 53000 → 5000. See Playbook notes (6) and Follow-ups.
+
+### E2 / E3 — post-migration discovery (same command form as E1)
+
+```
+$ PATH=$HOME/.local/bin:$PATH uv run python \
+    /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
+    --candidate-dir /mnt/work/lumin --no-snapshot
+[header + 14 sibling blocks elided — lumin block verbatim:]
+  /mnt/work/lumin
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+    DUPLICATE HOOKS: /mnt/work/lumin — events: SessionStart, PostToolUse
+Projects with duplicate hooks: 16
+```
+
+E2: all three conditions hold (`0.3.0`, signal1 → channel, `binding: both`).
+
+E3: lumin's own settings hook state, from `.claude/settings.json`:
+
+```
+PreToolUse: 1 block(s), 1 command(s)     uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py
+UserPromptSubmit: 1 block(s), 1 command(s)  uv run python /mnt/work/flex-harness/hooks/user_prompt_submit.py
+SessionStart: 1 block(s), 1 command(s)   uv run python /mnt/work/flex-harness/hooks/session_start.py
+PostToolUse: 1 block(s), 1 command(s)    uv run python /mnt/work/flex-harness/hooks/post_tool_use.py
+```
+
+Single pairmode hook block per event — the sync produced this state on its own;
+nothing was hand-edited. The persisting DUPLICATE flag is **plugin-side and
+non-pairmode**, per `audit-hooks` (dry-run; nothing prunable in settings):
+
+```
+$ pairmode_sync.py audit-hooks --project-dir /mnt/work/lumin
+DUPLICATE: event=SessionStart basename=session-start.sh" sources=['plugin', 'plugin'] ...
+DUPLICATE: event=PostToolUse basename=security_reminder_hook.py" sources=['plugin', 'plugin', 'plugin', 'plugin', 'plugin', 'plugin'] ...
+```
+
+`Projects with duplicate hooks: 0` is **unattainable this run**: the merged view
+flags all 16 fleet projects on the same plugin-sourced basis. Adjudication: E3's
+substance (sync produces single-block pairmode hooks) holds; the fleet-wide
+plugin-duplicate signal is a new cp-110-era finding, not a lumin migration
+defect. See Playbook notes (new-1) and Follow-ups.
+
+### E4 — thin-harness template
+
+```
+$ grep -c "flex_build.py next-action" /mnt/work/lumin/CLAUDE.build.md
+2
+$ head -5 /mnt/work/lumin/CLAUDE.build.md
+# CLAUDE.build.md — lumin Build Orchestrator
+
+You are the build orchestrator for the lumin project. Drive the build loop by
+delegating to `/mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py next-action` and the appropriate leaf worker. Do not write code,
+review code, or commit directly — those are leaf-worker responsibilities.
+```
+
+### E5 / E6 / E7 — proving cycle: **NOT RUN (operator deferral)**
+
+Operator statement, recorded at the decision point: *"Lumin isn't in a spot to
+build, we'll just have to mark it complete and continue on. I'll have to prove
+it out later. Understood and acknowledged that we're not really doing proper
+checkout on lumin."*
+
+Consequences, stated per Instructions step 11:
+
+- No lumin proving story was built; no session mode to record (E5 unevidenced).
+- E6a/E6b/E6c were not queried — there are no proving-cycle rows to query. The
+  downstream proof that the CER-101/103/104 remediation works in a consumer
+  project **does not exist yet**, from lumin or (per E10 below) from meander.
+- E7's report-path check was likewise not run.
+- **Campaign gate: E5/E6/E7 unevidenced = not passed.** Per this spec's own
+  acceptance, RELEASE-065..070 remain gated pending a completed proving cycle on
+  lumin (deferred follow-up below) or equivalent downstream E6 evidence.
+  The operator has acknowledged this deferral explicitly.
+
+### E8 — lumin git history
+
+```
+$ git -C /mnt/work/lumin log --oneline -3
+433593d sync: migrate to pairmode 0.3.0 thin-harness loop
+e4cb3b0 fix(phase-proposed): correct pairmode tooling path to flex-harness, not flex
+9766197 docs(phase-proposed): propose pairmode 0.3.0 migration
+```
+
+Migration is its own commit (`433593d`), landed **before** any proving cycle
+(note 3 correction applied). 10 files changed, 252 insertions, 1098 deletions.
+No proving-story commit exists (see E5–E7).
+
+### E9 — settings.local.json sediment
+
+```
+$ ls /mnt/work/lumin/.claude/settings.local.json
+(does not exist)
+```
+
+Lumin carries no `settings.local.json` and therefore no Write()/Edit() sediment.
+Canary note 9 not applicable; no prune decision required.
+
+### E10 — canary (meander) E6 re-verification
+
+Fallback **(b)** applies. cp-110 promotion: 2026-07-28T11:57:54-04:00 (=15:57:54Z).
+
+```
+$ python3 sqlite query — /mnt/work/meander/.companion/effort.db
+post-cp-110 rows (ts > 2026-07-28T15:57:54Z): 0
+latest 3 rows overall:
+   (282, 'SEC-006', 'builder', '2026-07-28T14:09:53.396917+00:00')
+   (281, 'SEC-006', 'builder', '2026-07-28T14:09:53.386698+00:00')
+   (280, 'TEST-005', 'reviewer', '2026-07-28T13:12:12.820181+00:00')
+```
+
+Meander has had **no post-cp-110 build activity**; no fresh rows exist to re-run
+E6a/b/c against. (Rows 281/282 are incidentally a pre-cp-110 CER-104 duplicate
+pair — same story, same role, 10 ms apart — confirming the historical failure
+shape.) With lumin's proving cycle also deferred, **no downstream E6 evidence
+exists at all yet**; follow-up filed below. Schema note: the live `attempts`
+schema uses `agent_role`/`ts`, not the spec's `role`/`created_at` (taken from
+RELEASE-063's output) — queries adjusted accordingly.
+
+**Re-sync determination: meander does NOT need a re-sync.** Basis: the
+CER-101/103/104 fixes live in channel scripts (`effort_db.py`,
+`subagent_transcript.py`, `hook_view.py`, `flex_build.py`) which meander invokes
+by path via its channel-bound hooks (`/mnt/work/flex-harness/hooks/*`); cp-110
+changed no hook or agent template content of the kind copied into consumer repos
+at migration time (phase-110's `phase.md.j2` change affects newly scaffolded
+phase docs only, rendered from the channel template at scaffold time).
+
+### E11 — cleanliness
+
+```
+$ git -C /mnt/work/flex diff --name-only        # before this Evidence append
+(no output)
+$ git -C /mnt/work/flex-harness status --porcelain
+(no output — channel read from, never written)
+```
+
+Flex-side diff for this story is this file (plus tool-written status/ledger rows).
+
+### E14 — flex suite
+
+```
+$ uv run pytest tests/pairmode/ -q     # run once, without -x
+4079 passed, 211 skipped, 14 warnings in 181.72s (0:03:01)
+```
+
+Green with zero failures; the CER-090 environmental failure did not appear (run
+from the main checkout, not a worktree).
+
+### Playbook notes (E12 — delta against RELEASE-063's nine)
+
+1. Dirty-tree stop: **did not recur** — lumin's tree was clean at start.
+2. Runbook step-5 command form wrong: **recurred** (runbook still unamended);
+   used the canary's corrected `--candidate-dir` form, confirmed via `--help`.
+3. Commit-before-proving reorder: **recurred / applied** — migration committed
+   as its own commit `433593d` ahead of any proving work.
+4. `to-030` agent-cleanup noise: **recurred identically** — all five
+   freshly-synced agent files flagged against a "(not available)" 0.2.x
+   template; no action needed.
+5. `state.json.lock` residue: **recurred** — removed by hand, not committed.
+6. Custom `expected_step_tokens`: **DEVIATED** — canary kept its custom value
+   with a WARN; on lumin `to-030` silently **rewrote 53000 → 5000** with no
+   keep/WARN path. Behavior change vs. the canary run (possibly from the
+   phase-110 `pairmode_migrate.py` changes); operator not prompted. Follow-up
+   filed.
+7. Auto-mode classifier block on first out-of-repo `--apply`: **did not recur**
+   — `sync-all --apply` ran without any permission block from this flex session.
+8. E6 execution-mode ambiguity: **still open but changed** — cp-110/INFRA-289
+   added target-project attribution (`resolve_recording_project`,
+   registered_projects-allowlisted), which may make flex-driven cycles attribute
+   correctly; unproven downstream because the proving cycle was deferred.
+9. `settings.local.json` sediment: **not applicable** — lumin has no such file.
+
+New findings this run:
+
+- **(new-1) Fleet-wide plugin-sourced duplicate-hook signal.** The cp-110 merged
+  hook view reports `Projects with duplicate hooks: 16` (was 0 pre-cp-110 from
+  settings-only blindness). For lumin the duplicates are exclusively
+  plugin-sourced (`session-start.sh` ×2, `security_reminder_hook.py` ×6),
+  non-pairmode, and unprunable by `audit-hooks --apply` (which by design never
+  writes plugin files). Either genuine multi-plugin duplication or a
+  `hook_view.py` discovery double-count; needs a CER either way. E3's
+  "duplicate hooks: 0" assertion is unattainable fleet-wide until resolved.
+- **(new-2) `to-030` silent `expected_step_tokens` rewrite** (see note 6 delta).
+
+### Follow-ups (E13 — filed, not fixed here)
+
+- **Lumin proving cycle (E5/E6/E7) deferred by operator** — must run natively in
+  lumin (or via the INFRA-289 attribution path) before lumin's migration can be
+  called proven; until then the CER-101/103/104 downstream proof is outstanding
+  and RELEASE-065..070 remain gated per Instructions step 11.
+- **Meander post-cp-110 E6 re-verification** (E10(b)) — re-run E6a/b/c on
+  meander's next build cycle; no re-sync needed (determination above).
+- **CER to file: fleet-wide plugin-sourced duplicate-hook signal** (new-1) —
+  diagnose hook_view plugin discovery (genuine duplication vs. double-count);
+  decide the E3 assertion's future form.
+- **CER or runbook note to file: `to-030` rewrites custom `expected_step_tokens`
+  without prompt/WARN** (new-2) — canary-run behavior (keep + WARN) was the
+  documented expectation.
+- Runbook amendments for notes 2/3/5 recurrences: already filed by RELEASE-063
+  E11 — referenced, not duplicated.
