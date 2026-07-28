@@ -582,6 +582,31 @@ Playbook notes: the proving cycle was executed from the flex orchestrator sessio
 so the recording hooks in play were flex's session hooks; a native meander session
 may record correctly — untested in this run.
 
+### E6 addendum — native-session re-test (operator, same day)
+
+The operator ran meander's own loop natively (LEGAL-002..005, OPS-001..004,
+INFRA-011, two checkpoints). Result: split verdict.
+
+```
+== rows from today in /mnt/work/meander/.companion/effort.db ==
+62 rows, e.g.:
+(211, 'LEGAL-002', None, 'builder', 'sonnet', None, None, '2026-07-27T18:50:33.789186+00:00')
+(212, 'LEGAL-002', None, 'builder', 'sonnet', None, None, '2026-07-27T18:50:33.810665+00:00')
+...
+(271, 'phase:MN028-main', 'MN028-main', 'intent-reviewer', None, None, None, '2026-07-27T23:56:50.526591+00:00')
+(272, 'phase:MN028-main', 'MN028-main', 'intent-reviewer', None, None, None, '2026-07-27T23:56:50.548546+00:00')
+```
+
+- Attribution works natively (rows land in meander's db) → the zero-rows result in
+  the primary E6 run was the flex-session execution-mode artifact (CER-103).
+- Every attempt is double-inserted (perfect pairs, near-identical ts) → CER-104.
+- All 62 rows have NULL tokens_total/outcome; meander's checkpoint-report printed
+  "no attempts recorded" for phase MN028-main → CER-101 confirmed downstream (CER-104).
+
+E6 verdict stands as FAIL (placeholder outcomes = CER-091-class regression per this
+spec). Campaign gate: RELEASE-064..070 remain blocked pending CER-101/102/103/104
+remediation in flex.
+
 ### E7 — meander migration commits
 
 ```
