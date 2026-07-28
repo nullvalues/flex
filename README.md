@@ -85,19 +85,35 @@ companion records the decisions that surface during work.
 
 ## Installation
 
-```bash
-# Install as a Claude Code plugin from the plugin directory
-claude code plugin install path/to/flex
+Install from a local checkout:
 
-# Or clone and install locally
+```bash
+# Clone the repo, then register it as a local marketplace
 git clone https://github.com/nullvalues/flex
-claude code plugin install ./flex
+claude plugin marketplace add ./flex
+
+# Install the plugin from that marketplace
+claude plugin install flex@nullvalues-flex
 ```
+
+Or register the marketplace straight from GitHub — `marketplace add` takes a
+path or a GitHub repo; `plugin install` always takes `<plugin>@<marketplace>`,
+never a filesystem path:
+
+```bash
+claude plugin marketplace add nullvalues/flex
+claude plugin install flex@nullvalues-flex
+```
+
+The plugin manifest's `source` is `"./"`, resolved relative to the marketplace
+root (the directory containing `.claude-plugin/marketplace.json`), so the same
+value works whether the marketplace was added from a local path or from
+GitHub.
 
 Requirements: Claude Code, Python 3.11+, uv.
 
-The plugin registers three skills: `/flex:seed`, `/flex:companion`,
-and `/flex:pairmode`. Marketplace installation is available for registered users.
+The plugin registers four skills: `/flex:seed`, `/flex:companion`,
+`/flex:pairmode`, and `/flex:observability`.
 
 ## Quick start
 
@@ -138,7 +154,7 @@ If you have prior Claude Code sessions, `/flex:seed` extracts decisions from the
 bootstrap. The spec it produces seeds the pairmode scaffold so that generated rules and
 checklists reflect your actual project history.
 
-## The three skills
+## The four skills
 
 | Skill | Posture | What it does | Key command | Key output |
 |-------|---------|-------------|-------------|-----------|

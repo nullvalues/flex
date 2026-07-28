@@ -100,7 +100,10 @@ story spec. Unexplained modifications are flagged HIGH severity at review.
 - `skills/seed/scripts/` — all seed scripts.
 - `skills/companion/scripts/sidebar.py` — companion sidebar.
 - `.claude-plugin/plugin.json` — plugin manifest.
-- `.claude-plugin/marketplace.json` — marketplace registration.
+- `.claude-plugin/marketplace.json` — marketplace registration. The `flex`
+  plugin entry's `source` must stay `"./"` so `claude plugin marketplace add
+  <local-path>` installs the checkout being added rather than cloning the
+  published GitHub repo (INFRA-291).
 - `lessons/lessons.json` — append-only lessons store.
 
 To justify a modification: state the reason in the story file under a
