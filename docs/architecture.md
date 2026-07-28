@@ -1782,7 +1782,8 @@ each doing a different job:
    a pattern only visible in aggregate across the phase's stories, not from any
    single story's spec or diff.
 
-**Data-flow checks: three-layer placement (INFRA-290, CER-101, CER-104).** The four
+**Data-flow checks: three-layer placement (Phase 110 — Effort-recording data-flow
+remediation, INFRA-287..290, CER-101..104; INFRA-290 landed the checks).** The four
 producer/consumer data-flow checks — **written-never-read**, **required-never-written**,
 **duplicate state**, **half-implementation** — live at three pipeline layers: the
 per-story reviewer (diff-scoped; `reviewer/procedure.md` checklist item 13), the
