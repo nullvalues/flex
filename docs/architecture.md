@@ -53,7 +53,7 @@ flex/
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
-        flex_build.py             ← CLI wrapping pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, check-guardrail, context-health, check-stub, check-schema-gate, check-auth-gate, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count (INFRA-282: `--story-id` is now an optional scope — omitted clears the whole counter file, given clears only that story's entry), clear-stale-stories (INFRA-271, CER-080 — reports, or with `--apply` clears, `current_stories`/`current_story` stamps older than `scope_guard.STATE_STORY_MAX_AGE_HOURS`; imports the staleness rule from `scope_guard` rather than re-deriving it; never raises, never exits non-zero), story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope, next-action, resolver-state, record-checkpoint-step, record-attempt); next-action added in HARNESS001-main (since the flip, HARNESS006, the sequencing core the thin dispatch loop in CLAUDE.build.md calls each iteration); resolver-state added in HARNESS007-main (pure-read resolver state dump); record-checkpoint-step added in HARNESS009-main (RESOLVER-012) — atomically appends a validated checkpoint step ID to state.json["checkpoint_step"], replacing LLM-prose writes; replaces inline python -c blocks in CLAUDE.build.md.j2; INFRA-239 wires the `checkpoint-tag` step of record-checkpoint-step to also call `_mark_phase_complete_in_index` (the write side `mark-phase-complete` shares) in the same invocation, so the checkpoint_step reset and the phase-index `complete` write happen atomically in one CLI call rather than requiring a second, separately-remembered `mark-phase-complete` call; INFRA-267 (CER-082) adds a second write to that same path — `_mark_phase_complete_in_era_ledger` flips the matching row in the active `docs/eras/` doc's `## Phases` ledger, from the same phase key, so era ledger and phase index never diverge; record-attempt added in RELEASE-009 (HARNESS012-main) — Click alias delegating to record_attempt.py, so the orchestrator template can call a single entry point; the alias is a transparent passthrough (INFRA-263): it declares no options of its own, forwards all arguments including --help to record_attempt.py, and exits with the delegate's exit code; `checkpoint-report`'s printed rollup is scoped to the active phase's stories as of INFRA-256 — story IDs are derived from the resolved phase doc's `## Stories` table (via `_parse_phase_stories_with_status`), not from `attempts.phase` or a timestamp window; a lifetime rollup (unchanged, all-phases) is printed separately underneath it — see § Effort tracking for the scoping rationale
+        flex_build.py             ← CLI wrapping pairmode helper functions (select-builder-model, select-reviewer-model, select-security-auditor-model, select-intent-reviewer-model, write-permissions, clear-permissions, permissions-create, permissions-gc (INFRA-290 — reports, or with `--apply` deletes, stranded `docs/phases/permissions/<story_id>.json` artifacts; retention is a whitelist — worktree claim, `current_stories`/`current_story` stamp, non-story-ID filename, or unreadable file all retain), check-guardrail, context-health, check-stub, check-schema-gate, check-auth-gate, current-phase, transition-era, write-attempt-count, read-attempt-count, clear-attempt-count (INFRA-282: `--story-id` is now an optional scope — omitted clears the whole counter file, given clears only that story's entry), clear-stale-stories (INFRA-271, CER-080 — reports, or with `--apply` clears, `current_stories`/`current_story` stamps older than `scope_guard.STATE_STORY_MAX_AGE_HOURS`; imports the staleness rule from `scope_guard` rather than re-deriving it; never raises, never exits non-zero), story-cost-estimate, set-context-tokens, bump-context-tokens, mark-phase-complete, next-phase, check-story-scope, next-action, resolver-state, record-checkpoint-step, record-attempt); next-action added in HARNESS001-main (since the flip, HARNESS006, the sequencing core the thin dispatch loop in CLAUDE.build.md calls each iteration); resolver-state added in HARNESS007-main (pure-read resolver state dump); record-checkpoint-step added in HARNESS009-main (RESOLVER-012) — atomically appends a validated checkpoint step ID to state.json["checkpoint_step"], replacing LLM-prose writes; replaces inline python -c blocks in CLAUDE.build.md.j2; INFRA-239 wires the `checkpoint-tag` step of record-checkpoint-step to also call `_mark_phase_complete_in_index` (the write side `mark-phase-complete` shares) in the same invocation, so the checkpoint_step reset and the phase-index `complete` write happen atomically in one CLI call rather than requiring a second, separately-remembered `mark-phase-complete` call; INFRA-267 (CER-082) adds a second write to that same path — `_mark_phase_complete_in_era_ledger` flips the matching row in the active `docs/eras/` doc's `## Phases` ledger, from the same phase key, so era ledger and phase index never diverge; record-attempt added in RELEASE-009 (HARNESS012-main) — Click alias delegating to record_attempt.py, so the orchestrator template can call a single entry point; the alias is a transparent passthrough (INFRA-263): it declares no options of its own, forwards all arguments including --help to record_attempt.py, and exits with the delegate's exit code; `checkpoint-report`'s printed rollup is scoped to the active phase's stories as of INFRA-256 — story IDs are derived from the resolved phase doc's `## Stories` table (via `_parse_phase_stories_with_status`), not from `attempts.phase` or a timestamp window; a lifetime rollup (unchanged, all-phases) is printed separately underneath it — see § Effort tracking for the scoping rationale
         refresh_effort_baseline.py ← regenerate skills/pairmode/seed/effort_baseline.json from downstream effort.db files
         story_context.py          ← read/write current story in state.json; pairmode detection
         spec_exception.py         ← record protected-file overrides into spec.json conflicts
@@ -1782,6 +1782,19 @@ each doing a different job:
    a pattern only visible in aggregate across the phase's stories, not from any
    single story's spec or diff.
 
+**Data-flow checks: three-layer placement (INFRA-290, CER-101, CER-104).** The four
+producer/consumer data-flow checks — **written-never-read**, **required-never-written**,
+**duplicate state**, **half-implementation** — live at three pipeline layers: the
+per-story reviewer (diff-scoped; `reviewer/procedure.md` checklist item 13), the
+checkpoint security-auditor (phase-diff-scoped, for the cross-story case a per-story
+review cannot see; `security-auditor/procedure.md` check 7), and the CP-NN cold-eyes
+checklist in each phase doc (human, at checkpoint; scaffolded by
+`templates/docs/phases/phase.md.j2`). The forcing function: CER-101..104 were all
+producer/consumer mismatches that passed every existing checklist item, security audit,
+and checkpoint unflagged, because no check ever asked "who writes this?" or "who reads
+this?". The procedure skills are the canonical statement of the checks; this paragraph
+records only where they live and why.
+
 ### Auth policy integration
 
 Before any auth-gated story (authentication, session handling, permission checks,
@@ -1858,7 +1871,7 @@ is **read-only** on every row.
 | `attempt_counter.json` (attempt counters) | `hooks/post_tool_use.py` → `subagent_transcript.record_attempt_from_transcript` → `flex_build.bump_attempt_count` on builder/reviewer FAIL (INFRA-237), **ungated** — the story was just spawned for, so it is active by construction, and gating it would risk dropping a real first FAIL; `subagent_transcript.reconcile_pending_attempts` → `flex_build.bump_attempt_count` as a *second, later* bump site for an async spawn's FAIL outcome that was only knowable after PostToolUse time (INFRA-258 — same function, same semantics, just a later call), **gated** since CER-091 defect 4 by `subagent_transcript._story_accepts_late_bump` — skipped when the story's own frontmatter `status` is `complete`/`merged`/`deferred`/`backlog`, or when the story is neither already counter-recorded nor `state.json`'s `current_story` (a reconciliation arriving arbitrarily later — possibly post-merge, possibly post-`/clear` — must not resurrect a counter file for a story nobody is building); `flex_build.py merge-story-worktree` → `flex_build.clear_attempt_count` on a successful land; the standalone `write-attempt-count` / `clear-attempt-count` CLI subcommands share the same underlying functions for direct/manual use but are no longer invoked from `CLAUDE.build.md.j2`'s loop | read-only |
 | `.companion/effort_recording.log` (diagnostic trace, CER-091) | `subagent_transcript.log_recording_event` — sole writer, called once per `record_attempt_from_transcript` invocation on every return path (including its outer `except`), and once by `hooks/post_tool_use.py`'s `SendMessage` branch (`decision="observed:non-spawn-tool"`); append-only, size-capped at `RECORDING_LOG_MAX_BYTES` (262 144 bytes, truncate-and-restart with a `log-truncated` marker line); not gated on `effort_tracking` — the log's purpose is explaining why recording did or did not happen, including when tracking itself is off | read-only (`pairmode_effort.py` and manual `tail` only; no resolver reads it) |
 | story `status` frontmatter | manual/advisory — `story_update.py` is the canonical CLI but no build-loop step calls it automatically; drift is caught after the fact by `flex_build.py check-index`'s git-commit status-drift check (RESOLVER-010), not prevented at write time | read-only |
-| permission files (`docs/phases/permissions/<story_id>.json`) | orchestrator (`flex_build.py permissions-create`) | read-only |
+| permission files (`docs/phases/permissions/<story_id>.json`) | orchestrator (`flex_build.py permissions-create`); `flex_build.py permissions-gc` (INFRA-290) as a second, operator-invoked writer — deletes only artifacts with no in-flight claim (no worktree dir, no `current_stories`/`current_story` stamp, story-ID-parseable filename); anything not positively classifiable is retained | read-only |
 | era/phase/story index (`docs/phases/index.md`) | orchestrator | read-only |
 | commits + tags | reviewer / orchestrator (via `git`) | read-only |
 | `next-action` resolver output | **reads all of the above; writes nothing** | — |
@@ -1985,6 +1998,25 @@ Fields:
   to this flat mirror when `current_stories` is empty/absent (the `state-legacy`
   resolution step). Absent when the user skips the prompt
   and no `current_stories` entry exists.
+  **Consolidation direction (INFRA-290 — recorded, not built):** `current_stories`
+  (keyed) is the authority; this flat mirror is scheduled for retirement, in the order
+  **readers first, then writers**. The mirror's reader inventory as of INFRA-290
+  (every site reading the flat key other than `story_context.py`'s own mirror
+  maintenance, derived by grep at build time): `hooks/session_start.py:173`,
+  `skills/pairmode/scripts/global_session_check.py:56`,
+  `skills/pairmode/scripts/subagent_transcript.py:517` and `:1485`,
+  `skills/pairmode/scripts/scope_guard.py:412` and `:426` (legacy-fallback helpers),
+  `skills/pairmode/scripts/context_budget.py:930`,
+  `skills/pairmode/scripts/pairmode_status.py:182`,
+  `skills/pairmode/scripts/flex_build.py:674` (`collectable_permission_artifacts`)
+  and `:1698` (`_clear_stale_stories_body`),
+  `skills/pairmode/scripts/pairmode_migrate.py:790` (`_counter_story_in_flight`),
+  `skills/observability/api/src/routes/context.ts:206`, plus
+  `story_context.get_current_story()` (`story_context.py:194`) and the legacy
+  fallback inside `get_current_stories()` (`story_context.py:214`), which expose the
+  mirror to callers. No reader is retired by INFRA-290 — the story records the
+  direction and the inventory so the next change to either key inherits the plan
+  instead of re-deriving it.
 - `checkpoint_steps` — **optional**; dict keyed by phase key (INFRA-283, CER-095.4). Each
   entry is the list of completed checkpoint step IDs for that phase. This is the
   **authority**: with two phases checkpointing concurrently under one orchestrator, only
@@ -2002,10 +2034,13 @@ Fields:
   stamp. `checkpoint_step` is a `list[str]` of completed step IDs; `checkpoint_phase` is
   the phase key that list belongs to, or `""` when no single phase can be named
   unambiguously (see the architecture § Checkpoint prose above for the exact mirror rule).
-- `context_story_tokens` — **optional**; dict keyed by story ID (e.g. `"INFRA-181"`);
-  written by `flex_build.py set-context-tokens`. **Legacy after INFRA-182**: `decide()` no
-  longer reads this field. Entries remain in state.json but are inert for gate enforcement.
-  The per-story dict design was introduced by INFRA-180 and superseded by INFRA-182.
+- `context_story_tokens` — **optional**; dict keyed by story ID (e.g. `"INFRA-181"`).
+  **Dead on both sides (INFRA-290)** — no writer (`set-context-tokens` stopped writing
+  it) and no reader (`context_budget.decide()` stopped reading it after INFRA-182). The
+  per-story dict design was introduced by INFRA-180 and superseded by INFRA-182;
+  `pairmode_migrate.py to-030` removes the key when present (INFRA-290). This entry is
+  kept (not deleted) because un-migrated projects' state.json files still carry the key
+  and a reader who finds one needs this entry to explain it.
 - `context_session_reset_at` — **optional**; UTC ISO-8601 timestamp string; written by
   `session_start.py` on `clear`/`startup`/`compact` (INFRA-245) via
   `session_reset.decide_reset()`. Used by

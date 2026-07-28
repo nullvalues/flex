@@ -51,4 +51,9 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-{{ _phase_key }} Cold-eyes checklist
 
+- [ ] written-never-read — does anything this phase persists have no reader?
+- [ ] required-never-written — does any read path depend on a value no writer produces?
+- [ ] duplicate state — is any fact now stored twice with independent writers?
+- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
+
 — developer fills in after phase completion —

@@ -1098,3 +1098,171 @@ def test_to030_effort_tracking_backfill_is_idempotent(tmp_path: Path) -> None:
     _invoke_030(project, apply=True)
 
     assert state_path.read_bytes() == after_first, "Second run changed state.json"
+
+
+# ---------------------------------------------------------------------------
+# INFRA-290 (D): context_story_tokens removal
+# ---------------------------------------------------------------------------
+
+
+def test_to030_dryrun_leaves_context_story_tokens_and_prints_would(tmp_path: Path) -> None:
+    """Dry-run must leave the key present and print the [would] line (D2)."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS,
+        effort_tracking=True,
+        context_story_tokens={"INFRA-181": 12345},
+    )
+    state_path = project / ".companion" / "state.json"
+    before = state_path.read_bytes()
+
+    exit_code, output = _invoke_030(project, apply=False)
+
+    assert exit_code == 0
+    assert state_path.read_bytes() == before, "Dry-run modified state.json"
+    assert "[would] remove 'context_story_tokens' key from state.json" in output
+
+
+def test_to030_apply_removes_context_story_tokens(tmp_path: Path) -> None:
+    """--apply must remove the key and print the [apply] line (D1/D2)."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS,
+        effort_tracking=True,
+        context_story_tokens={"INFRA-181": 12345},
+    )
+    state_path = project / ".companion" / "state.json"
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    state = json.loads(state_path.read_text())
+    assert "context_story_tokens" not in state
+    assert "[apply] removed 'context_story_tokens' key from state.json" in output
+
+
+def test_to030_no_context_story_tokens_is_silent_noop(tmp_path: Path) -> None:
+    """A state.json without the key produces no output line for it (D2)."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS,
+        effort_tracking=True,
+    )
+
+    exit_code, output = _invoke_030(project, apply=False)
+
+    assert exit_code == 0
+    assert "context_story_tokens" not in output
+
+
+# ---------------------------------------------------------------------------
+# INFRA-290 (E): stale legacy-shape attempt_counter.json retirement
+# ---------------------------------------------------------------------------
+
+
+def _write_legacy_counter(project: Path, story_id: str = "BUILD-022", count: int = 2) -> Path:
+    counter_path = project / ".companion" / "attempt_counter.json"
+    counter_path.write_text(
+        json.dumps({"story_id": story_id, "attempt_count": count}), encoding="utf-8"
+    )
+    return counter_path
+
+
+def test_to030_apply_deletes_stale_legacy_counter(tmp_path: Path) -> None:
+    """(a) legacy shape, story not in flight, --apply → file gone (E4)."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS,
+        effort_tracking=True,
+    )
+    counter_path = _write_legacy_counter(project, "BUILD-022")
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    assert not counter_path.exists(), "stale legacy counter was not deleted"
+    assert (
+        "[apply] deleted stale legacy-shape attempt_counter.json "
+        "(story BUILD-022, not in flight)" in output
+    )
+
+
+def test_to030_dryrun_reports_but_keeps_stale_legacy_counter(tmp_path: Path) -> None:
+    """Dry-run prints [would] delete and writes nothing (E3)."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS,
+        effort_tracking=True,
+    )
+    counter_path = _write_legacy_counter(project, "BUILD-022")
+    before = counter_path.read_bytes()
+
+    exit_code, output = _invoke_030(project, apply=False)
+
+    assert exit_code == 0
+    assert counter_path.read_bytes() == before
+    assert (
+        "[would] delete stale legacy-shape attempt_counter.json "
+        "(story BUILD-022, not in flight)" in output
+    )
+
+
+def test_to030_apply_upgrades_in_flight_counter_via_current_stories(tmp_path: Path) -> None:
+    """(b) legacy shape, story in flight via current_stories, --apply → keyed shape (E4)."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS,
+        effort_tracking=True,
+        current_stories={"BUILD-022": {"id": "BUILD-022", "set_at": "2026-07-28T00:00:00Z"}},
+    )
+    counter_path = _write_legacy_counter(project, "BUILD-022", count=3)
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    assert counter_path.exists(), "in-flight counter was deleted"
+    data = json.loads(counter_path.read_text())
+    assert data == {"stories": {"BUILD-022": 3}}
+    assert (
+        "[apply] upgraded legacy-shape attempt_counter.json to keyed shape "
+        "(story BUILD-022 in flight)" in output
+    )
+
+
+def test_to030_apply_upgrades_in_flight_counter_via_worktree_dir(tmp_path: Path) -> None:
+    """(c) legacy shape, story in flight via .pairmode-worktrees/<id>/, --apply → keyed shape (E4)."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS,
+        effort_tracking=True,
+    )
+    (project / ".pairmode-worktrees" / "BUILD-022").mkdir(parents=True)
+    counter_path = _write_legacy_counter(project, "BUILD-022", count=1)
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    assert counter_path.exists()
+    data = json.loads(counter_path.read_text())
+    assert data == {"stories": {"BUILD-022": 1}}
+    assert "in flight" in output
+
+
+def test_to030_keyed_counter_untouched_and_silent(tmp_path: Path) -> None:
+    """(d) keyed shape already → byte-identical file, no output line (E1/E4)."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS,
+        effort_tracking=True,
+    )
+    counter_path = project / ".companion" / "attempt_counter.json"
+    counter_path.write_text(
+        json.dumps({"stories": {"BUILD-022": 2}}), encoding="utf-8"
+    )
+    before = counter_path.read_bytes()
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    assert counter_path.read_bytes() == before
+    assert "attempt_counter" not in output

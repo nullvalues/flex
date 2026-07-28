@@ -67,6 +67,7 @@ from state_utils import _atomic_write_json, state_lock  # noqa: E402
 from story_context import (  # noqa: E402
     set_current_story,
     clear_current_story,
+    get_current_stories,
     read_state,
     CURRENT_STORIES_KEY,
 )
@@ -628,6 +629,123 @@ def cmd_permissions_create(story_id: str, project_dir: str) -> None:
         click.echo(f"permissions-create: {exc}", err=True)
         sys.exit(1)
     click.echo(message)
+
+
+def collectable_permission_artifacts(
+    project_path: Path,
+) -> tuple[list[Path], list[tuple[Path, str]]]:
+    """Classify ``docs/phases/permissions/*.json`` into collectable vs retained.
+
+    INFRA-290: ``merge-story-worktree``/``discard-story-worktree`` clear each
+    story's artifact inline (INFRA-238), but every artifact stamped before
+    that story — or cleaned up by hand — is stranded sediment. This helper is
+    the pure classification behind ``permissions-gc``; the command is a thin
+    printer over it.
+
+    Retention is a **whitelist of reasons to keep**, not a blacklist of
+    reasons to delete — anything that cannot be positively classified is
+    retained. A GC that deletes on uncertainty deletes a live permission
+    artifact and hands the next builder a fail-closed scope guard with no
+    explanation. An artifact is retained when any of:
+
+    - a ``.pairmode-worktrees/<story_id>/`` directory exists (the INFRA-280
+      in-flight claim, via ``claimed_story_ids`` — the existing derivation);
+    - ``state.json``'s ``current_stories`` holds the story's key, or the flat
+      ``current_story`` mirror names it (read from the same loaded state);
+    - the file name does not parse as a story ID;
+    - the file itself is unreadable.
+
+    Everything else is collectable. Pure read — never writes anything, never
+    reads ``effort.db``, and returns ``([], [])`` when the permissions
+    directory does not exist.
+    """
+    perm_dir = project_path / "docs" / "phases" / "permissions"
+    collectable: list[Path] = []
+    retained: list[tuple[Path, str]] = []
+    if not perm_dir.is_dir():
+        return collectable, retained
+
+    claimed = claimed_story_ids(project_path)
+    companion_dir = project_path / ".companion"
+    # get_current_stories reads the keyed record (falling back to the flat
+    # mirror on a pre-INFRA-281 state file); the mirror is additionally read
+    # from the same state load so a divergent mirror still retains.
+    keyed_ids = set(get_current_stories(companion_dir).keys())
+    mirror = read_state(companion_dir).get("current_story")
+    mirror_id = mirror.get("id") if isinstance(mirror, dict) else None
+
+    try:
+        entries = sorted(perm_dir.iterdir())
+    except OSError:
+        return collectable, retained
+
+    for entry in entries:
+        if not entry.is_file() or entry.suffix != ".json":
+            continue
+        story_id = entry.stem
+        if not _STORY_ID_RE.match(story_id):
+            retained.append((entry, "file name does not parse as a story ID"))
+            continue
+        try:
+            entry.read_bytes()
+        except OSError:
+            retained.append((entry, "artifact unreadable"))
+            continue
+        if story_id in claimed:
+            retained.append(
+                (entry, f".pairmode-worktrees/{story_id}/ exists (in-flight claim)")
+            )
+            continue
+        if story_id in keyed_ids:
+            retained.append((entry, "current_stories entry in state.json"))
+            continue
+        if mirror_id == story_id:
+            retained.append((entry, "current_story mirror in state.json"))
+            continue
+        collectable.append(entry)
+    return collectable, retained
+
+
+@flex_build.command("permissions-gc")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+@click.option(
+    "--apply",
+    is_flag=True,
+    default=False,
+    help="Actually delete collectable artifacts. Without this flag, only reports.",
+)
+def cmd_permissions_gc(project_dir: str, apply: bool) -> None:
+    """Report (default) or delete (--apply) stranded permission artifacts.
+
+    INFRA-290: sweeps ``docs/phases/permissions/*.json`` files whose story is
+    no longer in flight. Mirrors ``clear-stale-stories``' report-then-``--apply``
+    shape. Never reads or writes effort.db, story files, or state.json; exits
+    0 on every path including a missing permissions directory.
+    """
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    collectable, retained = collectable_permission_artifacts(project_path)
+    for path in collectable:
+        rel = path.relative_to(project_path)
+        if apply:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                click.echo(f"[warn] could not delete {rel}", err=True)
+                continue
+            click.echo(f"[apply] deleted {rel}")
+        else:
+            click.echo(f"[would] delete {rel}")
+    for path, reason in retained:
+        click.echo(f"retained {path.relative_to(project_path)} — {reason}")
+    click.echo(
+        f"permissions-gc: {len(collectable)} collectable, {len(retained)} retained"
+    )
 
 
 @flex_build.command("select-security-auditor-model")

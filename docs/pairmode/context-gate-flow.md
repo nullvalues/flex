@@ -195,7 +195,7 @@ contract between PostToolUse, PreToolUse, and the SessionStart reset path.
 | `context_budget_acknowledged_at` | int (token count at ack) | `pre_tool_use.py` (on block + ack) | `decide()` | Suppresses re-prompt within reprompt margin |
 | `context_budget_user_turn_seq` | int | `user_prompt_submit.py` (every UserPromptSubmit event) | `decide()` | Monotonic human-turn counter (INFRA-192) |
 | `context_budget_acknowledged_user_turn_seq` | int or `None` | `pre_tool_use.py` (on block, same write as `acknowledged_at`) | `decide()` | Turn-seq snapshot at block time; suppression requires a newer turn (INFRA-193) |
-| `context_story_tokens` | dict | `set-context-tokens` (legacy) | — | **Legacy after INFRA-182**; no longer read by `decide()` |
+| `context_story_tokens` | dict | — (no writer; `set-context-tokens` stopped writing it) | — (no reader; `decide()` stopped reading it after INFRA-182) | **Dead on both sides (INFRA-290)**; `pairmode_migrate.py to-030` removes it. Row kept because un-migrated projects still carry the key |
 
 ---
 

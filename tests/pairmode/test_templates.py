@@ -2442,3 +2442,43 @@ class TestClaudeBuildMdBuildStandardsLine:
         ctx = {**CLAUDE_BUILD_MD_CONTEXT, "domain_isolation_rule": "no raw SQL"}
         output = render("CLAUDE.build.md.j2", ctx)
         assert "no raw SQL" in output
+
+
+class TestPhaseMdJ2DataFlowChecklist:
+    """INFRA-290 (C2): the CP-NN cold-eyes checklist section must render four
+    stable, greppable data-flow checkbox items above the developer fill-in
+    line, identically for every phase context."""
+
+    DATA_FLOW_LABELS = [
+        "written-never-read",
+        "required-never-written",
+        "duplicate state",
+        "half-implementation",
+    ]
+
+    @pytest.mark.parametrize(
+        "context", [PHASE_ONE_CONTEXT, PHASE_BOTH_NAV_CONTEXT], ids=["phase1", "phase2"]
+    )
+    def test_four_checkbox_lines(self, context):
+        output = render("docs/phases/phase.md.j2", context)
+        checkbox_lines = [
+            line for line in output.splitlines() if line.startswith("- [ ] ")
+        ]
+        assert len(checkbox_lines) == 4, checkbox_lines
+
+    @pytest.mark.parametrize(
+        "context", [PHASE_ONE_CONTEXT, PHASE_BOTH_NAV_CONTEXT], ids=["phase1", "phase2"]
+    )
+    def test_all_four_labels_present(self, context):
+        output = render("docs/phases/phase.md.j2", context)
+        for label in self.DATA_FLOW_LABELS:
+            assert label in output, f"missing data-flow label {label!r}"
+
+    def test_developer_fill_in_line_retained(self):
+        output = render("docs/phases/phase.md.j2", PHASE_ONE_CONTEXT)
+        assert "— developer fills in after phase completion —" in output
+        # The checkboxes sit above the fill-in line, inside the CP section.
+        cp_idx = output.index("Cold-eyes checklist")
+        fill_idx = output.index("— developer fills in after phase completion —")
+        first_box_idx = output.index("- [ ] ")
+        assert cp_idx < first_box_idx < fill_idx

@@ -765,6 +765,36 @@ def _load_state(companion_dir: Path) -> dict:
         return {}
 
 
+def _counter_story_in_flight(project_path: Path, story_id: str) -> bool:
+    """Return True when *story_id* appears to be an in-flight build (INFRA-290).
+
+    Checks, in order: a ``.pairmode-worktrees/<story_id>/`` directory (the
+    INFRA-280 in-flight claim), a ``current_stories`` entry in
+    ``.companion/state.json``, and the flat ``current_story`` mirror naming it.
+
+    Deliberately does NOT import ``flex_build`` or ``scope_guard`` for these
+    checks: pairmode_migrate runs against *other* projects' trees and must not
+    depend on the target project's module layout — and the check is three
+    ``Path.exists()`` / dict lookups. Returns ``False`` on any error rather
+    than raising (the caller then upgrades rather than deletes only when a
+    positive in-flight signal exists; a False here at worst deletes a counter
+    for a story with unreadable state, which the dry-run surfaces first).
+    """
+    try:
+        if (project_path / ".pairmode-worktrees" / story_id).is_dir():
+            return True
+        state = _load_state(project_path / ".companion")
+        current_stories = state.get("current_stories")
+        if isinstance(current_stories, dict) and story_id in current_stories:
+            return True
+        mirror = state.get("current_story")
+        if isinstance(mirror, dict) and mirror.get("id") == story_id:
+            return True
+    except Exception:  # noqa: BLE001
+        return False
+    return False
+
+
 def _protected_path_preview(project_dir: Path) -> None:
     """Print any recent git-touched files that match PROTECTED_GLOBS."""
     sys.path.insert(0, str(_SCRIPTS_DIR))
@@ -960,6 +990,24 @@ def cmd_to_030(project_dir: str, apply: bool) -> None:
             click.echo("[would] remove 'pipe_path' key from state.json")
 
     # -----------------------------------------------------------------------
+    # INFRA-290 (D): context_story_tokens removal
+    #
+    # Dead on both sides since INFRA-182: `context_budget.decide()` stopped
+    # reading it and `set-context-tokens` stopped writing it. Entries left in
+    # place fleet-wide are pure residue — remove the key when present. A
+    # state.json without the key is a silent no-op.
+    # -----------------------------------------------------------------------
+    if "context_story_tokens" in state:
+        if apply:
+            state.pop("context_story_tokens")
+            sys.path.insert(0, str(_SCRIPTS_DIR))
+            from state_utils import _atomic_write_json  # noqa: PLC0415
+            _atomic_write_json(state_path, state)
+            click.echo("[apply] removed 'context_story_tokens' key from state.json")
+        else:
+            click.echo("[would] remove 'context_story_tokens' key from state.json")
+
+    # -----------------------------------------------------------------------
     # B8: effort_tracking backfill (INFRA-236)
     #
     # bootstrap.py's _record_state() auto-enables effort_tracking on every
@@ -985,6 +1033,71 @@ def cmd_to_030(project_dir: str, apply: bool) -> None:
             click.echo(
                 "[would] backfill missing 'effort_tracking': true in state.json"
             )
+
+    # -----------------------------------------------------------------------
+    # INFRA-290 (E): stale legacy-shape attempt_counter.json retirement
+    #
+    # `flex_build._read_attempt_counters` still normalises the pre-INFRA-282
+    # flat shape ({"story_id": ..., "attempt_count": ...}) in memory, and the
+    # keyed upgrade only happens as a side effect of the next write — so a
+    # project that has not built since INFRA-282 keeps the legacy file
+    # forever. Act ONLY on the flat shape: dict, no "stories" key, string
+    # "story_id" key. Keyed-shape, absent, or unparseable files: do nothing,
+    # print nothing.
+    #
+    # "Stale" is enforced, not assumed: delete only when the story is not in
+    # flight (`_counter_story_in_flight`). Deleting a live counter would
+    # silently reset a running story's escalation ladder to attempt 1 — the
+    # exact class of silent data loss Phase 110 exists to stop. An in-flight
+    # story's file is instead upgraded in place to the keyed shape.
+    # -----------------------------------------------------------------------
+    counter_path = companion_dir / "attempt_counter.json"
+    if counter_path.exists() and _try_parse_json(counter_path):
+        try:
+            counter_data = json.loads(counter_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            counter_data = None
+        if (
+            isinstance(counter_data, dict)
+            and "stories" not in counter_data
+            and isinstance(counter_data.get("story_id"), str)
+        ):
+            legacy_id = counter_data["story_id"]
+            try:
+                legacy_count = int(counter_data.get("attempt_count", 0))
+            except (TypeError, ValueError):
+                legacy_count = 0
+            if _counter_story_in_flight(project_path, legacy_id):
+                if apply:
+                    sys.path.insert(0, str(_SCRIPTS_DIR))
+                    from state_utils import _atomic_write_json  # noqa: PLC0415
+                    _atomic_write_json(
+                        counter_path, {"stories": {legacy_id: legacy_count}}
+                    )
+                    click.echo(
+                        "[apply] upgraded legacy-shape attempt_counter.json to "
+                        f"keyed shape (story {legacy_id} in flight)"
+                    )
+                else:
+                    click.echo(
+                        "[would] upgrade legacy-shape attempt_counter.json to "
+                        f"keyed shape (story {legacy_id} in flight)"
+                    )
+            else:
+                if apply:
+                    try:
+                        counter_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    click.echo(
+                        "[apply] deleted stale legacy-shape attempt_counter.json "
+                        f"(story {legacy_id}, not in flight)"
+                    )
+                else:
+                    click.echo(
+                        "[would] delete stale legacy-shape attempt_counter.json "
+                        f"(story {legacy_id}, not in flight)"
+                    )
 
     # -----------------------------------------------------------------------
     # B3: Protected-path preview — recent commits touching PROTECTED_GLOBS

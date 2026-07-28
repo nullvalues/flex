@@ -67,3 +67,75 @@ class TestProcedureSkillsReferenceBuildStandards:
         contract_end = text.index("\n---\n", contract_start)
         contract_section = text[contract_start:contract_end]
         assert "`CLAUDE.build.md`" in contract_section
+
+
+SECURITY_AUDITOR_PROCEDURE = (
+    REPO_ROOT / "skills" / "pairmode" / "skills" / "security-auditor" / "procedure.md"
+)
+
+# The four data-flow sub-check labels (INFRA-290). Both cold-eyes procedures
+# must use this exact vocabulary so they cannot drift into two different
+# names for the same defect class.
+DATA_FLOW_LABELS = [
+    "written-never-read",
+    "required-never-written",
+    "duplicate state",
+    "half-implementation",
+]
+
+
+class TestDataFlowChecks:
+    """INFRA-290: the four data-flow checks (derived from CER-101..104) must
+    exist in both cold-eyes procedure skills, with the same four labels, and
+    each input contract must carry its narrow search-authorisation entry."""
+
+    @pytest.mark.parametrize("label", DATA_FLOW_LABELS)
+    def test_label_in_reviewer_procedure(self, label: str):
+        text = REVIEWER_PROCEDURE.read_text(encoding="utf-8")
+        assert label in text, f"reviewer procedure missing data-flow label {label!r}"
+
+    @pytest.mark.parametrize("label", DATA_FLOW_LABELS)
+    def test_label_in_security_auditor_procedure(self, label: str):
+        text = SECURITY_AUDITOR_PROCEDURE.read_text(encoding="utf-8")
+        assert label in text, (
+            f"security-auditor procedure missing data-flow label {label!r}"
+        )
+
+    def test_reviewer_has_item_13(self):
+        text = REVIEWER_PROCEDURE.read_text(encoding="utf-8")
+        assert "### 13. DATA FLOW" in text
+
+    def test_security_auditor_has_check_7(self):
+        text = SECURITY_AUDITOR_PROCEDURE.read_text(encoding="utf-8")
+        assert "### 7. DATA-FLOW INTEGRITY" in text
+
+    def test_reviewer_input_contract_gained_entry_9(self):
+        text = REVIEWER_PROCEDURE.read_text(encoding="utf-8")
+        contract_start = text.index("## Input contract")
+        contract_end = text.index("\n---\n", contract_start)
+        contract_section = text[contract_start:contract_end]
+        assert "9. Targeted repository searches" in contract_section
+        # The widening is bounded: loop runtime state stays off-limits.
+        assert "state.json" in contract_section
+        assert "effort database" in contract_section
+
+    def test_security_auditor_input_contract_gained_entry_4(self):
+        text = SECURITY_AUDITOR_PROCEDURE.read_text(encoding="utf-8")
+        contract_start = text.index("## Input contract")
+        contract_end = text.index("\n---\n", contract_start)
+        contract_section = text[contract_start:contract_end]
+        assert "4. Targeted repository searches" in contract_section
+        assert "state.json" in contract_section
+        assert "effort database" in contract_section
+
+    def test_reviewer_item_13_cites_forcing_function(self):
+        text = REVIEWER_PROCEDURE.read_text(encoding="utf-8")
+        item_start = text.index("### 13. DATA FLOW")
+        item_end = text.index("## Review output format", item_start)
+        item = text[item_start:item_end]
+        assert "CER-101" in item
+        assert "CER-104" in item
+
+    def test_reviewer_item_13_report_line_format(self):
+        text = REVIEWER_PROCEDURE.read_text(encoding="utf-8")
+        assert "DATA FLOW: <identifier> — writers: <file:line,...> — readers: <file:line,...>" in text

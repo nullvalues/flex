@@ -60,6 +60,15 @@ You read **only**:
 8. `docs/ideology.md` (INFRA-242) — read **conditionally**, only when the
    IDEOLOGY DRIFT check (checklist item 12) finds out-of-spec diff content.
    An in-scope, spec-clean diff never reads this file.
+9. Targeted repository searches (`grep`/`rg`/`Glob`) over source files, scoped
+   to identifiers the diff introduces or changes, **for the DATA FLOW check
+   (checklist item 13) only** (INFRA-290). This is a deliberate, minimal
+   widening of DP1.3 — the check is unperformable otherwise: naming a field's
+   writers and readers requires searching for the field. The DP1.3 prohibition
+   is unchanged for **loop runtime state**: `state.json` contents, effort
+   database records, transcripts of prior attempts, and accumulated
+   orchestrator state remain off-limits. A code search is a read of source
+   text, not a read of that state.
 
 You **must not** request or rely on accumulated orchestrator state, prior-attempt
 transcripts, effort database records, or `state.json` contents — the loop's runtime
@@ -350,6 +359,47 @@ against `## Core convictions`, `## Accepted constraints`, and
   (the out-of-spec content itself is still flagged under RAIL SCOPE /
   STORY SCOPE as applicable — this check only adds an ideology-specific
   finding when the drift also independently violates ideology).
+
+### 13. DATA FLOW (INFRA-290)
+
+**Scope gate — run this first:** this check applies only to persistent state
+the diff **introduces or changes** — a new or modified column, state.json key,
+on-disk file, hook registration, or CLI-visible field. It is **not** a
+whole-repository data-flow audit. If the diff adds no persistent state, report
+`PASS — DATA FLOW (no persistent state introduced or changed)` and perform no
+searching.
+
+For each in-scope item, run the four sub-checks:
+
+- **written-never-read** — the diff adds or changes a field/key/column/file
+  that no code path reads. Question: name the reader. Severity: **MEDIUM**
+  (**LOW** if the diff itself documents the field as intentionally inert —
+  dead *and* documented as dead).
+- **required-never-written** — a read path, predicate, or default depends on a
+  value in a shape or with a value that no current writer produces. Question:
+  name the writer, and confirm it still produces that shape *today*.
+  Severity: **HIGH**.
+- **duplicate state** — the same fact is now stored in two places with
+  independent writers, or the same event now has two producers. Question:
+  which one is authoritative, and what reconciles them when they disagree?
+  Severity: **HIGH**.
+- **half-implementation** — a branch that looks reachable but cannot be
+  reached by any live input, or a producer whose consumer is deferred to a
+  later story (a producer with no consumer). Question: trace one concrete
+  input that reaches it. Severity: **HIGH**.
+
+For each in-scope item, report one line naming the writer(s) and reader(s)
+found, with `file:line` for each, recording `none` explicitly when a side has
+no site, in this literal format:
+
+```
+DATA FLOW: <identifier> — writers: <file:line,...> — readers: <file:line,...>
+```
+
+Origin (do not delete this item as redundant): all four sub-checks are derived
+from real defects — `CER-101` and `CER-104` among them — that passed checklist
+items 1-12 unflagged, because no item asked "who writes this?" or "who reads
+this?".
 
 ---
 

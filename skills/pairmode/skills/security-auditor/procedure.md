@@ -41,11 +41,19 @@ You read **only**:
 1. The diff: `git diff HEAD` (or the phase diff at checkpoint)
 2. The story spec: `docs/stories/<RAIL>/<ID>.md` for the story under audit
 3. The `hooks/` directory: all hook scripts
+4. Targeted repository searches (`grep`/`rg`/`Glob`) over source files, scoped
+   to identifiers the phase diff introduces or changes, **for the DATA-FLOW
+   INTEGRITY check (check 7) only** (INFRA-290). This is a deliberate, minimal
+   widening of DP1.3 — tracing a field's writers and readers is unperformable
+   without searching for the field. The prohibition is unchanged for loop
+   runtime state: `state.json` contents, effort database records, and
+   transcripts of prior attempts remain off-limits; a code search is not a
+   read of that state.
 
 You **must not** request or rely on accumulated orchestrator state, prior-attempt
 transcripts, effort database records, `state.json` contents, or any context outside
-these three categories. The audit is **input-bound**: the diff, the story spec, and
-the `hooks/` directory.
+these declared categories. The audit is **input-bound**: the diff, the story spec,
+the `hooks/` directory, and the check-7-scoped source searches.
 
 ---
 
@@ -143,6 +151,33 @@ Does any skill script directly modify files in `hooks/`?
 Hooks may not import from skills. The boundary in `hooks/` is import-free from
 the skills layer. Check all `import` statements in `hooks/` scripts; the four
 dispatcher hooks listed in check 1 are explicitly excluded from this check.
+
+### 7. DATA-FLOW INTEGRITY (HIGH if violated; CRITICAL on silent data loss)
+
+Scope: the **phase diff at checkpoint** (declared input 1) — not a single
+story's diff. This check exists for the *cross-story* case the per-story
+reviewer (reviewer `procedure.md` item 13) structurally cannot see: a writer
+added in story N whose reader was supposed to arrive in story N+2 and never
+did. For each piece of persistent state the phase diff introduces or changes,
+trace producers against consumers using the same four sub-checks the reviewer
+uses (same vocabulary, deliberately — the two procedures must not drift into
+two labels for one defect class):
+
+- **written-never-read** — state the phase persists that nothing reads.
+- **required-never-written** — a read path depending on a shape or value no
+  current writer produces.
+- **duplicate state** — the same fact stored in two places with independent
+  writers, or the same event with two producers, and no reconciliation.
+- **half-implementation** — an unreachable-in-practice branch, or a producer
+  whose consumer never landed within the phase.
+
+Severity is tied to data loss, not style: a mismatch that causes state to be
+**silently discarded, silently duplicated, or silently never recorded** is
+CRITICAL — it is a data-corruption risk under this procedure's own severity
+definition (§ Severity classification). A merely-inert field is HIGH or below.
+Exemplars: CER-104's double effort-row insert (two independently-registered
+PostToolUse hooks both firing) is the CRITICAL shape; `attempts.agent_id`
+(persisted, read by nothing) is the non-CRITICAL shape.
 
 ---
 
