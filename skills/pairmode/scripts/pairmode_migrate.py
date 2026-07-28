@@ -178,7 +178,7 @@ MIGRATION_RULES: list[MigrationRule] = [
         description="skills/seed/SKILL.md — regex substitution",
         strategy="regex",
         patterns=[
-            (r"\bname:\s*anchor:seed\b", "name: flex:seed"),
+            (r"\bname:\s*anchor:seed\b", "name: seed"),
             (r"/anchor:seed\b", "/flex:seed"),
         ],
     ),

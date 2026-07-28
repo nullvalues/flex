@@ -1,5 +1,5 @@
 ---
-name: flex:companion
+name: companion
 description: Start the Context Companion for this session. Use when the developer runs /companion or wants to load project spec context, start the sidebar, or orient themselves at the beginning of a session.
 allowed-tools: AskUserQuestion, Bash, Read, Write
 disable-model-invocation: true

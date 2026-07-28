@@ -319,6 +319,21 @@ def test_migrate_apply_writes_changes_and_backups(tmp_path: Path) -> None:
         assert Path(backup_path).exists(), f"Backup file does not exist: {backup_path}"
 
 
+def test_migrate_rule_8_rewrites_seed_name_bare_not_flex_prefixed(
+    tmp_path: Path,
+) -> None:
+    """Rule 8's frontmatter rewrite must produce bare `name: seed`, not
+    `name: flex:seed` — a doubled `flex:` prefix on top of the plugin
+    namespace Claude Code already applies (INFRA-292)."""
+    project = _build_anchor_project(tmp_path)
+
+    _run_migrate_no_subprocess(project, apply=True, yes=True)
+
+    seed_skill_md = (project / "skills" / "seed" / "SKILL.md").read_text()
+    assert "name: seed" in seed_skill_md
+    assert "name: flex:seed" not in seed_skill_md
+
+
 # ---------------------------------------------------------------------------
 # Test 3 — state.json pairmode_version bumped
 # ---------------------------------------------------------------------------

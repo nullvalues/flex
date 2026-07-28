@@ -1,5 +1,5 @@
 ---
-name: flex:observability
+name: observability
 description: Local browser-based observability SPA for context budget, effort metrics, and story status across registered projects.
 allowed-tools: Bash, Read
 ---
