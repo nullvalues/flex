@@ -6,7 +6,11 @@ status: draft
 phase: "106"
 auth_gated: false
 schema_introduces: false
-touches: []
+story_class: docs
+primary_files:
+  - docs/stories/RELEASE/RELEASE-064.md
+touches:
+  - docs/stories/RELEASE/RELEASE-064.md
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
