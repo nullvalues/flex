@@ -2,7 +2,7 @@
 id: RELEASE-065
 rail: RELEASE
 title: Migrate caddy to pairmode 0.3.0 (seed never delivered)
-status: draft
+status: complete
 phase: "106"
 auth_gated: false
 schema_introduces: false
@@ -797,3 +797,322 @@ from the prior runs' recorded invocations; confirm via `--help`.
 - **Automating the campaign.** No script is written to loop the mechanic over the
   fleet. If that is wanted, it is a new story informed by E12 — not a shortcut taken
   during the run that is supposed to evaluate the manual procedure.
+
+## Evidence
+
+Executed 2026-07-28 at orchestrator level with the operator present. Target:
+`/mnt/work/caddy`. **Mixed result:** migration mechanic and stamp complete
+(E1–E4, E8, E9); proving cycle ran natively (E5); **E6 split verdict — E6a and
+E6c PASS (first downstream proof of the CER-103 attribution and CER-104 dedupe
+fixes), E6b FAIL** (outcome unparseable → rows permanently pending) with the
+root cause isolated to stale 0.2-era result-grammar examples in synced consumer
+agent files. Campaign gate engaged per Instructions step 12.
+
+### E0 — override + gate proof
+
+Operator override, quoted from the recorded decision this session: asked
+*"Proceed with the campaign now, or hold until a proving cycle lands?"* the
+operator selected **"Override hold → RELEASE-065"** (after previously setting
+the hold on closing RELEASE-064). At execution start no downstream proof of the
+cp-110 remediation existed from any project.
+
+```
+$ git -C /mnt/work/flex tag --list 'cp-105' 'cp-110' 'cp-111'
+cp-105
+cp-110
+cp-111
+$ git -C /mnt/work/flex rev-parse cp-111 ; git -C /mnt/work/flex-harness rev-parse HEAD
+0bab2ee3803cb00432660a917c5611699ef1ca7e
+0bab2ee3803cb00432660a917c5611699ef1ca7e   ← channel HEAD == cp-111 exactly
+```
+
+RELEASE-063/064 Evidence + playbook-note subsections present; RELEASE-066..071
+all `draft` at start.
+
+### E1 — baseline, starting-shape classification, dirty-tree stop
+
+**Dirty-tree stop condition (canary note 1) fired.** Caddy's tree carried a
+half-started SELF-migration: committed `spec(phase-EH005-main)` scaffold plus
+uncommitted edits to `docs/stories/PAIRMODE/PAIRMODE-001.md`, its permissions
+file, `.companion/attempt_counter.json` (attempt 1), and state.json drift.
+Operator decision, quoted: **"Discard residue, central migration"** — the three
+modified files were checked out, the counter deleted; the committed EH005-main
+scaffold left in history (later resolved by caddy's own session as
+"PAIRMODE-001 complete — migration applied externally").
+
+```
+$ fleet_discovery.py --candidate-dir /mnt/work/caddy --no-snapshot   [channel scripts]
+  /mnt/work/caddy
+    binding: version
+    signal1 (scripts path): absent — no-declaration
+    signal2 (pairmode_version): 0.2.0
+    DUPLICATE HOOKS: /mnt/work/caddy — events: SessionStart, PostToolUse
+Projects with duplicate hooks: 16
+```
+
+**Starting shape: bound 0.2.x consumer** (branch 1 of Instructions step 5 — the
+ordinary path; same shape as lumin). Pre-state git:
+
+```
+$ git -C /mnt/work/caddy log --oneline -3
+c92c869 chore(era-001): record EH005-main in era phases table; sync context state
+3cdeccf spec(phase-EH005-main): scaffold phase and story specs for pairmode 0.3.0 migration [spec-mode]
+3f4f1cf chore(orchestrator): commit checkpoint tail-end bookkeeping (context state, attempt counter, CORRAL-002 status)
+$ git -C /mnt/work/caddy status --porcelain   (after operator-approved discard)
+(no output — clean)
+```
+
+### Mechanic run
+
+- Dry-run reviewed by operator (1387 lines; 5 agent re-renders +
+  `CLAUDE.build.md` thin-harness rewrite — lumin's shape exactly); approved.
+- `sync-all --apply --yes`: exit 0. **Note 7 did not recur** (no classifier
+  block; unsettled 1-of-3 across the campaign).
+- **CER-111 watch:** `expected_step_tokens` pre-read **53416**; post-to-030
+  **53416** — `[WARN] custom expected_step_tokens=53416 — value kept (not the
+  Era 2 stamp).` **Kept with WARN**, matching meander; isolates lumin's silent
+  `53000 → 5000` rewrite as value-dependent (53000 presumably matches a
+  known-default heuristic). Three-way comparison recorded per E12.
+- `to-030 --apply`: agent-cleanup flagged all five agent files "content differs
+  from known 0.2.x template … manual porting required" — **note 4 recurred, and
+  this run PROVES IT IS NOT NOISE** (see E6b root cause below).
+- `state.json.lock` residue — note 5 recurred third-for-third; removed, not
+  committed.
+- Migration committed **before** the proving cycle (note 3 applied):
+  caddy `909ef3b` — `sync: migrate to pairmode 0.3.0 thin-harness loop` —
+  10 files, +246/−1077; pushed.
+
+### E2 / E3 — post-migration discovery + hooks
+
+```
+  /mnt/work/caddy
+    binding: both
+    signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+    signal2 (pairmode_version): 0.3.0
+    DUPLICATE HOOKS: /mnt/work/caddy — events: SessionStart, PostToolUse
+Projects with duplicate hooks: 16
+```
+
+E3 (pairmode-scoped per CER-110): single pairmode block per event in
+`.claude/settings.json` (PreToolUse / UserPromptSubmit / SessionStart /
+PostToolUse, each 1 block → channel hooks). `audit-hooks` dry-run: remaining
+duplicates are plugin-sourced, non-pairmode (`session-start.sh` ×2,
+`security_reminder_hook.py` ×6 — identical to lumin/fleet, CER-110). Fleet-wide
+count recorded informationally: 16.
+
+### E4 — thin-harness template + cp-111 state
+
+```
+$ grep -c "flex_build.py next-action" /mnt/work/caddy/CLAUDE.build.md
+2
+# CLAUDE.build.md — caddy Build Orchestrator
+```
+
+E4(b): caddy's agent frontmatter names are bare (`builder`, `reviewer`, …);
+caddy has no `skills/` dir, so cp-111's SKILL.md renames have no downstream
+copy here — RELEASE-064's "meander needs no re-sync" determination unchanged
+under cp-111.
+
+### E5 — proving cycle (native)
+
+Session mode: **native caddy session** (operator-run, caddy's own
+`CLAUDE.build.md` loop and story numbering). Story: **PAIRMODE-002** — "prove
+migrated 0.3.0 loop and confirm Signal-1" — real, wanted work (it also resolved
+the interrupted self-migration story PAIRMODE-001 as applied-externally).
+Full cycle traversed: next-action → create-story-worktree → builder → reviewer
+(PASS) → merge (`d6c4d1b`) → three checkpoint gates → `cp-EH005-main` tagged
+and pushed. Caddy-side friction the operator's session logged (their CER-C001..
+C004): CER-guard false positive on the scaffolded Do-Now placeholder row,
+state.json merge contention with live hooks, and manual status-flip
+bookkeeping.
+
+### E6 — the load-bearing check: split verdict
+
+Live schema verified first: `attempts(id, story_id, phase, rail, agent_role,
+model, …, tokens_total, …, outcome, notes, ts, …, agent_id, output_file)`.
+
+**E6a — attribution (CER-103): PASS.**
+
+```
+caddy .companion/effort.db:
+(33, 'PAIRMODE-002', 'builder',  'sonnet', None, None, '2026-07-28T20:47:04...', 'aa417ea6691144d57')
+(34, 'PAIRMODE-002', 'reviewer', 'sonnet', None, None, '2026-07-28T20:49:31...', 'a93395ecf5cd63a09')
+flex .companion/effort.db:
+SELECT ... WHERE story_id='PAIRMODE-002'  → EMPTY (no rows — correct)
+```
+
+`effort_recording.log` shows `target_project: /mnt/work/caddy` on every row —
+row 34 via `target_source: worktree-path` (the INFRA-289 precedence chain,
+exercised and correct).
+
+**E6c — no duplicates (CER-104): PASS.**
+
+```
+SELECT story_id, agent_role, COUNT(*) ... GROUP BY → ('PAIRMODE-002','builder',1), ('PAIRMODE-002','reviewer',1)
+```
+
+Log shows paired `recorded` + `recorded:deduped` decisions per spawn — the
+double-fire arrived and was collapsed by the agent_id idempotency key.
+
+**E6b — content (CER-101): FAIL.** Both rows hold `tokens_total NULL, outcome
+NULL` and stay pending through both the in-session and explicit sweeps.
+Diagnosis (traced through `pending_reconcilable` → `read_completed_spawn`):
+
+```
+read_completed_spawn(row 33) → {outcome: None, tokens_total: 7457, model: claude-sonnet-5}
+read_completed_spawn(row 34) → {outcome: None, tokens_total: 9145, model: claude-sonnet-5}
+```
+
+Tokens and model parse; **outcome does not** — the sweep correctly refuses to
+commit a partial row (CER-091 defect-2 branch). Root cause: caddy's workers
+returned the **0.2-era plain-text grammar** (`BUILD-RESULT: DONE`,
+`REVIEW-RESULT: PASS`) instead of the WORKER-004 JSON grammar
+`parse_worker_outcome` reads. `sync-agents` merges frontmatter and appends new
+sections but **preserves stale body content**: caddy's `builder.md:106` still
+carries the literal `BUILD-RESULT: DONE` example alongside the newly-merged
+JSON-schema reference, and the workers followed the old example. This is what
+agent-cleanup's "manual porting required" WARN (canary note 4) has been
+pointing at across all three runs while being adjudicated as noise.
+
+Containment/terminator themselves are healthy: both output files are
+symlinked, contained, `end_turn`-terminated — `is_reconcilable_spawn_output`
+returns `terminated` (the INFRA-287 predicate working). The failure is
+exclusively the outcome-grammar skew.
+
+**Also verified during diagnosis:** the CER-097 ownership filter correctly
+refused external reconciliation while the caddy session was live (its
+`context_sessions` entry owned the spawn-output prefix) — a positive datapoint,
+not a defect.
+
+### E7 — report path
+
+```
+$ flex_build.py checkpoint-report --project-dir /mnt/work/caddy
+=== checkpoint cost rollup — phase scoping unavailable ===
+  reason: no active phase resolved
+=== lifetime cost rollup (all phases) ===
+  builder: 18 attempt(s), median 33,280 tokens
+  reviewer: 13 attempt(s), median 35,931 tokens ...
+```
+
+The lifetime rollup sees caddy's attempts (no "no attempts recorded"); the
+phase-scoped half cannot resolve because caddy's phase (EH005-main) was already
+checkpointed complete before the check ran — a sequencing artifact of the
+native cycle having finished its own checkpoint, recorded as-is. PAIRMODE-002's
+rows are excluded from medians while pending (E6b), so E7 is **qualified**: read
+path proven on historical rows, not on the proving rows.
+
+### E8 — caddy git history
+
+```
+19debf1 chore(era-001): checkpoint EH005-main — mark phase complete in index and era ledger
+32135f5 chore(orchestrator): backlog EH005-main checkpoint findings; record why PAIRMODE-001 pivoted external
+f234915 chore(orchestrator): remove Do Now placeholder row — next_action CER guard reads '(none)' placeholder as an unresolved item
+da3f95b chore(orchestrator): PAIRMODE-002 status update — story commit d6c4d1b merged
+d6c4d1b story-PAIRMODE-002: prove migrated 0.3.0 loop and confirm Signal-1
+649a8b3 chore(orchestrator): mark PAIRMODE-001 complete — 0.3.0 migration applied externally (commit 909ef3b)
+909ef3b sync: migrate to pairmode 0.3.0 thin-harness loop
+```
+
+Migration commit precedes the proving commits (note 3 upheld).
+
+### E9 — settings.local.json sediment
+
+Pre-migration: **23 `Write(` + 25 `Edit(` = 48 stale rules** (61 allow rules
+total). Operator decision, quoted: **"Prune (Recommended)"**. Backed up to
+`/mnt/work/caddy/.claude/settings.local.json.bak-pre-030-prune`, 48 rules
+removed, 13 retained; post-prune `Write(`/`Edit(` counts both 0.
+
+### E10 — proof-debt re-check
+
+Meander: still no post-cp-110 rows at execution time. **This story's E6a/E6c
+are the campaign's first downstream proof** of the CER-103 attribution and
+CER-104 dedupe fixes. CER-101's content half remains **unproven downstream** —
+blocked by the E6b grammar skew, which prevents outcome reconciliation in any
+consumer repo whose agent bodies predate the JSON grammar.
+
+### E11 — cleanliness
+
+flex diff before this Evidence append: empty. Channel check **caught a
+violation**: `docs/fleet-snapshot.md` modified in `/mnt/work/flex-harness` —
+caddy's native proving session ran `fleet_discovery.py` without
+`--no-snapshot`, and the default snapshot path writes into the channel
+checkout. Generated file reverted (`git checkout -- docs/fleet-snapshot.md`);
+channel clean. Recorded as a new finding (E12 new-1).
+
+### E14 — flex suite
+
+```
+4083 passed, 211 skipped, 14 warnings in 178.58s
+```
+
+Green, no failures (CER-090 did not appear; run from the main checkout).
+
+### Playbook notes (E12 — delta against both prior runs)
+
+1. Dirty tree: **recurred** (2-of-3), in a new form — a competing half-started
+   self-migration, not session residue. Operator discarded; recorded above.
+2. Runbook step-5 command form: **recurred** (3-of-3; runbook still unamended).
+3. Commit-before-proving: **recurred / applied** (3-of-3) — `909ef3b` first.
+4. Agent-cleanup WARN: **recurred (3-of-3) — RECLASSIFIED: not noise.** The
+   warn flags stale 0.2-era body content in synced agent files; on caddy that
+   stale content included the old result grammar that broke E6b. The campaign
+   has been dismissing its own early warning twice.
+5. `state.json.lock`: **recurred** (3-of-3); removed, not committed.
+6. `expected_step_tokens`: caddy **kept 53416 with WARN** (meander-like);
+   three-way comparison shows lumin's silent rewrite is value-dependent
+   (CER-111 refined, not closed).
+7. Auto-mode classifier block: **did not recur** (1-of-3 overall; unsettled).
+8. Session-binding of recording: **superseded by INFRA-289 — proven.**
+   Native-session run attributed correctly, including one row via
+   `worktree-path` precedence; and the flex-side complement is empty.
+9. Sediment: **recurred** (2-of-3; lumin n/a) — 48 rules pruned with backup.
+
+New findings this run:
+
+- **(new-1) Default snapshot write pollutes the channel checkout.**
+  `fleet_discovery.py` run without `--no-snapshot` (by caddy's native session)
+  wrote `docs/fleet-snapshot.md` into `/mnt/work/flex-harness`. Reverted.
+  Needs a CER: snapshot default should target the *project*, or refuse to write
+  into a checkout it only reads scripts from.
+- **(new-2, root cause of E6b) `sync-agents` preserves stale 0.2-era agent-body
+  content, including the plain-text result grammar.** Consumer workers then
+  return `BUILD-RESULT: DONE` / `REVIEW-RESULT: PASS` (plain text), which
+  `parse_worker_outcome` cannot read → rows permanently pending
+  (`outcome NULL`) → CER-101's fix unprovable downstream. Every 0.2-era fleet
+  project will hit this. Needs a CER + likely a Do-Now-grade fix before
+  RELEASE-066: either template-sync replaces the return-format section, or the
+  parser additionally accepts the legacy plain-text verdict line (with
+  `DONE` mapped or rejected explicitly).
+- **(new-3) caddy's own session filed CER-C001..C004 in caddy's backlog**
+  (CER-guard placeholder false positive — upstream `_check_cer_do_now` bug
+  every migrated repo will hit; state.json merge contention; manual
+  status-flip bookkeeping; settings.json deny-list change left uncommitted for
+  operator review). The `_check_cer_do_now` placeholder-row false positive is
+  flex-upstream and needs a flex CER.
+
+### Follow-ups (E13 — filed, not fixed here)
+
+- **CER to file (Do Now candidate): E6b outcome-grammar skew** (new-2) — blocks
+  the campaign's remaining E6 proof; decide fix side (template sync vs parser
+  tolerance) before RELEASE-066.
+- **CER to file: `_check_cer_do_now` reads the scaffolded `(none)` placeholder
+  row as an unresolved Do-Now item** (new-3; caddy CER-C004) — blocks every
+  migrated repo's first checkpoint until hand-edited.
+- **CER to file: fleet_discovery default snapshot writes into the channel**
+  (new-1).
+- **CER-111 update**: three-way `expected_step_tokens` data recorded here;
+  lumin's rewrite is value-dependent.
+- **Meander post-cp-110 E6 re-verification**: still outstanding (now with the
+  caveat that meander's agent bodies predate the JSON grammar too — its next
+  cycle will likely reproduce E6b until new-2 is fixed).
+- Runbook amendments for notes 2/3/5: already filed by RELEASE-063 E11;
+  note 4's entry should be **amended** from "noise" to "warning is accurate;
+  port stale bodies" when the runbook is next edited.
+
+**Campaign gate statement (Instructions step 12):** The campaign's first
+downstream proof of cp-110 now exists **for attribution (CER-103) and dedupe
+(CER-104)** — supplied by caddy story PAIRMODE-002. **CER-101's content half
+FAILED downstream (E6b)** due to the sync-agents grammar-skew defect (new-2).
+**RELEASE-066..070 are BLOCKED pending an operator decision** on fixing new-2
+(and ideally new-3's checkpoint-guard false positive) first.

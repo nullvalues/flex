@@ -23,7 +23,7 @@ Finish the pairmode 0.3.0 fleet migration as a driven campaign: 8 remaining proj
 |----|-------|--------|
 | RELEASE-063 | Migrate meander to pairmode 0.3.0 (campaign canary) | complete |
 | RELEASE-064 | Migrate lumin to pairmode 0.3.0 | complete |
-| RELEASE-065 | Migrate caddy to pairmode 0.3.0 (seed never delivered) | draft |
+| RELEASE-065 | Migrate caddy to pairmode 0.3.0 (seed never delivered) | complete |
 | RELEASE-066 | Migrate forqsite.help to pairmode 0.3.0 | draft |
 | RELEASE-067 | Migrate halfhorse to pairmode 0.3.0 | draft |
 | RELEASE-068 | Migrate pokus to pairmode 0.3.0 (coordinate around in-flight UAT-gated work) | draft |
