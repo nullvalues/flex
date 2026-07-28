@@ -2,7 +2,7 @@
 id: RELEASE-063
 rail: RELEASE
 title: Migrate meander to pairmode 0.3.0 (campaign canary)
-status: draft
+status: complete
 phase: "106"
 auth_gated: false
 schema_introduces: false

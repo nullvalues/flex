@@ -21,7 +21,7 @@ Finish the pairmode 0.3.0 fleet migration as a driven campaign: 8 remaining proj
 
 | ID | Title | Status |
 |----|-------|--------|
-| RELEASE-063 | Migrate meander to pairmode 0.3.0 (campaign canary) | draft |
+| RELEASE-063 | Migrate meander to pairmode 0.3.0 (campaign canary) | complete |
 | RELEASE-064 | Migrate lumin to pairmode 0.3.0 | complete |
 | RELEASE-065 | Migrate caddy to pairmode 0.3.0 (seed never delivered) | draft |
 | RELEASE-066 | Migrate forqsite.help to pairmode 0.3.0 | draft |
@@ -88,3 +88,13 @@ RELEASE-063 (canary) executed 2026-07-27/28: meander migrated and verified
 gate (RELEASE-063 Instructions step 8), RELEASE-064..071 are blocked. They stay
 `draft` here (never started, so no per-story deferral entries); this phase
 resumes after cp-110. Parent-phase pointer recorded in phase-110.md.
+
+**Resumed (2026-07-28, post cp-110/cp-111).** Phase 110 checkpointed the
+recording remediation; phase 111 (interposed) fixed plugin packaging.
+RELEASE-064 (lumin) then ran the mechanic successfully but its proving cycle
+(E5/E6/E7) was deferred by operator decision — see its `## Evidence`. The
+operator subsequently **explicitly overrode the campaign gate** (2026-07-28) to
+proceed with RELEASE-065+ while the downstream E6 proof of the CER-101/103/104
+remediation remains outstanding. Standing requirement: the first proving cycle
+to run anywhere in the fleet gets the full E6a/b/c + E7 checks; a pairmode-owned
+recording failure there reopens the cluster and re-blocks the campaign.
