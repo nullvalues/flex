@@ -2,7 +2,7 @@
 id: INFRA-287
 rail: INFRA
 title: "Reconciliation pipeline: symlink-aware containment and current-format terminator predicate (CER-101)"
-status: draft
+status: complete
 phase: "110"
 story_class: code
 auth_gated: false

@@ -2,7 +2,7 @@
 id: INFRA-289
 rail: INFRA
 title: "Attribution and escalation: target-project recording, strict phase-key parsing, async FAIL-bump (CER-102, CER-103)"
-status: draft
+status: complete
 phase: "110"
 story_class: code
 auth_gated: false

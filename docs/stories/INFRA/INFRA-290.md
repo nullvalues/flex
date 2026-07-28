@@ -2,7 +2,7 @@
 id: INFRA-290
 rail: INFRA
 title: Data-flow checks in cold-eyes procedures and recording-state hygiene (dead keys, stale counters, permissions GC)
-status: draft
+status: complete
 phase: "110"
 story_class: code
 auth_gated: false

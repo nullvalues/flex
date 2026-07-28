@@ -2,7 +2,7 @@
 id: INFRA-288
 rail: INFRA
 title: Attempt-row dedupe via agent_id idempotency key and merged-view duplicate-hook detection (CER-104)
-status: draft
+status: complete
 phase: "110"
 story_class: code
 auth_gated: false

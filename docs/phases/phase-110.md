@@ -25,10 +25,10 @@ Restore truthful effort recording end-to-end: fix the reconciliation pipeline (s
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-287 | Reconciliation pipeline: symlink-aware containment and current-format terminator predicate (CER-101) | draft |
-| INFRA-288 | Attempt-row dedupe via agent_id idempotency key and merged-view duplicate-hook detection (CER-104) | draft |
-| INFRA-289 | Attribution and escalation: target-project recording, strict phase-key parsing, async FAIL-bump (CER-102, CER-103) | draft |
-| INFRA-290 | Data-flow checks in cold-eyes procedures and recording-state hygiene (dead keys, stale counters, permissions GC) | draft |
+| INFRA-287 | Reconciliation pipeline: symlink-aware containment and current-format terminator predicate (CER-101) | complete |
+| INFRA-288 | Attempt-row dedupe via agent_id idempotency key and merged-view duplicate-hook detection (CER-104) | complete |
+| INFRA-289 | Attribution and escalation: target-project recording, strict phase-key parsing, async FAIL-bump (CER-102, CER-103) | complete |
+| INFRA-290 | Data-flow checks in cold-eyes procedures and recording-state hygiene (dead keys, stale counters, permissions GC) | complete |
 
 
 ## Audit dossier (2026-07-28 fable data-flow audit — spec-writer source material)
