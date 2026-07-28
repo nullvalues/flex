@@ -58,8 +58,8 @@ Make the flex plugin installable from a local checkout (marketplace source ./ in
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-291 | Marketplace plugin source: local-relative ./ instead of github clone; README/CONTRIBUTING install-flow correction | draft |
-| INFRA-292 | De-namespace SKILL.md skill names (flex:X -> X) to fix doubled /flex:flex:* plugin commands | draft |
+| INFRA-291 | Marketplace plugin source: local-relative ./ instead of github clone; README/CONTRIBUTING install-flow correction | complete |
+| INFRA-292 | De-namespace SKILL.md skill names (flex:X -> X) to fix doubled /flex:flex:* plugin commands | complete |
 
 ## Schema delivery
 

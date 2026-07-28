@@ -2,7 +2,7 @@
 id: INFRA-292
 rail: INFRA
 title: De-namespace SKILL.md skill names (flex:X -> X) to fix doubled /flex:flex:* plugin commands
-status: draft
+status: complete
 phase: "111"
 story_class: code
 auth_gated: false

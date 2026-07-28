@@ -2,7 +2,7 @@
 id: INFRA-291
 rail: INFRA
 title: "Marketplace plugin source: local-relative ./ instead of github clone; README/CONTRIBUTING install-flow correction"
-status: draft
+status: complete
 phase: "111"
 story_class: code
 auth_gated: false
