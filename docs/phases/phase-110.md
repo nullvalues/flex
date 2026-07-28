@@ -127,4 +127,15 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-110 Cold-eyes checklist
 
-— developer fills in after phase completion —
+Filled at checkpoint (cp-110), from the three gate workers plus orchestrator review:
+
+- [x] All four stories (INFRA-287..290) built, reviewed PASS, merged serially, statuses synced to `complete` (story files + Stories table).
+- [x] Security audit (opus): PASS, zero CRITICAL/HIGH — hooks/ untouched; CER-089 containment protection moved to allowlisted link targets, not weakened; prompt-derived recording targets admitted only via operator-written `registered_projects`.
+- [x] Intent review (sonnet): ALIGNED — CER-101..104 closed with substantive notes; CER-105..107 deferred to backlog as declared at scaffold.
+- [x] Docs currency: PASS on re-run — architecture.md names Phase 110 (data-flow-checks paragraph); CHANGELOG.md Phase 110 entry added (both fixed in 6cf90db2 after initial FAIL).
+- [x] Data-flow: written-never-read — none; every new state (agent_id dedupe key, hook_view merged view, pending counts) has a live reader; dead `context_story_tokens` documented + to-030 removal step.
+- [x] Data-flow: required-never-written — none; `is_reconcilable_spawn_output` inputs and `registered_projects` allowlist have existing writers.
+- [x] Data-flow: duplicate state — CER-104 dedupe closes the known duplicate-row producer; `current_story`/`current_stories` consolidation direction recorded in architecture.md (retire flat mirror, readers first).
+- [x] Data-flow: half-implementation — reconcile pipeline verified live end-to-end (2885/2885 outputs contained vs 442 before; INFRA-289's C5 contract test un-skipped and passing).
+- [x] Test suite green without `-x`: 4079 passed, 211 skipped, 0 failed.
+- Known non-blocking residue: `cmd_permissions_gc` docstring overstates its read-boundary (reads state.json for retention; MEDIUM, wording-only); `test_pairmode_effort.py` fixture-path edit was undeclared in INFRA-287's original touches (disclosed, adjudicated MEDIUM non-blocking).
