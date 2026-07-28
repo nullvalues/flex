@@ -58,6 +58,65 @@ channel; the default should target the invoking project (or require an
 explicit path / refuse to write into the scripts checkout). Decide the exact
 rule in spec; keep `--no-snapshot` and explicit `--snapshot PATH` behaviour.
 
+## Cold-eyes corrections (fable review, pre-spec — fold into specs)
+
+1. **Pending-row shape (INFRA-293 acceptance):** caddy rows 33/34 are
+   fully-NULL-except-`model` (`model` was set at insert; tokens are parseable
+   at sweep time but the refuse-partial branch at `subagent_transcript.py:1711`
+   skips the whole row). Do not spec an acceptance test asserting
+   "tokens present, outcome NULL".
+2. **Grammar asymmetry:** the 0.2-era builder has NO plain-text FAIL form —
+   failure was prose (`BUILDER STUCK — …`), so legacy tolerance can only yield
+   DONE for builders; reviewer legacy grammar is `REVIEW-RESULT: PASS|FAIL`.
+   Also: JSON-path BUILD outcomes are accepted unvalidated
+   (`subagent_transcript.py:339`) while REVIEW verdicts are enum-checked —
+   decide whether plain-text BUILD verdicts get validated. `worker_result.py:50`
+   BUILD enum is `{PASS, FAIL}` (no DONE).
+3. **Sync-side fix needs a legacy-heading removal/aliasing mechanic
+   (INFRA-293, HIGH):** the stale grammar lives under the legacy heading
+   `## Final output to orchestrator`; `_merge_body_sections`
+   (`pairmode_sync.py:321`) appends only missing concept keys and can never
+   replace a heading the current template no longer uses — and the stale block
+   sits EARLIER in the file than the appended `## return`, which is why workers
+   follow it. Without removal/aliasing the sync half is unreachable. Also pick
+   ONE owner (sync-agents vs to-030 agent-cleanup), not both — duplicate-writer
+   risk.
+4. **Fleet re-sweep is time-bounded and now owned by INFRA-293:**
+   `RECONCILE_MAX_AGE_DAYS = 14` (`subagent_transcript.py:156`) — the fix must
+   reach `/mnt/work/flex-harness` and a sweep must run in caddy before
+   2026-08-11 or rows 33/34 leave the sweep window permanently. INFRA-293's
+   Ensures must include: after channel release, the explicit sweep CLI run in
+   caddy reconciles rows 33/34 (they are otherwise reconcilable today —
+   predicate and target-allowlist verified).
+5. **Placeholder skip-rule already exists (INFRA-294, avoid duplicate state):**
+   `cer.py:119-120` (`cer_id == "—" or finding == "*(none)*"`) is the canonical
+   rule — share or mirror it in `next_action.py:383-416`, don't write a third
+   independent variant. Guard tolerance is the load-bearing half; a
+   template-only fix would strand already-scaffolded repos. Template emits 5
+   cols in Do Now (`templates/docs/cer/backlog.md.j2:23`), 6 in one section.
+6. **INFRA-295 inverts a test-encoded design guarantee (HIGH):**
+   `test_fleet_discovery.py:252,277` explicitly encode "snapshot goes to flex
+   repo, NOT to any scanned project". The spec must resolve the collision
+   deliberately (e.g. refuse-by-default when the scripts checkout is not the
+   invoking repo — a "this is the read-only channel" predicate must be defined)
+   and REWRITE those two tests, not extend them. Doc surface: module docstring
+   "READ-ONLY" (`fleet_discovery.py:1`), `--snapshot` help (:473),
+   `_write_snapshot` docstring (:384), `docs/architecture.md:3291,:3322`, and
+   the runbook's Signal-1 verification command (~:409) which omits
+   `--no-snapshot` and would default-write.
+7. **Parser callers:** all four `parse_worker_outcome` call sites are internal
+   to `subagent_transcript.py` (:1289, :1357, :1802, :1981) — single-file
+   parser fix correctly scoped.
+
+Test surface per story (builder must extend; from the review):
+INFRA-293 — `test_subagent_transcript.py` (TestParseWorkerOutcome :100, sweep
+classes), `test_effort_db.py`, `test_worker_result.py`, `test_sync_agents.py`,
+`test_pairmode_sync.py`, `test_session_start_hook.py`.
+INFRA-294 — `test_checkpoint_routing.py` (:254, :276),
+`test_harness004_isolation.py` (:270), `test_cer.py`, `test_templates.py` /
+`test_bootstrap.py`. (`test_next_action.py` has NO _check_cer_do_now coverage.)
+INFRA-295 — `test_fleet_discovery.py` TestSnapshot :252-292 (rewrite).
+
 Related CERs already filed: CER-110 (plugin-sourced duplicate-hook signal,
 fleet-wide — NOT in this phase's scope), CER-111 (to-030 expected_step_tokens
 rewrite — three-way data now recorded in RELEASE-065; not in scope unless the
