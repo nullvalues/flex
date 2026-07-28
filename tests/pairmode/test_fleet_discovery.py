@@ -19,6 +19,18 @@ if str(_SCRIPTS_DIR) not in sys.path:
 import fleet_discovery as fd
 
 
+@pytest.fixture(autouse=True)
+def _isolated_home(monkeypatch: pytest.MonkeyPatch, tmp_path_factory) -> Path:
+    """INFRA-288: _check_duplicate_hooks now reads the merged hook view,
+    which includes plugin hooks.json files discovered under the *home*
+    directory. Every test runs against a fake, empty home so the operator's
+    real ~/.claude/plugins can never leak into fixture expectations."""
+    fake_home = tmp_path_factory.mktemp("fake-home")
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.delenv("FLEX_PLUGIN_HOOKS", raising=False)
+    return fake_home
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -652,3 +664,100 @@ class TestSnapshotDuplicateHooksSection:
         fd._write_snapshot(results, dest)
         content = dest.read_text()
         assert "no duplicate" in content.lower() or "none found" in content.lower()
+
+
+# ---------------------------------------------------------------------------
+# INFRA-288 (CER-104): merged-view duplicate detection
+# ---------------------------------------------------------------------------
+
+
+class TestMergedViewDuplicateHooks:
+    def _project_with_settings_entry(self, root: Path) -> Path:
+        proj = root / "proj"
+        (proj / ".claude").mkdir(parents=True)
+        (proj / ".claude" / "settings.json").write_text(
+            json.dumps({
+                "hooks": {
+                    "PostToolUse": [
+                        {"matcher": "Task|Agent", "hooks": [
+                            {"type": "command",
+                             "command": "uv run python /mnt/work/flex/hooks/post_tool_use.py"},
+                        ]},
+                    ]
+                }
+            }),
+            encoding="utf-8",
+        )
+        return proj
+
+    def _install_plugin_hook(self, fake_home: Path) -> Path:
+        plugin_file = (
+            fake_home / ".claude" / "plugins" / "marketplace" / "flex"
+            / "hooks" / "hooks.json"
+        )
+        plugin_file.parent.mkdir(parents=True)
+        plugin_file.write_text(
+            json.dumps({
+                "hooks": {
+                    "PostToolUse": [
+                        {"matcher": "Task|Agent", "hooks": [
+                            {"type": "command",
+                             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py"},
+                        ]},
+                    ]
+                }
+            }),
+            encoding="utf-8",
+        )
+        return plugin_file
+
+    def test_settings_vs_plugin_pair_is_reported(
+        self, tmp_path: Path, _isolated_home: Path
+    ) -> None:
+        """B7: the CER-104 shape pre-INFRA-288 code reported as []."""
+        proj = self._project_with_settings_entry(tmp_path)
+        self._install_plugin_hook(_isolated_home)
+
+        dups = fd._check_duplicate_hooks(proj)
+        assert len(dups) == 1
+        assert dups[0]["event"] == "PostToolUse"
+        assert dups[0]["basename"] == "post_tool_use.py"
+        assert dups[0]["commands"] == [
+            "uv run python /mnt/work/flex/hooks/post_tool_use.py",
+            "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py",
+        ]
+        assert dups[0]["sources"] == ["settings", "plugin"]
+
+    def test_settings_local_entry_is_seen(self, tmp_path: Path) -> None:
+        proj = self._project_with_settings_entry(tmp_path)
+        (proj / ".claude" / "settings.local.json").write_text(
+            json.dumps({
+                "hooks": {
+                    "PostToolUse": [
+                        {"matcher": "Task|Agent", "hooks": [
+                            {"type": "command",
+                             "command": "uv run python /elsewhere/hooks/post_tool_use.py"},
+                        ]},
+                    ]
+                }
+            }),
+            encoding="utf-8",
+        )
+        dups = fd._check_duplicate_hooks(proj)
+        assert len(dups) == 1
+        assert dups[0]["sources"] == ["settings", "settings.local"]
+
+    def test_settings_only_project_unchanged(self, tmp_path: Path) -> None:
+        """C3: with no settings.local.json and no plugin install, the result
+        is what the settings-only detector returned before."""
+        proj = self._project_with_settings_entry(tmp_path)
+        assert fd._check_duplicate_hooks(proj) == []
+
+    def test_still_read_only(self, tmp_path: Path, _isolated_home: Path) -> None:
+        proj = self._project_with_settings_entry(tmp_path)
+        plugin_file = self._install_plugin_hook(_isolated_home)
+        settings_before = (proj / ".claude" / "settings.json").read_bytes()
+        plugin_before = plugin_file.read_bytes()
+        fd._check_duplicate_hooks(proj)
+        assert (proj / ".claude" / "settings.json").read_bytes() == settings_before
+        assert plugin_file.read_bytes() == plugin_before

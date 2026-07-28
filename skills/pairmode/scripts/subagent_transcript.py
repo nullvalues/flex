@@ -72,12 +72,12 @@ from typing import Any
 try:
     from skills.pairmode.scripts.context_budget import _derive_transcript_path
     from skills.pairmode.scripts import effort_db
-    from skills.pairmode.scripts.effort_recorder import record_effort
+    from skills.pairmode.scripts.effort_recorder import record_effort, record_effort_ex
     from skills.pairmode.scripts.flex_build import bump_attempt_count, read_attempt_count
 except ImportError:
     from context_budget import _derive_transcript_path  # type: ignore[no-redef]  # flat import via hook sys.path
     import effort_db  # type: ignore[no-redef]  # flat import via hook sys.path
-    from effort_recorder import record_effort  # type: ignore[no-redef]  # flat import via hook sys.path
+    from effort_recorder import record_effort, record_effort_ex  # type: ignore[no-redef]  # flat import via hook sys.path
     from flex_build import bump_attempt_count, read_attempt_count  # type: ignore[no-redef]  # flat import via hook sys.path
 
 # ---------------------------------------------------------------------------
@@ -160,6 +160,10 @@ QUIESCENT_AGE_SECONDS = 900
 #: the set.
 RECORDING_DECISIONS: frozenset[str] = frozenset({
     "recorded",
+    # INFRA-288 (CER-104): the write matched a live pending row via the
+    # agent_id idempotency key and updated it instead of inserting — the
+    # observable trace of a doubled hook invocation.
+    "recorded:deduped",
     "skip:not-recordable-role",
     "skip:no-tool-input",
     "skip:no-state",
@@ -1473,6 +1477,14 @@ def record_attempt_from_transcript(
 
         model = tool_input.get("model") or usage.get("model")
 
+        # INFRA-288 (CER-104): extract the spawn ref BEFORE the write so the
+        # row carries agent_id/output_file in the same statement that
+        # creates it, and so agent_id can serve as the idempotency key when
+        # a doubled hook registration fires this recording twice.
+        # _extract_spawn_ref never raises; a missing/unrecognised shape
+        # yields (None, None) and the write behaves exactly as before.
+        spawn_agent_id, spawn_output_file = _extract_spawn_ref(tool_response)
+
         # CER-096, item C: the lifetime spawn ordinal for this
         # (story_id, agent_role) pair is derived atomically on the write
         # side by record_effort/insert_attempt_derived — inside the same
@@ -1482,7 +1494,10 @@ def record_attempt_from_transcript(
         # shape, once justified by a serial build loop) would let two
         # concurrent spawns for the same pair read the same count and
         # write duplicate ordinals.
-        row_id = record_effort(
+        # record_effort_ex (not record_effort) so the deduped flag is
+        # observable for the log line below — record_effort's int | None
+        # return is DP4-frozen and cannot carry it (INFRA-288).
+        row_id, deduped = record_effort_ex(
             project_dir=project_path,
             story_id=effective_story_id,
             agent_role=str(subagent_type),
@@ -1499,6 +1514,8 @@ def record_attempt_from_transcript(
             notes=fail_cause,
             phase=phase_key,
             rail=rail,
+            agent_id=spawn_agent_id,
+            output_file=spawn_output_file,
         )
 
         # INFRA-258: persist the spawn ref so a later reconciliation pass
@@ -1506,6 +1523,11 @@ def record_attempt_from_transcript(
         # find and complete this row from its own output_file. Best-effort —
         # a missing/unrecognised tool_response shape leaves both columns
         # NULL and is not an error.
+        # INFRA-288: redundant on the derived path above (the insert now
+        # stamps both columns itself) but retained as the only writer for
+        # every other path — it rewrites the same values and is idempotent;
+        # deleting it would trade a written-never-read column for a
+        # required-never-written one.
         if row_id is not None:
             try:
                 agent_id, output_file = _extract_spawn_ref(tool_response)
@@ -1522,7 +1544,8 @@ def record_attempt_from_transcript(
         log_recording_event(
             project_path, tool_name=tool_name, subagent_type=subagent_type,
             tool_use_id=tool_use_id, story_id=effective_story_id,
-            decision="recorded", row_id=row_id,
+            decision="recorded:deduped" if deduped else "recorded",
+            row_id=row_id,
         )
         return row_id
     except Exception as exc:

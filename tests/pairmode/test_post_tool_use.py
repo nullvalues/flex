@@ -337,3 +337,71 @@ class TestSpawnPrefixCapture:
             (tmp_path / ".companion" / "state.json").read_text()
         )["context_sessions"]["S1"]
         assert entry["spawn_output_prefix"] is None
+
+
+# ---------------------------------------------------------------------------
+# INFRA-288 (CER-104): duplicate hook invocation dedupes; hooks stay thin
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateHookInvocationDeduped:
+    def test_same_event_delivered_twice_writes_one_row(self, tmp_path: Path) -> None:
+        """A10 end-to-end: the CER-104 shape — the same Task PostToolUse
+        event delivered twice (doubled registration) — lands exactly one
+        effort.db row, logged recorded then recorded:deduped."""
+        _enable_tracking(tmp_path)
+        home = tmp_path / "home"
+        home.mkdir(parents=True, exist_ok=True)
+
+        output_file = tmp_path / "spawnroot" / "S1" / "tasks" / "abc.output"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text("", encoding="utf-8")
+        tool_response = {
+            "isAsync": True,
+            "agentId": "agent-e2e-1",
+            "outputFile": str(output_file),
+        }
+
+        for _ in range(2):
+            result = _run_task_hook(
+                tmp_path, home, "S1", tool_response=tool_response
+            )
+            assert result.returncode == 0
+            assert result.stdout.strip() == b""
+
+        import sqlite3
+        conn = sqlite3.connect(str(tmp_path / ".companion" / "effort.db"))
+        try:
+            rows = conn.execute(
+                "SELECT id, agent_id FROM attempts"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert len(rows) == 1
+        assert rows[0][1] == "agent-e2e-1"
+
+        log_path = tmp_path / ".companion" / "effort_recording.log"
+        entries = [
+            json.loads(line)
+            for line in log_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        decisions = [
+            e["decision"]
+            for e in entries
+            if e.get("decision") in ("recorded", "recorded:deduped")
+        ]
+        assert decisions == ["recorded", "recorded:deduped"]
+
+
+class TestHookPathStaysThin:
+    def test_no_hook_reads_the_merged_hook_view(self) -> None:
+        """C4: the merged hook view (a filesystem read) is CLI/fleet-side
+        only — never on the hook path. The dedupe rides inside the database
+        write the hook already performs."""
+        hooks_dir = REPO_ROOT / "hooks"
+        for hook_file in sorted(hooks_dir.glob("*.py")):
+            source = hook_file.read_text(encoding="utf-8")
+            assert "hook_view" not in source, (
+                f"{hook_file.name} must not import or reference hook_view"
+            )

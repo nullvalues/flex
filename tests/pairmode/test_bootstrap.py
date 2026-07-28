@@ -25,6 +25,18 @@ from skills.pairmode.scripts.bootstrap import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolated_home(monkeypatch: pytest.MonkeyPatch, tmp_path_factory) -> pathlib.Path:
+    """INFRA-288: _register_context_budget_hooks now consults the merged hook
+    view, which includes plugin hooks.json files discovered under the *home*
+    directory. Every test runs against a fake, empty home so the operator's
+    real ~/.claude/plugins can never leak into registrar expectations."""
+    fake_home = tmp_path_factory.mktemp("fake-home")
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.delenv("FLEX_PLUGIN_HOOKS", raising=False)
+    return fake_home
+
+
 # ---------------------------------------------------------------------------
 # Fixture helpers for spec-based scenarios
 # ---------------------------------------------------------------------------
@@ -4328,3 +4340,91 @@ class TestEraStrategicIntent:
             f"Era strategic intent prompt text does not match the Ensures contract.\n"
             f"Captured prompts: {captured_prompts!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-288 (CER-104): plugin-sourced registration skips the settings entry
+# ---------------------------------------------------------------------------
+
+
+class TestPluginSourcedRegistrationSkip:
+    """B10: a project whose installed plugin already registers a
+    CONTEXT_BUDGET_HOOK_SPECS hook gets no settings-level entry for it."""
+
+    def _plugin_root(self) -> pathlib.Path:
+        return pathlib.Path(__file__).resolve().parent.parent.parent
+
+    def _install_plugin_post_tool_use(self, fake_home: pathlib.Path) -> pathlib.Path:
+        plugin_file = (
+            fake_home / ".claude" / "plugins" / "marketplace" / "flex"
+            / "hooks" / "hooks.json"
+        )
+        plugin_file.parent.mkdir(parents=True)
+        plugin_file.write_text(
+            json.dumps({
+                "hooks": {
+                    "PostToolUse": [
+                        {"matcher": "Task|Agent", "hooks": [
+                            {"type": "command",
+                             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py"},
+                        ]},
+                    ]
+                }
+            }, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return plugin_file
+
+    def _commands_for_event(self, data: dict, event: str) -> list:
+        return [
+            entry.get("command")
+            for block in data.get("hooks", {}).get(event, [])
+            for entry in block.get("hooks", [])
+        ]
+
+    def test_plugin_registered_posttooluse_is_skipped_twice(
+        self, tmp_path: pathlib.Path, _isolated_home: pathlib.Path, capsys
+    ) -> None:
+        project_dir = tmp_path / "project"
+        settings_path = project_dir / ".claude" / "settings.json"
+        self._install_plugin_post_tool_use(_isolated_home)
+        plugin_root = self._plugin_root()
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+
+        # No settings-level PostToolUse entry for post_tool_use.py at all.
+        post_commands = self._commands_for_event(data, "PostToolUse")
+        assert all(
+            not (isinstance(c, str) and c.rsplit("/", 1)[-1] == "post_tool_use.py")
+            for c in post_commands
+        ), f"PostToolUse must not gain a settings-level entry: {post_commands}"
+
+        # The other two specs are still registered.
+        ups_command = f"uv run python {plugin_root / 'hooks' / 'user_prompt_submit.py'}"
+        ss_command = f"uv run python {plugin_root / 'hooks' / 'session_start.py'}"
+        assert ups_command in self._commands_for_event(data, "UserPromptSubmit")
+        assert ss_command in self._commands_for_event(data, "SessionStart")
+
+        # One line names the skipped spec and why.
+        out = capsys.readouterr().out
+        assert "skipping PostToolUse registration for post_tool_use.py" in out
+
+    def test_no_plugin_install_registers_all_three(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """C3: with no plugin install the registrar behaves exactly as
+        before — all three specs land."""
+        project_dir = tmp_path / "project"
+        settings_path = project_dir / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        pt_command = f"uv run python {plugin_root / 'hooks' / 'post_tool_use.py'}"
+        assert pt_command in self._commands_for_event(data, "PostToolUse")
+        assert self._commands_for_event(data, "UserPromptSubmit")
+        assert self._commands_for_event(data, "SessionStart")

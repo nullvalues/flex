@@ -171,6 +171,17 @@ PENDING_MAX_AGE_DAYS: int = 14
 BUSY_TIMEOUT_SECONDS: float = 15.0
 BUSY_TIMEOUT_MS: int = 15000
 
+#: INFRA-288 (CER-104): recency window for the ``agent_id`` idempotency
+#: match in :func:`insert_or_update_attempt`. Deliberately tight — the
+#: duplicate this defends against is a doubled hook registration firing the
+#: same recording milliseconds apart, so a wide window buys nothing and
+#: risks collapsing two genuinely distinct spawns that happen to share a
+#: recycled agent id. Paired with the same
+#: ``(tokens_total IS NULL OR outcome IS NULL)`` pending predicate
+#: ``pending_reconcilable`` uses, so the deduped pair leaves exactly one
+#: row and it is the row the reconciliation sweep already matches.
+AGENT_DEDUPE_WINDOW_SECONDS = 300
+
 # Columns in the order they are bound by ``insert_attempt``.  ``id`` is
 # AUTOINCREMENT so it is omitted from the INSERT.
 _INSERT_COLUMNS: tuple[str, ...] = (
@@ -193,6 +204,13 @@ _INSERT_COLUMNS: tuple[str, ...] = (
     "story_class",
     "model_selection_reason",
     "backend",
+    # INFRA-288 (CER-104): the INFRA-258 spawn-ref columns become insertable
+    # so the write path can stamp them in the same statement as the row —
+    # they are deliberately NOT added to _REQUIRED_FIELDS or
+    # _DERIVED_REQUIRED_FIELDS, so every existing caller that omits them
+    # still writes NULL.
+    "agent_id",
+    "output_file",
 )
 
 _REQUIRED_FIELDS: tuple[str, ...] = (
@@ -472,14 +490,47 @@ def insert_attempt(path: Path, **fields: Any) -> int:
 _DERIVED_REQUIRED_FIELDS: "tuple[str, ...]" = ("story_id", "agent_role", "ts")
 
 
-def insert_attempt_derived(path: Path, **fields: Any) -> "tuple[int, int]":
-    """Insert a row whose ``attempt_number`` is derived atomically on the
-    write side (CER-096, item C).
+def insert_or_update_attempt(
+    path: Path, *, dedupe_agent_id: "str | None" = None, **fields: Any
+) -> "tuple[int, int, bool]":
+    """Insert a derived-ordinal row, or update the live pending row a doubled
+    hook invocation already wrote (INFRA-288, CER-104).
 
-    Requires ``story_id``, ``agent_role`` and ``ts`` — but explicitly NOT
+    With *dedupe_agent_id* ``None`` (or empty), behaviour is byte-for-byte
+    :func:`insert_attempt_derived`'s pre-INFRA-288 behaviour: requires
+    ``story_id``, ``agent_role`` and ``ts`` — but explicitly NOT
     ``attempt_number``, which this function computes. All other columns
     behave exactly as in :func:`insert_attempt` (default ``None``, unknown
-    keys raise ``ValueError``).
+    keys raise ``ValueError``). Returns ``(row_id, attempt_number, False)``.
+
+    With *dedupe_agent_id* a non-empty string, the value becomes an
+    idempotency key: a live pending row (``tokens_total IS NULL OR outcome
+    IS NULL`` — the same predicate ``pending_reconcilable`` uses) with the
+    same ``agent_id``/``agent_role`` and a ``ts`` within
+    :data:`AGENT_DEDUPE_WINDOW_SECONDS` is *updated* instead of a new row
+    being inserted, and ``(matched_row_id, existing_attempt_number, True)``
+    is returned. The update coalesces: for every column in
+    ``_INSERT_COLUMNS`` except ``attempt_number`` and ``story_id``, a
+    supplied non-``None`` value overwrites and ``None`` leaves the existing
+    value untouched — the second hook invocation is not more authoritative
+    than the first, so it must never blank a value the first wrote.
+    ``attempt_number`` is never re-derived on the update path and
+    ``story_id`` is never rewritten.
+
+    The match query runs *inside* the same ``BEGIN IMMEDIATE`` transaction
+    as the write. A SELECT outside the transaction would be exactly the
+    read-then-write race CER-096 item C removed from the attempt-ordinal
+    derivation: two hook processes 15–30 ms apart would both miss and both
+    insert. Inside the write lock, the second writer observes the first
+    writer's committed row and updates it.
+
+    Best-effort by design (CER-104): a spawn whose ``tool_response``
+    carries no recoverable agent id yields ``dedupe_agent_id=None`` here
+    and therefore still produces today's double row under a doubled hook
+    registration. The merged-hook-view detection and bootstrap skip
+    (``hook_view.py``, INFRA-288 § B) is the primary cure — removing the
+    duplicate registration itself; this idempotency key is defence in
+    depth, not a guarantee that duplicates are impossible.
 
     The derivation and the insert happen inside a single ``BEGIN
     IMMEDIATE`` transaction, as one ``INSERT ... SELECT`` statement, so the
@@ -496,8 +547,6 @@ def insert_attempt_derived(path: Path, **fields: Any) -> "tuple[int, int]":
     Rows written before INFRA-257 all carry ``attempt_number = 1``, so the
     first derived value for such a pair will be ``2`` — that is correct;
     no backfill is performed.
-
-    Returns ``(row_id, attempt_number)``.
     """
 
     missing = [f for f in _DERIVED_REQUIRED_FIELDS if fields.get(f) in (None, "")]
@@ -543,17 +592,62 @@ def insert_attempt_derived(path: Path, **fields: Any) -> "tuple[int, int]":
         "WHERE story_id = ? AND agent_role = ?"
     )
 
+    use_dedupe = isinstance(dedupe_agent_id, str) and dedupe_agent_id != ""
+
     conn = _connect(resolved)
     try:
         # isolation_level=None puts the connection in autocommit mode so
         # our own BEGIN IMMEDIATE (rather than sqlite3's implicit
         # deferred BEGIN) is what actually takes the write lock — that is
         # what makes the read of MAX(attempt_number) and the INSERT
-        # atomic together.
+        # atomic together (and, when deduping, makes the match lookup and
+        # the write atomic together — see the docstring).
         conn.isolation_level = None
         cur = conn.cursor()
         cur.execute("BEGIN IMMEDIATE")
         try:
+            if use_dedupe:
+                # The lexicographic ``ts >= ?`` bound is valid only because
+                # every writer stamps datetime.now(tz=timezone.utc).isoformat()
+                # — a differently-formatted ``ts`` silently breaks the bound
+                # (same warning as pending_reconcilable's cutoff).
+                dedupe_cutoff = (
+                    datetime.now(timezone.utc)
+                    - timedelta(seconds=AGENT_DEDUPE_WINDOW_SECONDS)
+                ).isoformat()
+                match = cur.execute(
+                    "SELECT id, attempt_number FROM attempts"
+                    " WHERE agent_id = ?"
+                    "   AND agent_role = ?"
+                    "   AND (tokens_total IS NULL OR outcome IS NULL)"
+                    "   AND ts >= ?"
+                    " ORDER BY id ASC LIMIT 1",
+                    (dedupe_agent_id, agent_role, dedupe_cutoff),
+                ).fetchone()
+                if match is not None:
+                    matched_id = int(match[0])
+                    existing_attempt_number = int(match[1])
+                    # Coalescing SET list, built only from the fixed
+                    # _INSERT_COLUMNS allow-list (never caller keys):
+                    # non-None overwrites, None leaves the existing value.
+                    set_parts: list[str] = []
+                    set_values: list[Any] = []
+                    for col in _INSERT_COLUMNS:
+                        if col in ("attempt_number", "story_id"):
+                            continue
+                        value = fields.get(col)
+                        if value is None:
+                            continue
+                        set_parts.append(f"{col} = ?")
+                        set_values.append(value)
+                    if set_parts:
+                        cur.execute(
+                            f"UPDATE attempts SET {', '.join(set_parts)}"
+                            " WHERE id = ?",
+                            (*set_values, matched_id),
+                        )
+                    conn.commit()
+                    return matched_id, existing_attempt_number, True
             cur.execute(sql, values)
             attempt_number = cur.execute(
                 "SELECT attempt_number FROM attempts WHERE id = ?",
@@ -563,9 +657,26 @@ def insert_attempt_derived(path: Path, **fields: Any) -> "tuple[int, int]":
         except Exception:
             conn.rollback()
             raise
-        return int(cur.lastrowid), int(attempt_number)
+        return int(cur.lastrowid), int(attempt_number), False
     finally:
         conn.close()
+
+
+def insert_attempt_derived(path: Path, **fields: Any) -> "tuple[int, int]":
+    """Insert a row whose ``attempt_number`` is derived atomically on the
+    write side (CER-096, item C).
+
+    Since INFRA-288 this is a compatibility delegation to
+    :func:`insert_or_update_attempt` with ``dedupe_agent_id=None`` — the
+    signature and the ``(row_id, attempt_number)`` return are unchanged
+    (Era 003 DP4 additive-until-flip contract); see the delegate's
+    docstring for the full semantics.
+    """
+
+    row_id, attempt_number, _deduped = insert_or_update_attempt(
+        path, dedupe_agent_id=None, **fields
+    )
+    return row_id, attempt_number
 
 
 def _rows_to_dicts(cursor: sqlite3.Cursor, rows: Iterable[tuple]) -> list[dict]:

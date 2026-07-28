@@ -26,6 +26,7 @@ from skills.pairmode.scripts import denylist_deriver as _denylist_deriver
 from skills.pairmode.scripts._version import PAIRMODE_VERSION  # noqa: E402
 from skills.pairmode.scripts.context_model import THIN_HARNESS_STEP_TOKENS
 import ideology_parser as _ideology_parser
+import hook_view  # INFRA-288: merged hook view (stdlib-only, cheap) — see _register_context_budget_hooks
 from schema_validator import _parse_frontmatter
 from state_utils import _atomic_write_json
 
@@ -550,6 +551,15 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
 
     Reads the file once, mutates all three events, and writes once (trailing
     newline, json.dumps(..., indent=2)). Creates the file if it does not exist.
+
+    INFRA-288 (CER-104): a spec is SKIPPED (with one line saying so) when the
+    merged hook view already reports a **plugin-sourced** entry for the same
+    (event, command-basename) pair — a project that gets the hook from an
+    installed plugin must carry no settings-level entry for it, or the hook
+    fires twice per event and every effort row is written twice (the CER-104
+    duplicate-pair shape). If the merged view cannot be computed, registration
+    proceeds as before: failing closed here would leave a project with *no*
+    recording hook, which is strictly worse than a duplicated one.
     """
     if settings_path.exists():
         try:
@@ -566,10 +576,31 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
         data["hooks"] = {}
     hooks_top = data["hooks"]
 
+    # INFRA-288: (event, basename) pairs already registered by an installed
+    # plugin's hooks.json. Best-effort — see the docstring for why a failure
+    # here must degrade to "register as today", never to "register nothing".
+    try:
+        plugin_registered = {
+            (entry.get("event"), entry.get("basename"))
+            for entry in hook_view.merged_hook_view(settings_path.parent.parent)
+            if entry.get("source") == hook_view.HOOK_SOURCE_PLUGIN
+        }
+    except Exception:
+        plugin_registered = set()
+
     for spec in CONTEXT_BUDGET_HOOK_SPECS:
         hook_path = plugin_root / spec["hook_file"]
         command = f"uv run python {hook_path}"
         matcher = spec["matcher"]
+
+        if (spec["event"], hook_path.name) in plugin_registered:
+            click.echo(
+                f"skipping {spec['event']} registration for {hook_path.name}: "
+                "already registered by an installed plugin's hooks.json — a "
+                "settings-level duplicate would run the hook twice per event "
+                "(INFRA-288, CER-104)"
+            )
+            continue
 
         if not isinstance(hooks_top.get(spec["event"]), list):
             hooks_top[spec["event"]] = []

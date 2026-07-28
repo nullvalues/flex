@@ -616,12 +616,27 @@ class TestSpawnRefColumns:
         effort_db.init_db(db_path)  # must not raise
 
     def test_insert_columns_not_extended(self, db_path: Path) -> None:
-        """Ensures 2: insert_attempt's required-field set is untouched — passing
-        agent_id/output_file as insert_attempt kwargs must still raise unknown-field."""
+        """INFRA-288 (A1) supersedes INFRA-258 Ensures 2: agent_id/output_file
+        are now insertable columns (accepted as kwargs, default NULL), while
+        the required-field set is untouched and a truly unknown field still
+        raises."""
         effort_db.init_db(db_path)
+        assert "agent_id" in effort_db._INSERT_COLUMNS
+        assert "output_file" in effort_db._INSERT_COLUMNS
+        assert "agent_id" not in effort_db._REQUIRED_FIELDS
+        assert "output_file" not in effort_db._REQUIRED_FIELDS
+        assert "agent_id" not in effort_db._DERIVED_REQUIRED_FIELDS
+        assert "output_file" not in effort_db._DERIVED_REQUIRED_FIELDS
+        row_id = effort_db.insert_attempt(
+            db_path, **_required_fields(), agent_id="a1", output_file="/tmp/x"
+        )
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert rows[0]["id"] == row_id
+        assert rows[0]["agent_id"] == "a1"
+        assert rows[0]["output_file"] == "/tmp/x"
         with pytest.raises(ValueError, match="unknown"):
             effort_db.insert_attempt(
-                db_path, **_required_fields(), agent_id="a1", output_file="/tmp/x"
+                db_path, **_required_fields(), not_a_column="x"
             )
 
 
@@ -1640,3 +1655,223 @@ class TestPendingReconcilableExclusion:
             db_path, 10, exclude_output_prefixes=("' OR 1=1 --",)
         )
         assert {r["id"] for r in rows} == {row_a, row_b}
+
+
+# ---------------------------------------------------------------------------
+# INFRA-288 (CER-104): agent_id idempotency key — insert_or_update_attempt
+# ---------------------------------------------------------------------------
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class TestInsertOrUpdateAttempt:
+    def _derived_fields(self, **overrides) -> dict:
+        base = {
+            "story_id": "INFRA-288",
+            "agent_role": "builder",
+            "ts": _now_iso(),
+        }
+        base.update(overrides)
+        return base
+
+    # -- A1 -----------------------------------------------------------------
+
+    def test_agent_id_and_output_file_are_insertable_columns(self) -> None:
+        assert "agent_id" in effort_db._INSERT_COLUMNS
+        assert "output_file" in effort_db._INSERT_COLUMNS
+        for col in ("agent_id", "output_file"):
+            assert col not in effort_db._REQUIRED_FIELDS
+            assert col not in effort_db._DERIVED_REQUIRED_FIELDS
+
+    def test_insert_attempt_derived_writes_agent_id(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        row_id, attempt_number = effort_db.insert_attempt_derived(
+            db_path,
+            story_id="S",
+            agent_role="builder",
+            ts="2026-07-28T00:00:00+00:00",
+            agent_id="a-1",
+        )
+        assert attempt_number == 1
+        rows = effort_db.query_by_story(db_path, "S")
+        assert rows[0]["id"] == row_id
+        assert rows[0]["agent_id"] == "a-1"
+
+    def test_omitting_new_columns_writes_null(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        effort_db.insert_attempt_derived(db_path, **self._derived_fields())
+        rows = effort_db.query_by_story(db_path, "INFRA-288")
+        assert rows[0]["agent_id"] is None
+        assert rows[0]["output_file"] is None
+
+    # -- A2 -----------------------------------------------------------------
+
+    def test_returns_row_id_attempt_number_deduped_triple(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        result = effort_db.insert_or_update_attempt(
+            db_path, **self._derived_fields()
+        )
+        row_id, attempt_number, deduped = result
+        assert isinstance(row_id, int)
+        assert attempt_number == 1
+        assert deduped is False
+
+    def test_validation_matches_insert_attempt_derived(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        with pytest.raises(ValueError, match="missing required"):
+            effort_db.insert_or_update_attempt(
+                db_path, story_id="S", agent_role="builder"
+            )
+        with pytest.raises(ValueError, match="unknown"):
+            effort_db.insert_or_update_attempt(
+                db_path, **self._derived_fields(), not_a_column="x"
+            )
+        with pytest.raises(ValueError, match="unknown"):
+            effort_db.insert_or_update_attempt(
+                db_path, **self._derived_fields(), attempt_number=3
+            )
+
+    # -- A3 -----------------------------------------------------------------
+
+    def test_insert_attempt_derived_signature_preserved(self, db_path: Path) -> None:
+        """DP4: the old name keeps its two-tuple return."""
+        effort_db.init_db(db_path)
+        result = effort_db.insert_attempt_derived(
+            db_path, **self._derived_fields()
+        )
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    # -- A4 / A5 ------------------------------------------------------------
+
+    def test_match_updates_with_coalescing_semantics(self, db_path: Path) -> None:
+        """A5: non-None overwrites, None leaves the existing value; one row."""
+        effort_db.init_db(db_path)
+        effort_db.insert_or_update_attempt(
+            db_path,
+            dedupe_agent_id="agent-x",
+            **self._derived_fields(),
+            agent_id="agent-x",
+            model="haiku",
+        )
+        row_id, attempt_number, deduped = effort_db.insert_or_update_attempt(
+            db_path,
+            dedupe_agent_id="agent-x",
+            **self._derived_fields(),
+            agent_id="agent-x",
+            model=None,
+            outcome="PASS",
+        )
+        assert deduped is True
+        assert attempt_number == 1
+        rows = effort_db.query_by_story(db_path, "INFRA-288")
+        assert len(rows) == 1
+        assert rows[0]["id"] == row_id
+        assert rows[0]["model"] == "haiku"  # None did NOT blank it
+        assert rows[0]["outcome"] == "PASS"  # non-None overwrote
+
+    def test_match_never_rederives_attempt_number_or_story_id(
+        self, db_path: Path
+    ) -> None:
+        effort_db.init_db(db_path)
+        # Seed unrelated attempts so a re-derivation would produce > 1.
+        effort_db.insert_attempt_derived(db_path, **self._derived_fields())
+        effort_db.insert_attempt_derived(db_path, **self._derived_fields())
+        _rid, first_number, _ = effort_db.insert_or_update_attempt(
+            db_path,
+            dedupe_agent_id="agent-y",
+            **self._derived_fields(),
+            agent_id="agent-y",
+        )
+        rid2, second_number, deduped = effort_db.insert_or_update_attempt(
+            db_path,
+            dedupe_agent_id="agent-y",
+            **self._derived_fields(story_id="OTHER-001"),
+            agent_id="agent-y",
+        )
+        assert deduped is True
+        assert second_number == first_number
+        rows = [r for r in effort_db.query_all(db_path) if r["id"] == rid2]
+        assert rows[0]["story_id"] == "INFRA-288"  # story_id never rewritten
+
+    def test_stale_pending_row_outside_window_is_not_matched(
+        self, db_path: Path
+    ) -> None:
+        """A4: the ts >= now - AGENT_DEDUPE_WINDOW_SECONDS bound is real."""
+        effort_db.init_db(db_path)
+        stale_ts = (
+            datetime.now(timezone.utc)
+            - timedelta(seconds=effort_db.AGENT_DEDUPE_WINDOW_SECONDS + 60)
+        ).isoformat()
+        effort_db.insert_or_update_attempt(
+            db_path,
+            dedupe_agent_id="agent-z",
+            **self._derived_fields(ts=stale_ts),
+            agent_id="agent-z",
+        )
+        _rid, _num, deduped = effort_db.insert_or_update_attempt(
+            db_path,
+            dedupe_agent_id="agent-z",
+            **self._derived_fields(),
+            agent_id="agent-z",
+        )
+        assert deduped is False
+        assert len(effort_db.query_by_story(db_path, "INFRA-288")) == 2
+
+    def test_window_constant_value(self) -> None:
+        assert effort_db.AGENT_DEDUPE_WINDOW_SECONDS == 300
+
+    # -- A6 -----------------------------------------------------------------
+
+    def test_falsy_dedupe_agent_id_always_inserts(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        for dedupe in (None, ""):
+            effort_db.insert_or_update_attempt(
+                db_path,
+                dedupe_agent_id=dedupe,
+                **self._derived_fields(),
+                agent_id="agent-q",
+            )
+        assert len(effort_db.query_by_story(db_path, "INFRA-288")) == 2
+
+    def test_same_agent_id_different_role_inserts_two_rows(
+        self, db_path: Path
+    ) -> None:
+        effort_db.init_db(db_path)
+        effort_db.insert_or_update_attempt(
+            db_path,
+            dedupe_agent_id="agent-r",
+            **self._derived_fields(agent_role="builder"),
+            agent_id="agent-r",
+        )
+        _rid, _num, deduped = effort_db.insert_or_update_attempt(
+            db_path,
+            dedupe_agent_id="agent-r",
+            **self._derived_fields(agent_role="reviewer"),
+            agent_id="agent-r",
+        )
+        assert deduped is False
+        assert len(effort_db.query_by_story(db_path, "INFRA-288")) == 2
+
+    def test_completed_candidate_is_not_matched(self, db_path: Path) -> None:
+        """A6: a row with tokens_total AND outcome both non-NULL is not
+        pending, so a second call inserts."""
+        effort_db.init_db(db_path)
+        effort_db.insert_or_update_attempt(
+            db_path,
+            dedupe_agent_id="agent-s",
+            **self._derived_fields(),
+            agent_id="agent-s",
+            tokens_total=100,
+            outcome="PASS",
+        )
+        _rid, _num, deduped = effort_db.insert_or_update_attempt(
+            db_path,
+            dedupe_agent_id="agent-s",
+            **self._derived_fields(),
+            agent_id="agent-s",
+        )
+        assert deduped is False
+        assert len(effort_db.query_by_story(db_path, "INFRA-288")) == 2

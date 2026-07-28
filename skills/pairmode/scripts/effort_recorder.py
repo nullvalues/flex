@@ -122,7 +122,7 @@ def _normalize_usage(usage: Any) -> dict[str, int | None]:
     }
 
 
-def record_effort(
+def record_effort_ex(
     *,
     project_dir: Path | str,
     story_id: str,
@@ -136,32 +136,41 @@ def record_effort(
     phase: str | None = None,
     rail: str | None = None,
     backend: str | None = None,
+    agent_id: "str | None" = None,
+    output_file: "str | None" = None,
     log_fn: Callable[[str], None] | None = None,
-) -> int | None:
-    """Record one LLM-call attempt row, or silently no-op.
+) -> "tuple[int | None, bool]":
+    """Record one LLM-call attempt row and report whether the write was
+    deduped (INFRA-288, CER-104).
 
-    Returns the inserted row id on success, ``None`` if recording was skipped
-    (tracking disabled, state missing) or the underlying write failed.
+    Returns ``(row_id, deduped)``. ``row_id`` is the inserted (or matched)
+    row id on success, ``None`` if recording was skipped (tracking disabled,
+    state missing) or the underlying write failed. ``deduped`` is ``True``
+    only when an idempotency-key match updated an existing pending row
+    instead of inserting (see ``effort_db.insert_or_update_attempt``).
 
-    Required fields are passed as kwargs to make the call site self-documenting
-    and avoid positional ambiguity at every wrapped call site.
+    This "-ex" sibling exists because :func:`record_effort`'s documented
+    ``int | None`` return is a DP4-frozen contract — a second return value
+    there would break every existing caller — while the hook path needs to
+    know whether its write was deduped so it can log
+    ``decision="recorded:deduped"``. The logic lives here;
+    :func:`record_effort` is a thin delegation dropping the flag.
 
-    ``attempt_number`` defaults to ``1`` (unchanged behaviour for existing
-    callers). When it is explicitly ``None`` (CER-096, item C), the ordinal
-    is derived atomically on the write side via
-    ``effort_db.insert_attempt_derived`` instead of being passed in —
-    the caller no longer pre-computes it with a separate, racy read.
+    ``agent_id``/``output_file`` are passed through as ordinary column
+    values in every case. Dedupe is opted into only when *attempt_number*
+    is ``None`` **and** *agent_id* is a non-empty string; otherwise
+    behaviour is exactly pre-INFRA-288.
     """
 
     project_path = Path(project_dir).resolve()
     state = _read_state(project_path)
 
     if not state or not state.get("effort_tracking"):
-        return None
+        return None, False
 
     if not story_id or not agent_role:
         # Required by effort_db; fail closed by no-op.
-        return None
+        return None, False
 
     tokens = _normalize_usage(usage)
     ts = _utc_now_iso()
@@ -175,26 +184,35 @@ def record_effort(
         # statements on a path that only ever needs to run them once.
         _effort_db.ensure_db(db_path)
         if attempt_number is None:
-            _row_id, _attempt_number = _effort_db.insert_attempt_derived(
-                db_path,
-                story_id=story_id,
-                phase=phase,
-                rail=rail,
-                agent_role=agent_role,
-                model=model,
-                tokens_total=tokens["tokens_total"],
-                tokens_in=tokens["tokens_in"],
-                tokens_out=tokens["tokens_out"],
-                cache_read_tokens=tokens["cache_read_tokens"],
-                cache_write_tokens=tokens["cache_write_tokens"],
-                tool_uses=None,
-                duration_ms=duration_ms,
-                outcome=outcome,
-                notes=notes,
-                ts=ts,
-                backend=backend,
+            _row_id, _attempt_number, _deduped = (
+                _effort_db.insert_or_update_attempt(
+                    db_path,
+                    # INFRA-288 (CER-104): the spawn's own agent_id is the
+                    # idempotency key against a doubled hook registration
+                    # writing the same attempt twice. Falsy agent_id means
+                    # no dedupe — byte-identical pre-INFRA-288 behaviour.
+                    dedupe_agent_id=agent_id if agent_id else None,
+                    story_id=story_id,
+                    phase=phase,
+                    rail=rail,
+                    agent_role=agent_role,
+                    model=model,
+                    tokens_total=tokens["tokens_total"],
+                    tokens_in=tokens["tokens_in"],
+                    tokens_out=tokens["tokens_out"],
+                    cache_read_tokens=tokens["cache_read_tokens"],
+                    cache_write_tokens=tokens["cache_write_tokens"],
+                    tool_uses=None,
+                    duration_ms=duration_ms,
+                    outcome=outcome,
+                    notes=notes,
+                    ts=ts,
+                    backend=backend,
+                    agent_id=agent_id,
+                    output_file=output_file,
+                )
             )
-            return _row_id
+            return _row_id, _deduped
         return _effort_db.insert_attempt(
             db_path,
             story_id=story_id,
@@ -214,11 +232,73 @@ def record_effort(
             notes=notes,
             ts=ts,
             backend=backend,
-        )
+            agent_id=agent_id,
+            output_file=output_file,
+        ), False
     except Exception as exc:  # noqa: BLE001 — best-effort observability
         if log_fn is not None:
             try:
                 log_fn(f"effort_recorder error: {exc}")
             except Exception:
                 pass
-        return None
+        return None, False
+
+
+def record_effort(
+    *,
+    project_dir: Path | str,
+    story_id: str,
+    agent_role: str,
+    model: str | None = None,
+    usage: Any = None,
+    attempt_number: "int | None" = 1,
+    duration_ms: int | None = None,
+    outcome: str | None = None,
+    notes: str | None = None,
+    phase: str | None = None,
+    rail: str | None = None,
+    backend: str | None = None,
+    agent_id: "str | None" = None,
+    output_file: "str | None" = None,
+    log_fn: Callable[[str], None] | None = None,
+) -> int | None:
+    """Record one LLM-call attempt row, or silently no-op.
+
+    Returns the inserted row id on success, ``None`` if recording was skipped
+    (tracking disabled, state missing) or the underlying write failed.
+
+    Required fields are passed as kwargs to make the call site self-documenting
+    and avoid positional ambiguity at every wrapped call site.
+
+    ``attempt_number`` defaults to ``1`` (unchanged behaviour for existing
+    callers). When it is explicitly ``None`` (CER-096, item C), the ordinal
+    is derived atomically on the write side via
+    ``effort_db.insert_or_update_attempt`` instead of being passed in —
+    the caller no longer pre-computes it with a separate, racy read.
+
+    ``agent_id``/``output_file`` (INFRA-288, CER-104) are stored as ordinary
+    column values; when ``attempt_number is None`` and ``agent_id`` is a
+    non-empty string the write additionally opts into agent-id dedupe. This
+    function's ``int | None`` return is DP4-frozen; callers that need to
+    know whether the write was deduped use :func:`record_effort_ex` — the
+    delegation exists precisely so the frozen signature never changes.
+    """
+
+    row_id, _deduped = record_effort_ex(
+        project_dir=project_dir,
+        story_id=story_id,
+        agent_role=agent_role,
+        model=model,
+        usage=usage,
+        attempt_number=attempt_number,
+        duration_ms=duration_ms,
+        outcome=outcome,
+        notes=notes,
+        phase=phase,
+        rail=rail,
+        backend=backend,
+        agent_id=agent_id,
+        output_file=output_file,
+        log_fn=log_fn,
+    )
+    return row_id

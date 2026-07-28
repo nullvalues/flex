@@ -143,3 +143,61 @@ class TestAtomicAttemptNumberDerivation:
 
         assert errors == [], f"worker exceptions: {errors!r}"
         assert sorted(results) == list(range(1, n_threads + 1))
+
+
+class TestAgentIdDedupeUnderConcurrency:
+    def test_two_racing_writers_produce_one_row(self, db_path: Path) -> None:
+        """INFRA-288 A7: the CER-104 shape — two hook processes firing the
+        same recording 15-30 ms apart — must land exactly one row. The match
+        query runs inside the same BEGIN IMMEDIATE transaction as the
+        write, so whichever writer wins the write lock inserts and the
+        loser observes the committed row and updates it. This test must
+        fail if the match SELECT is moved outside the transaction."""
+        from datetime import datetime, timezone
+
+        effort_db.init_db(db_path)
+
+        n_writers = 2
+        barrier = threading.Barrier(n_writers)
+        results: list[tuple[int, int, bool]] = []
+        errors: list[BaseException] = []
+        lock = threading.Lock()
+
+        def _worker() -> None:
+            try:
+                barrier.wait()
+                result = effort_db.insert_or_update_attempt(
+                    db_path,
+                    dedupe_agent_id="agent-race",
+                    story_id="INFRA-1200",
+                    agent_role="builder",
+                    ts=datetime.now(tz=timezone.utc).isoformat(),
+                    agent_id="agent-race",
+                    output_file="/tmp/tasks/agent-race.output",
+                )
+                with lock:
+                    results.append(result)
+            except BaseException as exc:  # noqa: BLE001
+                with lock:
+                    errors.append(exc)
+
+        threads = [threading.Thread(target=_worker) for _ in range(n_writers)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == [], f"worker exceptions: {errors!r}"
+        assert len(results) == 2
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM attempts").fetchone()[0]
+        finally:
+            conn.close()
+        assert count == 1
+
+        row_ids = {row_id for row_id, _num, _deduped in results}
+        assert len(row_ids) == 1, f"both calls must return the same row id: {results}"
+        deduped_flags = sorted(deduped for _rid, _num, deduped in results)
+        assert deduped_flags == [False, True]

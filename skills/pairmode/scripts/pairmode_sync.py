@@ -51,6 +51,10 @@ import jinja2
 # audit-hooks reuses bootstrap's dedupe helper rather than re-implementing it.
 from bootstrap import _prune_stale_hook_entries  # noqa: E402
 
+# Shared merged-hook-view helpers (INFRA-288) — see the audit-hooks section
+# comment below for why this lives in a third module.
+import hook_view  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -1000,59 +1004,35 @@ def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
 # audit-hooks (CER-081) — dry-run/apply audit and cleaner for duplicate hook
 # registrations left behind by pre-INFRA-269 bootstrap runs. Twin of
 # fleet_discovery._check_duplicate_hooks (same {"event", "basename",
-# "commands"} shape); deliberately not imported from/into fleet_discovery.py
-# — a fleet-scanning module and a per-project sync module must not take a
-# dependency on each other for a dozen lines of dict grouping.
+# "commands"} shape, plus "sources" since INFRA-288); deliberately not
+# imported from/into fleet_discovery.py — a fleet-scanning module and a
+# per-project sync module must not take a dependency on each other. That
+# reasoning still holds and is exactly why the shared grouping logic now
+# lives in a third, stdlib-only module (hook_view.py, INFRA-288) that both
+# import instead of each other.
 # ---------------------------------------------------------------------------
 
 
 def _audit_duplicate_hooks(settings_path: Path) -> list[dict]:
-    """Return one dict per duplicated (event, command-basename) pair found in
-    *settings_path*'s ``hooks`` section.
+    """Return one dict per duplicated (event, command-basename) pair visible
+    to the project owning *settings_path*.
 
-    Each dict has keys ``event``, ``basename``, and ``commands`` (the list of
-    full command strings sharing that basename under that event, in document
-    order). Returns ``[]`` when the file is absent, unparseable, or has no
-    duplicates. Read-only — never writes.
+    Since INFRA-288 (CER-104) the input is the **merged hook view** —
+    settings.json + settings.local.json + every discoverable plugin
+    ``hooks/hooks.json`` (see ``hook_view.py``) — not *settings_path*
+    alone. The settings-only read was blind to the CER-104 shape: a hook
+    registered once in settings and once by an installed plugin doubled
+    every effort row while this audit reported clean. The signature keeps
+    taking the settings path (callers pass one); the project dir is derived
+    as ``settings_path.parent.parent``.
+
+    Each dict has the unchanged keys ``event``, ``basename``, and
+    ``commands`` (full command strings in view order), plus the parallel
+    ``sources`` list of source labels. Returns ``[]`` when nothing is
+    readable or there are no duplicates. Read-only — never writes.
     """
-    if not settings_path.exists():
-        return []
-    try:
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return []
-
-    hooks_top = data.get("hooks")
-    if not isinstance(hooks_top, dict):
-        return []
-
-    duplicates: list[dict] = []
-    for event, block_list in hooks_top.items():
-        if not isinstance(block_list, list):
-            continue
-        by_basename: dict[str, list[str]] = {}
-        for block in block_list:
-            if not isinstance(block, dict):
-                continue
-            inner_hooks = block.get("hooks")
-            if not isinstance(inner_hooks, list):
-                continue
-            for entry in inner_hooks:
-                if not isinstance(entry, dict):
-                    continue
-                command = entry.get("command")
-                if not isinstance(command, str):
-                    continue
-                basename = command.rsplit("/", 1)[-1]
-                by_basename.setdefault(basename, []).append(command)
-
-        for basename, commands in by_basename.items():
-            if len(commands) > 1:
-                duplicates.append(
-                    {"event": event, "basename": basename, "commands": commands}
-                )
-
-    return duplicates
+    project_dir = Path(settings_path).parent.parent
+    return hook_view.duplicate_hook_groups(hook_view.merged_hook_view(project_dir))
 
 
 def _resolve_flex_root() -> Path:
@@ -1090,16 +1070,23 @@ def _resolve_flex_root() -> Path:
     help="Suppress confirmation prompts.",
 )
 def audit_hooks(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
-    """Audit .claude/settings.json for duplicate hook registrations (CER-081).
+    """Audit the merged hook view for duplicate registrations (CER-081;
+    merged view INFRA-288/CER-104).
 
-    Without --apply, reports duplicate (event, command-basename) pairs and
-    exits 1 if any are found, 0 if clean — usable as a drift check in a shell
-    conditional. With --apply, removes every duplicate so each (event,
-    command-basename) pair retains exactly one entry, preferring the entry
-    whose command path is under this checkout's plugin root.
+    Without --apply, reports duplicate (event, command-basename) pairs —
+    each with the sources it spans (settings / settings.local / plugin) —
+    and exits 1 if any are found, 0 if clean — usable as a drift check in a
+    shell conditional. With --apply, removes duplicate entries from
+    .claude/settings.json (and .claude/settings.local.json when present).
+    When a group spans a plugin source, the plugin-sourced entry always
+    wins: flex never writes another install's files, and the plugin
+    registration is the one that survives a re-bootstrap. When every member
+    of a group is settings-sourced, the entry whose command path is under
+    this checkout's plugin root is preferred (unchanged behaviour).
     """
     project_path = Path(project_dir).resolve()
     settings_path = project_path / ".claude" / "settings.json"
+    settings_local_path = project_path / ".claude" / "settings.local.json"
 
     if not settings_path.exists():
         click.echo("no .claude/settings.json found — nothing to audit")
@@ -1116,6 +1103,7 @@ def audit_hooks(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None
     for dup in duplicates:
         click.echo(
             f"DUPLICATE: event={dup['event']} basename={dup['basename']} "
+            f"sources={dup.get('sources', [])} "
             f"commands={dup['commands']}"
         )
 
@@ -1129,40 +1117,97 @@ def audit_hooks(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None
             sys.exit(0)
 
     flex_root = _resolve_flex_root()
-    data = json.loads(settings_path.read_text(encoding="utf-8"))
-    hooks_top = data.get("hooks", {})
+
+    # Read each settings-level file once; write each once at the end.
+    # Plugin hooks.json files are NEVER read for write, let alone written —
+    # --apply must not touch another install's files (INFRA-288 B9).
+    settings_files: "list[tuple[Path, dict]]" = []
+    for path in (settings_path, settings_local_path):
+        if not path.exists():
+            continue
+        try:
+            settings_files.append(
+                (path, json.loads(path.read_text(encoding="utf-8")))
+            )
+        except json.JSONDecodeError:
+            continue
 
     for dup in duplicates:
         event = dup["event"]
         basename = dup["basename"]
         commands = dup["commands"]
+        sources = dup.get("sources") or [None] * len(commands)
 
-        keep_command = None
-        for candidate in commands:
-            # Command strings look like "uv run python <path>"; extract the
-            # path portion for the plugin-root check.
-            path_part = candidate.split(" ", 3)[-1]
-            try:
-                if Path(path_part).resolve().is_relative_to(flex_root):
-                    keep_command = candidate
-                    break
-            except (OSError, ValueError):
-                continue
-        if keep_command is None:
-            keep_command = commands[0]
+        plugin_commands = [
+            command
+            for command, source in zip(commands, sources)
+            if source == hook_view.HOOK_SOURCE_PLUGIN
+        ]
 
-        block_list = hooks_top.get(event)
-        if isinstance(block_list, list):
-            _prune_stale_hook_entries(block_list, basename, keep_command)
+        if plugin_commands:
+            # The plugin-sourced entry always wins (B9): pruning the
+            # settings-level files against a command they cannot contain
+            # removes every settings-level entry for this (event, basename)
+            # while the plugin file stays untouched.
+            keep_command = plugin_commands[0]
+        else:
+            keep_command = None
+            for candidate in commands:
+                # Command strings look like "uv run python <path>"; extract
+                # the path portion for the plugin-root check.
+                path_part = candidate.split(" ", 3)[-1]
+                try:
+                    if Path(path_part).resolve().is_relative_to(flex_root):
+                        keep_command = candidate
+                        break
+                except (OSError, ValueError):
+                    continue
+            if keep_command is None:
+                keep_command = commands[0]
+
+        removed: list[str] = []
+        for _path, data in settings_files:
+            hooks_top = data.get("hooks", {})
+            block_list = (
+                hooks_top.get(event) if isinstance(hooks_top, dict) else None
+            )
+            if isinstance(block_list, list):
+                before = [
+                    entry.get("command")
+                    for block in block_list
+                    if isinstance(block, dict)
+                    for entry in (
+                        block.get("hooks")
+                        if isinstance(block.get("hooks"), list)
+                        else []
+                    )
+                    if isinstance(entry, dict)
+                ]
+                _prune_stale_hook_entries(block_list, basename, keep_command)
+                after = [
+                    entry.get("command")
+                    for block in block_list
+                    if isinstance(block, dict)
+                    for entry in (
+                        block.get("hooks")
+                        if isinstance(block.get("hooks"), list)
+                        else []
+                    )
+                    if isinstance(entry, dict)
+                ]
+                for command in before:
+                    if command not in after or before.count(command) > after.count(command):
+                        if command not in removed:
+                            removed.append(command)
 
         click.echo(f"kept: {keep_command}")
-        for command in commands:
-            if command != keep_command:
-                click.echo(f"removed: {command}")
+        for command in removed:
+            click.echo(f"removed: {command}")
 
-    settings_path.write_text(
-        json.dumps(data, indent=2) + "\n", encoding="utf-8"
-    )
+    for path, data in settings_files:
+        path.write_text(
+            json.dumps(data, indent=2) + "\n", encoding="utf-8"
+        )
     sys.exit(0)
 
 

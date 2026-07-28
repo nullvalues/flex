@@ -1570,25 +1570,33 @@ class TestDefect1RepeatSpawnRecordsSecondRow:
         project_dir.mkdir(parents=True, exist_ok=True)
         _enable_tracking(project_dir)
 
-        output_file = tmp_path / "tasks" / "agent-1.output"
-        async_response = {
+        # INFRA-288: the two spawns carry DISTINCT agent ids — a real retry
+        # is a new spawn with a new agentId. (A shared agentId is now, by
+        # design, the CER-104 doubled-hook shape and dedupes to one row —
+        # see TestSpawnRefDedupe.)
+        async_response_1 = {
             "isAsync": True,
-            "agentId": "agent-1",
-            "outputFile": str(output_file),
+            "agentId": "agent-1a",
+            "outputFile": str(tmp_path / "tasks" / "agent-1a.output"),
+        }
+        async_response_2 = {
+            "isAsync": True,
+            "agentId": "agent-1b",
+            "outputFile": str(tmp_path / "tasks" / "agent-1b.output"),
         }
 
         row_id_1 = st.record_attempt_from_transcript(
             project_dir=project_dir,
             session_id="sess-repeat",
             tool_input={"subagent_type": "reviewer", "prompt": "INFRA-259"},
-            tool_response=async_response,
+            tool_response=async_response_1,
             tool_name="Task",
         )
         row_id_2 = st.record_attempt_from_transcript(
             project_dir=project_dir,
             session_id="sess-repeat",
             tool_input={"subagent_type": "reviewer", "prompt": "INFRA-259"},
-            tool_response=async_response,
+            tool_response=async_response_2,
             tool_name="Task",
         )
 
@@ -1610,14 +1618,14 @@ class TestDefect1RepeatSpawnRecordsSecondRow:
         project_dir.mkdir(parents=True, exist_ok=True)
         _enable_tracking(project_dir)
 
-        output_file = tmp_path / "tasks" / "agent-2.output"
-        async_response = {
-            "isAsync": True,
-            "agentId": "agent-2",
-            "outputFile": str(output_file),
-        }
-
-        for _ in range(2):
+        # INFRA-288: distinct agent ids, as for a real retry pair — a shared
+        # agentId is now the CER-104 dedupe shape (see TestSpawnRefDedupe).
+        for suffix in ("2a", "2b"):
+            async_response = {
+                "isAsync": True,
+                "agentId": f"agent-{suffix}",
+                "outputFile": str(tmp_path / "tasks" / f"agent-{suffix}.output"),
+            }
             st.record_attempt_from_transcript(
                 project_dir=project_dir,
                 session_id="sess-repeat-2",
@@ -2614,3 +2622,109 @@ class TestRecordAttemptSweepOwnership:
             )
 
         assert seen == [(None, None)]
+
+
+# ---------------------------------------------------------------------------
+# INFRA-288 (CER-104): spawn-ref threading and agent_id dedupe on the hook path
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnRefDedupe:
+    def _payload(self, tmp_path: Path, agent_suffix: str = "1") -> dict:
+        return {
+            "isAsync": True,
+            "agentId": f"agent-dedupe-{agent_suffix}",
+            "outputFile": str(tmp_path / "tasks" / f"agent-dedupe-{agent_suffix}.output"),
+        }
+
+    def test_row_carries_agent_id_without_set_spawn_ref(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A9: the spawn ref is extracted BEFORE the write and stamped by the
+        insert itself — not by the post-insert set_spawn_ref fallback."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("set_spawn_ref disabled for A9")
+
+        monkeypatch.setattr(st.effort_db, "set_spawn_ref", _boom)
+
+        row_id = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="sess-a9",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-288"},
+            tool_response=self._payload(tmp_path),
+            tool_name="Task",
+        )
+        assert row_id is not None
+
+        db_path = project_dir / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-288")
+        assert len(rows) == 1
+        assert rows[0]["agent_id"] == "agent-dedupe-1"
+        assert rows[0]["output_file"] == str(
+            tmp_path / "tasks" / "agent-dedupe-1.output"
+        )
+
+    def test_recording_decisions_includes_deduped(self) -> None:
+        assert "recorded:deduped" in st.RECORDING_DECISIONS
+
+    def test_same_payload_twice_dedupes_and_logs_both_decisions(
+        self, tmp_path: Path
+    ) -> None:
+        """A10: one row in effort.db; the log reads recorded then
+        recorded:deduped with the same row_id."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        payload = self._payload(tmp_path, agent_suffix="2")
+        for _ in range(2):
+            st.record_attempt_from_transcript(
+                project_dir=project_dir,
+                session_id="sess-a10",
+                tool_input={"subagent_type": "builder", "prompt": "INFRA-288"},
+                tool_response=payload,
+                tool_name="Task",
+            )
+
+        db_path = project_dir / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-288")
+        assert len(rows) == 1
+
+        log_path = project_dir / ".companion" / "effort_recording.log"
+        entries = [
+            json.loads(line)
+            for line in log_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        decisions = [
+            e for e in entries
+            if e.get("decision") in ("recorded", "recorded:deduped")
+        ]
+        assert [e["decision"] for e in decisions] == ["recorded", "recorded:deduped"]
+        assert decisions[0]["row_id"] == decisions[1]["row_id"] == rows[0]["id"]
+
+    def test_no_agent_id_in_tool_response_still_double_inserts(
+        self, tmp_path: Path
+    ) -> None:
+        """A11: the idempotency key is best-effort — with no recoverable
+        agent id, a doubled invocation still writes two rows (the merged
+        hook view is the primary cure)."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        for _ in range(2):
+            st.record_attempt_from_transcript(
+                project_dir=project_dir,
+                session_id="sess-a11",
+                tool_input={"subagent_type": "builder", "prompt": "INFRA-288"},
+                tool_response={"noRefHere": True},
+                tool_name="Task",
+            )
+
+        db_path = project_dir / ".companion" / "effort.db"
+        assert len(effort_db.query_by_story(db_path, "INFRA-288")) == 2

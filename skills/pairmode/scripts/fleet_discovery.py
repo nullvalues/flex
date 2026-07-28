@@ -31,6 +31,13 @@ from typing import Optional
 
 import click
 
+# Shared merged-hook-view helpers (INFRA-288). hook_view.py is the third,
+# stdlib-only module both this fleet scanner and pairmode_sync.py import so
+# that neither has to depend on the other. Bare import via the scripts dir,
+# same style as pairmode_sync.py's sibling imports.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hook_view  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Path resolution — no hardcoded absolute paths; everything relative to __file__
 # ---------------------------------------------------------------------------
@@ -285,54 +292,22 @@ def _check_duplicate_hooks(project_dir: Path) -> list[dict]:
     """DP8 fleet-level signal for CER-081: doubled hook registrations left by
     a project whose bootstrap.py registrars ran before INFRA-269's dedupe fix.
 
-    Returns one dict per duplicated (event, command-basename) pair found in
-    project_dir's .claude/settings.json, with keys "event", "basename", and
-    "commands" (the list of full command strings sharing that basename under
-    that event, in document order). Returns [] on a missing file, an
-    unparseable one, or no duplicates. Read-only — never writes to
-    project_dir (same discipline as _check_signal1/_check_signal2).
+    Since INFRA-288 (CER-104) the input is the **merged hook view** —
+    ``.claude/settings.json`` + ``.claude/settings.local.json`` + every
+    discoverable plugin ``hooks/hooks.json`` (see ``hook_view.py``) — not
+    settings.json alone. The settings-only read was structurally blind to
+    the CER-104 shape: a project receiving ``post_tool_use.py`` from both
+    its settings and an installed flex plugin doubled every effort row while
+    this check reported 0 duplicates.
+
+    Returns one dict per duplicated (event, command-basename) pair, with the
+    unchanged keys "event", "basename", and "commands" (full command strings
+    in view order) plus the parallel "sources" list of source labels.
+    Returns [] on missing/unparseable files or no duplicates. Read-only —
+    never writes to project_dir (same discipline as
+    _check_signal1/_check_signal2; the merged view is a pure read).
     """
-    settings_path = project_dir / ".claude" / "settings.json"
-    if not settings_path.exists():
-        return []
-
-    try:
-        with settings_path.open() as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return []
-
-    hooks_top = data.get("hooks")
-    if not isinstance(hooks_top, dict):
-        return []
-
-    duplicates: list[dict] = []
-    for event, block_list in hooks_top.items():
-        if not isinstance(block_list, list):
-            continue
-        by_basename: dict[str, list[str]] = {}
-        for block in block_list:
-            if not isinstance(block, dict):
-                continue
-            inner_hooks = block.get("hooks")
-            if not isinstance(inner_hooks, list):
-                continue
-            for entry in inner_hooks:
-                if not isinstance(entry, dict):
-                    continue
-                command = entry.get("command")
-                if not isinstance(command, str):
-                    continue
-                basename = command.rsplit("/", 1)[-1]
-                by_basename.setdefault(basename, []).append(command)
-
-        for basename, commands in by_basename.items():
-            if len(commands) > 1:
-                duplicates.append(
-                    {"event": event, "basename": basename, "commands": commands}
-                )
-
-    return duplicates
+    return hook_view.duplicate_hook_groups(hook_view.merged_hook_view(project_dir))
 
 
 def discover(candidate_dirs: list[Path]) -> list[dict]:

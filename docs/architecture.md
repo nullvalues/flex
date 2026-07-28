@@ -2317,6 +2317,27 @@ DP8 fleet-level signal that surfaces the condition before the fold; discovery
 reports the condition, it does not enforce against it — `audit-hooks` is the
 enforcing instrument.
 
+Since INFRA-288 (CER-104), both detectors read the **merged hook view** rather
+than `.claude/settings.json` alone: `hook_view.py` (a stdlib-only module both
+`fleet_discovery.py` and `pairmode_sync.py` import, so neither depends on the
+other) flattens `settings.json` + `settings.local.json` + every discoverable
+plugin `hooks/hooks.json` into one provenance-tagged list, grouped by command
+basename (never by resolved path — a plugin's `${CLAUDE_PLUGIN_ROOT}` command
+must keep matching the settings entry's absolute path). The settings-only read
+was structurally blind to a hook registered once in settings and once by an
+installed plugin — the exact shape that doubled every effort row on meander
+while fleet discovery reported 0 duplicates.
+
+Fleet rule: a project that receives a hook from an installed flex plugin must
+carry **no** settings-level entry for it — in particular no `Task|Agent`
+`PostToolUse` entry for `post_tool_use.py`. One registration per event per
+script, because the recording path runs once per hook invocation and a doubled
+registration doubles every effort row. `bootstrap._register_context_budget_hooks`
+skips (and says so) any spec whose (event, basename) the merged view already
+shows as plugin-sourced, and `audit-hooks --apply` resolves a cross-source
+duplicate by keeping the plugin entry and pruning the settings-level ones — it
+never writes a plugin's own `hooks.json`.
+
 All decision logic lives in the named modules; the hook is a thin dispatcher.
 
 **Documented exception — `hooks/post_tool_use.py` Task/Agent branch (INFRA-182, INFRA-236):**

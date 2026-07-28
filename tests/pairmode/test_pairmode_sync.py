@@ -29,6 +29,20 @@ from pairmode_sync import (  # noqa: E402
 _REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
 EXPECTED_SCRIPTS_DIR = str(_REPO_ROOT / "skills" / "pairmode" / "scripts")
 
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolated_home(monkeypatch: pytest.MonkeyPatch, tmp_path_factory) -> pathlib.Path:
+    """INFRA-288: audit-hooks now reads the merged hook view, which includes
+    plugin hooks.json files discovered under the *home* directory. Every test
+    runs against a fake, empty home so the operator's real ~/.claude/plugins
+    can never leak into fixture expectations."""
+    fake_home = tmp_path_factory.mktemp("fake-home")
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.delenv("FLEX_PLUGIN_HOOKS", raising=False)
+    return fake_home
+
 
 class TestBuildTemplateContext:
     """Tests for _build_template_context()."""
@@ -1680,3 +1694,168 @@ def test_audit_hooks_no_settings_file_exits_0(tmp_path: pathlib.Path) -> None:
     assert result.exit_code == 0
     assert not settings_path.exists(), "audit-hooks must not create a settings file"
     assert "no" in result.output.lower() and "settings" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# INFRA-288 (CER-104): merged-view audit-hooks — sources in output, plugin
+# entries never written
+# ---------------------------------------------------------------------------
+
+
+def _install_fake_plugin_hook(fake_home: pathlib.Path) -> pathlib.Path:
+    plugin_file = (
+        fake_home / ".claude" / "plugins" / "marketplace" / "flex"
+        / "hooks" / "hooks.json"
+    )
+    plugin_file.parent.mkdir(parents=True)
+    plugin_file.write_text(
+        json.dumps({
+            "hooks": {
+                "PostToolUse": [
+                    {"matcher": "Task|Agent", "hooks": [
+                        {"type": "command",
+                         "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py"},
+                    ]},
+                ]
+            }
+        }, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return plugin_file
+
+
+def test_audit_hooks_reports_sources_for_cross_source_duplicate(
+    tmp_path: pathlib.Path, _isolated_home: pathlib.Path
+) -> None:
+    """B8: the per-duplicate line names the sources the group spans."""
+    from click.testing import CliRunner
+
+    _write_settings(
+        tmp_path,
+        {
+            "PostToolUse": [
+                {"matcher": "Task|Agent", "hooks": [
+                    {"type": "command",
+                     "command": "uv run python /mnt/work/flex/hooks/post_tool_use.py"},
+                ]},
+            ]
+        },
+    )
+    _install_fake_plugin_hook(_isolated_home)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path), "--dry-run"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "DUPLICATE: event=PostToolUse basename=post_tool_use.py" in result.output
+    assert "sources=['settings', 'plugin']" in result.output
+
+
+def test_audit_hooks_apply_keeps_plugin_entry_and_never_writes_plugin_file(
+    tmp_path: pathlib.Path, _isolated_home: pathlib.Path
+) -> None:
+    """B9: --apply removes the settings entry; the plugin hooks.json is
+    byte-for-byte unchanged."""
+    from click.testing import CliRunner
+
+    settings_path = _write_settings(
+        tmp_path,
+        {
+            "PostToolUse": [
+                {"matcher": "Task|Agent", "hooks": [
+                    {"type": "command",
+                     "command": "uv run python /mnt/work/flex/hooks/post_tool_use.py"},
+                ]},
+            ]
+        },
+    )
+    plugin_file = _install_fake_plugin_hook(_isolated_home)
+    plugin_before = plugin_file.read_bytes()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path), "--apply", "--yes"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+
+    assert plugin_file.read_bytes() == plugin_before, (
+        "audit-hooks --apply must never write a plugin's hooks.json"
+    )
+
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
+    remaining = [
+        entry.get("command")
+        for block in data.get("hooks", {}).get("PostToolUse", [])
+        for entry in block.get("hooks", [])
+    ]
+    assert remaining == [], f"settings-level duplicate must be removed, got {remaining}"
+
+
+def test_audit_hooks_apply_removes_settings_local_duplicate(
+    tmp_path: pathlib.Path, _isolated_home: pathlib.Path
+) -> None:
+    """B9: a duplicate living in settings.local.json is pruned there too."""
+    from click.testing import CliRunner
+
+    settings_path = _write_settings(
+        tmp_path,
+        {
+            "PostToolUse": [
+                {"matcher": "Task|Agent", "hooks": [
+                    {"type": "command",
+                     "command": "uv run python /mnt/work/flex/hooks/post_tool_use.py"},
+                ]},
+            ]
+        },
+    )
+    settings_local_path = tmp_path / ".claude" / "settings.local.json"
+    settings_local_path.write_text(
+        json.dumps({
+            "hooks": {
+                "PostToolUse": [
+                    {"matcher": "Task|Agent", "hooks": [
+                        {"type": "command",
+                         "command": "uv run python /elsewhere/hooks/post_tool_use.py"},
+                    ]},
+                ]
+            },
+            "permissions": {"allow": ["Read(**)"]},
+        }, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    plugin_file = _install_fake_plugin_hook(_isolated_home)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path), "--apply", "--yes"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+
+    local_data = json.loads(settings_local_path.read_text(encoding="utf-8"))
+    local_remaining = [
+        entry.get("command")
+        for block in local_data.get("hooks", {}).get("PostToolUse", [])
+        for entry in block.get("hooks", [])
+    ]
+    assert local_remaining == []
+    # Keys outside "hooks" untouched.
+    assert local_data["permissions"] == {"allow": ["Read(**)"]}
+    # Plugin entry (the keeper) untouched.
+    plugin_data = json.loads(plugin_file.read_text(encoding="utf-8"))
+    assert plugin_data["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == (
+        "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py"
+    )
+    # settings.json entry gone as well.
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert [
+        entry.get("command")
+        for block in data.get("hooks", {}).get("PostToolUse", [])
+        for entry in block.get("hooks", [])
+    ] == []
