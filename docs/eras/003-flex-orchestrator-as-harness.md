@@ -198,7 +198,7 @@ post-fold numeric phases; the era's earlier HARNESS phases are recorded in
 | 107 | CER backlog drain to zero | planned |
 | 108 | Era 003 close (gated on observability delivery) | planned |
 | 110 | Effort-recording data-flow remediation (CER-101..104) | complete |
-| 111 | Plugin packaging repair: local marketplace source and skill-name de-namespacing | planned |
+| 111 | Plugin packaging repair: local marketplace source and skill-name de-namespacing | complete |
 
 ## Versioning & compatibility
 
