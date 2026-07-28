@@ -134,6 +134,17 @@ flex/
     marketplace.json              ← marketplace registration
 ```
 
+**Plugin packaging (Phase 111 — INFRA-291, INFRA-292).** `marketplace.json`'s
+plugin entry declares `"source": "./"` (local-relative), not a GitHub pointer:
+`claude plugin install` resolves the plugin through a marketplace, and a
+marketplace added from a local checkout must install *that* checkout, not a
+clone of the published repo. Skill names in `skills/*/SKILL.md` frontmatter are
+bare (`seed`, `companion`, `pairmode`, `observability`) — Claude Code
+namespaces installed plugin skills as `<plugin-name>:<skill-name>` using
+`plugin.json`'s `name: flex`, so a baked-in `flex:` prefix would double to
+`/flex:flex:*`. Both invariants are guarded by
+`tests/pairmode/test_plugin_manifest.py`.
+
 ---
 
 ## Data flow

@@ -6,6 +6,10 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Fixed [core] — Phase 111 (Plugin packaging repair)
+- Local plugin installs (CER-source: fresh-machine install report): `.claude-plugin/marketplace.json`'s plugin entry now declares `"source": "./"` instead of a GitHub clone pointer, so `claude plugin marketplace add ./flex` + `claude plugin install flex@nullvalues-flex` installs the added checkout; README/CONTRIBUTING install documentation corrected (the previous README documented a nonexistent `claude code plugin install <path>` command) and the skill count fixed to four (INFRA-291).
+- Doubled skill namespace: the four `skills/*/SKILL.md` frontmatter `name:` values are now bare (`seed`, `companion`, `pairmode`, `observability`) so installed plugin skills surface as `/flex:<skill>` rather than `/flex:flex:<skill>`; `pairmode_migrate.py` rule 8 no longer stamps the prefixed form into downstream repos; both invariants guarded in `tests/pairmode/test_plugin_manifest.py` (INFRA-292).
+
 ### Added [pairmode] — Phase 110 (Effort-recording data-flow remediation, CER-101..104)
 - Reconciliation pipeline repair (CER-101): symlink-aware lexical containment with an allowlisted link-target check (`_lexical_spawn_output_path`/`_permitted_output_target`), the shared `is_reconcilable_spawn_output` containment+terminator predicate (end_turn OR file quiescence; new `uncontained` pending reason) consumed by both `read_completed_spawn` and `classify_pending_reason`, a lexical `session_output_prefix` fix arming CER-097's ownership filter, and pending-row counts in `checkpoint-report` (INFRA-287).
 - Attempt-row dedupe (CER-104): `effort_db.insert_or_update_attempt` treats `attempts.agent_id` as an idempotency key inside the existing `BEGIN IMMEDIATE` transaction (300 s recency window), collapsing duplicate hook-side recordings to one row; new stdlib-only `hook_view.py` merged hook view (settings + settings.local + enabled plugin hooks.json) consumed by `fleet_discovery`, `pairmode_sync audit-hooks`, and `bootstrap` (INFRA-288).

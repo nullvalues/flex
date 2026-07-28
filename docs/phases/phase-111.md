@@ -74,9 +74,12 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-111 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
+- [x] written-never-read — no persistent state introduced; `marketplace.json plugins[].source` and SKILL.md `name:` are read by the external Claude Code plugin loader (security audit check 7 traced consumers).
+- [x] required-never-written — no read path added; `global_session_check.py` reads `pairmode_version:` only, not `name:`.
+- [x] duplicate state — none; the plugin name lives solely in `plugin.json`, which is the fix (skill names no longer duplicate it).
+- [x] half-implementation — rule 8 fixed for seed; the pre-existing rules-9/10 gap (anchor:pairmode/anchor:companion names not rewritten) is filed as CER-108, and the guard test's hardcoded skill list as CER-109, both Do Later.
 
-— developer fills in after phase completion —
+Filled at checkpoint (cp-111): both stories single-attempt PASS; security audit
+PASS (zero CRITICAL/HIGH, two LOW → CER-108/109); intent review ALIGNED; docs
+gate PASS after CHANGELOG + architecture.md currency fixes; suite green 4083
+passed / 0 failed.
