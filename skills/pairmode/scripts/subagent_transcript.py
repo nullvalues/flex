@@ -124,6 +124,19 @@ _PHASE_KEY_CHARS = r"[A-Za-z0-9][A-Za-z0-9._-]*"
 _PHASE_DOC_PATH_RE = re.compile(r"docs/phases/phase-(" + _PHASE_KEY_CHARS + r")\.md")
 _PHASE_BARE_RE = re.compile(r"\bPhase\s+(" + _PHASE_KEY_CHARS + r")")
 
+# INFRA-289 (CER-103(b)): the bare-mention pattern above matches the word
+# after "Phase" in ordinary prose, not just a real phase key — observed live:
+# flex row 416 recorded `story_id = "phase:key"` (from "...Phase key: see the
+# phase doc...") and meander rows 233-236 recorded `story_id =
+# "phase:checkpoint"` (from "...Phase checkpoint step 3..."). Neither is a
+# phase; both are synthetic ids invisible to `query_by_phase` and to no
+# per-story rollup's exclusion. This shape gate closes that: a whole
+# candidate must be either all-digits, or an alphanumeric run ending in a
+# digit, optionally followed by a `-main` / `-ante<N>` / `-post<N>` suffix.
+# An all-alphabetic word (`key`, `checkpoint`, `doc`, `docs`, `report`, ...)
+# never ends in a digit, so it can never match.
+_PHASE_KEY_STRICT_RE = re.compile(r"^[A-Za-z0-9]*\d(?:-main|-ante\d+|-post\d+)?$")
+
 #: Bounds on the reconciliation sweep (Instructions 12a / Ensures 15) — a
 #: hook-path invocation must never scan unbounded work.
 RECONCILE_MAX_ROWS = 5
@@ -170,6 +183,15 @@ RECORDING_DECISIONS: frozenset[str] = frozenset({
     "skip:effort-tracking-off",
     "observed:non-spawn-tool",
     "log-truncated",
+    # INFRA-289 (CER-103(a)): a prompt named a target project that failed
+    # A3's registered_projects admission test. Recording never stops on
+    # this — the row still gets written against the session project — this
+    # line is the alarm that a fleet-campaign target was silently refused.
+    "skip:target-unregistered",
+    # INFRA-289 (CER-102): the reconciliation-time FAIL bump's own trace —
+    # see reconcile_pending_attempts.
+    "bump:late-fail",
+    "skip:late-bump-blocked",
 })
 
 #: Size cap for .companion/effort_recording.log (CER-091 defect 1). Exceeding
@@ -496,14 +518,54 @@ def _strip_trailing_punct(value: str) -> str:
     return value.rstrip(".,;:")
 
 
-def _derive_phase_key(tool_input: dict) -> "str | None":
-    """Derive a phase key from a checkpoint spawn's own prompt (INFRA-258).
+def _phase_doc_verified(project_dir: "Path | str | None", candidate: str) -> bool:
+    """``True`` unless *project_dir* has a ``docs/phases/`` directory that
+    does not contain a matching ``phase-<candidate>.md`` (INFRA-289, B2).
+
+    ``project_dir`` absent, or present but with no ``docs/phases/``
+    directory, means "cannot check" — the shape gate alone decides, never
+    the reverse (a consumer project mid-bootstrap, or a unit test with no
+    project context, must not have every candidate rejected just because
+    there is nothing to check against). Never raises.
+    """
+    if project_dir is None:
+        return True
+    try:
+        project_path = project_dir if isinstance(project_dir, Path) else Path(project_dir)
+        phases_dir = project_path / "docs" / "phases"
+        if not phases_dir.is_dir():
+            return True
+        return (phases_dir / f"phase-{candidate}.md").is_file()
+    except Exception:
+        return True
+
+
+def _derive_phase_key(
+    tool_input: dict, project_dir: "Path | str | None" = None
+) -> "str | None":
+    """Derive a phase key from a checkpoint spawn's own prompt (INFRA-258;
+    strict shape gate + optional doc verification added INFRA-289, CER-103(b)).
 
     Tries the ``docs/phases/phase-<key>.md`` path pattern first, then a bare
     ``Phase <key>`` mention. ``<key>`` matches ``[A-Za-z0-9][A-Za-z0-9._-]*``
     with trailing punctuation stripped, so both ``101`` and
-    ``HARNESS001-main`` resolve. Returns ``None`` when neither pattern is
-    found. Never raises.
+    ``HARNESS001-main`` resolve — but a captured candidate from *either*
+    pattern must additionally pass :data:`_PHASE_KEY_STRICT_RE` (all-digits,
+    or an alphanumeric run ending in a digit with an optional
+    ``-main``/``-ante<N>``/``-post<N>`` suffix) before it is accepted. This
+    is what stops the bare pattern from matching the word after "Phase" in
+    ordinary prose (observed: ``story_id = "phase:key"`` / ``"phase:checkpoint"``
+    on rows that were never phases at all) — and the same standard applies to
+    the path pattern's capture, which is harder to trip accidentally but is
+    still held to it (there is no reason a path-derived key should be
+    trusted more than a bare one).
+
+    When *project_dir* is supplied and ``<project_dir>/docs/phases/`` exists,
+    a shape-passing candidate must also name a real phase doc
+    (:func:`_phase_doc_verified`) — when that directory does not exist, the
+    existence check is skipped and the shape gate alone decides.
+
+    Returns ``None`` when nothing qualifies. Never raises.
     """
     try:
         for key in ("prompt", "description"):
@@ -511,19 +573,26 @@ def _derive_phase_key(tool_input: dict) -> "str | None":
             if not value:
                 continue
             text = str(value)
-            m = _PHASE_DOC_PATH_RE.search(text)
-            if m:
-                return _strip_trailing_punct(m.group(1))
-            m = _PHASE_BARE_RE.search(text)
-            if m:
-                return _strip_trailing_punct(m.group(1))
+            for pattern in (_PHASE_DOC_PATH_RE, _PHASE_BARE_RE):
+                m = pattern.search(text)
+                if not m:
+                    continue
+                candidate = _strip_trailing_punct(m.group(1))
+                if not _PHASE_KEY_STRICT_RE.match(candidate):
+                    continue
+                if not _phase_doc_verified(project_dir, candidate):
+                    continue
+                return candidate
     except Exception:
         return None
     return None
 
 
 def _derive_attribution(
-    tool_input: dict, state: "dict | None", subagent_type: "str | None"
+    tool_input: dict,
+    state: "dict | None",
+    subagent_type: "str | None",
+    project_dir: "Path | str | None" = None,
 ) -> "tuple[str | None, str | None, str | None]":
     """Return ``(story_id, phase_key, rail)`` for a completed spawn (INFRA-258).
 
@@ -536,15 +605,22 @@ def _derive_attribution(
     therefore never consult ``_STORY_ID_RE`` or ``state.json["current_story"]``;
     the returned ``story_id`` is always the synthetic ``phase:<key>`` (with
     ``phase_key`` set, ``rail`` ``None``) or ``unattributed:<subagent_type>``
-    (when no phase key is derivable) — never an individual story id.
+    (when no phase key is derivable, per :func:`_derive_phase_key`'s strict
+    shape gate — INFRA-289, CER-103(b): rejection is honest, not a
+    plausible-looking ``phase:<English word>`` lie) — never an individual
+    story id.
 
     For every other role, behaviour is unchanged from the pre-INFRA-258
     ``_derive_story_id``: prompt story-id regex, then
     ``state.json["current_story"]``, then ``None`` (the caller applies the
-    ``unattributed:<role>`` fallback). Never raises.
+    ``unattributed:<role>`` fallback). ``project_dir`` (optional, INFRA-289)
+    is forwarded to :func:`_derive_phase_key` for its doc-existence check —
+    the caller passes the *resolved recording target* (item A), so the phase
+    doc is looked up in the project the checkpoint is actually for, not
+    necessarily the session's own project. Never raises.
     """
     if subagent_type in CHECKPOINT_ROLES:
-        phase_key = _derive_phase_key(tool_input)
+        phase_key = _derive_phase_key(tool_input, project_dir)
         if phase_key:
             return f"phase:{phase_key}", phase_key, None
         return f"unattributed:{subagent_type}", None, None
@@ -552,6 +628,211 @@ def _derive_attribution(
     story_id = _derive_story_id(tool_input, state)
     rail = story_id.split("-", 1)[0] if story_id and "-" in story_id else None
     return story_id, None, rail
+
+
+# ---------------------------------------------------------------------------
+# Recording-target resolution (INFRA-289, CER-103(a))
+# ---------------------------------------------------------------------------
+
+#: Enumerable source vocabulary for :func:`resolve_recording_project`'s
+#: second return value. Mirrors the shape of ``scope_guard``'s
+#: ``RESOLVE_CALL_STORY_SOURCES`` — "which project is this spawn's effort
+#: row for?" is the same kind of per-call question "which story is this call
+#: for?" is, and a single global slot cannot answer either once more than
+#: one live answer exists.
+RECORDING_TARGET_SOURCES: "tuple[str, ...]" = (
+    "explicit-flag",
+    "explicit-label",
+    "worktree-path",
+    "session-cwd",
+    "rejected-unregistered",
+)
+
+#: `--project-dir <path>`, optionally `=`-joined, optionally single/double
+#: quoted. Absolute paths only (Instructions 2).
+_RECORDING_FLAG_RE = re.compile(r"--project-dir(?:=|\s+)[\"']?(/[^\s\"']+)[\"']?")
+
+#: `Project dir:` / `project_dir:` / `project_dir=` (case-insensitive on the
+#: label, space or underscore between the two words — deliberately distinct
+#: from the hyphenated `--project-dir` flag form above so the two patterns
+#: never overlap on the same text).
+_RECORDING_LABEL_RE = re.compile(
+    r"(?i)project[ _]?dir\s*[:=]\s*[\"']?(/[^\s\"']+)[\"']?"
+)
+
+#: Marker used to find a `.pairmode-worktrees/<ID>/` segment in a candidate
+#: path (Instructions 2) — the resolver collapses to the path *above* this
+#: marker and does not re-derive the story id itself (that is
+#: `scope_guard.resolve_call_story`'s job; duplicating it here would create
+#: a second, drifting copy).
+_WORKTREE_MARKER = "/.pairmode-worktrees/"
+
+
+def _extract_flagged_or_labelled_path(text: str, source: str) -> "str | None":
+    pattern = _RECORDING_FLAG_RE if source == "explicit-flag" else _RECORDING_LABEL_RE
+    m = pattern.search(text)
+    if not m:
+        return None
+    candidate = _strip_trailing_punct(m.group(1).rstrip("/"))
+    return candidate or None
+
+
+def _extract_worktree_root(text: str) -> "str | None":
+    """Return the path *above* the `.pairmode-worktrees` marker in *text*, or
+    ``None`` when no such marker is present or the preceding token is not an
+    absolute path. Never raises."""
+    idx = text.find(_WORKTREE_MARKER)
+    if idx == -1:
+        return None
+    start = idx
+    while start > 0 and text[start - 1] not in (" ", "\t", "\n", "\r", '"', "'", "="):
+        start -= 1
+    candidate = text[start:idx]
+    if not candidate.startswith("/"):
+        return None
+    candidate = _strip_trailing_punct(candidate.rstrip("/"))
+    return candidate or None
+
+
+def _admit_recording_target(
+    candidate_path: Path,
+    session_path: Path,
+    session_state: "dict | None",
+) -> bool:
+    """A3's admission test — an operator-controlled allowlist, never prompt
+    trust. Returns ``True`` only when *candidate_path* is absolute, resolves
+    to an existing directory whose ``.companion`` subdirectory already
+    exists (never created here), and is either the session project itself
+    or present, after ``Path.resolve()``, in
+    ``state.json["registered_projects"]``. Never raises, never writes."""
+    try:
+        if not candidate_path.is_absolute():
+            return False
+        if not candidate_path.is_dir():
+            return False
+        if not (candidate_path / ".companion").is_dir():
+            return False
+
+        resolved_candidate = candidate_path.resolve()
+        resolved_session = session_path.resolve()
+        if resolved_candidate == resolved_session:
+            return True
+
+        state = session_state if isinstance(session_state, dict) else _read_state(session_path)
+        if not isinstance(state, dict):
+            return False
+        registered = state.get("registered_projects")
+        if not isinstance(registered, list):
+            return False
+        for entry in registered:
+            if not entry:
+                continue
+            try:
+                if Path(str(entry)).resolve() == resolved_candidate:
+                    return True
+            except Exception:
+                continue
+        return False
+    except Exception:
+        return False
+
+
+def resolve_recording_project(
+    tool_input: "dict | None",
+    session_project_dir: "Path | str",
+    session_state: "dict | None" = None,
+) -> "tuple[Path, str]":
+    """Resolve which project's ``effort.db`` a completed spawn's attempt row
+    belongs to (INFRA-289, CER-103(a)).
+
+    A single ``project_dir`` (the session's own cwd) answers "where does
+    this row go?" correctly for a native session, but not for a spawn
+    dispatched *from* one flex session *against* another project — a fleet
+    campaign's ``--project-dir /mnt/work/meander`` in the prompt, or a cwd
+    living under that project's own ``.pairmode-worktrees/``. The RELEASE-063
+    canary is the proof: those spawns recorded into flex's db while
+    meander's held nothing. This mirrors
+    ``scope_guard.resolve_call_story``'s shape — resolve the answer from the
+    call itself, in a documented precedence, rather than trusting one global
+    slot that now has more than one live answer.
+
+    The one thing that shape must not import naively is trust: a target path
+    lifted out of a prompt is agent-authored input, exactly the kind this
+    module's public entry point commits to never trusting blindly. A
+    candidate is therefore only ever *admitted*, via
+    :func:`_admit_recording_target`'s operator-controlled allowlist check
+    against ``state.json["registered_projects"]`` — never used because it
+    merely looked plausible. This function performs no writes and creates no
+    directories on any path (including a rejected one) — `log_recording_event`
+    itself ``mkdir``s, so a resolver that logged its own rejection would
+    materialise ``.companion/`` at the exact path it just refused; logging is
+    the caller's job.
+
+    Precedence, each candidate derived from ``tool_input["prompt"]`` then
+    ``tool_input["description"]``:
+
+    1. ``explicit-flag`` — an absolute path following ``--project-dir``
+       (optionally ``=``-joined, optionally quoted);
+    2. ``explicit-label`` — an absolute path following a ``Project dir:`` /
+       ``project_dir:`` / ``project_dir=`` label (case-insensitive on the
+       label);
+    3. ``worktree-path`` — an absolute path containing a
+       ``/.pairmode-worktrees/<ID>/`` segment, collapsed to the path above
+       ``.pairmode-worktrees``;
+    4. ``session-cwd`` — no candidate derivable: returns
+       ``Path(session_project_dir)``, today's behaviour, unchanged.
+
+    The **first candidate found** (in source order above) is the only one
+    tried. If it fails A3's admission test, resolution does **not** fall
+    through to the next source — it returns
+    ``(Path(session_project_dir), "rejected-unregistered")`` immediately. A
+    prompt naming a target flex will not write to is a contradiction between
+    intent and configuration worth surfacing, not a reason to keep guessing.
+
+    Returns ``(project_path, source)`` where ``source`` is a member of
+    :data:`RECORDING_TARGET_SOURCES`. Never raises — any exception resolves
+    to ``(Path(session_project_dir), "session-cwd")``.
+    """
+    session_path = Path(session_project_dir)
+    try:
+        if not isinstance(tool_input, dict):
+            return session_path, "session-cwd"
+
+        texts = []
+        for key in ("prompt", "description"):
+            value = tool_input.get(key)
+            if value:
+                texts.append(str(value))
+
+        for source in ("explicit-flag", "explicit-label", "worktree-path"):
+            candidate_str: "str | None" = None
+            for text in texts:
+                if source == "worktree-path":
+                    candidate_str = _extract_worktree_root(text)
+                else:
+                    candidate_str = _extract_flagged_or_labelled_path(text, source)
+                if candidate_str:
+                    break
+            if not candidate_str:
+                continue
+
+            try:
+                candidate_path = Path(candidate_str)
+            except Exception:
+                continue
+            if not candidate_path.is_absolute():
+                # A relative path is never a candidate (Instructions 2) —
+                # try the next source rather than treating this as a
+                # rejection.
+                continue
+
+            if _admit_recording_target(candidate_path, session_path, session_state):
+                return candidate_path.resolve(), source
+            return session_path, "rejected-unregistered"
+
+        return session_path, "session-cwd"
+    except Exception:
+        return session_path, "session-cwd"
 
 
 # ---------------------------------------------------------------------------
@@ -1254,9 +1535,35 @@ def reconcile_pending_attempts(
                 if result.get("outcome") == "FAIL":
                     story_id = row.get("story_id")
                     if story_id and ":" not in str(story_id):
+                        # CER-102: this is the escalation ladder's real
+                        # path — see the comment above the (structurally
+                        # unreachable on the async path) insert-time bump
+                        # in record_attempt_from_transcript for why. A late
+                        # bump was previously a silent side effect of a
+                        # sweep; it now leaves exactly one trace line per
+                        # decision, inside the same best-effort discipline
+                        # as the bump itself — a logging failure here must
+                        # never propagate and must never prevent the bump.
                         try:
                             if _story_accepts_late_bump(project_path, story_id):
                                 bump_attempt_count(story_id, project_path)
+                                try:
+                                    log_recording_event(
+                                        project_path, story_id=story_id,
+                                        row_id=row.get("id"),
+                                        decision="bump:late-fail",
+                                    )
+                                except Exception:
+                                    pass
+                            else:
+                                try:
+                                    log_recording_event(
+                                        project_path, story_id=story_id,
+                                        row_id=row.get("id"),
+                                        decision="skip:late-bump-blocked",
+                                    )
+                                except Exception:
+                                    pass
                         except Exception:
                             pass
 
@@ -1406,6 +1713,24 @@ def record_attempt_from_transcript(
     been observed) deliberately means "no filter", i.e. today's global sweep:
     turning an unknown prefix into an *exclusion* would make that first sweep a
     no-op and strand orphan rows forever.
+
+    INFRA-289 (CER-103(a)): *project_dir* is now the **session fallback**,
+    not necessarily the recording target. Immediately after validating
+    ``tool_input`` is a dict, :func:`resolve_recording_project` resolves the
+    project this spawn's row actually belongs to — the incoming session
+    directory for a native session, or a different, allowlisted project when
+    the spawn's own prompt names one (a fleet-campaign
+    ``--project-dir``/worktree-cwd dispatch). Every subsequent use of the
+    project path in this function body — ``_read_state``, the
+    ``effort_tracking`` gate, the db path, ``reconcile_pending_attempts``,
+    ``bump_attempt_count``, and every ``log_recording_event`` call after
+    resolution — uses the *resolved* target. Only the transcript-file lookup
+    (``_derive_transcript_path``) stays keyed on the session's own
+    ``project_dir``: that path identifies where the *session's own* JSONL
+    transcript lives on disk, a property of the session, not of the spawn's
+    target (DP7's context-budget/effort-recording separation applies here in
+    spirit — this function's own session-vs-target split must not be
+    conflated with that one either).
     """
     project_path = Path(project_dir) if not isinstance(project_dir, Path) else project_dir
     subagent_type: Any = None
@@ -1418,18 +1743,45 @@ def record_attempt_from_transcript(
                 decision="skip:no-tool-input", row_id=None,
             )
             return None
+
         subagent_type = tool_input.get("subagent_type")
+
+        # INFRA-289 (CER-103(a)): resolve the recording target from the
+        # spawn itself — immediately after the tool_input dict guard, before
+        # _read_state, per the module docstring above. Every
+        # log_recording_event call from here on carries target_project/
+        # target_source (A5) except the outer `except` below, which is a
+        # diagnostic about a spawn flex could not interpret at all and stays
+        # on the session path.
+        target_path, target_source = resolve_recording_project(
+            tool_input, project_path, session_state=None
+        )
+        if target_source == "rejected-unregistered":
+            # Recording never stops here — it falls back to (and continues
+            # against) the session project, exactly as target_path already
+            # is in this branch. This line is the alarm: a prompt named a
+            # target flex will not write to.
+            log_recording_event(
+                target_path, tool_name=tool_name, subagent_type=subagent_type,
+                tool_use_id=tool_use_id, story_id=None,
+                decision="skip:target-unregistered", row_id=None,
+                target_project=str(target_path), target_source=target_source,
+            )
+
         if subagent_type not in RECORDABLE_SUBAGENT_ROLES:
             log_recording_event(
-                project_path, tool_name=tool_name, subagent_type=subagent_type,
+                target_path, tool_name=tool_name, subagent_type=subagent_type,
                 tool_use_id=tool_use_id, story_id=None,
                 decision="skip:not-recordable-role", row_id=None,
+                target_project=str(target_path), target_source=target_source,
             )
             return None
 
-        state = _read_state(project_path)
+        state = _read_state(target_path)
 
-        story_id, phase_key, rail = _derive_attribution(tool_input, state, subagent_type)
+        story_id, phase_key, rail = _derive_attribution(
+            tool_input, state, subagent_type, target_path
+        )
         outcome, fail_cause = parse_worker_outcome(tool_response)
 
         # INFRA-237: attempt-counter bump runs unconditionally on FAIL — it
@@ -1440,18 +1792,31 @@ def record_attempt_from_transcript(
         # escalation ladder tracks real stories only (Ensures 21).
         # CER-091 defect 4: this PostToolUse-time bump is deliberately
         # ungated by _story_accepts_late_bump — see that helper's docstring.
+        # CER-102: this branch is structurally unreachable for every spawn
+        # the live async build loop actually makes — for an async-launched
+        # Agent spawn, `tool_response` at PostToolUse time is the launch
+        # stub (isAsync/agentId/outputFile), never the completed result, so
+        # `parse_worker_outcome` above always yields `outcome=None` here and
+        # this `if` can never be true on that path. It is retained for
+        # synchronous spawns and direct callers, where a real outcome *is*
+        # available immediately. The reconcile-time bump in
+        # `reconcile_pending_attempts` (below) is the escalation ladder's
+        # real path for the live loop — do not "fix" this branch by
+        # loosening its gate; the fix is arriving at the correct data, not
+        # relaxing the check.
         if story_id and outcome == "FAIL" and ":" not in story_id:
             try:
-                bump_attempt_count(story_id, project_path)
+                bump_attempt_count(story_id, target_path)
             except Exception:
                 pass
 
         if not state or not state.get("effort_tracking"):
             log_recording_event(
-                project_path, tool_name=tool_name, subagent_type=subagent_type,
+                target_path, tool_name=tool_name, subagent_type=subagent_type,
                 tool_use_id=tool_use_id, story_id=story_id,
                 decision="skip:no-state" if not state else "skip:effort-tracking-off",
                 row_id=None,
+                target_project=str(target_path), target_source=target_source,
             )
             return None
 
@@ -1462,7 +1827,7 @@ def record_attempt_from_transcript(
         # failure never prevents the new row from being written.
         try:
             reconcile_pending_attempts(
-                project_dir=project_path, home=home, output_prefix=output_prefix
+                project_dir=target_path, home=home, output_prefix=output_prefix
             )
         except Exception:
             pass
@@ -1472,6 +1837,10 @@ def record_attempt_from_transcript(
         # (INFRA-257).
         effective_story_id = story_id or f"unattributed:{subagent_type}"
 
+        # Transcript-file lookup stays keyed on the session's own
+        # project_dir (see docstring) — the JSONL transcript lives on disk
+        # under the session's own cwd-derived key, regardless of which
+        # project the row is being recorded against.
         transcript_path = _derive_transcript_path(project_path, session_id, home)
         usage = extract_subagent_usage(transcript_path, tool_use_id)
 
@@ -1498,7 +1867,7 @@ def record_attempt_from_transcript(
         # observable for the log line below — record_effort's int | None
         # return is DP4-frozen and cannot carry it (INFRA-288).
         row_id, deduped = record_effort_ex(
-            project_dir=project_path,
+            project_dir=target_path,
             story_id=effective_story_id,
             agent_role=str(subagent_type),
             model=model,
@@ -1533,7 +1902,7 @@ def record_attempt_from_transcript(
                 agent_id, output_file = _extract_spawn_ref(tool_response)
                 if output_file:
                     effort_db.set_spawn_ref(
-                        effort_db.resolve_effort_db_path(project_path),
+                        effort_db.resolve_effort_db_path(target_path),
                         row_id,
                         agent_id,
                         output_file,
@@ -1542,10 +1911,11 @@ def record_attempt_from_transcript(
                 pass
 
         log_recording_event(
-            project_path, tool_name=tool_name, subagent_type=subagent_type,
+            target_path, tool_name=tool_name, subagent_type=subagent_type,
             tool_use_id=tool_use_id, story_id=effective_story_id,
             decision="recorded:deduped" if deduped else "recorded",
             row_id=row_id,
+            target_project=str(target_path), target_source=target_source,
         )
         return row_id
     except Exception as exc:

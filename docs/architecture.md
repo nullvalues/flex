@@ -2927,6 +2927,27 @@ recordable) — a future reader should not "simplify" `CHECKPOINT_ROLES` away
 without re-reading this paragraph; doing so silently reintroduces the
 misattribution.
 
+**Strict phase-key parsing (INFRA-289, CER-103).** The pre-INFRA-289
+`_PHASE_BARE_RE` fallback above matched the word after "Phase" in ordinary
+prose, not just a real phase key — live-observed: `story_id = "phase:key"`
+(from "...Phase key: see the phase doc...") and `story_id =
+"phase:checkpoint"` (from "...Phase checkpoint step 3..."), neither of
+which is a phase. A bare `Phase <key>` mention (and, held to the same
+standard, the `docs/phases/phase-<key>.md` path pattern's own capture) is
+now accepted only when it matches `_PHASE_KEY_STRICT_RE` — all-digits, or an
+alphanumeric run ending in a digit, optionally followed by a `-main` /
+`-ante<N>` / `-post<N>` suffix — and, where the project's `docs/phases/` is
+visible (`project_dir` supplied and the directory exists), additionally
+names a phase doc that actually exists. When `docs/phases/` is not visible
+the existence check is skipped, never treated as a rejection — a consumer
+project mid-bootstrap or a unit test with no project context must not have
+every candidate rejected for lack of something to check against. An
+underivable key still resolves to `unattributed:<role>`, unchanged from
+INFRA-258 — a synthetic `phase:<English word>` id is invisible to both
+`query_by_phase` and every per-story rollup's `:`-based exclusion, so a
+plausible-looking lie is strictly worse than an honest "could not
+attribute".
+
 **Late counter bump.** When `reconcile_pending_attempts` resolves `outcome
 == "FAIL"` for a row whose `story_id` is a real story id (no `:` — never a
 `phase:` or `unattributed:` synthetic), it calls
@@ -2943,6 +2964,38 @@ This is a timing change, not a correctness regression: the ladder's meaning
 INFRA-258. `effort_db.reconcile_attempt`'s `WHERE ... AND tokens_total IS
 NULL` guard makes reconciliation single-shot per row, so a repeated
 `<task-notification>` for an already-reconciled row cannot double-bump.
+
+**Recording-target resolution (INFRA-289, CER-103).** The `project_dir`
+value `hooks/post_tool_use.py` reads from `data["cwd"]` names the *session*
+that spawned a Task/Agent — the project whose `effort.db` gets the row is a
+different question the moment a spawn is dispatched *from* one flex session
+*against* another project (a fleet campaign's `--project-dir
+/mnt/work/meander` in the prompt, or a cwd under that project's own
+`.pairmode-worktrees/`). Merging the two was the RELEASE-063 canary's root
+cause: `LEGAL-001` rows landed in flex's db while meander's held zero.
+`subagent_transcript.resolve_recording_project` now resolves the row's
+actual target from the spawn itself, mirroring `scope_guard
+.resolve_call_story`'s shape (per-call resolution, not one global slot) —
+in order, an explicit `--project-dir` flag, an explicit `Project dir:` /
+`project_dir:` label, a `.pairmode-worktrees/<ID>/` path segment collapsed
+to the project root above it, or (no candidate derivable) the session
+project, unchanged. This is deliberately *separate* from the
+context-current-tokens accounting `context_budget.py` performs in the same
+hook branch (DP7): the orchestrator's own context window belongs to the
+session that holds it no matter which project its spawn targeted, so the
+context-budget call stays keyed on the session's own `project_dir` and its
+diff is untouched by this story — only the effort row follows the target. A
+prompt-derived target path is agent-authored input, not something this
+module trusts blindly: a derived candidate is admitted only through an
+operator-controlled allowlist — `state.json["registered_projects"]` (the
+same list `fleet_discovery` already treats as the fleet's roster) — and only
+when its own `.companion/` directory already exists (the resolver never
+creates one). A candidate that fails admission is not silently discarded and
+does not fall through to the next candidate: the row still records against
+the session project (today's behaviour, unchanged), but a
+`skip:target-unregistered` line lands in `effort_recording.log` first — a
+prompt naming a target flex will not write to is a contradiction between
+intent and configuration worth surfacing, not a reason to keep guessing.
 
 **Accepted losses.**
 - With `effort_tracking` disabled there is no `effort.db` row to carry the

@@ -20,6 +20,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from skills.pairmode.scripts import effort_db
 from skills.pairmode.scripts import subagent_transcript as st
 
@@ -1137,6 +1139,238 @@ class TestExtractSpawnRef:
 
 
 # ---------------------------------------------------------------------------
+# resolve_recording_project (INFRA-289, CER-103(a), Ensures A1-A9)
+# ---------------------------------------------------------------------------
+
+
+def _companion_project(tmp_path: Path, name: str, **state_extra) -> Path:
+    project_dir = tmp_path / name
+    (project_dir / ".companion").mkdir(parents=True, exist_ok=True)
+    if state_extra or True:
+        state_path = project_dir / ".companion" / "state.json"
+        payload = {"effort_tracking": True}
+        payload.update(state_extra)
+        state_path.write_text(json.dumps(payload), encoding="utf-8")
+    return project_dir
+
+
+class TestResolveRecordingProject:
+    def test_explicit_flag_resolves_registered_target(self, tmp_path: Path) -> None:
+        sess = _companion_project(tmp_path, "sess")
+        target = _companion_project(tmp_path, "target")
+        # Register target in sess's own state.
+        state_path = sess / ".companion" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["registered_projects"] = [str(target)]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        tool_input = {"prompt": f"do the thing --project-dir {target}"}
+        path, source = st.resolve_recording_project(tool_input, sess)
+        assert path == target.resolve()
+        assert source == "explicit-flag"
+
+    def test_explicit_flag_equals_form(self, tmp_path: Path) -> None:
+        sess = _companion_project(tmp_path, "sess")
+        target = _companion_project(tmp_path, "target")
+        state_path = sess / ".companion" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["registered_projects"] = [str(target)]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        tool_input = {"prompt": f'run --project-dir="{target}" now'}
+        path, source = st.resolve_recording_project(tool_input, sess)
+        assert path == target.resolve()
+        assert source == "explicit-flag"
+
+    def test_explicit_label_resolves_registered_target(self, tmp_path: Path) -> None:
+        sess = _companion_project(tmp_path, "sess")
+        target = _companion_project(tmp_path, "target")
+        state_path = sess / ".companion" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["registered_projects"] = [str(target)]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        tool_input = {"prompt": f"Project dir: {target}\nDo the build."}
+        path, source = st.resolve_recording_project(tool_input, sess)
+        assert path == target.resolve()
+        assert source == "explicit-label"
+
+    def test_worktree_path_collapses_to_project_root(self, tmp_path: Path) -> None:
+        sess = _companion_project(tmp_path, "sess")
+        target = _companion_project(tmp_path, "target")
+        (target / ".pairmode-worktrees" / "INFRA-1").mkdir(parents=True, exist_ok=True)
+        state_path = sess / ".companion" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["registered_projects"] = [str(target)]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        cwd = str(target / ".pairmode-worktrees" / "INFRA-1")
+        tool_input = {"prompt": f"builder spawn, cwd {cwd}/subdir/file.py"}
+        path, source = st.resolve_recording_project(tool_input, sess)
+        assert path == target.resolve()
+        assert source == "worktree-path"
+
+    def test_no_candidate_returns_session_cwd(self, tmp_path: Path) -> None:
+        sess = _companion_project(tmp_path, "sess")
+        path, source = st.resolve_recording_project(
+            {"prompt": "just build the thing, INFRA-236"}, sess
+        )
+        assert path == sess
+        assert source == "session-cwd"
+
+    def test_none_tool_input_returns_session_cwd(self, tmp_path: Path) -> None:
+        sess = _companion_project(tmp_path, "sess")
+        path, source = st.resolve_recording_project(None, sess)
+        assert path == sess
+        assert source == "session-cwd"
+
+    def test_registered_target_missing_companion_is_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        sess = _companion_project(tmp_path, "sess")
+        target = tmp_path / "target-no-companion"
+        target.mkdir(parents=True, exist_ok=True)
+        state_path = sess / ".companion" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["registered_projects"] = [str(target)]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        tool_input = {"prompt": f"--project-dir {target}"}
+        path, source = st.resolve_recording_project(tool_input, sess)
+        assert path == sess
+        assert source == "rejected-unregistered"
+        assert not (target / ".companion").exists()
+
+    def test_unregistered_existing_target_is_rejected(self, tmp_path: Path) -> None:
+        sess = _companion_project(tmp_path, "sess")
+        target = _companion_project(tmp_path, "target")
+        # Never added to sess's registered_projects.
+        tool_input = {"prompt": f"--project-dir {target}"}
+        path, source = st.resolve_recording_project(tool_input, sess)
+        assert path == sess
+        assert source == "rejected-unregistered"
+
+    def test_nonexistent_path_is_rejected(self, tmp_path: Path) -> None:
+        sess = _companion_project(tmp_path, "sess")
+        tool_input = {"prompt": "--project-dir /does/not/exist/anywhere"}
+        path, source = st.resolve_recording_project(tool_input, sess)
+        assert path == sess
+        assert source == "rejected-unregistered"
+
+    def test_relative_path_is_never_a_candidate(self, tmp_path: Path) -> None:
+        sess = _companion_project(tmp_path, "sess")
+        tool_input = {"prompt": "--project-dir relative/path/here"}
+        path, source = st.resolve_recording_project(tool_input, sess)
+        assert path == sess
+        assert source == "session-cwd"
+
+    def test_rejected_candidate_creates_no_directory(self, tmp_path: Path) -> None:
+        sess = _companion_project(tmp_path, "sess")
+        target = tmp_path / "never-created"
+        assert not target.exists()
+        tool_input = {"prompt": f"--project-dir {target}"}
+        st.resolve_recording_project(tool_input, sess)
+        assert not target.exists()
+
+    def test_session_state_kwarg_used_over_disk_read(self, tmp_path: Path) -> None:
+        sess = _companion_project(tmp_path, "sess")
+        target = _companion_project(tmp_path, "target")
+        # sess's own on-disk state does NOT register target...
+        session_state = {"effort_tracking": True, "registered_projects": [str(target)]}
+        tool_input = {"prompt": f"--project-dir {target}"}
+        path, source = st.resolve_recording_project(
+            tool_input, sess, session_state=session_state
+        )
+        assert path == target.resolve()
+        assert source == "explicit-flag"
+
+    def test_never_raises_on_bogus_tool_input(self) -> None:
+        path, source = st.resolve_recording_project(
+            {"prompt": object()}, "/does/not/matter"
+        )
+        assert source in st.RECORDING_TARGET_SOURCES
+
+
+class TestRecordingTargetSourcesEnum:
+    def test_members_are_exact(self) -> None:
+        assert set(st.RECORDING_TARGET_SOURCES) == {
+            "explicit-flag",
+            "explicit-label",
+            "worktree-path",
+            "session-cwd",
+            "rejected-unregistered",
+        }
+
+
+class TestEndToEndTargetRouting:
+    """A9."""
+
+    def test_target_routing_records_into_target_db(self, tmp_path: Path) -> None:
+        sess = _companion_project(tmp_path, "sess")
+        target = _companion_project(tmp_path, "target")
+        state_path = sess / ".companion" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["registered_projects"] = [str(target)]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        row_id = st.record_attempt_from_transcript(
+            project_dir=sess,
+            session_id="",
+            tool_input={
+                "subagent_type": "builder",
+                "prompt": f"Build LEGAL-001 --project-dir {target}",
+            },
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "PASS",
+                "story_id": "LEGAL-001", "reason": "done",
+            }),
+        )
+        assert row_id is not None
+
+        target_db = target / ".companion" / "effort.db"
+        assert target_db.exists()
+        target_rows = effort_db.query_by_story(target_db, "LEGAL-001")
+        assert len(target_rows) == 1
+
+        sess_db = sess / ".companion" / "effort.db"
+        if sess_db.exists():
+            assert effort_db.query_by_story(sess_db, "LEGAL-001") == []
+
+        log_path = target / ".companion" / "effort_recording.log"
+        lines = [json.loads(l) for l in log_path.read_text(encoding="utf-8").splitlines()]
+        assert lines[-1].get("target_source") == "explicit-flag"
+
+
+class TestNoBehaviourChangeForNativeSession:
+    """E2."""
+
+    def test_no_target_named_matches_pre_infra_289_behaviour(
+        self, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        row_id = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-236, no target path here"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "PASS",
+                "story_id": "INFRA-236", "reason": "done",
+            }),
+        )
+        assert row_id is not None
+        db_path = project_dir / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-236")
+        assert len(rows) == 1
+
+        log_path = project_dir / ".companion" / "effort_recording.log"
+        lines = [json.loads(l) for l in log_path.read_text(encoding="utf-8").splitlines()]
+        assert lines[-1].get("target_source") == "session-cwd"
+
+
+# ---------------------------------------------------------------------------
 # Checkpoint-worker attribution (Ensures 21, 22, 23, 24, 25)
 # ---------------------------------------------------------------------------
 
@@ -1247,6 +1481,111 @@ class TestCheckpointAttribution:
         db_path = project_dir / ".companion" / "effort.db"
         rows = effort_db.query_by_phase(db_path, "101")
         assert [r["attempt_number"] for r in rows] == [1, 2]
+
+
+# ---------------------------------------------------------------------------
+# _PHASE_KEY_STRICT_RE / strict phase-key derivation (INFRA-289, CER-103(b))
+# ---------------------------------------------------------------------------
+
+
+class TestPhaseKeyStrictShapeGate:
+    """B1: the strict shape gate itself."""
+
+    @pytest.mark.parametrize(
+        "value",
+        ["110", "8", "HARNESS001-main", "HARNESS009-post1", "HARNESS001-ante1"],
+    )
+    def test_accepts_real_shapes(self, value: str) -> None:
+        assert st._PHASE_KEY_STRICT_RE.match(value)
+
+    @pytest.mark.parametrize(
+        "value", ["key", "checkpoint", "doc", "docs", "report"]
+    )
+    def test_rejects_english_words(self, value: str) -> None:
+        assert not st._PHASE_KEY_STRICT_RE.match(value)
+
+
+class TestDerivePhaseKeyStrict:
+    """B4: the two observed lies are now impossible."""
+
+    def test_phase_key_word_returns_none(self) -> None:
+        assert (
+            st._derive_phase_key({"prompt": "... Phase key: see the phase doc ..."})
+            is None
+        )
+
+    def test_phase_checkpoint_word_returns_none(self) -> None:
+        assert (
+            st._derive_phase_key({"prompt": "... Phase checkpoint step 3 ..."})
+            is None
+        )
+
+    def test_attribution_falls_back_to_unattributed_not_phase_key(self) -> None:
+        story_id, phase_key, rail = st._derive_attribution(
+            {"prompt": "... Phase key: see the phase doc ..."},
+            None,
+            "security-auditor",
+        )
+        assert story_id == "unattributed:security-auditor"
+        assert story_id != "phase:key"
+        assert phase_key is None
+        assert rail is None
+
+    def test_attribution_falls_back_to_unattributed_not_phase_checkpoint(self) -> None:
+        story_id, phase_key, rail = st._derive_attribution(
+            {"prompt": "... Phase checkpoint step 3 ..."},
+            None,
+            "intent-reviewer",
+        )
+        assert story_id == "unattributed:intent-reviewer"
+        assert story_id != "phase:checkpoint"
+
+
+class TestDerivePhaseKeyRealKeysStillResolve:
+    """B5."""
+
+    def test_doc_path_numeric(self) -> None:
+        assert st._derive_phase_key(
+            {"prompt": "see docs/phases/phase-110.md"}
+        ) == "110"
+
+    def test_doc_path_harness_style(self) -> None:
+        assert st._derive_phase_key(
+            {"prompt": "see docs/phases/phase-HARNESS005-main.md"}
+        ) == "HARNESS005-main"
+
+    def test_bare_numeric(self) -> None:
+        assert st._derive_phase_key({"prompt": "Checkpoint for Phase 110"}) == "110"
+
+    def test_bare_harness_style(self) -> None:
+        assert (
+            st._derive_phase_key({"prompt": "Checkpoint for Phase HARNESS009-post1"})
+            == "HARNESS009-post1"
+        )
+
+    def test_trailing_punctuation_stripped(self) -> None:
+        assert st._derive_phase_key({"prompt": "Checkpoint for Phase 110."}) == "110"
+
+    def test_doc_existence_check_when_project_dir_supplied(
+        self, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        phases_dir = project_dir / "docs" / "phases"
+        phases_dir.mkdir(parents=True, exist_ok=True)
+        (phases_dir / "phase-110.md").write_text("# 110\n", encoding="utf-8")
+
+        assert (
+            st._derive_phase_key({"prompt": "Phase 111"}, project_dir) is None
+        )
+        assert (
+            st._derive_phase_key({"prompt": "Phase 110"}, project_dir) == "110"
+        )
+
+    def test_no_docs_phases_dir_skips_existence_check(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        # No docs/phases/ at all — shape gate alone decides.
+        assert st._derive_phase_key({"prompt": "Phase 999"}, project_dir) == "999"
 
 
 # ---------------------------------------------------------------------------
@@ -1913,14 +2252,199 @@ class TestQuiescentReconciliation:
         ).read_text(encoding="utf-8")
         # The only call site inside record_attempt_from_transcript must not
         # pass include_quiescent either (it relies on the default False).
-        # INFRA-285 (CER-097 D6) added `output_prefix=` to that call; the
+        # INFRA-285 (CER-097 D6) added `output_prefix=` to that call;
+        # INFRA-289 (CER-103(a)) rewired it to the resolved recording target
+        # (`target_path`, not the session `project_path`) — the
         # include_quiescent assertion is what this test is about.
         assert (
             "reconcile_pending_attempts(\n"
-            "                project_dir=project_path, home=home, "
+            "                project_dir=target_path, home=home, "
             "output_prefix=output_prefix\n"
             "            )"
         ) in subagent_transcript_source
+
+
+# ---------------------------------------------------------------------------
+# CER-102: async FAIL-bump is tested and legible (INFRA-289, Ensures C1-C6)
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncFailBumpTraceability:
+    @staticmethod
+    def _write_story_file(project_dir: Path, story_id: str, status: str) -> None:
+        rail = story_id.split("-", 1)[0]
+        story_dir = project_dir / "docs" / "stories" / rail
+        story_dir.mkdir(parents=True, exist_ok=True)
+        (story_dir / f"{story_id}.md").write_text(
+            f"---\nid: {story_id}\nstatus: {status}\n---\n\nbody\n",
+            encoding="utf-8",
+        )
+
+    def test_c1_both_bump_sites_unchanged_gating(self) -> None:
+        """C1: the insert-time bump stays ungated; grep count of
+        bump_attempt_count( call sites is unchanged by this story (still 2:
+        the insert-time site and the reconcile-time site)."""
+        source_path = (
+            Path(__file__).resolve().parent.parent.parent
+            / "skills" / "pairmode" / "scripts" / "subagent_transcript.py"
+        )
+        source = source_path.read_text(encoding="utf-8")
+        assert source.count("bump_attempt_count(") == 2
+
+    def test_c4_async_fail_bumps_counter_and_logs_bump_late_fail(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """C4: the async path, tested without depending on INFRA-287 —
+        read_completed_spawn is monkeypatched directly."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir, current_story={"id": "TEST-001"})
+        self._write_story_file(project_dir, "TEST-001", "in-progress")
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="TEST-001",
+            agent_role="builder",
+            attempt_number=1,
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+        )
+        output_file = tmp_path / "tasks" / "agent.output"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text("irrelevant — read_completed_spawn is monkeypatched\n")
+        effort_db.set_spawn_ref(db_path, row_id, "agent-async-1", str(output_file))
+
+        monkeypatch.setattr(
+            st,
+            "read_completed_spawn",
+            lambda output_file, **kw: {
+                "tokens_in": 100, "tokens_out": 50, "tokens_total": 150,
+                "cache_read_tokens": 0, "cache_write_tokens": 0,
+                "duration_ms": 10, "model": "claude-sonnet-5",
+                "outcome": "FAIL", "fail_cause": "boom", "final_text": "",
+            },
+        )
+
+        count = st.reconcile_pending_attempts(project_dir=project_dir)
+        assert count == 1
+
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+        assert read_attempt_count("TEST-001", project_dir) == 1
+
+        row = effort_db.query_by_story(db_path, "TEST-001")[0]
+        assert row["outcome"] == "FAIL"
+
+        log_path = project_dir / ".companion" / "effort_recording.log"
+        lines = [json.loads(l) for l in log_path.read_text(encoding="utf-8").splitlines()]
+        assert any(
+            l.get("decision") == "bump:late-fail" and l.get("story_id") == "TEST-001"
+            for l in lines
+        )
+
+    def test_c4_complete_story_blocks_bump_and_logs_skip(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """C4 sibling: status: complete blocks the bump; counter file is
+        never created and the log carries skip:late-bump-blocked."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+        self._write_story_file(project_dir, "TEST-002", "complete")
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="TEST-002",
+            agent_role="builder",
+            attempt_number=1,
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+        )
+        output_file = tmp_path / "tasks" / "agent2.output"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text("irrelevant — read_completed_spawn is monkeypatched\n")
+        effort_db.set_spawn_ref(db_path, row_id, "agent-async-2", str(output_file))
+
+        monkeypatch.setattr(
+            st,
+            "read_completed_spawn",
+            lambda output_file, **kw: {
+                "tokens_in": 10, "tokens_out": 5, "tokens_total": 15,
+                "cache_read_tokens": 0, "cache_write_tokens": 0,
+                "duration_ms": 5, "model": None,
+                "outcome": "FAIL", "fail_cause": None, "final_text": "",
+            },
+        )
+
+        st.reconcile_pending_attempts(project_dir=project_dir)
+
+        counter_path = project_dir / ".companion" / "attempt_counter.json"
+        assert not counter_path.exists()
+
+        log_path = project_dir / ".companion" / "effort_recording.log"
+        lines = [json.loads(l) for l in log_path.read_text(encoding="utf-8").splitlines()]
+        assert any(
+            l.get("decision") == "skip:late-bump-blocked" and l.get("story_id") == "TEST-002"
+            for l in lines
+        )
+
+    def test_recording_decisions_includes_new_c_values(self) -> None:
+        assert "bump:late-fail" in st.RECORDING_DECISIONS
+        assert "skip:late-bump-blocked" in st.RECORDING_DECISIONS
+
+    def test_c5_end_to_end_symlink_output_skips_without_infra_287(
+        self, tmp_path: Path
+    ) -> None:
+        """C5: genuinely end-to-end (real symlinked output file, no
+        monkeypatch), guarded by a capability check for INFRA-287's shared
+        containment+terminator predicate. INFRA-287 (CER-101) is not yet
+        merged in this worktree, so this must report skipped with a reason
+        naming INFRA-287 — never a weakened assertion."""
+        predicate = getattr(st, "is_reconcilable_spawn_output", None)
+        if predicate is None:
+            pytest.skip(
+                "INFRA-287's shared symlink-aware containment + terminator "
+                "predicate is not importable from subagent_transcript "
+                "(INFRA-287 not yet merged) — see INFRA-289 Requires"
+            )
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir, current_story={"id": "TEST-003"})
+        self._write_story_file(project_dir, "TEST-003", "in-progress")
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="TEST-003",
+            agent_role="builder",
+            attempt_number=1,
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+        )
+        real_output = tmp_path / "real" / "agent.output"
+        real_output.parent.mkdir(parents=True, exist_ok=True)
+        real_output.write_text(
+            json.dumps(_output_assistant_entry(
+                "msg_1", 100, 50, stop_reason="end_turn",
+                text=json.dumps({
+                    "type": "BUILD-RESULT", "outcome": "FAIL",
+                    "story_id": "TEST-003", "reason": "boom",
+                }),
+            )) + "\n",
+            encoding="utf-8",
+        )
+        symlinked_output = tmp_path / "tasks" / "agent3.output"
+        symlinked_output.parent.mkdir(parents=True, exist_ok=True)
+        symlinked_output.symlink_to(real_output)
+        effort_db.set_spawn_ref(db_path, row_id, "agent-async-3", str(symlinked_output))
+
+        count = st.reconcile_pending_attempts(project_dir=project_dir)
+        assert count == 1
+
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+        assert read_attempt_count("TEST-003", project_dir) == 1
 
 
 # ---------------------------------------------------------------------------
