@@ -117,6 +117,21 @@ INFRA-294 — `test_checkpoint_routing.py` (:254, :276),
 `test_bootstrap.py`. (`test_next_action.py` has NO _check_cer_do_now coverage.)
 INFRA-295 — `test_fleet_discovery.py` TestSnapshot :252-292 (rewrite).
 
+## Backlog pulls (operator-approved at scaffold review, 2026-07-28)
+
+Spec-writers must drain these into their stories (spec-time backlog pull):
+- **CER-033 → INFRA-293**: legacy verbose `BUILT:`/`REVIEW PASS` template
+  blocks — close or absorb inside the consumer agent-body porting work (flex's
+  own templates verified clean already).
+- **CER-099 → INFRA-293**: containment-guard parity gap in
+  `classify_pending_reason` / `include_quiescent` raw `output_file` streaming —
+  same function the story edits.
+- **CER-059(a) → INFRA-295**: fleet_discovery Signal-2-only binding follow-ups
+  — same file; spec the minimal slice that fits, defer the rest with a note.
+- CER-111: NOT pulled unless the spec-writer routes the sync-side fix through
+  to-030 agent-cleanup and it becomes cheap (operator declined the
+  unconditional pull).
+
 Related CERs already filed: CER-110 (plugin-sourced duplicate-hook signal,
 fleet-wide — NOT in this phase's scope), CER-111 (to-030 expected_step_tokens
 rewrite — three-way data now recorded in RELEASE-065; not in scope unless the
