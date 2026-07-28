@@ -2807,17 +2807,60 @@ pending` (see "How to use it" above).
 
 **Completion detection.** `read_completed_spawn` treats a spawn as complete
 only when the **last parseable** JSONL entry in its output file is `type ==
-"assistant"` with `message.stop_reason == "end_turn"`. A last entry of
-`stop_reason == "tool_use"`, a truncated/unparseable trailing line with no
-earlier `end_turn` terminator, an empty file, a nonexistent path, or a file
-with no usage data anywhere in it all yield `None` — an in-flight agent is
-never reconciled, and a mid-write/truncated file is treated as still
-in-flight rather than misread. `outcome`/`fail_cause` are parsed from the
+"assistant"` with a dict `message`, **and** either `message.stop_reason ==
+"end_turn"` or the file has been quiescent (its own mtime) for
+`QUIESCENT_AGE_SECONDS` (INFRA-287, CER-101). The quiescence half exists
+because the `end_turn` stamp is no longer universal — measured live
+2026-07-28 across 294 spawn-output files: 215 ended `assistant`/`end_turn`,
+but 51 (≈18% of completed spawns) ended on an assistant entry with no
+`stop_reason` at all, and 50 of those 51 had been untouched for over an
+hour — finished agents, not in-flight ones. A future reader must not
+"tighten" this back to `end_turn`-only: that regression looks like a
+cleanup and silently stops ~18% of rows from ever reconciling. A
+still-fresh last entry with `stop_reason == "tool_use"`, a
+truncated/unparseable trailing line with no terminator, an empty file, a
+nonexistent path, or a file with no usage data anywhere in it all yield
+`None` — an in-flight agent is never reconciled, and a mid-write/truncated
+file is treated as still in-flight rather than misread. A non-assistant
+last entry is never quiescence-promoted (there is no assistant turn to
+extract usage from); the `include_quiescent` retirement path below remains
+the route for those. Since INFRA-287 this whole judgment — containment plus
+termination — lives in one shared predicate,
+`subagent_transcript.is_reconcilable_spawn_output`, consumed by both
+`read_completed_spawn` and `classify_pending_reason`, so the sweep and the
+`pending` diagnostic can never again disagree about the same row (CER-101's
+"14 reconcilable, 0 reconciled" contradiction); a containment-rejected path
+is the first-class pending reason `uncontained`, distinct from
+`file-missing`. `outcome`/`fail_cause` are parsed from the
 final assistant text by the same, unmodified `parse_worker_outcome` the
 synchronous path already used — the BUILD-RESULT/REVIEW-RESULT grammar
 stays single-sourced. `duration_ms` is the millisecond delta between the
 first and last parseable entry's `timestamp`, or `None` when either is
 absent/unparseable.
+
+**Symlink-aware containment (INFRA-287, CER-101).** Claude Code does not
+write the spawn output *file* at
+`<tmp>/claude-<uid>/<slug>/<session>/tasks/<hash>.output` — it writes a
+**symlink** there, pointing at
+`~/.claude/projects/<slug>/<session>/subagents/agent-<id>.jsonl`. The
+pre-INFRA-287 containment rule called `Path.resolve()` before judging the
+path, so the rule was applied to the *link target* — outside every temp
+root, with no `tasks` component — and rejected 100% of real output files
+(294/294 measured live, 2026-07-28): no async row ever reconciled, which is
+what CER-101 was filed on. Containment is therefore judged **lexically on
+the link path** (`os.path.abspath`, never `resolve()`), while the link
+**target** is separately allowlisted (`_permitted_output_target`) to
+`~/.claude/` — the same transcript root
+`context_budget._derive_transcript_path` already confines itself to — or a
+temp root; CER-089's protection (a persisted `output_file` string pointing
+at `/etc/passwd`, a repo file, or `~/.ssh/*` must never be opened) is
+preserved by moving the check from the link path to the link target, not
+weakened. `output_file` is stored and compared in the `tasks/` namespace —
+the lexical path, never the resolved target — because session ownership
+(`session_output_prefix`, the `pending_reconcilable` ownership filter) is
+derived from it; the same `resolve()` bug had left `session_output_prefix`
+returning `None` for every production path since INFRA-285, so the CER-097
+ownership filter was armed for the first time by INFRA-287.
 
 **Reconciliation trigger points and their bounds.** Three trigger points now
 invoke `reconcile_pending_attempts`, all best-effort where hook-sourced (own
@@ -3046,7 +3089,10 @@ would hide the exact rows such a diagnostic exists to find.
 routes its `output_file` argument through `_contained_spawn_output` before
 opening anything. Two containment rules exist: `--db-path` (below) raises
 on escape, but spawn-output uses a looser accept/reject rule instead —
-temp-root-contained with a `tasks` path component, not a raise — because the
+temp-root-contained with a `tasks` path component (judged lexically on the
+path as given, with the symlink *target* separately allowlisted — INFRA-287,
+CER-101; see § Effort tracking, "Symlink-aware containment"), not a raise —
+because the
 value is harness-generated launch metadata rather than an operator-supplied
 argument, and pinning the containment to the exact observed shape
 (`claude-<uid>/<slug>/<session>/tasks/<hash>.output`) would make every row

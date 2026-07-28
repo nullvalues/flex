@@ -799,7 +799,11 @@ class TestReadCompletedSpawn:
     def test_truncated_trailing_line_with_no_earlier_end_turn_returns_none(
         self, tmp_path: Path
     ) -> None:
-        output_file = tmp_path / "agent.output"
+        # INFRA-287: fixture moved under tasks/ so containment passes and the
+        # test keeps pinning the truncated-trailing-line cause, not an
+        # uncontained-path rejection.
+        output_file = tmp_path / "tasks" / "agent.output"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(
             json.dumps(_output_assistant_entry("msg_1", 100, 50, stop_reason="tool_use"))
             + "\n{truncated garbage no closing brace",
@@ -808,7 +812,9 @@ class TestReadCompletedSpawn:
         assert st.read_completed_spawn(output_file) is None
 
     def test_empty_file_returns_none(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "agent.output"
+        # INFRA-287: fixture moved under tasks/ (see above).
+        output_file = tmp_path / "tasks" / "agent.output"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text("", encoding="utf-8")
         assert st.read_completed_spawn(output_file) is None
 
@@ -816,7 +822,8 @@ class TestReadCompletedSpawn:
         assert st.read_completed_spawn(tmp_path / "does-not-exist.output") is None
 
     def test_no_usage_data_returns_none(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "agent.output"
+        # INFRA-287: fixture moved under tasks/ (see above).
+        output_file = tmp_path / "tasks" / "agent.output"
         entry = {
             "type": "assistant",
             "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "hi"}]},
@@ -956,8 +963,21 @@ class TestContainedSpawnOutput:
         assert st._contained_spawn_output(traversal, tasks_root=tasks_root) is None
 
     def test_explicit_tasks_root_rejects_symlink_escaping_root(
-        self, tmp_path: Path
+        self, tmp_path: Path, monkeypatch
     ) -> None:
+        # INFRA-287 (CER-101): containment is now judged lexically on the
+        # link path, and the link *target* is separately allowlisted to
+        # ~/.claude or a temp root. This fixture's target used to be under
+        # tmp_path (i.e. under the real /tmp temp root), which the new rule
+        # legitimately permits — so the roots are monkeypatched away and a
+        # home is injected, making the target genuinely outside every
+        # allowlisted root. The rejection this test pins (a well-placed link
+        # whose target escapes the allowlist) is preserved.
+        fake_root = tmp_path / "fake-root"
+        fake_root.mkdir()
+        monkeypatch.setattr(
+            st, "default_spawn_output_roots", lambda: (fake_root.resolve(),)
+        )
         tasks_root = tmp_path / "tasks"
         tasks_root.mkdir()
         outside_dir = tmp_path / "outside"
@@ -968,7 +988,12 @@ class TestContainedSpawnOutput:
         link = tasks_root / "link.output"
         os.symlink(outside_target, link)
 
-        assert st._contained_spawn_output(link, tasks_root=tasks_root) is None
+        assert (
+            st._contained_spawn_output(
+                link, tasks_root=tasks_root, home=tmp_path / "home"
+            )
+            is None
+        )
 
     def test_explicit_tasks_root_rejects_directory(self, tmp_path: Path) -> None:
         tasks_root = tmp_path / "tasks"
@@ -1032,8 +1057,18 @@ class TestReadCompletedSpawnContainment:
         assert st.read_completed_spawn(traversal, tasks_root=tasks_root) is None
 
     def test_symlink_inside_tasks_root_escaping_target_returns_none(
-        self, tmp_path: Path
+        self, tmp_path: Path, monkeypatch
     ) -> None:
+        # INFRA-287 (CER-101): same adjustment as
+        # TestContainedSpawnOutput::test_explicit_tasks_root_rejects_symlink_escaping_root
+        # — the target must now genuinely escape the allowlist (~/.claude +
+        # temp roots), not merely the tasks_root, so the roots are
+        # monkeypatched away and a home is injected.
+        fake_root = tmp_path / "fake-root"
+        fake_root.mkdir()
+        monkeypatch.setattr(
+            st, "default_spawn_output_roots", lambda: (fake_root.resolve(),)
+        )
         tasks_root = tmp_path / "tasks"
         tasks_root.mkdir()
         outside_dir = tmp_path / "outside"
@@ -1054,7 +1089,12 @@ class TestReadCompletedSpawnContainment:
         link = tasks_root / "link.output"
         os.symlink(outside_target, link)
 
-        assert st.read_completed_spawn(link, tasks_root=tasks_root) is None
+        assert (
+            st.read_completed_spawn(
+                link, tasks_root=tasks_root, home=tmp_path / "home"
+            )
+            is None
+        )
 
     def test_directory_returns_none(self, tmp_path: Path) -> None:
         tasks_root = tmp_path / "tasks"
@@ -2032,22 +2072,31 @@ class TestDefect2AlignedReconcilesEndToEnd:
 
 
 class TestClassifyPendingReason:
+    # INFRA-287 (CER-101): classify_pending_reason now routes through the
+    # same containment + terminator predicate as the sweep
+    # (is_reconcilable_spawn_output), so these fixtures moved from bare
+    # tmp_path paths (which the predicate reports "uncontained") into a
+    # tasks/ subdirectory — tmp_path lives under the real temp root, so a
+    # tasks/ component makes the path genuinely contained and each test
+    # keeps pinning the reason it was written for. The bare-path shape is
+    # covered by the new uncontained tests below.
     def test_no_output_file(self) -> None:
         assert st.classify_pending_reason({"output_file": None}) == "no-output-file"
         assert st.classify_pending_reason({}) == "no-output-file"
 
     def test_file_missing(self, tmp_path: Path) -> None:
-        row = {"output_file": str(tmp_path / "nope.output")}
+        row = {"output_file": str(tmp_path / "tasks" / "nope.output")}
         assert st.classify_pending_reason(row) == "file-missing"
 
     def test_file_empty(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "empty.output"
+        output_file = tmp_path / "tasks" / "empty.output"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text("", encoding="utf-8")
         row = {"output_file": str(output_file)}
         assert st.classify_pending_reason(row) == "file-empty"
 
     def test_in_flight(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "inflight.output"
+        output_file = tmp_path / "tasks" / "inflight.output"
         _write_output_file(
             output_file, [_output_assistant_entry("msg_1", 10, 5, stop_reason="tool_use")]
         )
@@ -2055,7 +2104,8 @@ class TestClassifyPendingReason:
         assert st.classify_pending_reason(row) == "in-flight"
 
     def test_not_terminated_when_last_entry_is_not_assistant(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "nt.output"
+        output_file = tmp_path / "tasks" / "nt.output"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(
             json.dumps({"type": "user", "message": {"content": []}}) + "\n",
             encoding="utf-8",
@@ -2063,8 +2113,53 @@ class TestClassifyPendingReason:
         row = {"output_file": str(output_file)}
         assert st.classify_pending_reason(row) == "not-terminated"
 
+    def test_uncontained_path_without_tasks_component(self, tmp_path: Path) -> None:
+        """INFRA-287 (B3): a containment-rejected path is a first-class
+        reason, not file-missing — the two are different operational
+        problems."""
+        output_file = tmp_path / "no-tasks-here.output"
+        _write_output_file(
+            output_file, [_output_assistant_entry("msg_1", 10, 5, stop_reason="end_turn")]
+        )
+        row = {"output_file": str(output_file)}
+        assert st.classify_pending_reason(row) == "uncontained"
+        assert "uncontained" in st.PENDING_REASONS
+
+    def test_uncontained_symlink_with_disallowed_target(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """INFRA-287 (A4/B3): a well-placed link whose target escapes the
+        allowlist classifies as uncontained, while a well-placed path whose
+        file is simply gone classifies as file-missing."""
+        fake_root = tmp_path / "fake-root"
+        tasks_dir = fake_root / "tasks"
+        tasks_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            st, "default_spawn_output_roots", lambda: (fake_root.resolve(),)
+        )
+        target = tmp_path / "outside" / "real.output"
+        _write_output_file(
+            target, [_output_assistant_entry("msg_1", 10, 5, stop_reason="end_turn")]
+        )
+        link = tasks_dir / "link.output"
+        os.symlink(target, link)
+
+        assert (
+            st.classify_pending_reason(
+                {"output_file": str(link)}, home=tmp_path / "home"
+            )
+            == "uncontained"
+        )
+        assert (
+            st.classify_pending_reason(
+                {"output_file": str(tasks_dir / "gone.output")},
+                home=tmp_path / "home",
+            )
+            == "file-missing"
+        )
+
     def test_no_usage(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "nousage.output"
+        output_file = tmp_path / "tasks" / "nousage.output"
         entry = {
             "type": "assistant",
             "message": {
@@ -2077,7 +2172,7 @@ class TestClassifyPendingReason:
         assert st.classify_pending_reason(row) == "no-usage"
 
     def test_line_cap(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "cap.output"
+        output_file = tmp_path / "tasks" / "cap.output"
         entries = [_output_assistant_entry(f"msg_{i}", 10, 5) for i in range(3)]
         entries.append(
             _output_assistant_entry(
@@ -2094,7 +2189,7 @@ class TestClassifyPendingReason:
             assert st.classify_pending_reason(row) == "line-cap"
 
     def test_no_outcome(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "nooutcome.output"
+        output_file = tmp_path / "tasks" / "nooutcome.output"
         _write_output_file(
             output_file,
             [_output_assistant_entry("msg_1", 10, 5, stop_reason="end_turn", text="no result json here")],
@@ -2103,7 +2198,7 @@ class TestClassifyPendingReason:
         assert st.classify_pending_reason(row) == "no-outcome"
 
     def test_reconcilable(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "ok.output"
+        output_file = tmp_path / "tasks" / "ok.output"
         _write_output_file(
             output_file,
             [
@@ -2122,7 +2217,7 @@ class TestClassifyPendingReason:
     def test_never_calls_path_read_text(self, tmp_path: Path) -> None:
         """Ensures 5: reuses the same streaming-read discipline as
         read_completed_spawn."""
-        output_file = tmp_path / "stream.output"
+        output_file = tmp_path / "tasks" / "stream.output"
         _write_output_file(
             output_file,
             [
@@ -2159,7 +2254,10 @@ class TestQuiescentReconciliation:
             attempt_number=1,
             ts=old_ts,
         )
-        output_file = tmp_path / "agent.output"
+        # INFRA-287: fixture under tasks/ so containment passes and the
+        # quiescent path exercises the not-terminated reason it pins.
+        output_file = tmp_path / "tasks" / "agent.output"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(
             json.dumps({"type": "user", "message": {"content": []}}) + "\n",
             encoding="utf-8",
@@ -2192,7 +2290,9 @@ class TestQuiescentReconciliation:
             attempt_number=1,
             ts=old_ts,
         )
-        output_file = tmp_path / "agent.output"
+        # INFRA-287: fixture under tasks/ so containment passes and the
+        # quiescent path exercises the not-terminated reason it pins.
+        output_file = tmp_path / "tasks" / "agent.output"
         entries = [
             _output_assistant_entry("msg_1", 100, 50),
             {"type": "user", "message": {"content": []}},
@@ -2228,7 +2328,9 @@ class TestQuiescentReconciliation:
             attempt_number=1,
             ts=recent_ts,
         )
-        output_file = tmp_path / "agent.output"
+        # INFRA-287: fixture under tasks/ so containment passes and the
+        # quiescent path exercises the not-terminated reason it pins.
+        output_file = tmp_path / "tasks" / "agent.output"
         entries = [
             _output_assistant_entry("msg_1", 100, 50),
             {"type": "user", "message": {"content": []}},
@@ -2882,7 +2984,9 @@ class TestSweepStarvation:
 
         visited: set = set()
 
-        def _stub_read_completed_spawn(path, tasks_root=None):
+        def _stub_read_completed_spawn(path, tasks_root=None, **kw):
+            # INFRA-287: the sweep now also forwards home= (target-allowlist
+            # injection); the stub absorbs it.
             visited.add(path_to_id[str(path)])
             return None
 
@@ -2920,7 +3024,8 @@ class TestSweepStarvation:
         call_count = {"n": 0}
         real_read_completed_spawn = st.read_completed_spawn
 
-        def _counting_read_completed_spawn(path, tasks_root=None):
+        def _counting_read_completed_spawn(path, tasks_root=None, **kw):
+            # INFRA-287: absorb the sweep's forwarded home= kwarg.
             call_count["n"] += 1
             return real_read_completed_spawn(path, tasks_root=tasks_root)
 
@@ -3252,3 +3357,323 @@ class TestSpawnRefDedupe:
 
         db_path = project_dir / ".companion" / "effort.db"
         assert len(effort_db.query_by_story(db_path, "INFRA-288")) == 2
+
+
+# ---------------------------------------------------------------------------
+# INFRA-287 (CER-101): symlink-aware containment, the shared predicate, and
+# the armed ownership prefix
+# ---------------------------------------------------------------------------
+
+
+def _build_result_json(outcome: str = "PASS") -> str:
+    return json.dumps({
+        "type": "BUILD-RESULT", "outcome": outcome,
+        "story_id": "INFRA-287", "reason": "done",
+    })
+
+
+def _make_live_shape_link(
+    tmp_path: Path,
+    monkeypatch,
+    entries: "list[dict] | None" = None,
+    link_name: str = "abc123.output",
+) -> "tuple[Path, Path, Path]":
+    """Reproduce the observed live shape under tmp_path: a symlink at
+    ``<root>/claude-1000/-mnt-work-flex/<session>/tasks/<hash>.output``
+    pointing at ``<home>/.claude/projects/-mnt-work-flex/<session>/subagents/
+    agent-<hash>.jsonl``, with default_spawn_output_roots monkeypatched to
+    the fake root and *home* injectable. Returns (link, target, home)."""
+    root = tmp_path / "fake-tmp"
+    home = tmp_path / "home"
+    monkeypatch.setattr(
+        st, "default_spawn_output_roots", lambda: (root.resolve(),)
+    )
+    target = (
+        home / ".claude" / "projects" / "-mnt-work-flex" / "sess-1"
+        / "subagents" / "agent-abc123.jsonl"
+    )
+    if entries is None:
+        entries = [
+            _output_assistant_entry(
+                "msg_1", 100, 50, stop_reason="end_turn",
+                text=_build_result_json(),
+            )
+        ]
+    _write_output_file(target, entries)
+    link = (
+        root / "claude-1000" / "-mnt-work-flex" / "sess-1" / "tasks" / link_name
+    )
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(target)
+    return link, target, home
+
+
+class TestSymlinkAwareContainment:
+    def test_a5_real_live_shape_accepted(self, tmp_path: Path, monkeypatch) -> None:
+        """A5: the measured production shape — symlink under tasks/ into
+        ~/.claude/projects/.../subagents/ — passes containment."""
+        link, _target, home = _make_live_shape_link(tmp_path, monkeypatch)
+        result = st._contained_spawn_output(link, home=home)
+        assert result is not None
+        assert st.SPAWN_TASKS_DIR_NAME in result.parts
+
+    def test_a2_returns_lexical_path_not_link_target(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A2: the returned path is the path in the tasks/ directory — the
+        session-identifying namespace — never the resolved link target."""
+        link, _target, home = _make_live_shape_link(tmp_path, monkeypatch)
+        result = st._contained_spawn_output(link, home=home)
+        assert result == Path(os.path.abspath(str(link)))
+        assert result != link.resolve()
+
+    def test_a4_disallowed_target_rejected_and_never_opened(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A4: a symlink correctly placed under <root>/tasks/ whose target
+        escapes both ~/.claude and every temp root is rejected, and no
+        open() ever happens on it."""
+        root = tmp_path / "fake-tmp"
+        home = tmp_path / "home"
+        monkeypatch.setattr(
+            st, "default_spawn_output_roots", lambda: (root.resolve(),)
+        )
+        secret = tmp_path / "elsewhere" / "sensitive.jsonl"
+        _write_output_file(
+            secret,
+            [_output_assistant_entry(
+                "msg_1", 10, 5, stop_reason="end_turn", text=_build_result_json()
+            )],
+        )
+        link = root / "claude-1000" / "-slug" / "sess-1" / "tasks" / "x.output"
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(secret)
+
+        assert st._contained_spawn_output(link, home=home) is None
+
+        with patch.object(
+            st, "_stream_spawn_output",
+            side_effect=AssertionError("must not open a rejected path"),
+        ):
+            assert st.read_completed_spawn(link, home=home) is None
+
+    def test_a4_plain_path_outside_roots_still_rejected(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A4: CER-089's original attack shape — a plain (non-symlink) path
+        outside every temp root — is still rejected."""
+        root = tmp_path / "fake-tmp"
+        root.mkdir()
+        monkeypatch.setattr(
+            st, "default_spawn_output_roots", lambda: (root.resolve(),)
+        )
+        outside = tmp_path / "tasks" / "not-under-a-root.output"
+        _write_output_file(
+            outside, [_output_assistant_entry("msg_1", 10, 5, stop_reason="end_turn")]
+        )
+        assert st._contained_spawn_output(outside) is None
+
+    def test_end_to_end_read_completed_spawn_through_symlink(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        link, _target, home = _make_live_shape_link(tmp_path, monkeypatch)
+        result = st.read_completed_spawn(link, home=home)
+        assert result is not None
+        assert result["outcome"] == "PASS"
+        assert result["tokens_total"] == 150
+
+
+class TestSpawnTerminatedSentinel:
+    def test_b2_sentinel_is_not_a_pending_reason(self) -> None:
+        assert st.SPAWN_TERMINATED == "terminated"
+        assert st.SPAWN_TERMINATED not in st.PENDING_REASONS
+
+
+class TestQuiescentTerminator:
+    """B4: absent stop-reason on an assistant last entry terminates only
+    once the file has been quiescent for QUIESCENT_AGE_SECONDS."""
+
+    def _entries(self) -> "list[dict]":
+        return [
+            _output_assistant_entry("msg_1", 100, 50, text=_build_result_json())
+        ]
+
+    def test_fresh_absent_stop_reason_is_not_terminated(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "tasks" / "fresh.output"
+        _write_output_file(output_file, self._entries())
+        assert st.classify_pending_reason({"output_file": str(output_file)}) == "not-terminated"
+        assert st.read_completed_spawn(output_file) is None
+
+    def test_quiescent_absent_stop_reason_terminates(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "tasks" / "quiet.output"
+        _write_output_file(output_file, self._entries())
+        old_epoch = time.time() - (st.QUIESCENT_AGE_SECONDS + 100)
+        os.utime(output_file, (old_epoch, old_epoch))
+
+        assert st.classify_pending_reason({"output_file": str(output_file)}) == "reconcilable"
+        result = st.read_completed_spawn(output_file)
+        assert result is not None
+        assert result["outcome"] == "PASS"
+        assert result["tokens_total"] == 150
+
+    def test_quiescent_non_assistant_last_entry_never_promoted(
+        self, tmp_path: Path
+    ) -> None:
+        output_file = tmp_path / "tasks" / "usertail.output"
+        entries = self._entries() + [{"type": "user", "message": {"content": []}}]
+        _write_output_file(output_file, entries)
+        old_epoch = time.time() - (st.QUIESCENT_AGE_SECONDS + 100)
+        os.utime(output_file, (old_epoch, old_epoch))
+
+        assert st.classify_pending_reason({"output_file": str(output_file)}) == "not-terminated"
+        assert st.read_completed_spawn(output_file) is None
+
+    def test_quiescent_tool_use_last_entry_terminates(self, tmp_path: Path) -> None:
+        """B4: 'finished, whatever its last entry was stamped with' — the
+        measured 1-of-294 assistant/tool_use long-quiescent shape."""
+        output_file = tmp_path / "tasks" / "toolusetail.output"
+        _write_output_file(
+            output_file,
+            [_output_assistant_entry(
+                "msg_1", 100, 50, stop_reason="tool_use", text=_build_result_json()
+            )],
+        )
+        old_epoch = time.time() - (st.QUIESCENT_AGE_SECONDS + 100)
+        os.utime(output_file, (old_epoch, old_epoch))
+        assert st.classify_pending_reason({"output_file": str(output_file)}) == "reconcilable"
+
+
+class TestClassifyAndSweepAgree:
+    def test_b7_cp109_contradiction_pinned(self, tmp_path: Path, monkeypatch) -> None:
+        """B7: the '14 reconcilable, 0 reconciled' cp-109 contradiction as a
+        regression test — classify and the sweep now share one predicate and
+        cannot disagree."""
+        root = tmp_path / "fake-tmp"
+        home = tmp_path / "home"
+        monkeypatch.setattr(
+            st, "default_spawn_output_roots", lambda: (root.resolve(),)
+        )
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+
+        def _add_row(story_id: str, output_file: Path) -> int:
+            row_id = effort_db.insert_attempt(
+                db_path,
+                story_id=story_id,
+                agent_role="builder",
+                attempt_number=1,
+                ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+            )
+            effort_db.set_spawn_ref(db_path, row_id, f"agent-{story_id}", str(output_file))
+            return row_id
+
+        # Row 1: symlinked and terminated.
+        target1 = home / ".claude" / "projects" / "-p" / "s1" / "subagents" / "a1.jsonl"
+        _write_output_file(
+            target1,
+            [_output_assistant_entry(
+                "msg_1", 100, 50, stop_reason="end_turn", text=_build_result_json()
+            )],
+        )
+        link1 = root / "claude-1000" / "-p" / "s1" / "tasks" / "a1.output"
+        link1.parent.mkdir(parents=True, exist_ok=True)
+        link1.symlink_to(target1)
+        _add_row("TEST-101", link1)
+
+        # Row 2: symlinked, fresh, tool_use — in flight.
+        target2 = home / ".claude" / "projects" / "-p" / "s2" / "subagents" / "a2.jsonl"
+        _write_output_file(
+            target2, [_output_assistant_entry("msg_2", 10, 5, stop_reason="tool_use")]
+        )
+        link2 = root / "claude-1000" / "-p" / "s2" / "tasks" / "a2.output"
+        link2.parent.mkdir(parents=True, exist_ok=True)
+        link2.symlink_to(target2)
+        _add_row("TEST-102", link2)
+
+        # Row 3: output_file outside every root.
+        outside = tmp_path / "outside" / "a3.output"
+        _write_output_file(
+            outside,
+            [_output_assistant_entry(
+                "msg_3", 10, 5, stop_reason="end_turn", text=_build_result_json()
+            )],
+        )
+        _add_row("TEST-103", outside)
+
+        rows = {
+            r["story_id"]: r
+            for r in effort_db.pending_reconcilable(db_path, 10, order="newest")
+        }
+        assert st.classify_pending_reason(rows["TEST-101"], home=home) == "reconcilable"
+        assert st.classify_pending_reason(rows["TEST-102"], home=home) == "in-flight"
+        assert st.classify_pending_reason(rows["TEST-103"], home=home) == "uncontained"
+
+        count = st.reconcile_pending_attempts(project_dir=project_dir, home=home)
+        assert count == 1
+        assert effort_db.query_by_story(db_path, "TEST-101")[0]["outcome"] == "PASS"
+        assert effort_db.query_by_story(db_path, "TEST-102")[0]["outcome"] is None
+        assert effort_db.query_by_story(db_path, "TEST-103")[0]["outcome"] is None
+
+
+class TestSessionOutputPrefixSymlink:
+    def test_c2_symlinked_output_yields_session_prefix(self, tmp_path: Path) -> None:
+        """C2: the prefix is derived lexically — a real symlinked
+        spawn-output path yields the session prefix, not None."""
+        target = tmp_path / "unrelated" / "agent.jsonl"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("", encoding="utf-8")
+        link = tmp_path / "claude-1000" / "-slug" / "sess-1" / "tasks" / "x.output"
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(target)
+
+        assert (
+            st.session_output_prefix(link)
+            == str(tmp_path / "claude-1000" / "-slug" / "sess-1") + os.sep
+        )
+
+    def test_c2_plain_path_returns_identical_value(self, tmp_path: Path) -> None:
+        plain = tmp_path / "claude-1000" / "-slug" / "sess-1" / "tasks" / "x.output"
+        assert (
+            st.session_output_prefix(plain)
+            == str(tmp_path / "claude-1000" / "-slug" / "sess-1") + os.sep
+        )
+
+
+class TestNoNewStarvation:
+    def test_c4_global_sweep_still_reaches_foreign_session_rows(
+        self, tmp_path: Path
+    ) -> None:
+        """C4: with the ownership prefix now genuinely armed on the
+        PostToolUse side, the SessionStart-side sweep (output_prefix=None)
+        still reaches a row belonging to a different session prefix."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="TEST-201",
+            agent_role="builder",
+            attempt_number=1,
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+        )
+        output_file = (
+            tmp_path / "claude-1000" / "-slug" / "sess-other" / "tasks" / "x.output"
+        )
+        _write_output_file(
+            output_file,
+            [_output_assistant_entry(
+                "msg_1", 100, 50, stop_reason="end_turn", text=_build_result_json()
+            )],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "agent-201", str(output_file))
+
+        count = st.reconcile_pending_attempts(
+            project_dir=project_dir, output_prefix=None
+        )
+        assert count == 1

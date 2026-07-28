@@ -2653,6 +2653,50 @@ def _query_effort_by_story_ids(db_path: Path, story_ids: list[str]) -> dict:
     }
 
 
+def _query_pending_by_story_ids(db_path: Path, story_ids: list[str]) -> "dict[str, int]":
+    """Count pending (unreconciled) attempt rows per story (INFRA-287, CER-101).
+
+    Returns ``{story_id: pending_row_count}`` for rows whose ``tokens_total
+    IS NULL OR outcome IS NULL`` — the same pendingness definition
+    ``effort_db.pending_reconcilable`` sweeps on — restricted to
+    *story_ids*. Deliberately **not** built on ``effort_db.pending_reconcilable``:
+    that query applies an age cutoff and row limits that are right for a
+    bounded hook-path sweep and wrong for a report that must count *every*
+    pending row in the phase.
+
+    Returns ``{}`` (never raises) when the db is absent, unreadable, or
+    *story_ids* is empty — the same contract as ``_query_effort_by_story_ids``
+    above. Story IDs are bound as SQL parameters; never interpolated.
+    """
+    import sqlite3 as _sqlite3
+
+    if not story_ids or not db_path.exists():
+        return {}
+
+    placeholders = ", ".join("?" for _ in story_ids)
+    try:
+        conn = _sqlite3.connect(str(db_path))
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                f"""
+                SELECT story_id, COUNT(*)
+                FROM attempts
+                WHERE (tokens_total IS NULL OR outcome IS NULL)
+                  AND story_id IN ({placeholders})
+                GROUP BY story_id
+                """,
+                list(story_ids),
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        return {}
+
+    return {str(story_id): int(count) for story_id, count in rows}
+
+
 def _format_role_rollup_lines(by_role: dict) -> list[str]:
     """Render ``{role: {"count": int, "median_tokens": int | None}}`` as the
     printed ``<role>: <n> attempt(s)[, median <n> tokens]`` lines shared by the
@@ -3115,6 +3159,17 @@ def cmd_checkpoint_report(project_dir: str) -> None:
     all three checkpoint gate workers (checkpoint-security, checkpoint-intent,
     checkpoint-docs) have completed and before ``checkpoint-tag``.
 
+    Pending-row visibility (INFRA-287, CER-101): a story whose rows exist
+    but are still awaiting async reconciliation is reported as "no
+    reconciled attempts (N pending)", never the bare "no attempts recorded"
+    — the bare string misled a cp-109 operator into reading deferred
+    reconciliation as data loss. This command deliberately does **not** run
+    the reconciliation sweep first (the reconcile-first option in
+    CER-101's filed fix was declined): the sweep already runs on every
+    PostToolUse and SessionStart, so there is nothing left for a report to
+    fix, and a reporting command that mutates the database it reports on is
+    a boundary this project does not cross for convenience.
+
     Pure-read: writes nothing. Never raises — an absent/empty effort.db or
     index produces a minimal report, not an error.
     """
@@ -3157,9 +3212,16 @@ def cmd_checkpoint_report(project_dir: str) -> None:
         scoped = _query_effort_by_story_ids(db_path, story_ids)
         by_role = scoped.get("by_role", {})
         by_story = scoped.get("by_story", {})
+        pending_by_story = _query_pending_by_story_ids(db_path, story_ids)
 
         if not by_role:
             click.echo(f"  no attempts recorded for phase {phase_key}")
+            total_pending = sum(pending_by_story.values())
+            if total_pending:
+                click.echo(
+                    f"  {total_pending} attempt row(s) recorded but not yet "
+                    "reconciled — effort is pending, not absent"
+                )
         else:
             for line in _format_role_rollup_lines(by_role):
                 click.echo(line)
@@ -3168,7 +3230,13 @@ def cmd_checkpoint_report(project_dir: str) -> None:
         for sid in story_ids:
             story_roles = by_story.get(sid)
             if not story_roles:
-                click.echo(f"  {sid}: no attempts recorded")
+                pending_count = pending_by_story.get(sid, 0)
+                if pending_count:
+                    click.echo(
+                        f"  {sid}: no reconciled attempts ({pending_count} pending)"
+                    )
+                else:
+                    click.echo(f"  {sid}: no attempts recorded")
                 continue
             role_parts = []
             for role in sorted(story_roles):

@@ -211,6 +211,12 @@ _STATUS_LINE_RE = re.compile(r'^\s*status:\s*["\']?([\w-]+)["\']?\s*$', re.MULTI
 #: row"; every other value names a specific reason it will not.
 PENDING_REASONS: tuple[str, ...] = (
     "no-output-file",
+    # INFRA-287 (CER-101): a non-empty output_file that _contained_spawn_output
+    # rejects. Distinct from file-missing — a row stuck because of a
+    # containment rule and a row stuck because /tmp was evicted are different
+    # operational problems and must not print the same word. Ordered here
+    # because is_reconcilable_spawn_output evaluates it second.
+    "uncontained",
     "file-missing",
     "file-empty",
     "in-flight",
@@ -220,6 +226,11 @@ PENDING_REASONS: tuple[str, ...] = (
     "no-outcome",
     "reconcilable",
 )
+
+#: INFRA-287 (CER-101): the success sentinel `is_reconcilable_spawn_output`
+#: returns when a spawn's output file is contained AND terminated. Deliberately
+#: NOT a member of PENDING_REASONS — it is the absence of a pending reason.
+SPAWN_TERMINATED: str = "terminated"
 
 _EMPTY_USAGE: dict[str, Any] = {
     "tokens_in": None,
@@ -867,59 +878,138 @@ def default_spawn_output_roots() -> "tuple[Path, ...]":
     return tuple(roots)
 
 
-def _contained_spawn_output(
+def _lexical_spawn_output_path(
     output_file: "str | Path | None", tasks_root: "Path | str | None" = None
 ) -> "Path | None":
-    """Return a resolved, contained spawn-output ``Path``, or ``None`` when
-    *output_file* is not an acceptable spawn-output location (CER-089).
+    """Placement-only half of the containment rule (INFRA-287, CER-101):
+    normalise *output_file* with ``os.path.abspath`` (which applies
+    ``normpath`` — collapsing ``..`` and ``.`` — **without** following
+    symlinks) and judge *where the path is*, lexically, as given.
 
-    Pure: never raises, never opens the file, performs no writes. Only
-    ``Path.resolve()`` (which stats the filesystem to follow symlinks) and
-    ``Path.is_file()`` are used.
+    No existence check, no ``open()``, no symlink following — the "is the
+    file real and is its target acceptable?" half lives in
+    :func:`_contained_spawn_output`. Splitting the two lets
+    :func:`is_reconcilable_spawn_output` tell "this path is in a place the
+    harness never writes spawn output" (``uncontained``) apart from "this
+    path is well-placed but the file is gone" (``file-missing``).
 
-    Default rule (``tasks_root=None``): the resolved path must (1) be
-    contained under one of :func:`default_spawn_output_roots`, (2) have the
-    literal component ``"tasks"`` (:data:`SPAWN_TASKS_DIR_NAME`) somewhere in
-    its ``.parts``, and (3) be an existing file. Explicit ``tasks_root``
-    (used by tests, and available to callers that know the real root):
-    the resolved path must be ``.relative_to()`` the resolved *tasks_root*
-    and be an existing file — the temp-root and ``tasks``-component rules do
-    not apply in this mode.
-
-    Design note — deliberately looser than the observed live shape. The
-    observed shape is
-    `/tmp/claude-<uid>/<project-slug>/<session-id>/tasks/<hash>.output`
-    (effort.db rows 357-362, 2026-07-25), but this guard checks only *temp
-    root + a `tasks` path component*, not the full `claude-<uid>/<slug>/
-    <session>` shape. Pinning the fuller shape would make every
-    ``output_file`` uncontained the moment the harness changes its directory
-    layout — silently stopping all reconciliation, rows pending forever,
-    exactly the CER-091 failure class this phase closes. The looser rule
-    still blocks what CER-089 is about: a persisted path pointing at
-    `/etc/passwd`, a repository file, or `~/.ssh/*`.
+    Default rule (``tasks_root=None``): the lexical path must be contained
+    under one of :func:`default_spawn_output_roots` and have the literal
+    component ``"tasks"`` (:data:`SPAWN_TASKS_DIR_NAME`) in its ``.parts``.
+    Explicit ``tasks_root``: the lexical path must be contained under
+    ``os.path.abspath(tasks_root)``. Returns the lexical ``Path`` or
+    ``None``. Never raises.
     """
     if output_file is None:
         return None
-
     try:
-        candidate = output_file if isinstance(output_file, Path) else Path(str(output_file))
-        resolved = candidate.resolve()
+        candidate = Path(os.path.abspath(str(output_file)))
 
         if tasks_root is not None:
-            root = Path(tasks_root).resolve()
-            resolved.relative_to(root)
-            if not resolved.is_file():
+            root = Path(os.path.abspath(str(tasks_root)))
+            if not _is_relative_to(candidate, root):
                 return None
-            return resolved
+            return candidate
 
         roots = default_spawn_output_roots()
-        if not any(_is_relative_to(resolved, root) for root in roots):
+        if not any(_is_relative_to(candidate, root) for root in roots):
             return None
-        if SPAWN_TASKS_DIR_NAME not in resolved.parts:
+        if SPAWN_TASKS_DIR_NAME not in candidate.parts:
             return None
-        if not resolved.is_file():
+        return candidate
+    except Exception:
+        return None
+
+
+def _permitted_output_target(path: Path, home: "Path | None" = None) -> bool:
+    """Allowlist check on a spawn-output symlink's *target* (INFRA-287, A3).
+
+    CER-089's protection is preserved by moving it from the link *path* to
+    the link *target*. What CER-089 protects against: ``output_file`` is a
+    persisted string, and an unchecked one pointing at ``/etc/passwd``, a
+    repository file, or ``~/.ssh/*`` would be opened and parsed by a
+    hook-path function. The pre-INFRA-287 rule applied its containment check
+    to ``Path.resolve()``'s output — but Claude Code writes the spawn output
+    at ``<tmp>/.../tasks/<hash>.output`` as a **symlink** into
+    ``~/.claude/projects/<slug>/<session>/subagents/``, so resolving first
+    made every real output file fail containment (294/294 measured live,
+    2026-07-28) and no async row ever reconciled. The split: *placement* is
+    judged lexically on the link path (:func:`_lexical_spawn_output_path`),
+    and this helper separately allowlists where the link may *point*:
+    ``(home or Path.home()) / ".claude"`` — the same transcript root
+    ``context_budget._derive_transcript_path`` already confines itself to,
+    and where Claude Code genuinely puts subagent transcripts — plus the
+    temp roots themselves. A ``/etc/passwd`` or ``~/.ssh`` target is under
+    neither and is still rejected; only the *location* of the check moved.
+
+    Returns ``True`` when *path* is not a symlink, or when
+    ``os.path.realpath(path)`` is contained under an allowlisted root.
+    *home* is injectable for tests, mirroring
+    ``context_budget._derive_transcript_path``. Never raises — any failure
+    is ``False`` (rejected).
+    """
+    try:
+        if not os.path.islink(str(path)):
+            return True
+        target = Path(os.path.realpath(str(path)))
+        allowed_roots: "list[Path]" = [((home or Path.home()) / ".claude").resolve()]
+        allowed_roots.extend(default_spawn_output_roots())
+        return any(_is_relative_to(target, root) for root in allowed_roots)
+    except Exception:
+        return False
+
+
+def _contained_spawn_output(
+    output_file: "str | Path | None",
+    tasks_root: "Path | str | None" = None,
+    home: "Path | None" = None,
+) -> "Path | None":
+    """Return a contained spawn-output ``Path``, or ``None`` when
+    *output_file* is not an acceptable spawn-output location (CER-089;
+    symlink-aware since INFRA-287, CER-101).
+
+    Pure: never raises, never opens the file, performs no writes.
+
+    Three checks, in order:
+
+    1. **Lexical placement** (:func:`_lexical_spawn_output_path`) — the path
+       *as given*, normalised with ``os.path.abspath`` but never resolved
+       through symlinks, must satisfy the default rule (temp-root-contained
+       with a ``"tasks"`` component) or explicit-``tasks_root`` containment.
+       Judged lexically because the real live output file is a symlink into
+       ``~/.claude/`` — resolving first applies the rule to the link target
+       and rejects every real path (the CER-101 root cause).
+    2. ``Path.is_file()`` — which *does* follow a link: the file must
+       genuinely exist and be a file, not a directory or a broken link.
+    3. **Target allowlist** (:func:`_permitted_output_target`) — a symlink
+       may only point under ``(home or Path.home())/".claude"`` or a temp
+       root. This is where CER-089's protection now lives; see that
+       helper's docstring.
+
+    The returned path is the **lexical** path (the one in the ``tasks/``
+    directory), never the link target — ``output_file``,
+    :func:`session_output_prefix`, the ``pending_reconcilable`` ownership
+    filter and the recording log all stay expressed in the same
+    session-identifying namespace.
+
+    Design note — deliberately looser than the observed live shape. The
+    observed shape is
+    `/tmp/claude-<uid>/<project-slug>/<session-id>/tasks/<hash>.output`,
+    but this guard checks only *temp root + a `tasks` path component*, not
+    the full `claude-<uid>/<slug>/<session>` shape. Pinning the fuller shape
+    would make every ``output_file`` uncontained the moment the harness
+    changes its directory layout — silently stopping all reconciliation,
+    rows pending forever, exactly the failure class CER-101 documented.
+    """
+    try:
+        path = _lexical_spawn_output_path(output_file, tasks_root=tasks_root)
+        if path is None:
             return None
-        return resolved
+        if not path.is_file():
+            return None
+        if not _permitted_output_target(path, home=home):
+            return None
+        return path
     except Exception:
         return None
 
@@ -940,17 +1030,29 @@ def session_output_prefix(output_file: "str | Path | None") -> "str | None":
     The trailing separator matters: without it, a prefix filter for session
     ``abc-123`` would also match ``abc-1234``.
 
-    Pure. Performs no I/O beyond ``Path.resolve()`` — in particular it does not
-    require the file to exist, because a prefix is derived at spawn time while
-    the output file may still be being written. Returns ``None`` for ``None``,
-    for a path with no ``tasks`` component, and for anything that raises. Never
+    INFRA-287 (CER-101 collateral): the parts are derived from
+    ``os.path.abspath(output_file)`` — lexical, never resolved through
+    symlinks. The live output file is a *symlink* under ``tasks/`` pointing
+    into ``~/.claude/projects/.../subagents/``, so the pre-INFRA-287
+    ``Path.resolve()`` walked through it to a path with no ``tasks``
+    component and this function returned ``None`` for every production path
+    between INFRA-285 and INFRA-287 — meaning the ``spawn_output_prefix``
+    ownership filter CER-097 built was never armed and
+    ``record_attempt_from_transcript``'s sweep ran unfiltered. It is
+    filtered from here on: a reader who finds ``spawn_output_prefix``
+    populated in ``state.json`` for the first time is seeing new behaviour,
+    not new data.
+
+    Pure. Performs no filesystem I/O — in particular it does not require the
+    file to exist, because a prefix is derived at spawn time while the output
+    file may still be being written. Returns ``None`` for ``None``, for a
+    path with no ``tasks`` component, and for anything that raises. Never
     raises.
     """
     if output_file is None:
         return None
     try:
-        candidate = output_file if isinstance(output_file, Path) else Path(str(output_file))
-        parts = candidate.resolve().parts
+        parts = Path(os.path.abspath(str(output_file))).parts
         if SPAWN_TASKS_DIR_NAME not in parts:
             return None
         index = parts.index(SPAWN_TASKS_DIR_NAME)
@@ -972,6 +1074,21 @@ def _is_relative_to(path: Path, root: Path) -> bool:
         return False
 
 
+def _empty_stream_result() -> dict:
+    """The all-default :func:`_stream_spawn_output` result shape — the value
+    both that reader and :func:`is_reconcilable_spawn_output` return when
+    nothing was read."""
+    return {
+        "exists": False,
+        "line_cap_exceeded": False,
+        "any_parsed": False,
+        "assistant_entries": [],
+        "last_entry": None,
+        "first_ts": None,
+        "last_ts": None,
+    }
+
+
 def _stream_spawn_output(path: Path) -> dict:
     """Stream a spawn output JSONL file once, returning the raw structured
     data both :func:`read_completed_spawn` and :func:`classify_pending_reason`
@@ -988,15 +1105,7 @@ def _stream_spawn_output(path: Path) -> dict:
     read error yields the all-default shape with ``exists`` reflecting
     reality where determinable.
     """
-    result: dict = {
-        "exists": False,
-        "line_cap_exceeded": False,
-        "any_parsed": False,
-        "assistant_entries": [],
-        "last_entry": None,
-        "first_ts": None,
-        "last_ts": None,
-    }
+    result = _empty_stream_result()
     try:
         if not path.exists():
             return result
@@ -1034,52 +1143,149 @@ def _stream_spawn_output(path: Path) -> dict:
     return result
 
 
-def classify_pending_reason(row: dict) -> str:
+def _file_quiescent(path: Path) -> bool:
+    """``True`` when *path*'s own mtime is at least
+    :data:`QUIESCENT_AGE_SECONDS` in the past — the same stat-and-compare
+    :func:`reconcile_pending_attempts`'s ``include_quiescent`` branch has
+    always used, promoted to a shared helper by INFRA-287 so the terminator
+    predicate and the retirement path apply one physical judgment under one
+    threshold. Best-effort: an ``OSError`` on ``stat()`` means "not
+    quiescent" — never an exception and never a promotion.
+    """
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return False
+    return (datetime.now(timezone.utc).timestamp() - mtime) >= QUIESCENT_AGE_SECONDS
+
+
+def is_reconcilable_spawn_output(
+    output_file: "str | Path | None",
+    *,
+    tasks_root: "Path | str | None" = None,
+    home: "Path | None" = None,
+) -> "tuple[Path | None, str, dict]":
+    """The single containment + terminator predicate (INFRA-287, CER-101).
+
+    Both :func:`read_completed_spawn` (the sweep's reader) and
+    :func:`classify_pending_reason` (the ``pairmode_effort pending``
+    diagnostic) route through this one function, so the two can never again
+    disagree about the same row — the cp-109 contradiction ("14
+    reconcilable" reported, 0 reconciled) was exactly the two halves of this
+    judgment living in two drifting copies, one of which never applied
+    containment at all.
+
+    Returns ``(path, reason, data)``:
+
+    - ``path`` — the contained **lexical** path (see
+      :func:`_contained_spawn_output`), or ``None`` when containment failed;
+    - ``reason`` — a member of :data:`PENDING_REASONS`, or
+      :data:`SPAWN_TERMINATED` when the spawn is contained and finished;
+    - ``data`` — the :func:`_stream_spawn_output` result shape (the
+      all-default shape when nothing was read).
+
+    Reasons, in evaluation order: ``no-output-file`` (falsy *output_file*),
+    ``uncontained`` (containment rejected a non-empty path — with the one
+    honest exception that a well-*placed* path whose file has simply
+    vanished reports ``file-missing``, because a containment rejection and
+    an evicted ``/tmp`` file are different operational problems),
+    ``file-missing``, ``line-cap``, ``file-empty``, then the terminator
+    verdict on the last parseable entry.
+
+    Terminator (B4): the last parseable entry must be ``type ==
+    "assistant"`` with a ``dict`` ``message``; anything else is
+    ``not-terminated`` regardless of mtime (the quiescence promotion applies
+    only where there is an assistant turn to extract usage from — the
+    ``include_quiescent`` retirement path in
+    :func:`reconcile_pending_attempts` remains the route for the rest).
+    Given that assistant last entry, the spawn is terminated when its stop
+    reason is ``end_turn`` **or** the file has been quiescent for
+    :data:`QUIESCENT_AGE_SECONDS` (measured live 2026-07-28: 51 of 294
+    output files — ~18% of completed spawns — end on an assistant entry
+    with no stop-reason stamp at all, and 50 of those 51 had been untouched
+    for over an hour: finished agents, not in-flight ones; ``end_turn``
+    itself remains the majority terminator at 215 of 294 and must keep
+    working). A truthy non-``end_turn`` stop reason on a still-fresh file is
+    ``in-flight``; a falsy/absent one on a still-fresh file is
+    ``not-terminated``.
+
+    Pure: no writes, no db access, never raises — any exception yields
+    ``(None, "file-empty", <empty shape>)``, matching
+    :func:`classify_pending_reason`'s long-standing except-branch value.
+    """
+    try:
+        if not output_file:
+            return None, "no-output-file", _empty_stream_result()
+
+        path = _contained_spawn_output(output_file, tasks_root=tasks_root, home=home)
+        if path is None:
+            lexical = _lexical_spawn_output_path(output_file, tasks_root=tasks_root)
+            if lexical is not None and not os.path.exists(lexical):
+                # Placement is fine; the file (or its link target) is simply
+                # gone — an evicted /tmp, not a containment rejection.
+                return None, "file-missing", _empty_stream_result()
+            return None, "uncontained", _empty_stream_result()
+
+        data = _stream_spawn_output(path)
+        if not data["exists"]:
+            return path, "file-missing", data
+        if data["line_cap_exceeded"]:
+            return path, "line-cap", data
+        if not data["any_parsed"]:
+            return path, "file-empty", data
+
+        last_entry = data["last_entry"]
+        message = last_entry.get("message") if isinstance(last_entry, dict) else None
+        if (
+            not isinstance(last_entry, dict)
+            or last_entry.get("type") != "assistant"
+            or not isinstance(message, dict)
+        ):
+            return path, "not-terminated", data
+
+        stop = message.get("stop_reason")
+        if stop == "end_turn" or _file_quiescent(path):
+            return path, SPAWN_TERMINATED, data
+        if stop:
+            return path, "in-flight", data
+        return path, "not-terminated", data
+    except Exception:
+        return None, "file-empty", _empty_stream_result()
+
+
+def classify_pending_reason(
+    row: dict,
+    *,
+    tasks_root: "Path | str | None" = None,
+    home: "Path | None" = None,
+) -> str:
     """Return the single reason a ``pending_reconcilable`` row has not
-    reconciled (CER-091 defect 3).
+    reconciled (CER-091 defect 3; shared predicate since INFRA-287).
 
     Pure — no writes, no db access, takes an already-fetched row dict.
-    Never raises. Returns one of :data:`PENDING_REASONS`. Reuses
-    :func:`_stream_spawn_output` so this classifier and
-    :func:`read_completed_spawn` can never read the same file two different
-    ways.
+    Never raises. Returns one of :data:`PENDING_REASONS`. Routes through
+    :func:`is_reconcilable_spawn_output` — the same predicate
+    :func:`read_completed_spawn` uses — so this classifier and the sweep can
+    never disagree about whether a row is reachable (CER-101's diagnostic
+    lie: this function used to open ``row["output_file"]`` directly, never
+    applying the containment rule the sweep applied, so it reported rows
+    "reconcilable" that the sweep could never touch). *tasks_root*/*home*
+    are keyword-only with defaults, so existing single-argument call sites
+    (``pairmode_effort.py pending``) are unchanged.
     """
     try:
         output_file = row.get("output_file") if isinstance(row, dict) else None
-        if not output_file:
-            return "no-output-file"
-
-        path = output_file if isinstance(output_file, Path) else Path(str(output_file))
-        data = _stream_spawn_output(path)
-
-        if not data["exists"]:
-            return "file-missing"
-        if data["line_cap_exceeded"]:
-            return "line-cap"
-        if not data["any_parsed"]:
-            return "file-empty"
-
-        last_entry = data["last_entry"]
-        if not isinstance(last_entry, dict) or last_entry.get("type") != "assistant":
-            return "not-terminated"
-
-        message = last_entry.get("message")
-        if not isinstance(message, dict):
-            return "not-terminated"
-
-        stop_reason = message.get("stop_reason")
-        if stop_reason and stop_reason != "end_turn":
-            return "in-flight"
-        if stop_reason != "end_turn":
-            # Falsy/absent stop_reason on an otherwise-assistant last entry —
-            # a mid-stream snapshot rather than a genuine terminator.
-            return "not-terminated"
+        path, reason, data = is_reconcilable_spawn_output(
+            output_file, tasks_root=tasks_root, home=home
+        )
+        if reason != SPAWN_TERMINATED:
+            return reason
 
         usage = _sum_deduped_usage(data["assistant_entries"])
         if usage.get("tokens_total") is None:
             return "no-usage"
 
-        final_text = _flatten_tool_response(message)
+        final_text = _flatten_tool_response(data["last_entry"].get("message"))
         outcome, _ = parse_worker_outcome(final_text)
         if outcome is None:
             return "no-outcome"
@@ -1093,6 +1299,7 @@ def read_completed_spawn(
     output_file: "str | Path | None",
     *,
     tasks_root: "Path | str | None" = None,
+    home: "Path | None" = None,
 ) -> "dict | None":
     """Read a spawned agent's own JSONL output file (INFRA-258).
 
@@ -1103,46 +1310,32 @@ def read_completed_spawn(
     ``cache_read_tokens``, ``cache_write_tokens``, ``duration_ms``,
     ``model``, ``outcome``, ``fail_cause``, ``final_text``.
 
-    Completion detection: the **last parseable** JSONL entry must be
-    ``type == "assistant"`` with ``message.stop_reason == "end_turn"``. An
-    entry with ``stop_reason == "tool_use"``, a truncated/unparseable
-    trailing line with no earlier ``end_turn`` terminator, an empty file, or
-    a nonexistent path all yield ``None`` — an in-flight agent is never
-    reconciled.
+    Containment **and** completion detection are delegated wholesale to
+    :func:`is_reconcilable_spawn_output` (INFRA-287, CER-101) — this
+    function returns ``None`` unless that shared predicate reports
+    :data:`SPAWN_TERMINATED`, then does only usage/duration/outcome
+    extraction from the returned data. See the predicate's docstring for
+    the terminator rule (``end_turn`` or file quiescence on an assistant
+    last entry) and the containment split (lexical link path + allowlisted
+    link target). A rejected path returns ``None`` with no ``open()`` call
+    ever made on it; the failure mode this creates — an ``output_file``
+    value that fails containment leaves its ``effort.db`` row pending
+    forever — is now *visible* as ``classify_pending_reason``'s
+    ``uncontained``, no longer indistinguishable from an evicted file.
 
-    CER-089 containment: before anything is opened, *output_file* is routed
-    through :func:`_contained_spawn_output` (default rule when *tasks_root*
-    is ``None``: temp-root-contained with a ``tasks`` path component; strict
-    ``tasks_root`` containment otherwise). A rejected path returns ``None``
-    immediately — no ``open()`` call is ever made on it. The failure mode
-    this creates: an ``output_file`` value that fails containment leaves its
-    ``effort.db`` row pending forever (the same shape as an evicted `/tmp`
-    file) — a future reader debugging a stuck row should look here.
-
-    Public signature (besides the new keyword-only ``tasks_root``) and
-    return shape unchanged from pre-CER-091 (other callers and INFRA-258's
-    own tests depend on both); internally this now delegates its file walk
-    to :func:`_stream_spawn_output`, the same reader
-    :func:`classify_pending_reason` uses (CER-091 defect 3). Never raises.
+    Public signature (besides the keyword-only ``tasks_root``, and ``home``
+    added by INFRA-287 for test injection of the target allowlist's
+    ``~/.claude`` root) and return shape unchanged from pre-CER-091 (other
+    callers and INFRA-258's own tests depend on both). Never raises.
     """
     try:
-        path = _contained_spawn_output(output_file, tasks_root=tasks_root)
-        if path is None:
+        path, reason, data = is_reconcilable_spawn_output(
+            output_file, tasks_root=tasks_root, home=home
+        )
+        if reason != SPAWN_TERMINATED or path is None:
             return None
 
-        data = _stream_spawn_output(path)
-        if not data["exists"] or data["line_cap_exceeded"]:
-            return None
-
-        last_entry = data["last_entry"]
-        if last_entry is None or last_entry.get("type") != "assistant":
-            return None
-
-        last_message = last_entry.get("message")
-        if not isinstance(last_message, dict):
-            return None
-        if last_message.get("stop_reason") != "end_turn":
-            return None
+        last_message = data["last_entry"].get("message")
 
         usage = _sum_deduped_usage(data["assistant_entries"])
         if usage.get("tokens_total") is None:
@@ -1510,7 +1703,10 @@ def reconcile_pending_attempts(
                 continue
 
             path = output_file if isinstance(output_file, Path) else Path(str(output_file))
-            result = read_completed_spawn(path, tasks_root=tasks_root)
+            # INFRA-287: *home* is forwarded so the target allowlist's
+            # ~/.claude root is injectable end-to-end in tests; the
+            # production default (None -> Path.home()) is unchanged.
+            result = read_completed_spawn(path, tasks_root=tasks_root, home=home)
 
             if result is not None and result.get("outcome") is not None:
                 fields: "dict[str, Any]" = {

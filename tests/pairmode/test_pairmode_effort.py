@@ -769,7 +769,12 @@ class TestPending:
             attempt_number=1,
             ts=old_ts,
         )
-        output_file = project_dir / "agent.output"
+        # INFRA-287 (CER-101): classify_pending_reason now applies the same
+        # containment rule as the sweep, so this fixture moved under a tasks/
+        # component — a bare project-dir path would classify "uncontained"
+        # instead of the "no-outcome" rendering this test pins.
+        output_file = project_dir / "tasks" / "agent.output"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(
             _json.dumps({
                 "type": "assistant",
@@ -825,7 +830,17 @@ class TestPending:
             attempt_number=1,
             ts="2026-05-01T00:00:00+00:00",
         )
-        effort_db.set_spawn_ref(db_path, row_id, "a1", "/tmp/does-not-exist.output")
+        # INFRA-287 (CER-101): a tasks/ component keeps this path well-placed
+        # under the containment rule, so a nonexistent file still classifies
+        # "file-missing" (an uncontained path now reports "uncontained").
+        import os as _os
+        import tempfile as _tempfile
+
+        missing = _os.path.join(
+            _tempfile.gettempdir(),
+            "claude-1000", "-slug", "sess-1", "tasks", "does-not-exist.output",
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "a1", missing)
 
         runner = CliRunner()
         result = runner.invoke(

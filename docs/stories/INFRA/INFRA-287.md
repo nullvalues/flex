@@ -15,6 +15,12 @@ touches:
   - docs/cer/backlog.md
   - tests/pairmode/test_subagent_transcript.py
   - tests/pairmode/test_flex_build_checkpoint_report.py
+  # Builder addition (B5/step-5 fixture movement): two TestPending fixtures in
+  # this file were written against the pre-INFRA-287 uncontained path shape
+  # (output_file directly under project_dir, no tasks/ component) and now
+  # classify "uncontained" instead of the reason they pin. Fixture-path-only
+  # update; pairmode_effort.py itself is untouched (B8).
+  - tests/pairmode/test_pairmode_effort.py
   - docs/stories/INFRA/INFRA-287.md
 ---
 

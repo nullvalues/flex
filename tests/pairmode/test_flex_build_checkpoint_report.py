@@ -320,3 +320,82 @@ def test_checkpoint_report_phase_scoped_no_attempts_recorded(tmp_path: Path) -> 
     assert "=== checkpoint cost rollup — phase 101 ===" in result.stdout
     assert "no attempts recorded for phase 101" in result.stdout
     assert "INFRA-256: no attempts recorded" in result.stdout
+
+
+def _seed_pending_rows(project_dir: Path, story_ids: list[str], phase: str = "101") -> None:
+    """INFRA-287 (CER-101): insert rows with tokens_total/outcome both NULL —
+    the shape every async spawn's row has until reconciliation completes it."""
+    companion = project_dir / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    db_path = companion / "effort.db"
+    sys.path.insert(0, str(_REPO_ROOT / "skills" / "pairmode" / "scripts"))
+    from effort_db import init_db, insert_attempt  # noqa: PLC0415
+
+    init_db(db_path)
+    for story_id in story_ids:
+        insert_attempt(
+            db_path,
+            story_id=story_id,
+            phase=phase,
+            rail="INFRA",
+            agent_role="builder",
+            attempt_number=1,
+            ts="2026-07-28T00:00:00+00:00",
+        )
+
+
+def test_checkpoint_report_pending_rows_qualify_no_attempts_lines(tmp_path: Path) -> None:
+    """INFRA-287 (CER-101, D2): pending (unreconciled) rows are reported as
+    pending — both the phase-level and per-story 'no attempts' strings are
+    qualified, so deferred reconciliation no longer reads as data loss."""
+    _write_phase_index(tmp_path, [("101", "active")])
+    _write_stories_table(
+        tmp_path,
+        "101",
+        [
+            ("INFRA-280", "Async story", "complete"),
+            ("INFRA-281", "Another async story", "complete"),
+        ],
+    )
+    _seed_pending_rows(tmp_path, ["INFRA-280", "INFRA-280", "INFRA-281"])
+
+    result = _run("checkpoint-report", "--project-dir", str(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert "no attempts recorded for phase 101" in result.stdout
+    assert (
+        "3 attempt row(s) recorded but not yet reconciled — effort is pending, not absent"
+        in result.stdout
+    )
+    assert "INFRA-280: no reconciled attempts (2 pending)" in result.stdout
+    assert "INFRA-281: no reconciled attempts (1 pending)" in result.stdout
+
+
+def test_checkpoint_report_story_with_neither_rows_keeps_bare_string(tmp_path: Path) -> None:
+    """INFRA-287 (D2): a story with neither reconciled nor pending rows still
+    prints the original bare string, byte-identical."""
+    _write_phase_index(tmp_path, [("101", "active")])
+    _write_stories_table(
+        tmp_path,
+        "101",
+        [
+            ("INFRA-280", "Async story", "complete"),
+            ("INFRA-282", "Never spawned", "planned"),
+        ],
+    )
+    _seed_pending_rows(tmp_path, ["INFRA-280"])
+
+    result = _run("checkpoint-report", "--project-dir", str(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert "INFRA-282: no attempts recorded" in result.stdout
+    assert "INFRA-282: no reconciled attempts" not in result.stdout
+
+
+def test_checkpoint_report_stays_pure_read_no_reconcile_call(tmp_path: Path) -> None:
+    """INFRA-287 (D3): checkpoint-report never calls
+    reconcile_pending_attempts — the reconcile-first option was declined."""
+    source = _SCRIPT.read_text(encoding="utf-8")
+    start = source.index("def cmd_checkpoint_report")
+    end = source.index("\n@flex_build.command", start)
+    assert "reconcile_pending_attempts" not in source[start:end]
