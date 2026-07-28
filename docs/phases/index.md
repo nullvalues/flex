@@ -129,6 +129,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 109 | Single-orchestrator parallel build concurrency (index-ordered after 104 — scaffolded 2026-07-25, builds before 105) | complete | [phase-109.md](phase-109.md) |
 | 105 | Campaign preflight: hooks, discovery, scope-guard, channel canon | complete | [phase-105.md](phase-105.md) |
 | 110 | Effort-recording data-flow remediation (CER-101..104; index-ordered after 105 — scaffolded 2026-07-28, builds before phase 106 resumes) | complete | [phase-110.md](phase-110.md) |
+| 111 | Plugin packaging repair: local marketplace source and skill-name de-namespacing (index-ordered before held phase 106 — scaffolded 2026-07-28) | planned | [phase-111.md](phase-111.md) |
 | 106 | Fleet migration campaign (driven from flex) | planned | [phase-106.md](phase-106.md) |
 | 107 | CER backlog drain to zero | planned | [phase-107.md](phase-107.md) |
 | 108 | Era 003 close (gated on observability delivery) | planned | [phase-108.md](phase-108.md) |
