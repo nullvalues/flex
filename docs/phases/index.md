@@ -131,6 +131,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 106 | Fleet migration campaign (driven from flex) | planned | [phase-106.md](phase-106.md) |
 | 107 | CER backlog drain to zero | planned | [phase-107.md](phase-107.md) |
 | 108 | Era 003 close (gated on observability delivery) | planned | [phase-108.md](phase-108.md) |
+| 110 | Effort-recording data-flow remediation (CER-101..104) | planned | [phase-110.md](phase-110.md) |
 
 ---
 

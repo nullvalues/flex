@@ -78,3 +78,13 @@ this phase, record the management surface before the phase is checkpointed.
 ### CP-106 Cold-eyes checklist
 
 — developer fills in after phase completion —
+
+
+## Paused (2026-07-28) — recording remediation forked to Phase 110
+
+RELEASE-063 (canary) executed 2026-07-27/28: meander migrated and verified
+(E1-E5, E7-E12 pass), but E6 failed — the effort-recording cluster
+(CER-101/102/103/104, root-caused in Phase 110's audit dossier). Per the canary
+gate (RELEASE-063 Instructions step 8), RELEASE-064..071 are blocked. They stay
+`draft` here (never started, so no per-story deferral entries); this phase
+resumes after cp-110. Parent-phase pointer recorded in phase-110.md.

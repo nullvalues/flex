@@ -197,6 +197,7 @@ post-fold numeric phases; the era's earlier HARNESS phases are recorded in
 | 106 | Fleet migration campaign (driven from flex) | planned |
 | 107 | CER backlog drain to zero | planned |
 | 108 | Era 003 close (gated on observability delivery) | planned |
+| 110 | Effort-recording data-flow remediation (CER-101..104) | planned |
 
 ## Versioning & compatibility
 
