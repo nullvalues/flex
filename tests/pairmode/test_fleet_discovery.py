@@ -249,8 +249,10 @@ class TestReadOnly:
 # ---------------------------------------------------------------------------
 
 class TestSnapshot:
-    def test_snapshot_written_to_flex_repo(self, fleet: dict, tmp_path: Path) -> None:
-        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+    def test_write_snapshot_writes_requested_destination(self, fleet: dict, tmp_path: Path) -> None:
+        """_write_snapshot writes wherever it is told (INFRA-295): the caller
+        owns destination policy, this function has no refusal branch."""
+        dest = tmp_path / "somewhere" / "fleet-snapshot.md"
         results = fd.discover(fleet["candidates"])
         fd._write_snapshot(results, dest)
         assert dest.exists()
@@ -275,7 +277,10 @@ class TestSnapshot:
         assert "Signal 2" in content or "pairmode_version" in content.lower()
 
     def test_snapshot_does_not_write_to_scanned_project(self, fleet: dict, tmp_path: Path) -> None:
-        """Snapshot goes to flex repo, NOT to any scanned project."""
+        """No scanned project is ever written by _write_snapshot (the
+        default-target rule for where the snapshot goes is destination
+        policy owned by the caller, per INFRA-295 — this test only asserts
+        the guarantee _write_snapshot itself still holds)."""
         dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
         before = {
             k: v for k, v in _record_mtimes(tmp_path).items()
@@ -289,6 +294,141 @@ class TestSnapshot:
             assert after.get(path) == mtime, (
                 f"Scanned project file was modified by _write_snapshot: {path}"
             )
+
+# ---------------------------------------------------------------------------
+# INFRA-295: default snapshot destination refuses to write into the scripts
+# checkout when the invoking repo is not that checkout.
+# ---------------------------------------------------------------------------
+
+class TestDefaultSnapshotDestination:
+    def test_predicate_true_inside_flex_root(self, fleet: dict) -> None:
+        assert fd._invoking_repo_is_scripts_checkout(
+            fleet["fake_flex_root"], fleet["fake_flex_root"]
+        ) is True
+
+    def test_predicate_true_nested_under_flex_root(self, fleet: dict) -> None:
+        nested = fleet["fake_flex_root"] / "some" / "subdir"
+        nested.mkdir(parents=True)
+        assert fd._invoking_repo_is_scripts_checkout(
+            nested, fleet["fake_flex_root"]
+        ) is True
+
+    def test_predicate_false_outside_flex_root(self, fleet: dict, tmp_path: Path) -> None:
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        assert fd._invoking_repo_is_scripts_checkout(
+            elsewhere, fleet["fake_flex_root"]
+        ) is False
+
+    def test_resolver_returns_default_when_inside(self, fleet: dict) -> None:
+        dest = fd._default_snapshot_destination(
+            fleet["fake_flex_root"], fleet["fake_flex_root"]
+        )
+        assert dest == fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+
+    def test_resolver_returns_none_when_outside(self, fleet: dict, tmp_path: Path) -> None:
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        dest = fd._default_snapshot_destination(elsewhere, fleet["fake_flex_root"])
+        assert dest is None
+
+
+class TestCliSnapshotRefusal:
+    def _candidate_dir_argv(self, fleet: dict) -> list[str]:
+        argv: list[str] = []
+        for c in fleet["candidates"]:
+            argv += ["--candidate-dir", str(c)]
+        return argv
+
+    def test_refusal_writes_no_snapshot_file(
+        self, fleet: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from click.testing import CliRunner
+
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli, self._candidate_dir_argv(fleet), catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        for candidate_root in (fleet["fake_flex_root"], elsewhere):
+            for p in candidate_root.rglob("fleet-snapshot.md"):
+                pytest.fail(f"snapshot file unexpectedly written: {p}")
+
+    def test_refusal_exit_code_and_message(
+        self, fleet: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from click.testing import CliRunner
+
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli, self._candidate_dir_argv(fleet), catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert "--snapshot" in result.stderr
+        assert "--no-snapshot" in result.stderr
+        assert str(fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md") in result.stderr
+
+    def test_refusal_under_json_stdout_still_parses(
+        self, fleet: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from click.testing import CliRunner
+
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli, [*self._candidate_dir_argv(fleet), "--json"], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        payload = json.loads(result.stdout)
+        assert "fleet" in payload
+        assert "--snapshot" in result.stderr
+        assert "--no-snapshot" in result.stderr
+
+    def test_in_repo_default_still_writes(
+        self, fleet: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from click.testing import CliRunner
+
+        monkeypatch.chdir(fleet["fake_flex_root"])
+
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli, self._candidate_dir_argv(fleet), catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+        assert dest.exists()
+
+    def test_explicit_snapshot_honoured_from_foreign_cwd(
+        self, fleet: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from click.testing import CliRunner
+
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        explicit_dest = fleet["fake_flex_root"] / "docs" / "explicit-snapshot.md"
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli,
+            [*self._candidate_dir_argv(fleet), "--snapshot", str(explicit_dest)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert explicit_dest.exists()
+
 
 # ---------------------------------------------------------------------------
 # INFRA-269: duplicate hook registration check (CER-081, DP8)

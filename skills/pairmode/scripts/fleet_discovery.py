@@ -15,7 +15,9 @@ Usage:
 Options:
     --candidate-dir PATH   Add a candidate directory to scan (repeatable)
     --candidates-file PATH Read candidate dirs from a file (one per line)
-    --snapshot PATH        Write snapshot to this file (default: docs/fleet-snapshot.md)
+    --snapshot PATH        Write snapshot to this file (default: the invoking flex
+                           checkout's docs/fleet-snapshot.md; refused when the
+                           scripts checkout is not the invoking repo)
     --no-snapshot          Skip writing the snapshot file
     --json                 Output JSON instead of human-readable text
 """
@@ -375,14 +377,63 @@ def discover(candidate_dirs: list[Path]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Snapshot destination policy (INFRA-295)
+# ---------------------------------------------------------------------------
+
+def _invoking_repo_is_scripts_checkout(
+    invoking_dir: Path = None, flex_root: Path = None
+) -> bool:
+    """Is the scripts checkout also the repo this invocation came from?
+
+    Protects the rule that the scripts checkout (``_FLEX_ROOT``) is a
+    permanent read-only release channel once a project has folded onto a
+    consumed 0.3.0 checkout (e.g. ``/mnt/work/flex-harness``): a script
+    invoked from a *different* repo must never default-write into the
+    checkout it was loaded from. Returns True iff the resolved
+    ``invoking_dir`` is ``flex_root`` itself or is nested under it. Pure —
+    performs no I/O beyond path resolution.
+    """
+    if invoking_dir is None:
+        invoking_dir = Path.cwd()
+    if flex_root is None:
+        flex_root = _FLEX_ROOT
+    resolved_invoking = invoking_dir.resolve()
+    resolved_root = flex_root.resolve()
+    return resolved_invoking == resolved_root or resolved_invoking.is_relative_to(resolved_root)
+
+
+def _default_snapshot_destination(
+    invoking_dir: Path = None, flex_root: Path = None
+) -> Optional[Path]:
+    """Resolve the default (no ``--snapshot``) snapshot destination.
+
+    Returns ``flex_root / "docs" / "fleet-snapshot.md"`` when the invoking
+    repo is the scripts checkout (see
+    ``_invoking_repo_is_scripts_checkout``), and ``None`` when it is not —
+    signalling that the caller must refuse to write a default destination
+    rather than silently write into either the scripts checkout or an
+    arbitrary consumer repo. Performs no writes itself.
+    """
+    if invoking_dir is None:
+        invoking_dir = Path.cwd()
+    if flex_root is None:
+        flex_root = _FLEX_ROOT
+    if _invoking_repo_is_scripts_checkout(invoking_dir, flex_root):
+        return flex_root / "docs" / "fleet-snapshot.md"
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Snapshot writer
 # ---------------------------------------------------------------------------
 
 def _write_snapshot(results: list[dict], snapshot_path: Path) -> None:
     """Write a dated snapshot of the discovered fleet to snapshot_path.
 
-    This is a write to the flex repo (snapshot_path is under _FLEX_ROOT),
-    NOT a write to any scanned project — read-only constraint satisfied.
+    The caller owns destination policy (see
+    ``_default_snapshot_destination`` and ``_invoking_repo_is_scripts_checkout``
+    for the default-target refusal rule); this function writes wherever it
+    is told, with no refusal branch of its own — one rule, one guard site.
     """
     now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines = [
@@ -470,7 +521,11 @@ def _write_snapshot(results: list[dict], snapshot_path: Path) -> None:
     "snapshot_path",
     type=click.Path(),
     default=None,
-    help="Write snapshot to this file. Default: docs/fleet-snapshot.md",
+    help=(
+        "Write snapshot to this file. Default: the invoking flex checkout's "
+        "docs/fleet-snapshot.md; refused when the scripts checkout is not "
+        "the invoking repo."
+    ),
 )
 @click.option(
     "--no-snapshot",
@@ -552,10 +607,24 @@ def cli(
         click.echo(f"Projects with duplicate hooks: {projects_with_duplicates}")
 
     if not no_snapshot:
-        dest = Path(snapshot_path) if snapshot_path else _FLEX_ROOT / "docs" / "fleet-snapshot.md"
-        _write_snapshot(results, dest)
-        if not output_json:
-            click.echo(f"\nSnapshot written to: {dest}")
+        if snapshot_path:
+            dest = Path(snapshot_path)
+        else:
+            dest = _default_snapshot_destination()
+        if dest is None:
+            declined = _FLEX_ROOT / "docs" / "fleet-snapshot.md"
+            click.echo(
+                "Refusing to write default snapshot destination "
+                f"({declined}): this invocation is outside the flex checkout "
+                "the scripts dir belongs to, and the scripts checkout is a "
+                "read-only release channel. Pass --snapshot PATH to write "
+                "elsewhere, or --no-snapshot to skip the snapshot.",
+                err=True,
+            )
+        else:
+            _write_snapshot(results, dest)
+            if not output_json:
+                click.echo(f"\nSnapshot written to: {dest}")
 
 
 if __name__ == "__main__":

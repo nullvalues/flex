@@ -3340,8 +3340,18 @@ merged with the documented candidate names under the parent of the flex root. Ov
 `--candidate-dir` (repeatable) or `--candidates-file`.
 
 **Read-only contract:** the tool never opens any scanned project file for write. The only file
-it writes is the snapshot under `docs/fleet-snapshot.md` in THIS repo, which is not a scanned
-project.
+it writes is a snapshot at `docs/fleet-snapshot.md`, and only **inside the repo the tool was
+invoked from** — never a scanned project, and (INFRA-295) never THIS scripts checkout when
+that checkout is not also the invoking repo. That second guard exists because, post-fold,
+`/mnt/work/flex-harness` is a **permanent read-only release channel** consumed by fleet
+projects, not a project someone is working in; a native session running `fleet_discovery.py`
+from inside a consumer repo without `--no-snapshot` used to default-write into the channel
+checkout it loaded the script from (caught during RELEASE-065 and reverted by hand). The
+default-destination resolver now refuses — emits a warning naming both `--snapshot` and
+`--no-snapshot` on stderr and writes nothing — whenever the invoking directory is outside the
+scripts checkout's flex root; an explicit `--snapshot PATH` is always honoured as the escape
+hatch. flex's own in-repo use (invoking from inside the flex checkout itself) is unchanged:
+the default still resolves to `<flex_root>/docs/fleet-snapshot.md`.
 
 **Pre-fold hard gate (DP8):** The authoritative pre-fold run of this tool is a **hard gate
 immediately before the fold**. Under Option Y, the fold makes `/mnt/work/flex` the 0.3.0
@@ -3371,7 +3381,9 @@ uv run python skills/pairmode/scripts/fleet_discovery.py [OPTIONS]
 Options:
   --candidate-dir PATH   Add a candidate directory to scan (repeatable)
   --candidates-file PATH Read candidate dirs from a file (one per line)
-  --snapshot PATH        Write snapshot to this file (default: docs/fleet-snapshot.md)
+  --snapshot PATH        Write snapshot to this file (default: the invoking flex
+                         checkout's docs/fleet-snapshot.md; refused when the
+                         scripts checkout is not the invoking repo)
   --no-snapshot          Skip writing the snapshot file
   --json                 Output JSON instead of human-readable text
 ```

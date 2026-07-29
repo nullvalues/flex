@@ -404,10 +404,16 @@ project's `CLAUDE.build.md` should contain a `pairmode_scripts_dir` declaration 
 0.3.0 scripts directory; if `Signal 1 (scripts path): absent` persists after sync, the project's
 `CLAUDE.build.md` was not updated by sync and the bind is incomplete.
 
+`--no-snapshot` is required here: this command is run from the project being migrated, not from
+the flex checkout, so the default snapshot destination (INFRA-295) is refused — the run is a
+verification check, not a fleet snapshot capture, and this step never needed the snapshot side
+effect in the first place.
+
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python \
   /mnt/work/flex/skills/pairmode/scripts/fleet_discovery.py \
-  --candidate-dir /path/to/project
+  --candidate-dir /path/to/project \
+  --no-snapshot
 ```
 
 Confirm the output shows `Signal 1 (scripts path): present` before proceeding to the next project.
