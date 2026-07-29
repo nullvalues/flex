@@ -2252,6 +2252,17 @@ Fields:
   `hooks/user_prompt_submit.py` on every `UserPromptSubmit` event (treated as `0` when
   absent). The sole signal that a genuine human turn has occurred since a context-budget
   block. INFRA-192.
+- `context_budget_acknowledged_at` — **optional**; integer; the
+  `context_current_tokens` value at the moment `hooks/pre_tool_use.py` last wrote a
+  context-budget block (`hooks/pre_tool_use.py`'s `_mutate` closure). Read by
+  `context_budget.decide()` through `int()` and compared by `should_block()` against
+  `current_tokens + reprompt_margin` — a retry is released unless real token growth has
+  crossed the margin since the acknowledgment. **The `_at` suffix is a misnomer: this key
+  holds a token count, not a timestamp.** It is retained deliberately (CER-106,
+  INFRA-299): renaming it is a fleet-wide `state.json` key migration across every
+  registered project, requiring a read-both/write-one compatibility window and a
+  `pairmode_migrate` rule, and the key works correctly today. The rename half of CER-106
+  stays on the backlog; both read and write sites carry a comment saying so.
 - `context_budget_acknowledged_user_turn_seq` — **optional**; integer; the value of
   `context_budget_user_turn_seq` at the moment `hooks/pre_tool_use.py` last wrote a block,
   written alongside `context_budget_acknowledged_at` in the same `write_text()` call.
@@ -2724,6 +2735,26 @@ populated by sidebar cross-skill recording; NULL for pairmode loop rows from
 older builds), and a UTC timestamp. Pricing is intentionally absent
 from the schema: dollar projections are computed at read time from a
 user-maintained `pricing.json`, never persisted.
+
+**`attempts.phase` is checkpoint-only, by design (CER-105).** The `phase` column is
+populated **only** for spawns whose role is in `subagent_transcript.CHECKPOINT_ROLES`
+(`security-auditor`, `intent-reviewer`); it is NULL on every story row. This is not
+drift. INFRA-258 found that attributing a checkpoint spawn the way every other role is
+attributed — first-match story regex over the prompt — stamps an entire phase's
+checkpoint cost onto whichever story the prompt happens to name first (observed live:
+`effort.db` ids 339-340 stamped `INFRA-256`). Checkpoint roles are therefore routed to
+`_derive_attribution`'s phase-key branch instead, and story rows keep no phase at all: a
+per-story rollup scopes by story-ID list (`flex_build._query_effort_by_story_ids`,
+`:2730`), never by `phase`, so it correctly excludes checkpoint cost, and
+`effort_db.query_by_phase` (`:707`) consequently returns checkpoint rows only.
+Populating `phase` on story rows as well would put a second attribution scheme in the
+same column, serving no reader that wants it. CER-105 is settled as *documented, not
+changed* (INFRA-299).
+
+The live consequence: `skills/observability/api/src/readers/effortDb.ts`'s
+`SELECT DISTINCT phase FROM attempts WHERE phase IS NOT NULL` (`:209`) reports a
+**checkpoint-only** per-phase breakdown. That is correct-by-design and must not be
+"fixed" by back-filling `phase` onto story rows.
 
 **Tokens as the primary metric.** Tokens are the unit of compute effort the
 build loop actually spends. Dollars are an ephemeral projection through the

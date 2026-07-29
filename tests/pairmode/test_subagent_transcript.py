@@ -4138,3 +4138,269 @@ class TestReconcileOne:
         )
 
         assert observed <= st.RECORDING_DECISIONS, observed - st.RECORDING_DECISIONS
+
+
+# ---------------------------------------------------------------------------
+# INFRA-299 (CER-113) — JSON BUILD outcome is enum-validated
+#
+# Appended at the end of the file, after every pre-existing class has closed,
+# so no existing test's pytest node id changes.
+# ---------------------------------------------------------------------------
+
+
+class TestJsonBuildOutcomeEnumGate:
+    """The JSON `BUILD-RESULT` branch now gates `outcome` on
+    `RECOGNISED_BUILD_OUTCOMES`, mirroring the REVIEW branch (CER-113)."""
+
+    def test_enum_mirrors_worker_result_build_outcomes(self) -> None:
+        assert st.RECOGNISED_BUILD_OUTCOMES == frozenset({"PASS", "FAIL"})
+
+    def test_non_enum_outcome_is_refused_but_fail_cause_survives(self) -> None:
+        # B2: the refused verdict yields no outcome; the worker's own reason
+        # for failing is still worth keeping.
+        assert st.parse_worker_outcome(
+            '{"type": "BUILD-RESULT", "outcome": "SUCCESS", "fail_cause": "x"}'
+        ) == (None, "x")
+
+    def test_valid_pass_unaffected(self) -> None:
+        text = json.dumps({
+            "type": "BUILD-RESULT",
+            "outcome": "PASS",
+            "story_id": "INFRA-299",
+            "reason": "r",
+        })
+        assert st.parse_worker_outcome(text) == ("PASS", None)
+
+    def test_valid_fail_unaffected(self) -> None:
+        text = json.dumps({
+            "type": "BUILD-RESULT",
+            "outcome": "FAIL",
+            "story_id": "INFRA-299",
+            "fail_cause": "tests red",
+        })
+        assert st.parse_worker_outcome(text) == ("FAIL", "tests red")
+
+    @pytest.mark.parametrize("value", ["pass", "Pass", " PASS ", "DONE", "PARTIAL"])
+    def test_rejection_is_not_case_normalised_or_trimmed(self, value: str) -> None:
+        # B4: no fuzzy rescue on the JSON path — that would recreate CER-113
+        # with extra steps. "pass"/"PARTIAL" are the two shapes the INFRA-299
+        # fleet audit actually found live.
+        text = json.dumps({
+            "type": "BUILD-RESULT",
+            "outcome": value,
+            "story_id": "INFRA-299",
+            "reason": "r",
+        })
+        outcome, _ = st.parse_worker_outcome(text)
+        assert outcome is None
+
+    def test_review_verdict_gate_still_applies(self) -> None:
+        text = json.dumps({"type": "REVIEW-RESULT", "verdict": "SUCCESS"})
+        outcome, _ = st.parse_worker_outcome(text)
+        assert outcome is None
+
+
+class TestParseWorkerOutcomeRejectedOutList:
+    """`parse_worker_outcome`'s keyword-only `rejected` out-list (C2)."""
+
+    def test_default_behaviour_is_unchanged(self) -> None:
+        # With no out-list supplied, the return is byte-identical to before.
+        assert st.parse_worker_outcome(
+            '{"type": "BUILD-RESULT", "outcome": "SUCCESS"}'
+        ) == (None, None)
+
+    def test_return_type_is_still_a_two_tuple(self) -> None:
+        rejected: list[str] = []
+        result = st.parse_worker_outcome(
+            '{"type": "BUILD-RESULT", "outcome": "SUCCESS"}', rejected=rejected
+        )
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    def test_refused_build_outcome_is_collected(self) -> None:
+        rejected: list[str] = []
+        st.parse_worker_outcome(
+            '{"type": "BUILD-RESULT", "outcome": "SUCCESS"}', rejected=rejected
+        )
+        assert rejected == ["SUCCESS"]
+
+    def test_refused_review_verdict_is_collected(self) -> None:
+        rejected: list[str] = []
+        st.parse_worker_outcome(
+            '{"type": "REVIEW-RESULT", "verdict": "APPROVED"}', rejected=rejected
+        )
+        assert rejected == ["APPROVED"]
+
+    def test_accepted_verdict_collects_nothing(self) -> None:
+        rejected: list[str] = []
+        st.parse_worker_outcome(
+            '{"type": "BUILD-RESULT", "outcome": "PASS"}', rejected=rejected
+        )
+        assert rejected == []
+
+    def test_missing_outcome_field_is_not_a_rejection(self) -> None:
+        rejected: list[str] = []
+        st.parse_worker_outcome(
+            '{"type": "BUILD-RESULT", "fail_cause": "x"}', rejected=rejected
+        )
+        assert rejected == []
+
+    def test_non_string_value_is_coerced_not_raised(self) -> None:
+        rejected: list[str] = []
+        outcome, _ = st.parse_worker_outcome(
+            '{"type": "BUILD-RESULT", "outcome": 7}', rejected=rejected
+        )
+        assert outcome is None
+        assert rejected == ["7"]
+
+    def test_long_value_is_truncated(self) -> None:
+        rejected: list[str] = []
+        st.parse_worker_outcome(
+            json.dumps({"type": "BUILD-RESULT", "outcome": "Z" * 500}),
+            rejected=rejected,
+        )
+        assert len(rejected) == 1
+        assert len(rejected[0]) == st._REJECTED_OUTCOME_MAX_CHARS
+
+    def test_refused_legacy_review_verdict_is_collected(self) -> None:
+        # D1: the only change to the INFRA-293 plain-text block.
+        rejected: list[str] = []
+        outcome, _ = st.parse_worker_outcome(
+            "REVIEW-RESULT: APPROVED", rejected=rejected
+        )
+        assert outcome is None
+        assert rejected == ["APPROVED"]
+
+    def test_read_completed_spawn_forwards_the_list(self, tmp_path: Path) -> None:
+        # C3.
+        output_file = tmp_path / "tasks" / "rejected.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "BUILD-RESULT",
+                        "outcome": "SUCCESS",
+                        "story_id": "INFRA-299",
+                        "reason": "r",
+                    }),
+                ),
+            ],
+        )
+        rejected: list[str] = []
+        result = st.read_completed_spawn(output_file, rejected=rejected)
+        assert result is not None
+        assert result["outcome"] is None
+        assert rejected == ["SUCCESS"]
+
+
+class TestLegacyPathPrecedenceUnchanged:
+    """INFRA-293's plain-text fallback keeps its precedence (D2, D3)."""
+
+    def test_legacy_done_still_maps_to_pass(self) -> None:
+        assert st.parse_worker_outcome("BUILD-RESULT: DONE") == ("PASS", None)
+
+    def test_json_beats_plain_text_on_conflict(self) -> None:
+        text = (
+            json.dumps({
+                "type": "BUILD-RESULT",
+                "outcome": "FAIL",
+                "story_id": "X",
+                "reason": "r",
+            })
+            + "\nBUILD-RESULT: DONE\n"
+        )
+        outcome, _ = st.parse_worker_outcome(text)
+        assert outcome == "FAIL"
+
+    def test_refused_json_outcome_does_not_poison_the_fallback(self) -> None:
+        # The case this change could plausibly break: a refused JSON verdict
+        # leaves `outcome` None, so the legacy block still runs.
+        text = (
+            json.dumps({
+                "type": "BUILD-RESULT",
+                "outcome": "SUCCESS",
+                "story_id": "X",
+                "reason": "r",
+            })
+            + "\nBUILD-RESULT: DONE\n"
+        )
+        rejected: list[str] = []
+        outcome, _ = st.parse_worker_outcome(text, rejected=rejected)
+        assert outcome == "PASS"
+        assert rejected == ["SUCCESS"]
+
+
+class TestNonEnumOutcomeIsObservable:
+    """The refusal leaves a trace, and never changes what is recorded (C1, C5)."""
+
+    def test_decision_is_a_declared_vocabulary_member(self) -> None:
+        assert "skip:non-enum-outcome" in st.RECORDING_DECISIONS
+
+    def test_row_is_written_pending_and_rejection_is_logged(
+        self, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        home = tmp_path / "home"
+        cwd_key = str(project_dir.resolve()).replace("/", "-")
+        transcript_dir = home / ".claude" / "projects" / cwd_key
+        transcript_dir.mkdir(parents=True, exist_ok=True)
+        (transcript_dir / "sess-cer113.jsonl").write_text(
+            "\n".join(
+                json.dumps(line)
+                for line in [
+                    _tool_use_entry("toolu_cer113", subagent_type="builder"),
+                    _sidechain_entry(1000, 500),
+                    _completion_entry(),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        tool_response = json.dumps({
+            "type": "BUILD-RESULT",
+            "outcome": "SUCCESS",
+            "story_id": "INFRA-299",
+            "reason": "did the thing",
+        })
+
+        row_id = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="sess-cer113",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-299"},
+            tool_response=tool_response,
+            tool_use_id="toolu_cer113",
+            home=home,
+        )
+        assert row_id is not None
+
+        conn = sqlite3.connect(str(project_dir / ".companion" / "effort.db"))
+        try:
+            rows = conn.execute(
+                "SELECT story_id, outcome FROM attempts"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert len(rows) == 1
+        assert rows[0][0] == "INFRA-299"
+        assert rows[0][1] is None  # left pending, never a nonsense verdict
+
+        log_path = project_dir / ".companion" / "effort_recording.log"
+        entries = [
+            json.loads(line)
+            for line in log_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        decisions = [e.get("decision") for e in entries]
+        assert "recorded" in decisions
+        assert "skip:non-enum-outcome" in decisions
+
+        rejection = next(
+            e for e in entries if e.get("decision") == "skip:non-enum-outcome"
+        )
+        assert rejection.get("rejected_outcomes") == ["SUCCESS"]

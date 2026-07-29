@@ -888,6 +888,13 @@ def decide(
     # record_step_growth() from hooks/post_tool_use.py, never from here.
     seeded_default, expected_tokens_provenance = derive_expected_step_tokens(state)
     reprompt_margin = int(state.get("context_budget_reprompt_margin", 10000) or 10000)
+    # CER-106 (INFRA-299): despite its `_at` suffix, this key holds a
+    # token count, not a timestamp — it is the `context_current_tokens`
+    # value at the moment hooks/pre_tool_use.py last wrote a block, which
+    # should_block() compares against `current_tokens + reprompt_margin`.
+    # Hence the int() coercion below rather than any date parsing. The
+    # misnomer is retained deliberately; renaming it is a fleet-wide
+    # state.json migration. See docs/architecture.md § Companion data files.
     acknowledged_at_raw = state.get("context_budget_acknowledged_at")
     acknowledged_at: int | None
     if acknowledged_at_raw is None:

@@ -111,6 +111,10 @@ RECORDABLE_SUBAGENT_ROLES: frozenset[str] = frozenset({
 #: never `_STORY_ID_RE`, never `state.json["current_story"]` — so a
 #: per-story rollup that filters `story_id IN (<phase's story ids>)`
 #: correctly excludes them while `query_by_phase` still finds them.
+#:
+#: CER-105 (INFRA-299): the consequence — `attempts.phase` is populated only
+#: for these roles and is NULL on every story row — is documented, and
+#: deliberately not changed, in `docs/architecture.md` § Effort tracking.
 CHECKPOINT_ROLES: frozenset[str] = frozenset({"security-auditor", "intent-reviewer"})
 
 _STORY_ID_RE = re.compile(r"\b([A-Z][A-Z0-9]*-\d{2,})\b")
@@ -232,6 +236,17 @@ RECORDING_DECISIONS: frozenset[str] = frozenset({
     # the fallback path) — _ATOMIC_RECONCILE_FIELDS forbids writing tokens
     # alone, so nothing is committed.
     "skip:no-usage",
+    # CER-113 (INFRA-299): a worker returned a syntactically valid
+    # BUILD-RESULT/REVIEW-RESULT JSON object whose verdict word is outside
+    # the WORKER-004 enum (RECOGNISED_BUILD_OUTCOMES /
+    # RECOGNISED_REVIEW_VERDICTS) — e.g. "SUCCESS", "PARTIAL", lowercase
+    # "pass". That is a worker-contract violation, not a transport failure:
+    # the return was found and parsed fine, it just did not speak the
+    # grammar. The verdict is refused (the row stays pending rather than
+    # committing a word no reader recognises) and this line names the
+    # refused value(s) under `rejected_outcomes`. Emitted IN ADDITION TO —
+    # never instead of — the call site's own row-write decision.
+    "skip:non-enum-outcome",
 })
 
 #: Size cap for .companion/effort_recording.log (CER-091 defect 1). Exceeding
@@ -347,6 +362,26 @@ def _flatten_tool_response(tool_response: Any) -> str:
 # committed with outcome permanently NULL.
 RECOGNISED_REVIEW_VERDICTS: frozenset[str] = frozenset({"PASS", "FAIL", "ALIGNED"})
 
+# CER-113 (INFRA-299): mirrors worker_result.py's `_SCHEMAS[BUILD_RESULT]`
+# "outcome" enum ({"PASS", "FAIL"}) — the source of truth for which BUILD
+# verdicts are recognised. Not imported directly, for the same reason as its
+# REVIEW sibling above: this module is on the hook path and must stay
+# import-light (worker_result.py pulls in the broader WORKER-004 grammar
+# machinery this module has no other need for). The copy is legitimate only
+# because it is pinned to its source by an import-identity test — see
+# tests/pairmode/test_worker_result.py's TestSubagentTranscriptEnumMirror,
+# which fails the suite if either enum is edited in worker_result.py without
+# this mirror following.
+#
+# The gap this closes: the JSON BUILD-RESULT branch below used to write
+# `obj.get("outcome")` through unvalidated, so a worker returning
+# `{"outcome": "SUCCESS"}` — or "PARTIAL", or lowercase "pass" — had that
+# string committed verbatim into `attempts.outcome`, where every downstream
+# reader (checkpoint-report's rollup, the escalation ladder's
+# `outcome == "FAIL"` test, the SPA's waypoint timeline) silently mis-buckets
+# it. INFRA-299's fleet audit found 3 such rows across 7 projects.
+RECOGNISED_BUILD_OUTCOMES: frozenset[str] = frozenset({"PASS", "FAIL"})
+
 
 # INFRA-293 (E6b / CER-101 downstream): 0.2-era workers emitted a plain-text
 # result grammar (``BUILD-RESULT: DONE``, ``REVIEW-RESULT: PASS``) instead of
@@ -377,7 +412,18 @@ _LEGACY_BUILD_VERDICTS: dict[str, str] = {
 }
 
 
-def parse_worker_outcome(tool_response: Any) -> "tuple[str | None, str | None]":
+#: CER-113 (INFRA-299): cap on the length of a rejected verdict value as
+#: recorded into the *rejected* out-list. The value comes from an untrusted
+#: worker return and is only ever a diagnostic string, so a runaway value
+#: must not be able to bloat `.companion/effort_recording.log`.
+_REJECTED_OUTCOME_MAX_CHARS = 120
+
+
+def parse_worker_outcome(
+    tool_response: Any,
+    *,
+    rejected: "list[str] | None" = None,
+) -> "tuple[str | None, str | None]":
     """Extract ``(outcome, fail_cause)`` from a completed Task/Agent's own
     returned result text.
 
@@ -388,7 +434,45 @@ def parse_worker_outcome(tool_response: Any) -> "tuple[str | None, str | None]":
     transcript line (``reviewer/procedure.md``) when no JSON ``fail_cause``
     field is present. Returns ``(None, None)`` when no recognisable result
     object is found. Never raises.
+
+    Both JSON verdict fields are enum-gated: a ``BUILD-RESULT``'s ``outcome``
+    against :data:`RECOGNISED_BUILD_OUTCOMES` (CER-113, INFRA-299) and a
+    ``REVIEW-RESULT``'s ``verdict`` against
+    :data:`RECOGNISED_REVIEW_VERDICTS` (CER-091). A refused verdict yields
+    *no* outcome — the row is left pending, which the sweep can recover, in
+    preference to committing a verdict word no reader recognises. Rejection
+    is strict: no case-folding, no trimming, no fuzzy rescue; the plain-text
+    0.2-era grammar below is a separate, deliberately distinct vocabulary.
+    ``fail_cause`` extraction is *not* gated — a worker whose verdict word is
+    unrecognised has still told us why it failed, and discarding that would
+    be a second data loss on top of the first.
+
+    *rejected* (keyword-only, CER-113) is an optional out-list: when supplied,
+    every JSON verdict value this parser refuses is appended to it as a
+    string (non-strings coerced with ``str()``, truncated to
+    :data:`_REJECTED_OUTCOME_MAX_CHARS`). It exists because this function
+    cannot log for itself — it takes no ``project_dir``, and giving it one
+    would turn a pure text parser into a filesystem writer on the hook path,
+    crossing the thin-relay boundary. Do not "simplify" this by passing a
+    path; the caller that holds a project directory does the logging (see
+    :data:`RECORDING_DECISIONS`' ``skip:non-enum-outcome``). The return type
+    is unchanged — Era 003's DP4 additive-until-flip contract forbids
+    reshaping an existing function's return during the migration window, and
+    three of the four call sites do not want a third value. With *rejected*
+    left at ``None`` (every pre-existing caller), behaviour is identical to
+    before.
     """
+    def _note_rejected(value: Any) -> None:
+        # Total by construction: never raises, never lets a hostile value
+        # through unbounded, and is a no-op for the default caller.
+        if rejected is None:
+            return
+        try:
+            text_value = value if isinstance(value, str) else str(value)
+            rejected.append(text_value[:_REJECTED_OUTCOME_MAX_CHARS])
+        except Exception:
+            pass
+
     text = _flatten_tool_response(tool_response)
     if not text:
         return None, None
@@ -405,12 +489,20 @@ def parse_worker_outcome(tool_response: Any) -> "tuple[str | None, str | None]":
             continue
         rtype = obj.get("type")
         if rtype == "BUILD-RESULT":
-            outcome = obj.get("outcome") or outcome
+            # CER-113 (INFRA-299): membership-gated, structurally mirroring
+            # the REVIEW branch below. `fail_cause` stays ungated on purpose.
+            build_outcome = obj.get("outcome")
+            if isinstance(build_outcome, str) and build_outcome in RECOGNISED_BUILD_OUTCOMES:
+                outcome = build_outcome
+            elif build_outcome is not None and build_outcome != "":
+                _note_rejected(build_outcome)
             fail_cause = obj.get("fail_cause") or fail_cause
         elif rtype == "REVIEW-RESULT":
             verdict = obj.get("verdict")
-            if verdict in RECOGNISED_REVIEW_VERDICTS:
+            if isinstance(verdict, str) and verdict in RECOGNISED_REVIEW_VERDICTS:
                 outcome = verdict
+            elif verdict is not None and verdict != "":
+                _note_rejected(verdict)
             fail_cause = obj.get("fail_cause") or fail_cause
 
     # INFRA-293: legacy 0.2-era plain-text grammar is a fallback only, run
@@ -427,6 +519,13 @@ def parse_worker_outcome(tool_response: Any) -> "tuple[str | None, str | None]":
             elif label == "REVIEW-RESULT":
                 if verdict in RECOGNISED_REVIEW_VERDICTS:
                     outcome = verdict
+                else:
+                    # CER-113: the only change to this INFRA-293 block — a
+                    # refused verdict is reported to the out-list. The
+                    # legacy BUILD vocabulary (_LEGACY_BUILD_VERDICTS, which
+                    # accepts DONE) stays a deliberately distinct grammar
+                    # from the JSON one and is untouched.
+                    _note_rejected(verdict)
 
     if fail_cause is None:
         m = _FAIL_CAUSE_LINE_RE.search(text)
@@ -1384,6 +1483,7 @@ def read_completed_spawn(
     *,
     tasks_root: "Path | str | None" = None,
     home: "Path | None" = None,
+    rejected: "list[str] | None" = None,
 ) -> "dict | None":
     """Read a spawned agent's own JSONL output file (INFRA-258).
 
@@ -1407,10 +1507,17 @@ def read_completed_spawn(
     forever — is now *visible* as ``classify_pending_reason``'s
     ``uncontained``, no longer indistinguishable from an evicted file.
 
-    Public signature (besides the keyword-only ``tasks_root``, and ``home``
+    Public signature (besides the keyword-only ``tasks_root``, ``home``
     added by INFRA-287 for test injection of the target allowlist's
-    ``~/.claude`` root) and return shape unchanged from pre-CER-091 (other
-    callers and INFRA-258's own tests depend on both). Never raises.
+    ``~/.claude`` root, and ``rejected`` added by INFRA-299) and return shape
+    unchanged from pre-CER-091 (other callers and INFRA-258's own tests
+    depend on both). Never raises.
+
+    *rejected* (keyword-only, CER-113) is passed straight through to
+    :func:`parse_worker_outcome`; see that function's docstring for why the
+    out-list, rather than a project directory, is the mechanism. The return
+    dict is unchanged, and a caller that omits *rejected* — the default —
+    behaves exactly as before.
     """
     try:
         path, reason, data = is_reconcilable_spawn_output(
@@ -1438,7 +1545,7 @@ def read_completed_spawn(
                 duration_ms = None
 
         final_text = _flatten_tool_response(last_message)
-        outcome, fail_cause = parse_worker_outcome(final_text)
+        outcome, fail_cause = parse_worker_outcome(final_text, rejected=rejected)
 
         return {
             "tokens_in": usage.get("tokens_in"),
@@ -2048,7 +2155,28 @@ def reconcile_pending_attempts(
             # INFRA-287: *home* is forwarded so the target allowlist's
             # ~/.claude root is injectable end-to-end in tests; the
             # production default (None -> Path.home()) is unchanged.
-            result = read_completed_spawn(path, tasks_root=tasks_root, home=home)
+            # INFRA-299 (CER-113): a fresh out-list per row collects any JSON
+            # verdict the parser refused, so a worker-contract violation
+            # leaves a trace instead of just an eternally-pending row.
+            row_rejected: "list[str]" = []
+            result = read_completed_spawn(
+                path, tasks_root=tasks_root, home=home, rejected=row_rejected
+            )
+
+            if row_rejected:
+                # In addition to — never instead of — this row's normal
+                # decision. Nothing below branches on it: the row is still
+                # processed exactly as it would have been (it stays pending,
+                # because a refused verdict yields outcome=None).
+                try:
+                    log_recording_event(
+                        project_path, story_id=row.get("story_id"),
+                        row_id=row.get("id"),
+                        decision="skip:non-enum-outcome",
+                        rejected_outcomes=row_rejected,
+                    )
+                except Exception:
+                    pass
 
             if result is not None and result.get("outcome") is not None:
                 fields: "dict[str, Any]" = {
@@ -2173,6 +2301,15 @@ def reconcile_pending_attempts(
                 "cache_read_tokens": usage.get("cache_read_tokens"),
                 "cache_write_tokens": usage.get("cache_write_tokens"),
                 "duration_ms": None,
+                # INFRA-299 (CER-113): "UNKNOWN" is written HERE, by the
+                # quiescent retirement sweep, as a deliberate retirement
+                # marker — it is not a worker verdict and never passes
+                # through parse_worker_outcome's enum gate. Do not "complete"
+                # the CER-113 enum work by adding UNKNOWN to
+                # RECOGNISED_BUILD_OUTCOMES or by tightening this write: the
+                # two are different vocabularies serving different purposes,
+                # and constraining this one breaks the sweep's ability to
+                # retire a row it can never learn a real verdict for.
                 "outcome": outcome_val or "UNKNOWN",
                 "notes": f"reconciled-quiescent: {reason}",
             }
@@ -2343,7 +2480,22 @@ def record_attempt_from_transcript(
         story_id, phase_key, rail = _derive_attribution(
             tool_input, state, subagent_type, target_path
         )
-        outcome, fail_cause = parse_worker_outcome(tool_response)
+        # INFRA-299 (CER-113): collect any JSON verdict the parser refuses so
+        # the worker-contract violation is observable. Logged below, after
+        # the attribution fields are in hand; the log line is additional to
+        # this call's own `recorded`/`skip:*` decision and changes no branch.
+        parse_rejected: "list[str]" = []
+        outcome, fail_cause = parse_worker_outcome(
+            tool_response, rejected=parse_rejected
+        )
+        if parse_rejected:
+            log_recording_event(
+                target_path, tool_name=tool_name, subagent_type=subagent_type,
+                tool_use_id=tool_use_id, story_id=story_id,
+                decision="skip:non-enum-outcome", row_id=None,
+                rejected_outcomes=parse_rejected,
+                target_project=str(target_path), target_source=target_source,
+            )
 
         # INFRA-237: attempt-counter bump runs unconditionally on FAIL — it
         # is core build-loop control state next_action.py depends on, not

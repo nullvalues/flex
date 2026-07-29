@@ -443,3 +443,51 @@ class TestInvalidFixtures:
             f"[{result_type}] {entry['label']!r}: expected violation containing "
             f"{substring!r}, got: {violations}"
         )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-299 (CER-113): mirror pinning
+#
+# Appended at the end of the file, after every pre-existing class has closed,
+# so no existing test's pytest node id changes.
+# ---------------------------------------------------------------------------
+
+
+class TestSubagentTranscriptEnumMirror:
+    """`subagent_transcript.py`'s verdict frozensets must equal their
+    `worker_result._SCHEMAS` sources.
+
+    This test is the *reason* the runtime code is allowed to hold a copy.
+    `subagent_transcript.py` is on the hook path and must stay import-light,
+    so it deliberately does not import `worker_result` (which pulls in the
+    broader WORKER-004 grammar machinery it has no other need for); it
+    mirrors the two enums as module-level frozensets instead. A copy without
+    a pin is drift waiting to happen — so the pin lives here, in the test
+    suite, where the heavyweight import is free. Editing either enum in
+    `worker_result.py` without updating its mirror fails the suite instead of
+    silently changing what the recorder recognises.
+    """
+
+    def test_build_outcome_mirror_matches_schema(self):
+        import subagent_transcript
+        import worker_result
+
+        assert (
+            subagent_transcript.RECOGNISED_BUILD_OUTCOMES
+            == worker_result._SCHEMAS[worker_result.BUILD_RESULT]["enums"]["outcome"]
+        ), (
+            "RECOGNISED_BUILD_OUTCOMES has drifted from "
+            "worker_result._SCHEMAS[BUILD_RESULT]['enums']['outcome']"
+        )
+
+    def test_review_verdict_mirror_matches_schema(self):
+        import subagent_transcript
+        import worker_result
+
+        assert (
+            subagent_transcript.RECOGNISED_REVIEW_VERDICTS
+            == worker_result._SCHEMAS[worker_result.REVIEW_RESULT]["enums"]["verdict"]
+        ), (
+            "RECOGNISED_REVIEW_VERDICTS has drifted from "
+            "worker_result._SCHEMAS[REVIEW_RESULT]['enums']['verdict']"
+        )

@@ -170,6 +170,13 @@ def main():
                 state_path = project_dir / ".companion" / "state.json"
 
                 def _mutate(state):
+                    # CER-106 (INFRA-299): `context_budget_acknowledged_at`
+                    # holds a token count, not a timestamp, despite the `_at`
+                    # suffix — it is the `context_current_tokens` value at the
+                    # moment this hook last wrote a block. The misnomer is
+                    # retained deliberately; renaming it is a fleet-wide
+                    # state.json migration. See docs/architecture.md
+                    # § Companion data files.
                     state["context_budget_acknowledged_at"] = result["acknowledged_at"]
                     if "user_turn_seq_at_block" in result:
                         state["context_budget_acknowledged_user_turn_seq"] = result[

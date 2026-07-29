@@ -408,7 +408,146 @@ build result states that this failure was **verified to reproduce on clean
      editing parse_worker_outcome. Do not delete this heading; an empty
      Evidence section is a story failure, not a formatting choice. -->
 
-_(to be filled by the builder — see § Instructions 1)_
+### A1 — fleet audit, raw output
+
+Run 2026-07-29 from the INFRA-299 story worktree, **before** any edit to
+`parse_worker_outcome`. Read-only (`sqlite3.connect("file:...?mode=ro",
+uri=True)`, `SELECT ... GROUP BY` only — no `INSERT`/`UPDATE`/`CREATE` was
+issued against any database). `sqlite3(1)` is not installed on this host; the
+stdlib module was used.
+
+Note on the project list: a git worktree carries no `.companion/` directory, so
+the worktree has no `state.json` of its own. The audit read
+`/mnt/work/flex/.companion/state.json` (the main checkout's, read-only) for
+`registered_projects` and prepended `/mnt/work/flex` itself. That list now
+contains **seven** projects — the five named in § Requires plus
+`/mnt/work/halfhorse` and `/mnt/work/cora`, the latter registered since this
+story was specced.
+
+```
+(worktree has no .companion/state.json; using main checkout /mnt/work/flex/.companion/state.json)
+/mnt/work/flex:
+   outcome=None role=builder n=42
+   outcome=None role=intent-reviewer n=3
+   outcome=None role=reviewer n=14
+   outcome=None role=security-auditor n=5
+   outcome='ALIGNED' role=intent-reviewer n=9
+   outcome='FAIL' role=builder n=7
+   outcome='FAIL' role=reviewer n=7
+   outcome='FAIL' role=sidebar-extractor n=100
+   outcome='PASS' role=builder n=39
+   outcome='PASS' role=reviewer n=54
+   outcome='PASS' role=security-auditor n=9
+   outcome='PASS' role=sidebar-extractor n=200
+/mnt/work/coherra:
+   outcome=None role=builder n=362
+   outcome=None role=loop-breaker n=1
+   outcome=None role=reviewer n=12
+   outcome='FAIL' role=reviewer n=65
+   outcome='PASS' role=builder n=1
+   outcome='PASS' role=intent-reviewer n=1
+   outcome='PASS' role=reviewer n=301
+   outcome='PASS' role=security-auditor n=1
+/mnt/work/meander:
+   outcome=None role=builder n=122
+   outcome=None role=intent-reviewer n=5
+   outcome=None role=reviewer n=19
+   outcome=None role=security-auditor n=4
+   outcome='FAIL' role=reviewer n=21
+   outcome='PASS' role=builder n=18
+   outcome='PASS' role=reviewer n=99
+   outcome='PASS' role=security-auditor n=1
+   outcome='PASS' role=seed-miner n=4
+   outcome='PASS' role=seed-reconcile n=6
+/mnt/work/caddy:
+   outcome=None role=builder n=18
+   outcome='ALIGNED' role=intent-reviewer n=1
+   outcome='FAIL' role=reviewer n=3
+   outcome='PARTIAL' role=builder n=1
+   outcome='PASS' role=builder n=1
+   outcome='PASS' role=reviewer n=12
+   outcome='PASS' role=security-auditor n=1
+/mnt/work/forqsite.help:
+   outcome=None role=builder n=6
+   outcome='FAIL' role=reviewer n=2
+   outcome='PASS' role=builder n=1
+   outcome='PASS' role=reviewer n=5
+/mnt/work/halfhorse:
+   outcome='PASS' role=builder n=1
+   outcome='PASS' role=reviewer n=1
+/mnt/work/cora:
+   outcome=None role=builder n=53
+   outcome='FAIL' role=reviewer n=8
+   outcome='FAIL' role=sidebar-extractor n=1
+   outcome='PASS' role=reviewer n=46
+   outcome='PASS' role=sidebar-extractor n=20
+   outcome='pass' role=builder n=1
+   outcome='pass' role=reviewer n=1
+```
+
+Every one of the seven projects has a readable `.companion/effort.db`; none
+reported `NO DB` or `unreadable`.
+
+### A2 — distinct-value verdict
+
+Union of distinct `outcome` values across all seven databases (1715 rows at the
+time of the roll-up query; this checkout's own `effort.db` gains rows while the
+build session runs, so the totals are a live snapshot — the *set* of distinct
+values is the stable result):
+
+| value | classification | count | projects |
+|---|---|---|---|
+| `NULL` | pending (not yet reconciled) | 666 | flex, coherra, meander, caddy, forqsite.help, cora |
+| `PASS` | BUILD/REVIEW enum member | 822 | all seven |
+| `FAIL` | BUILD/REVIEW enum member | 214 | flex, coherra, meander, caddy, forqsite.help, cora |
+| `ALIGNED` | REVIEW enum member (intent-reviewer) | 10 | flex (9), caddy (1) |
+| `UNKNOWN` | quiescent retirement marker (`:1878`) | 0 | — none observed |
+| `PARTIAL` | **FINDING — outside the enum** | 1 | caddy |
+| `pass` | **FINDING — outside the enum** | 2 | cora |
+
+The union is therefore **not** a subset of `{PASS, FAIL, ALIGNED, UNKNOWN,
+NULL}`. Per A2 this is a finding; the rows are named and the handling decision
+is stated below. (Per A3, the negative-result path does not apply — the counts
+above are given regardless.)
+
+**Finding 1 — `PARTIAL`, 1 row.** `/mnt/work/caddy/.companion/effort.db`
+`attempts.id = 31`: `story_id='PAIRMODE-001'`, `phase='EH005-main'`,
+`rail='PAIRMODE'`, `agent_role='builder'`, `model='claude-sonnet-4-5'`,
+`attempt_number=1`, `tokens_total=42317`, `ts='2026-07-24T03:16:35Z'`,
+`notes='Builder stuck: sync-all --apply touched settings.json/CLAUDE.md/
+gate-worker.md outside story surface; rolled back to HEAD per step-5 failure
+mode'`. A builder returned a `BUILD-RESULT` whose `outcome` word was
+`"PARTIAL"` — a worker-contract violation. Semantically the run failed
+(the note describes a rollback), but it is bucketed as neither `PASS` nor
+`FAIL` by any reader, so it silently escaped the escalation ladder.
+
+**Finding 2 — `pass` (lowercase), 2 rows.**
+`/mnt/work/cora/.companion/effort.db` `attempts.id = 8`
+(`story_id='SMOKE-001'`, `agent_role='builder'`, `model='claude-sonnet-4-6'`,
+`ts='2026-05-17T02:48:23Z'`) and `attempts.id = 12` (same story,
+`agent_role='reviewer'`, `ts='2026-05-17T03:49:31Z'`). Both are smoke-test rows
+with all token columns NULL. Lowercase `pass` is exactly the case-variant
+B4 refuses to rescue.
+
+**Handling decision (the A2 default, adopted unchanged).**
+
+1. Neither value is added to `RECOGNISED_BUILD_OUTCOMES`. The enum's source of
+   truth is `worker_result.py`'s `_SCHEMAS[BUILD_RESULT]["enums"]["outcome"] ==
+   {"PASS", "FAIL"}`; a live non-enum value is evidence about a *worker*, not
+   about the enum (Instructions 1).
+2. Forward-only: after this change, a `BUILD-RESULT` object carrying `PARTIAL`
+   or `pass` parses as `outcome=None`, so the row is left **pending** — the
+   recoverable state — and a `skip:non-enum-outcome` line naming the rejected
+   value is written to `.companion/effort_recording.log`. The
+   worker-contract violation becomes observable instead of silent.
+3. **No already-written row is rewritten, back-filled, or deleted.** caddy
+   id 31 and cora ids 8/12 stay exactly as they are; historical cleanup is
+   explicitly out of scope. The three rows were read read-only and not
+   modified.
+4. The blast radius the INFRA-293 deferral worried about is now counted: **3
+   rows out of 1715 fleet-wide (0.17%)**, on two projects, none of them this
+   one, and none of them a row this change can retroactively strand — the
+   check applies at parse time, and all three are already committed.
 
 ## Instructions
 
