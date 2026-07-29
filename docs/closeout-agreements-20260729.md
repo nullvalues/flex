@@ -135,6 +135,41 @@ Filed after this document's original agreements, from a live operator report
 - Constrained by INFRA-303 (same phase, same file): no fifteenth
   `MigrationRule`; the repair lands as a `to-030` block.
 
+
+### AG-9 — CER-128 (phase 113): mid-build scope relief
+Filed after this document's original agreements and after AG-8, from a live
+operator report (2026-07-29, scope friction) rather than from either reconciled
+input.
+
+- `scope_guard.check_path` matches `allowed_paths` by exact string membership and
+  has **no path from a deny back to an allow that does not require a human**.
+  Every mid-loop discovery of an undeclared file costs an operator round-trip:
+  hand-edit `touches:` + `permissions-create`, toggle auto-mode off for the
+  prompt, or fall back to shell writes.
+- The downstream harm is over-declaration: on a fresh 0.3.0-bootstrapped repo,
+  teams widen `touches:` at spec time to pre-empt prompts, which turns the guard
+  into a fiction and produces per-build-loop CER churn. Same-session evidence in
+  flex: INFRA-297 and INFRA-298 both edited `docs/cer/backlog.md` undeclared
+  (reviewer MEDIUM), and the INFRA-319 spec-writer used the CER-087 shell-write
+  workaround.
+- Pulled into **phase 113** as **INFRA-320**, not 114/116: it is a build-loop
+  blocker of the same class as the rest of 113 ("nothing in 114–116 is
+  trustworthy until these land"), and 113 is the phase currently building.
+- Three deliverables per the CER row: a central standing allowance for shared
+  documentation/record surfaces (A), an audited `permissions-widen` command that
+  writes the declaration back into the story frontmatter (B), and spec-time
+  prediction of scope gaps wired into the spec-writer's Step 7 self-check (C),
+  plus builder/reviewer procedure wiring (D).
+- **The hard block is preserved, and the story must say so.** Protected paths
+  stay unreachable by any standing or widening mechanism, out-of-root stays
+  denied, and no code file is ever granted implicitly. Four directions are
+  rejected on the record rather than deferred: auto-widen on deny,
+  `permissionDecision: "ask"` in place of the block, routing the audit trail
+  through the sidebar-only `spec_exception.py`, and glob/prefix matching in
+  `allowed_paths`.
+- Constrained by INFRA-299 (same phase, unmerged): it owns `hooks/pre_tool_use.py`
+  and backlog rows CER-105/106/113; INFRA-320 touches neither.
+
 ---
 
 ## Unambiguous dispositions (no decision was needed)

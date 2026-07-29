@@ -27,6 +27,9 @@ Close the parsing, resolver-evidence, and spawn-recording defects both rails sta
 | INFRA-299 | Recording data integrity: enum-validate JSON BUILD outcomes; document attempts.phase and the acknowledged_at misnomer | draft |
 | INFRA-300 | Duplicate-hook detection precision: matcher-aware keying and actionable classification | draft |
 | INFRA-311 | Sync canon-shrink propagation; audit flags EXTRA inside canonical files; SCAFFOLD_FILES parity test | draft |
+| INFRA-320 | Mid-build scope relief: standing shared surfaces, audited permissions-widen, scope-implication preflight — hard block preserved | draft |
+
+INFRA-320 was pulled from **CER-128** (operator-flagged 2026-07-29, "scope friction") as an operator-directed mid-phase addition after the era-004 closeout agreements were applied; see `docs/closeout-agreements-20260729.md` § AG-9.
 
 ## Schema delivery
 
