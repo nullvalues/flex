@@ -16,6 +16,8 @@ touches:
   - tests/pairmode/test_audit.py
   - docs/architecture.md
   - docs/cer/backlog.md
+  - README.md
+  - docs/stories/INFRA/INFRA-311.md
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
