@@ -152,9 +152,9 @@ Fix the three defects RELEASE-065 surfaced that block RELEASE-066..070: consumer
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-293 | Worker result-grammar reconciliation: parser tolerance for legacy plain-text verdicts + sync-agents replaces stale return-format sections (E6b, CER-101 downstream) | draft |
-| INFRA-294 | _check_cer_do_now: stop reading the scaffolded (none) placeholder row as an unresolved Do Now item | draft |
-| INFRA-295 | fleet_discovery snapshot targeting: default snapshot must not write into the scripts checkout | draft |
+| INFRA-293 | Worker result-grammar reconciliation: parser tolerance for legacy plain-text verdicts + sync-agents replaces stale return-format sections (E6b, CER-101 downstream) | complete |
+| INFRA-294 | _check_cer_do_now: stop reading the scaffolded (none) placeholder row as an unresolved Do Now item | complete |
+| INFRA-295 | fleet_discovery snapshot targeting: default snapshot must not write into the scripts checkout | complete |
 
 ## Schema delivery
 
