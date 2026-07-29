@@ -10,6 +10,7 @@ from click.testing import CliRunner
 from skills.pairmode.scripts.cer import (
     cli,
     append_finding,
+    is_placeholder_row,
     _escape_table_cell,
     _load_or_create_backlog,
     _next_cer_id,
@@ -593,3 +594,29 @@ def test_normal_backlog_no_warning(tmp_path: Path) -> None:
     assert "CER-002" in content
     assert "CER-003" in content
     assert "Third finding" in content
+
+
+# ---------------------------------------------------------------------------
+# Test: is_placeholder_row (INFRA-294)
+# ---------------------------------------------------------------------------
+
+def test_is_placeholder_row_do_now_shape() -> None:
+    assert is_placeholder_row(["—", "*(none)*", "—", "—", "—"]) is True
+
+
+def test_is_placeholder_row_do_never_shape() -> None:
+    assert is_placeholder_row(["—", "*(none)*", "—", "—", "—", "—"]) is True
+
+
+def test_is_placeholder_row_four_cell_caddy_shape() -> None:
+    assert is_placeholder_row(["—", "*(none)*", "—", "—"]) is True
+
+
+def test_is_placeholder_row_real_finding_returns_false() -> None:
+    assert is_placeholder_row(
+        ["CER-999", "An unresolved finding", "some-source", "2026-01-01", "1"]
+    ) is False
+
+
+def test_is_placeholder_row_empty_returns_false() -> None:
+    assert is_placeholder_row([]) is False

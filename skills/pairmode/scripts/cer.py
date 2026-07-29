@@ -116,8 +116,12 @@ def _parse_entries_from_backlog(content: str) -> list[dict]:
                     phase_raw = m.group(5).strip()
                     resolution_raw = m.group(6).strip() if m.group(6) else None
 
-                    # Skip placeholder rows
-                    if cer_id == "—" or finding == "*(none)*":
+                    # Skip placeholder rows. Defensive: _TABLE_ROW_RE already
+                    # excludes placeholder rows by requiring a CER-NNN id in
+                    # the first cell, so this branch cannot fire today — it is
+                    # a de-duplication of the shared rule, not a behaviour
+                    # change (INFRA-294).
+                    if is_placeholder_row([cer_id, finding]):
                         continue
 
                     entry: dict = {
@@ -135,6 +139,37 @@ def _parse_entries_from_backlog(content: str) -> list[dict]:
                     entries.append(entry)
 
     return entries
+
+
+def is_placeholder_row(cells) -> bool:
+    """Return True when ``cells`` is the scaffolded empty-state row.
+
+    ``docs/cer/backlog.md.j2`` (the Jinja template every project is
+    bootstrapped from) emits a placeholder row — e.g.
+    ``| — | *(none)* | — | — | — |`` (Do Now/Do Later/Do Much Later) or the
+    six-column ``| — | *(none)* | — | — | — | — |`` (Do Never) — whenever a
+    quadrant has no entries. That row is not a finding: reading it as an
+    unresolved Do Now item blocked caddy's first 0.3.0 checkpoint
+    (`next_action._check_cer_do_now`, INFRA-294) by failing the
+    ``cer-do-now`` checkpoint guard forever. This predicate is the single
+    shared source of truth for recognising that row, consumed by both
+    ``cer._parse_entries_from_backlog`` and
+    ``next_action._check_cer_do_now`` so the rule is defined once rather
+    than duplicated with independent writers.
+
+    ``cells`` may be any sequence of (possibly unstripped) table cell
+    strings; column count is not checked, since the placeholder row appears
+    in four-, five-, and six-column shapes across sections and consumer
+    repos (e.g. the four-cell row observed in caddy's own backlog).
+    """
+    stripped = [c.strip() for c in cells]
+    if not stripped:
+        return False
+    if stripped[0] in ("—", "–", "-"):
+        return True
+    if any(c == "*(none)*" for c in stripped):
+        return True
+    return False
 
 
 def _escape_table_cell(text: str) -> str:

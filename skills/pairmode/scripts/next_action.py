@@ -120,6 +120,17 @@ INFRA-283 (CER-095.4 -- phase-keyed checkpoint step state):
   ``checkpoint_step`` + ``checkpoint_phase`` stamp is all there is to read.
   Still pure-read: this module writes neither the keyed record nor the flat
   ``checkpoint_step``/``checkpoint_phase`` mirror keys.
+
+INFRA-294 (Phase 112 -- CER Do Now guard tolerates the scaffolded placeholder
+row):
+  ``_check_cer_do_now`` no longer treats the ``docs/cer/backlog.md.j2``
+  template's scaffolded empty-state placeholder row as an unresolved Do Now
+  item. It now imports and consumes the shared
+  ``cer.is_placeholder_row`` predicate to skip that row before the
+  ``RESOLVED``/``SUPERSEDED`` test, so a freshly bootstrapped project's first
+  checkpoint no longer fails this guard on the placeholder alone. Pure-read
+  and grammar-unchanged: no ``SCHEMA_VERSION`` bump, no Position shape or
+  routing change.
 """
 
 from __future__ import annotations
@@ -385,9 +396,17 @@ def _check_cer_do_now(project_dir: "Path") -> bool:
 
     Scans ``docs/cer/backlog.md`` in ``project_dir``.  A row under
     ``## Do Now`` without ``RESOLVED`` or ``SUPERSEDED`` anywhere in it is
-    treated as unresolved.  Returns True when the file is absent or
-    unreadable (fail-open).
+    treated as unresolved, *unless* it is the scaffolded empty-state
+    placeholder row the ``docs/cer/backlog.md.j2`` template emits for an
+    empty quadrant — that row is exempted via the shared predicate
+    ``cer.is_placeholder_row``
+    (INFRA-294), which is this exemption's source of truth. Without it,
+    every freshly bootstrapped project fails its first checkpoint on this
+    guard alone.  Returns True when the file is absent or unreadable
+    (fail-open).
     """
+    from cer import is_placeholder_row  # type: ignore[import]
+
     cer_path = Path(project_dir) / "docs" / "cer" / "backlog.md"
     if not cer_path.exists():
         return True
@@ -410,6 +429,8 @@ def _check_cer_do_now(project_dir: "Path") -> bool:
             cols = [c.strip() for c in stripped.split("|") if c.strip()]
             if not cols or cols[0].lower() in ("id", "finding"):
                 continue  # header row
+            if is_placeholder_row(cols):
+                continue  # scaffolded empty-state row, not a finding
             if "RESOLVED" not in stripped and "SUPERSEDED" not in stripped:
                 return False  # unresolved Do Now item
 

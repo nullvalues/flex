@@ -293,6 +293,45 @@ def test_check_guards_cer_do_now_all_resolved(tmp_path: Path) -> None:
     assert result == {"ok": True}
 
 
+def test_check_guards_cer_do_now_scaffolded_placeholder_passes(tmp_path: Path) -> None:
+    """CER Do Now guard passes on the real scaffolded empty-state backlog (INFRA-294).
+
+    Load-bearing: binds the guard to cer._render_backlog's actual template
+    output, so a future template edit that changes the placeholder shape
+    breaks here rather than in a consumer's first checkpoint.
+    """
+    from cer import _render_backlog
+
+    phase_file = _make_phase_file(tmp_path, [("T-001", "complete")])
+
+    cer_dir = tmp_path / "docs" / "cer"
+    cer_dir.mkdir(parents=True, exist_ok=True)
+    (cer_dir / "backlog.md").write_text(
+        _render_backlog(cer_entries=[]), encoding="utf-8"
+    )
+
+    result = check_checkpoint_guards(tmp_path, phase_file, gate_fn=lambda: True)
+    assert result == {"ok": True}
+
+
+def test_check_guards_cer_do_now_four_cell_placeholder_passes(tmp_path: Path) -> None:
+    """CER Do Now guard passes on the four-cell placeholder row observed in caddy."""
+    phase_file = _make_phase_file(tmp_path, [("T-001", "complete")])
+
+    cer_dir = tmp_path / "docs" / "cer"
+    cer_dir.mkdir(parents=True, exist_ok=True)
+    (cer_dir / "backlog.md").write_text(
+        "# CER Backlog\n\n"
+        "## Do Now\n\n"
+        "| — | *(none)* | — | — |\n\n"
+        "## Do Later\n\n",
+        encoding="utf-8",
+    )
+
+    result = check_checkpoint_guards(tmp_path, phase_file, gate_fn=lambda: True)
+    assert result == {"ok": True}
+
+
 def test_check_guards_build_gate_fails(tmp_path: Path) -> None:
     """Build gate guard fails when gate_fn returns False."""
     phase_file = _make_phase_file(tmp_path, [("T-001", "complete")])

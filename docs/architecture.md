@@ -766,7 +766,10 @@ still a caller error the rule exists to prevent.
     `checkpoint-security` (security-auditor, WORKER-008) → `checkpoint-intent` (intent-reviewer,
     WORKER-009) → `checkpoint-docs` (docs-reviewer, WORKER-011) → `checkpoint-tag` (inline git
     operation). Pre-checkpoint guards (phase-completion, CER Do Now, build gate) must pass before
-    the sequence starts. Step state persists in `state.json["checkpoint_step"]`; the resolver emits
+    the sequence starts. The CER Do Now guard exempts the `docs/cer/backlog.md.j2` template's
+    scaffolded empty-state placeholder row via the shared `cer.is_placeholder_row` predicate
+    (INFRA-294), so a freshly bootstrapped repo's empty backlog does not fail its first checkpoint.
+    Step state persists in `state.json["checkpoint_step"]`; the resolver emits
     one action per call, and the harness applies the checkpoint-agent model override (model_selector)
     when spawning each leaf worker. Documentation is updated, all planned stories are verified
     complete or deferred, and the phase is tagged. Live since the flip (HARNESS006).
