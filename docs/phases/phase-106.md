@@ -98,3 +98,25 @@ proceed with RELEASE-065+ while the downstream E6 proof of the CER-101/103/104
 remediation remains outstanding. Standing requirement: the first proving cycle
 to run anywhere in the fleet gets the full E6a/b/c + E7 checks; a pairmode-owned
 recording failure there reopens the cluster and re-blocks the campaign.
+
+**Re-blocked (2026-07-28, RELEASE-065 verdict).** The caddy migration's E6
+split verdict landed the foreseen re-block: attribution (CER-103) and dedupe
+(CER-104) PROVEN downstream, but E6b content FAILED — `sync-agents` preserved
+stale 0.2-era agent bodies, so workers returned the plain-text
+`BUILD-RESULT: DONE` / `REVIEW-RESULT: PASS` grammar that
+`parse_worker_outcome` could not read (rows permanently pending). Two further
+field defects: the scaffolded CER `(none)` placeholder row read as an
+unresolved Do Now item, and `fleet_discovery`'s default snapshot wrote into the
+channel checkout. Campaign held at RELEASE-065; record in commit `2894b425`
+and RELEASE-065 `## Evidence`.
+
+**Unblocked (2026-07-28, cp-112).** Phase 112 (interposed, index-ordered
+before this phase) fixed all three: INFRA-293 (legacy plain-text verdict
+grammar tolerance + sync-agents legacy-heading replacement + CER-099
+containment parity), INFRA-294 (shared `cer.is_placeholder_row`), INFRA-295
+(snapshot refuse-by-default). Field acceptance F3 PASSED the same day: an
+explicit reconcile sweep against caddy's live `effort.db` turned rows 33/34
+from `outcome NULL` to `(sonnet, 7457, PASS)` / `(sonnet, 9145, PASS)` — the
+E6b content half is field-proven. cp-112 is promoted to the channel; campaign
+resumes at RELEASE-066 with `--no-snapshot` mandated on every discovery
+invocation per the corrected Signal-1 runbook form.
