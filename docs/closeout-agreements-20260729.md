@@ -113,6 +113,28 @@ rails them):
 - INFRA-310 Requires 1 reworded to DERIVE its sibling set (all era-004 stories
   complete) rather than pinning "fourteen siblings INFRA-296..309".
 
+### AG-8 — CER-127 (phase 114): portable hook-command paths
+Filed after this document's original agreements, from a live operator report
+(2026-07-29, fleet portability) rather than from either reconciled input.
+
+- Registering a freshly-cloned consuming repo hard-blocked every prompt:
+  `.claude/settings.json` carried
+  `uv run python /mnt/work/flex-harness/hooks/user_prompt_submit.py` — a
+  pre-rename path, and a machine-bound one, in a **committed** file.
+- Pulled into phase 114 as **INFRA-319** (not phase 116): it is migration-tooling
+  and audit surface, which is what phase 114 already owns, and it is a live
+  fleet-blocking defect rather than 0.3.1 polish.
+- Three deliverables per the CER row: portable registration, a repair path for
+  already-migrated repos, an audit finding class.
+- **Fix direction (a) is delivered differently than the row words it.**
+  `${CLAUDE_PLUGIN_ROOT}` expands for a plugin's own `hooks/hooks.json`, not for
+  a project's `.claude/settings.json`; the absolute-path construction stays and
+  the *committed file* is what changes — hook registration moves to
+  `.claude/settings.local.json`. The rejected direction is recorded in the story
+  and must be recorded in the backlog annotation, so it is not re-proposed.
+- Constrained by INFRA-303 (same phase, same file): no fifteenth
+  `MigrationRule`; the repair lands as a `to-030` block.
+
 ---
 
 ## Unambiguous dispositions (no decision was needed)

@@ -17,6 +17,8 @@ phase_class: production
      than one purpose, that's a signal to open a sibling phase, not to widen this one. -->
 Remove recurring build-loop friction (unprovisioned worktrees, interactive scaffolding prompts, silent phase-manifest drift, incomplete migration rules) and bring build-loop procedure and architecture docs back to truth so the next cold-eyes audit reads a correct contract.
 
+**Backlog pull at spec time.** INFRA-319 was pulled into this phase from CER-127 (operator-flagged 2026-07-29, fleet portability — machine-bound and pre-rename hook command paths in consuming repos' `.claude/settings.json`). CER-127 named this phase's migration work as its candidate home; the row's phase column now reads 114 and its resolution annotation lands when INFRA-319 completes. Recorded as AG-8 in `docs/closeout-agreements-20260729.md`.
+
 ## Stories
 
 | ID | Title | Status |
@@ -26,6 +28,7 @@ Remove recurring build-loop friction (unprovisioned worktrees, interactive scaff
 | INFRA-303 | Migration tooling: rules 9/10 name parity; expected_step_tokens opt-out and honest CER-111 disposition | draft |
 | INFRA-304 | Containment parity for spec_preflight; reviewer-template revert-assertion residue | draft |
 | INFRA-305 | Build-loop doc and procedure currency sweep | draft |
+| INFRA-319 | Portable hook-command paths: plugin-root/settings.local registration, migrate rewrite of machine-absolute and pre-rename hook commands, audit finding | draft |
 
 ## Schema delivery
 
