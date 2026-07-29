@@ -30,6 +30,7 @@ import click
 
 from schema_validator import _parse_frontmatter
 from state_utils import _atomic_write_text
+from table_utils import split_table_row
 
 # ---------------------------------------------------------------------------
 # Story ID parsing
@@ -262,12 +263,8 @@ def _update_story_row_in_phase(text: str, story_id: str, status: str) -> str:
             modified_lines.append(line)
             continue
 
-        # Parse table row. Split on unescaped pipes only: `\|` is a literal
-        # cell character (escaped pipe), not a column separator — a naive
-        # `str.split('|')` shreds titles like "Edit\|Write" into extra
-        # "columns", shifting parts[3] off the real status cell and
-        # corrupting the row (CER-066).
-        parts = re.split(r'(?<!\\)\|', stripped)
+        # Parse table row. split rationale: `table_utils.split_table_row`
+        parts = split_table_row(stripped)
         # parts[0] is empty (before first |), parts[-1] may be empty (after last |)
         # Cell values are parts[1], parts[2], ...
         if len(parts) < 3:

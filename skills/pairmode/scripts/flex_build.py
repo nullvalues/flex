@@ -72,6 +72,7 @@ from story_context import (  # noqa: E402
     CURRENT_STORIES_KEY,
 )
 from scope_guard import entry_is_fresh, STATE_STORY_MAX_AGE_HOURS  # noqa: E402
+from table_utils import split_table_row  # noqa: E402
 
 
 def _stamp_active_story(project_path: Path, story_id: str) -> None:
@@ -853,7 +854,8 @@ def _parse_index_phases(index_text: str) -> list[tuple[str, str]]:
             continue
 
         in_table = True
-        parts = [p.strip() for p in stripped.split("|")]
+        # split rationale: `table_utils.split_table_row`
+        parts = [p.strip() for p in split_table_row(stripped)]
         if len(parts) < 4:
             continue
 
@@ -1152,8 +1154,11 @@ def _mark_phase_complete_in_index(phase_key: str, project_dir: Path) -> bool:
         stripped = line.strip()
         if not replaced and stripped.startswith("|"):
             # inner cells: drop the leading/trailing empty strings produced by
-            # splitting "| a | b | c |" on "|"
-            cells = [p.strip() for p in stripped.split("|")[1:-1]]
+            # splitting "| a | b | c |" on unescaped "|".
+            # split rationale: `table_utils.split_table_row` — the split is
+            # non-destructive, so the rejoin below writes the row back with
+            # its `\|` cells intact.
+            cells = [p.strip() for p in split_table_row(stripped)[1:-1]]
             # cells[0]=phase, cells[1]=title, cells[2]=status, cells[3:]=rest
             if len(cells) >= 3:
                 if cells[0] == phase_key and cells[2] != "complete":
@@ -1268,9 +1273,13 @@ def _mark_phase_complete_in_era_ledger(phase_key: str, project_dir: Path) -> boo
             if stripped.startswith("|"):
                 in_ledger_table = True
                 # inner cells: drop the leading/trailing empty strings produced
-                # by splitting "| a | b | c |" on "|". Header and |---| rows
-                # never match phase_key, so they are skipped naturally.
-                cells = [p.strip() for p in stripped.split("|")[1:-1]]
+                # by splitting "| a | b | c |" on unescaped "|". Header and
+                # |---| rows never match phase_key, so they are skipped
+                # naturally.
+                # split rationale: `table_utils.split_table_row` — the split is
+                # non-destructive, so the rejoin below writes the row back with
+                # its `\|` cells intact.
+                cells = [p.strip() for p in split_table_row(stripped)[1:-1]]
                 if len(cells) >= 3 and cells[0] == phase_key:
                     if cells[2] == "complete":
                         return False
@@ -2270,7 +2279,8 @@ def _parse_phase_stories_with_status(phase_text: str) -> list[tuple[str, str, st
                 break
             continue
         in_table = True
-        parts = [p.strip() for p in stripped.split("|")]
+        # split rationale: `table_utils.split_table_row`
+        parts = [p.strip() for p in split_table_row(stripped)]
         if len(parts) < 4:
             continue
         if not header_seen:

@@ -28,11 +28,14 @@ import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
-_SCRIPT = _REPO_ROOT / "skills" / "pairmode" / "scripts" / "flex_build.py"
+_SCRIPTS_DIR = _REPO_ROOT / "skills" / "pairmode" / "scripts"
+_SCRIPT = _SCRIPTS_DIR / "flex_build.py"
 
 # Make flex_build importable for round-trip tests.
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
 
 
 # ---------------------------------------------------------------------------
@@ -586,3 +589,63 @@ class TestMarkPhaseCompleteEraLedger:
         assert closed.read_bytes() == closed_before
         assert active.read_bytes() == active_before
         assert "| 104 | Phase 104 | complete |" in _read_index(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# INFRA-297 (CER-069) — escaped pipes in a title cell survive the rewrite
+# ---------------------------------------------------------------------------
+
+
+class TestMarkPhaseCompleteEscapedPipe:
+    r"""A title cell containing a literal escaped pipe (``\|``) is a valid
+    Markdown cell, not two columns. The rewrite paths split the row, edit the
+    status cell and rejoin — so an unescaping or naive split would silently
+    corrupt the title and shift the status write onto the wrong cell.
+    """
+
+    def test_index_row_with_escaped_pipe_title_only_status_changes(
+        self, tmp_path: Path
+    ) -> None:
+        title = r"Edit\|Write hardening"
+        _write_phase_index(tmp_path, [("113", title, "planned", "")])
+        before = _read_index(tmp_path)
+        result = _run(
+            "mark-phase-complete", "--phase", "113", "--project-dir", str(tmp_path)
+        )
+        assert result.returncode == 0, result.stderr
+        after = _read_index(tmp_path)
+        assert f"| 113 | {title} | complete |  |" in after
+        # Only the status cell differs: swapping it back reproduces the file.
+        assert after.replace("| complete |  |", "| planned |  |") == before
+
+    def test_era_ledger_row_with_escaped_pipe_title_only_status_changes(
+        self, tmp_path: Path
+    ) -> None:
+        title = r"Task\|Agent ledger"
+        _write_phase_index(tmp_path, [("113", title, "planned", "")])
+        era_path = _write_era_doc(
+            tmp_path, "004", "active", [("113", title, "planned")]
+        )
+        before = _read_era(era_path)
+        result = _run(
+            "mark-phase-complete", "--phase", "113", "--project-dir", str(tmp_path)
+        )
+        assert result.returncode == 0, result.stderr
+        after = _read_era(era_path)
+        assert f"| 113 | {title} | complete |" in after
+        assert after.replace("| complete |", "| planned |", 1) == before
+
+    def test_escaped_pipe_row_column_count_is_preserved(self, tmp_path: Path) -> None:
+        """The row still has 4 inner cells after the rewrite (a naive split
+        would have produced 5)."""
+        from table_utils import split_table_row  # noqa: PLC0415
+
+        title = r"Edit\|Write hardening"
+        _write_phase_index(tmp_path, [("113", title, "planned", "")])
+        _run("mark-phase-complete", "--phase", "113", "--project-dir", str(tmp_path))
+        row = [
+            ln
+            for ln in _read_index(tmp_path).splitlines()
+            if ln.strip().startswith("| 113 ")
+        ][0]
+        assert len(split_table_row(row.strip())[1:-1]) == 4

@@ -515,3 +515,106 @@ def test_unknown_claimed_id_is_inert(tmp_path):
     assert result is not None
     assert result["story_id"] == "INFRA-100"
     assert result["claimed_skipped"] == []
+
+
+# ---------------------------------------------------------------------------
+# INFRA-297 (CER-116) — build evidence is scoped to the commit's own story
+# ---------------------------------------------------------------------------
+
+from next_story import _has_story_commit  # noqa: E402
+
+# The subject of commit e83ce900 verbatim. Kept as a literal, not read from
+# this repository's git log: RELEASE-067 has since been genuinely built by
+# 0978447b, so the real log no longer reproduces the false positive this
+# test exists to pin.
+_E83CE900 = (
+    "e83ce900 story(RELEASE-066): forqsite.help migrated; E6 split verdict — "
+    "E4b grammar replacement PROVEN in field, CER-101 content half PROVEN via "
+    "reviewer row 14, builder row 13 pending on termination-detection artifact "
+    "(new-1); RELEASE-067+ held for operator ruling"
+)
+
+
+def test_e83ce900_does_not_mark_the_mentioned_sibling_built():
+    """CER-116 regression pin, both directions.
+
+    Commit e83ce900's subject builds RELEASE-066 and merely *mentions*
+    RELEASE-067 ("held for operator ruling"). The old whole-subject search
+    read that mention as build evidence, so find_next_story silently skipped
+    RELEASE-067 — which was still draft and unbuilt — and offered
+    RELEASE-068 instead.
+
+    The log is built here as a literal string on purpose: RELEASE-067 was
+    later genuinely built by 0978447b, so this repository's real git log no
+    longer reproduces the defect and would make the test vacuous.
+    """
+    assert _has_story_commit("RELEASE-067", _E83CE900) is False
+    assert _has_story_commit("RELEASE-066", _E83CE900) is True
+
+
+def test_scope_restriction_positive_and_negative():
+    """A scope naming a story ID makes that ID — and only that ID — evidence."""
+    log = "abc1234 feat(INFRA-100): implement it, unblocks INFRA-101"
+    assert _has_story_commit("INFRA-100", log) is True
+    assert _has_story_commit("INFRA-101", log) is False
+
+
+def test_scope_with_multiple_story_ids_counts_all_of_them():
+    log = "abc1234 feat(INFRA-100, INFRA-101): implement both"
+    assert _has_story_commit("INFRA-100", log) is True
+    assert _has_story_commit("INFRA-101", log) is True
+    assert _has_story_commit("INFRA-102", log) is False
+
+
+def test_uppercase_scope_token_matches_case_insensitively():
+    """C4: `feat(story-INFRA-100): done` — uppercase scope token path."""
+    log = "abc1234 feat(story-INFRA-100): done"
+    assert _has_story_commit("INFRA-100", log) is True
+    assert _has_story_commit("infra-100", log) is True
+
+
+def test_lowercase_scope_falls_back_to_whole_subject_search():
+    """C2/C4: lowercase scopes never activate the restriction.
+
+    Uppercase-only is the conservative direction: a missed restriction
+    re-offers a built story (loud), a wrong restriction skips one (silent).
+    """
+    assert _has_story_commit("INFRA-100", "abc1234 feat(story-infra-100): mixed case") is True
+    assert _has_story_commit(
+        "RELEASE-014", "abc1234 merge(fold-prep): fold RELEASE work (RELEASE-014)"
+    ) is True
+    assert _has_story_commit(
+        "RELEASE-014", "abc1234 chore(orchestrator): RELEASE-014 status update"
+    ) is True
+    assert _has_story_commit(
+        "INFRA-100", "abc1234 chore(phase-112): rollup for era-004"
+    ) is False
+
+
+def test_numeric_prefix_does_not_false_match_on_either_path():
+    """C4: INFRA-1001 never satisfies a lookup for INFRA-100."""
+    # Scope path.
+    assert _has_story_commit("INFRA-100", "abc1234 feat(story-INFRA-1001): work") is False
+    # Fallback path (no story ID in scope).
+    assert _has_story_commit("INFRA-100", "abc1234 chore(rollup): INFRA-1001 landed") is False
+
+
+def test_spec_skip_still_precedes_the_scope_rule():
+    """C3: a `spec(...)` commit is skipped whatever its scope says."""
+    assert _has_story_commit("INFRA-100", "abc1234 spec(INFRA-100): write the spec") is False
+    assert _has_story_commit(
+        "RELEASE-020", "abc1234 spec(phase-X): add RELEASE-020/021/022 specs"
+    ) is False
+
+
+def test_story_id_is_not_matched_out_of_the_sha_field():
+    """C6: the fallback searches the message, not the raw --oneline line.
+
+    A story ID whose text appears in the abbreviated SHA field must not
+    count. Here the "SHA" column is literally the story ID.
+    """
+    assert _has_story_commit("ABC-100", "ABC-100 chore(rollup): unrelated work") is False
+
+
+def test_no_conventional_prefix_uses_the_fallback():
+    assert _has_story_commit("INFRA-100", "abc1234 INFRA-100 landed by hand") is True

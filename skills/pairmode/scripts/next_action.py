@@ -145,6 +145,8 @@ _SCRIPTS_DIR = Path(__file__).parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
+from table_utils import split_table_row  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Schema version
 # ---------------------------------------------------------------------------
@@ -372,11 +374,8 @@ def _check_phase_completion(active_phase_file: "Path | None") -> bool:
         if in_stories and stripped.startswith("|"):
             if "---" in stripped:
                 continue  # separator row
-            # Split on unescaped pipes only: `\|` is a literal cell character
-            # (escaped pipe), not a column separator — a naive split("|")
-            # shreds a title cell like `Task\|Agent` into extra columns and
-            # corrupts the status read at a fixed index (CER-066 recurrence).
-            raw_cols = re.split(r'(?<!\\)\|', stripped)
+            # split rationale: `table_utils.split_table_row`
+            raw_cols = split_table_row(stripped)
             cols = [c.strip() for c in raw_cols if c.strip()]
             if not cols:
                 continue
@@ -426,7 +425,11 @@ def _check_cer_do_now(project_dir: "Path") -> bool:
         if in_do_now and stripped.startswith("|"):
             if "---" in stripped:
                 continue  # separator row
-            cols = [c.strip() for c in stripped.split("|") if c.strip()]
+            # split rationale: `table_utils.split_table_row`. The `if c.strip()`
+            # filter is kept verbatim: it drops empty cells and shifts indices,
+            # and both the `cols[0]` header test below and
+            # `cer.is_placeholder_row` (INFRA-294) depend on the shifted shape.
+            cols = [c.strip() for c in split_table_row(stripped) if c.strip()]
             if not cols or cols[0].lower() in ("id", "finding"):
                 continue  # header row
             if is_placeholder_row(cols):

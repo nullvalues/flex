@@ -70,7 +70,8 @@ flex/
         session_reset.py          ← pure decision logic for SessionStart counter reset; no I/O (mirrors context_budget.py D11 boundary); CER-047 / Phase 68 INFRA-175
         spec_preflight.py         ← INFRA-190/191 — scans story body sections for unverifiable route and constant references; informational only (always exits 0)
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
-        next_story.py             ← find next unbuilt story from a phase file; CLI: uv run next_story.py <phase-file> [--json] [--project-dir DIR]
+        next_story.py             ← find next unbuilt story from a phase file; CLI: uv run next_story.py <phase-file> [--json] [--project-dir DIR]; build evidence is scope-restricted with whole-subject fallback (CER-116/INFRA-297 — see § Pairmode build loop)
+        table_utils.py            ← INFRA-297 (CER-069): `split_table_row` — the single owner of Markdown-table row splitting; splits on unescaped pipes only, returns raw un-stripped parts, never unescapes `\|`; stdlib-only with no sibling imports so it cannot join an import cycle. New table readers import it rather than writing a fresh split
         gate_verdict.py           ← WORKER-001 gate verdict grammar: VERBS (clean/block/flag), JUDGED_GATES (schema/auth; stub excluded), parse_verdict (string → (verb, reason)), validate_verdict_map (dict → violation list); stdlib-only, no I/O; the WORKER-rail contract analogue of next_action.py's action grammar
         worker_result.py          ← generalized worker return contract (WORKER-004, HARNESS003-main): four result types (BUILD-RESULT, REVIEW-RESULT, ADVICE, SPEC-RESULT), parse_worker_result (text → dict, validated), validate_worker_result (dict → violation list); stdlib-only, no I/O; parallel to gate_verdict.py for all non-gate workers
         next_action.py            ← next-action resolver: action grammar (make_action, validate_action, ACTIONS), position read-model (infer_position), 9-state DP2 machine (resolve_next_action); HARNESS002-main adds spawn-gate-worker to ACTIONS, Row-4 DP2 split (stub→await-user directly; schema/auth→spawn-gate-worker), parse_worker_verdict_text (worker text return → per-gate verdict map), route_gate_verdict (DP3.2 aggregation: block→await-user, flag→proceed+warnings, clean→proceed); the live sequencing core since the flip (HARNESS006), pure-read; HARNESS003-main adds spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer to ACTIONS and _SPAWN_ACTIONS; SCHEMA_VERSION bumped to 2; HARNESS004-main adds checkpoint-security, checkpoint-intent, checkpoint-docs, checkpoint-tag to ACTIONS; removes monolithic checkpoint from ACTIONS (constant retained for import compat); adds check_checkpoint_guards (pre-checkpoint guards: phase-completion, CER Do Now, build-gate via injectable gate_fn); checkpoint step sequencing via _CHECKPOINT_SEQUENCE; SCHEMA_VERSION bumped to 3; HARNESS005-main adds spawn-spec-writer to ACTIONS and _SPAWN_ACTIONS; adds needs_spec bool to infer_position Position (True when ## Ensures absent or &lt; 5 non-blank lines — stub heuristic; fail-safe: unreadable story file → True); Row-2 split: needs_spec True → spawn-spec-writer (model=opus, reason=needs-spec), needs_spec False → spawn-builder as before; _count_ensures_nonblank_lines private helper (pure, no I/O); SPEC-RESULT{revised} routing lives in CLAUDE.build.md orchestrator prose (not in resolve_next_action); canonical reason string: spec-revised-awaiting-review; SCHEMA_VERSION bumped to 4; spawn-reviewer is in ACTIONS/_SPAWN_ACTIONS for orchestrator dispatch but is never emitted by resolve_next_action (CER-074)
@@ -285,6 +286,45 @@ and re-dispatches a wasteful attempt 2 over a finished build. Originating decisi
 filtering — a re-poll mid-story now returns a *different* story (whichever one is next
 unclaimed) rather than silently re-offering the same one, which is worse, not better, and
 still a caller error the rule exists to prevent.
+
+**Build evidence: scope-restricted, with whole-subject fallback (CER-116, INFRA-297).**
+Story resolution is git-authoritative — `next_story._has_story_commit` decides from
+`git log --oneline` whether a story has already been built, and that verdict overrides the
+phase table's own status column. The rule it applies, in order:
+
+1. Commits whose subject starts with `spec(` are skipped entirely (RELEASE-041) — a
+   spec-authoring commit legitimately lists several story IDs in prose without building
+   any of them.
+2. **Scope restriction.** If the subject has a conventional-commit prefix (`type(scope):`)
+   whose scope contains at least one *uppercase* story-ID token
+   (`\b[A-Z][A-Z0-9_]*-\d{2,}\b`), only those scope tokens count as build evidence from
+   that commit — a story ID mentioned anywhere else in that subject does not.
+3. **Fallback.** Otherwise the story ID is matched as a whole token (word-boundary,
+   case-insensitive) anywhere in the commit *message* — the subject after the abbreviated
+   SHA, never the raw `--oneline` line, so an ID cannot be matched out of the SHA field.
+   This preserves the three legitimate shapes: `feat(story-INFRA-100): done`,
+   `merge(fold-prep): ... (RELEASE-014)`, and `chore(orchestrator): RELEASE-014 status
+   update`.
+
+The reason for step 2: a whole-subject search cannot distinguish "this commit built X"
+from "this commit mentions X", and the resolver's failure mode is *silent skipping* — the
+worst shape a build loop can have, since there is no error and no verdict, just a story
+that never gets built. Observed live: `story(RELEASE-066): ...; RELEASE-067+ held for
+operator ruling` (e83ce900) marked RELEASE-067 built while it was still draft and unbuilt,
+and the resolver advanced to RELEASE-068. The rule replaces the interim operator
+discipline "never name sibling story IDs in non-`spec(` commit subjects", which was
+unenforceable and had already been violated.
+
+The scope detector is **uppercase-only, deliberately**: lowercase scopes (`phase-112`,
+`era-004`, `fold-prep`, `story-infra-100`) do not activate the restriction and fall through
+to the fallback. Rails are uppercase by construction (`story_new._RAIL_RE`), so a lowercase
+token is not reliably a story ID — and this is the conservative direction, because a missed
+restriction re-offers an already-built story (loud, recoverable) whereas a wrong restriction
+skips one silently. The subject-line heuristic itself stays: a trailer- or notes-based
+evidence scheme would be a stronger contract but would invalidate every commit already in
+this repo's and every consumer project's history. Ordering inside `find_next_story` is
+unchanged — commit evidence is still evaluated before the skip-status and `claimed` checks,
+so a claim never overrides commit evidence (CER-095.1).
 
 1. **Story spec** — the phase doc names the story; the story file at
    `docs/stories/<RAIL>/<RAIL>-NNN.md` defines `## Requires`, `## Ensures`, and
@@ -3445,6 +3485,35 @@ The companion sidebar (`skills/companion/scripts/sidebar.py`) imports
 `record_spec_exception` from `skills/pairmode/scripts/spec_exception.py`.
 This cross-skill dependency is intentional and permitted under the "sibling skills ok
 for shared utils" rule. It must be preserved when either module is modified.
+
+**Markdown-table row splitting has one owner: `table_utils.split_table_row`**
+(`skills/pairmode/scripts/table_utils.py`, INFRA-297). Every module in
+`skills/pairmode/scripts/` that reads or rewrites a Markdown table row splits it through
+this helper. A new table reader **imports it rather than writing a fresh `split`** —
+including a fresh *correct* one, because a duplicated regex literal is how this bug class
+kept coming back.
+
+The reason it exists: in Markdown, `\|` is a *literal cell character*, not a column
+separator. A naive `stripped.split('|')` shreds a title cell like `Edit\|Write` into two
+"columns" and shifts every positional read after it, so a status column read at a fixed
+index silently becomes the wrong cell. That was filed as CER-066, fixed once in
+`story_update.py` (INFRA-207) and independently again in
+`next_action._check_phase_completion` (INFRA-222), then re-filed as CER-069 when the same
+shape was found at seven further sites — two of them *rewrite* paths that write the row
+back to disk. INFRA-297 converted all of them and rewired the two already-correct sites,
+so the `(?<!\\)\|` literal now appears in exactly one module (pinned by a grep-form test
+in `tests/pairmode/test_table_utils.py`).
+
+Two properties are load-bearing, both stated in the helper's docstring: (1) it returns the
+**raw** parts — no per-cell `.strip()`, and both boundary empties included — so callers
+keep their own stripping and slicing and conversion is behaviour-preserving; (2) it is
+**non-destructive** — it does not unescape `\|`. Property (2) is what makes the
+`mark-phase-complete` rewrite paths safe: they split a row, edit the status cell, rejoin
+with `" | "` and write it back, so an unescaping split would silently corrupt every row it
+touched. The helper imports only the standard library and no sibling module, deliberately:
+at its fan-in, sibling imports would eventually close an import cycle (`flex_build` ↔
+`index_integrity` already lazy-imports around one). It has exactly one function and gains
+no others — column discovery, header detection and status normalisation stay per-site.
 
 
 ---

@@ -2318,3 +2318,86 @@ class TestResolveNextActionClaimedSkippedMeta:
         assert action["action"] == SPAWN_BUILDER
         assert action["scalar"] == "TEST-002"
         assert action["meta"]["claimed_skipped"] == ["TEST-001"]
+
+
+# ---------------------------------------------------------------------------
+# INFRA-297 (CER-069/B4) — _check_cer_do_now splits on unescaped pipes only,
+# and keeps its index-shifting `if c.strip()` filter verbatim.
+# ---------------------------------------------------------------------------
+
+
+class TestCheckCerDoNowEscapedPipe:
+    """A Do Now row whose finding cell contains a literal ``\\|`` must be
+    classified identically to the same row without one: the escaped pipe is
+    cell content, not a column boundary.
+
+    The ``if c.strip()`` filter is load-bearing here — it drops the empty
+    cells produced by the leading/trailing pipes, so ``cols[0]`` is the ID
+    cell for both the header test and ``cer.is_placeholder_row`` (INFRA-294).
+    """
+
+    _HEADER = (
+        "# CER Backlog\n\n"
+        "## Do Now\n\n"
+        "| ID | Finding | Source | Date | Phase |\n"
+        "|----|---------|--------|------|-------|\n"
+    )
+
+    def _write(self, tmp_path: Path, rows: str) -> Path:
+        cer_dir = tmp_path / "docs" / "cer"
+        cer_dir.mkdir(parents=True, exist_ok=True)
+        (cer_dir / "backlog.md").write_text(
+            self._HEADER + rows + "\n## Do Later\n\n", encoding="utf-8"
+        )
+        return tmp_path
+
+    def test_unresolved_row_with_escaped_pipe_still_fails(self, tmp_path: Path) -> None:
+        from next_action import _check_cer_do_now
+
+        self._write(
+            tmp_path,
+            "| CER-999 | Naive split shreds Edit\\|Write titles"
+            " | cold-eyes | 2026-01-01 | 113 |\n\n",
+        )
+        assert _check_cer_do_now(tmp_path) is False
+
+    def test_resolved_row_with_escaped_pipe_still_passes(self, tmp_path: Path) -> None:
+        from next_action import _check_cer_do_now
+
+        self._write(
+            tmp_path,
+            "| CER-999 | Naive split shreds Edit\\|Write titles."
+            " **RESOLVED (INFRA-297)** | cold-eyes | 2026-01-01 | 113 |\n\n",
+        )
+        assert _check_cer_do_now(tmp_path) is True
+
+    def test_classification_identical_with_and_without_escaped_pipe(
+        self, tmp_path: Path
+    ) -> None:
+        from next_action import _check_cer_do_now
+
+        plain = tmp_path / "plain"
+        escaped = tmp_path / "escaped"
+        self._write(
+            plain,
+            "| CER-999 | Edit or Write titles | cold-eyes | 2026-01-01 | 113 |\n\n",
+        )
+        self._write(
+            escaped,
+            "| CER-999 | Edit\\|Write titles | cold-eyes | 2026-01-01 | 113 |\n\n",
+        )
+        assert _check_cer_do_now(escaped) == _check_cer_do_now(plain) is False
+
+    def test_placeholder_row_still_exempted(self, tmp_path: Path) -> None:
+        from next_action import _check_cer_do_now
+
+        self._write(tmp_path, "| — | *(none)* | — | — | — |\n\n")
+        assert _check_cer_do_now(tmp_path) is True
+
+    def test_header_row_still_detected(self, tmp_path: Path) -> None:
+        """The header test reads cols[0] from the filtered list; with only a
+        header and separator present the guard passes."""
+        from next_action import _check_cer_do_now
+
+        self._write(tmp_path, "\n")
+        assert _check_cer_do_now(tmp_path) is True

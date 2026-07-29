@@ -23,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import schema_validator as _sv
+from table_utils import split_table_row  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Story ID parsing
@@ -163,7 +164,8 @@ def _parse_stories_table(text: str) -> list[str]:
 
         in_table = True
         # Parse first column of the pipe-delimited row
-        parts = [p.strip() for p in stripped.split('|')]
+        # split rationale: `table_utils.split_table_row`
+        parts = [p.strip() for p in split_table_row(stripped)]
         # parts[0] is empty (before first |), parts[1] is first column
         if len(parts) < 2:
             continue

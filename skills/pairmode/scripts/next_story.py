@@ -3,17 +3,28 @@ next_story.py — Find the next unbuilt story from a phase file.
 
 Reads the ## Stories table from the given phase file (using
 `_parse_stories_table` from `story_resolver`) and iterates stories in table
-order. For each story, determines completion by checking whether a git commit
-message mentions the story ID as a whole token (word-boundary match,
-case-insensitive) anywhere in the project directory's git log — not only when
-prefixed with the literal `story-`. This recognizes the `story-<ID>`
-conventional-commit convention, parenthetical merge suffixes
-(`... (RELEASE-014)`), and bare mentions (`RELEASE-014 status update`) alike,
-while word boundaries keep a longer ID sharing a numeric prefix (e.g.
-`INFRA-1001`) from matching a lookup for `INFRA-100`. Commits whose message
-starts with `spec(` are excluded from matching (RELEASE-041) — spec-authoring
-commits legitimately reference multiple story IDs in prose without building
-any of them. A commit match is authoritative over the table's status column.
+order. For each story, determines completion from the project directory's git
+log using a two-step rule (`_has_story_commit`):
+
+  1. **Scope-restricted (CER-116).** When a commit subject's
+     conventional-commit scope — the text inside the first `(...)` of a
+     leading `type(scope):` prefix — names at least one uppercase story-ID
+     token, only those tokens count as build evidence from that commit. This
+     stops a commit that merely *mentions* a sibling story ("RELEASE-067+
+     held for operator ruling") from marking it built and having the resolver
+     silently skip past it.
+  2. **Whole-subject fallback.** Otherwise the story ID is matched as a whole
+     token (word-boundary, case-insensitive) anywhere in the commit subject —
+     not only when prefixed with the literal `story-`. This recognizes the
+     `story-<ID>` conventional-commit convention, parenthetical merge
+     suffixes (`... (RELEASE-014)`), and bare mentions (`RELEASE-014 status
+     update`) alike, while word boundaries keep a longer ID sharing a numeric
+     prefix (e.g. `INFRA-1001`) from matching a lookup for `INFRA-100`.
+
+Commits whose message starts with `spec(` are excluded from matching before
+either step (RELEASE-041) — spec-authoring commits legitimately reference
+multiple story IDs in prose without building any of them. A commit match is
+authoritative over the table's status column.
 
 Returns the first story that:
   - has no matching git commit, AND
@@ -49,6 +60,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import click
 
 from story_resolver import _parse_stories_table, resolve_story  # noqa: E402
+from table_utils import split_table_row  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +104,8 @@ def _parse_stories_table_statuses(text: str) -> dict[str, str]:
             continue
 
         in_table = True
-        parts = [p.strip() for p in stripped.split('|')]
+        # split rationale: `table_utils.split_table_row`
+        parts = [p.strip() for p in split_table_row(stripped)]
         if len(parts) < 2:
             continue
 
@@ -139,32 +152,84 @@ def _git_log_oneline(project_dir: Path) -> str:
     return result.stdout or ""
 
 
+# Conventional-commit prefix: `type(scope):` at the start of a subject.
+# Group 1 is the scope text between the first parentheses.
+_SCOPE_RE = re.compile(r'^[A-Za-z]+\(([^)]*)\)\s*:')
+
+# A story-ID token inside a commit scope. Deliberately uppercase-only — see
+# `_has_story_commit`'s docstring.
+_SCOPE_STORY_ID_RE = re.compile(r'\b[A-Z][A-Z0-9_]*-\d{2,}\b')
+
+
 def _has_story_commit(story_id: str, git_log: str) -> bool:
-    """Return True if `git_log` mentions `story_id` as a whole token
-    (word-boundary match, case-insensitive), in a commit that isn't
-    spec-authoring only.
+    """Return True if `git_log` carries build evidence for `story_id`.
 
-    Matches the story ID anywhere in a commit message — whether prefixed
-    with the `story-` conventional-commit convention
-    (`feat(story-INFRA-100): done`), as a parenthetical merge suffix
-    (`merge(fold-prep): ... (RELEASE-014)`), or as a bare mention
-    (`chore(orchestrator): RELEASE-014 status update`). The `\\b`
-    boundaries prevent a longer ID that shares a numeric prefix (e.g.
-    `INFRA-1001`) from satisfying a lookup for `INFRA-100`.
+    **Scope rule (CER-116).** If a commit subject has a conventional-commit
+    prefix (`type(scope):`) whose scope contains at least one uppercase
+    story-ID token (`\\b[A-Z][A-Z0-9_]*-\\d{2,}\\b`), then *only* those scope
+    tokens count as build evidence from that commit: `story_id` matches only
+    if it equals one of them (compared case-insensitively). Otherwise the
+    whole-subject search below runs as the fallback.
 
-    Commits whose message starts with `spec(` are skipped entirely (RELEASE-041):
-    this repo's spec-authoring convention prefixes commits that create or edit
-    specs, and such a commit legitimately lists several story IDs in prose
-    (e.g. "add RELEASE-020/021/022 specs") without building any of them —
-    counting that as build evidence produced a false positive."""
+    This exists because a whole-subject search cannot tell "this commit built
+    X" from "this commit mentions X". Commit `e83ce900`
+    (`story(RELEASE-066): ...; RELEASE-067+ held for operator ruling`) marked
+    RELEASE-067 as built while it was still draft and unbuilt, and
+    `find_next_story` silently skipped past it — the worst failure shape a
+    build loop can have. The rule replaces the interim operator discipline
+    "never name sibling story IDs in non-`spec(` commit subjects", which was
+    unenforceable and had already been violated.
+
+    **Fallback — whole-subject search.** With no story ID in the scope, the
+    story ID is matched anywhere in the commit *message* (word-boundary
+    match, case-insensitive). The three legitimate shapes this preserves:
+    the `story-` conventional-commit convention
+    (`feat(story-INFRA-100): done`), a parenthetical merge suffix
+    (`merge(fold-prep): ... (RELEASE-014)`), and a bare mention
+    (`chore(orchestrator): RELEASE-014 status update`). The `\\b` boundaries
+    prevent a longer ID that shares a numeric prefix (e.g. `INFRA-1001`)
+    from satisfying a lookup for `INFRA-100`. The search runs on the message
+    (the subject after the abbreviated SHA), never on the raw
+    `git log --oneline` line, so a story ID can never be matched out of the
+    SHA field.
+
+    **Why the scope detector is uppercase-only, deliberately.** Lowercase
+    scopes such as `phase-112`, `era-004`, `fold-prep` and `story-infra-100`
+    do not activate the restriction and fall through to the fallback. Rails
+    are uppercase by construction (`story_new.py`'s
+    `_RAIL_RE = re.compile(r"[A-Z][A-Z0-9_]*")`), so a lowercase token is not
+    reliably a story ID. This is the conservative direction: a missed
+    restriction re-offers a story that was already built (loud, recoverable),
+    whereas a wrong restriction skips a story silently — the failure CER-116
+    is about.
+
+    **`spec(` skip (RELEASE-041), unchanged and evaluated first.** Commits
+    whose message starts with `spec(` are skipped entirely before the scope
+    rule is considered: this repo's spec-authoring convention prefixes commits
+    that create or edit specs, and such a commit legitimately lists several
+    story IDs in prose (e.g. "add RELEASE-020/021/022 specs") without building
+    any of them — counting that as build evidence produced a false positive.
+    """
     if not git_log:
         return False
     pattern = re.compile(r'\b' + re.escape(story_id) + r'\b', re.IGNORECASE)
+    wanted = story_id.upper()
     for line in git_log.splitlines():
         message = line.split(" ", 1)[1] if " " in line else ""
         if message.lstrip().startswith("spec("):
             continue
-        if pattern.search(line):
+
+        scope_match = _SCOPE_RE.match(message.lstrip())
+        if scope_match:
+            scope_ids = _SCOPE_STORY_ID_RE.findall(scope_match.group(1))
+            if scope_ids:
+                # Scope names its own story/stories — that is this commit's
+                # build evidence, and nothing else in the subject counts.
+                if wanted in {sid.upper() for sid in scope_ids}:
+                    return True
+                continue
+
+        if pattern.search(message):
             return True
     return False
 

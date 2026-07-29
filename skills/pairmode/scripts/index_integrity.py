@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from next_story import _git_log_oneline  # noqa: E402
 from next_story import _has_story_commit  # noqa: E402
 from schema_validator import _parse_frontmatter  # noqa: E402
+from table_utils import split_table_row  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +122,8 @@ def _parse_era_phase_table(era_text: str) -> list[tuple[str, str]]:
             continue
 
         in_table = True
-        parts = [p.strip() for p in stripped.split("|")]
+        # split rationale: `table_utils.split_table_row`
+        parts = [p.strip() for p in split_table_row(stripped)]
         # parts[0] is '' (before first |), parts[-1] is '' (after last |)
 
         if not header_seen:
