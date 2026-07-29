@@ -169,9 +169,15 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-112 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
+- [x] written-never-read — no new persistent state introduced this phase (all three stories `schema_introduces: false`); the CER-099 fix closes an existing *read*-path containment gap rather than adding a writer.
+- [x] required-never-written — the legacy plain-text verdict grammar is a read-side fallback only; no read path was added that depends on a value nothing produces. The pre-existing JSON-path outcome-validation asymmetry is filed as CER-113, not left implicit.
+- [x] duplicate state — reduced, not added: the placeholder rule now has exactly one owner (`cer.is_placeholder_row`, consumed by both `_parse_entries_from_backlog` and `_check_cer_do_now`); the vestigial `cer.py` regex-guard dead code is recorded in INFRA-294's spec recon.
+- [x] half-implementation — every new producer has its consumer (legacy grammar parser ← reconcile sweep; alias replacement ← sync-agents; refusal guard ← CLI default path, with `--snapshot`/`--no-snapshot` escape hatches tested). One deliberate outstanding item: INFRA-293 § Ensures F3 field acceptance, tracked below.
 
-— developer fills in after phase completion —
+**F3/F4 record (INFRA-293 § Ensures, orchestrator-filled):** F3 (explicit
+reconcile sweep against caddy's live `effort.db`, confirming rows 33/34 gain
+non-NULL `outcome`) has **not yet been run** as of 2026-07-28. It is
+operator-run, post-channel-release, deadline **2026-08-11** (after which the
+rows age out of `RECONCILE_MAX_AGE_DAYS` and the acceptance must be recorded as
+FAIL, not skip). Phase 112 checkpoint-tag is held until the sweep result is
+recorded here.
