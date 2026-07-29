@@ -2,7 +2,7 @@
 id: RELEASE-066
 rail: RELEASE
 title: Migrate forqsite.help to pairmode 0.3.0
-status: draft
+status: complete
 phase: "106"
 auth_gated: false
 schema_introduces: false
@@ -966,3 +966,270 @@ from the prior runs' recorded invocations; confirm via `--help`.
 - **Automating the campaign.** No script is written to loop the mechanic over the
   fleet. If that is wanted, it is a new story informed by E12 — not a shortcut taken
   during the run that is supposed to evaluate the manual procedure.
+
+## Evidence
+
+**Executed 2026-07-28/29, orchestrator-level from the flex session (per § Instructions), operator present throughout.**
+
+### E0 — preconditions and unblock proof
+
+- (c) Operator confirmation, quoted verbatim from the live AskUserQuestion exchange: asked
+  *"RELEASE-066 E0(c) requires a live, quoted operator confirmation that RELEASE-065's block on
+  RELEASE-066..070 is discharged by phase 112 (cp-112 + F3 PASS on caddy rows 33/34). Do you
+  confirm?"* — operator answered **"Confirmed — block discharged"**.
+- Tags in flex: `git tag -l` → `cp-105`, `cp-110`, `cp-111`, `cp-112` all present.
+- Channel content: `git -C /mnt/work/flex-harness log --oneline -1` → `90ff183d chore(phase-112): mark phase complete in index and era ledger (cp-112)` — the cp-112 commit itself; channel clean (`status --porcelain` empty).
+- RELEASE-063/064/065 all `status: complete` with `## Evidence` + playbook-note subsections present; RELEASE-067..071 all `status: draft`.
+- Dirty-target stop condition fired and was resolved by the operator, quoted verbatim: asked discard / commit / abort for
+  `M .companion/effort.db`, `M .companion/state.json`, `?? .companion/state.json.lock` — operator answered
+  **"Commit as pre-migration state (Recommended)"**. Committed in target as `cfe0f1b`; the `.lock` deleted, never committed.
+
+### E1 — baseline, path confirmation, starting shape
+
+Command (corrected Signal-1 form, flags confirmed against `--help` post-cp-112):
+
+```
+uv run python /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
+  --candidate-dir /mnt/work/forqsite.help --no-snapshot
+```
+
+Baseline output (target block):
+
+```
+/mnt/work/forqsite.help
+  binding: version
+  signal1 (scripts path): absent — no-declaration
+  signal2 (pairmode_version): 0.2.0
+  DUPLICATE HOOKS: /mnt/work/forqsite.help — events: SessionStart, PostToolUse
+```
+
+- Path disambiguation: `readlink -f /mnt/work/forqsite.help` → `/mnt/work/forqsite.help` (no symlink games);
+  the sibling `/mnt/work/forqsite` appears separately in the same scan already at `binding: both` / `0.3.0`.
+  Confirmed the migration target is the `.help` docs-site repo, not the sibling source repo.
+- `git log --oneline -5` at baseline: `cfe0f1b` (pre-migration snapshot, above), `669b281`, `809aca3`, `3aab61c`, `192410a`; `status --porcelain` empty after cfe0f1b.
+- **Starting shape (one line): bound 0.2.x consumer (`binding: version`, signal1 absent, signal2 0.2.0) — ordinary path, same branch as lumin and caddy.**
+
+### Mechanic run
+
+- Dry-run (`sync-all --dry-run`): 1416 lines — 5 agent-file diffs (builder, intent-reviewer, loop-breaker, reviewer,
+  security-auditor) + `CLAUDE.build.md`; project-specific `reconstruction-agent.md` untouched. The builder/reviewer diffs
+  replace the stale `## Final output to orchestrator` plain-text block (`BUILD-RESULT: DONE` / `<usage>`) with the 0.3.0
+  `## Return` JSON contract **in place** — the cp-112 legacy-heading alias replacement operating as designed.
+  (First dry-run attempt was truncated by an orchestrator-side `| head` SIGPIPE; re-run clean. Operational note only.)
+- Apply: `sync-all --apply --yes` exit 0. Auto-mode classifier did **not** block (note 7: still 1-of-4 overall).
+- `state.json.lock` left behind by apply: **recurred (4-of-4)** — removed, not committed (note 5).
+- **CER-111 pre/post:** `expected_step_tokens` read **before** `to-030`: `53416`; after: `53416` — **keep + WARN**
+  (`[WARN] custom expected_step_tokens=53416 — value kept (not the Era 2 stamp).`), the meander/caddy behaviour, not lumin's silent rewrite.
+- `to-030 --apply` exit 0; `pairmode_version` 0.2.0 → 0.3.0. Agent-cleanup WARN fired on all five synced files (note 4, 4-of-4) — paired with the E4(b) grep below rather than dismissed.
+
+**E4(b) — the unblocker-2 check (run before the proving cycle, no hand-edits):**
+
+```
+$ grep -rn 'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS' /mnt/work/forqsite.help/.claude/agents/
+(no matches — exit 1)
+```
+
+**CLEAN.** Baseline had the stale grammar in `builder.md` and `reviewer.md` (grep count 1 each pre-sync). cp-112's
+`sync-agents` replacement removed it; on caddy (pre-fix) the same content survived sync and killed E6b. This is the first
+field observation of unblocker 2 working.
+
+- Migration committed **before** the proving cycle (note 3, 4-of-4): target commit `c2485d6`
+  `sync: migrate to pairmode 0.3.0 thin-harness loop` — **10 files changed, 246 insertions(+), 1127 deletions(-)**.
+
+### E2/E3 — post-migration discovery and hooks
+
+Same discovery command re-run; target block now:
+
+```
+/mnt/work/forqsite.help
+  binding: both
+  signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
+  signal2 (pairmode_version): 0.3.0
+```
+
+`audit-hooks --project-dir /mnt/work/forqsite.help` (dry-run) reports duplicates only for **plugin-sourced,
+non-pairmode** entries (`session-start.sh` ×2, `security_reminder_hook.py` ×6) — the CER-110 pattern, deliberately not
+chased. Direct inspection of `.claude/settings.json`: **exactly one pairmode hook entry per event**
+(PreToolUse/UserPromptSubmit/SessionStart/PostToolUse), all pointing at `/mnt/work/flex-harness/hooks/*.py`. E3 asserted
+as single-block pairmode hooks, not `duplicate hooks: 0`, per spec.
+
+### E4 — thin-harness template and SKILL.md state
+
+- (a) `grep -c "flex_build.py next-action" CLAUDE.build.md` → **2** (matches all three prior runs); `head -5` shows the
+  0.3.0 thin dispatch-loop header (`# CLAUDE.build.md — forqsite.help Build Orchestrator`, delegation to
+  `/mnt/work/flex-harness/.../flex_build.py next-action`).
+- (c) `sync-all` wrote **no SKILL.md** into this target (no `skills/` dir — caddy-like); recorded as such.
+
+### E5 — proving story cycle
+
+**Mode (operator-chosen, quoted): "Drive from this session (Recommended)"** — this flex session drove the target's own
+loop, exercising INFRA-289 `resolve_recording_project` cross-project attribution (caddy already proved the native mode;
+this run proves the flex-session branch). Story (operator-chosen, quoted): **"Drift re-sweep vs forqsite (Recommended)"**.
+
+- Target-side story: **CONTENT-005** (phase 3, target's own numbering), scaffolded with the target's own tooling
+  (`phase_new.py` / `story_new.py`), specced by an opus spec-writer, built (opus, operator-selected at the resolver's
+  `model-upgrade` handoff), reviewed (opus, PASS, zero findings), merged via the target's own
+  `create-story-worktree`/`merge-story-worktree` — the full spec-writer → builder → reviewer → merge cycle inside the
+  target's `CLAUDE.build.md` loop. Real work, genuinely wanted: corrected the docs site's stale pnpm prereq (`8+` →
+  pinned `9.15.9` per upstream `forqsite@b1e6ee73`) with a byte-exact bundle re-encode; regression guards confirmed
+  scheduler count, GAP ledger, and ENV claims unchanged. Story commit `186a0f9` on target main.
+
+### E6 — attempt rows in the target's effort.db
+
+Live schema verified first: `attempts(id, story_id, phase, rail, agent_role, model, attempt_number, tokens_total, …,
+outcome, notes, ts, …, agent_id, output_file)` — `agent_role`/`ts` as expected.
+
+- **E6a — attribution: PASS (re-confirmed, new branch).** Rows in the **target's** db:
+
+  ```
+  (13, 'CONTENT-005', 'builder',  'opus', …)
+  (14, 'CONTENT-005', 'reviewer', 'opus', …)
+  ```
+
+  Flex complement: `SELECT … FROM attempts WHERE story_id LIKE '%CONTENT-005%'` against `/mnt/work/flex/.companion/effort.db` → `[]`.
+  This is the first proof of INFRA-289 attribution from a **flex-session** drive (caddy proved native; worktree-path precedence
+  routed these rows to `/mnt/work/forqsite.help`).
+
+- **E6b — content: SPLIT (see gate statement).** First read: both rows pending (`tokens_total NULL, outcome NULL`).
+  Explicit sweep (`subagent_transcript.py reconcile --project-dir /mnt/work/forqsite.help --limit 200 --json`) →
+  `{"reconciled": 1}`:
+
+  ```
+  (13, 'CONTENT-005', 'builder',  'opus', None, None)      ← still pending
+  (14, 'CONTENT-005', 'reviewer', 'opus', 9187, 'PASS')    ← reconciled
+  ```
+
+  Row 14 resolving with a parsed `PASS` + non-zero tokens **is downstream proof of the CER-101 content half** on this
+  target. Row 13 diagnosed per spec rather than reported as a bare NULL — isolated to a **named, non-grammar** cause:
+  `is_reconcilable_spawn_output` → `not-terminated`, because (i) the builder transcript's final assistant entry carries
+  `stop_reason: None` (the known ~18% no-stamp case the quiescence promotion exists for), and (ii) quiescence
+  (`QUIESCENT_AGE_SECONDS=900`) never triggers **while the driving session is alive** — the harness atomically
+  re-serializes the task output file during the session (observed: same path flapping 236 KB ↔ 125 B with mtime moving
+  both directions), so mtime never ages 900 s. Decisive content check run directly:
+  `parse_worker_outcome(<builder final text>)` → **`('PASS', None)`** — the parser reads the row's outcome; nothing about
+  this is the caddy grammar failure. Expected to reconcile via any post-session sweep (well inside the 14-day
+  `RECONCILE_MAX_AGE_DAYS` window); resolution to be recorded here when observed.
+
+- **E6c — no duplicates: PASS (re-confirmed).**
+  `SELECT story_id, agent_role, COUNT(*) … GROUP BY story_id, agent_role HAVING COUNT(*)>1` → `[]` (one row per spawn).
+
+### E7 — report path
+
+`flex_build.py checkpoint-report --project-dir /mnt/work/forqsite.help`:
+
+```
+=== checkpoint cost rollup — phase 3 ===
+  reviewer: 1 attempt(s), median 9,187 tokens
+  -- per-story --
+  CONTENT-005: reviewer: 1 attempt(s), median 9,187 tokens
+=== lifetime cost rollup (all phases) ===
+  builder: 6 attempt(s), median 97,431 tokens
+  reviewer: 7 attempt(s), median 45,398 tokens
+```
+
+**Upgrade over RELEASE-065 achieved:** the phase-scoped rollup resolves the E5 story's own phase and shows the E5
+story's **own row** (CONTENT-005 reviewer) — the read-path proof RELEASE-065 could not produce. No "no active phase
+resolved" artifact. The pending builder row is (correctly) excluded from medians until it reconciles; recorded, not
+rounded up.
+
+### E8 — target git history
+
+```
+186a0f9 feat(story-CONTENT-005): correct stale pnpm prereq claim after drift re-sweep
+f431b99 spec(CONTENT-005): block-style primary_files (flow-style list parses as string in frontmatter reader)
+efa66e2 spec(CONTENT-005): orchestrator fixes — primary_files frontmatter, dedupe phase-3 story row, correct baseline date
+9aa6535 spec(CONTENT-005): elaborate drift re-sweep spec
+118a421 spec(CONTENT-005): scaffold story stub
+308c17f spec(phase-3): scaffold drift re-sweep phase with CONTENT-005 (RELEASE-066 proving cycle)
+c2485d6 sync: migrate to pairmode 0.3.0 thin-harness loop     ← migration commit, 10 files, +246/−1127
+cfe0f1b chore(pre-migration): snapshot companion runtime state …
+```
+
+Migration precedes the proving cycle (note 3 applied, 4-of-4).
+
+### E9 — settings.local.json sediment
+
+File exists. Pre-migration: **55** allow rules, of which **3** `Write(` + **26** per-file `Edit(` = 29 stale. Operator
+decision, quoted: **"Prune (Recommended)"**. Backup: `/mnt/work/forqsite.help/.claude/settings.local.json.bak-pre-030-prune`.
+Post-prune: **26** rules (29 removed). (Fleet tally: meander 91 pruned, lumin n/a, caddy 48, forqsite.help 29.)
+
+### E10 — downstream-proof position restated
+
+As of this run: **attribution (CER-103)** proven downstream twice — caddy native (worktree-path precedence) and now
+forqsite.help flex-session-driven (both INFRA-289 branches). **Dedupe (CER-104)** re-confirmed (caddy, forqsite.help).
+**Content (CER-101)** — the half the campaign was re-blocked on — now has its **first downstream proof**: forqsite.help
+row 14 (reviewer) reconciled to a parsed `PASS` with real tokens through the cp-112 parser, and the cp-112 sync-agents
+replacement demonstrably removed the stale grammar before the cycle (E4b). Builder row 13 pending on a
+termination-detection artifact, not grammar (diagnosis above); its reconciliation completes the pair. Meander's
+post-cp-110 E6 re-verification remains outstanding (its agent bodies were synced pre-cp-112; its next sync+cycle should
+now succeed).
+
+### E11 — cleanliness
+
+- `git -C /mnt/work/flex-harness status --porcelain` → empty, throughout and after (scripts invoked, never written).
+- Unblocker-4 snapshot observation: every discovery invocation in this story passed `--no-snapshot`; no snapshot write
+  occurred anywhere. `/mnt/work/flex-harness/docs/fleet-snapshot.md` exists but is a **tracked historical artifact**
+  (committed by INFRA-249 / DP8 baseline, last touched `2c2683fa`), unchanged this run — not RELEASE-065-style pollution.
+- `/mnt/work/forqsite` (source repo): read-only throughout; builder verified `status --porcelain` byte-identical to its
+  pre-build snapshot (its pre-existing dirty `.claude/agents/*.md` files untouched).
+
+### E14 — flex suite
+
+`uv run pytest tests/pairmode/ -q` (no `-x`): **4116 passed, 211 skipped, 0 failed** (152.87 s).
+
+### Playbook notes (E12 — delta against the three prior runs)
+
+1. Dirty tree: **recurred (3-of-4)** — new form again: live companion runtime state (`effort.db`/`state.json` mid-write
+   sediment). Operator chose **commit** (first time; meander/caddy discarded) — pre-migration snapshot `cfe0f1b`.
+2. Runbook step-5 command form: **recurred (4-of-4)**; corrected form used. Runbook § Per-project mechanic still says
+   `discover --project-dir`; still unamended.
+3. Commit-before-proving: **recurred / applied (4-of-4)**.
+4. Agent-cleanup WARN: **recurred (4-of-4)** — fired on all five synced files. Post-cp-112 it is survivable noise *when
+   paired with a clean E4(b) grep*; the runbook amendment should say exactly that.
+5. `state.json.lock`: **recurred (4-of-4)**; removed, not committed.
+6. `expected_step_tokens`: **keep+WARN (53416)** — 3-of-4 keep+WARN vs lumin's 1-of-4 silent rewrite; CER-111's
+   value-dependence hypothesis further supported.
+7. Auto-mode classifier block: **did not recur (1-of-4, unsettled).**
+8. Recording/session-binding: INFRA-289 **both branches now proven** (see E10).
+9. Sediment: **recurred (3-of-4)** — 29 rules pruned with backup.
+
+New this run:
+
+- **(new-1) In-session quiescence promotion is structurally unreachable for spawns of the live session.** The harness
+  re-serializes task output files while the session runs, refreshing mtime; `QUIESCENT_AGE_SECONDS` therefore only ever
+  promotes *other* sessions' leftovers. Combined with `stop_reason: None` finishers (~18%), a live orchestrator session
+  cannot fully reconcile its own just-finished spawns — the rows resolve only from a later session. Not a grammar
+  defect; filed as follow-up (below) alongside the deterministic-completion design note.
+- **(new-2) Flow-style YAML lists in story frontmatter parse as strings.** `primary_files: [a, b]` crashed
+  `create-story-worktree` (`TypeError` in `generate_permissions_artifact`); block-style lists work. Same parser family as
+  CER-092. Also: the interrupted run left a half-created worktree requiring `discard-story-worktree` before retry.
+- **(new-3) `story_new.py`/`phase_new.py` double-row hazard:** scaffolding the story row by hand in the phase doc *and*
+  running `story_new.py --phase 3` produced a duplicate Stories-table row (one `planned`, one `draft`); deduped by hand.
+  Worth a guard or a documented convention (let `story_new.py` own the row).
+- **(new-4) Resolver `model-upgrade` handoff at attempt 1** for a `story_class: code` story on a no-test-suite static
+  site; operator chose opus. Worth understanding what triggered the suggestion before RELEASE-067 hits the same pause.
+
+### Follow-ups (E13 — filed, not fixed here)
+
+- **CER to file (flex): deterministic spawn-completion recording.** `SubagentStop` hook event is unused by pairmode;
+  `PostToolUse` fires at *launch* for async spawns, so completion is only ever observed by timer heuristics that (new-1)
+  cannot fire in-session. Proposal: thin `SubagentStop` relay runs the single-row reconcile for its `agent_id`; demote
+  the quiescence sweep to backstop. (Operator raised the design question directly; predates but is sharpened by new-1.)
+- **CER to file (flex): frontmatter flow-style list support or explicit rejection** (new-2) — silent string parse →
+  downstream `TypeError` is the worst of both.
+- **Runbook amendments** (notes 2/3/5/9 already filed by RELEASE-063 E11; still unapplied after four runs — consider
+  actually amending the runbook before RELEASE-067 rather than filing a fifth identical note): plus note-4 wording
+  ("accurate warning; pair with the E4b grep") and a dirty-tree precondition step covering live companion-state sediment.
+- **Row-13 completion record:** when a later sweep reconciles builder row 13, append the observed values here.
+- **Meander E6 re-verification** (outstanding since RELEASE-063): now expected to pass post-cp-112; schedule its
+  re-sync + one-story cycle.
+
+### Campaign gate statement (Instructions step 13)
+
+**The campaign's first downstream proof of the CER-101 content half now exists — supplied by forqsite.help, story
+CONTENT-005, reviewer attempt row 14 (`outcome='PASS'`, `tokens_total=9187`), parsed by the cp-112 grammar from a
+sync-agents-replaced agent body (E4b clean).** Builder row 13's outcome is proven parseable (`parse_worker_outcome` →
+`('PASS', None)`) but the row itself remains pending on a termination-detection artifact (new-1), not on grammar; it
+completes on any post-session sweep. By the strict letter of E6b ("NULL persisting after both sweeps is a fail"), this
+is a **split verdict pending an operator ruling**: content half proven, full row-pair reconciliation one artifact short.
+RELEASE-067..070 remain **held pending that operator ruling** — not silently started, not silently blocked.
