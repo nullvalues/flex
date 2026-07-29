@@ -170,6 +170,65 @@ input.
 - Constrained by INFRA-299 (same phase, unmerged): it owns `hooks/pre_tool_use.py`
   and backlog rows CER-105/106/113; INFRA-320 touches neither.
 
+
+### AG-10 — CER-129 (phase 114): two-track context accounting
+Filed after this document's original agreements and after AG-8/AG-9, from a live
+operator report (2026-07-29, context accounting) rather than from either
+reconciled input.
+
+- The context-health/budget prompt fires on the wrong quantity, in **both**
+  directions. Story/subagent spend is attributed to the orchestrator's window by
+  three live consumers — `context_health.check_context_health`'s `/clear`
+  recommendation (computed from reviewer-FAIL `effort.db` tokens),
+  `context_budget_check.py`'s phase-spend sum compared against the *same*
+  `context_budget_threshold` key the orchestrator gate uses, and the
+  observability `/context` waypoints/misses queries, whose rows the SPA renders
+  as "Near-miss blocks" that never occurred. Meanwhile the orchestrator's own
+  accumulation between spawns (poll output, merge output, task notifications,
+  spec-writer coordination) has no writer at all: `context_current_tokens` is
+  refreshed only by `hooks/post_tool_use.py`'s Task/Agent branch.
+- The DP7 invariant and the standing repo lesson already forbid exactly this, and
+  the architecture's own § *Codified comingling* note flagged only
+  `CLAUDE.build.md:320-326` — which no longer exists — and missed all three live
+  sites. The rule was correct and unenforced; that is the finding.
+- Pulled into **phase 114** as **INFRA-321**, not 116: phase 116's INFRA-316
+  (between-story context etiquette) plans to wire `context_budget_check.py` into
+  `next-action`'s pause decision, which would promote the mis-attribution from an
+  unwired CLI into the resolver's live cadence. The track boundary must land
+  first, and 114 already owns build-loop truth-restoration work.
+- Five deliverables: a single definition of the two tracks and their state/db keys
+  in `context_model.py` (A); the health/pause verdict re-based onto the
+  orchestrator track with story spend demoted to informational retry-churn
+  wording (B); between-spawn orchestrator coverage via the measurement that
+  already exists — `read_current_tokens` called from `user_turn_seq.record_user_turn`,
+  with `hooks/user_prompt_submit.py` left unedited because it is protected and
+  already delegates (C); classification of the existing per-story numbers, with
+  the explicit finding that `flex_factor` is an orchestrator ceiling multiplier
+  and **no gate protects a subagent's own window today** (D); and distinctly
+  labeled operator surfaces, including removing the false `tokens_at_block` /
+  "Near-miss blocks" claim (E).
+- **No gate is weakened and no gate is added.** `context_budget.decide()`'s
+  decision logic is untouched; its only diff is a call-site extraction of the
+  ceiling formula, which today exists in three divergent copies.
+- Six directions are rejected on the record rather than deferred: deriving
+  orchestrator headroom from `effort.db` totals (already a recorded lesson, and
+  reinvented three times anyway — which is why the rule moves into the code's own
+  constants); heuristically estimating poll/merge/notification sizes when a real
+  JSONL measurement exists (the `expected_step_tokens` `111` failure, CER-053 /
+  INFRA-254, is the precedent); summing subagent sidechain usage into the
+  orchestrator count (INFRA-251's `isSidechain` filter exists for this);
+  deleting `context_health.py` / `context_budget_check.py`; a single unified
+  blended "context" number; and a TTL or turn-count staleness *block* between
+  spawns (CER-041 → CER-047 showed a TTL cannot answer the cross-session
+  question, and CER-067 showed agents forge state to defeat an un-clearable
+  gate — coverage beats a new block).
+- Constrained by INFRA-299 (unmerged): backlog rows CER-105/106/113 and
+  `hooks/pre_tool_use.py` are untouched. CER-106 —
+  `context_budget_acknowledged_at` stores a token count despite the `_at` suffix
+  — is adjacent in subject and deliberately left to that branch. Constrained by
+  INFRA-303 (same phase): no orchestrator-track state key is renamed; the new
+  `story_spend_threshold` is additive.
+
 ---
 
 ## Unambiguous dispositions (no decision was needed)

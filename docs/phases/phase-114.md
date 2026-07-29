@@ -19,6 +19,8 @@ Remove recurring build-loop friction (unprovisioned worktrees, interactive scaff
 
 **Backlog pull at spec time.** INFRA-319 was pulled into this phase from CER-127 (operator-flagged 2026-07-29, fleet portability — machine-bound and pre-rename hook command paths in consuming repos' `.claude/settings.json`). CER-127 named this phase's migration work as its candidate home; the row's phase column now reads 114 and its resolution annotation lands when INFRA-319 completes. Recorded as AG-8 in `docs/closeout-agreements-20260729.md`.
 
+**Second backlog pull at spec time.** INFRA-321 was pulled into this phase from CER-129 (operator report 2026-07-29, context accounting — story/subagent token spend attributed to the orchestrator's context window while the orchestrator's own between-spawn accumulation goes unmeasured, so the context-health prompt fires on the wrong quantity in both directions). It lands in 114 rather than 116 because phase 116's INFRA-316 plans to wire `context_budget_check.py` into `next-action`'s between-story pause, which would promote the mis-attribution into the resolver's live cadence decision; the track boundary must exist first. CER-129's phase column now reads 114 and its resolution annotation lands when INFRA-321 completes. Recorded as AG-10 in `docs/closeout-agreements-20260729.md`.
+
 ## Stories
 
 | ID | Title | Status |
@@ -29,6 +31,7 @@ Remove recurring build-loop friction (unprovisioned worktrees, interactive scaff
 | INFRA-304 | Containment parity for spec_preflight; reviewer-template revert-assertion residue | draft |
 | INFRA-305 | Build-loop doc and procedure currency sweep | draft |
 | INFRA-319 | Portable hook-command paths: plugin-root/settings.local registration, migrate rewrite of machine-absolute and pre-rename hook commands, audit finding | draft |
+| INFRA-321 | Two-track context accounting: orchestrator-window occupancy vs story/subagent spend; health verdict re-based on the orchestrator track; between-spawn coverage; surfaces labeled (pulled from CER-129) | draft |
 
 ## Schema delivery
 
