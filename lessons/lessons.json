@@ -394,6 +394,44 @@
         "all"
       ],
       "status": "applied"
+    },
+    {
+      "id": "L021",
+      "date": "2026-07-29",
+      "source_project": "cora",
+      "trigger": "cora 0.3.0 sync: security-auditor procedure skill audited for project parameterization",
+      "problem": "Build standards declares domain_isolation_rule but the security-auditor procedure never reads it; the procedure checklist is flex-repo-specific (hooks, pipes), so any non-flex project adopting the thin agent loses its entire security checklist.",
+      "learning": "Checkpoint procedures must consume Build standards parameters the same way the reviewer procedure consumes protected_paths and test_command.",
+      "methodology_change": {
+        "affects": [
+          "reviewer_checklist"
+        ],
+        "description": "security-auditor procedure.md gains a project-checklist section driven by domain_isolation_rule and protected_paths from CLAUDE.build.md Build standards; until then projects keep fat security-auditor bodies."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured",
+      "enforced_by": "none"
+    },
+    {
+      "id": "L022",
+      "date": "2026-07-29",
+      "source_project": "cora",
+      "trigger": "cora 0.3.0 sync: .pairmode-overrides declared CLAUDE.md:review checklist before running sync-all --apply",
+      "problem": "sync.py overwrote the declared override section anyway, contradicting the documented contract that declared sections are never overwritten.",
+      "learning": "Either sync.py does not read .pairmode-overrides on the apply path, or key normalization diverges from the audit path; the protection contract is only enforced at audit time.",
+      "methodology_change": {
+        "affects": [
+          "orchestrator"
+        ],
+        "description": "sync.py must load .pairmode-overrides and skip declared sections on the apply path, mirroring audit.py classification; add a regression test."
+      },
+      "applies_to": [
+        "all"
+      ],
+      "status": "captured",
+      "enforced_by": "none"
     }
   ]
 }

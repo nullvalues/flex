@@ -122,3 +122,15 @@ or use `/flex:pairmode lesson` to capture a new lesson.
 **Status:** applied
 **Enforced by:** 
 **Learning:** Faithfully reproducing a template's content format does not guarantee the side effects that the generating script performs. Phase registration (index.md row, era Phases table row) is a script side effect, not something derivable from a phase file's own content, so an agent that hand-writes a phase doc — even a well-formed one — will silently leave the index and era tracking stale. This class of drift is only caught by explicitly diffing phase-N.md files against index.md/era rows, not by reviewing the phase file in isolation.
+
+## L021 — cora 0.3.0 sync: security-auditor procedure skill audited for project parameterization
+**Date:** 2026-07-29
+**Status:** captured
+**Enforced by:** none
+**Learning:** Checkpoint procedures must consume Build standards parameters the same way the reviewer procedure consumes protected_paths and test_command.
+
+## L022 — cora 0.3.0 sync: .pairmode-overrides declared CLAUDE.md:review checklist before running sync-all --apply
+**Date:** 2026-07-29
+**Status:** captured
+**Enforced by:** none
+**Learning:** Either sync.py does not read .pairmode-overrides on the apply path, or key normalization diverges from the audit path; the protection contract is only enforced at audit time.
