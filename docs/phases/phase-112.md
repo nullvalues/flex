@@ -174,10 +174,12 @@ this phase, record the management surface before the phase is checkpointed.
 - [x] duplicate state — reduced, not added: the placeholder rule now has exactly one owner (`cer.is_placeholder_row`, consumed by both `_parse_entries_from_backlog` and `_check_cer_do_now`); the vestigial `cer.py` regex-guard dead code is recorded in INFRA-294's spec recon.
 - [x] half-implementation — every new producer has its consumer (legacy grammar parser ← reconcile sweep; alias replacement ← sync-agents; refusal guard ← CLI default path, with `--snapshot`/`--no-snapshot` escape hatches tested). One deliberate outstanding item: INFRA-293 § Ensures F3 field acceptance, tracked below.
 
-**F3/F4 record (INFRA-293 § Ensures, orchestrator-filled):** F3 (explicit
-reconcile sweep against caddy's live `effort.db`, confirming rows 33/34 gain
-non-NULL `outcome`) has **not yet been run** as of 2026-07-28. It is
-operator-run, post-channel-release, deadline **2026-08-11** (after which the
-rows age out of `RECONCILE_MAX_AGE_DAYS` and the acceptance must be recorded as
-FAIL, not skip). Phase 112 checkpoint-tag is held until the sweep result is
-recorded here.
+**F3/F4 record (INFRA-293 § Ensures, orchestrator-filled):** F3 **PASS**, run
+2026-07-28 (operator-approved, well inside the 2026-08-11 deadline). The fix
+was promoted to `/mnt/work/flex-harness` via ff-only merge to `df54fa06`, then
+the explicit sweep `subagent_transcript.py reconcile --project-dir
+/mnt/work/caddy --limit 200 --json` returned `{"reconciled": 3}`. Row check
+before: rows 33/34 both `tokens_total=NULL, outcome=NULL`; after: row 33 =
+`(sonnet, 7457, PASS)`, row 34 = `(sonnet, 9145, PASS)` — both non-NULL, the
+E6b legacy plain-text verdict grammar reconciles in the field. F4 satisfied by
+this record.
