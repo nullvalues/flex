@@ -308,6 +308,35 @@ def _flatten_tool_response(tool_response: Any) -> str:
 RECOGNISED_REVIEW_VERDICTS: frozenset[str] = frozenset({"PASS", "FAIL", "ALIGNED"})
 
 
+# INFRA-293 (E6b / CER-101 downstream): 0.2-era workers emitted a plain-text
+# result grammar (``BUILD-RESULT: DONE``, ``REVIEW-RESULT: PASS``) instead of
+# the WORKER-004 JSON grammar the loop above reads. A stranded consumer row
+# is unreconcilable until this pattern is recognised. Anchored as a whole
+# line (leading/trailing whitespace tolerated, arbitrary trailing prose is
+# not) so a quoted example inside a worker's own instructions/transcript —
+# e.g. an agent body literally containing the string "BUILD-RESULT: DONE" as
+# documentation — is not misread as a real verdict.
+_LEGACY_RESULT_LINE_RE = re.compile(
+    r"^[ \t]*(BUILD-RESULT|REVIEW-RESULT):[ \t]*([A-Z-]+)[ \t]*$",
+    re.MULTILINE,
+)
+
+# The 0.2-era builder had no plain-text FAIL form: a stuck builder emitted
+# the prose "BUILDER STUCK — ..." instead, which produces no
+# "BUILD-RESULT: <verdict>" line at all. DONE is therefore unambiguously the
+# 0.2 success token, and normalizing it to worker_result.py's BUILD enum
+# member "PASS" loses nothing. DONE cannot be stored verbatim because
+# worker_result.py's `_SCHEMAS[BUILD_RESULT]["enums"]["outcome"]` is exactly
+# {"PASS", "FAIL"} — there is no "DONE" member. A verdict token absent from
+# this mapping (anything else) yields no outcome rather than being written
+# through unvalidated.
+_LEGACY_BUILD_VERDICTS: dict[str, str] = {
+    "DONE": "PASS",
+    "PASS": "PASS",
+    "FAIL": "FAIL",
+}
+
+
 def parse_worker_outcome(tool_response: Any) -> "tuple[str | None, str | None]":
     """Extract ``(outcome, fail_cause)`` from a completed Task/Agent's own
     returned result text.
@@ -343,6 +372,21 @@ def parse_worker_outcome(tool_response: Any) -> "tuple[str | None, str | None]":
             if verdict in RECOGNISED_REVIEW_VERDICTS:
                 outcome = verdict
             fail_cause = obj.get("fail_cause") or fail_cause
+
+    # INFRA-293: legacy 0.2-era plain-text grammar is a fallback only, run
+    # strictly below the JSON grammar above (JSON wins on conflict) so a
+    # transcript that quotes both never has the plain-text line override an
+    # honest JSON result.
+    if outcome is None:
+        for legacy_match in _LEGACY_RESULT_LINE_RE.finditer(text):
+            label, verdict = legacy_match.group(1), legacy_match.group(2)
+            if label == "BUILD-RESULT":
+                mapped = _LEGACY_BUILD_VERDICTS.get(verdict)
+                if mapped is not None:
+                    outcome = mapped
+            elif label == "REVIEW-RESULT":
+                if verdict in RECOGNISED_REVIEW_VERDICTS:
+                    outcome = verdict
 
     if fail_cause is None:
         m = _FAIL_CAUSE_LINE_RE.search(text)
@@ -1772,22 +1816,45 @@ def reconcile_pending_attempts(
                 continue
 
             reason = classify_pending_reason(row)
-            if reason in ("reconcilable", "in-flight", "file-missing", "no-output-file"):
+            # CER-099: an "uncontained" row must never be opened by this
+            # branch — INFRA-287 introduced the "uncontained" pending
+            # reason after this skip-list was written, leaving a
+            # containment-guard parity gap where the quiescent path fell
+            # straight through to raw stat()/streaming below.
+            if reason in (
+                "reconcilable",
+                "in-flight",
+                "file-missing",
+                "no-output-file",
+                "uncontained",
+            ):
                 continue
 
             row_ts = row.get("ts")
             if not _older_than_seconds(row_ts, QUIESCENT_AGE_SECONDS):
                 continue
 
+            # CER-099: never stat()/stream the raw, unvalidated
+            # attempts.output_file value — resolve through
+            # _contained_spawn_output first, exactly as read_completed_spawn
+            # does above, forwarding tasks_root/home identically so the
+            # ~/.claude root stays injectable end-to-end for tests
+            # (INFRA-287).
+            contained_path = _contained_spawn_output(
+                output_file, tasks_root=tasks_root, home=home
+            )
+            if contained_path is None:
+                continue
+
             try:
-                mtime = path.stat().st_mtime
+                mtime = contained_path.stat().st_mtime
             except OSError:
                 continue
             now_epoch = datetime.now(timezone.utc).timestamp()
             if (now_epoch - mtime) < QUIESCENT_AGE_SECONDS:
                 continue
 
-            data = _stream_spawn_output(path)
+            data = _stream_spawn_output(contained_path)
             usage = _sum_deduped_usage(data["assistant_entries"])
             if usage.get("tokens_total") is None:
                 # Nothing truthful to write — still skipped.

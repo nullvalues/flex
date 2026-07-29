@@ -382,6 +382,10 @@ class TestMergeBodySections:
             "## 2.5 Story spec\n"
             "\n"
             "Story spec content.\n"
+            "\n"
+            "## Return\n"
+            "\n"
+            "Return contract.\n"
         )
 
         # Add pseudo-headers matching the remaining template items so this is a
@@ -398,14 +402,25 @@ class TestMergeBodySections:
 
         merged = _merge_body_sections(template_body, target_body)
 
-        # Every template concept is already present in the target under some
-        # heading style, so the merge must be a true no-op: nothing appended
-        # after the terminal section, and the target body is unchanged.
-        assert merged == target_body, (
-            "Expected a full no-op merge (85a6f52 incident shape); "
-            f"merged differs from target:\n{merged}"
-        )
-        assert merged.split("## Final output to orchestrator")[1].strip() == "End here."
+        # INFRA-293: the template now carries a "## Return" section (matching
+        # the real builder.md.j2/reviewer.md.j2 shape) and the target still
+        # carries the legacy "## Final output to orchestrator" heading this
+        # story's alias mechanic exists to replace. The merge is therefore no
+        # longer byte-identical to the target — the pre-INFRA-293 version of
+        # this test asserted `merged == target_body` and that the legacy
+        # heading survived verbatim, which was the very defect (E6b) this
+        # story closes: a stale return contract sitting earlier in the file
+        # than an appended canonical one. The legacy section is now replaced
+        # in place (position preserved — it stays the terminal section, it is
+        # not deleted and re-appended), and every other concept is still a
+        # true no-op (nothing else appended, nothing else changed).
+        assert merged.count("## Return") == 1
+        assert "Final output to orchestrator" not in merged
+        assert merged.split("## Return")[1].strip() == "Return contract."
+        assert merged.rstrip("\n") == target_body.replace(
+            "## Final output to orchestrator\n\nEnd here.",
+            "## Return\n\nReturn contract.",
+        ).rstrip("\n")
         # Each canonical heading marker for the covered concepts appears exactly
         # once — guards against the tail-duplication shape from commit 85a6f52.
         for marker in [
@@ -438,6 +453,76 @@ class TestMergeBodySections:
 
         assert "## Important" in merged
         assert "Some content." in merged
+
+    # -----------------------------------------------------------------
+    # INFRA-293: legacy-heading alias replacement (§ Ensures B)
+    # -----------------------------------------------------------------
+
+    def test_legacy_heading_replaced_in_place_no_duplicate(self) -> None:
+        """B3: a target whose only return section is the legacy heading ends
+        up with exactly one return section — the template's ``## Return``, at
+        the legacy section's original position — and no appended duplicate."""
+        target_body = (
+            "\nYou are the builder.\n"
+            "\n## Some other section\n\nOther content.\n"
+            "\n## Final output to orchestrator\n\nBUILD-RESULT: DONE\n"
+        )
+        template_body = "\n## Return\n\nReturn JSON contract.\n"
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        assert merged.count("## Return") == 1
+        assert "Final output to orchestrator" not in merged
+        # Position preserved: the replaced section stays after "## Some
+        # other section", not appended past the end of the file.
+        assert merged.index("## Some other section") < merged.index("## Return")
+        assert "Return JSON contract." in merged
+
+    def test_bespoke_section_survives_alias_replacement(self) -> None:
+        """B4: a non-aliased, project-specific target section is never
+        removed by a sync that also performs an alias replacement."""
+        target_body = (
+            "\nYou are the builder.\n"
+            "\n## Project notes\n\nThis project has bespoke conventions.\n"
+            "\n## Final output to orchestrator\n\nBUILD-RESULT: DONE\n"
+        )
+        template_body = "\n## Return\n\nReturn JSON contract.\n"
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        assert "## Project notes" in merged
+        assert "This project has bespoke conventions." in merged
+        assert merged.count("## Return") == 1
+        assert "Final output to orchestrator" not in merged
+
+    def test_alias_replacement_idempotent_on_rerun(self) -> None:
+        """B5: syncing an agent file that already carries `## Return` and no
+        legacy heading is a no-op; re-running the merge on its own output
+        produces no further change."""
+        target_body = (
+            "\nYou are the builder.\n"
+            "\n## Final output to orchestrator\n\nBUILD-RESULT: DONE\n"
+        )
+        template_body = "\n## Return\n\nReturn JSON contract.\n"
+
+        first_merge = _merge_body_sections(template_body, target_body)
+        second_merge = _merge_body_sections(template_body, first_merge)
+
+        assert second_merge == first_merge
+        assert second_merge.count("## Return") == 1
+        assert "Final output to orchestrator" not in second_merge
+
+    def test_no_matching_template_section_leaves_legacy_heading_untouched(self) -> None:
+        """The alias only fires when the template actually has a section for
+        the aliased key; otherwise the legacy target section is preserved
+        unchanged (never deleted with nothing to replace it)."""
+        target_body = "\n## Final output to orchestrator\n\nBUILD-RESULT: DONE\n"
+        template_body = "\n## Unrelated section\n\nUnrelated content.\n"
+
+        merged = _merge_body_sections(template_body, target_body)
+
+        assert "## Final output to orchestrator" in merged
+        assert "BUILD-RESULT: DONE" in merged
 
 
 def test_sync_agents_rejects_shallow_path(tmp_path: pathlib.Path) -> None:

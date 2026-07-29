@@ -154,6 +154,108 @@ class TestParseWorkerOutcome:
         outcome, fail_cause = st.parse_worker_outcome(tool_response)
         assert outcome == "FAIL"
 
+    # INFRA-293 (E6b / CER-101 downstream): 0.2-era plain-text result
+    # grammar fallback. Caddy effort.db rows 33/34 (PAIRMODE-002) were
+    # stranded because the workers emitted the legacy
+    # "BUILD-RESULT: DONE" / "REVIEW-RESULT: PASS" grammar and the parser
+    # only read the WORKER-004 JSON grammar.
+
+    def test_legacy_build_done_maps_to_pass(self) -> None:
+        outcome, fail_cause = st.parse_worker_outcome("BUILD-RESULT: DONE")
+        assert outcome == "PASS"
+        assert fail_cause is None
+
+    def test_legacy_review_pass(self) -> None:
+        outcome, _ = st.parse_worker_outcome("REVIEW-RESULT: PASS")
+        assert outcome == "PASS"
+
+    def test_legacy_review_fail(self) -> None:
+        outcome, _ = st.parse_worker_outcome("REVIEW-RESULT: FAIL")
+        assert outcome == "FAIL"
+
+    def test_legacy_review_aligned(self) -> None:
+        outcome, _ = st.parse_worker_outcome("REVIEW-RESULT: ALIGNED")
+        assert outcome == "ALIGNED"
+
+    def test_legacy_unknown_build_verdict_yields_none(self) -> None:
+        outcome, fail_cause = st.parse_worker_outcome("BUILD-RESULT: MAYBE")
+        assert outcome is None
+        assert fail_cause is None
+
+    def test_legacy_line_must_be_whole_line(self) -> None:
+        outcome, fail_cause = st.parse_worker_outcome(
+            "return BUILD-RESULT: DONE when finished"
+        )
+        assert outcome is None
+        assert fail_cause is None
+
+    def test_json_beats_legacy_plain_text(self) -> None:
+        text = (
+            "BUILD-RESULT: DONE\n"
+            + json.dumps({
+                "type": "BUILD-RESULT",
+                "outcome": "FAIL",
+                "story_id": "INFRA-293",
+                "reason": "tests red",
+            })
+        )
+        outcome, _ = st.parse_worker_outcome(text)
+        assert outcome == "FAIL"
+
+    def test_last_legacy_match_wins(self) -> None:
+        text = "BUILD-RESULT: DONE\nBUILD-RESULT: FAIL\n"
+        outcome, _ = st.parse_worker_outcome(text)
+        assert outcome == "FAIL"
+
+    def test_legacy_review_fail_with_fail_cause_line(self) -> None:
+        text = (
+            "FAIL-CAUSE: undeclared file: docs/architecture.md\n"
+            "REVIEW-RESULT: FAIL\n"
+        )
+        outcome, fail_cause = st.parse_worker_outcome(text)
+        assert outcome == "FAIL"
+        assert fail_cause == "undeclared file: docs/architecture.md"
+
+    def test_caddy_row_33_build_done_via_read_completed_spawn(
+        self, tmp_path: Path
+    ) -> None:
+        """Reproduces caddy effort.db row 33 (PAIRMODE-002): a builder
+        spawn whose final assistant message is the 0.2-era plain-text
+        return `BUILD-RESULT: DONE`."""
+        output_file = tmp_path / "tasks" / "caddy-row-33.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text="BUILD-RESULT: DONE",
+                ),
+            ],
+        )
+        result = st.read_completed_spawn(output_file)
+        assert result is not None
+        assert result["outcome"] == "PASS"
+
+    def test_caddy_row_34_review_pass_via_read_completed_spawn(
+        self, tmp_path: Path
+    ) -> None:
+        """Reproduces caddy effort.db row 34 (PAIRMODE-002): a reviewer
+        spawn whose final assistant message is the 0.2-era plain-text
+        return `REVIEW-RESULT: PASS`."""
+        output_file = tmp_path / "tasks" / "caddy-row-34.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text="REVIEW-RESULT: PASS",
+                ),
+            ],
+        )
+        result = st.read_completed_spawn(output_file)
+        assert result is not None
+        assert result["outcome"] == "PASS"
+
 
 # ---------------------------------------------------------------------------
 # extract_subagent_usage
@@ -2340,6 +2442,56 @@ class TestQuiescentReconciliation:
 
         count = st.reconcile_pending_attempts(project_dir=project_dir, include_quiescent=True)
         assert count == 0
+
+    def test_uncontained_output_file_never_stat_or_streamed(
+        self, tmp_path: Path
+    ) -> None:
+        """CER-099: an aged row whose output_file is outside every
+        containment root must be skipped by the quiescent branch, not
+        stat()'d or streamed. Before INFRA-293 the skip-list at
+        `reconcile_pending_attempts`'s include_quiescent branch predated the
+        "uncontained" pending reason, so this row fell through to raw
+        Path.stat()/`_stream_spawn_output(path)` on the unvalidated
+        output_file value.
+        """
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        old_ts = (
+            datetime.now(timezone.utc) - timedelta(seconds=st.QUIESCENT_AGE_SECONDS + 100)
+        ).isoformat()
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-343",
+            agent_role="security-auditor",
+            attempt_number=1,
+            ts=old_ts,
+        )
+        # No "tasks" path component and not under a temp root: this path is
+        # uncontained per `_contained_spawn_output` / `classify_pending_reason`.
+        output_file = tmp_path / "outside" / "agent.output"
+        entries = [
+            _output_assistant_entry("msg_1", 100, 50),
+            {"type": "user", "message": {"content": []}},
+        ]
+        _write_output_file(output_file, entries)
+        old_epoch = time.time() - (st.QUIESCENT_AGE_SECONDS + 100)
+        os.utime(output_file, (old_epoch, old_epoch))
+        effort_db.set_spawn_ref(db_path, row_id, "a1", str(output_file))
+
+        assert st.classify_pending_reason({"output_file": str(output_file)}) == "uncontained"
+
+        with patch.object(Path, "stat", side_effect=AssertionError("must not stat raw path")):
+            count = st.reconcile_pending_attempts(
+                project_dir=project_dir, include_quiescent=True
+            )
+        assert count == 0
+
+        row = effort_db.query_by_story(db_path, "INFRA-343")[0]
+        assert row["outcome"] is None
 
     def test_session_start_hook_sweep_keeps_default_no_quiescent(self) -> None:
         """Ensures 12: neither hook call site passes include_quiescent."""

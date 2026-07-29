@@ -1597,6 +1597,37 @@ error (naming the offending variable) and skipped rather than merged, so a
 broken/empty checklist line (e.g. `` Does `` pass cleanly? ``) can no longer be
 merged in silently.
 
+**Legacy-heading alias replacement (INFRA-293, E6b / CER-101 downstream).**
+`_merge_body_sections` is additive-only by default — a template section absent
+from the target is appended, and a target section absent from the template is
+always preserved, untouched, as a project-specific addition. As of INFRA-293
+there is a single documented exception to the second half of that guarantee:
+`_LEGACY_HEADING_ALIASES`, a closed, enumerated allowlist (currently one
+entry, `"final output to orchestrator" -> "return"`, both already-normalized
+`_heading_concept_key` outputs) from a legacy heading's concept key to the
+current template's concept key. `_replace_aliased_sections` runs first, before
+`_sections_to_add` is computed: for a target section whose concept key is an
+alias-map key and whose aliased value matches some template section's concept
+key, that target section's heading **and** content are replaced in place by
+the template section's — at the target section's original position, never
+deleted and re-appended at the end. Position-preservation is the load-bearing
+property: the defect this closes is that a 0.2-era consumer agent body's
+return contract lives under `## Final output to orchestrator`, sitting
+earlier in the file than the `## Return` heading the additive merge appends,
+and a worker reading top-down follows the first return contract it meets —
+literally, `BUILD-RESULT: DONE` — regardless of what canonical content was
+appended after it. The exception is deliberately narrow and rationale-bound: a
+return contract is a machine-read data contract, not a project customisation,
+so two competing return contracts in one file is strictly worse than a
+targeted replacement; every other target section, aliased or not, is still
+never removed. `sync-agents` is the sole owner of this fix — `pairmode_migrate.py`'s
+`to-030` `[agent-cleanup]` step is a one-shot migration command that can only
+WARN today (`_ERA2_AGENT_HASHES` is empty, so every 0.2-era agent file takes
+the "manual porting required" path, twice adjudicated noise), whereas
+`sync-agents` is idempotent and already owns agent-file body content forever
+after; a second writer for the same fact would itself be a duplicate-state
+condition, so `to-030` is intentionally left unmodified by INFRA-293.
+
 **`pairmode_sync.py` — `sync-build` subcommand.**
 Compares the target project's `CLAUDE.build.md` against the canonical `CLAUDE.build.md.j2`
 template rendered with the project's `state.json` and `pairmode_context.json`. Prints a
@@ -2837,6 +2868,24 @@ column and `validate-rebalance`'s recommendation logic still count only
 `PASS`, so `ALIGNED`/`UNKNOWN` rows currently read as not-a-pass everywhere
 until a follow-on read-side story teaches those queries about the wider
 value set.
+
+**Legacy plain-text grammar fallback (INFRA-293, E6b / CER-101 downstream).**
+`parse_worker_outcome` additionally accepts the 0.2-era plain-text result
+grammar — a whole line reading `BUILD-RESULT: <VERDICT>` or
+`REVIEW-RESULT: <VERDICT>` (anchored `^...$`, `re.MULTILINE`, no trailing
+prose tolerated) — as a **fallback below** the WORKER-004 JSON grammar: the
+legacy scan runs only when the JSON loop above left `outcome is None`, so a
+transcript quoting both never has the plain-text line override an honest
+JSON result. `DONE` (the 0.2 builder's success token) normalizes to
+`worker_result.py`'s BUILD enum member `PASS`; the 0.2-era builder had no
+plain-text FAIL form (a stuck builder emitted the prose `BUILDER STUCK —
+…`, producing no result line at all), so nothing is lost by the mapping. A
+`REVIEW-RESULT` verdict is recognised only when it is a member of the same
+`RECOGNISED_REVIEW_VERDICTS` frozenset the JSON path uses — no second copy
+of the verdict vocabulary. This exists so already-stranded 0.2-era fleet
+rows (e.g. caddy's `effort.db` rows 33/34, PAIRMODE-002) remain reconcilable
+inside the `RECONCILE_MAX_AGE_DAYS` (14-day) window, without a tolerant
+parser ever writing a guessed outcome for an unrecognised verdict token.
 
 **Pending-reason classifier (CER-091 defect 3).**
 `subagent_transcript.classify_pending_reason(row) -> str` is a pure function

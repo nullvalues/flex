@@ -318,13 +318,95 @@ def _sections_to_add(
     ]
 
 
+# INFRA-293 (E6b / CER-101 downstream): a closed, enumerated allowlist from a
+# legacy normalized concept key (0.2-era heading) to the current template's
+# normalized concept key. Keys and values are already the *output* of
+# :func:`_heading_concept_key` — not raw heading text ("## Final output to
+# orchestrator" would never match; the normalizer strips the "## " marker,
+# lowercases, and collapses whitespace first). No pattern matching, no
+# heuristics: if another legacy heading turns up, add a row here rather than
+# generalising this into a framework.
+#
+# "final output to orchestrator" -> "return": the 0.2-era builder/reviewer
+# agent body carried its BUILD-RESULT/REVIEW-RESULT return contract under
+# `## Final output to orchestrator`; the 0.3 template's equivalent section is
+# `## Return`. Those are different concept keys, so the additive-only merge
+# below is structurally incapable of ever replacing the stale one — it can
+# only add a heading the target doesn't have. This is what stranded caddy's
+# effort.db rows 33/34: a worker reading top-down followed the first (stale)
+# return contract it met, sitting earlier in the file than the appended
+# `## Return`.
+_LEGACY_HEADING_ALIASES: dict[str, str] = {
+    "final output to orchestrator": "return",
+}
+
+
+def _replace_aliased_sections(
+    template_sections: list[tuple[str, str]], target_body: str
+) -> str:
+    """Replace stale legacy-heading sections in *target_body* with their
+    current template equivalents, in place.
+
+    For every section in the target body whose normalized concept key (see
+    :func:`_heading_concept_key`) is a key of :data:`_LEGACY_HEADING_ALIASES`
+    *and* whose aliased value matches the concept key of some section in
+    *template_sections*, that target section's heading and content are
+    replaced wholesale with the template section's heading and content —
+    **at the target section's original position**. The section is not
+    deleted and re-appended at the end.
+
+    Position-preservation is the load-bearing property (INFRA-293): the
+    stale block sits *earlier* in the file than where an additive merge
+    would append the canonical one, and a worker reading top-down follows
+    the first return contract it meets. Moving the canonical content to the
+    end of the file would not fix that.
+
+    Sections whose concept key is not in the alias map, or whose aliased
+    value has no matching template section, are returned unchanged — this
+    function never touches project-specific target content.
+
+    Reuses :func:`_parse_body_sections` and :func:`_heading_concept_key`
+    rather than a second parser/normalizer.
+    """
+    preamble, target_sections = _parse_body_sections(target_body)
+    if not target_sections:
+        return target_body
+
+    template_by_key: dict[str, tuple[str, str]] = {}
+    for heading, content in template_sections:
+        key = _heading_concept_key(heading)
+        if key is not None and key not in template_by_key:
+            template_by_key[key] = (heading, content)
+
+    replaced_sections: list[tuple[str, str]] = []
+    for heading, content in target_sections:
+        key = _heading_concept_key(heading)
+        aliased_key = _LEGACY_HEADING_ALIASES.get(key) if key is not None else None
+        replacement = template_by_key.get(aliased_key) if aliased_key else None
+        if replacement is not None:
+            replaced_sections.append(replacement)
+        else:
+            replaced_sections.append((heading, content))
+
+    rebuilt = preamble
+    for heading, content in replaced_sections:
+        rebuilt += heading + content
+    return rebuilt
+
+
 def _merge_body_sections(template_body: str, target_body: str) -> str:
     """Merge new H2 sections from *template_body* into *target_body*, additively.
 
     Sections present in the template but absent from the target are appended to
     the target.  Sections already present in the target are left untouched.
     Sections in the target that are absent from the template are preserved
-    (project-specific additions are never removed).
+    (project-specific additions are never removed) — with one enumerated
+    exception (INFRA-293): a target section whose normalized concept key is a
+    legacy alias in :data:`_LEGACY_HEADING_ALIASES` is replaced in place by
+    its current template equivalent before additions are computed. A return
+    contract is a machine-read data contract, not a project customisation —
+    two competing return contracts in one agent file (the E6b defect) is
+    strictly worse than the alias replacement's narrow removal.
 
     "Present in the target" is decided by normalized concept key (see
     :func:`_heading_concept_key`), not exact heading-string equality, so a
@@ -335,6 +417,8 @@ def _merge_body_sections(template_body: str, target_body: str) -> str:
     Returns the merged target body.
     """
     _template_preamble, template_sections = _parse_body_sections(template_body)
+
+    target_body = _replace_aliased_sections(template_sections, target_body)
 
     sections_to_add = _sections_to_add(template_sections, target_body)
 
