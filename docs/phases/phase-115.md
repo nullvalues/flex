@@ -3,7 +3,7 @@ era: "004"
 phase_class: production
 ---
 
-# project — Phase 115: Observability closeout: API hardening, payload guards, rollup hygiene, 0.3.1
+# project — Phase 115: Observability closeout: API hardening, payload guards, rollup hygiene, functional validation
 
 ← [Phase 114: Build-loop closeout: worktrees, scaffolding, migration tooling, doc currency](phase-114.md)
 
@@ -15,7 +15,7 @@ phase_class: production
 <!-- State this phase's single purpose in one or two sentences (docs/architecture.md
      § Phase-authoring convention, INFRA-243). If the work naturally splits into more
      than one purpose, that's a signal to open a sibling phase, not to widen this one. -->
-Harden the observability companion's shared entry points against non-loopback exposure, make the vendored-payload guards honest and self-maintaining, remove non-build noise from effort rollups, execute the backlog truth pass and phase-107 supersession, and ship version 0.3.1.
+Harden the observability companion's shared entry points against non-loopback exposure, make the vendored-payload guards honest and self-maintaining, remove non-build noise from effort rollups, and functionally validate the observability UI — the era's stated beta deliverable — before anything is stamped. The backlog truth pass and the 0.3.1 record moved to phase 116 (AG-7, `docs/closeout-agreements-20260729.md`); this phase closes observability, it does not close the era.
 
 ## Stories
 
@@ -25,7 +25,7 @@ Harden the observability companion's shared entry points against non-loopback ex
 | INFRA-307 | Vendored payload guards: dot-claude tolerance pattern; delete test_extension.node; enumerate native binaries | draft |
 | INFRA-308 | Plugin-manifest skill guard: glob-derived expectations with anti-vacuity floor | draft |
 | INFRA-309 | Rollup hygiene: shared NON_BUILD_ROLES exclusion across Python and TS read paths | draft |
-| INFRA-310 | Backlog truth pass, phase-107 supersession, zero-open audit, and the 0.3.1 version record | draft |
+| INFRA-312 | Observability UI functional validation: dogfood checklist over ≥2 registered repos plus a scoped TypeScript route-test runner | draft |
 
 ## Schema delivery
 

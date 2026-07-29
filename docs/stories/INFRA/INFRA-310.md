@@ -1,9 +1,9 @@
 ---
 id: INFRA-310
 rail: INFRA
-title: Backlog truth pass, phase-107 supersession, zero-open audit, and the 0.3.1 version record
+title: Backlog truth pass, phase-107 supersession, era-003 closure, zero-open audit, and the 0.3.1 version record
 status: draft
-phase: "115"
+phase: "116"
 auth_gated: false
 schema_introduces: false
 primary_files:
@@ -13,6 +13,10 @@ primary_files:
 touches:
   - docs/phases/index.md
   - docs/phases/phase-107.md
+  - docs/phases/phase-106.md
+  - docs/phases/phase-108.md
+  - docs/phases/phase-97.md
+  - docs/eras/001-initial.md
   - docs/eras/003-flex-orchestrator-as-harness.md
   - docs/eras/004-flex-operational-closeout-and-0-3-1.md
   - docs/stories/INFRA/INFRA-273.md
@@ -20,7 +24,34 @@ touches:
   - docs/stories/INFRA/INFRA-275.md
   - docs/stories/INFRA/INFRA-276.md
   - docs/stories/INFRA/INFRA-277.md
+  - docs/stories/INFRA/INFRA-278.md
+  - docs/stories/INFRA/INFRA-279.md
+  - docs/stories/RELEASE/RELEASE-072.md
   - docs/stories/INFRA/INFRA-310.md
+  - docs/stories/OBS/OBS-006.md
+  - docs/stories/RELEASE/RELEASE-058.md
+  - docs/stories/INFRA/INFRA-001.md
+  - docs/stories/INFRA/INFRA-002.md
+  - docs/stories/INFRA/INFRA-003.md
+  - docs/stories/INFRA/INFRA-004.md
+  - docs/stories/INFRA/INFRA-022.md
+  - docs/stories/INFRA/INFRA-023.md
+  - docs/stories/INFRA/INFRA-024.md
+  - docs/stories/INFRA/INFRA-025.md
+  - docs/stories/INFRA/INFRA-110.md
+  - docs/stories/INFRA/INFRA-111.md
+  - docs/stories/INFRA/INFRA-114.md
+  - docs/stories/INFRA/INFRA-115.md
+  - docs/stories/INFRA/INFRA-116.md
+  - docs/stories/INFRA/INFRA-117.md
+  - docs/stories/INFRA/INFRA-118.md
+  - docs/stories/INFRA/INFRA-119.md
+  - docs/stories/INFRA/INFRA-120.md
+  - docs/stories/INFRA/INFRA-121.md
+  - docs/stories/INFRA/INFRA-122.md
+  - docs/stories/INFRA/INFRA-123.md
+  - docs/stories/INFRA/INFRA-133.md
+  - .companion/state.json
   - .claude-plugin/plugin.json
   - .claude-plugin/marketplace.json
   - skills/pairmode/SKILL.md
@@ -32,10 +63,21 @@ touches:
 ## Context
 
 This is the closing story of era 004 and the last story built across phases
-113, 114 and 115. Its job is to make the record true and then stamp it.
+113, 114, 115 and 116 (moved from phase 115 to phase 116 as its terminal
+story — AG-7, `docs/closeout-agreements-20260729.md`). Its job is to make the
+record true and then stamp it.
 
-Four things happen here, in one story because they are one act — declaring the
-era finished:
+**Widened 2026-07-29 per the closeout agreements:** the 2026-07-29 cold-eyes
+review found the original scope would have tagged 0.3.1 with two eras active,
+an orphaned phase 108 holding the era transition, phase 106 undispositioned,
+and `check-index` red with 48 known violations its own `touches:` list barred
+it from fixing. AG-3 folds era-003 closure in (reversing this story's earlier
+`## Out of scope` bullet on that point); AG-4 drives `check-index` to a true
+exit 0; AG-5 items 3–5 correct two Requires against the live backlog and bump
+flex's own `.companion/state.json`.
+
+Seven things happen here, in one story because they are one act — declaring
+the era finished:
 
 1. **The obsolete tail of `docs/cer/backlog.md` gets an honest disposition.**
    Nineteen rows (CER-001..012, 014, 017, 018, 019, 035, 044, 063) describe
@@ -60,8 +102,33 @@ era finished:
    silently-passed contradiction this project exists to prevent. Phase 107
    is marked `deferred` with a `## Superseded` note; nothing is deleted.
 
-4. **Version 0.3.1 is recorded.** A `CHANGELOG` entry covering phases
-   113–115 and a coordinated bump across every version-bearing surface.
+4. **Era 003 is formally closed (AG-3).** Phase 108's obligations fold in:
+   RELEASE-072's era transition runs here (close era 003 **by ID** — two
+   eras are active, and `era_transition._find_active_eras` returns a list;
+   INFRA-314's by-ID targeting is the tool), INFRA-279's exit criterion is
+   written into the era-003 doc, and INFRA-278's validation obligation is
+   discharged by pointing at INFRA-312's evidence. Phase 108 itself is
+   dispositioned like phase 107 — superseded, not revived. Exactly one era
+   (004) is active at tag time.
+
+5. **Phase 106 is dispositioned (AG-3, after INFRA-311).** Marked complete-
+   by-hand-migration per operator instruction, with the evidence limitation
+   stated in the phase doc: hand-migration did **not** hold for the agent
+   shells (the F1 stale-canon finding); the fleet receives the corrected
+   canon via the post-0.3.1 sync campaign that INFRA-311 makes possible.
+   This disposition is only honest because INFRA-311 is complete — verify it
+   before writing.
+
+6. **`check-index` is driven to a true exit 0 (AG-4).** The 48 pre-existing
+   violations (21 orphan-story, 13 deferred-without-section in `phase-97.md`,
+   12 cross-link, 2 status-drift — inventory in Requires 17) are fixed, not
+   baselined. Phase 97 gets its `## Deferred stories` section without being
+   revived.
+
+7. **Version 0.3.1 is recorded.** A `CHANGELOG` entry covering phases
+   113–116 and a coordinated bump across every version-bearing surface,
+   including flex's own `.companion/state.json` (AG-5 item 5) so flex does
+   not report itself behind canon.
 
 **The zero-open target is editorial, not mechanical — state this plainly and
 do not pretend otherwise.** `next_action._check_cer_do_now`
@@ -81,12 +148,18 @@ and the drift is called out. Line numbers in `docs/cer/backlog.md` will shift
 as siblings annotate rows — **locate rows by their `| CER-NNN |` cell, never
 by line number.**
 
-1. **All fourteen sibling stories INFRA-296..309 are complete and merged.**
-   Each annotates the CER rows it drains. This story's backlog edits are
-   applied on top of theirs. Verify by reading the Stories tables of
-   `docs/phases/phase-113.md`, `phase-114.md` and `phase-115.md`: every row
-   other than INFRA-310 must read `complete`. If any does not, **stop and
-   report** — this is a hard precondition, not a preference.
+1. **Every other era-004 story is complete and merged — derive the set, do
+   not pin it (AG-7).** The sibling set is *derived* at build time: the
+   union of every story ID in the Stories tables of
+   `docs/phases/phase-113.md`, `phase-114.md`, `phase-115.md` and
+   `phase-116.md`, minus INFRA-310 itself. Every derived row must read
+   `complete`. (A pinned "fourteen siblings INFRA-296..309" list is exactly
+   the asserted-count decay F9 flagged; the phase manifests are the truth
+   source.) Each sibling annotates the CER rows it drains; this story's
+   backlog edits are applied on top of theirs. If any derived sibling is not
+   `complete`, **stop and report** — this is a hard precondition, not a
+   preference. INFRA-311's completion additionally gates the phase-106
+   disposition (Context item 5).
 
 2. **Row-disposition formats in `docs/cer/backlog.md` are inconsistent —
    three variants exist.** This matters because Ensures 6's enumeration needs
@@ -103,16 +176,24 @@ by line number.**
      unbolded, in the **last table column** (the `Phase` column position),
      not in the Finding cell. A scan for `**RESOLVED` misses it entirely.
 
-   **Plan correction:** the closeout plan's "49 rows carry no
-   RESOLVED/SUPERSEDED annotation" is correct **only** because CER-060
-   happens to be dispositioned in Variant C. A naive bold-token scan returns
-   50. Ensures 2 normalizes these three rows so the count is honest under a
-   single predicate.
+   **No asserted count (AG-5 item 3).** Earlier drafts asserted row counts
+   ("49", "50"); every such number had decayed within days as siblings and
+   new filings landed. This Requires states the *predicate problem* only:
+   three disposition-format variants exist, so no single scan is honest
+   until Ensures 2 normalizes them. Whatever the count is on build day, the
+   Ensures-6 enumeration derives it live — no number from this spec may be
+   quoted as expected output.
 
-3. **Duplicate CER IDs exist.** `CER-062`, `CER-063`, `CER-064`, `CER-065`
-   and `CER-066` each appear **twice** in `## Do Later`, products of the two
-   fold renumberings. Any enumeration or annotation loop keyed on the bare ID
-   will hit the wrong row. The pairs, as they stand today:
+3. **Duplicate CER IDs exist — corrected against the live backlog
+   2026-07-29 (AG-5 item 4).** **Four** IDs are duplicated, not five:
+   `CER-063`, `CER-064`, `CER-065`, `CER-066` each appear twice, products of
+   the two fold renumberings; `CER-062` appears **once** (Do Later only).
+   Three of the pairs **span quadrants** — `CER-064`, `CER-065` and
+   `CER-066` each have their first occurrence in `## Do Now` (resolved rows)
+   and their second in `## Do Later`; only `CER-063`'s pair sits wholly in
+   `## Do Later`. Any enumeration or annotation loop keyed on the bare ID
+   will hit the wrong row, and a scan scoped to one quadrant will miss a
+   twin. The pairs, as they stand today:
    - `CER-063` — first occurrence: the `fold-prep` `INFRA-203` rail-collision
      row (**open; this story's target**). Second occurrence:
      `parse_worker_verdict_text` removal (already
@@ -122,8 +203,10 @@ by line number.**
      this story's**).
    - `CER-065` — first: PreToolUse matcher gap (Do Now, resolved). Second:
      reviewer-template `git clean -fd` residue (**INFRA-304's row**).
-   - `CER-066`, `CER-062` — likewise paired; both dispositioned or owned by
-     INFRA-301.
+   - `CER-066` — likewise paired (Do Now resolved / Do Later); dispositioned
+     or owned by INFRA-301.
+   - `CER-062` — **not** duplicated; its single Do Later row stands alone
+     (the earlier five-pair map was wrong on this — F10).
 
    Every edit this story makes must be applied to a row identified by its
    **surrounding text**, not by an ID match alone.
@@ -254,18 +337,75 @@ by line number.**
     before this story runs**, so budget from ~142, not 136.
 
 14. **Era-004 ledger.** `docs/eras/004-flex-operational-closeout-and-0-3-1.md`
-    is `status: active` and its Phases table (`:20-22`) lists 113/114/115 as
-    `planned`. Because era 004 is the highest active era,
+    is `status: active` and its Phases table lists 113/114/115/116 (locate by
+    row, not line — the doc gained a scope-revision paragraph 2026-07-29).
+    Because era 004 is the highest active era,
     `_mark_phase_complete_in_era_ledger` **does** advance these rows
-    automatically as each phase is checkpointed — so 113 and 114 should
+    automatically as each phase is checkpointed — so 113, 114 and 115 should
     already read `complete` when this story runs. Verify rather than assume;
-    the phase-115 row is still `planned` and stays that way until cp-115.
+    the phase-116 row is still `planned` and stays that way until cp-116.
 
 15. **`check-index` invocation.**
     `PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py check-index --project-dir .`
     Exits 0 silently when clean; exits 1 printing one line per violation.
 
-16. **Baseline.** `main`'s suite is green at **4116 passed / 211 skipped**.
+16. **Baseline.** `main`'s suite is green at **4116 passed / 211 skipped**
+    (plus whatever the era-004 siblings added; the invariant is
+    zero-failures, not the absolute count).
+
+17. **The check-index violation inventory (AG-4) — re-verified 2026-07-29,
+    48 violations.** Re-run the Requires-15 command at build time; the live
+    output wins over this table. As inventoried:
+    - **2 status-drift:** `docs/stories/OBS/OBS-006.md` (commit
+      `feat(story-OBS-006)` exists, status `draft`) and
+      `docs/stories/RELEASE/RELEASE-058.md` (commit exists, status
+      `backlog`). Fix: set each to the status its history proves (complete)
+      with a one-line note, or `deferred` named in its phase doc if the work
+      was in fact abandoned — read the commits before choosing.
+    - **12 cross-link:** 7 story-frontmatter references to nonexistent phase
+      files — `INFRA-001.md`/`INFRA-003.md` → `phase-backlog.md`,
+      `INFRA-022..025.md` → `phase-[].md`, `INFRA-133.md` → `phase-49.md`;
+      plus 5 era-001 ledger rows disagreeing with the index (phase 23
+      complete-vs-deferred; phases 53/54/56/57 planned-vs-complete). Fix:
+      point story frontmatter at the real phase (or a valid legacy anchor)
+      and correct `docs/eras/001-initial.md`'s five rows to match the index
+      (the index is the truth source, Requires 8's 2c framing).
+    - **21 orphan-story:** `INFRA-001..004`, `INFRA-022..025`,
+      `INFRA-110/111`, `INFRA-114..123`, `INFRA-133` — story files no phase
+      doc's Stories table references. Fix: reference each from the phase doc
+      its frontmatter names once corrected, or flip to `status: backlog`
+      with a body note when the story predates the manifest convention —
+      the same treatment INFRA-273..277 get (Requires 9's
+      `deferred`-is-invalid rule applies here too).
+    - **13 deferred-without-section:** `RELEASE-044..056` in
+      `docs/phases/phase-97.md`. **`phase-97.md` already has a
+      `## Deferred stories` section** — it covers RELEASE-043..057 as a
+      prose *range*, which is exactly why the per-ID check still fails.
+      Fix: **extend the existing section** (do not add a second heading),
+      naming all thirteen IDs individually with one-line reasons and
+      "resumes post-0.3.1 at the fold" — the phase stays `deferred`, not
+      revived (preserved do-not-do).
+
+18. **Era-003 closure preconditions (AG-3).** Live state 2026-07-29:
+    `docs/eras/003-flex-orchestrator-as-harness.md` is `status: active`
+    alongside active era 004; index rows `106 | planned`, `107 | planned`,
+    `108 | planned`; phase-108 holds INFRA-278/INFRA-279 (draft) and
+    RELEASE-072 (draft). INFRA-314 (phase 116) provides the by-ID,
+    gate-checked era-close path this story must use — its
+    undispositioned-phase refusal means every era-003 phase row must read
+    `complete` or `deferred` *before* the close runs. The ordering inside
+    this story is therefore: phase dispositions (106/107/108) → check-index
+    → era-003 close → version record.
+
+19. **CER-119..126 were filed at spec time (2026-07-29)** in
+    `docs/cer/backlog.md`: CER-119/120 (absorbed by INFRA-311), CER-121
+    (open, `gate:`), CER-122 (absorbed by INFRA-304), CER-123 (absorbed by
+    INFRA-305), CER-124/126 (absorbed by this story), CER-125 (open,
+    `gate:`). The absorbed rows carry "Absorbed at spec time by …" pointers
+    and are annotated `RESOLVED` by their owning stories at build time; the
+    Ensures-6 enumeration treats CER-121 and CER-125 as expected survivors
+    (each needs its retain reason restated in `## Evidence`, or its `gate:`
+    condition cited as the reason).
 
 ## Ensures
 
@@ -399,7 +539,7 @@ result so the reviewer can execute it verbatim.
    `docs/phases/index.md`'s phase-107 row status cell reads `deferred` and its
    Tag/notes cell names the superseding phases.
    - `grep '^| 107 |' docs/phases/index.md` → contains `deferred` and all
-     three of `113`, `114`, `115`.
+     of `113`, `114`, `115`, `116`.
 
 10. **Phase-107 era-003 ledger row deferred, in lockstep (Requires 8).**
     - `grep '^| 107 |' docs/eras/003-flex-orchestrator-as-harness.md` →
@@ -409,7 +549,7 @@ result so the reviewer can execute it verbatim.
 
 11. **`phase-107.md` gains a `## Superseded` note.**
     `docs/phases/phase-107.md` gains a `## Superseded` section that names
-    era 004 and phases 113/114/115, states that the classification was re-done
+    era 004 and phases 113/114/115/116, states that the classification was re-done
     on merits (naming at least one concrete divergence — e.g. CER-069 was
     reclassified from phase-107's "legacy quick-fix" bundle to era-004's
     shared-blocker group and drained by INFRA-297), lists all five stubs
@@ -441,37 +581,45 @@ result so the reviewer can execute it verbatim.
     (live anchor `:157`; **plan drift** — §C.1 cited `:154`). That line is
     **amended in place, not deleted** — it records a real operator decision
     dated 2026-07-25 — with a trailing clause noting the promotion was
-    re-routed to phases 113/114/115 by INFRA-310 and that phase 107 is
+    re-routed to phases 113/114/115/116 (the era-004 phase set) by INFRA-310 and that phase 107 is
     superseded.
     - `grep -n 'Phase 107' docs/phases/index.md` → the matching line contains
       `superseded` and `INFRA-310`.
     - The original promotion text before the amendment is still present
       (`git diff` shows an append, not a rewrite).
 
-14. **`check-index` is clean.**
+14. **`check-index` is clean — a true exit 0, not a baseline (AG-4).**
     - `PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py check-index --project-dir .`
       → exit code 0, no output. Run it and paste the exit code into
       `## Evidence`.
-    - This is the assertion that catches an index/era-ledger desync in either
-      direction (check 2c, Requires 8) — for era 003's phase-107 row and for
-      era 004's 113/114/115 rows.
+    - This now covers **both** the graph edits this story makes (phase
+      106/107/108 dispositions, era rows) **and** the 48 pre-existing
+      violations (Requires 17), all fixed per-category by Ensures 23. No
+      suppression, allow-list, or check weakening anywhere in
+      `index_integrity.py` — `git diff --name-only` must not contain it.
+    - **Correct signal: exit 0 with every violation's underlying record made
+      true. Forbidden proxy: exit 0 achieved by editing the checker or
+      deleting the offending files.**
 
 15. **Era-004 ledger matches the index (Requires 14).**
     `docs/eras/004-flex-operational-closeout-and-0-3-1.md`'s Phases table
-    status for 113 and 114 equals `docs/phases/index.md`'s status for the same
-    phases. If `_mark_phase_complete_in_era_ledger` already advanced them, this
-    is a verification with no edit; if a row drifted, correct the era doc to
-    match the index (the index is the truth source per `index_integrity.py`'s
+    status for 113, 114 and 115 equals `docs/phases/index.md`'s status for the
+    same phases. If `_mark_phase_complete_in_era_ledger` already advanced them,
+    this is a verification with no edit; if a row drifted, correct the era doc
+    to match the index (the index is the truth source per `index_integrity.py`'s
     2c framing).
     - Covered mechanically by Ensures 14; additionally record both files'
-      113/114/115 rows verbatim in `## Evidence`.
+      113/114/115/116 rows verbatim in `## Evidence`.
 
 16. **CHANGELOG 0.3.1 release section.** `CHANGELOG.md` gains, in this order
     from the top: a fresh empty `## [Unreleased]` heading, then
-    `## [0.3.1] — <build date>`, and immediately under it three `### `
-    entries for Phases 113, 114 and 115 in reverse-merge order (115, 114,
-    113), each naming its stories by ID in the established voice (past tense,
-    story ID in parentheses at the end of each bullet).
+    `## [0.3.1] — <build date>`, and immediately under it four `### `
+    entries for Phases 113, 114, 115 and 116 in reverse-merge order (116,
+    115, 114, 113), each naming its stories by ID in the established voice
+    (past tense, story ID in parentheses at the end of each bullet). The
+    0.3.1 note also signals **beta status in prose** here and in
+    `README.md` § Status — never via a version-string suffix (preserved
+    do-not-do).
 
     Because the pre-existing entries below the new `## [0.3.1]` heading now
     fall under it and **three of them (Phases 95, 96, 98) landed on `main`
@@ -483,11 +631,14 @@ result so the reviewer can execute it verbatim.
     - `grep -n '^## \[Unreleased\]' CHANGELOG.md` → line < the
       `## [0.3.1]` line.
     - `grep -c '^## \[0.3.1\]' CHANGELOG.md` → 1.
-    - `for p in 113 114 115; do grep -q "Phase $p" CHANGELOG.md || echo "MISSING Phase $p"; done`
+    - `for p in 113 114 115 116; do grep -q "Phase $p" CHANGELOG.md || echo "MISSING Phase $p"; done`
       → no output.
-    - `for s in 296 297 298 299 300 301 302 303 304 305 306 307 308 309 310; do grep -q "INFRA-$s" CHANGELOG.md || echo "MISSING INFRA-$s"; done`
+    - `for s in 296 297 298 299 300 301 302 303 304 305 306 307 308 309 310 311 312 313 314 315 316 317 318; do grep -q "INFRA-$s" CHANGELOG.md || echo "MISSING INFRA-$s"; done`
       → no output.
-    - `wc -l < CHANGELOG.md` → **< 200** (`test_docs.py:25-29`'s cap).
+    - `wc -l < CHANGELOG.md` → **< 200** (`test_docs.py:25-29`'s cap). The
+      pre-0.3.1 entry set grew with the era; if the four new phase entries
+      cannot fit the cap, compress the *new* entries' bullet granularity —
+      never delete historical entries.
 
 17. **Version bumped to `0.3.1` across all four surfaces (Requires 10).**
     `0.3.1` is a **real release version with no pre-release suffix** — not
@@ -535,7 +686,8 @@ result so the reviewer can execute it verbatim.
 21. **No runtime behaviour change.** The only non-`docs/` files this story
     touches are `_version.py`, `.claude-plugin/plugin.json`,
     `.claude-plugin/marketplace.json`, `skills/pairmode/SKILL.md`,
-    `CHANGELOG.md` and `tests/pairmode/test_fold_preparation.py`.
+    `CHANGELOG.md`, `.companion/state.json` (Ensures 27's one-key bump) and
+    `tests/pairmode/test_fold_preparation.py`.
     - `git diff --name-only` intersected with `hooks/` → empty.
     - `git diff --name-only` intersected with `skills/companion/scripts/` and
       `skills/observability/` → empty.
@@ -548,12 +700,86 @@ result so the reviewer can execute it verbatim.
     most the delta introduced by siblings; this story adds no new tests and
     removes none (Ensures 19 renames one in place).
 
+23. **The 48 check-index violations are fixed per category (AG-4,
+    Requires 17).** Each category's fix follows its Requires-17 rule; the
+    per-category verification:
+    - status-drift: `grep '^status:' docs/stories/OBS/OBS-006.md
+      docs/stories/RELEASE/RELEASE-058.md` → neither reads `draft`/`backlog`
+      unless its phase doc formally defers it; the chosen disposition and
+      the commit evidence read are stated in `## Evidence`.
+    - cross-link: the seven story files' `phase:` frontmatter each name an
+      existing `docs/phases/phase-*.md`; `docs/eras/001-initial.md`'s five
+      drifted rows equal the index's status strings byte-for-byte.
+    - orphan-story: each of the 21 stories is referenced from the phase doc
+      its frontmatter names, or reads `status: backlog` with a one-line
+      body note; no story file is deleted.
+    - deferred-without-section: the **existing** `## Deferred stories`
+      section in `phase-97.md` is extended in place —
+      `grep -c '^## Deferred stories' docs/phases/phase-97.md` → **exactly
+      1** (a second heading is a FAIL), and
+      `for s in 044 045 046 047 048 049 050 051 052 053 054 055 056; do awk '/^## Deferred stories/,0' docs/phases/phase-97.md | grep -q "RELEASE-$s" || echo "MISSING RELEASE-$s"; done`
+      → no output. Phase-97's status everywhere stays `deferred`.
+
+24. **Phase 108 superseded, mirroring phase 107 (AG-3).** `phase-108.md`
+    gains a `## Superseded` section stating: INFRA-278's validation
+    obligation was discharged by INFRA-312 (name its evidence section),
+    INFRA-279's exit criterion was folded into the era-003 doc (Ensures 26),
+    RELEASE-072's transition was executed by this story; nothing deleted.
+    Index and era-003 ledger rows for 108 flip to `deferred` in lockstep
+    (byte-identical status strings, same Requires-8 rule as phase 107);
+    INFRA-278/279 and RELEASE-072 story files flip to `status: backlog`
+    (**not** `deferred` — Requires 9's rule) with a superseded-by note each.
+    - `grep -c '^## Superseded' docs/phases/phase-108.md` → 1.
+    - `for f in docs/stories/INFRA/INFRA-278.md docs/stories/INFRA/INFRA-279.md docs/stories/RELEASE/RELEASE-072.md; do grep -q '^status: backlog' $f || echo "BAD $f"; done`
+      → no output.
+
+25. **Phase 106 dispositioned complete-by-hand-migration, with the
+    limitation written down (AG-3).** Index and era-003 rows for 106 read
+    `complete` in lockstep; `phase-106.md` gains a closing note: completed
+    by hand-migration per operator instruction (2026-07-28 hold-lift
+    lineage), **with the stated evidence limitation** that hand-migration
+    did not hold for the agent shells (F1) and that canon parity for the
+    fleet arrives via the post-0.3.1 sync campaign enabled by INFRA-311.
+    Precondition verified in `## Evidence`: INFRA-311 reads `complete` in
+    phase-113's manifest **before** this edit is made.
+    - `grep -qi 'hand-migration' docs/phases/phase-106.md` → hit.
+    - `grep -qi 'INFRA-311' docs/phases/phase-106.md` → hit.
+
+26. **Era 003 closed by ID; exactly one era active at tag time (AG-3).**
+    After Ensures 23-25 and the phase-107 edits: the era-003 doc carries
+    INFRA-279's exit criterion (a short `## Exit criterion` statement of
+    what the era delivered, with the INFRA-312 evidence pointer), then the
+    era is closed **by ID** via INFRA-314's gate-checked path —
+    `status: complete` plus `closed_at: <build date>` in
+    `docs/eras/003-flex-orchestrator-as-harness.md`'s frontmatter. No new
+    era is scaffolded (004 exists).
+    - `grep -c '^status: complete' docs/eras/003-flex-orchestrator-as-harness.md` → 1.
+    - `grep -c '^closed_at:' docs/eras/003-flex-orchestrator-as-harness.md` → 1.
+    - `grep -l '^status: active' docs/eras/*.md` → exactly
+      `docs/eras/004-flex-operational-closeout-and-0-3-1.md`.
+    - **Correct signal: the frontmatter state above via the gated path;
+      forbidden proxy: hand-editing the frontmatter to dodge INFRA-314's
+      undispositioned-phase refusal — if the gate refuses, a phase
+      disposition above is wrong; fix it, don't bypass.**
+
+27. **Flex's own `.companion/state.json` bumped (AG-5 item 5).** Its
+    `pairmode_version` key reads `0.3.1`; no other key in the file changes
+    (`git diff .companion/state.json` shows exactly one changed line).
+    - `grep -o '"pairmode_version"[^,]*' .companion/state.json` →
+      `"pairmode_version": "0.3.1"`.
+
+28. **CER-124 and CER-126 annotated as this story's own rows.** Both gain
+    `**RESOLVED Phase 116 — INFRA-310: <one sentence>.**` in place
+    (CER-124: check-index driven to zero; CER-126: state.json bump). The
+    spec-time "Absorbed at spec time by INFRA-310" pointer text is left in
+    place; the bold token is appended.
+
 ## Instructions
 
 **Ordering — this story is strictly the last story built across phases 113,
-114 and 115.** Before touching anything, read the Stories tables of all three
-phase docs and confirm INFRA-296..309 all read `complete`. If any does not,
-**stop and report**. Every sibling annotates its own CER rows; running this
+114, 115 and 116.** Before touching anything, derive the sibling set from the
+Stories tables of all four phase docs (Requires 1) and confirm every derived
+sibling reads `complete`. If any does not, **stop and report**. Every sibling annotates its own CER rows; running this
 story early would either conflict with those edits or silently rebase them
 away, and the Ensures-6 enumeration would be measuring an unfinished backlog.
 
@@ -596,7 +822,7 @@ built.
 **Suggested build order** — verify first, edit second, stamp last:
 
 1. **Verify preconditions.** Sibling statuses (Ordering, above); era-004
-   ledger vs index for 113/114/115 (Ensures 15); CER-118 present (Requires 6);
+   ledger vs index for 113/114/115/116 (Ensures 15); CER-118 present (Requires 6);
    CER-091 carries INFRA-298's clause (Ensures 3). Record all four in
    `## Evidence`.
 
@@ -780,14 +1006,15 @@ version surface.
   They are noted as predating the tag (Ensures 16), not moved. Rewriting dated
   release history to be tidy is a different and riskier job.
 
-- **Any CHANGELOG backfill other than Phases 113/114/115.** The Phase 99
+- **Any CHANGELOG backfill other than Phases 113/114/115/116.** The Phase 99
   backfill belongs to INFRA-305.
 
-- **Closing era 003 or era 004.** Era 003's close is phase 108's
-  `RELEASE-072` (and must name era 003 **by ID**, since two eras are active —
-  `era_transition._find_active_eras` returns a list). Era 004's close is a
-  later act. This story ships 0.3.1; it does not flip any era's
-  `status: active`.
+- **Closing era 004.** ~~Closing era 003~~ — **reversed by AG-3
+  (2026-07-29):** era-003 closure is now IN scope (Ensures 24-26 fold in
+  RELEASE-072's transition, INFRA-279's exit criterion and the phase-106/108
+  dispositions; the close runs by ID through INFRA-314's gated path). Era
+  004's own close remains a later act — this story ships 0.3.1 with era 004
+  still `active`.
 
 - **Tagging the release.** `git tag`, pushes and the checkpoint sequence are
   the operator's and the checkpoint gate's job, not the builder's. This story

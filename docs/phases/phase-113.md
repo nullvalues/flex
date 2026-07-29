@@ -15,7 +15,7 @@ phase_class: production
 <!-- State this phase's single purpose in one or two sentences (docs/architecture.md
      § Phase-authoring convention, INFRA-243). If the work naturally splits into more
      than one purpose, that's a signal to open a sibling phase, not to widen this one. -->
-Close the parsing, resolver-evidence, and spawn-recording defects both rails stand on: flow-style frontmatter that half-creates worktrees, cross-referenced story IDs read as build evidence, async spawn outcomes recoverable only by an unreachable timer, unvalidated JSON BUILD outcomes, and duplicate-hook false positives. Nothing in phases 114 or 115 is trustworthy until these land; four stories gate the in-flight phase-106 campaign.
+Close the parsing, resolver-evidence, and spawn-recording defects both rails stand on: flow-style frontmatter that half-creates worktrees, cross-referenced story IDs read as build evidence, async spawn outcomes recoverable only by an unreachable timer, unvalidated JSON BUILD outcomes, and duplicate-hook false positives — plus the fleet-propagation defect (sync cannot deliver canon shrinkage) that every later canon rewrite in this era depends on (AG-1, `docs/closeout-agreements-20260729.md`). Nothing in phases 114–116 is trustworthy until these land; four stories gate the in-flight phase-106 campaign, and INFRA-311 gates phase-106's disposition (AG-3).
 
 ## Stories
 
@@ -26,6 +26,7 @@ Close the parsing, resolver-evidence, and spawn-recording defects both rails sta
 | INFRA-298 | Deterministic spawn completion: SubagentStop relay, quiescence demoted to backstop | draft |
 | INFRA-299 | Recording data integrity: enum-validate JSON BUILD outcomes; document attempts.phase and the acknowledged_at misnomer | draft |
 | INFRA-300 | Duplicate-hook detection precision: matcher-aware keying and actionable classification | draft |
+| INFRA-311 | Sync canon-shrink propagation; audit flags EXTRA inside canonical files; SCAFFOLD_FILES parity test | draft |
 
 ## Schema delivery
 

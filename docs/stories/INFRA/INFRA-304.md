@@ -12,6 +12,13 @@ primary_files:
 touches:
   - skills/pairmode/scripts/flex_build.py
   - skills/pairmode/skills/spec-writer/procedure.md
+  - skills/pairmode/templates/agents/builder.md.j2
+  - skills/pairmode/templates/agents/reviewer.md.j2
+  - skills/pairmode/templates/agents/intent-reviewer.md.j2
+  - skills/pairmode/templates/agents/loop-breaker.md.j2
+  - skills/pairmode/templates/agents/security-auditor.md.j2
+  - skills/pairmode/templates/agents/gate-worker.md.j2
+  - skills/pairmode/templates/agents/reconstruction-agent.md.j2
   - tests/pairmode/test_spec_preflight.py
   - tests/pairmode/test_flex_build.py
   - tests/pairmode/test_templates.py
@@ -277,6 +284,41 @@ passes, except the CER-090 environmental failure named in `## Requires` when the
 happens inside a fresh worktree. State in the build result whether that failure appeared
 and that it reproduces on clean `HEAD`.
 
+**E13. (F7, AG-5 item 1) The agent-shell procedure pointer is verified before it
+is touched — and fixed only if it fails.** The templates emit a bare relative
+procedure path (`skills/pairmode/skills/<role>/procedure.md` —
+`builder.md.j2:34`, `reviewer.md.j2:34`, `intent-reviewer.md.j2:33`,
+`loop-breaker.md.j2:38`, `security-auditor.md.j2:33`; check
+`gate-worker.md.j2` / `reconstruction-agent.md.j2` for equivalents) which, as
+written, resolves in **no consuming repo** — a downstream worker's cwd has no
+`skills/pairmode/` tree. The cold-eyes caveat (CER-122) is that plugin-skill
+loading **may** resolve it at runtime. Order is mandatory:
+
+1. **Verify first.** In one consuming repo (or a bootstrapped fixture),
+   determine whether a spawned worker reading its rendered agent shell can
+   actually reach the procedure file at that path (plugin-root resolution,
+   skill expansion, or any other runtime mechanism). Record the method and
+   the verbatim result in `## Evidence`.
+2. **If it resolves:** change **nothing** in the templates for this item;
+   the fix is one clarifying comment line in each affected template stating
+   *why* the bare path works (naming the resolution mechanism), so the next
+   cold-eyes pass doesn't re-flag it.
+3. **If it does not resolve:** render the path absolute (or
+   plugin-root-anchored) at bootstrap/sync time via the templates' existing
+   context variables, in all affected templates, with a
+   `test_templates.py` assertion that rendered output contains a resolvable
+   path shape.
+
+**The correct signal is the recorded resolution experiment; the forbidden
+proxy is rewriting the paths "to be safe" with no experiment — an untested
+render change to six worker contracts is exactly the class of regression this
+phase exists to end.**
+
+**E14. CER-122 is annotated honestly per the E13 outcome.** The row gains
+`**RESOLVED Phase 114 — INFRA-304: <verified-resolves + comment | rendered
+absolute>, evidence in INFRA-304 § Evidence.**` — matching what actually
+happened, in place, no row deleted or moved.
+
 ## Instructions
 
 You are the builder. Work only in this repository, inside your story worktree. Do not
@@ -353,7 +395,14 @@ create a git tag, do not push, and run no command against `/mnt/work/flex-harnes
    must not be touched. Refresh nothing else in the file — the backlog truth pass is
    INFRA-310.
 
-8. **Ideology note (Step 4a — resolved inline, no conflict).** Two entries shaped this
+8. **Procedure-pointer verification (E13, E14) — verify FIRST, change only on
+   failure.** Run the E13 resolution experiment before opening any template
+   file; the experiment's outcome selects branch 2 (comment only) or branch 3
+   (absolute render + test). Annotate CER-122 to match. This item lands last
+   so its template diff (if any) cannot entangle the E8 revert-assertion work
+   in the same files.
+
+9. **Ideology note (Step 4a — resolved inline, no conflict).** Two entries shaped this
    spec. *"Never silently pass contradictions"* (no silent bypass permitted) is why E3/E4
    choose exit 2 over a silent exit 0 for an unresolvable story ID: a scan that cannot
    locate its subject must not report as clean, because a false clean is worse than a

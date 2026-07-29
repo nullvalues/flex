@@ -442,6 +442,27 @@ result so the reviewer can execute it verbatim.
     baseline (or exceeds it by the tests this story adds), with no new
     failures.
 
+19. **(F8, AG-5 item 2) README's build-loop description matches the shipped
+    loop.** `README.md`'s description of the build loop predates CER-074: it
+    states the resolver emits `spawn-reviewer`. In the shipped loop the
+    resolver's builder iteration carries the reviewer dispatch and the
+    PASS/FAIL branch as orchestrator-held prose — the reviewer is dispatched
+    by the orchestrator inside the same `spawn-builder` iteration
+    (`next_action.py:163` comment is the code-side anchor). The README
+    section is corrected to describe that shape (resolver actions vs
+    orchestrator-held steps, in ≤ 15 changed lines), and the CER-123 row
+    filed 2026-07-29 gains
+    `**RESOLVED Phase 114 — INFRA-305: README build-loop description
+    corrected to the post-CER-074 orchestrator-held reviewer dispatch.**`
+    in place.
+    - `grep -n 'spawn-reviewer' README.md` → no hit that describes the
+      resolver *emitting* it (a historical-note mention is acceptable if
+      clearly marked as pre-CER-074 history).
+    - **Correct signal: the corrected description names who dispatches the
+      reviewer (the orchestrator) and where the branch lives; forbidden
+      proxy: deleting the loop description instead of correcting it —
+      removing the contract is not making it true.**
+
 ## Instructions
 
 **Ordering.** This story is strictly the **last** story built in Phase 114.
