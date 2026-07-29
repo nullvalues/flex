@@ -194,8 +194,10 @@ def merged_hook_view(
     One dict per registered hook *entry*, in source order (``settings``,
     then ``settings.local``, then plugins), each with keys ``event``,
     ``matcher`` (``str | None``), ``command``, ``basename``
-    (``command.rsplit("/", 1)[-1]``), ``source``, and ``path`` (the file
-    the entry was read from, as a string).
+    (``command.rsplit("/", 1)[-1]``), ``source``, ``path`` (the file
+    the entry was read from, as a string), and ``predicate`` (``str | None``
+    — the entry-level ``"if"`` value, e.g. ``Bash(git commit:*)``; see
+    :func:`duplicate_hook_groups` and CER-110).
 
     Pure read: no environment variable is expanded and no path is resolved
     — a plugin entry's ``${CLAUDE_PLUGIN_ROOT}`` command is recorded
@@ -228,6 +230,9 @@ def merged_hook_view(
                         command = entry.get("command")
                         if not isinstance(command, str):
                             continue
+                        predicate = entry.get("if")
+                        if not isinstance(predicate, str):
+                            predicate = None
                         view.append(
                             {
                                 "event": event,
@@ -236,6 +241,7 @@ def merged_hook_view(
                                 "basename": command.rsplit("/", 1)[-1],
                                 "source": source["source"],
                                 "path": source["path"],
+                                "predicate": predicate,
                             }
                         )
     except Exception:
@@ -245,21 +251,55 @@ def merged_hook_view(
 
 def duplicate_hook_groups(view: "list[dict] | Any") -> "list[dict]":
     """Group a merged view's entries and report every duplicated
-    ``(event, basename)`` pair (B6).
+    ``(event, basename)`` pair (B6, refined CER-110).
 
-    Returns one dict per pair holding more than one entry, with keys
-    ``event``, ``basename``, ``commands`` (full command strings in view
-    order — the pre-INFRA-288 contract, unchanged) and ``sources`` (the
-    parallel list of source labels, new).
-
-    Grouping is deliberately by ``basename`` — NOT by a resolved command
-    path. A plugin's hooks.json holds an unexpanded
+    Bucketing is still by ``(event, basename)`` exactly as before — NOT by a
+    resolved command path. A plugin's hooks.json holds an unexpanded
     ``${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py`` while the settings
     entry holds an absolute path; resolving paths would make the two *stop*
     matching, which is the precise cross-source blindness this module
-    exists to remove (B5). Total — malformed input yields ``[]``.
+    exists to remove (B5).
+
+    Once bucketed, a bucket containing at least one ``settings`` or
+    ``settings.local`` member (``actionable``) is emitted **unrefined** when
+    it has >= 2 members — matcher and path are never applied across sources,
+    because matcher strings legitimately differ *and overlap* across sources
+    (``Task|Agent`` settings-side vs ``Task|Agent|SendMessage`` plugin-side
+    for ``post_tool_use.py``) and a settings absolute path can never equal a
+    plugin's ``${CLAUDE_PLUGIN_ROOT}`` command path. Applying either
+    discriminator across sources would silently restore the cross-source
+    blindness this module exists to remove.
+
+    An all-plugin bucket (no settings-level member) is refined instead,
+    because two *different* plugins can legitimately ship the same
+    basename (R1), and one plugin can legitimately register the same
+    basename several times under distinct triggers (R2):
+
+    - **R1 (multi-plugin split):** partition the bucket by member ``path``,
+      so two plugins shipping the same basename land in different
+      partitions.
+    - **R2 (distinct-trigger drop):** within each partition, drop a member
+      whose ``(matcher, predicate)`` pair is unique among that partition;
+      only members sharing an identical ``(matcher, predicate)`` with at
+      least one other member survive. A partition is emitted only if two or
+      more members survive.
+
+    (Ideology note: narrowing a detector is the risky direction, so the
+    narrowing here is scoped so that no settings-touching group can ever be
+    dropped — a settings-level member always forces the unrefined,
+    unconditionally-actionable path. The dropped plugin-side partitions are
+    not suppressed either: callers still see and print them as
+    ``PLUGIN-INTERNAL:`` — reported, just not gating.)
+
+    Returns one dict per surviving group, with keys ``event``, ``basename``,
+    ``commands`` (full command strings in view order — the pre-INFRA-288
+    contract, unchanged), ``sources`` (parallel list of source labels),
+    ``matchers`` (parallel list, new), ``predicates`` (parallel list, new),
+    ``paths`` (parallel list, new), and ``actionable`` (bool, new — ``True``
+    iff at least one member's ``source`` is ``settings`` or
+    ``settings.local``). Total — malformed input yields ``[]``.
     """
-    groups: "dict[tuple, dict]" = {}
+    buckets: "dict[tuple, dict]" = {}
     try:
         if not isinstance(view, list):
             return []
@@ -274,17 +314,83 @@ def duplicate_hook_groups(view: "list[dict] | Any") -> "list[dict]":
                 continue
             if not isinstance(command, str):
                 continue
-            group = groups.setdefault(
+            matcher = entry.get("matcher")
+            if not isinstance(matcher, str):
+                matcher = None
+            predicate = entry.get("predicate")
+            if not isinstance(predicate, str):
+                predicate = None
+            path = entry.get("path")
+            if not isinstance(path, str):
+                path = None
+            bucket = buckets.setdefault(
                 (event, basename),
                 {
                     "event": event,
                     "basename": basename,
                     "commands": [],
                     "sources": [],
+                    "matchers": [],
+                    "predicates": [],
+                    "paths": [],
                 },
             )
-            group["commands"].append(command)
-            group["sources"].append(source if isinstance(source, str) else None)
+            bucket["commands"].append(command)
+            bucket["sources"].append(source if isinstance(source, str) else None)
+            bucket["matchers"].append(matcher)
+            bucket["predicates"].append(predicate)
+            bucket["paths"].append(path)
     except Exception:
         return []
-    return [g for g in groups.values() if len(g["commands"]) > 1]
+
+    groups: "list[dict]" = []
+    try:
+        for bucket in buckets.values():
+            actionable = any(
+                s in (HOOK_SOURCE_SETTINGS, HOOK_SOURCE_SETTINGS_LOCAL)
+                for s in bucket["sources"]
+            )
+            n = len(bucket["commands"])
+            if actionable:
+                if n > 1:
+                    group = dict(bucket)
+                    group["actionable"] = True
+                    groups.append(group)
+                continue
+
+            # All-plugin bucket: refine per R1 (split by path) then R2
+            # (drop members whose (matcher, predicate) is unique within
+            # their partition).
+            indices_by_path: "dict[Any, list[int]]" = {}
+            for i, path in enumerate(bucket["paths"]):
+                indices_by_path.setdefault(path, []).append(i)
+
+            for indices in indices_by_path.values():
+                key_counts: "dict[tuple, int]" = {}
+                for i in indices:
+                    key = (bucket["matchers"][i], bucket["predicates"][i])
+                    key_counts[key] = key_counts.get(key, 0) + 1
+                surviving = [
+                    i
+                    for i in indices
+                    if key_counts[(bucket["matchers"][i], bucket["predicates"][i])]
+                    > 1
+                ]
+                if len(surviving) > 1:
+                    groups.append(
+                        {
+                            "event": bucket["event"],
+                            "basename": bucket["basename"],
+                            "commands": [bucket["commands"][i] for i in surviving],
+                            "sources": [bucket["sources"][i] for i in surviving],
+                            "matchers": [bucket["matchers"][i] for i in surviving],
+                            "predicates": [
+                                bucket["predicates"][i] for i in surviving
+                            ],
+                            "paths": [bucket["paths"][i] for i in surviving],
+                            "actionable": False,
+                        }
+                    )
+    except Exception:
+        return []
+    return groups

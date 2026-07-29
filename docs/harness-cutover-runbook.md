@@ -418,6 +418,16 @@ PATH=$HOME/.local/bin:$PATH uv run python \
 
 Confirm the output shows `Signal 1 (scripts path): present` before proceeding to the next project.
 
+### Duplicate-hook assertion (E3, CER-110)
+
+The campaign's E3 evidence point asserts **`Projects with actionable duplicate hooks: 0`** from the
+`fleet_discovery.py discover` output — not the raw `duplicate_hooks` count. A duplicate registration
+whose group has no settings-level member is plugin-internal (two unrelated plugins sharing a hook
+script's basename, or one plugin registering distinct triggers under it): it is still reported, on
+its own `Projects with plugin-internal duplicate hooks (non-actionable): {m}` line and per-project
+`plugin-internal duplicate hooks:` lines, but it never gates a migration, because flex never writes
+another install's `hooks.json` (INFRA-288 B9) and so has no mechanism to act on it either way.
+
 ---
 
 ## Final fold sequence

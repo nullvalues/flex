@@ -1944,3 +1944,139 @@ def test_audit_hooks_apply_removes_settings_local_duplicate(
         for block in data.get("hooks", {}).get("PostToolUse", [])
         for entry in block.get("hooks", [])
     ] == []
+
+
+# ---------------------------------------------------------------------------
+# CER-110: actionable vs. plugin-internal classification in audit-hooks
+# ---------------------------------------------------------------------------
+
+
+def _install_plugin_internal_duplicate(fake_home: pathlib.Path) -> pathlib.Path:
+    """A single plugin registering the same basename twice under the *same*
+    (matcher, predicate) — non-actionable, but still a surviving group
+    (Ensures 8 negative control)."""
+    plugin_file = (
+        fake_home / ".claude" / "plugins" / "some-plugin" / "hooks" / "hooks.json"
+    )
+    plugin_file.parent.mkdir(parents=True)
+    command = "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/dup_hook.py"
+    plugin_file.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PostToolUse": [
+                        {
+                            "matcher": "Bash",
+                            "hooks": [
+                                {"type": "command", "command": command},
+                                {"type": "command", "command": command},
+                            ],
+                        }
+                    ]
+                }
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return plugin_file
+
+
+def test_audit_hooks_plugin_only_fleet_exits_0_with_plugin_internal_line(
+    tmp_path: pathlib.Path, _isolated_home: pathlib.Path
+) -> None:
+    """A project whose only duplicate-hook groups are plugin-internal
+    (non-actionable) prints an informational PLUGIN-INTERNAL: line and exits
+    0 rather than 1 — plugin-owned registrations are reported, not gating."""
+    from click.testing import CliRunner
+
+    _write_settings(
+        tmp_path,
+        {
+            "PreToolUse": [
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /a/hooks/pre_tool_use.py"},
+                ]},
+            ]
+        },
+    )
+    _install_plugin_internal_duplicate(_isolated_home)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path), "--dry-run"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "PLUGIN-INTERNAL: event=PostToolUse basename=dup_hook.py" in result.output
+    assert "flex never writes another install's hooks.json" in result.output
+    assert "DUPLICATE:" not in result.output
+
+
+def test_audit_hooks_actionable_duplicate_still_exits_1(
+    tmp_path: pathlib.Path, _isolated_home: pathlib.Path
+) -> None:
+    """A project with both an actionable duplicate and a plugin-internal one
+    still exits 1 — the actionable finding gates."""
+    from click.testing import CliRunner
+
+    _write_settings(
+        tmp_path,
+        {
+            "PreToolUse": [
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /a/hooks/pre_tool_use.py"},
+                ]},
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /b/hooks/pre_tool_use.py"},
+                ]},
+            ]
+        },
+    )
+    _install_plugin_internal_duplicate(_isolated_home)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path), "--dry-run"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1
+    assert "DUPLICATE: event=PreToolUse basename=pre_tool_use.py" in result.output
+    assert "PLUGIN-INTERNAL: event=PostToolUse basename=dup_hook.py" in result.output
+
+
+def test_audit_hooks_apply_leaves_plugin_internal_only_settings_byte_identical(
+    tmp_path: pathlib.Path, _isolated_home: pathlib.Path
+) -> None:
+    """--apply on a project whose only group is plugin-internal must not
+    touch settings.json at all: the non-actionable group never reaches the
+    prune loop."""
+    from click.testing import CliRunner
+
+    settings_path = _write_settings(
+        tmp_path,
+        {
+            "PreToolUse": [
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /a/hooks/pre_tool_use.py"},
+                ]},
+            ]
+        },
+    )
+    _install_plugin_internal_duplicate(_isolated_home)
+    before = settings_path.read_bytes()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path), "--apply", "--yes"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert settings_path.read_bytes() == before, (
+        "settings.json must be byte-identical when the only group is "
+        "plugin-internal"
+    )

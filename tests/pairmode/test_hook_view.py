@@ -269,6 +269,291 @@ class TestDuplicateHookGroups:
 # ---------------------------------------------------------------------------
 
 
+class TestPredicateKey:
+    """Ensures 1: merged_hook_view records `predicate` alongside the
+    existing six keys, and the full key set is exactly the seven named
+    keys."""
+
+    def test_predicate_present_when_if_is_a_string(self, tmp_path: Path) -> None:
+        project = tmp_path / "project"
+        _write_json(
+            project / ".claude" / "settings.json",
+            {
+                "hooks": {
+                    "PostToolUse": [
+                        {
+                            "matcher": "Bash",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "uv run python /a/x.py",
+                                    "if": "Bash(git commit:*)",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+        )
+        view = hook_view.merged_hook_view(project, home=tmp_path / "home")
+        assert len(view) == 1
+        assert view[0]["predicate"] == "Bash(git commit:*)"
+        assert set(view[0].keys()) == {
+            "event",
+            "matcher",
+            "command",
+            "basename",
+            "source",
+            "path",
+            "predicate",
+        }
+
+    def test_predicate_none_when_if_absent_or_non_string(
+        self, tmp_path: Path
+    ) -> None:
+        project = tmp_path / "project"
+        _write_json(
+            project / ".claude" / "settings.json",
+            {
+                "hooks": {
+                    "PostToolUse": [
+                        {
+                            "hooks": [
+                                {"type": "command", "command": "uv run python /a/x.py"},
+                                {
+                                    "type": "command",
+                                    "command": "uv run python /b/x.py",
+                                    "if": 123,
+                                },
+                            ]
+                        }
+                    ]
+                }
+            },
+        )
+        view = hook_view.merged_hook_view(project, home=tmp_path / "home")
+        assert [entry["predicate"] for entry in view] == [None, None]
+        assert set(view[0].keys()) == {
+            "event",
+            "matcher",
+            "command",
+            "basename",
+            "source",
+            "path",
+            "predicate",
+        }
+
+
+# ---------------------------------------------------------------------------
+# CER-110 — actionable classification and all-plugin refinement
+# ---------------------------------------------------------------------------
+
+
+class TestActionableClassificationAndRefinement:
+    """Ensures 2/3/8/9: the two live CER-110 false-positive shapes (a and b)
+    collapse to [], a negative control still groups, and the cross-source /
+    settings-only regression floor is unmoved."""
+
+    def test_shape_a_security_guidance_bash_if_predicates_yield_no_group(
+        self, tmp_path: Path
+    ) -> None:
+        """One plugin (security-guidance) registers the same script under
+        PostToolUse via two blocks: one Edit|Write|MultiEdit|NotebookEdit
+        block with a single entry, and one Bash block with five entries
+        discriminated only by "if". The derived basename is
+        'security_reminder_hook.py"' (including the trailing double-quote —
+        command.rsplit("/", 1)[-1] on a quoted multi-argument command; this
+        crude derivation is the INFRA-288 contract, deliberately not changed
+        here). None of the six entries share an identical
+        (matcher, predicate) pair, so no group is emitted."""
+        home = tmp_path / "home"
+        command = (
+            'bash "${CLAUDE_PLUGIN_ROOT}/hooks/sg-python.sh" '
+            '"${CLAUDE_PLUGIN_ROOT}/hooks/security_reminder_hook.py"'
+        )
+        _write_json(
+            home
+            / ".claude"
+            / "plugins"
+            / "marketplaces"
+            / "claude-plugins-official"
+            / "plugins"
+            / "security-guidance"
+            / "hooks"
+            / "hooks.json",
+            {
+                "hooks": {
+                    "PostToolUse": [
+                        {
+                            "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+                            "hooks": [{"type": "command", "command": command}],
+                        },
+                        {
+                            "matcher": "Bash",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": command,
+                                    "if": "Bash(git commit:*)",
+                                },
+                                {
+                                    "type": "command",
+                                    "command": command,
+                                    "if": "Bash(git push:*)",
+                                },
+                                {
+                                    "type": "command",
+                                    "command": command,
+                                    "if": "Bash(gt create:*)",
+                                },
+                                {
+                                    "type": "command",
+                                    "command": command,
+                                    "if": "Bash(gt modify:*)",
+                                },
+                                {
+                                    "type": "command",
+                                    "command": command,
+                                    "if": "Bash(gt submit:*)",
+                                },
+                            ],
+                        },
+                    ]
+                }
+            },
+        )
+        project = tmp_path / "project"
+        view = hook_view.merged_hook_view(project, home=home)
+        assert len(view) == 6
+        assert view[0]["basename"] == 'security_reminder_hook.py"'
+        assert hook_view.duplicate_hook_groups(view) == []
+
+    def test_shape_b_two_plugins_share_session_start_basename_no_group(
+        self, tmp_path: Path
+    ) -> None:
+        """Two unrelated plugins (explanatory-output-style,
+        learning-output-style) each ship their own hooks-handlers/
+        session-start.sh with a byte-identical command string. The source
+        file path is the only discriminator — R1 partitions them apart, and
+        each singleton partition is dropped by R2."""
+        home = tmp_path / "home"
+        command = (
+            'bash "${CLAUDE_PLUGIN_ROOT}/hooks-handlers/session-start.sh"'
+        )
+        doc = {
+            "hooks": {
+                "SessionStart": [
+                    {"hooks": [{"type": "command", "command": command}]}
+                ]
+            }
+        }
+        _write_json(
+            home
+            / ".claude"
+            / "plugins"
+            / "explanatory-output-style"
+            / "hooks"
+            / "hooks.json",
+            doc,
+        )
+        _write_json(
+            home
+            / ".claude"
+            / "plugins"
+            / "learning-output-style"
+            / "hooks"
+            / "hooks.json",
+            doc,
+        )
+        project = tmp_path / "project"
+        view = hook_view.merged_hook_view(project, home=home)
+        assert len(view) == 2
+        assert view[0]["basename"] == 'session-start.sh"'
+        assert hook_view.duplicate_hook_groups(view) == []
+
+    def test_negative_control_same_plugin_same_matcher_predicate_still_groups(
+        self, tmp_path: Path
+    ) -> None:
+        """One plugin file registers the same basename twice under the
+        *same* (matcher, predicate): the refinement must not go too far —
+        this still yields one group, actionable False."""
+        home = tmp_path / "home"
+        command = "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/dup_hook.py"
+        _write_json(
+            home / ".claude" / "plugins" / "some-plugin" / "hooks" / "hooks.json",
+            {
+                "hooks": {
+                    "PostToolUse": [
+                        {
+                            "matcher": "Bash",
+                            "hooks": [
+                                {"type": "command", "command": command},
+                                {"type": "command", "command": command},
+                            ],
+                        }
+                    ]
+                }
+            },
+        )
+        project = tmp_path / "project"
+        view = hook_view.merged_hook_view(project, home=home)
+        groups = hook_view.duplicate_hook_groups(view)
+        assert len(groups) == 1
+        assert groups[0]["actionable"] is False
+        assert groups[0]["commands"] == [command, command]
+
+    def test_cross_source_shape_with_overlapping_but_different_matchers_groups(
+        self, tmp_path: Path
+    ) -> None:
+        """Regression floor: the CER-104 shape (settings Task|Agent vs
+        plugin Task|Agent|SendMessage, same basename) still groups even
+        though matcher/predicate differ — matcher is never applied across a
+        settings-touching bucket."""
+        project = tmp_path / "project"
+        home = tmp_path / "home"
+        settings_command = "uv run python /mnt/work/flex/hooks/post_tool_use.py"
+        plugin_command = "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py"
+        _write_json(
+            project / ".claude" / "settings.json",
+            _hooks_doc(settings_command, matcher="Task|Agent"),
+        )
+        _write_json(
+            home / ".claude" / "plugins" / "flex" / "hooks" / "hooks.json",
+            _hooks_doc(plugin_command, matcher="Task|Agent|SendMessage"),
+        )
+        groups = hook_view.duplicate_hook_groups(
+            hook_view.merged_hook_view(project, home=home)
+        )
+        assert len(groups) == 1
+        assert groups[0]["actionable"] is True
+        assert groups[0]["matchers"] == ["Task|Agent", "Task|Agent|SendMessage"]
+
+    def test_settings_only_parity_shape_still_groups_actionable(
+        self, tmp_path: Path
+    ) -> None:
+        project = tmp_path / "project"
+        _write_json(
+            project / ".claude" / "settings.json",
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {"matcher": "Task", "hooks": [
+                            {"type": "command", "command": "uv run python /a/hooks/pre_tool_use.py"},
+                        ]},
+                        {"matcher": "Task", "hooks": [
+                            {"type": "command", "command": "uv run python /b/hooks/pre_tool_use.py"},
+                        ]},
+                    ]
+                }
+            },
+        )
+        groups = hook_view.duplicate_hook_groups(
+            hook_view.merged_hook_view(project, home=tmp_path / "home")
+        )
+        assert len(groups) == 1
+        assert groups[0]["actionable"] is True
+
+
 class TestSettingsOnlyParity:
     def test_settings_only_project_matches_legacy_shape(self, tmp_path: Path) -> None:
         """A project with no settings.local.json and no plugin install

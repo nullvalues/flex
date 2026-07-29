@@ -304,10 +304,16 @@ def _check_duplicate_hooks(project_dir: Path) -> list[dict]:
 
     Returns one dict per duplicated (event, command-basename) pair, with the
     unchanged keys "event", "basename", and "commands" (full command strings
-    in view order) plus the parallel "sources" list of source labels.
-    Returns [] on missing/unparseable files or no duplicates. Read-only —
-    never writes to project_dir (same discipline as
-    _check_signal1/_check_signal2; the merged view is a pure read).
+    in view order) plus the parallel "sources" list of source labels, and —
+    since CER-110 — the parallel "matchers"/"predicates"/"paths" lists and
+    the "actionable" bool. An "actionable" group has at least one
+    settings/settings.local member; an all-plugin group is refined by
+    matcher/predicate/path first (two unrelated plugins sharing a basename,
+    or one plugin registering distinct triggers under it, are not
+    duplicates) and is always "actionable": False. Returns [] on
+    missing/unparseable files or no duplicates. Read-only — never writes to
+    project_dir (same discipline as _check_signal1/_check_signal2; the
+    merged view is a pure read).
     """
     return hook_view.duplicate_hook_groups(hook_view.merged_hook_view(project_dir))
 
@@ -484,12 +490,41 @@ def _write_snapshot(results: list[dict], snapshot_path: Path) -> None:
     lines.append("## Duplicate hook registrations (CER-081)")
     lines.append("")
 
-    dup_results = [r for r in results if r.get("duplicate_hooks")]
-    if not dup_results:
-        lines.append("_No duplicate hook registrations found._")
+    lines.append("### Actionable")
+    lines.append("")
+    actionable_results = [
+        r
+        for r in results
+        if any(dh.get("actionable") for dh in r.get("duplicate_hooks") or [])
+    ]
+    if not actionable_results:
+        lines.append("_No actionable duplicate hook registrations found._")
     else:
-        for r in dup_results:
-            events = ", ".join(dh["event"] for dh in r["duplicate_hooks"])
+        for r in actionable_results:
+            events = ", ".join(
+                dh["event"] for dh in r["duplicate_hooks"] if dh.get("actionable")
+            )
+            lines.append(f"- `{r['path']}` — duplicated events: {events}")
+    lines.append("")
+
+    lines.append("### Plugin-internal (non-actionable, CER-110)")
+    lines.append("")
+    plugin_internal_results = [
+        r
+        for r in results
+        if any(
+            not dh.get("actionable") for dh in r.get("duplicate_hooks") or []
+        )
+    ]
+    if not plugin_internal_results:
+        lines.append("_No plugin-internal duplicate hook registrations found._")
+    else:
+        for r in plugin_internal_results:
+            events = ", ".join(
+                dh["event"]
+                for dh in r["duplicate_hooks"]
+                if not dh.get("actionable")
+            )
             lines.append(f"- `{r['path']}` — duplicated events: {events}")
     lines.append("")
 
@@ -599,12 +634,40 @@ def cli(
                         click.echo(line)
                 if r["signal2"]:
                     click.echo(f"    signal2 (pairmode_version): {r['signal2_value']}")
-                if r["duplicate_hooks"]:
-                    events = ", ".join(dh["event"] for dh in r["duplicate_hooks"])
+                actionable_hooks = [
+                    dh for dh in r["duplicate_hooks"] if dh.get("actionable")
+                ]
+                non_actionable_hooks = [
+                    dh for dh in r["duplicate_hooks"] if not dh.get("actionable")
+                ]
+                if actionable_hooks:
+                    events = ", ".join(dh["event"] for dh in actionable_hooks)
                     click.echo(f"    DUPLICATE HOOKS: {r['path']} — events: {events}")
+                if non_actionable_hooks:
+                    events = ", ".join(dh["event"] for dh in non_actionable_hooks)
+                    click.echo(
+                        f"    plugin-internal duplicate hooks: {r['path']} "
+                        f"— events: {events}"
+                    )
 
-        projects_with_duplicates = sum(1 for r in results if r["duplicate_hooks"])
-        click.echo(f"Projects with duplicate hooks: {projects_with_duplicates}")
+        projects_with_actionable_duplicates = sum(
+            1
+            for r in results
+            if any(dh.get("actionable") for dh in r["duplicate_hooks"])
+        )
+        projects_with_plugin_internal_duplicates = sum(
+            1
+            for r in results
+            if any(not dh.get("actionable") for dh in r["duplicate_hooks"])
+        )
+        click.echo(
+            "Projects with actionable duplicate hooks: "
+            f"{projects_with_actionable_duplicates}"
+        )
+        click.echo(
+            "Projects with plugin-internal duplicate hooks (non-actionable): "
+            f"{projects_with_plugin_internal_duplicates}"
+        )
 
     if not no_snapshot:
         if snapshot_path:

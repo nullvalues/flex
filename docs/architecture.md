@@ -2562,6 +2562,56 @@ shows as plugin-sourced, and `audit-hooks --apply` resolves a cross-source
 duplicate by keeping the plugin entry and pruning the settings-level ones — it
 never writes a plugin's own `hooks.json`.
 
+**Actionable/plugin-internal refinement (CER-110, INFRA-300):** the raw
+`(event, basename)` bucketing above over-reported once real third-party
+plugins entered the fleet: `merged_hook_view` gained a seventh entry-level
+key, `predicate` (the entry's `"if"` string, or `None`), and
+`duplicate_hook_groups` classifies each bucket as **actionable** — `True`
+iff at least one member's `source` is `settings` or `settings.local` — before
+deciding whether to refine it. A bucket with a settings-level member is
+emitted unrefined, exactly as before INFRA-300: matcher and path are never
+applied *across sources*, because matcher strings legitimately differ and
+overlap between a settings entry and a plugin entry for the same script
+(`Task|Agent` vs `Task|Agent|SendMessage` for `post_tool_use.py`), and a
+settings absolute path can never equal a plugin's `${CLAUDE_PLUGIN_ROOT}`
+command path — applying either discriminator across sources would silently
+restore the cross-source blindness `hook_view.py` exists to remove. An
+all-plugin bucket (no settings-level member) is refined instead: first
+partitioned by member `path` (R1 — two different plugins shipping the same
+basename are different registrations, not one duplicated), then within each
+partition a member whose `(matcher, predicate)` pair is unique in that
+partition is dropped (R2 — one plugin registering several distinct triggers,
+e.g. `security-guidance`'s five `Bash(...)`-predicated entries or two
+unrelated plugins' `session-start.sh`, under a shared basename is not a
+duplicate); a partition survives only with >= 2 members remaining. Every
+emitted group dict keeps `event`/`basename`/`commands`/`sources` unchanged
+and gains `matchers`/`predicates`/`paths` (parallel lists) and `actionable`
+(bool) — an all-plugin group is always `actionable: False`.
+
+`pairmode_sync audit-hooks` (dry-run) now exits 1 iff at least one returned
+group is `actionable`; a non-actionable group prints an informational
+`PLUGIN-INTERNAL:` line (naming the distinct source paths) instead of
+`DUPLICATE:`, and never contributes to the exit code — flex has no
+mechanism to act on a plugin-internal group anyway (B9: it never writes
+another install's `hooks.json`), so gating on it would only produce false
+failures as new third-party plugins are installed. `--apply` iterates
+actionable groups only. `fleet_discovery` reports both counts —
+`Projects with actionable duplicate hooks: {n}` (the DP8 pre-fold gate
+signal, replacing the pre-INFRA-300 `Projects with duplicate hooks: {n}`
+line) and `Projects with plugin-internal duplicate hooks (non-actionable):
+{m}` — and the `## Duplicate hook registrations (CER-081)` snapshot section
+carries both under separate sub-headings. `duplicate_hooks` still carries
+every group, actionable or not; nothing is silently dropped from the JSON
+output, only from the gate.
+
+`bootstrap._register_context_budget_hooks`'s plugin-registered skip set
+deliberately stays keyed on the coarser `(event, basename)` — not on the
+refined group key — because a plugin registering the script for the event at
+all is reason enough to skip adding a settings-level entry; making it
+matcher-aware would let flex add a settings-level `Task|Agent` entry
+alongside a plugin's `Task|Agent|SendMessage` one, re-creating the exact
+CER-104 double-recording bug INFRA-288 fixed.
+
 All decision logic lives in the named modules; the hook is a thin dispatcher.
 
 **Documented exception — `hooks/post_tool_use.py` Task/Agent branch (INFRA-182, INFRA-236):**

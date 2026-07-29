@@ -1112,8 +1112,13 @@ def _audit_duplicate_hooks(settings_path: Path) -> list[dict]:
 
     Each dict has the unchanged keys ``event``, ``basename``, and
     ``commands`` (full command strings in view order), plus the parallel
-    ``sources`` list of source labels. Returns ``[]`` when nothing is
-    readable or there are no duplicates. Read-only — never writes.
+    ``sources`` list of source labels, and — since CER-110 — the parallel
+    ``matchers``/``predicates``/``paths`` lists and the ``actionable`` bool
+    (``True`` iff at least one member is settings-sourced). All-plugin
+    groups are refined by matcher/predicate/path before being returned; a
+    settings-touching group is always returned unrefined. Returns ``[]``
+    when nothing is readable or there are no duplicates. Read-only — never
+    writes.
     """
     project_dir = Path(settings_path).parent.parent
     return hook_view.duplicate_hook_groups(hook_view.merged_hook_view(project_dir))
@@ -1159,14 +1164,21 @@ def audit_hooks(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None
 
     Without --apply, reports duplicate (event, command-basename) pairs —
     each with the sources it spans (settings / settings.local / plugin) —
-    and exits 1 if any are found, 0 if clean — usable as a drift check in a
-    shell conditional. With --apply, removes duplicate entries from
-    .claude/settings.json (and .claude/settings.local.json when present).
-    When a group spans a plugin source, the plugin-sourced entry always
-    wins: flex never writes another install's files, and the plugin
-    registration is the one that survives a re-bootstrap. When every member
-    of a group is settings-sourced, the entry whose command path is under
-    this checkout's plugin root is preferred (unchanged behaviour).
+    and exits 1 **iff at least one reported group is `actionable`** (CER-110):
+    a group with no settings-level member is plugin-internal (two unrelated
+    plugins sharing a basename, or one plugin registering several distinct
+    triggers under one basename) and is printed as an informational
+    `PLUGIN-INTERNAL:` line rather than a `DUPLICATE:` line, and never
+    contributes to the exit code — usable as a drift check in a shell
+    conditional. With --apply, removes duplicate entries from
+    .claude/settings.json (and .claude/settings.local.json when present),
+    iterating actionable groups only; non-actionable groups never reach the
+    prune loop. When an actionable group spans a plugin source, the
+    plugin-sourced entry always wins: flex never writes another install's
+    files, and the plugin registration is the one that survives a
+    re-bootstrap. When every member of an actionable group is
+    settings-sourced, the entry whose command path is under this checkout's
+    plugin root is preferred (unchanged behaviour).
     """
     project_path = Path(project_dir).resolve()
     settings_path = project_path / ".claude" / "settings.json"
@@ -1184,15 +1196,31 @@ def audit_hooks(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None
         click.echo("no duplicate hook registrations found")
         sys.exit(0)
 
-    for dup in duplicates:
+    actionable_duplicates = [d for d in duplicates if d.get("actionable")]
+    non_actionable_duplicates = [d for d in duplicates if not d.get("actionable")]
+
+    for dup in actionable_duplicates:
         click.echo(
             f"DUPLICATE: event={dup['event']} basename={dup['basename']} "
             f"sources={dup.get('sources', [])} "
             f"commands={dup['commands']}"
         )
 
+    for dup in non_actionable_duplicates:
+        paths = sorted({p for p in dup.get("paths", []) if p})
+        click.echo(
+            f"PLUGIN-INTERNAL: event={dup['event']} basename={dup['basename']} "
+            f"paths={paths} — plugin-owned; flex never writes another "
+            "install's hooks.json"
+        )
+
+    if not actionable_duplicates:
+        sys.exit(0)
+
     if not effective_apply:
         sys.exit(1)
+
+    duplicates = actionable_duplicates
 
     if not yes:
         confirmed = click.confirm("Apply? [y/N]", default=False, prompt_suffix="")

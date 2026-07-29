@@ -558,7 +558,11 @@ class TestJsonAndTextOutputDuplicateHooks:
         )
         assert result.exit_code == 0
         assert "DUPLICATE HOOKS" in result.output
-        assert "Projects with duplicate hooks:" in result.output
+        assert "Projects with actionable duplicate hooks:" in result.output
+        assert (
+            "Projects with plugin-internal duplicate hooks (non-actionable):"
+            in result.output
+        )
 
     def test_cli_exit_status_unchanged_with_duplicates(
         self, project_with_duplicate_hooks: Path, fleet: dict
@@ -572,6 +576,124 @@ class TestJsonAndTextOutputDuplicateHooks:
         assert result.exit_code == 0, (
             "discovery reports duplicates but must not fail the CLI (audit-hooks enforces)"
         )
+
+
+@pytest.fixture()
+def project_with_plugin_internal_only(fleet: dict, _isolated_home: Path) -> Path:
+    """A project bound via Signal 2 whose only duplicate-hook group is
+    plugin-internal (non-actionable, CER-110): a single plugin registers the
+    same basename twice under the *same* (matcher, predicate) — the
+    negative-control shape from Ensures 8, which does survive refinement
+    (unlike the two false-positive shapes, which collapse to no group at
+    all)."""
+    proj = fleet["proj_b"]
+    command = 'bash "${CLAUDE_PLUGIN_ROOT}/hooks-handlers/session-start.sh"'
+    doc = {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "hooks": [
+                        {"type": "command", "command": command},
+                        {"type": "command", "command": command},
+                    ]
+                }
+            ]
+        }
+    }
+    plugin_file = (
+        _isolated_home / ".claude" / "plugins" / "some-plugin" / "hooks" / "hooks.json"
+    )
+    plugin_file.parent.mkdir(parents=True)
+    plugin_file.write_text(json.dumps(doc), encoding="utf-8")
+    return proj
+
+
+class TestActionableAndPluginInternalCounts:
+    """CER-110 Ensures 6/7: fleet_discovery reports both counts, per-project
+    lines land on the correct category, and a plugin-internal-only project
+    contributes 0 to the actionable count."""
+
+    def _candidate_dir_argv(self, fleet: dict) -> list[str]:
+        argv: list[str] = []
+        for c in fleet["candidates"]:
+            argv += ["--candidate-dir", str(c)]
+        return argv
+
+    def test_actionable_count_excludes_plugin_internal_only_project(
+        self, project_with_plugin_internal_only: Path, fleet: dict
+    ) -> None:
+        from click.testing import CliRunner
+
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli,
+            [*self._candidate_dir_argv(fleet), "--no-snapshot"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert "Projects with actionable duplicate hooks: 0" in result.output
+        # The plugin file lives under the fake home, so every bound project
+        # (proj_a, proj_b, proj_c) sees it — the count reflects all three.
+        assert (
+            "Projects with plugin-internal duplicate hooks (non-actionable): 3"
+            in result.output
+        )
+        assert "plugin-internal duplicate hooks:" in result.output
+        assert "DUPLICATE HOOKS" not in result.output
+
+    def test_both_counts_reported_when_actionable_present(
+        self, project_with_duplicate_hooks: Path, fleet: dict
+    ) -> None:
+        from click.testing import CliRunner
+
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli,
+            [*self._candidate_dir_argv(fleet), "--no-snapshot"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert "Projects with actionable duplicate hooks: 1" in result.output
+        assert (
+            "Projects with plugin-internal duplicate hooks (non-actionable): 0"
+            in result.output
+        )
+
+    def test_duplicate_hooks_key_still_carries_every_group(
+        self, project_with_plugin_internal_only: Path, fleet: dict
+    ) -> None:
+        results = fd.discover(fleet["candidates"])
+        matching = [
+            r
+            for r in results
+            if r["path"] == str(project_with_plugin_internal_only.resolve())
+        ]
+        assert len(matching) == 1
+        assert matching[0]["duplicate_hooks"], "group must not be silently dropped"
+        assert all(
+            dh["actionable"] is False for dh in matching[0]["duplicate_hooks"]
+        )
+
+
+class TestSnapshotActionableSubheadings:
+    def test_snapshot_has_both_subheadings(
+        self, project_with_duplicate_hooks: Path, fleet: dict
+    ) -> None:
+        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+        results = fd.discover(fleet["candidates"])
+        fd._write_snapshot(results, dest)
+        content = dest.read_text()
+        assert "### Actionable" in content
+        assert "### Plugin-internal (non-actionable, CER-110)" in content
+
+    def test_snapshot_actionable_empty_note_when_only_plugin_internal(
+        self, project_with_plugin_internal_only: Path, fleet: dict
+    ) -> None:
+        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+        results = fd.discover(fleet["candidates"])
+        fd._write_snapshot(results, dest)
+        content = dest.read_text()
+        assert "_No actionable duplicate hook registrations found._" in content
 
 
 class TestSignal1AbsenceReason:
@@ -803,7 +925,8 @@ class TestSnapshotDuplicateHooksSection:
         results = fd.discover(fleet["candidates"])
         fd._write_snapshot(results, dest)
         content = dest.read_text()
-        assert "no duplicate" in content.lower() or "none found" in content.lower()
+        assert "no actionable duplicate" in content.lower()
+        assert "no plugin-internal duplicate" in content.lower()
 
 
 # ---------------------------------------------------------------------------
