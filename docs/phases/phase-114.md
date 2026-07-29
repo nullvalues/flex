@@ -21,6 +21,8 @@ Remove recurring build-loop friction (unprovisioned worktrees, interactive scaff
 
 **Second backlog pull at spec time.** INFRA-321 was pulled into this phase from CER-129 (operator report 2026-07-29, context accounting — story/subagent token spend attributed to the orchestrator's context window while the orchestrator's own between-spawn accumulation goes unmeasured, so the context-health prompt fires on the wrong quantity in both directions). It lands in 114 rather than 116 because phase 116's INFRA-316 plans to wire `context_budget_check.py` into `next-action`'s between-story pause, which would promote the mis-attribution into the resolver's live cadence decision; the track boundary must exist first. CER-129's phase column now reads 114 and its resolution annotation lands when INFRA-321 completes. Recorded as AG-10 in `docs/closeout-agreements-20260729.md`.
 
+**Third backlog pull at spec time.** INFRA-322 was pulled into this phase from CER-130 (operator report 2026-07-29, phase-35 checkpoint on a consuming repo — the `cer-do-now` checkpoint guard's bare, case-sensitive substring test reads a title-case `Resolved` backlog as permanently unresolved and reads `UNRESOLVED` as resolved). It lands in 114 because this phase already owns build-loop truth-restoration and doc-currency work, and because the defect is live fleet-blocking: the observed remedy was a manual `checkpoint-tag` bypass of the gate, the CER-067 failure class. CER-130's phase column now reads 114 and its resolution annotation lands when INFRA-322 completes. Recorded as AG-11 in `docs/closeout-agreements-20260729.md`.
+
 ## Stories
 
 | ID | Title | Status |
@@ -32,6 +34,7 @@ Remove recurring build-loop friction (unprovisioned worktrees, interactive scaff
 | INFRA-305 | Build-loop doc and procedure currency sweep | draft |
 | INFRA-319 | Portable hook-command paths: plugin-root/settings.local registration, migrate rewrite of machine-absolute and pre-rename hook commands, audit finding | draft |
 | INFRA-321 | Two-track context accounting: orchestrator-window occupancy vs story/subagent spend; health verdict re-based on the orchestrator track; between-spawn coverage; surfaces labeled (pulled from CER-129) | draft |
+| INFRA-322 | Anchored, case-insensitive CER resolution-marker grammar: shared `cer.is_resolution_marked` predicate, cer-do-now guard stops reading `Resolved` as unresolved and `UNRESOLVED` as resolved, grammar published for consuming repos (pulled from CER-130) | draft |
 
 ## Schema delivery
 

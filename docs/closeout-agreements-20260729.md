@@ -229,6 +229,70 @@ reconciled input.
   INFRA-303 (same phase): no orchestrator-track state key is renamed; the new
   `story_spend_threshold` is additive.
 
+
+### AG-11 — CER-130 (phase 114): anchored CER resolution-marker grammar
+Filed after this document's original agreements and after AG-8/AG-9/AG-10, from
+a live operator report (2026-07-29, a consuming repo's phase-35 checkpoint)
+rather than from either reconciled input.
+
+- The `cer-do-now` checkpoint guard decides whether a project may enter its
+  checkpoint sequence using a bare, case-sensitive substring membership test on
+  the whole Do Now row line —
+  `if "RESOLVED" not in stripped and "SUPERSEDED" not in stripped`
+  (`next_action.py:437`, left verbatim by INFRA-297 when the row splitting moved
+  to `table_utils.split_table_row`). That one expression is wrong in **both**
+  directions.
+- **Direction 1 (observed):** a consuming repo whose convention is title-case
+  (`Resolved cp-34 — …`) never matches, so every resolved row reads unresolved
+  and the guard blocks every checkpoint forever. The operator's remedy was a
+  manual `record-checkpoint-step checkpoint-tag` bypass — the CER-067 failure
+  class (an un-clearable gate that operators learn to route around, after which
+  it protects nothing), and the same shape as CER-072 and CER-094/INFRA-294.
+- **Direction 2 (the more dangerous one):** with no boundaries, `UNRESOLVED`
+  contains `RESOLVED`, and uppercased aspirational prose
+  (`… SHOULD BE RESOLVED before the tag`) reads as an accomplished closure — so
+  a genuinely open Do Now item passes a checkpoint silently.
+- Pulled into phase 114 as **INFRA-322**: 114 already owns build-loop
+  truth-restoration and doc-currency work, and this is a live fleet-blocking
+  defect rather than 0.3.1 polish.
+- **A lowercase-only fix is rejected on the record.** Case-folding alone repairs
+  direction 1 and *widens* direction 2 (`unresolved`, `should be resolved`,
+  `to be resolved` all begin matching). The check must be case-insensitive
+  **and** anchored.
+- The grammar is defined once as a shared public predicate in `cer.py` beside
+  `is_placeholder_row` — the INFRA-294 two-reader precedent — and the guard's
+  diff is one boolean expression plus its docstring. The accepted grammar:
+  `RESOLVED` or `SUPERSEDED`, any case, **beginning an annotation segment**
+  (start of text, a newline, a sentence/cell boundary such as `.` `;` `:`
+  em-dash or `\|` followed by whitespace, or an emphasis/bracket opener `*`
+  `(` `[`), and not followed by a word character. Mid-clause occurrences are not
+  markers. `` ` ``, `"`, `'` and `_` are deliberately **not** openers, because
+  each collides with prose that quotes the keyword — including CER-130's own row
+  text. Where the grammar is uncertain it **fails closed**: a visible block an
+  operator can correct beats a silent pass.
+- **The root cause is that the grammar was never written down.** Nothing in the
+  codebase writes a marker; `checkpoint-docs/procedure.md` says only that items
+  "must be marked `RESOLVED`", and the bootstrap template preamble says only
+  "resolved findings remain in place with a resolution note". Publishing the
+  grammar in `docs/architecture.md`, that procedure, and — highest value — the
+  `docs/cer/backlog.md.j2` preamble every consuming repo receives on disk, is
+  half the story.
+- The scaffolded empty-state placeholder exemption (INFRA-294) is preserved
+  byte-identically and *ahead* of the resolution test, with a test asserting the
+  placeholder row is not itself resolution-marked, so a future grammar change
+  cannot silently start blocking freshly bootstrapped repos again.
+- Four further directions are rejected rather than deferred: narrowing the
+  scanned text from the whole row line to the finding cell (a second behavior
+  change, dependent on INFRA-297's index-shifted `cols` shape, with no observed
+  harm); admitting backtick/quote/underscore openers; widening the keyword set
+  (`OBSOLETE`/`REJECTED`/`AMENDED`) — a policy change about what closes a Do Now
+  row, not a defect fix; and treating a partial-resolution note (BUILD-006) as a
+  closure. A `cer.py` subcommand that *writes* correctly-formed markers is named
+  as future work rather than half-built.
+- Constrained by INFRA-299 (phase 113, unmerged): backlog rows CER-105/106/113
+  and `docs/stories/INFRA/INFRA-299.md` are untouched; the only `backlog.md`
+  edits are CER-130's own row and the preamble paragraph.
+
 ---
 
 ## Unambiguous dispositions (no decision was needed)
