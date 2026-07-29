@@ -1,0 +1,48 @@
+---
+era: "004"
+phase_class: production
+---
+
+# project — Phase 113: Shared blockers: frontmatter, resolver evidence, recording determinism
+
+← [Phase 112: Campaign unblockers: worker result-grammar reconciliation, CER-guard placeholder fix, snapshot write targeting](phase-112.md)
+
+<!-- Phase doc = planning surface only. Story-level detail (acceptance criteria,
+     file paths, implementation guidance, test instructions, codebase recon)
+     belongs in docs/stories/<RAIL>/<ID>.md — not here. -->
+## Goal
+
+<!-- State this phase's single purpose in one or two sentences (docs/architecture.md
+     § Phase-authoring convention, INFRA-243). If the work naturally splits into more
+     than one purpose, that's a signal to open a sibling phase, not to widen this one. -->
+Close the parsing, resolver-evidence, and spawn-recording defects both rails stand on: flow-style frontmatter that half-creates worktrees, cross-referenced story IDs read as build evidence, async spawn outcomes recoverable only by an unreachable timer, unvalidated JSON BUILD outcomes, and duplicate-hook false positives. Nothing in phases 114 or 115 is trustworthy until these land; four stories gate the in-flight phase-106 campaign.
+
+## Stories
+
+| ID | Title | Status |
+|----|-------|--------|
+| INFRA-296 | Flow-style frontmatter sequences: parse or refuse; never leave a half-created worktree | draft |
+| INFRA-297 | Scope commit build-evidence to the commit's own story; shared escaped-pipe table-split helper | draft |
+| INFRA-298 | Deterministic spawn completion: SubagentStop relay, quiescence demoted to backstop | draft |
+| INFRA-299 | Recording data integrity: enum-validate JSON BUILD outcomes; document attempts.phase and the acknowledged_at misnomer | draft |
+| INFRA-300 | Duplicate-hook detection precision: matcher-aware keying and actionable classification | draft |
+
+## Schema delivery
+
+For each new persistent schema object (table, collection, migration) introduced in
+this phase, record the management surface before the phase is checkpointed.
+
+| Object | Management surface | Exception |
+|---|---|---|
+| | | |
+
+---
+
+### CP-113 Cold-eyes checklist
+
+- [ ] written-never-read — does anything this phase persists have no reader?
+- [ ] required-never-written — does any read path depend on a value no writer produces?
+- [ ] duplicate state — is any fact now stored twice with independent writers?
+- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
+
+— developer fills in after phase completion —
