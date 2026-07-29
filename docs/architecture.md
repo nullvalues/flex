@@ -318,7 +318,19 @@ still a caller error the rule exists to prevent.
    from the story's `primary_files` and `touches`, no-op'ing (no write, no `generated_at`
    change) when the computed `allowed_paths` already match the file on disk — so that only
    genuine scope drift re-triggers the Layer 1 file write. (Phase 86, INFRA-194; wired into the
-   worktree cycle by INFRA-238.) `create-story-worktree` also calls `story_context.set_current_story()`
+   worktree cycle by INFRA-238.) **INFRA-296 (CER-115) makes that generation step fatal:** a
+   `PermissionsCreateError` during `create-story-worktree` no longer merely warns — the command
+   echoes the error, calls `_teardown_story_worktree()` to remove the just-created worktree and
+   branch, prints any residue, and exits 1 without printing a worktree path, so the create is
+   all-or-nothing. The reason is that the artifact *is* the Layer 1 allow-list `scope_guard.py`
+   reads: a worktree without one is a worktree in which every scoped write goes unenforced, and
+   handing that to a builder is worse than handing back an error. It also matters that
+   `.pairmode-worktrees/<ID>/` is itself the in-flight claim (INFRA-280) — a half-created
+   worktree pins the story as claimed and forces a manual `discard-story-worktree` before any
+   retry. The failed `current_story` stamp below deliberately stays a *warning* under the same
+   command: a missing stamp degrades scope *resolution* only, which INFRA-281's story-keyed
+   `current_stories` tolerates. The asymmetry is intentional; the two handlers are not unified.
+   `create-story-worktree` also calls `story_context.set_current_story()`
    directly (not via a separate `story_context.py --set` template step) to stamp the active story
    into the **main checkout's** `.companion/state.json` — the worktree has no `.companion/` of its
    own, and `scope_guard.py` always resolves state from the main checkout root regardless of the
@@ -1167,6 +1179,21 @@ whole parser, not two. A wholly-quoted value (matching leading/trailing `"` or `
 from comment stripping and returned verbatim with the quotes removed. A scalar whose value is
 entirely a comment (e.g. `touches:  # note`) reduces to `""` after stripping and is parsed as a
 block-sequence start, exactly as an explicit `touches: []` would be.
+
+**Flow sequences and the fail-closed rule (INFRA-296, CER-115):** the subset also parses
+single-line flow sequences — `key: [a, b]` yields the list `["a", "b"]` (elements split on
+commas, stripped of surrounding whitespace and of one matching pair of `"`/`'`, empty elements
+dropped; there is no escaping rule, so a value containing a literal comma must be written as a
+block sequence). Nesting is not supported: a value that opens with `[` but is not a well-formed
+*flat* flow sequence — a nested `[…]`, a flow mapping `{…}`, an unterminated sequence, or
+trailing content after the closing `]` — raises `schema_validator.FrontmatterError` (a
+`ValueError` subclass, so existing broad handlers stay loud) rather than degrading to a string.
+A value that does not begin with `[` is untouched. The rationale is that the parser has ten
+callers and a silently-wrong type does not fail where it is produced: `primary_files: [a, b]`
+used to parse to the *string* `"[a, b]"` and surfaced as `TypeError: can only concatenate str
+(not "list") to str` in whichever caller concatenated first (CER-115). Refusing at the parser is
+deliberate — the crash site, `generate_permissions_artifact`, never calls `validate_story_file`,
+so a validator-only check would leave the live path unprotected.
 
 **`schema_validator.py` draft/backlog exemption:** `validate_story_file` permits an empty
 `primary_files` list when `status` is `draft` or `backlog`. Non-draft, non-backlog stories

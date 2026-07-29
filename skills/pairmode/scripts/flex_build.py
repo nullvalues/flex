@@ -551,10 +551,27 @@ def generate_permissions_artifact(story_id: str, project_path: Path) -> str:
     try:
         fm = _read_story_frontmatter(story_path)
     except Exception as exc:  # noqa: BLE001
-        raise PermissionsCreateError(f"failed to parse frontmatter: {exc}") from exc
+        # INFRA-296 B3: name the story file — the parser may now refuse a
+        # malformed value (schema_validator.FrontmatterError), and the raw
+        # parser message alone does not say which spec it came from.
+        raise PermissionsCreateError(
+            f"failed to parse frontmatter in {story_spec_rel}: {exc}"
+        ) from exc
 
     primary_files: list[str] = fm.get("primary_files") or []
     touches: list[str] = fm.get("touches") or []
+
+    # INFRA-296 B1 (CER-115): refuse a non-list before the concatenation
+    # below. A frontmatter form the parser reads as a scalar (historically
+    # `primary_files: [a, b]`) used to reach `primary_files + touches` as a
+    # str and raise a bare TypeError, which is not a PermissionsCreateError
+    # and so escaped every caller's handler.
+    for _field, _value in (("primary_files", primary_files), ("touches", touches)):
+        if not isinstance(_value, list):
+            raise PermissionsCreateError(
+                f"frontmatter field '{_field}' must be a list, got "
+                f"{type(_value).__name__} in {story_spec_rel}"
+            )
 
     seen: set[str] = set()
     allowed: list[str] = []
@@ -3557,10 +3574,26 @@ def cmd_create_story_worktree(story_id: str, project_dir: str) -> None:
     except Exception as exc:  # noqa: BLE001
         click.echo(f"warning: failed to stamp current_story for {story_id}: {exc}", err=True)
 
+    # INFRA-296 (CER-115): a permissions failure is fatal here, and the
+    # asymmetry with the stamp failure above is the point. The permissions
+    # artifact *is* the Layer 1 allow-list `scope_guard.py` reads, so a
+    # worktree without one is a worktree in which every scoped write goes
+    # unenforced — handing that to a builder is worse than handing back an
+    # error. A missing `current_story` stamp only degrades scope *resolution*,
+    # which INFRA-281's story-keyed `current_stories` tolerates, so that one
+    # stays a warning. Do not unify the two handlers.
+    # The teardown makes the command all-or-nothing: `.pairmode-worktrees/<ID>/`
+    # is itself the in-flight claim (INFRA-280), so a half-created worktree
+    # pins the story as claimed and forces a manual `discard-story-worktree`
+    # before any retry.
     try:
         generate_permissions_artifact(story_id, project_path)
     except PermissionsCreateError as exc:
-        click.echo(f"warning: failed to generate permissions for {story_id}: {exc}", err=True)
+        click.echo(f"error: failed to generate permissions for {story_id}: {exc}", err=True)
+        residue = _teardown_story_worktree(project_path, story_id)
+        for line in _residue_lines(story_id, residue):
+            click.echo(line, err=True)
+        sys.exit(1)
 
     click.echo(str(wt_abs))
 

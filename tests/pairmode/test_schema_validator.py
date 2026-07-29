@@ -17,6 +17,8 @@ from schema_validator import (
     VALID_STORY_CLASSES,
     DEFAULT_STORY_CLASS,
     _parse_frontmatter,
+    _parse_flow_sequence,
+    FrontmatterError,
 )
 
 
@@ -890,3 +892,121 @@ class TestParseFrontmatterScalarComments:
         text = self._fm("id: FEAT-001")
         result = _parse_frontmatter(text)
         assert result["id"] == "FEAT-001"
+
+
+# ---------------------------------------------------------------------------
+# Flow-sequence frontmatter (INFRA-296 / CER-115)
+# ---------------------------------------------------------------------------
+
+
+def _flow_fm(line: str) -> str:
+    """Wrap a single frontmatter *line* in a minimal frontmatter block."""
+    return f"---\nid: FLOW-001\n{line}\n---\n\nbody\n"
+
+
+def test_frontmatter_error_is_a_value_error():
+    """A2: FrontmatterError subclasses ValueError so existing broad handlers
+    (which already catch ValueError/Exception) stay loud."""
+    assert issubclass(FrontmatterError, ValueError)
+
+
+def test_flow_sequence_two_elements():
+    """A3: `primary_files: [a.html, b.html]` parses to a two-element list."""
+    result = _parse_frontmatter(_flow_fm("primary_files: [a.html, b.html]"))
+    assert result["primary_files"] == ["a.html", "b.html"]
+
+
+def test_flow_sequence_single_element():
+    """A3: a one-element flow sequence parses to a one-element list."""
+    result = _parse_frontmatter(_flow_fm("primary_files: [a.html]"))
+    assert result["primary_files"] == ["a.html"]
+
+
+def test_flow_sequence_quoted_and_padded_elements():
+    """A3: surrounding whitespace and one matching quote pair are stripped."""
+    result = _parse_frontmatter(_flow_fm("""touches: [ "a.html" , 'b/c.html' ]"""))
+    assert result["touches"] == ["a.html", "b/c.html"]
+
+
+def test_flow_sequence_with_trailing_inline_comment():
+    """A3: the shared inline-comment rule runs before flow parsing."""
+    result = _parse_frontmatter(_flow_fm("touches: [a.html, b.html]  # note"))
+    assert result["touches"] == ["a.html", "b.html"]
+
+
+def test_flow_sequence_trailing_comma_drops_empty_element():
+    """A3: `[a.html, ]` yields one element — empty elements are dropped."""
+    result = _parse_frontmatter(_flow_fm("touches: [a.html, ]"))
+    assert result["touches"] == ["a.html"]
+
+
+def test_flow_sequence_doubled_comma_drops_empty_element():
+    """A3: `[a.html,, b.html]` yields two elements."""
+    result = _parse_frontmatter(_flow_fm("touches: [a.html,, b.html]"))
+    assert result["touches"] == ["a.html", "b.html"]
+
+
+def test_cer_092_explicit_empty_flow_sequence_still_starts_block_sequence():
+    """A4 (CER-092): `touches: []` still reaches the empty-list branch, not the
+    new flow-sequence parser."""
+    result = _parse_frontmatter(_flow_fm("touches: []"))
+    assert result["touches"] == []
+
+
+def test_cer_092_bare_key_still_starts_block_sequence():
+    """A4 (CER-092): a bare `touches:` still parses to []."""
+    result = _parse_frontmatter(_flow_fm("touches:"))
+    assert result["touches"] == []
+
+
+def test_cer_092_comment_only_value_still_starts_block_sequence():
+    """A4 (CER-092): `touches:  # note` still reduces to '' and parses to []."""
+    result = _parse_frontmatter(_flow_fm("touches:  # note"))
+    assert result["touches"] == []
+
+
+def test_flow_sequence_nested_is_refused():
+    """A5/A6: a nested flow sequence raises rather than being half-parsed."""
+    with pytest.raises(FrontmatterError) as exc:
+        _parse_frontmatter(_flow_fm("touches: [a, [b]]"))
+    assert "touches" in str(exc.value)
+    assert "[a, [b]]" in str(exc.value)
+
+
+def test_flow_sequence_unbalanced_open_is_refused():
+    """A6: an unterminated flow sequence raises, naming key and raw value."""
+    with pytest.raises(FrontmatterError) as exc:
+        _parse_frontmatter(_flow_fm("primary_files: [a, b"))
+    assert "primary_files" in str(exc.value)
+    assert "[a, b" in str(exc.value)
+
+
+def test_flow_sequence_trailing_junk_is_refused():
+    """A6: content after the closing ']' raises, naming key and raw value."""
+    with pytest.raises(FrontmatterError) as exc:
+        _parse_frontmatter(_flow_fm("touches: [a, b]]"))
+    assert "touches" in str(exc.value)
+    assert "[a, b]]" in str(exc.value)
+
+
+def test_flow_parser_ignores_value_not_opening_with_bracket():
+    """A7: a ']'-containing title is unchanged — the guard is a startswith."""
+    result = _parse_frontmatter(_flow_fm("title: Fix the [thing], loudly"))
+    assert result["title"] == "Fix the [thing], loudly"
+
+
+def test_flow_parser_ignores_quoted_scalar_with_comma():
+    """A7: a quoted scalar containing a comma is unchanged."""
+    result = _parse_frontmatter(_flow_fm('title: "a, b"'))
+    assert result["title"] == "a, b"
+
+
+def test_flow_parser_ignores_quoted_numeric_scalar():
+    """A7: a quoted numeric-looking value is unchanged."""
+    result = _parse_frontmatter(_flow_fm('phase: "113"'))
+    assert result["phase"] == "113"
+
+
+def test_parse_flow_sequence_returns_none_for_non_flow_value():
+    """A1: the helper returns None (not [], not a raise) for a plain scalar."""
+    assert _parse_flow_sequence("just a scalar") is None

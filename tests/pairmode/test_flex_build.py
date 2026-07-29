@@ -1199,6 +1199,26 @@ def _commit_in(worktree: Path, filename: str, content: str, msg: str) -> None:
     )
 
 
+def _create_worktree(project: Path, story_id: str) -> subprocess.CompletedProcess:
+    """Run ``create-story-worktree`` for *story_id* in *project*.
+
+    A minimal story spec is materialised first when none exists. INFRA-296
+    made a permissions-generation failure fatal in ``create-story-worktree``
+    (it tears the worktree down and exits 1), and a missing story spec is one
+    such failure — so every worktree test needs a spec on disk for the ID it
+    uses. An existing spec is left untouched: tests that care about the spec's
+    contents (or its malformedness) write their own before calling this.
+    """
+    rail = story_id.split("-", 1)[0]
+    if not (project / "docs" / "stories" / rail / f"{story_id}.md").exists():
+        _write_story(project, story_id)
+    return _run(
+        "create-story-worktree",
+        "--story-id", story_id,
+        "--project-dir", str(project),
+    )
+
+
 class TestStoryWorktreeLifecycle:
     """create / merge / discard-story-worktree (INFRA-224)."""
 
@@ -1206,11 +1226,7 @@ class TestStoryWorktreeLifecycle:
         self, tmp_path: Path
     ) -> None:
         _init_git_repo(tmp_path)
-        result = _run(
-            "create-story-worktree",
-            "--story-id", "WT-001",
-            "--project-dir", str(tmp_path),
-        )
+        result = _create_worktree(tmp_path, "WT-001")
         assert result.returncode == 0, result.stderr
         wt = tmp_path / ".pairmode-worktrees" / "WT-001"
         assert wt.is_dir()
@@ -1229,17 +1245,9 @@ class TestStoryWorktreeLifecycle:
         self, tmp_path: Path
     ) -> None:
         _init_git_repo(tmp_path)
-        first = _run(
-            "create-story-worktree",
-            "--story-id", "WT-002",
-            "--project-dir", str(tmp_path),
-        )
+        first = _create_worktree(tmp_path, "WT-002")
         assert first.returncode == 0, first.stderr
-        second = _run(
-            "create-story-worktree",
-            "--story-id", "WT-002",
-            "--project-dir", str(tmp_path),
-        )
+        second = _create_worktree(tmp_path, "WT-002")
         assert second.returncode != 0
         assert "already exists" in second.stderr
 
@@ -1247,11 +1255,7 @@ class TestStoryWorktreeLifecycle:
         self, tmp_path: Path
     ) -> None:
         _init_git_repo(tmp_path)
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-003",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-003")
         wt = tmp_path / ".pairmode-worktrees" / "WT-003"
         (wt / "feature.txt").write_text("in-worktree\n", encoding="utf-8")
         # Not visible in the main worktree until merged.
@@ -1261,11 +1265,7 @@ class TestStoryWorktreeLifecycle:
         self, tmp_path: Path
     ) -> None:
         _init_git_repo(tmp_path)
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-004",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-004")
         wt = tmp_path / ".pairmode-worktrees" / "WT-004"
         _commit_in(wt, "feature.txt", "done\n", "add feature")
         result = _run(
@@ -1300,11 +1300,7 @@ class TestStoryWorktreeLifecycle:
         counter_path = tmp_path / ".companion" / "attempt_counter.json"
         assert counter_path.exists()
 
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-100",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-100")
         wt = tmp_path / ".pairmode-worktrees" / "WT-100"
         _commit_in(wt, "feature.txt", "done\n", "add feature")
         result = _run(
@@ -1319,11 +1315,7 @@ class TestStoryWorktreeLifecycle:
         self, tmp_path: Path
     ) -> None:
         _init_git_repo(tmp_path)
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-005",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-005")
         wt = tmp_path / ".pairmode-worktrees" / "WT-005"
         _commit_in(wt, "feature.txt", "wt work\n", "worktree commit")
         # Advance the main branch AFTER the worktree was created.
@@ -1358,11 +1350,7 @@ class TestStoryWorktreeLifecycle:
             cwd=str(tmp_path),
             check=True,
         )
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-006",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-006")
         wt = tmp_path / ".pairmode-worktrees" / "WT-006"
         _commit_in(wt, "shared.txt", "worktree-change\n", "wt edit shared")
         # Conflicting edit on the main branch.
@@ -1412,11 +1400,7 @@ class TestStoryWorktreeLifecycle:
         main_untracked.mkdir(parents=True)
         (main_untracked / "keep.md").write_text("precious\n", encoding="utf-8")
 
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-007",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-007")
         wt = tmp_path / ".pairmode-worktrees" / "WT-007"
         # Uncommitted + untracked content inside the worktree (never committed).
         (wt / "scratch.txt").write_text("throwaway\n", encoding="utf-8")
@@ -1435,6 +1419,131 @@ class TestStoryWorktreeLifecycle:
         assert branch.returncode != 0
         # The main worktree's own untracked content is untouched.
         assert (main_untracked / "keep.md").read_text() == "precious\n"
+
+
+class TestCreateStoryWorktreeAtomicity:
+    """create-story-worktree is all-or-nothing (INFRA-296, CER-115)."""
+
+    @staticmethod
+    def _write_raw_story(project: Path, story_id: str, fm_lines: str) -> Path:
+        """Write a story spec whose frontmatter body is *fm_lines* verbatim."""
+        rail = story_id.split("-", 1)[0]
+        story_dir = project / "docs" / "stories" / rail
+        story_dir.mkdir(parents=True, exist_ok=True)
+        story_path = story_dir / f"{story_id}.md"
+        story_path.write_text(
+            "---\n"
+            f"id: {story_id}\n"
+            f"rail: {rail}\n"
+            "phase: '113'\n"
+            "status: planned\n"
+            f"{fm_lines}"
+            "---\n\n"
+            "## Acceptance criterion\n\n_(fill in)_\n",
+            encoding="utf-8",
+        )
+        return story_path
+
+    @staticmethod
+    def _git_state(project: Path) -> tuple[str, str]:
+        """Capture the git state a half-created worktree would perturb."""
+        return (
+            _git(project, "worktree", "list", "--porcelain").stdout,
+            _git(project, "branch", "--list", "pairmode/*").stdout,
+        )
+
+    def test_c4_permissions_failure_leaves_git_state_byte_identical(
+        self, tmp_path: Path
+    ) -> None:
+        """C4: a malformed-frontmatter story fails the create outright — exit 1,
+        no worktree, no branch, nothing on stdout, and the story spec path in
+        the error."""
+        _init_git_repo(tmp_path)
+        self._write_raw_story(tmp_path, "WT-300", "primary_files: [a.py, b.py\n")
+        before = self._git_state(tmp_path)
+
+        result = _run(
+            "create-story-worktree",
+            "--story-id", "WT-300",
+            "--project-dir", str(tmp_path),
+        )
+
+        assert result.returncode == 1
+        assert result.stdout.strip() == ""
+        assert "docs/stories/WT/WT-300.md" in result.stderr
+        assert self._git_state(tmp_path) == before
+        assert not (tmp_path / ".pairmode-worktrees" / "WT-300").exists()
+
+    def test_c5_second_attempt_after_failure_succeeds_without_manual_discard(
+        self, tmp_path: Path
+    ) -> None:
+        """C5: the failed create leaves no residue — repairing the frontmatter
+        and re-running succeeds, with no discard-story-worktree in between."""
+        _init_git_repo(tmp_path)
+        self._write_raw_story(tmp_path, "WT-301", "primary_files: [a.py, b.py\n")
+        first = _run(
+            "create-story-worktree",
+            "--story-id", "WT-301",
+            "--project-dir", str(tmp_path),
+        )
+        assert first.returncode == 1
+
+        self._write_raw_story(
+            tmp_path, "WT-301", "primary_files:\n  - a.py\n  - b.py\n"
+        )
+        second = _run(
+            "create-story-worktree",
+            "--story-id", "WT-301",
+            "--project-dir", str(tmp_path),
+        )
+        assert second.returncode == 0, second.stderr
+        wt = tmp_path / ".pairmode-worktrees" / "WT-301"
+        assert second.stdout.strip() == str(wt.resolve())
+        assert wt.is_dir()
+
+    def test_c6_flow_style_frontmatter_end_to_end(self, tmp_path: Path) -> None:
+        """C6: flow-style primary_files/touches produce a permissions artifact
+        listing every declared path plus the story spec, in declaration order."""
+        _init_git_repo(tmp_path)
+        self._write_raw_story(
+            tmp_path,
+            "WT-302",
+            "primary_files: [skills/pairmode/scripts/a.py, docs/architecture.md]\n"
+            "touches: [tests/pairmode/test_a.py]\n",
+        )
+        result = _run(
+            "create-story-worktree",
+            "--story-id", "WT-302",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+
+        payload = json.loads(
+            (tmp_path / "docs" / "phases" / "permissions" / "WT-302.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert payload["allowed_paths"] == [
+            "skills/pairmode/scripts/a.py",
+            "docs/architecture.md",
+            "tests/pairmode/test_a.py",
+            "docs/stories/WT/WT-302.md",
+        ]
+
+    def test_b4_check_story_scope_exits_1_on_malformed_frontmatter(
+        self, tmp_path: Path
+    ) -> None:
+        """B4: check-story-scope's existing broad handler converts the parser's
+        refusal into its own prefixed message and exit 1 — no traceback."""
+        self._write_raw_story(tmp_path, "WT-303", "primary_files: [a.py, b.py\n")
+        result = _run(
+            "check-story-scope", "WT-303", "--project-dir", str(tmp_path)
+        )
+        assert result.returncode == 1
+        assert result.stderr.startswith(
+            "check-story-scope: failed to parse frontmatter:"
+        )
+        assert "Traceback" not in result.stderr
 
 
 class TestClaimedStoryIds:
@@ -1461,11 +1570,7 @@ class TestClaimedStoryIds:
         import flex_build  # noqa: E402
 
         _init_git_repo(tmp_path)
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-201",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-201")
         assert flex_build.claimed_story_ids(tmp_path) == {"WT-201"}
 
         wt = tmp_path / ".pairmode-worktrees" / "WT-201"
@@ -1482,11 +1587,7 @@ class TestClaimedStoryIds:
         import flex_build  # noqa: E402
 
         _init_git_repo(tmp_path)
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-202",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-202")
         assert flex_build.claimed_story_ids(tmp_path) == {"WT-202"}
 
         discard_result = _run(
@@ -1507,11 +1608,7 @@ class TestStoryWorktreeActiveStoryStamping:
     ) -> None:
         _init_git_repo(tmp_path)
         _write_story(tmp_path, "WT-200", primary_files=["skills/foo.py"])
-        result = _run(
-            "create-story-worktree",
-            "--story-id", "WT-200",
-            "--project-dir", str(tmp_path),
-        )
+        result = _create_worktree(tmp_path, "WT-200")
         assert result.returncode == 0, result.stderr
 
         state = json.loads((tmp_path / ".companion" / "state.json").read_text())
@@ -1527,11 +1624,7 @@ class TestStoryWorktreeActiveStoryStamping:
     ) -> None:
         _init_git_repo(tmp_path)
         _write_story(tmp_path, "WT-201", primary_files=["feature.txt"])
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-201",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-201")
         wt = tmp_path / ".pairmode-worktrees" / "WT-201"
         _commit_in(wt, "feature.txt", "done\n", "add feature")
 
@@ -1553,11 +1646,7 @@ class TestStoryWorktreeActiveStoryStamping:
     ) -> None:
         _init_git_repo(tmp_path)
         _write_story(tmp_path, "WT-202", primary_files=["scratch.txt"])
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-202",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-202")
         assert (
             tmp_path / "docs" / "phases" / "permissions" / "WT-202.json"
         ).exists()
@@ -1575,20 +1664,25 @@ class TestStoryWorktreeActiveStoryStamping:
             tmp_path / "docs" / "phases" / "permissions" / "WT-202.json"
         ).exists()
 
-    def test_create_story_worktree_without_story_spec_does_not_fail(
+    def test_create_story_worktree_without_story_spec_fails_and_tears_down(
         self, tmp_path: Path
     ) -> None:
-        """A story_id with no matching spec file (e.g. an ad-hoc lifecycle
-        test ID like WT-001 elsewhere in this file) must not prevent worktree
-        creation — stamping is best-effort."""
+        """INFRA-296 (C1) supersedes INFRA-238's best-effort wording for the
+        permissions half: a story_id with no matching spec file cannot yield a
+        permissions artifact, so the worktree is torn back down and the command
+        exits 1 rather than handing a builder an unenforced worktree."""
         _init_git_repo(tmp_path)
         result = _run(
             "create-story-worktree",
             "--story-id", "WT-203",
             "--project-dir", str(tmp_path),
         )
-        assert result.returncode == 0, result.stderr
-        assert (tmp_path / ".pairmode-worktrees" / "WT-203").is_dir()
+        assert result.returncode == 1
+        assert "failed to generate permissions for WT-203" in result.stderr
+        assert not (tmp_path / ".pairmode-worktrees" / "WT-203").exists()
+        assert result.stdout.strip() == ""
+        branch = _git(tmp_path, "rev-parse", "--verify", "refs/heads/pairmode/WT-203")
+        assert branch.returncode != 0
 
 
 class TestScopedActiveStoryClear:
@@ -1603,8 +1697,8 @@ class TestScopedActiveStoryClear:
         _init_git_repo(tmp_path)
         _write_story(tmp_path, "WT-210", primary_files=["a.py"])
         _write_story(tmp_path, "WT-211", primary_files=["b.py"])
-        _run("create-story-worktree", "--story-id", "WT-210", "--project-dir", str(tmp_path))
-        _run("create-story-worktree", "--story-id", "WT-211", "--project-dir", str(tmp_path))
+        _create_worktree(tmp_path, "WT-210")
+        _create_worktree(tmp_path, "WT-211")
 
         wt_a = tmp_path / ".pairmode-worktrees" / "WT-210"
         _commit_in(wt_a, "a.py", "done\n", "add a")
@@ -1630,8 +1724,8 @@ class TestScopedActiveStoryClear:
         _write_story(tmp_path, "WT-221", primary_files=["b.py"])
         _run("write-attempt-count", "--story-id", "WT-220", "--count", "2", "--project-dir", str(tmp_path))
         _run("write-attempt-count", "--story-id", "WT-221", "--count", "1", "--project-dir", str(tmp_path))
-        _run("create-story-worktree", "--story-id", "WT-220", "--project-dir", str(tmp_path))
-        _run("create-story-worktree", "--story-id", "WT-221", "--project-dir", str(tmp_path))
+        _create_worktree(tmp_path, "WT-220")
+        _create_worktree(tmp_path, "WT-221")
 
         wt_a = tmp_path / ".pairmode-worktrees" / "WT-220"
         _commit_in(wt_a, "a.py", "done\n", "add a")
@@ -1651,8 +1745,8 @@ class TestScopedActiveStoryClear:
         _init_git_repo(tmp_path)
         _write_story(tmp_path, "WT-212", primary_files=["a.py"])
         _write_story(tmp_path, "WT-213", primary_files=["b.py"])
-        _run("create-story-worktree", "--story-id", "WT-212", "--project-dir", str(tmp_path))
-        _run("create-story-worktree", "--story-id", "WT-213", "--project-dir", str(tmp_path))
+        _create_worktree(tmp_path, "WT-212")
+        _create_worktree(tmp_path, "WT-213")
 
         result = _run(
             "discard-story-worktree",
@@ -1681,8 +1775,8 @@ class TestScopedActiveStoryClear:
         _init_git_repo(tmp_path)
         _write_story(tmp_path, "WT-214", primary_files=["a.py"])
         _write_story(tmp_path, "WT-215", primary_files=["b.py"])
-        _run("create-story-worktree", "--story-id", "WT-214", "--project-dir", str(tmp_path))
-        _run("create-story-worktree", "--story-id", "WT-215", "--project-dir", str(tmp_path))
+        _create_worktree(tmp_path, "WT-214")
+        _create_worktree(tmp_path, "WT-215")
 
         wt_a = tmp_path / ".pairmode-worktrees" / "WT-214"
         wt_b = tmp_path / ".pairmode-worktrees" / "WT-215"
@@ -1793,11 +1887,7 @@ class TestStoryWorktreeMergeRobustness:
     def test_clean_merge_reports_no_residue(self, tmp_path: Path) -> None:
         """A5/A7: a fully clean merge exits 0 and emits no residue text."""
         _init_git_repo(tmp_path)
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-305",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-305")
         wt = tmp_path / ".pairmode-worktrees" / "WT-305"
         _commit_in(wt, "feature.txt", "done\n", "add feature")
         result = _run(
@@ -1812,11 +1902,7 @@ class TestStoryWorktreeMergeRobustness:
     def test_discard_delegates_to_shared_teardown(self, tmp_path: Path) -> None:
         """A6: discard-story-worktree still exits 0 on a clean removal."""
         _init_git_repo(tmp_path)
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-306",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-306")
         result = _run(
             "discard-story-worktree",
             "--story-id", "WT-306",
@@ -1834,11 +1920,7 @@ class TestStoryWorktreeMergeRobustness:
 
         _init_git_repo(tmp_path)
         _write_story(tmp_path, "WT-307", primary_files=["feature.txt"])
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-307",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-307")
         wt = tmp_path / ".pairmode-worktrees" / "WT-307"
         _commit_in(wt, "feature.txt", "done\n", "add feature")
 
@@ -1882,11 +1964,7 @@ class TestStoryWorktreeMergeRobustness:
 
         _init_git_repo(tmp_path)
         _write_story(tmp_path, "WT-308", primary_files=["scratch.txt"])
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-308",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-308")
 
         original_run_git = flex_build._run_git
 
@@ -1925,16 +2003,8 @@ class TestStoryWorktreeMergeRobustness:
         from the same tip both succeed, the second rebasing past the
         first's commit."""
         _init_git_repo(tmp_path)
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-201",
-            "--project-dir", str(tmp_path),
-        )
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-202",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-201")
+        _create_worktree(tmp_path, "WT-202")
         wt1 = tmp_path / ".pairmode-worktrees" / "WT-201"
         wt2 = tmp_path / ".pairmode-worktrees" / "WT-202"
         _commit_in(wt1, "one.txt", "one\n", "add one")
@@ -1965,11 +2035,7 @@ class TestStoryWorktreeMergeRobustness:
 
         _init_git_repo(tmp_path)
         _write_story(tmp_path, "WT-203", primary_files=["three.txt"])
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-203",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-203")
         wt = tmp_path / ".pairmode-worktrees" / "WT-203"
         _commit_in(wt, "three.txt", "three\n", "add three")
         _run(
@@ -2023,11 +2089,7 @@ class TestStoryWorktreeMergeRobustness:
         import flex_build  # noqa: E402
 
         _init_git_repo(tmp_path)
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-204",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-204")
         wt = tmp_path / ".pairmode-worktrees" / "WT-204"
         _commit_in(wt, "four.txt", "four\n", "add four")
 
@@ -2079,11 +2141,7 @@ class TestStoryWorktreeMergeRobustness:
         self, tmp_path: Path
     ) -> None:
         _init_git_repo(tmp_path)
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-401",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-401")
         wt = tmp_path / ".pairmode-worktrees" / "WT-401"
         _commit_in(wt, "feature.txt", "done\n", "add feature")
         result = _run(
@@ -2101,11 +2159,7 @@ class TestStoryWorktreeMergeRobustness:
         from contextlib import contextmanager
 
         _init_git_repo(tmp_path)
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-402",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-402")
         wt = tmp_path / ".pairmode-worktrees" / "WT-402"
         _commit_in(wt, "feature.txt", "done\n", "add feature")
 
@@ -2137,16 +2191,8 @@ class TestStoryWorktreeMergeRobustness:
         pytest.importorskip("fcntl")
 
         _init_git_repo(tmp_path)
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-501",
-            "--project-dir", str(tmp_path),
-        )
-        _run(
-            "create-story-worktree",
-            "--story-id", "WT-502",
-            "--project-dir", str(tmp_path),
-        )
+        _create_worktree(tmp_path, "WT-501")
+        _create_worktree(tmp_path, "WT-502")
         wt1 = tmp_path / ".pairmode-worktrees" / "WT-501"
         wt2 = tmp_path / ".pairmode-worktrees" / "WT-502"
         _commit_in(wt1, "wt501.txt", "one\n", "add wt501")

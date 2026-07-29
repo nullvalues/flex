@@ -13,7 +13,11 @@ _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "skills" / "pairmode" / "sc
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from flex_build import flex_build, generate_permissions_artifact  # type: ignore[import]  # noqa: E402
+from flex_build import (  # type: ignore[import]  # noqa: E402
+    PermissionsCreateError,
+    flex_build,
+    generate_permissions_artifact,
+)
 from story_new import _story_frontmatter, _story_body  # type: ignore[import]  # noqa: E402
 
 
@@ -326,3 +330,96 @@ def test_permissions_artifact_legacy_buggy_touches_line_does_not_raise(tmp_path)
     assert out_path.exists()
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     assert payload["allowed_paths"] == [story_spec_rel]
+
+
+# ---------------------------------------------------------------------------
+# Flow-style / malformed frontmatter (INFRA-296, CER-115)
+# ---------------------------------------------------------------------------
+
+
+def _make_story_raw(tmp_path: Path, story_id: str, fm_lines: str) -> Path:
+    """Write a story spec whose frontmatter body is *fm_lines* verbatim.
+
+    Sibling of ``_make_story`` (whose signature existing tests depend on) for
+    cases that need a raw frontmatter body — flow-style or deliberately
+    malformed — rather than block sequences built from Python lists.
+    """
+    rail = story_id.split("-")[0]
+    story_dir = tmp_path / "docs" / "stories" / rail
+    story_dir.mkdir(parents=True, exist_ok=True)
+    story_file = story_dir / f"{story_id}.md"
+    content = (
+        "---\n"
+        f"id: {story_id}\n"
+        f"rail: {rail}\n"
+        "title: Test story\n"
+        "status: planned\n"
+        'phase: "99"\n'
+        f"{fm_lines}"
+        "---\n\n"
+        "## Requires\n\nNothing.\n\n"
+        "## Ensures\n\n- Always true.\n"
+    )
+    story_file.write_text(content, encoding="utf-8")
+    return story_file
+
+
+def test_permissions_artifact_non_list_primary_files_raises_permissions_error(tmp_path):
+    """B1: a scalar `primary_files` is refused before the concatenation, with
+    the key name, the observed type and the story spec path in the message."""
+    _make_story_raw(tmp_path, "INFRA-996", "primary_files: a.html\n")
+    with pytest.raises(PermissionsCreateError) as exc:
+        generate_permissions_artifact("INFRA-996", tmp_path)
+    message = str(exc.value)
+    assert "primary_files" in message
+    assert "str" in message
+    assert "docs/stories/INFRA/INFRA-996.md" in message
+
+
+def test_permissions_artifact_non_list_touches_raises_permissions_error(tmp_path):
+    """B1: the same guard covers `touches`."""
+    _make_story_raw(
+        tmp_path, "INFRA-995", "primary_files: [a.html]\ntouches: b.html\n"
+    )
+    with pytest.raises(PermissionsCreateError) as exc:
+        generate_permissions_artifact("INFRA-995", tmp_path)
+    message = str(exc.value)
+    assert "touches" in message
+    assert "docs/stories/INFRA/INFRA-995.md" in message
+
+
+def test_permissions_artifact_flow_style_frontmatter_succeeds(tmp_path):
+    """B2: flow-style `primary_files`/`touches` now parse to lists, so the
+    artifact is generated instead of raising TypeError."""
+    _make_story_raw(
+        tmp_path,
+        "INFRA-994",
+        "primary_files: [a.html, b.html]\ntouches: [c.html]\n",
+    )
+    generate_permissions_artifact("INFRA-994", tmp_path)
+    payload = json.loads(
+        (tmp_path / "docs" / "phases" / "permissions" / "INFRA-994.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["allowed_paths"] == [
+        "a.html",
+        "b.html",
+        "c.html",
+        "docs/stories/INFRA/INFRA-994.md",
+    ]
+
+
+def test_permissions_artifact_malformed_frontmatter_raises_permissions_error(tmp_path):
+    """B2/B3: a malformed flow sequence surfaces as PermissionsCreateError —
+    never a bare TypeError or FrontmatterError — and the message names the
+    story spec path."""
+    from schema_validator import FrontmatterError  # noqa: PLC0415
+
+    _make_story_raw(tmp_path, "INFRA-993", "primary_files: [a, b\n")
+    with pytest.raises(PermissionsCreateError) as exc:
+        generate_permissions_artifact("INFRA-993", tmp_path)
+    assert not isinstance(exc.value, (TypeError, FrontmatterError))
+    message = str(exc.value)
+    assert "docs/stories/INFRA/INFRA-993.md" in message
+    assert "primary_files" in message

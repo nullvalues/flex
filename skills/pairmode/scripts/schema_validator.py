@@ -31,6 +31,20 @@ _YAML_LIST_ITEM_RE = re.compile(r'^\s+-\s+(.+)$')
 _INLINE_COMMENT_RE = re.compile(r'(?:^|\s)#.*$')
 
 
+class FrontmatterError(ValueError):
+    """Raised when frontmatter contains a value this parser refuses to guess at.
+
+    Derives from ``ValueError`` deliberately (INFRA-296): several existing
+    callers already funnel parse problems through ``ValueError``
+    (``model_selector.py`` raises a bare ``ValueError`` for missing
+    frontmatter) or through a broad ``except Exception``
+    (``flex_build.generate_permissions_artifact``,
+    ``flex_build.cmd_check_story_scope``, ``model_selector``). Keeping the base
+    class inside that family means every existing loud handler stays loud and
+    no caller silently swallows this as an unrelated type.
+    """
+
+
 def _strip_inline_comment(value: str) -> str:
     """
     Apply quote-handling then inline-comment-stripping to a raw scalar value
@@ -61,6 +75,64 @@ def _strip_inline_comment(value: str) -> str:
 # Backwards-compatible alias — the list-item call site historically used this
 # name; kept so any external caller importing it directly still works.
 _strip_list_item_comment = _strip_inline_comment
+
+
+def _parse_flow_sequence(value_raw: str, key: str | None = None) -> list[str] | None:
+    """Parse a single-line YAML flow sequence into a list of strings.
+
+    Returns None when *value_raw* is not a flow sequence at all (it does not
+    begin with "["), so the caller falls through to its existing scalar
+    handling unchanged. Raises FrontmatterError when it begins with "[" but
+    is not a well-formed *flat* flow sequence — nesting is not supported, and
+    guessing is worse than refusing (CER-115): the parser has ten callers and
+    a silently-wrong type surfaces as a TypeError in whichever of them
+    concatenates first.
+
+    Elements are split on commas, stripped of surrounding whitespace, then of
+    one matching pair of surrounding ``"`` or ``'``; empty elements are
+    dropped. There is no escaping rule and none is invented here — a value
+    containing a literal comma is not expressible in flow style and must be
+    written as a block sequence instead.
+
+    *key* is optional and used only to name the offending key in the error
+    message; it does not change what is parsed or what is refused.
+    """
+    if not value_raw.startswith("["):
+        return None
+
+    where = f"key '{key}': " if key else ""
+    text = value_raw.strip()
+
+    # Nesting / flow mappings first, so the message names the real problem
+    # rather than reporting a nested close bracket as trailing junk.
+    if "[" in text[1:] or "{" in text or "}" in text:
+        raise FrontmatterError(
+            f"{where}nested flow sequences and flow mappings are not supported "
+            f"by the minimal YAML subset; use a block sequence: {value_raw!r}"
+        )
+
+    close = text.find("]")
+    if close == -1:
+        raise FrontmatterError(
+            f"{where}unterminated flow sequence (no closing ']'): {value_raw!r}"
+        )
+    if close != len(text) - 1:
+        raise FrontmatterError(
+            f"{where}trailing content after the closing ']' of a flow "
+            f"sequence: {value_raw!r}"
+        )
+
+    items: list[str] = []
+    for element in text[1:close].split(","):
+        item = element.strip()
+        if len(item) >= 2 and (
+            (item.startswith('"') and item.endswith('"'))
+            or (item.startswith("'") and item.endswith("'"))
+        ):
+            item = item[1:-1]
+        if item:
+            items.append(item)
+    return items
 
 # L018-style enforcement: detect pointer-only acceptance sections.
 _POINTER_ONLY_RE = re.compile(
@@ -128,6 +200,18 @@ def _parse_frontmatter(text: str) -> dict[str, Any] | None:
             else:
                 current_key = key
                 current_list = None
+                # INFRA-296 / CER-115: a single-line flow sequence
+                # (`key: [a, b]`) parses to a list. _parse_flow_sequence
+                # returns None for anything that does not open with '[', so
+                # every other scalar is byte-identical to before; a value that
+                # opens with '[' but is not a well-formed flat flow sequence
+                # raises FrontmatterError, which is deliberately NOT caught
+                # here — refusing beats returning a string the caller will
+                # later concatenate with a list.
+                flow = _parse_flow_sequence(value_raw, key)
+                if flow is not None:
+                    result[key] = flow
+                    continue
                 # _strip_inline_comment already removed quotes (if any); do
                 # not strip them again here (would double-strip "'x'").
                 result[key] = value_raw
@@ -200,6 +284,11 @@ def validate_story_file(path: Path) -> list[str]:
         )
 
     status = fm.get("status", "")
+    # The 'primary_files must be a list' check below is textually identical in
+    # both arms. The duplication is known and deliberate for now (INFRA-296
+    # B5): collapsing it — or adding the matching 'touches' check — changes
+    # what validate-schema reports across every existing story file, and is a
+    # validator-tightening story with its own full-tree re-validation evidence.
     if status in ("draft", "backlog"):
         # primary_files absent or empty is acceptable for draft/backlog stories
         if "primary_files" in fm and fm["primary_files"] is not None and not isinstance(fm["primary_files"], list):
