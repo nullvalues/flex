@@ -97,6 +97,13 @@ state.json writes. They do not violate the thin-relay contract.
   `user_turn_seq.record_user_turn(project_dir, data)`, no decision logic, no
   block/reason emission. Authorized state.json writes:
   `context_budget_user_turn_seq` and `context_budget_user_turn_seq_fingerprint`.
+- `hooks/subagent_stop.py` — dispatches every `SubagentStop` event →
+  `subagent_transcript.reconcile_one(project_dir, agent_id, payload)`
+  (INFRA-298/CER-114): a single delegated call, no decision logic, no
+  outcome parsing, no direct effort-database access, no block/decision
+  emission. **Authorized state.json writes: none** — `reconcile_one` writes
+  only to the effort database (via `effort_db.reconcile_attempt`) and to
+  `.companion/effort_recording.log`, never to `state.json`.
 
 These state.json writes are the designed write path for the context-budget
 system — not pipe-contract violations. The `cwd` value used to locate

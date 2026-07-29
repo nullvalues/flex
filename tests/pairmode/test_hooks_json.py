@@ -228,3 +228,36 @@ def test_posttooluse_task_agent_sendmessage_matcher_uses_canonical_command():
     inner_hook = inner_hooks[0]
     assert inner_hook.get("command") == "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py"
     assert inner_hook.get("timeout") == 5
+
+
+# ---------------------------------------------------------------------------
+# SubagentStop registration (INFRA-298, CER-114)
+# ---------------------------------------------------------------------------
+
+
+def test_subagentstop_registered_exactly_once_no_matcher_no_async():
+    hooks_config = _load_hooks_json()
+    blocks = hooks_config["hooks"].get("SubagentStop")
+    assert blocks is not None, "SubagentStop must be a registered top-level event"
+    assert len(blocks) == 1, f"expected exactly one SubagentStop block, got {len(blocks)}"
+
+    block = blocks[0]
+    assert "matcher" not in block, "SubagentStop must not carry a matcher"
+
+    inner_hooks = block.get("hooks", [])
+    assert len(inner_hooks) == 1, f"expected exactly one inner hook, got {len(inner_hooks)}"
+
+    inner_hook = inner_hooks[0]
+    assert inner_hook.get("command", "").endswith("hooks/subagent_stop.py")
+    assert inner_hook.get("timeout") == 5
+    assert "async" not in inner_hook
+
+
+def test_previously_registered_events_unchanged_by_subagentstop_addition():
+    hooks_config = _load_hooks_json()
+    events = hooks_config["hooks"]
+    for expected in (
+        "Stop", "PermissionRequest", "PreToolUse", "PostToolUse",
+        "SessionEnd", "SessionStart", "UserPromptSubmit",
+    ):
+        assert expected in events, f"expected pre-existing event {expected!r} to remain registered"

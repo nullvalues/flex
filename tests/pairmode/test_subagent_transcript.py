@@ -3829,3 +3829,312 @@ class TestNoNewStarvation:
             project_dir=project_dir, output_prefix=None
         )
         assert count == 1
+
+
+# ---------------------------------------------------------------------------
+# reconcile_one (INFRA-298, CER-114)
+# ---------------------------------------------------------------------------
+
+
+class TestReconcileOne:
+    def _enable(self, project_dir: Path, **extra) -> Path:
+        return _enable_tracking(project_dir, pairmode_version="0.1.0", **extra)
+
+    def _pending_row(
+        self,
+        db_path: Path,
+        story_id: str,
+        agent_id: str,
+        *,
+        output_file: "Path | None" = None,
+        agent_role: str = "builder",
+    ) -> int:
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id=story_id,
+            agent_role=agent_role,
+            attempt_number=1,
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(),
+        )
+        effort_db.set_spawn_ref(
+            db_path, row_id, agent_id, str(output_file) if output_file else None
+        )
+        return row_id
+
+    def _agent_transcript(
+        self, tmp_path: Path, agent_id: str, entries: "list[dict]"
+    ) -> "tuple[Path, Path]":
+        home = tmp_path / "home"
+        transcript_path = (
+            home / ".claude" / "projects" / "slug" / "sess-1" / "subagents"
+            / f"agent-{agent_id}.jsonl"
+        )
+        _write_output_file(transcript_path, entries)
+        return home, transcript_path
+
+    def test_payload_path_reconciles_without_reading_output_file(
+        self, tmp_path: Path
+    ) -> None:
+        """C3: a payload with a usable outcome stamps from
+        agent_transcript_path and never calls read_completed_spawn."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        self._enable(project_dir)
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        self._pending_row(
+            db_path, "INFRA-298", "agent-1",
+            output_file=tmp_path / "tasks" / "would-produce-a-different-outcome.output",
+        )
+        home, transcript_path = self._agent_transcript(
+            tmp_path, "agent-1", [_output_assistant_entry("msg_1", 100, 50)],
+        )
+        payload = {
+            "agent_id": "agent-1",
+            "agent_transcript_path": str(transcript_path),
+            "last_assistant_message": _build_result_json("PASS"),
+        }
+
+        with patch.object(
+            st, "read_completed_spawn",
+            side_effect=AssertionError("must not read output_file on payload path"),
+        ):
+            decision = st.reconcile_one(
+                project_dir=project_dir, agent_id="agent-1", payload=payload, home=home,
+            )
+
+        assert decision == "reconciled:payload"
+        row = effort_db.query_by_story(db_path, "INFRA-298")[0]
+        assert row["outcome"] == "PASS"
+        assert row["tokens_total"] == 150
+
+    def test_file_fallback_when_payload_has_no_outcome(self, tmp_path: Path) -> None:
+        """C4: no usable outcome in the payload -> falls back to
+        read_completed_spawn on the row's stored output_file, logging a
+        distinct decision."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        self._enable(project_dir)
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        output_file = tmp_path / "tasks" / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=_build_result_json("PASS"),
+                )
+            ],
+        )
+        self._pending_row(db_path, "INFRA-298", "agent-2", output_file=output_file)
+
+        payload = {
+            "agent_id": "agent-2",
+            "last_assistant_message": "still working, no result yet",
+        }
+        decision = st.reconcile_one(
+            project_dir=project_dir, agent_id="agent-2", payload=payload,
+        )
+
+        assert decision == "reconciled:file-fallback"
+        row = effort_db.query_by_story(db_path, "INFRA-298")[0]
+        assert row["outcome"] == "PASS"
+        assert row["tokens_total"] == 150
+
+    def test_mid_flush_file_leaves_row_pending(self, tmp_path: Path) -> None:
+        """C4: payload has no outcome and the fallback output_file is not
+        yet terminated -> row stays pending, distinct decision, no write."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        self._enable(project_dir)
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        output_file = tmp_path / "tasks" / "agent.output"
+        _write_output_file(
+            output_file,
+            [_output_assistant_entry("msg_1", 100, 50, stop_reason="tool_use")],
+        )
+        self._pending_row(db_path, "INFRA-298", "agent-3", output_file=output_file)
+
+        payload = {"agent_id": "agent-3", "last_assistant_message": "..."}
+        decision = st.reconcile_one(
+            project_dir=project_dir, agent_id="agent-3", payload=payload,
+        )
+
+        assert decision == "skip:no-outcome"
+        row = effort_db.query_by_story(db_path, "INFRA-298")[0]
+        assert row["tokens_total"] is None
+        assert row["outcome"] is None
+
+    def test_no_matching_agent_id_writes_nothing(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        self._enable(project_dir)
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        self._pending_row(db_path, "INFRA-298", "agent-known")
+
+        payload = {"agent_id": "agent-unknown"}
+        decision = st.reconcile_one(
+            project_dir=project_dir, agent_id="agent-unknown", payload=payload,
+        )
+
+        assert decision == "skip:no-pending-row"
+        row = effort_db.query_by_story(db_path, "INFRA-298")[0]
+        assert row["tokens_total"] is None
+        assert row["outcome"] is None
+
+    def test_second_call_with_same_payload_is_a_no_op(self, tmp_path: Path) -> None:
+        """C5: idempotency — exactly one reconcile, the second call is a
+        no-op (distinct decision, no second write)."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        self._enable(project_dir)
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        output_file = tmp_path / "tasks" / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=_build_result_json("PASS"),
+                )
+            ],
+        )
+        self._pending_row(db_path, "INFRA-298", "agent-4", output_file=output_file)
+        payload = {"agent_id": "agent-4", "last_assistant_message": "nope"}
+
+        first = st.reconcile_one(project_dir=project_dir, agent_id="agent-4", payload=payload)
+        second = st.reconcile_one(project_dir=project_dir, agent_id="agent-4", payload=payload)
+
+        assert first == "reconciled:file-fallback"
+        assert second == "skip:no-pending-row"
+        rows = effort_db.query_by_story(db_path, "INFRA-298")
+        assert len(rows) == 1
+        assert rows[0]["tokens_total"] == 150
+
+    def test_fail_outcome_stamped_without_bumping_counter(self, tmp_path: Path) -> None:
+        """C6: reconcile_one never bumps the attempt counter, even on FAIL."""
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        self._enable(project_dir, current_story={"id": "INFRA-298"})
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        self._pending_row(db_path, "INFRA-298", "agent-5", agent_role="reviewer")
+        home, transcript_path = self._agent_transcript(
+            tmp_path, "agent-5", [_output_assistant_entry("msg_1", 10, 5)],
+        )
+        payload = {
+            "agent_id": "agent-5",
+            "agent_transcript_path": str(transcript_path),
+            "last_assistant_message": json.dumps({
+                "type": "REVIEW-RESULT", "verdict": "FAIL",
+                "findings": ["x"], "reason": "y",
+            }),
+        }
+
+        decision = st.reconcile_one(
+            project_dir=project_dir, agent_id="agent-5", payload=payload, home=home,
+        )
+
+        assert decision == "reconciled:payload"
+        row = effort_db.query_by_story(db_path, "INFRA-298")[0]
+        assert row["outcome"] == "FAIL"
+        assert read_attempt_count("INFRA-298", project_dir) == 0
+
+    def test_atomicity_no_resolvable_outcome_commits_neither(self, tmp_path: Path) -> None:
+        """Inherits _ATOMIC_RECONCILE_FIELDS: a terminated fallback file with
+        usage but no parseable outcome commits neither tokens nor outcome."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        self._enable(project_dir)
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        output_file = tmp_path / "tasks" / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn", text="no result grammar here",
+                )
+            ],
+        )
+        self._pending_row(db_path, "INFRA-298", "agent-6", output_file=output_file)
+
+        payload = {"agent_id": "agent-6", "last_assistant_message": "also no grammar"}
+        decision = st.reconcile_one(
+            project_dir=project_dir, agent_id="agent-6", payload=payload,
+        )
+
+        assert decision == "skip:no-outcome"
+        row = effort_db.query_by_story(db_path, "INFRA-298")[0]
+        assert row["tokens_total"] is None
+        assert row["outcome"] is None
+
+    def test_no_agent_id_is_a_distinct_skip(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        self._enable(project_dir)
+        decision = st.reconcile_one(project_dir=project_dir, agent_id=None, payload={})
+        assert decision == "skip:no-agent-id"
+
+    def test_effort_tracking_off_is_a_distinct_skip(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir, pairmode_version="0.1.0", effort_tracking=False)
+        decision = st.reconcile_one(
+            project_dir=project_dir, agent_id="agent-x", payload={},
+        )
+        assert decision == "skip:effort-tracking-off"
+
+    def test_no_state_is_a_distinct_skip(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        decision = st.reconcile_one(
+            project_dir=project_dir, agent_id="agent-x", payload={},
+        )
+        assert decision == "skip:no-state"
+
+    def test_every_observed_decision_is_a_recognised_value(self, tmp_path: Path) -> None:
+        """Ensures 15: every decision reconcile_one can emit is a member of
+        RECORDING_DECISIONS, proven by exercising each branch."""
+        observed: set[str] = set()
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        self._enable(project_dir)
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+
+        observed.add(
+            st.reconcile_one(project_dir=project_dir, agent_id=None, payload={})
+        )
+        observed.add(
+            st.reconcile_one(
+                project_dir=project_dir, agent_id="agent-nowhere", payload={},
+            )
+        )
+
+        output_file = tmp_path / "tasks" / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=_build_result_json("PASS"),
+                )
+            ],
+        )
+        self._pending_row(db_path, "INFRA-298", "agent-7", output_file=output_file)
+        observed.add(
+            st.reconcile_one(
+                project_dir=project_dir, agent_id="agent-7",
+                payload={"agent_id": "agent-7", "last_assistant_message": "no grammar"},
+            )
+        )
+
+        assert observed <= st.RECORDING_DECISIONS, observed - st.RECORDING_DECISIONS

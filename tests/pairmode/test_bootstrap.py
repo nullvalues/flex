@@ -4428,3 +4428,75 @@ class TestPluginSourcedRegistrationSkip:
         assert pt_command in self._commands_for_event(data, "PostToolUse")
         assert self._commands_for_event(data, "UserPromptSubmit")
         assert self._commands_for_event(data, "SessionStart")
+
+    # -----------------------------------------------------------------
+    # INFRA-298 (CER-114): SubagentStop joins CONTEXT_BUDGET_HOOK_SPECS
+    # -----------------------------------------------------------------
+
+    def _install_plugin_subagent_stop(self, fake_home: pathlib.Path) -> pathlib.Path:
+        plugin_file = (
+            fake_home / ".claude" / "plugins" / "marketplace" / "flex"
+            / "hooks" / "hooks.json"
+        )
+        plugin_file.parent.mkdir(parents=True)
+        plugin_file.write_text(
+            json.dumps({
+                "hooks": {
+                    "SubagentStop": [
+                        {"hooks": [
+                            {"type": "command",
+                             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/subagent_stop.py"},
+                        ]},
+                    ]
+                }
+            }, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return plugin_file
+
+    def test_no_plugin_install_registers_subagentstop_too(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """INFRA-298: with no plugin install, SubagentStop lands alongside
+        the other three specs — a settings-level-only install still gets
+        the completion relay."""
+        project_dir = tmp_path / "project"
+        settings_path = project_dir / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        ss_command = f"uv run python {plugin_root / 'hooks' / 'subagent_stop.py'}"
+        assert ss_command in self._commands_for_event(data, "SubagentStop")
+
+    def test_plugin_registered_subagentstop_is_skipped(
+        self, tmp_path: pathlib.Path, _isolated_home: pathlib.Path, capsys
+    ) -> None:
+        """INFRA-298: a project whose installed plugin already registers
+        SubagentStop gets no settings-level duplicate for it — the same
+        INFRA-288/CER-104 skip every other CONTEXT_BUDGET_HOOK_SPECS entry
+        gets, proving SubagentStop's tuple membership actually wires it up."""
+        project_dir = tmp_path / "project"
+        settings_path = project_dir / ".claude" / "settings.json"
+        self._install_plugin_subagent_stop(_isolated_home)
+        plugin_root = self._plugin_root()
+
+        _register_context_budget_hooks(settings_path, plugin_root)
+        _register_context_budget_hooks(settings_path, plugin_root)
+
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        ss_commands = self._commands_for_event(data, "SubagentStop")
+        assert all(
+            not (isinstance(c, str) and c.rsplit("/", 1)[-1] == "subagent_stop.py")
+            for c in ss_commands
+        ), f"SubagentStop must not gain a settings-level entry: {ss_commands}"
+
+        # The other three specs are still registered.
+        ups_command = f"uv run python {plugin_root / 'hooks' / 'user_prompt_submit.py'}"
+        ss_ok_command = f"uv run python {plugin_root / 'hooks' / 'session_start.py'}"
+        assert ups_command in self._commands_for_event(data, "UserPromptSubmit")
+        assert ss_ok_command in self._commands_for_event(data, "SessionStart")
+
+        out = capsys.readouterr().out
+        assert "skipping SubagentStop registration for subagent_stop.py" in out

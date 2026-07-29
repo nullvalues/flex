@@ -526,10 +526,26 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
 # a downstream project runs the companion sidebar is a separate product
 # decision, deferred as a future opt-in story rather than folded into this
 # correctness fix.
+#
+# INFRA-298 (CER-114): SubagentStop is added here despite this tuple's
+# "context-budget" name — it is not a context-budget-gate hook, it is the
+# effort-completion relay (subagent_stop.py -> reconcile_one). It is added to
+# THIS tuple anyway, not a new one, because the load-bearing property this
+# story needs is the registrar mechanism, not the name: a spec listed here
+# automatically inherits the INFRA-288/CER-104 plugin-already-registered skip
+# (below), so a project that gets SubagentStop from an installed plugin's
+# hooks.json gains no duplicate settings-level entry. Without this entry, a
+# project consuming pairmode via a settings-level (non-plugin) install would
+# get no SubagentStop registration at all, and every async spawn's effort.db
+# row would stay pending until the quiescence backstop or a later session's
+# sweep — exactly the CER-114 gap this story exists to close. Matcher is
+# None, matching hooks.json's own SubagentStop block (no matcher — it is not
+# a tool-scoped event).
 CONTEXT_BUDGET_HOOK_SPECS: tuple[dict, ...] = (
     {"event": "UserPromptSubmit", "hook_file": "hooks/user_prompt_submit.py", "matcher": None},
     {"event": "SessionStart", "hook_file": "hooks/session_start.py", "matcher": None},
     {"event": "PostToolUse", "hook_file": "hooks/post_tool_use.py", "matcher": "Task|Agent"},
+    {"event": "SubagentStop", "hook_file": "hooks/subagent_stop.py", "matcher": None},
 )
 
 

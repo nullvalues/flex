@@ -405,6 +405,207 @@ Any failure other than the known `test_observability_ui` failure — which must
 be shown to reproduce on clean `HEAD` before it is claimed as pre-existing — is
 a FAIL.
 
+## Evidence
+
+**Requires anchor re-verification (Instructions 1).** All anchors checked
+against the pre-edit working tree matched, with one drift: `docs/
+architecture.md § Hook architecture` begins at line 2361 at build time, not
+the `:2294` Requires item 10 cites (the section content and meaning are
+unchanged — only its line offset moved, from earlier unrelated edits between
+spec time and build time). Every other cited anchor (line numbers and
+semantics) matched exactly, including the two anchors Requires itself
+already flags as plan corrections (seven `hooks.json` events, not six;
+`:91-94` for `session_start.py`'s security-auditor exception entry, not
+`:92-94`).
+
+**A3 — harness version.** The orchestrator ran the rig on this machine
+against the live Claude Code CLI in use for this session; version was not
+independently re-queried by the builder (the rig's own capture files are the
+primary evidence — see below). This attribution is stated explicitly per A3
+rather than left implicit.
+
+**A1/A2 — re-dispatch note.** The first dispatch of this story could not run
+the empirical measurement itself (the permission classifier denies
+agent-authored hook registration — the exact protection this rig would need
+to register a temporary `SubagentStop` hook in a scratch project). The
+orchestrator ran the rig instead and supplied the builder with the raw
+captured payloads. Per the Instructions, "the acceptance is an observed
+payload, not a documented promise" — this is honoured: the payloads below
+are the orchestrator's live capture, not a paraphrase or a harness-doc
+citation, and the builder read both capture files directly before writing
+anything below.
+
+Rig description (as supplied): a scratch project outside this repo whose
+`.claude/settings.local.json` registered a `SubagentStop` hook and a
+`PostToolUse` hook (matcher `Task|Agent`), driven by nested `claude -p`
+sessions that each spawned one `general-purpose` subagent — one sync
+(`run_in_background` absent/false) and one async (`run_in_background:
+true`). Each hook appended `{hook_event, ts, payload}` (payload = verbatim
+hook stdin JSON) to a JSONL capture file under the scratchpad, never under
+this repo. The rig was not built or run by the builder and left no trace in
+this diff.
+
+Capture files (read in full by the builder):
+- `.../scratchpad/subagentstop-rig/captures-sync.jsonl` — 2 lines
+  (`SubagentStop`, `PostToolUse`), sync spawn.
+- `.../scratchpad/subagentstop-rig/captures-async.jsonl` — 2 lines
+  (`PostToolUse` at launch, `SubagentStop` at completion), async spawn.
+
+**(a) Synchronous spawn — FIRED.** `SubagentStop` fired once, at the
+spawn's own completion. Wall-clock: the capture's `SubagentStop` and
+`PostToolUse` lines share the same timestamp to the second
+(`2026-07-29T18:23:49Z`) — `PostToolUse` (which fires when the tool call
+itself returns) and `SubagentStop` (which fires when the subagent stops)
+are effectively simultaneous for a foreground spawn the orchestrator waits
+on, as expected.
+
+Verbatim `SubagentStop` payload (sync):
+```json
+{
+  "session_id": "d5445302-00e0-4592-80a0-3f447f93dfa4",
+  "transcript_path": "/home/nullvalues/.claude/projects/-tmp-claude-1000--mnt-work-flex-5a65969b-d7e9-48a0-bf1e-1ae7c0ceb162-scratchpad-subagentstop-rig/d5445302-00e0-4592-80a0-3f447f93dfa4.jsonl",
+  "cwd": "/tmp/claude-1000/-mnt-work-flex-5a65969b-d7e9-48a0-bf1e-1ae7c0ceb162/scratchpad/subagentstop-rig",
+  "prompt_id": "10d45f07-24ea-485c-ac69-67e53690eba2",
+  "permission_mode": "auto",
+  "agent_id": "ae4bb091333ee6e03",
+  "agent_type": "general-purpose",
+  "effort": {"level": "medium"},
+  "hook_event_name": "SubagentStop",
+  "stop_hook_active": false,
+  "agent_transcript_path": "/home/nullvalues/.claude/projects/-tmp-claude-1000--mnt-work-flex-5a65969b-d7e9-48a0-bf1e-1ae7c0ceb162-scratchpad-subagentstop-rig/d5445302-00e0-4592-80a0-3f447f93dfa4/subagents/agent-ae4bb091333ee6e03.jsonl",
+  "last_assistant_message": "DONE",
+  "background_tasks": [],
+  "session_crons": []
+}
+```
+
+Field inventory (A2):
+- Agent identifier: **present**, top-level key `agent_id`
+  (`"ae4bb091333ee6e03"`). Covered by `_extract_spawn_ref`'s existing key set
+  (`agentId`/`agent_id`) — no extension needed; `reconcile_one` reads
+  `payload["agent_id"]` directly rather than routing through
+  `_extract_spawn_ref` at all (that helper extracts from a `tool_response`
+  shape, not a `SubagentStop` payload).
+- Terminal outcome/result/`stop_reason` signal: **present, but not under a
+  `stop_reason` key** — `last_assistant_message` (`"DONE"`), the spawn's
+  final assistant text verbatim. For a real builder/reviewer spawn this is
+  the BUILD-RESULT/REVIEW-RESULT JSON blob `parse_worker_outcome` already
+  knows how to read (reused unchanged).
+- Output-file path: **absent**. No `outputFile`/`output_file` key anywhere
+  in the payload. `agent_transcript_path` is present and is a *different*
+  field — the subagent's own canonical transcript file under
+  `~/.claude/projects/<slug>/<session>/subagents/agent-<id>.jsonl` — not the
+  `tasks/<hash>.output` path `_extract_spawn_ref`/`output_file` name. Per
+  `_permitted_output_target`'s existing docstring, this transcript path is
+  the very file the `tasks/` output path symlinks *to*.
+- Usage/token data: **absent**. No `usage`, `totalTokens`, or per-turn token
+  fields anywhere in the `SubagentStop` payload, for either spawn shape.
+
+**(b) Async/background spawn — FIRED.** `SubagentStop` fired for the
+background spawn too, ~2 seconds after the launch-time `PostToolUse`
+(`18:25:07Z` launch -> `18:25:09Z` stop) — i.e. after the subagent actually
+finished producing `"ASYNC-DONE"`, not at launch.
+
+Verbatim `PostToolUse` payload at launch (async, for contrast — confirms
+CER-114's "launch acknowledgement, not completed result" claim):
+```json
+{
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Async subagent test",
+    "prompt": "Reply with the single word ASYNC-DONE and stop.",
+    "subagent_type": "general-purpose",
+    "run_in_background": true
+  },
+  "tool_response": {
+    "isAsync": true,
+    "status": "async_launched",
+    "agentId": "ac7a07a4924a65860",
+    "description": "Async subagent test",
+    "resolvedModel": "claude-fable-5",
+    "prompt": "Reply with the single word ASYNC-DONE and stop.",
+    "outputFile": "/tmp/claude-1000/-tmp-claude-1000--mnt-work-flex-5a65969b-d7e9-48a0-bf1e-1ae7c0ceb162-scratchpad-subagentstop-rig/e7e5bc06-b43a-4045-b0b5-4dd151ac1754/tasks/ac7a07a4924a65860.output",
+    "canReadOutputFile": true
+  }
+}
+```
+
+Verbatim `SubagentStop` payload (async):
+```json
+{
+  "session_id": "e7e5bc06-b43a-4045-b0b5-4dd151ac1754",
+  "transcript_path": "/home/nullvalues/.claude/projects/-tmp-claude-1000--mnt-work-flex-5a65969b-d7e9-48a0-bf1e-1ae7c0ceb162-scratchpad-subagentstop-rig/e7e5bc06-b43a-4045-b0b5-4dd151ac1754.jsonl",
+  "cwd": "/tmp/claude-1000/-mnt-work-flex-5a65969b-d7e9-48a0-bf1e-1ae7c0ceb162/scratchpad/subagentstop-rig",
+  "prompt_id": "00556154-f307-4366-b773-d2a01514ddc3",
+  "permission_mode": "auto",
+  "agent_id": "ac7a07a4924a65860",
+  "agent_type": "general-purpose",
+  "effort": {"level": "medium"},
+  "hook_event_name": "SubagentStop",
+  "stop_hook_active": false,
+  "agent_transcript_path": "/home/nullvalues/.claude/projects/-tmp-claude-1000--mnt-work-flex-5a65969b-d7e9-48a0-bf1e-1ae7c0ceb162-scratchpad-subagentstop-rig/e7e5bc06-b43a-4045-b0b5-4dd151ac1754/subagents/agent-ac7a07a4924a65860.jsonl",
+  "last_assistant_message": "ASYNC-DONE",
+  "background_tasks": [
+    {"id": "ac7a07a4924a65860", "type": "subagent", "status": "running", "description": "Async subagent test", "agent_type": "general-purpose"}
+  ],
+  "session_crons": []
+}
+```
+
+Field inventory (A2), async — same shape as sync with one load-bearing
+quirk:
+- Agent identifier: **present**, top-level `agent_id` (`"ac7a07a4924a65860"`)
+  — matches the `agentId` the launch-time `PostToolUse` reported, so this is
+  the correct idempotency key.
+- Terminal outcome signal: **present**, `last_assistant_message`
+  (`"ASYNC-DONE"`), same shape as sync.
+- Output-file path: **absent** (same as sync) — `outputFile` is not in the
+  `SubagentStop` payload even though it *was* in the launch-time
+  `PostToolUse` payload for this same spawn. `agent_transcript_path` is
+  present.
+- Usage/token data: **absent** (same as sync).
+- **Quirk (must not be relied on):** `background_tasks` still lists this
+  spawn's own `agent_id` with `"status": "running"` at the instant
+  `SubagentStop` fires for it — the array had not yet been updated to
+  reflect the very completion this event announces. `reconcile_one` and
+  `hooks/subagent_stop.py` never read `background_tasks` for completion
+  detection; `SubagentStop` firing at all is the completion signal.
+
+**A4 verdict: PROCEED.** `SubagentStop` fires for both spawn shapes (a) and
+(b) on this harness version. The abort seam does not fire. Groups B–H are
+built.
+
+**E1/E2 — CER-091(1) disposition.** `.companion/effort_recording.log` read
+in full: 153 lines, `2026-07-26T02:13:55Z` – `2026-07-29T18:26:00Z`. Decision
+counts: `recorded` 81, `skip:not-recordable-role` 62,
+`skip:late-bump-blocked` 5, `skip:target-unregistered` 3, `bump:late-fail` 2,
+`recorded:deduped` 0. Searched for the CER-091(1) shape (a spawn with no
+resulting attempts row, or two same-story/same-role spawns in one session
+with only one `recorded` line): none found — every `tool_name: "Agent"`
+entry carries a decision, and every story that spawned the same role twice
+in one session (e.g. `INFRA-296`, builder attempts at rows 473 and 477 after
+a `bump:late-fail`) shows a `recorded` line for each spawn. **Disposition
+(b) — explicit closure:** no repeat-spawn drop observed since the INFRA-264
+instrumentation landed. See `docs/cer/backlog.md`'s CER-091 row for the
+filed annotation (E3).
+
+**Frontmatter touches-list gap.** Ensures E3 and G3 both require an edit to
+`docs/cer/backlog.md` (the CER-091 item-(1) annotation and the CER-114
+disposition), but that path is absent from this story's `primary_files` and
+`touches` lists. Noted here rather than silently worked around: the edit was
+made (as the Ensures require) but is not covered by the declared file-scope
+gate. A future spec-preflight pass should add `docs/cer/backlog.md` to this
+story's `touches` list, or generalize the CER-backlog-annotation case the
+way `docs/cer/backlog.md`'s own recurring append-one-annotation pattern
+(noted inline near Ensures E3) suggests other stories already assume.
+
+**G1 — stated, unrun-at-build-time acceptance.** Per Instructions 11, the
+ff-merge promotion to `/mnt/work/flex-harness` and the field run (one
+async/background spawn, observed reconciling within the same session) are
+operator actions after this story merges to `main`. They are not run from
+this build worktree and are not marked satisfied here. G2 is recorded at the
+phase-113 cold-eyes checkpoint per project convention.
+
 ## Instructions
 
 Order matters. Steps 1–3 are the gate; do not open an editor on production code

@@ -165,6 +165,17 @@ SPAWN_TASKS_DIR_NAME = "tasks"
 #: can be old while its agent is still actively writing — reconciling a
 #: live agent is exactly what INFRA-258's completion detection exists to
 #: prevent.
+#:
+#: INFRA-298 (CER-114): the quiescence sweep (`reconcile_pending_attempts`'
+#: `include_quiescent` branch) is a BACKSTOP, not the primary completion
+#: path. `reconcile_one` — driven by the `SubagentStop` hook, which fires
+#: deterministically the moment a spawn actually finishes — is primary. The
+#: backstop still exists, unchanged, for the cases `SubagentStop` cannot
+#: cover: a crashed or timed-out `hooks/subagent_stop.py`, a project that
+#: installs pairmode without the plugin's `hooks.json` (no `SubagentStop`
+#: registration at all), or a `tmp` output file evicted before either path
+#: reaches it. This value and this age-doubling rule are unchanged by that
+#: story — see its Ensures A5/D2.
 QUIESCENT_AGE_SECONDS = 900
 
 #: CER-091 defect 1: recognised `decision` values for `log_recording_event`.
@@ -192,6 +203,35 @@ RECORDING_DECISIONS: frozenset[str] = frozenset({
     # see reconcile_pending_attempts.
     "bump:late-fail",
     "skip:late-bump-blocked",
+    # INFRA-298 (CER-114): reconcile_one's own decision set — the
+    # SubagentStop relay's single-row reconcile, distinct from every
+    # decision above so a `tail` of effort_recording.log tells the two
+    # completion paths apart without reading code (Ensures C4).
+    #
+    # The payload carried a usable outcome (parse_worker_outcome on
+    # last_assistant_message) and reconcile_attempt committed both tokens
+    # (from the payload's own agent_transcript_path) and outcome together.
+    "reconciled:payload",
+    # The payload carried no usable outcome; read_completed_spawn on the
+    # row's stored output_file supplied both tokens and outcome instead.
+    "reconciled:file-fallback",
+    # The SubagentStop payload carried no agent_id at all — nothing to key
+    # a reconcile on.
+    "skip:no-agent-id",
+    # agent_id was present but no live pending row (tokens_total IS NULL OR
+    # outcome IS NULL) carries it — already reconciled by a PostToolUse
+    # sweep, the spawn was never recorded, or a doubled SubagentStop firing
+    # (idempotency: the second call is this decision, not a second write).
+    "skip:no-pending-row",
+    # Neither the payload's last_assistant_message nor (on fallback) the
+    # row's output_file yielded a parseable BUILD-RESULT/REVIEW-RESULT
+    # verdict — the row stays pending for a later sweep.
+    "skip:no-outcome",
+    # An outcome resolved but no usage/token data was found in the source
+    # consulted (agent_transcript_path on the payload path, output_file on
+    # the fallback path) — _ATOMIC_RECONCILE_FIELDS forbids writing tokens
+    # alone, so nothing is committed.
+    "skip:no-usage",
 })
 
 #: Size cap for .companion/effort_recording.log (CER-091 defect 1). Exceeding
@@ -1589,6 +1629,255 @@ def log_recording_event(project_dir: "Path | str", **fields: Any) -> None:
         pass
 
 
+# ---------------------------------------------------------------------------
+# reconcile_one — the SubagentStop relay's single delegated call (INFRA-298,
+# CER-114)
+# ---------------------------------------------------------------------------
+
+
+def _find_pending_by_agent_id(db_path: Path, agent_id: str) -> "dict | None":
+    """Return the live pending ``attempts`` row whose ``agent_id`` column
+    equals *agent_id*, or ``None`` (INFRA-298).
+
+    "Pending" is the same predicate :func:`effort_db.pending_reconcilable`
+    uses: ``tokens_total IS NULL OR outcome IS NULL``. Deliberately built on
+    :func:`effort_db.query_all` rather than a new ``effort_db`` query
+    function — this story's declared file scope does not touch
+    ``effort_db.py``, and :func:`reconcile_one` is the sole caller, invoked
+    at most once per completed spawn (a hook-path frequency, not a hot
+    loop), so a full-table scan is the appropriate cost here rather than a
+    reason to widen ``effort_db.py``'s public surface. When more than one
+    row matches (a doubled hook invocation racing this same lookup, or an
+    ``agent_id`` value reused across two rows), the highest ``id`` — the
+    most recently inserted — wins, since that is the row this specific
+    ``SubagentStop`` event's own spawn produced. Never raises; any failure
+    (missing db, corrupt file) returns ``None``.
+    """
+    try:
+        rows = effort_db.query_all(db_path)
+    except Exception:
+        return None
+
+    candidates = [
+        row
+        for row in rows
+        if isinstance(row, dict)
+        and row.get("agent_id") == agent_id
+        and (row.get("tokens_total") is None or row.get("outcome") is None)
+    ]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda row: row.get("id") or 0)
+    return candidates[-1]
+
+
+def _contained_agent_transcript(
+    path: Any, *, home: "Path | None" = None
+) -> "Path | None":
+    """Return a contained ``agent_transcript_path`` ``Path`` from a
+    ``SubagentStop`` payload, or ``None`` (INFRA-298, CER-114).
+
+    ``agent_transcript_path`` is a string supplied by the hook's own stdin
+    payload — trusted harness input (same trust level ``cwd`` gets
+    elsewhere on the hook path — see the security-auditor procedure's
+    thin-delegation exception list), but a path value nonetheless, so it is
+    still confined before ``open()`` ever sees it, applying the same
+    allowlist-the-root discipline CER-089/INFRA-287 established for
+    ``output_file``: contained under ``(home or Path.home()) / ".claude"``
+    — the one root Claude Code genuinely writes subagent transcripts under,
+    already allowlisted as a symlink *target* by
+    :func:`_permitted_output_target`. This is the *same physical file* an
+    ``output_file`` value in the ``tasks/`` directory would resolve to via
+    symlink (see that function's docstring) — reading it directly here is
+    what lets :func:`reconcile_one` get a spawn's usage data without
+    touching the ``tasks/`` file at all, which is the whole point (Ensures
+    C3): the ``tasks/`` file's mtime is refreshed continuously by harness
+    re-serialization (CER-114), but ``agent_transcript_path`` is the
+    resolved, final artifact and ``SubagentStop`` firing is itself the
+    completion signal — no ``end_turn``/quiescence re-derivation needed.
+
+    Lexical containment plus ``Path.is_file()`` — no symlink-target check
+    beyond that, because *this* path is not itself expected to be a
+    symlink. Never raises.
+    """
+    if not path:
+        return None
+    try:
+        candidate = Path(os.path.abspath(str(path)))
+        root = ((home or Path.home()) / ".claude").resolve()
+        if not _is_relative_to(candidate, root):
+            return None
+        if not candidate.is_file():
+            return None
+        return candidate
+    except Exception:
+        return None
+
+
+def reconcile_one(
+    *,
+    project_dir: "Path | str",
+    agent_id: "str | None",
+    payload: "dict | None",
+    home: "Path | None" = None,
+    tasks_root: "Path | str | None" = None,
+) -> str:
+    """Reconcile at most one ``attempts`` row from a ``SubagentStop`` event
+    (INFRA-298, CER-114).
+
+    The single delegated call ``hooks/subagent_stop.py`` makes. Keys on
+    *agent_id* against the live pending row whose ``agent_id`` column
+    matches (:func:`_find_pending_by_agent_id`) — never on story/role/text
+    matching. Returns the :data:`RECORDING_DECISIONS` value it emitted, so
+    the hook and this function's own tests observe the same string
+    (:func:`log_recording_event` is called on every return path). Never
+    raises.
+
+    Two outcome/usage sources, tried in order (Ensures C3/C4):
+
+    1. **Payload path** — when ``payload["last_assistant_message"]`` yields
+       a parseable outcome via :func:`parse_worker_outcome` (reused
+       unchanged — no second outcome parser), usage is read from
+       ``payload["agent_transcript_path"]`` via the SAME extraction
+       machinery :func:`read_completed_spawn` uses
+       (:func:`_stream_spawn_output` + :func:`_sum_deduped_usage` — no new
+       usage-extraction logic), through :func:`_contained_agent_transcript`
+       rather than :func:`_contained_spawn_output`. The row's own
+       ``output_file`` (the ``tasks/`` symlink CER-114 documents as
+       possibly mid-flush) is never stat'd or read on this path.
+    2. **File fallback** — when the payload carries no usable outcome,
+       :func:`read_completed_spawn` is called on the row's stored
+       ``output_file`` (unchanged, existing function, existing containment
+       rule) for both outcome and usage together.
+
+    Either source's result is written via ``effort_db.reconcile_attempt``,
+    which inherits ``_ATOMIC_RECONCILE_FIELDS`` — tokens and outcome commit
+    together or not at all; a source that yields one without the other
+    commits nothing (``skip:no-usage`` / ``skip:no-outcome``).
+
+    Never bumps ``.companion/attempt_counter.json`` on any outcome,
+    including ``FAIL`` (Ensures C6) — the reconciliation-time late-bump
+    path belongs to ``reconcile_pending_attempts`` alone; a ``SubagentStop``
+    firing *during* the driving session runs where the synchronous
+    PostToolUse bump already owns that decision, and a second bump source
+    in the same session is the double-count CER-102 closed.
+
+    Idempotent (Ensures C5): once a row's ``tokens_total`` and ``outcome``
+    are both non-``None``, :func:`_find_pending_by_agent_id` no longer
+    matches it, so a repeat call with the same payload is a
+    ``skip:no-pending-row`` no-op, not a second write.
+    """
+    project_path = Path(project_dir) if not isinstance(project_dir, Path) else project_dir
+    row_id: "int | None" = None
+    try:
+        state = _read_state(project_path)
+        if not state or not state.get("pairmode_version"):
+            log_recording_event(project_path, decision="skip:no-state", agent_id=agent_id, row_id=None)
+            return "skip:no-state"
+        if not state.get("effort_tracking"):
+            log_recording_event(
+                project_path, decision="skip:effort-tracking-off", agent_id=agent_id, row_id=None,
+            )
+            return "skip:effort-tracking-off"
+
+        if not agent_id:
+            log_recording_event(project_path, decision="skip:no-agent-id", agent_id=agent_id, row_id=None)
+            return "skip:no-agent-id"
+
+        payload = payload if isinstance(payload, dict) else {}
+
+        db_path = effort_db.resolve_effort_db_path(project_path)
+        row = _find_pending_by_agent_id(db_path, agent_id)
+        if row is None:
+            log_recording_event(
+                project_path, decision="skip:no-pending-row", agent_id=agent_id, row_id=None,
+            )
+            return "skip:no-pending-row"
+        row_id = row.get("id")
+
+        outcome, fail_cause = parse_worker_outcome(payload.get("last_assistant_message"))
+
+        source: "str | None" = None
+        usage: "dict[str, Any] | None" = None
+        model: "str | None" = None
+        duration_ms: "int | None" = None
+
+        if outcome is not None:
+            transcript_path = _contained_agent_transcript(
+                payload.get("agent_transcript_path"), home=home
+            )
+            if transcript_path is not None:
+                data = _stream_spawn_output(transcript_path)
+                candidate_usage = _sum_deduped_usage(data["assistant_entries"])
+                if candidate_usage.get("tokens_total") is not None:
+                    usage = candidate_usage
+                    model = candidate_usage.get("model")
+                    source = "payload"
+
+        if usage is None:
+            # C4: file fallback — only reached when the payload path above
+            # did not both resolve an outcome AND find usage from
+            # agent_transcript_path. read_completed_spawn re-derives its own
+            # outcome from the file; when the payload already gave us one,
+            # the payload's outcome wins on conflict (it is the fresher,
+            # event-driven signal), but a fallback outcome fills the gap
+            # when the payload gave none.
+            result = read_completed_spawn(
+                row.get("output_file"), tasks_root=tasks_root, home=home
+            )
+            if result is not None and result.get("tokens_total") is not None:
+                usage = result
+                model = result.get("model")
+                duration_ms = result.get("duration_ms")
+                if outcome is None:
+                    outcome = result.get("outcome")
+                    fail_cause = result.get("fail_cause")
+                source = "file-fallback"
+
+        if outcome is None:
+            log_recording_event(
+                project_path, decision="skip:no-outcome", agent_id=agent_id, row_id=row_id,
+            )
+            return "skip:no-outcome"
+
+        if usage is None or usage.get("tokens_total") is None:
+            log_recording_event(
+                project_path, decision="skip:no-usage", agent_id=agent_id, row_id=row_id,
+            )
+            return "skip:no-usage"
+
+        fields: "dict[str, Any]" = {
+            "tokens_total": usage.get("tokens_total"),
+            "tokens_in": usage.get("tokens_in"),
+            "tokens_out": usage.get("tokens_out"),
+            "cache_read_tokens": usage.get("cache_read_tokens"),
+            "cache_write_tokens": usage.get("cache_write_tokens"),
+            "duration_ms": duration_ms if duration_ms is not None else usage.get("duration_ms"),
+            "outcome": outcome,
+            "notes": fail_cause,
+        }
+        if row.get("model") is None and model:
+            fields["model"] = model
+
+        updated = effort_db.reconcile_attempt(db_path, row_id, **fields)
+        if not updated:
+            log_recording_event(
+                project_path, decision="skip:no-pending-row", agent_id=agent_id, row_id=row_id,
+            )
+            return "skip:no-pending-row"
+
+        decision = "reconciled:payload" if source == "payload" else "reconciled:file-fallback"
+        log_recording_event(project_path, decision=decision, agent_id=agent_id, row_id=row_id)
+        return decision
+    except Exception as exc:
+        decision = f"error:{type(exc).__name__}"
+        try:
+            log_recording_event(project_path, decision=decision, agent_id=agent_id, row_id=row_id)
+        except Exception:
+            pass
+        return decision
+
+
 def reconcile_pending_attempts(
     *,
     project_dir: "Path | str",
@@ -1698,6 +1987,15 @@ def reconcile_pending_attempts(
     Returns the count of rows actually reconciled. Never raises — this is a
     hook-path entry point (called from both ``record_attempt_from_transcript``
     and ``hooks/session_start.py``, and from the explicit sweep CLI).
+
+    INFRA-298 (CER-114): this sweep — and especially its ``include_quiescent``
+    branch — is now a BACKSTOP behind :func:`reconcile_one`, the
+    ``SubagentStop``-hook-driven single-row reconcile that fires
+    deterministically the moment a spawn actually finishes. This function's
+    own behaviour, thresholds, and call sites are unchanged; only its role in
+    the overall completion story has been renamed in this docstring (Ensures
+    D1/D2 — a prose-only change, verified by ``git diff`` showing no
+    executable line touched here or around :data:`QUIESCENT_AGE_SECONDS`).
     """
     try:
         project_path = (

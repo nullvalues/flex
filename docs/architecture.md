@@ -2415,6 +2415,47 @@ resolution and no new dispatch branch is added.
   builder/reviewer subagent instead of reading it cold. Read-only; no state
   writes. `docs/phases/**` and `docs/architecture.md` reads are never blocked.
 
+**Documented exception — `hooks/subagent_stop.py` (INFRA-298, CER-114):**
+registered against the `SubagentStop` event — the one event the harness
+fires when a spawned agent actually finishes, for both synchronous and
+async/background spawns (empirically verified; see `docs/stories/INFRA/
+INFRA-298.md` § Evidence). The hook is a thin relay: read stdin, make
+exactly one delegated call into
+`skills/pairmode/scripts/subagent_transcript.reconcile_one`, exit. No
+decision logic, no outcome parsing, and no direct `effort.db` access live in
+the hook. **Authorized state.json writes: none** — `reconcile_one` writes
+only to `effort.db` (via `effort_db.reconcile_attempt`) and to
+`.companion/effort_recording.log` (via `log_recording_event`), never to
+`state.json`; this is stricter than every other documented thin-delegation
+exception, each of which is authorized for at least one `state.json` write,
+because the sidebar/`reconcile_one` layer already owns every write this
+event implies. `reconcile_one` reconciles at most one `attempts` row, keyed
+by the spawn's `agent_id` — never by story/role/text matching — preferring
+the event payload's own terminal signal (`last_assistant_message` via the
+existing `parse_worker_outcome`, usage summed from the payload's
+`agent_transcript_path` via the existing `_stream_spawn_output`/
+`_sum_deduped_usage`) over the row's stored `output_file`, because that
+`tasks/`-directory file's mtime is refreshed continuously by harness
+re-serialization and may be mid-flush at the instant `SubagentStop` fires
+(CER-114's root cause). When the payload carries no usable outcome,
+`reconcile_one` falls back to the existing `read_completed_spawn` on the
+row's `output_file`, logging a distinct decision. Either path writes through
+`effort_db.reconcile_attempt`, which still requires `tokens_total` and
+`outcome` to commit together (`_ATOMIC_RECONCILE_FIELDS`) — a source that
+yields one without the other commits nothing. `reconcile_one` never bumps
+`.companion/attempt_counter.json`, on any outcome including `FAIL` — that
+reconciliation-time late-bump path belongs to
+`reconcile_pending_attempts` alone (see below).
+
+With `reconcile_one` primary, `reconcile_pending_attempts`'
+`include_quiescent` sweep (`hooks/session_start.py`'s call, and the explicit
+`reconcile` CLI) is now the **backstop**: it still exists, unchanged in
+value or age-gating rule, for the cases `SubagentStop` cannot cover — a
+crashed or timed-out `hooks/subagent_stop.py`, a settings-level (non-plugin)
+install of pairmode that never registered `SubagentStop` at all, or an
+evicted `tmp` output file. `QUIESCENT_AGE_SECONDS` and its double age-check
+(row `ts` **and** output file mtime) are unchanged by this story.
+
 As of INFRA-205 (`hooks/hooks.json`) and INFRA-206 (`bootstrap.py`'s downstream
 registrar), all three dispatch branches above are actually reachable — prior to
 Phase 93 (CER-065), the `Edit`/`Write` and `Read` branches were registered
@@ -2445,6 +2486,17 @@ gate read state that nothing downstream ever produced or advanced (CER-067).
 The four remaining companion/sidebar blocks (`Stop`, `PermissionRequest`/
 `ExitPlanMode`, `PostToolUse` matcher `Write|Edit|MultiEdit`, `SessionEnd`)
 remain opt-in and are not registered by this path.
+
+**INFRA-298 (CER-114) addendum:** `CONTEXT_BUDGET_HOOK_SPECS` gained a fourth
+entry, `SubagentStop` (`hooks/subagent_stop.py`, matcher `None`) — despite
+the tuple's "context-budget" name, added here rather than to a new tuple
+because the load-bearing property this story needs is the registrar
+mechanism (the by-command find/migrate idempotency and the
+INFRA-288/CER-104 plugin-already-registered skip below), not the name. A
+project consuming pairmode via a settings-level (non-plugin) install now
+gets `SubagentStop` registered alongside the other three; a project whose
+installed plugin's own `hooks.json` already carries it gains no
+settings-level duplicate, exactly as the other three specs already behave.
 
 **Dedupe-on-write (CER-081, INFRA-269):** both registrars are dedupe-on-write —
 at most one inner hook entry per (event, command-basename) pair survives a
