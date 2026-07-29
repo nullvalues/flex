@@ -1233,3 +1233,9 @@ sync-agents-replaced agent body (E4b clean).** Builder row 13's outcome is prove
 completes on any post-session sweep. By the strict letter of E6b ("NULL persisting after both sweeps is a fail"), this
 is a **split verdict pending an operator ruling**: content half proven, full row-pair reconciliation one artifact short.
 RELEASE-067..070 remain **held pending that operator ruling** — not silently started, not silently blocked.
+
+**Operator ruling (2026-07-29, quoted):** asked to rule on the E6b split verdict —
+operator answered **"Qualified pass — proceed (Recommended)"**. E6b ruled a qualified
+pass: content half proven (row 14 + E4b + row-13 parse check); row 13's reconciliation
+stays open as a deferred observation under E13. **RELEASE-067..070 are unblocked on
+that basis.**
