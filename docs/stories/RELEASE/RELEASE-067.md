@@ -2,7 +2,7 @@
 id: RELEASE-067
 rail: RELEASE
 title: Migrate halfhorse to pairmode 0.3.0
-status: draft
+status: complete
 phase: "106"
 auth_gated: false
 schema_introduces: false
@@ -1005,3 +1005,147 @@ one — locate each before using it, and record what you actually find. The
 - **Automating the campaign.** No script is written to loop the mechanic over the
   fleet. If that is wanted, it is a new story informed by E12 — not a shortcut taken
   during the run that is supposed to evaluate the manual procedure.
+
+## Evidence
+
+**Executed 2026-07-29, orchestrator-level from the flex session (per § Instructions), operator present throughout.**
+
+### E0 — preconditions
+
+- E0(c) satisfied by RELEASE-066's recorded ruling (quoted there): **"Qualified pass — proceed (Recommended)"** — RELEASE-067..070 unblocked on that basis; no fresh confirmation demanded per this spec.
+- Tags cp-105/110/111/112 present in flex; channel at `90ff183d` (cp-112 content), `status --porcelain` empty.
+- Dirty-target stop condition fired: `M .companion/state.json` (live companion runtime state, same shape as forqsite.help's). Operator decision, quoted verbatim: **"Commit as pre-migration state (Recommended)"** → target commit `d6265a7`; no lock file present pre-sync.
+
+### E1 — baseline, path, starting shape
+
+Corrected `--no-snapshot` Signal-1 form (flags confirmed against `--help`); baseline target block:
+
+```
+/mnt/work/halfhorse
+  binding: version
+  signal1 (scripts path): absent — no-declaration
+  signal2 (pairmode_version): 0.2.0
+```
+
+`readlink -f /mnt/work/halfhorse` → `/mnt/work/halfhorse`. **Starting shape: bound 0.2.x consumer — ordinary path (5th consecutive).**
+
+### Mechanic run
+
+- Dry-run: 1459 lines — 5 pairmode agent diffs + `CLAUDE.build.md`; 8 stale-grammar removal hunks visible in the diff.
+- **E4(b) pre-sync grep** (per this spec's two-sided requirement): 4 hits — `builder.md:88,114` `BUILD-RESULT: DONE`, `reviewer.md:222,297` `REVIEW-RESULT: PASS`.
+- Apply exit 0; classifier did not block (note 7: 1-of-5). `state.json.lock` left behind → removed, not committed (note 5: **5-of-5**).
+- **CER-111 pre/post: `53000` → `5000` — SILENT REWRITE**, `[apply] rewrote expected_step_tokens: 53000 → 5000` (also `[apply] backfilled missing 'effort_tracking': true`). Lumin's behaviour reproduced exactly at the same pre-value; value-dependence confirmed (53416 → keep+WARN twice, 53000 → silent rewrite twice). Reported to operator pre-commit; decision, quoted verbatim: **"Accept 5000"**. CER-111 evidence strengthened, not fixed here.
+- **E4(b) post-sync grep: CLEAN** (`grep -rn 'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS' .claude/agents/` → no matches). Second consecutive field confirmation of the cp-112 sync-agents replacement. No hand edits.
+- Migration committed **before** proving (note 3: 5-of-5): `bd24c1b` `sync: migrate to pairmode 0.3.0 thin-harness loop` — **11 files, +315/−1144** (subject contains no sibling story IDs, per this spec's CER-116 rule).
+
+### E2/E3/E4 — stamps
+
+Post-migration discovery: `binding: both`, `signal1: /mnt/work/flex-harness/skills/pairmode/scripts`, `signal2: 0.3.0`. Hooks: exactly one pairmode entry per event (PreToolUse/UserPromptSubmit/SessionStart/PostToolUse), all channel-bound; remaining duplicate-hook signal is the CER-110 plugin-sourced pattern, not chased. `grep -c "flex_build.py next-action" CLAUDE.build.md` → **2**; thin-harness header confirmed. No SKILL.md written into the target (no `skills/` dir); recorded.
+
+### E9 — sediment
+
+`settings.local.json` exists: 23 allow rules, **0** `Write(` and **0** per-file `Edit(` — no sediment; no prune decision needed; recorded as such (first target with a clean file: meander 91 pruned / lumin n/a / caddy 48 / forqsite.help 29 / halfhorse 0).
+
+### E5 — proving cycle (ran twice; see E6 for why)
+
+**Mode (operator-chosen, quoted): "Drive from this session (Recommended)"**; story choice (operator-chosen, quoted): **"Repair phase index (Recommended)"**.
+
+- **Cycle 1 — INFRA-001** (halfhorse phase 2, new INFRA rail): repair `docs/phases/index.md`'s phantom "Phase 1 — in progress" row (a pairmode-0.2.0 template placeholder; the real Phase 1 — "Spam Filter for Inquire Service" — was complete and tagged `cp1-spam-filter-complete`, recorded in `docs/phase-prompts.md`). Full spec→build(haiku)→review(haiku, PASS)→merge cycle in halfhorse's own loop; story commit `197b496`.
+- **Cycle 2 — INFRA-002**: replace `docs/checkpoints.md`'s fabricated `cp1-[phase-name]-complete` template with the real cp1–cp3 checkpoint history (tags verified via `git rev-parse` loops). Full cycle again (haiku/haiku, reviewer PASS); story commit `2719be6`.
+
+Both stories are real, genuinely-wanted planning-doc repairs surfaced by recon, not throwaways.
+
+### E6 — attempt rows (the reason there were two cycles)
+
+- **Cycle 1 (INFRA-001): E6a FAILED — and the failure is the INFRA-289 design working.** Rows landed in **flex's** db (rows 462/463); halfhorse's `effort.db` did not exist. Cause: `/mnt/work/halfhorse` was **not in flex's `registered_projects` allowlist**, so `resolve_recording_project` rejected the worktree-path candidate and fell back to the session project, logging the designed alarm — verbatim from `.companion/effort_recording.log`:
+
+  ```
+  {"ts": "2026-07-29T03:37:47…", "subagent_type": "builder",  "decision": "skip:target-unregistered", "target_project": "/mnt/work/flex", "target_source": "rejected-unregistered"}
+  {"ts": "2026-07-29T03:40:08…", "subagent_type": "reviewer", "decision": "skip:target-unregistered", "target_project": "/mnt/work/flex", "target_source": "rejected-unregistered"}
+  ```
+
+  forqsite.help succeeded in RELEASE-066 only because it was already registered (canary-era). **Campaign-mechanic gap: "register the target before driving its proving cycle from a flex session" is a missing runbook/spec step** — filed under E13. Operator decision, quoted verbatim: **"Register + rerun proving cycle (Recommended)"**. Registered via `pairmode_register.py register --project-dir /mnt/work/halfhorse` (provenance sidecar recorded; allowlist now 5 entries). Rows 462/463 remain flex-attributed (historical, per INFRA-289 precedent: no backfill).
+
+- **Cycle 2 (INFRA-002), post-registration — E6 FULL PASS, all three parts:**
+  - **E6a (re-confirmed):** rows in halfhorse's own db; flex complement for INFRA-002 → `[]`.
+  - **E6b (re-confirmed, full — no qualified branch needed):** first read: builder already `(haiku, 12434, 'PASS')` (its transcript ended with a proper `end_turn`; CER-114's in-session artifact did not bite this time), reviewer pending; explicit sweep → `{"reconciled": 1}`; final:
+
+    ```
+    (1, 'INFRA-002', 'builder',  'haiku', 12434, 'PASS')
+    (2, 'INFRA-002', 'reviewer', 'haiku',  9846, 'PASS')
+    ```
+
+  - **E6c (re-confirmed):** grouped duplicate count → `[]`.
+
+### E7 — report path
+
+`flex_build.py checkpoint-report --project-dir /mnt/work/halfhorse`:
+
+```
+=== checkpoint cost rollup — phase 2 ===
+  builder: 1 attempt(s), median 12,434 tokens
+  reviewer: 1 attempt(s), median 9,846 tokens
+  -- per-story --
+  INFRA-001: no attempts recorded
+  INFRA-002: builder: 1 attempt(s), median 12,434 tokens; reviewer: 1 attempt(s), median 9,846 tokens
+```
+
+The E5 story's own rows appear in the phase-scoped rollup, **both roles fully reconciled** — a stronger read-path proof than RELEASE-066's (which had one pending row). `INFRA-001: no attempts recorded` is the honest trace of the cycle-1 misattribution, not a defect in the report path.
+
+### E8 — target git history
+
+```
+2719be6 feat(story-INFRA-002): replace checkpoints.md template with real legacy checkpoint history
+9aaefee spec(INFRA-002): elaborate checkpoints.md repair; record real cp1-cp3 tags, drop template placeholder
+5be7bf8 spec(INFRA-002): scaffold checkpoints-doc repair stub
+197b496 feat(story-INFRA-001): repair phantom in-progress phase-1 row and broken link
+1996114 spec(INFRA-001): elaborate phase-index repair; phase 1 identified as spam-filter phase
+1b4caf9 spec(INFRA-001): scaffold story stub on new INFRA rail
+5d5673d spec(INFRA-001-scaffold): scaffold phase 2 planning-doc repair with story stub
+bd24c1b sync: migrate to pairmode 0.3.0 thin-harness loop     ← migration, 11 files, +315/−1144
+d6265a7 chore(pre-migration): snapshot companion runtime state …
+```
+
+Migration precedes both proving cycles; no sibling `RELEASE-0NN` IDs in any target commit subject.
+
+### E10 — downstream-proof position restated
+
+Attribution (CER-103): proven native (caddy) + flex-session (forqsite.help, halfhorse cycle 2); the rejection branch (`skip:target-unregistered` → session fallback with alarm) now also field-observed (halfhorse cycle 1). Dedupe (CER-104): re-confirmed on every target since. Content (CER-101): **halfhorse is the first target with a full (unqualified) E6b pass** — both rows reconciled with parsed outcomes through the cp-112 grammar; forqsite.help row 13 remains pending on the CER-114 artifact (unchanged, awaiting a post-session sweep); meander E6 re-verification still outstanding.
+
+### E11 — cleanliness
+
+`git -C /mnt/work/flex-harness status --porcelain` → empty throughout. Every discovery invocation carried `--no-snapshot`; no snapshot write anywhere. `/mnt/work/flex-harness/docs/fleet-snapshot.md` unchanged (tracked INFRA-249 artifact). No other fleet repo touched.
+
+### E14 — flex suite
+
+`uv run pytest tests/pairmode/ -q` (no `-x`): **4116 passed, 211 skipped, 0 failed** (153.78 s).
+
+### Playbook notes (E12 — delta against four prior runs)
+
+1. Dirty tree: **recurred (4-of-5)** — live companion-state sediment again; operator chose **commit** (2nd time).
+2. Runbook step-5 form: **recurred (5-of-5)**; corrected form used.
+3. Commit-before-proving: **applied (5-of-5)**.
+4. Agent-cleanup WARN: recurred; paired with clean post-sync E4(b) grep — survivable noise pattern holds.
+5. `state.json.lock`: **recurred (5-of-5)**.
+6. `expected_step_tokens`: **silent rewrite at 53000 (2-of-5 silent, 2-of-5 keep+WARN at 53416, 1 n/a)** — CER-111's value-dependence confirmed with a clean A/B; operator accepted the stamp.
+7. Auto-mode classifier block: did not recur (1-of-5).
+8. Recording: INFRA-289 all three branches now field-observed (target-registered native, target-registered flex-session, **unregistered rejection with alarm**).
+9. Sediment: **first clean target** (0 stale rules).
+
+New this run:
+
+- **(new-1) Missing mechanic step: target registration.** Driving a proving cycle from a flex session requires the target in flex's `registered_projects` *before* the spawns run; nothing in the runbook or the RELEASE-066/067 spec lineage said so. Cost here: one wasted-attribution cycle (INFRA-001 rows 462/463 in flex's db) and a rerun. Fix: add "register the target (`pairmode_register.py register --project-dir <target>`) at mechanic step 0 when driving from flex" to the runbook amendment set; RELEASE-068..070 specs must carry it.
+- **(new-2) `story_new.py` prompts interactively for a new rail** (`Rail INFRA does not exist. Create it? [Y/n]`) — aborts under a non-interactive orchestrator unless piped `yes`; worth a `--create-rail` flag.
+- **(new-3) `phase_new.py`+hand-rowed story caused no duplicate this time** (row added only by `story_new.py`) — RELEASE-066 new-3 discipline held.
+
+### Follow-ups (E13 — filed, not fixed here)
+
+- **Runbook amendment set now includes registration (new-1)** — the RELEASE-063-era amendments are five runs unapplied; strongly recommend an actual runbook-edit story before RELEASE-068 rather than a sixth identical note.
+- **CER to file: `story_new.py` non-interactive rail creation** (new-2).
+- **CER-111**: A/B evidence recorded here (53000 silent × 2, 53416 keep+WARN × 2); the existing backlog row should absorb this data when next groomed.
+- forqsite.help row 13 post-session reconciliation: still open (RELEASE-066 E13 item, unchanged).
+- meander E6 re-verification: still open.
+
+### Campaign gate statement (Instructions step 13)
+
+**E6b re-confirmed — fully, with no qualified branch: halfhorse story INFRA-002's builder and reviewer rows both reconciled to parsed `PASS` outcomes with real token counts through the cp-112 grammar (the first unqualified E6b pass of the campaign), and the E4(b) post-sync grep was clean before the cycle ran.** E6a's cycle-1 failure was the INFRA-289 rejection branch operating as designed against an unregistered target, resolved by operator-approved registration and a rerun; it is a mechanic gap, not a recording defect. **RELEASE-068..070 are unblocked**, with the explicit carry-forward that their specs must include target registration as a precondition step.

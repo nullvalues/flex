@@ -25,7 +25,7 @@ Finish the pairmode 0.3.0 fleet migration as a driven campaign: 8 remaining proj
 | RELEASE-064 | Migrate lumin to pairmode 0.3.0 | complete |
 | RELEASE-065 | Migrate caddy to pairmode 0.3.0 (seed never delivered) | complete |
 | RELEASE-066 | Migrate forqsite.help to pairmode 0.3.0 | complete |
-| RELEASE-067 | Migrate halfhorse to pairmode 0.3.0 | draft |
+| RELEASE-067 | Migrate halfhorse to pairmode 0.3.0 | complete |
 | RELEASE-068 | Migrate pokus to pairmode 0.3.0 (coordinate around in-flight UAT-gated work) | draft |
 | RELEASE-069 | Migrate base56 to pairmode 0.3.0 (reconcile stale index and history drift first) | draft |
 | RELEASE-070 | Migrate cora from 0.1.0 to 0.3.0 (unpark RELEASE-030 lesson-extraction carve-out) | draft |
