@@ -2,7 +2,7 @@
 id: INFRA-294
 rail: INFRA
 title: "_check_cer_do_now: stop reading the scaffolded (none) placeholder row as an unresolved Do Now item"
-status: draft
+status: complete
 phase: "112"
 story_class: code
 auth_gated: false

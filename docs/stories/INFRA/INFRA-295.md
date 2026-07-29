@@ -2,7 +2,7 @@
 id: INFRA-295
 rail: INFRA
 title: "fleet_discovery snapshot targeting: default snapshot must not write into the scripts checkout"
-status: draft
+status: complete
 phase: "112"
 story_class: code
 auth_gated: false

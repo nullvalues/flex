@@ -2,7 +2,7 @@
 id: INFRA-293
 rail: INFRA
 title: "Worker result-grammar reconciliation: parser tolerance for legacy plain-text verdicts + sync-agents replaces stale return-format sections (E6b, CER-101 downstream)"
-status: draft
+status: complete
 phase: "112"
 story_class: code
 auth_gated: false
