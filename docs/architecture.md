@@ -145,6 +145,19 @@ namespaces installed plugin skills as `<plugin-name>:<skill-name>` using
 `/flex:flex:*`. Both invariants are guarded by
 `tests/pairmode/test_plugin_manifest.py`.
 
+**Campaign unblockers (Phase 112 — INFRA-293, INFRA-294, INFRA-295).** Three
+RELEASE-065 field defects fixed ahead of the blocked migration campaign
+(phase 106): worker result-grammar reconciliation — `parse_worker_outcome`
+tolerates the 0.2-era plain-text `BUILD-RESULT`/`REVIEW-RESULT` verdict grammar
+as a fallback behind the JSON path, sync-agents replaces stale legacy-heading
+return-format sections position-preservingly, and the CER-099 containment-guard
+parity gap in `reconcile_pending_attempts` is closed; the CER Do Now guard and
+backlog parser share one `cer.is_placeholder_row` predicate so the scaffolded
+`(none)` placeholder row no longer reads as an unresolved item; and
+`fleet_discovery.py`'s default snapshot destination refuses to write into the
+scripts checkout when invoked from a foreign cwd (explicit `--snapshot` /
+`--no-snapshot` unchanged).
+
 ---
 
 ## Data flow
