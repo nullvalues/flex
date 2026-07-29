@@ -1239,3 +1239,11 @@ operator answered **"Qualified pass — proceed (Recommended)"**. E6b ruled a qu
 pass: content half proven (row 14 + E4b + row-13 parse check); row 13's reconciliation
 stays open as a deferred observation under E13. **RELEASE-067..070 are unblocked on
 that basis.**
+
+**Row-13 completion record (2026-07-29, per E13):** a later explicit sweep
+(`reconcile --project-dir /mnt/work/forqsite.help --limit 200`) returned
+`{"reconciled": 1}`; row 13 now reads `('CONTENT-005', 'builder', 11875, 'PASS')`,
+joining row 14 (`9187, 'PASS'`). The CER-114 in-session artifact resolved exactly
+as diagnosed — quiescence reached once the driving session stopped rewriting the
+transcript. E6b for this story is now complete on both rows; the qualified pass
+needed no further operator action.
