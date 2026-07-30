@@ -20,6 +20,7 @@ Story: INFRA-131.
 from __future__ import annotations
 
 import datetime as _dt
+import fnmatch
 import json
 import os
 import re
@@ -71,7 +72,14 @@ from story_context import (  # noqa: E402
     read_state,
     CURRENT_STORIES_KEY,
 )
-from scope_guard import entry_is_fresh, STATE_STORY_MAX_AGE_HOURS  # noqa: E402
+from scope_guard import (  # noqa: E402
+    entry_is_fresh,
+    PROTECTED_GLOBS,
+    STATE_STORY_MAX_AGE_HOURS,
+    _is_protected,
+    _resolve_main_project_root,
+    standing_paths_for,
+)
 from table_utils import split_table_row  # noqa: E402
 
 
@@ -522,7 +530,9 @@ class PermissionsCreateError(Exception):
     """Raised by ``generate_permissions_artifact`` on any recoverable failure."""
 
 
-def generate_permissions_artifact(story_id: str, project_path: Path) -> str:
+def generate_permissions_artifact(
+    story_id: str, project_path: Path, *, spec_project_path: "Path | None" = None
+) -> str:
     """Generate ``docs/phases/permissions/<story_id>.json`` from story frontmatter.
 
     Shared by the ``permissions-create`` CLI command and
@@ -532,15 +542,28 @@ def generate_permissions_artifact(story_id: str, project_path: Path) -> str:
     message; raises ``PermissionsCreateError`` on any failure instead of
     calling ``sys.exit`` directly, so callers other than the CLI command can
     decide how to handle it.
+
+    *spec_project_path* (INFRA-320 § B3) lets a caller read the story spec
+    from a different root than the artifact is written to — the shape
+    ``widen_story_scope`` needs: the story file it just edited lives wherever
+    the caller's own project root is (typically a builder's per-story
+    worktree, since that copy is what gets committed), but the artifact
+    itself must always land under the MAIN checkout root, because that is
+    the only place ``scope_guard.check_path`` ever reads it from, regardless
+    of the calling tool's cwd. Defaults to *project_path* — every existing
+    caller (``permissions-create``, ``create-story-worktree``) reads and
+    writes the same root, unchanged.
     """
     if not _STORY_ID_RE.match(story_id):
         raise PermissionsCreateError(f"invalid story_id format: {story_id!r}")
 
+    spec_root = spec_project_path if spec_project_path is not None else project_path
+
     rail = story_id.split("-")[0]
     story_spec_rel = f"docs/stories/{rail}/{story_id}.md"
-    story_path = project_path / story_spec_rel
+    story_path = spec_root / story_spec_rel
 
-    stories_root = project_path / "docs" / "stories"
+    stories_root = spec_root / "docs" / "stories"
     try:
         story_path.resolve().relative_to(stories_root.resolve())
     except ValueError:
@@ -580,8 +603,17 @@ def generate_permissions_artifact(story_id: str, project_path: Path) -> str:
         if p not in seen:
             seen.add(p)
             allowed.append(p)
-    if story_spec_rel not in seen:
-        allowed.append(story_spec_rel)
+    # INFRA-320 § A5: the story spec is no longer appended into
+    # `allowed_paths` here — it is one of the per-story derived standing
+    # paths (`scope_guard.standing_paths_for`) and is delivered through the
+    # separate `standing_paths` key below instead, so `allowed_paths`
+    # continues to mean exactly what this story declared.
+
+    phase_raw = fm.get("phase")
+    story_phase = (
+        phase_raw.strip() if isinstance(phase_raw, str) and phase_raw.strip() else None
+    )
+    standing = list(standing_paths_for(story_id, story_phase))
 
     out_dir = project_path / "docs" / "phases" / "permissions"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -592,23 +624,35 @@ def generate_permissions_artifact(story_id: str, project_path: Path) -> str:
     except ValueError:
         raise PermissionsCreateError("output path escapes permissions dir") from None
 
-    existing_allowed: list[str] | None = None
-    if out_path.exists():
-        try:
-            existing_payload = json.loads(out_path.read_text(encoding="utf-8"))
-            existing_allowed = existing_payload.get("allowed_paths")
-        except (json.JSONDecodeError, OSError):
-            existing_allowed = None
-
-    if existing_allowed == allowed:
-        return f"permissions: docs/phases/permissions/{story_id}.json unchanged ({len(allowed)} paths)"
-
-    payload = {
+    computed = {
         "story_id": story_id,
         "story_spec": story_spec_rel,
         "allowed_paths": allowed,
-        "generated_at": _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "standing_paths": standing,
     }
+    if story_phase:
+        computed["story_phase"] = story_phase
+
+    existing_comparable: dict | None = None
+    if out_path.exists():
+        try:
+            existing_payload = json.loads(out_path.read_text(encoding="utf-8"))
+            if isinstance(existing_payload, dict):
+                existing_comparable = {
+                    k: v for k, v in existing_payload.items() if k != "generated_at"
+                }
+        except (json.JSONDecodeError, OSError):
+            existing_comparable = None
+
+    # INFRA-320 § A6: the unchanged short-circuit compares the full computed
+    # payload (minus `generated_at`) rather than `allowed_paths` alone —
+    # otherwise a `standing_paths`/`story_phase` change with an unchanged
+    # `allowed_paths` would leave a stale artifact on disk.
+    if existing_comparable == computed:
+        return f"permissions: docs/phases/permissions/{story_id}.json unchanged ({len(allowed)} paths)"
+
+    payload = dict(computed)
+    payload["generated_at"] = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     out_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return f"permissions: wrote docs/phases/permissions/{story_id}.json ({len(allowed)} paths)"
 
@@ -645,6 +689,297 @@ def cmd_permissions_create(story_id: str, project_dir: str) -> None:
         message = generate_permissions_artifact(story_id, project_path)
     except PermissionsCreateError as exc:
         click.echo(f"permissions-create: {exc}", err=True)
+        sys.exit(1)
+    click.echo(message)
+
+
+# ---------------------------------------------------------------------------
+# permissions-widen — audited mid-build scope widening (INFRA-320 § B)
+# ---------------------------------------------------------------------------
+
+
+class PermissionsWidenError(Exception):
+    """Raised by ``widen_story_scope`` on any refusal (INFRA-320 § B2)."""
+
+
+_FRONTMATTER_BLOCK_RE = re.compile(r"\A(---\n)(.*?)(\n---\n)", re.DOTALL)
+_FM_TOP_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):")
+
+
+def _split_frontmatter_blocks(fm_text: str) -> list[tuple[str, str]]:
+    """Split a frontmatter body into ``(key, raw_block_text)`` pairs, in
+    order. ``raw_block_text`` is the key's own ``key: value`` line plus any
+    indented continuation lines (e.g. a block-style list), with no trailing
+    newline. Preserves every other line verbatim — this is a textual split,
+    never a YAML round-trip.
+    """
+    blocks: list[tuple[str, list[str]]] = []
+    for line in fm_text.splitlines():
+        m = _FM_TOP_KEY_RE.match(line)
+        if m:
+            blocks.append((m.group(1), [line]))
+        elif blocks:
+            blocks[-1][1].append(line)
+    return [(k, "\n".join(v)) for k, v in blocks]
+
+
+def _append_touches_entry(fm_text: str, path: str) -> str:
+    """Textually append *path* to a story frontmatter's ``touches:``
+    block-style YAML list (INFRA-320 § B3.1), preserving existing entries
+    and their order. Creates the ``touches:`` key immediately after
+    ``primary_files:`` when absent (or at the end of the frontmatter body
+    when ``primary_files:`` is also absent). Never round-trips through a
+    YAML dumper — reformatting unrelated frontmatter or losing comments is
+    exactly what a textual edit against the ``touches:`` block avoids.
+    """
+    blocks = _split_frontmatter_blocks(fm_text)
+    new_item = f"  - {path}"
+    keys = [k for k, _ in blocks]
+
+    if "touches" in keys:
+        idx = keys.index("touches")
+        key, block = blocks[idx]
+        header, _sep, remainder = block.partition("\n")
+        header_value = header.split(":", 1)[1].strip() if ":" in header else ""
+        if not remainder and header_value in ("", "[]"):
+            # `touches:` alone, or an empty flow list — becomes a
+            # single-item block-style list (INFRA-296 made flow style a
+            # parse refusal, so this is the only flow-style shape we ever
+            # see here).
+            blocks[idx] = (key, f"touches:\n{new_item}")
+        else:
+            blocks[idx] = (key, f"{block}\n{new_item}")
+    else:
+        new_block = ("touches", f"touches:\n{new_item}")
+        if "primary_files" in keys:
+            blocks.insert(keys.index("primary_files") + 1, new_block)
+        else:
+            blocks.append(new_block)
+
+    return "\n".join(block for _, block in blocks) + "\n"
+
+
+def _widen_frontmatter_touches(full_text: str, path: str) -> str:
+    """Apply `_append_touches_entry` to *full_text*'s frontmatter block only
+    — the body (everything after the closing ``---``) is passed through
+    untouched.
+    """
+    m = _FRONTMATTER_BLOCK_RE.match(full_text)
+    if m is None:
+        raise PermissionsWidenError("story file has no parseable frontmatter block")
+    new_fm_body = _append_touches_entry(m.group(2), path)
+    if new_fm_body.endswith("\n"):
+        new_fm_body = new_fm_body[:-1]
+    return full_text[: m.start(2)] + new_fm_body + full_text[m.end(2) :]
+
+
+_SCOPE_WIDENINGS_SECTION_RE = re.compile(
+    r"^## Scope widenings\s*\n(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL
+)
+_REQUIRES_SECTION_RE = re.compile(
+    r"^## Requires\s*\n(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL
+)
+
+
+def _append_scope_widening_row(
+    full_text: str, path: str, reason: str, widened_at: str
+) -> str:
+    """Append a ``| path | reason | widened_at |`` row to the story body's
+    ``## Scope widenings`` table (INFRA-320 § B3.2), creating the section
+    (with its header row) immediately after ``## Requires`` when absent —
+    or at the end of the body when ``## Requires`` is also absent.
+    """
+    row = f"| {path} | {reason} | {widened_at} |\n"
+
+    existing = _SCOPE_WIDENINGS_SECTION_RE.search(full_text)
+    if existing is not None:
+        insert_at = existing.end()
+        prefix = "" if full_text[:insert_at].endswith("\n") else "\n"
+        return full_text[:insert_at] + prefix + row + full_text[insert_at:]
+
+    new_section = (
+        "\n## Scope widenings\n\n| path | reason | widened_at |\n"
+        "| --- | --- | --- |\n" + row + "\n"
+    )
+    requires_match = _REQUIRES_SECTION_RE.search(full_text)
+    if requires_match is not None:
+        insert_at = requires_match.end()
+        return full_text[:insert_at] + new_section + full_text[insert_at:]
+
+    sep = "" if full_text.endswith("\n") else "\n"
+    return full_text + sep + new_section
+
+
+def widen_story_scope(
+    story_id: str,
+    path: str,
+    reason: str,
+    project_path: Path,
+    *,
+    dry_run: bool = False,
+) -> str:
+    """Perform an audited scope widening (INFRA-320 § B): declares *path* in
+    the story's ``touches:``, records a ``## Scope widenings`` row with
+    *reason*, and regenerates the permissions artifact — never an implicit
+    grant. Modelled on `generate_permissions_artifact` (§ B1): raises
+    `PermissionsWidenError` on any refusal instead of calling ``sys.exit``,
+    so a future non-CLI caller can use it directly.
+
+    Refuses (writing nothing) when: *story_id* is malformed or has no spec
+    file; *reason* is empty/whitespace-only; *path* resolves outside the
+    project root (same resolve-then-``relative_to`` containment semantics
+    `permission_scope._safe_path` already uses — never a string
+    ``startswith``); or *path* is matched by `scope_guard.PROTECTED_GLOBS` —
+    a protected path is never widenable by this command under any flag
+    (§ B2).
+
+    Idempotent (§ B4): a *path* already present in ``primary_files`` or
+    ``touches`` is a no-op success. A *path* already standing (§ A) is also
+    a no-op success (§ B6) — widening it would re-introduce exactly the
+    per-story copy-pasting § A removes.
+
+    ``dry_run=True`` (§ B5) computes and describes every write without
+    changing a byte of any file.
+
+    The three writes (touches append, Scope widenings row, artifact
+    regeneration) are computed fully in memory before anything reaches
+    disk, and the story file's two edits land in a single ``write_text``
+    call — so a failure anywhere in the computation leaves every file
+    byte-identical to before the call (atomic in intent, § B3).
+    """
+    if not _STORY_ID_RE.match(story_id):
+        raise PermissionsWidenError(f"invalid story_id format: {story_id!r}")
+
+    story_path = _story_path(story_id, project_path)
+    if not story_path.exists():
+        raise PermissionsWidenError(f"story spec not found: {story_path}")
+
+    if not reason or not reason.strip():
+        raise PermissionsWidenError("--reason must not be empty")
+
+    try:
+        resolved = (project_path.resolve() / path).resolve()
+        rel = resolved.relative_to(project_path.resolve())
+    except (ValueError, OSError):
+        raise PermissionsWidenError(
+            f"--path resolves outside the project root: {path!r}"
+        ) from None
+    norm_path = rel.as_posix()
+
+    if _is_protected(norm_path):
+        matched = next(
+            (g for g in PROTECTED_GLOBS if fnmatch.fnmatch(norm_path, g)), "?"
+        )
+        raise PermissionsWidenError(
+            f"{norm_path} matches protected glob {matched!r} — protected paths "
+            "are never widenable by permissions-widen (see builder/procedure.md "
+            "§ Before writing anything, BUILDER BLOCKED)"
+        )
+
+    fm = _read_story_frontmatter(story_path)
+    primary_files = fm.get("primary_files")
+    touches = fm.get("touches")
+    primary_files = primary_files if isinstance(primary_files, list) else []
+    touches = touches if isinstance(touches, list) else []
+
+    if norm_path in primary_files or norm_path in touches:
+        return (
+            f"permissions-widen: {norm_path} already declared for {story_id} "
+            "— no-op"
+        )
+
+    phase_raw = fm.get("phase")
+    story_phase = (
+        phase_raw.strip() if isinstance(phase_raw, str) and phase_raw.strip() else None
+    )
+    if norm_path in standing_paths_for(story_id, story_phase):
+        return (
+            f"permissions-widen: {norm_path} is a standing shared surface — "
+            "no touches: entry needed"
+        )
+
+    widened_at = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if dry_run:
+        return (
+            f"permissions-widen: DRY RUN — would append {norm_path!r} to "
+            f"{story_id}'s touches:, add a Scope widenings row "
+            f"(reason={reason!r}, widened_at={widened_at}), and regenerate "
+            f"docs/phases/permissions/{story_id}.json"
+        )
+
+    text = story_path.read_text(encoding="utf-8")
+    new_text = _widen_frontmatter_touches(text, norm_path)
+    new_text = _append_scope_widening_row(new_text, norm_path, reason, widened_at)
+    story_path.write_text(new_text, encoding="utf-8")
+
+    # The story-file edit above lands wherever the caller says (typically the
+    # builder's own per-story worktree — that copy is what gets committed and
+    # merged). The permissions artifact, like every other scope_guard read,
+    # only ever lives under the MAIN checkout root regardless of the caller's
+    # cwd (`scope_guard._resolve_main_project_root`, INFRA-238) — a builder
+    # invoking this from inside its worktree must still land the widened
+    # artifact where `check_path` actually reads it, or the widening would
+    # edit the story spec without ever un-blocking the write it names. Read
+    # the just-widened frontmatter from *project_path* (the caller's own
+    # root) but write the artifact under the resolved main root.
+    generate_permissions_artifact(
+        story_id,
+        _resolve_main_project_root(project_path),
+        spec_project_path=project_path,
+    )
+
+    return (
+        f"permissions-widen: {norm_path} added to {story_id}'s touches: "
+        f"(reason: {reason})"
+    )
+
+
+@flex_build.command("permissions-widen")
+@click.argument("story_id")
+@click.option(
+    "--path",
+    "widen_path",
+    required=True,
+    help="Repo-relative path to declare into the story's scope.",
+)
+@click.option(
+    "--reason",
+    required=True,
+    help="Why this path is needed — required and must not be empty.",
+)
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Echo the writes that would be made without changing any file.",
+)
+def cmd_permissions_widen(
+    story_id: str, widen_path: str, reason: str, project_dir: str, dry_run: bool
+) -> None:
+    """Audited mid-build scope widening (INFRA-320 § B) — not an auto-widen.
+
+    Declares --path in the story's touches:, records a reason and timestamp
+    in a ## Scope widenings body row, and regenerates the permissions
+    artifact, so the frontmatter stays the single source of truth and the
+    artifact stays derived.
+    """
+    if not reason or not reason.strip():
+        raise click.UsageError("--reason must not be empty")
+
+    project_path = Path(project_dir).resolve()
+    try:
+        message = widen_story_scope(
+            story_id, widen_path, reason, project_path, dry_run=dry_run
+        )
+    except PermissionsWidenError as exc:
+        click.echo(f"permissions-widen: {exc}", err=True)
         sys.exit(1)
     click.echo(message)
 
@@ -1991,6 +2326,96 @@ def cmd_bump_context_tokens(cost: int, project_dir: str) -> None:
     click.echo(f"context: bumped by {cost:,} → total {state['context_current_tokens']:,} tokens")
 
 
+# ---------------------------------------------------------------------------
+# check-story-scope rule 3 — body-named paths (INFRA-320 § C1)
+# ---------------------------------------------------------------------------
+
+_BODY_SECTIONS_FOR_SCOPE_RE = re.compile(
+    r"^##\s+(?:Ensures|Instructions)\s*\n(.*?)(?=^##|\Z)",
+    re.IGNORECASE | re.MULTILINE | re.DOTALL,
+)
+_INLINE_CODE_FOR_SCOPE_RE = re.compile(r"`([^`]+)`")
+_CODE_FENCE_FOR_SCOPE_RE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+_PATH_TOKEN_FOR_SCOPE_RE = re.compile(
+    r"[A-Za-z0-9_.\-/]+\.(?:py|md|json|j2|ts|tsx|js|jsx|toml|yaml|yml)"
+)
+
+
+def check_story_scope_body_named_paths(story_path: Path, project_path: Path) -> list[str]:
+    """Pure warning function behind check-story-scope's rule 3 (INFRA-320
+    § C1): extract repo-relative path tokens named inside inline code or
+    fenced code in the story's ``## Ensures``/``## Instructions`` sections,
+    keep only those that exist in the working tree (a spec may legitimately
+    name a file it is about to create — warning on those would be noise),
+    and return one message per token absent from the declared scope
+    (``primary_files ∪ touches ∪ standing_paths_for(...)``, reusing
+    `scope_guard.standing_paths_for` — § C2 — so a path added to
+    `STANDING_SURFACES` stops producing spec-time warnings in the same
+    commit that stops producing deny decisions).
+
+    Pure and total: any read/parse failure returns ``[]`` rather than
+    raising. Both `cmd_check_story_scope` (rule 3) and
+    `spec_preflight.run_preflight` (§ C4) call this directly — never a CLI
+    shell-out from inside another Python process.
+    """
+    try:
+        text = story_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    try:
+        fm = _read_story_frontmatter(story_path)
+    except Exception:  # noqa: BLE001
+        return []
+
+    story_id = str(fm.get("id") or story_path.stem)
+    primary_files = fm.get("primary_files")
+    touches = fm.get("touches")
+    primary_files = primary_files if isinstance(primary_files, list) else []
+    touches = touches if isinstance(touches, list) else []
+
+    def _norm(s: object) -> str:
+        return str(s).replace("\\", "/").lstrip("./")
+
+    phase_raw = fm.get("phase")
+    story_phase = (
+        phase_raw.strip() if isinstance(phase_raw, str) and phase_raw.strip() else None
+    )
+
+    declared: set[str] = {_norm(p) for p in list(primary_files) + list(touches)}
+    declared |= {_norm(p) for p in standing_paths_for(story_id, story_phase)}
+
+    body = "\n".join(_BODY_SECTIONS_FOR_SCOPE_RE.findall(text))
+    if not body.strip():
+        return []
+
+    tokens: list[str] = []
+    for m in _INLINE_CODE_FOR_SCOPE_RE.finditer(body):
+        tokens.extend(
+            t for t in _PATH_TOKEN_FOR_SCOPE_RE.findall(m.group(1)) if "/" in t
+        )
+    for fence_m in _CODE_FENCE_FOR_SCOPE_RE.finditer(body):
+        tokens.extend(
+            t for t in _PATH_TOKEN_FOR_SCOPE_RE.findall(fence_m.group(1)) if "/" in t
+        )
+
+    warnings: list[str] = []
+    seen: set[str] = set()
+    for tok in tokens:
+        norm = _norm(tok)
+        if norm in seen:
+            continue
+        seen.add(norm)
+        if norm in declared:
+            continue
+        if not (project_path / norm).exists():
+            continue
+        warnings.append(
+            f"{norm} is named in Ensures/Instructions but is not in declared "
+            "scope (primary_files/touches/standing)"
+        )
+    return warnings
+
+
 @flex_build.command("check-story-scope")
 @click.argument("story_id")
 @click.option(
@@ -2089,6 +2514,12 @@ def cmd_check_story_scope(story_id: str, project_dir: str) -> None:
                     )
                 # Only emit for the first matching candidate.
                 break
+
+    # Rule 3 — body-named paths (INFRA-320 § C1): a repo path token named in
+    # the story's own Ensures/Instructions, that exists on disk, but is
+    # absent from the declared scope (primary_files ∪ touches ∪ standing).
+    for msg in check_story_scope_body_named_paths(story_path, project_path):
+        click.echo(f"SCOPE WARNING: {story_id}: {msg}")
 
     # Rule: architecture.md prompt for code stories with no docs/ touches.
     story_class = fm.get("story_class") or "code"

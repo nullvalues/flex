@@ -25,6 +25,7 @@ touches:
   - docs/architecture.md
   - docs/cer/backlog.md
   - docs/stories/INFRA/INFRA-320.md
+  - tests/pairmode/test_flex_build_clear_stale_stories.py
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
@@ -168,6 +169,13 @@ scope-enforcement material (`:68`, `:352-383`, `:744-770`); INFRA-299's land at
 the recording/attribution material. If INFRA-299 has already merged when this
 builds, re-read both files before editing. INFRA-299 also edits
 `hooks/pre_tool_use.py`; **this story must not** — see § Out of scope.
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| tests/pairmode/test_flex_build_clear_stale_stories.py | fix brittle import-string assertion broken by extending the scope_guard import for INFRA-320 § A/B | 2026-07-30T00:27:03Z |
 
 ## Ensures
 

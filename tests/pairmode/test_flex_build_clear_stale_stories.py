@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -16,6 +17,11 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _SCRIPT = _REPO_ROOT / "skills" / "pairmode" / "scripts" / "flex_build.py"
+_SCRIPTS_DIR = _REPO_ROOT / "skills" / "pairmode" / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+import scope_guard  # noqa: E402
 
 
 def _run(*args: str) -> subprocess.CompletedProcess:
@@ -228,8 +234,19 @@ def test_max_age_hours_override(tmp_path: Path) -> None:
 
 
 def test_imports_staleness_rule_from_scope_guard() -> None:
+    """C1: import from `scope_guard` rather than re-deriving the staleness
+    rule. INFRA-320 widens this same import statement (§ A/B additions), so
+    this checks membership of the two staleness names rather than pinning
+    the exact import line."""
+    import flex_build  # noqa: PLC0415
+
+    assert flex_build.entry_is_fresh is scope_guard.entry_is_fresh
+    assert flex_build.STATE_STORY_MAX_AGE_HOURS == scope_guard.STATE_STORY_MAX_AGE_HOURS
     text = _SCRIPT.read_text()
-    assert "from scope_guard import entry_is_fresh, STATE_STORY_MAX_AGE_HOURS" in text
+    assert re.search(r"from scope_guard import \(?[^)]*\bentry_is_fresh\b", text)
+    assert re.search(
+        r"from scope_guard import \(?[^)]*\bSTATE_STORY_MAX_AGE_HOURS\b", text, re.DOTALL
+    )
 
 
 # ---------------------------------------------------------------------------

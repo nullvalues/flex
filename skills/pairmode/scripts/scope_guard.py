@@ -44,6 +44,50 @@ def _is_protected(path_str: str) -> bool:
     return any(fnmatch.fnmatch(path_str, g) for g in PROTECTED_GLOBS)
 
 
+# INFRA-320 (CER-128) § A1 — standing shared surfaces: exact repo-relative
+# paths every story may write without declaring them in `primary_files` /
+# `touches`. A path may join this tuple only if it is (i) a documentation or
+# record surface, never code; (ii) not matched by `PROTECTED_GLOBS` (the
+# protected check always runs first and its result is final — a standing
+# entry can never reach a protected path, see `check_path`); and (iii) one
+# that a majority of stories legitimately touch. Adding a code path to this
+# tuple is a CRITICAL review finding (reviewer/procedure.md § 9 RAIL SCOPE).
+STANDING_SURFACES: tuple[str, ...] = (
+    "docs/cer/backlog.md",
+    "docs/architecture.md",
+)
+
+
+def standing_paths_for(
+    story_id: "str | None",
+    story_phase: "str | None" = None,
+) -> tuple[str, ...]:
+    """Return `STANDING_SURFACES` plus the per-story derived standing paths
+    (INFRA-320 § A2): the story's own spec (`docs/stories/<RAIL>/<ID>.md`)
+    and, only when *story_phase* is supplied, that one phase doc
+    (`docs/phases/phase-<phase>.md`) — no other phase doc is ever standing.
+
+    Total: a malformed *story_id* or an absent/blank *story_phase* degrades
+    to the static surfaces alone (plus the spec path when the ID does
+    parse) and never raises. Performs no file I/O — `check_path` runs on
+    every Edit/Write through the hook and this function must stay cheap and
+    pure.
+    """
+    paths = list(STANDING_SURFACES)
+    try:
+        if story_id and _STORY_ID_RE.match(story_id):
+            rail = story_id.split("-", 1)[0]
+            paths.append(f"docs/stories/{rail}/{story_id}.md")
+    except Exception:
+        pass
+    try:
+        if isinstance(story_phase, str) and story_phase.strip():
+            paths.append(f"docs/phases/phase-{story_phase.strip()}.md")
+    except Exception:
+        pass
+    return tuple(paths)
+
+
 def check_path(
     file_path: str | Path,
     project_dir: str | Path,
@@ -148,6 +192,21 @@ def check_path(
 
     if candidate in allowed_paths:
         return True, "allowed"
+
+    # INFRA-320 § A3/A4/A7: the standing-surface union is consulted only
+    # here — after the protected check has already run and only when the
+    # candidate is NOT protected — so a standing entry can never override
+    # PROTECTED_GLOBS (A4). `artifact_standing` is the artifact's own
+    # `standing_paths` (present on any artifact generated after this story
+    # lands); `live` is always recomputed from the current STANDING_SURFACES
+    # so a pre-INFRA-320 artifact (no `standing_paths` key) still grants the
+    # standing set — a migration-free upgrade (A7).
+    if not protected:
+        artifact_standing, artifact_phase = _read_standing_and_phase(project, story_id)
+        live = standing_paths_for(story_id, artifact_phase)
+        if candidate in set(artifact_standing) | set(live):
+            return True, "allowed (standing shared surface)"
+
     return False, f"not in story scope for {story_id}: {normalised}"
 
 
@@ -595,6 +654,34 @@ def _read_allowed_paths(project: Path, story_id: str) -> tuple[list[str] | None,
         return ([_norm_str(p) for p in paths] if isinstance(paths, list) else []), "ok"
     except Exception:
         return None, "malformed"
+
+
+def _read_standing_and_phase(project: Path, story_id: str) -> "tuple[tuple[str, ...], str | None]":
+    """Read ``standing_paths`` / ``story_phase`` from the story's permissions
+    artifact (INFRA-320 § A7).
+
+    Never raises: a missing file, invalid JSON, a non-dict payload, or a
+    malformed ``standing_paths``/``story_phase`` value all degrade to
+    ``((), None)`` — the malformed-key case check_path's caller then falls
+    back to purely by computing the live ``standing_paths_for()`` union,
+    never an exception.
+    """
+    perm_path = project / "docs" / "phases" / "permissions" / f"{story_id}.json"
+    try:
+        data = json.loads(perm_path.read_text())
+    except Exception:
+        return (), None
+    if not isinstance(data, dict):
+        return (), None
+    raw_standing = data.get("standing_paths")
+    standing = (
+        tuple(_norm_str(p) for p in raw_standing)
+        if isinstance(raw_standing, list) and all(isinstance(p, str) for p in raw_standing)
+        else ()
+    )
+    raw_phase = data.get("story_phase")
+    phase = raw_phase.strip() if isinstance(raw_phase, str) and raw_phase.strip() else None
+    return standing, phase
 
 
 _WORKTREE_PREFIX = ".pairmode-worktrees/"

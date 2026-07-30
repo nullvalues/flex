@@ -1503,7 +1503,9 @@ class TestCreateStoryWorktreeAtomicity:
 
     def test_c6_flow_style_frontmatter_end_to_end(self, tmp_path: Path) -> None:
         """C6: flow-style primary_files/touches produce a permissions artifact
-        listing every declared path plus the story spec, in declaration order."""
+        listing every declared path, in declaration order. The story's own
+        spec is delivered via `standing_paths` (INFRA-320 § A5), not mixed
+        into `allowed_paths`."""
         _init_git_repo(tmp_path)
         self._write_raw_story(
             tmp_path,
@@ -1527,8 +1529,8 @@ class TestCreateStoryWorktreeAtomicity:
             "skills/pairmode/scripts/a.py",
             "docs/architecture.md",
             "tests/pairmode/test_a.py",
-            "docs/stories/WT/WT-302.md",
         ]
+        assert "docs/stories/WT/WT-302.md" in payload["standing_paths"]
 
     def test_b4_check_story_scope_exits_1_on_malformed_frontmatter(
         self, tmp_path: Path

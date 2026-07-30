@@ -265,3 +265,51 @@ def test_resolve_flex_factor_defaults_to_1_0_when_no_active_story(tmp_path):
     hook = _load_hook_module()
     result = hook._resolve_flex_factor(tmp_path)
     assert result == 1.0
+
+
+# ---------------------------------------------------------------------------
+# INFRA-320 (CER-128) § A / G2 — standing surfaces at the hook boundary
+# ---------------------------------------------------------------------------
+
+
+def test_hook_allows_standing_surface_and_blocks_undeclared_code_file(tmp_path):
+    """End-to-end through the real (unmocked) scope_guard.check_path: a
+    standing surface (docs/cer/backlog.md) is allowed and an undeclared code
+    file is still blocked, for the same active story."""
+    story_id = "INFRA-950"
+    companion = tmp_path / ".companion"
+    companion.mkdir()
+    (companion / "state.json").write_text(
+        json.dumps(
+            {"current_story": {"id": story_id, "set_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    )
+    perm_dir = tmp_path / "docs" / "phases" / "permissions"
+    perm_dir.mkdir(parents=True)
+    (perm_dir / f"{story_id}.json").write_text(
+        json.dumps({"story_id": story_id, "allowed_paths": ["skills/foo.py"]})
+    )
+
+    # Standing surface — no block.
+    exit_code, stdout = _run_main(
+        {
+            "tool_name": "Edit",
+            "tool_input": {"file_path": "docs/cer/backlog.md"},
+            "cwd": str(tmp_path),
+        }
+    )
+    assert exit_code == 0
+    assert stdout.strip() == ""
+
+    # Undeclared code file — still blocked.
+    exit_code, stdout = _run_main(
+        {
+            "tool_name": "Edit",
+            "tool_input": {"file_path": "skills/undeclared.py"},
+            "cwd": str(tmp_path),
+        }
+    )
+    assert exit_code == 0
+    payload = json.loads(stdout.strip())
+    assert payload["decision"] == "block"
+    assert "not in story scope" in payload["reason"]

@@ -76,6 +76,14 @@ You are given a story ID (e.g. `BUILD-012`). Before taking any other action:
    section is absent, use the project's own documented protected-file list
    (e.g. `docs/architecture.md` § Protected files) rather than assuming any
    specific project's list.
+4. If an ordinary (non-protected) write is denied with `not in story scope
+   for <story_id>: <path>` — an undeclared file the guard has never granted
+   automatically and never will (INFRA-320) — do not stop and do not shell
+   out around the guard. Run:
+   `flex_build.py permissions-widen <story_id> --path <path> --reason
+   "<one sentence>"`
+   and continue. This is the only case that self-resolves; the protected-file
+   case in item 3 above is unchanged and still stops.
 
 ---
 
@@ -165,7 +173,8 @@ Return a JSON object conforming to the `BUILD-RESULT` schema (WORKER-004 grammar
   "type": "BUILD-RESULT",
   "outcome": "PASS",
   "story_id": "RAIL-NNN",
-  "reason": "One sentence describing what was implemented."
+  "reason": "One sentence describing what was implemented.",
+  "widenings": "none"
 }
 ```
 
@@ -175,6 +184,10 @@ Fields:
 - `story_id` — the exact story ID you were given (e.g. `WORKER-005`)
 - `reason` — one sentence for PASS describing what was implemented; for FAIL, a brief
   description of why the build failed
+- `widenings` — (INFRA-320) every `permissions-widen` call made during this build, as
+  `path (reason)` pairs, comma-separated, or the literal string `"none"` when no
+  widening was performed — so the orchestrator sees a widening without reading the
+  story file
 
 Return only the JSON object. No preamble, no commentary, no usage block.
 

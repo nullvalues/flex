@@ -108,6 +108,17 @@ def run_preflight(story_path: Path, project_dir: Path) -> list[str]:
     warnings: list[str] = []
     warnings.extend(_check_routes(body, project_dir))
     warnings.extend(_check_constants(body, project_dir))
+
+    # INFRA-320 § C4: fold check-story-scope's rule-3 (body-named path
+    # absent from declared scope) warnings into preflight output — this is
+    # what makes the spec-writer's Step 7 self-check actually surface a
+    # touches: gap on a story it has just written. Calls the pure warning
+    # function directly (never a CLI shell-out from inside this process).
+    import flex_build as _flex_build  # noqa: PLC0415
+
+    for msg in _flex_build.check_story_scope_body_named_paths(story_path, project_dir):
+        warnings.append(f"scope: {msg}")
+
     return warnings
 
 

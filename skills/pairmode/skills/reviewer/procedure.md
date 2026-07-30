@@ -293,8 +293,20 @@ Violations are MEDIUM.
 
 Read the story's `primary_files` and `touches` declarations from
 `docs/stories/<RAIL>/<RAIL>-NNN.md`.
-- Any file in the diff NOT listed in `primary_files` or `touches`:
-  flag MEDIUM (undeclared file touched — possible scope creep).
+- A file in the diff that is a standing shared surface
+  (`scope_guard.STANDING_SURFACES`, or the story's own spec/phase doc via
+  `scope_guard.standing_paths_for`) is never a finding, declared or not
+  (INFRA-320 § A).
+- Any other file in the diff NOT listed in `primary_files` or `touches`:
+  - If the story body carries a `## Scope widenings` row naming that file
+    (INFRA-320 § B): **not** a MEDIUM finding by default — judge whether the
+    recorded reason is legitimate. Flag MEDIUM when the reason is absent,
+    empty, or boilerplate (e.g. "needed it", "misc"). The existing HIGH
+    rail-violation rule below still applies to a widened path that reaches a
+    different rail's primary domain.
+  - If there is **no** `## Scope widenings` row for that file: flag MEDIUM
+    (undeclared file touched — possible scope creep), exactly as before
+    INFRA-320.
 - Any file in the diff whose path falls under a different rail's primary
   domain (check `docs/stories/<OTHER_RAIL>/` ownership) AND is not in
   `touches`: flag HIGH (rail violation — architectural boundary crossed

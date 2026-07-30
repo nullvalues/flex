@@ -196,11 +196,16 @@ PATH=$HOME/.local/bin:$PATH uv run python <pairmode-scripts-dir>/flex_build.py \
 ```
 
 The scan flags unverifiable route and constant references in the story body
-(e.g. API routes or named constants that do not exist in the codebase). It is
-informational only — it always exits 0 and never blocks. If it reports
-findings, revise the story body to remove or correct the hallucinated
-references before returning; if a finding is intentional (the route/constant
-is created by this story), leave it and note it in the story body.
+(e.g. API routes or named constants that do not exist in the codebase), and
+(INFRA-320 § C) declared-scope gaps — a repo path named in `## Ensures`/
+`## Instructions` that exists in the working tree but is absent from
+`primary_files`/`touches`/the standing surfaces (prefixed `scope: ` in the
+output). It is informational only — it always exits 0 and never blocks. If it
+reports findings, fix them before returning: remove or correct a hallucinated
+route/constant reference, or add the named path to `touches:` for a `scope: `
+finding; if a finding is intentional (the route/constant is created by this
+story, or the path is legitimately out of scope), leave it and note it in the
+story body.
 
 ### Step 8 — Return SPEC-RESULT
 

@@ -21,7 +21,9 @@ from flex_build import (  # type: ignore[import]  # noqa: E402
 from story_new import _story_frontmatter, _story_body  # type: ignore[import]  # noqa: E402
 
 
-def _make_story(tmp_path: Path, story_id: str, primary_files=None, touches=None) -> Path:
+def _make_story(
+    tmp_path: Path, story_id: str, primary_files=None, touches=None, phase: str = "99"
+) -> Path:
     """Write a minimal story spec file with YAML frontmatter."""
     rail = story_id.split("-")[0]
     story_dir = tmp_path / "docs" / "stories" / rail
@@ -44,7 +46,7 @@ def _make_story(tmp_path: Path, story_id: str, primary_files=None, touches=None)
         f"rail: {rail}\n"
         "title: Test story\n"
         "status: planned\n"
-        'phase: "99"\n'
+        f'phase: "{phase}"\n'
         f"{pf_yaml}"
         f"{touches_yaml}"
         "---\n\n"
@@ -69,10 +71,14 @@ def test_permissions_create_writes_json_with_correct_structure(tmp_path):
     assert "story_id" in data
     assert "story_spec" in data
     assert "allowed_paths" in data
+    assert "standing_paths" in data
     assert "generated_at" in data
 
 
-def test_permissions_create_includes_story_spec_in_allowed_paths(tmp_path):
+def test_permissions_create_includes_story_spec_in_standing_paths(tmp_path):
+    """INFRA-320 § A5: the story's own spec path is delivered via
+    `standing_paths`, not `allowed_paths` — `allowed_paths` continues to
+    mean exactly what the story declared in primary_files/touches."""
     runner = CliRunner()
     _make_story(tmp_path, "INFRA-999", primary_files=["a.py"], touches=["b.py"])
     runner.invoke(
@@ -81,7 +87,8 @@ def test_permissions_create_includes_story_spec_in_allowed_paths(tmp_path):
     )
     out_path = tmp_path / "docs" / "phases" / "permissions" / "INFRA-999.json"
     data = json.loads(out_path.read_text())
-    assert "docs/stories/INFRA/INFRA-999.md" in data["allowed_paths"]
+    assert "docs/stories/INFRA/INFRA-999.md" in data["standing_paths"]
+    assert "docs/stories/INFRA/INFRA-999.md" not in data["allowed_paths"]
 
 
 def test_permissions_create_deduplicates_paths(tmp_path):
@@ -110,7 +117,8 @@ def test_permissions_create_handles_missing_primary_files(tmp_path):
     assert result.exit_code == 0, result.output
     out_path = tmp_path / "docs" / "phases" / "permissions" / "INFRA-999.json"
     data = json.loads(out_path.read_text())
-    assert data["allowed_paths"] == ["docs/stories/INFRA/INFRA-999.md"]
+    assert data["allowed_paths"] == []
+    assert "docs/stories/INFRA/INFRA-999.md" in data["standing_paths"]
 
 
 def test_permissions_create_handles_missing_touches(tmp_path):
@@ -125,7 +133,8 @@ def test_permissions_create_handles_missing_touches(tmp_path):
     out_path = tmp_path / "docs" / "phases" / "permissions" / "INFRA-999.json"
     data = json.loads(out_path.read_text())
     assert "x.py" in data["allowed_paths"]
-    assert "docs/stories/INFRA/INFRA-999.md" in data["allowed_paths"]
+    assert "docs/stories/INFRA/INFRA-999.md" not in data["allowed_paths"]
+    assert "docs/stories/INFRA/INFRA-999.md" in data["standing_paths"]
 
 
 def test_permissions_create_exits_nonzero_when_story_not_found(tmp_path):
@@ -207,6 +216,53 @@ def test_permissions_create_rewrites_when_touches_changes(tmp_path):
     assert data2["allowed_paths"] != data1["allowed_paths"]
 
 
+def test_permissions_artifact_separates_allowed_from_standing_paths(tmp_path):
+    """INFRA-320 § A5: allowed_paths and standing_paths are distinct
+    top-level keys — declaring a story does not mix the two."""
+    runner = CliRunner()
+    _make_story(tmp_path, "INFRA-999", primary_files=["a.py"], touches=["b.py"])
+    runner.invoke(
+        flex_build,
+        ["permissions-create", "INFRA-999", "--project-dir", str(tmp_path)],
+    )
+    out_path = tmp_path / "docs" / "phases" / "permissions" / "INFRA-999.json"
+    data = json.loads(out_path.read_text())
+    assert set(data["allowed_paths"]) == {"a.py", "b.py"}
+    assert "docs/cer/backlog.md" in data["standing_paths"]
+    assert "docs/architecture.md" in data["standing_paths"]
+    assert "docs/stories/INFRA/INFRA-999.md" in data["standing_paths"]
+    assert data["story_phase"] == "99"
+    assert "docs/phases/phase-99.md" in data["standing_paths"]
+
+
+def test_permissions_artifact_rewritten_when_only_phase_changes(tmp_path):
+    """INFRA-320 § A6: changing only `phase:` in frontmatter (allowed_paths
+    unchanged) still rewrites the artifact — the unchanged short-circuit
+    compares the full computed payload, not allowed_paths alone."""
+    runner = CliRunner()
+    _make_story(tmp_path, "INFRA-999", primary_files=["a.py"], touches=["b.py"], phase="99")
+    r1 = runner.invoke(
+        flex_build,
+        ["permissions-create", "INFRA-999", "--project-dir", str(tmp_path)],
+    )
+    assert r1.exit_code == 0
+    out_path = tmp_path / "docs" / "phases" / "permissions" / "INFRA-999.json"
+    data1 = json.loads(out_path.read_text())
+
+    _make_story(tmp_path, "INFRA-999", primary_files=["a.py"], touches=["b.py"], phase="100")
+    r2 = runner.invoke(
+        flex_build,
+        ["permissions-create", "INFRA-999", "--project-dir", str(tmp_path)],
+    )
+    assert r2.exit_code == 0
+    assert "wrote" in r2.output
+    data2 = json.loads(out_path.read_text())
+    assert data1["allowed_paths"] == data2["allowed_paths"]
+    assert data1["story_phase"] == "99"
+    assert data2["story_phase"] == "100"
+    assert "docs/phases/phase-100.md" in data2["standing_paths"]
+
+
 def test_permissions_create_rewrites_when_existing_file_is_corrupt(tmp_path):
     runner = CliRunner()
     _make_story(tmp_path, "INFRA-999", primary_files=["a.py"], touches=["b.py"])
@@ -239,8 +295,9 @@ def test_permissions_create_stdout_reports_path_and_count(tmp_path):
     assert result.exit_code == 0
     # stdout should contain the wrote line
     assert "permissions: wrote docs/phases/permissions/INFRA-999.json" in result.output
-    # Count should be 3: a.py, b.py, story spec
-    assert "(3 paths)" in result.output
+    # Count should be 2: a.py, b.py — the story spec is standing (§ A5), not
+    # counted in allowed_paths.
+    assert "(2 paths)" in result.output
 
 
 def test_permissions_create_rejects_invalid_story_id_format(tmp_path):
@@ -296,7 +353,8 @@ def test_permissions_artifact_fresh_stub_does_not_raise(tmp_path):
     out_path = tmp_path / "docs" / "phases" / "permissions" / f"{story_id}.json"
     assert out_path.exists()
     payload = json.loads(out_path.read_text(encoding="utf-8"))
-    assert payload["allowed_paths"] == [story_spec_rel]
+    assert payload["allowed_paths"] == []
+    assert story_spec_rel in payload["standing_paths"]
 
 
 def test_permissions_artifact_legacy_buggy_touches_line_does_not_raise(tmp_path):
@@ -329,7 +387,8 @@ def test_permissions_artifact_legacy_buggy_touches_line_does_not_raise(tmp_path)
     out_path = tmp_path / "docs" / "phases" / "permissions" / f"{story_id}.json"
     assert out_path.exists()
     payload = json.loads(out_path.read_text(encoding="utf-8"))
-    assert payload["allowed_paths"] == [story_spec_rel]
+    assert payload["allowed_paths"] == []
+    assert story_spec_rel in payload["standing_paths"]
 
 
 # ---------------------------------------------------------------------------
@@ -402,12 +461,8 @@ def test_permissions_artifact_flow_style_frontmatter_succeeds(tmp_path):
             encoding="utf-8"
         )
     )
-    assert payload["allowed_paths"] == [
-        "a.html",
-        "b.html",
-        "c.html",
-        "docs/stories/INFRA/INFRA-994.md",
-    ]
+    assert payload["allowed_paths"] == ["a.html", "b.html", "c.html"]
+    assert "docs/stories/INFRA/INFRA-994.md" in payload["standing_paths"]
 
 
 def test_permissions_artifact_malformed_frontmatter_raises_permissions_error(tmp_path):

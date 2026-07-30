@@ -88,6 +88,30 @@ def test_run_preflight_warns_on_missing_route(tmp_path):
     assert any("/api/ghost-route-zzz" in w for w in warnings)
 
 
+def test_spec_preflight_surfaces_scope_warnings(tmp_path):
+    """INFRA-320 § C4: run_preflight folds check-story-scope's rule-3
+    (body-named undeclared path) warnings into its own output, prefixed
+    `scope: ` so their origin is legible."""
+    story = tmp_path / "docs" / "stories" / "INFRA"
+    story.mkdir(parents=True)
+    story_file = story / "INFRA-320.md"
+    story_file.write_text(
+        "---\nid: INFRA-320\nrail: INFRA\nphase: \"99\"\n"
+        "primary_files: []\ntouches: []\n---\n\n"
+        "## Ensures\n\n- Update `docs/architecture.md` and "
+        "`skills/pairmode/scripts/undeclared.py`.\n"
+    )
+    (tmp_path / "skills" / "pairmode" / "scripts").mkdir(parents=True)
+    (tmp_path / "skills" / "pairmode" / "scripts" / "undeclared.py").write_text("# x\n")
+
+    warnings = sp.run_preflight(story_file, tmp_path)
+    scope_warnings = [w for w in warnings if w.startswith("scope: ")]
+    assert len(scope_warnings) == 1
+    assert "skills/pairmode/scripts/undeclared.py" in scope_warnings[0]
+    # docs/architecture.md is a standing surface — never warned on.
+    assert not any("docs/architecture.md" in w for w in scope_warnings)
+
+
 def test_run_preflight_cli_exits_0(tmp_path):
     story = tmp_path / "docs" / "stories" / "INFRA"
     story.mkdir(parents=True)

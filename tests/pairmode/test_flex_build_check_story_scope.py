@@ -293,3 +293,80 @@ def test_multiple_warnings_for_multiple_scripts(tmp_path: Path) -> None:
         line for line in result.stdout.splitlines() if "SCOPE WARNING:" in line
     ]
     assert len(warning_lines) == 3
+
+
+# ---------------------------------------------------------------------------
+# Rule 3 — body-named paths (INFRA-320 § C1)
+# ---------------------------------------------------------------------------
+
+
+def _make_story_with_body(
+    tmp_path: Path, story_id: str, ensures_body: str, *, phase: str = "99"
+) -> Path:
+    rail = story_id.split("-", 1)[0]
+    story_dir = tmp_path / "docs" / "stories" / rail
+    story_dir.mkdir(parents=True, exist_ok=True)
+    story_path = story_dir / f"{story_id}.md"
+    content = (
+        "---\n"
+        f"id: {story_id}\n"
+        f"rail: {rail}\n"
+        "title: Test story\n"
+        "status: planned\n"
+        f'phase: "{phase}"\n'
+        "primary_files: []\n"
+        "touches: []\n"
+        "---\n\n"
+        "## Requires\n\nNothing.\n\n"
+        "## Ensures\n\n"
+        f"{ensures_body}\n"
+    )
+    story_path.write_text(content, encoding="utf-8")
+    return story_path
+
+
+def test_check_story_scope_warns_on_body_named_undeclared_existing_path(
+    tmp_path: Path,
+) -> None:
+    """A path named in ## Ensures that exists on disk but is absent from
+    primary_files/touches/standing produces a SCOPE WARNING (C1)."""
+    _make_story_with_body(
+        tmp_path,
+        "INFRA-001",
+        "- Update `skills/pairmode/scripts/undeclared.py` to do the thing.",
+    )
+    _touch(tmp_path, "skills/pairmode/scripts/undeclared.py")
+
+    result = _run("check-story-scope", "INFRA-001", project_dir=tmp_path)
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "SCOPE WARNING:" in result.stdout
+    assert "skills/pairmode/scripts/undeclared.py" in result.stdout
+
+
+def test_check_story_scope_silent_on_body_named_nonexistent_path(tmp_path: Path) -> None:
+    """A body-named path that does not exist in the working tree is silent —
+    a spec may legitimately name a file it is about to create."""
+    _make_story_with_body(
+        tmp_path,
+        "INFRA-001",
+        "- Create `skills/pairmode/scripts/not_yet_created.py`.",
+    )
+    # Deliberately do NOT create the file.
+
+    result = _run("check-story-scope", "INFRA-001", project_dir=tmp_path)
+    assert result.returncode == 0
+    assert "not_yet_created.py" not in result.stdout
+
+
+def test_check_story_scope_silent_on_standing_surface(tmp_path: Path) -> None:
+    """A body-named path that IS a standing surface (§ A) never warns —
+    § C2 reuses scope_guard.standing_paths_for so the two never disagree."""
+    _make_story_with_body(
+        tmp_path,
+        "INFRA-001",
+        "- Update `docs/architecture.md` and `docs/cer/backlog.md`.",
+    )
+
+    result = _run("check-story-scope", "INFRA-001", project_dir=tmp_path)
+    assert result.returncode == 0
+    assert "SCOPE WARNING:" not in result.stdout

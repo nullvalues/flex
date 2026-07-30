@@ -568,6 +568,108 @@ def test_worktree_prefixed_relative_path_still_matches_allowed_paths(tmp_path: P
 
 
 # ---------------------------------------------------------------------------
+# INFRA-320 (CER-128) § A — standing shared surfaces
+# ---------------------------------------------------------------------------
+
+
+def _write_permissions_full(tmp_path: Path, story_id: str, payload: dict) -> None:
+    """Write a permissions artifact with an arbitrary payload dict — used
+    where a test needs to control `standing_paths`/`story_phase` directly
+    rather than the plain `_write_permissions` shape."""
+    perm_dir = tmp_path / "docs" / "phases" / "permissions"
+    perm_dir.mkdir(parents=True, exist_ok=True)
+    (perm_dir / f"{story_id}.json").write_text(json.dumps(payload))
+
+
+def test_standing_surface_allowed_with_distinct_reason(tmp_path: Path) -> None:
+    """A candidate in scope_guard.STANDING_SURFACES is allowed with a reason
+    distinguishable from a plain declared-file allow (A3)."""
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions(tmp_path, STORY_ID, ["skills/foo.py"])
+    allowed, reason = scope_guard.check_path("docs/cer/backlog.md", tmp_path)
+    assert allowed is True
+    assert reason == "allowed (standing shared surface)"
+
+
+def test_protected_glob_denied_even_when_listed_standing(tmp_path: Path) -> None:
+    """A4: the standing allowance never overrides PROTECTED_GLOBS, even for
+    a synthetic standing entry pointing straight at a protected glob."""
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions(tmp_path, STORY_ID, ["skills/foo.py"])
+    with patch.object(
+        scope_guard, "STANDING_SURFACES", ("hooks/pre_tool_use.py",)
+    ):
+        allowed, reason = scope_guard.check_path("hooks/pre_tool_use.py", tmp_path)
+    assert allowed is False
+    assert reason != "allowed (standing shared surface)"
+
+
+def test_undeclared_code_file_still_denied_with_unchanged_message(tmp_path: Path) -> None:
+    """A8: an undeclared code file outside the standing set is still denied
+    with the byte-identical deny string."""
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions(tmp_path, STORY_ID, ["skills/foo.py"])
+    allowed, reason = scope_guard.check_path("README.md", tmp_path)
+    assert allowed is False
+    assert reason == f"not in story scope for {STORY_ID}: README.md"
+
+
+def test_legacy_artifact_without_standing_paths_still_grants_them(tmp_path: Path) -> None:
+    """A7: an artifact generated before INFRA-320 (no `standing_paths` key)
+    still grants the live-computed standing surfaces — a migration-free
+    upgrade."""
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions_full(
+        tmp_path, STORY_ID, {"story_id": STORY_ID, "allowed_paths": ["skills/foo.py"]}
+    )
+    allowed, reason = scope_guard.check_path("docs/architecture.md", tmp_path)
+    assert allowed is True
+    assert reason == "allowed (standing shared surface)"
+
+
+def test_malformed_standing_paths_degrades_to_live_computation(tmp_path: Path) -> None:
+    """A7: a malformed `standing_paths` value (not a list of strings)
+    degrades to the live computation rather than raising."""
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions_full(
+        tmp_path,
+        STORY_ID,
+        {
+            "story_id": STORY_ID,
+            "allowed_paths": ["skills/foo.py"],
+            "standing_paths": "not-a-list",
+        },
+    )
+    allowed, reason = scope_guard.check_path("docs/cer/backlog.md", tmp_path)
+    assert allowed is True
+    assert reason == "allowed (standing shared surface)"
+
+
+def test_standing_paths_for_includes_story_spec_and_phase() -> None:
+    result = scope_guard.standing_paths_for("INFRA-999", "113")
+    assert "docs/cer/backlog.md" in result
+    assert "docs/architecture.md" in result
+    assert "docs/stories/INFRA/INFRA-999.md" in result
+    assert "docs/phases/phase-113.md" in result
+
+
+def test_standing_paths_for_no_phase_omits_phase_doc() -> None:
+    result = scope_guard.standing_paths_for("INFRA-999", None)
+    assert not any(p.startswith("docs/phases/phase-") for p in result)
+
+
+def test_standing_paths_for_malformed_story_id_returns_static_surfaces_only() -> None:
+    result = scope_guard.standing_paths_for("not-a-story-id", "113")
+    assert result == scope_guard.STANDING_SURFACES + ("docs/phases/phase-113.md",)
+
+
+def test_standing_paths_for_never_raises_and_performs_no_io(tmp_path: Path) -> None:
+    # Total: no exception for any weird input, and no filesystem access.
+    assert scope_guard.standing_paths_for(None, None) == scope_guard.STANDING_SURFACES
+    assert scope_guard.standing_paths_for("", "") == scope_guard.STANDING_SURFACES
+
+
+# ---------------------------------------------------------------------------
 # INFRA-281 (CER-095.2): resolve_call_story — per-call story resolution
 # ---------------------------------------------------------------------------
 

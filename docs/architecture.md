@@ -65,7 +65,7 @@ flex/
         era_transition.py         ← formally close the current active era and open the next; CLI: uv run era_transition.py --project-dir DIR [--name NAME] [--intent INTENT] [--yes]; also registered as flex_build.py transition-era
         schema_validator.py       ← validate story/era/phase manifest frontmatter
         permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json (legacy; Phase 55 replaces runtime use with scope_guard.py + permissions-create for new projects)
-        scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json; fails open on non-protected paths when no active story, but fails closed (blocks) on PROTECTED_GLOBS paths even without an active story (INFRA-196), on protected paths in the active-story missing/malformed/empty-artifact branches (INFRA-253), and on any path that resolves outside the project root — all inputs resolved+contained before glob/permission checks (INFRA-255); INFRA-271 (CER-080/CER-087) adds two more layers: (1) the state.json fallback (`_resolve_story_from_state`) ages a `current_stories`/`current_story` entry out at `STATE_STORY_MAX_AGE_HOURS` (24h) via the public `entry_is_fresh()` predicate — a stamp missing/unparseable `set_at` or older than the cutoff resolves to the `"stale"` source (fail-open for ordinary paths, naming the cutoff and the `clear-stale-stories` remedy; still fail-closed for `PROTECTED_GLOBS`), while a worktree claim (`worktree-cwd`/`worktree-path`) never ages out; (2) `harness_owned_prefixes()` derives a narrow allow-list of out-of-root paths the harness itself owns (the session's `~/.claude/projects/<key>/memory/` notes directory and `<tmp>/claude-<uid>/<key>/` scratchpad root, plus `~/.claude/plans`), and `_out_of_root_decision()` consults it — on the *resolved* path, never a string prefix — before either `"path escapes project root"` deny site returns; `_normalise`'s containment itself is unchanged
+        scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json; fails open on non-protected paths when no active story, but fails closed (blocks) on PROTECTED_GLOBS paths even without an active story (INFRA-196), on protected paths in the active-story missing/malformed/empty-artifact branches (INFRA-253), and on any path that resolves outside the project root — all inputs resolved+contained before glob/permission checks (INFRA-255); INFRA-271 (CER-080/CER-087) adds two more layers: (1) the state.json fallback (`_resolve_story_from_state`) ages a `current_stories`/`current_story` entry out at `STATE_STORY_MAX_AGE_HOURS` (24h) via the public `entry_is_fresh()` predicate — a stamp missing/unparseable `set_at` or older than the cutoff resolves to the `"stale"` source (fail-open for ordinary paths, naming the cutoff and the `clear-stale-stories` remedy; still fail-closed for `PROTECTED_GLOBS`), while a worktree claim (`worktree-cwd`/`worktree-path`) never ages out; (2) `harness_owned_prefixes()` derives a narrow allow-list of out-of-root paths the harness itself owns (the session's `~/.claude/projects/<key>/memory/` notes directory and `<tmp>/claude-<uid>/<key>/` scratchpad root, plus `~/.claude/plans`), and `_out_of_root_decision()` consults it — on the *resolved* path, never a string prefix — before either `"path escapes project root"` deny site returns; `_normalise`'s containment itself is unchanged; INFRA-320 (CER-128) § A adds a third layer — a **standing shared surfaces** allowance sitting inside the `status == "ok"` branch, after the protected check: `STANDING_SURFACES` (a stdlib-only, immutable `tuple[str, ...]` — currently `docs/cer/backlog.md` and `docs/architecture.md`) names exact documentation/record paths every story may write without declaring them, admissible only when (i) documentation/record, never code, (ii) not matched by `PROTECTED_GLOBS`, and (iii) legitimately touched by a majority of stories — adding a code path to it is a CRITICAL review finding; `standing_paths_for(story_id, story_phase)` is the pure, I/O-free helper that unions `STANDING_SURFACES` with the two per-story derived paths (the story's own spec, and its one phase doc when a phase key is supplied) and is total (never raises, degrading a malformed ID or absent phase to the static set alone); `check_path` resolves the effective standing set as the permissions artifact's own `standing_paths` key (when present and well-formed) **union** a live call to `standing_paths_for()` — the live half is what lets a pre-INFRA-320 artifact (generated before this story, carrying no `standing_paths` key) still grant the standing surfaces with no migration step, and a malformed `standing_paths` value degrades to the live union rather than raising. A standing-surface allow returns the reason string `"allowed (standing shared surface)"`, distinguishable in a hook transcript from a plain declared-file `"allowed"`. The protected check always runs first and its result is final — a path matched by `PROTECTED_GLOBS` is denied even were it (invalidly) listed in `STANDING_SURFACES`; no standing or widening mechanism (see `permissions-widen` below) ever reaches a protected path
         state_utils.py            ← shared helper for atomic state.json writes (`_atomic_write_json`); adopted by all remaining state.json writers as of HARNESS015-main (INFRA-202) — hooks/post_tool_use.py, story_context.py, bootstrap.py, skills/companion/scripts/sidebar.py (pairmode_sync.py/pairmode_register.py already had their own inline atomic implementation)
         session_reset.py          ← pure decision logic for SessionStart counter reset; no I/O (mirrors context_budget.py D11 boundary); CER-047 / Phase 68 INFRA-175
         spec_preflight.py         ← INFRA-190/191 — scans story body sections for unverifiable route and constant references; informational only (always exits 0)
@@ -480,6 +480,62 @@ so a claim never overrides commit evidence (CER-095.1).
    optional prompt-suppression aid, not part of the enforcement path Layer 1 + `scope_guard.py`
    already cover. An operator (or a future story) may still invoke `write-permissions`/
    `clear-permissions` by hand.
+   **Layer 3 (`permissions-widen`, INFRA-320/CER-128) — the audited mid-build declaration
+   path.** Layer 1 fixes the allowed set at worktree-creation time; before INFRA-320 the only
+   remedies for a file discovered mid-build were an operator hand-editing `touches:` and
+   re-running `permissions-create`, toggling auto-mode off so the Claude Code permission prompt
+   surfaces, or a builder falling back to shell writes — three human interventions in an
+   otherwise headless loop. `flex_build.py permissions-widen STORY_ID --path <path> --reason
+   <text>` is the self-service alternative a headless builder subagent can invoke directly
+   (`builder/procedure.md` § Before writing anything, item 4): both `--path` and `--reason` are
+   required, and an empty `--reason` is a usage error (exit 2) rather than a defaulted value —
+   an untraceable widening is exactly what this command exists to prevent. On success it
+   performs, in order: (1) a textual append of `--path` to the story's `touches:` block-style
+   YAML list (never a YAML-dumper round-trip, which would reformat unrelated frontmatter and
+   lose comments), creating the key immediately after `primary_files:` when absent; (2) a row
+   in a `## Scope widenings` story-body table (`path | reason | widened_at`, created after
+   `## Requires` when absent); (3) a call to `generate_permissions_artifact()` so the artifact
+   and the frontmatter can never disagree. **The frontmatter remains the single source of
+   truth and the artifact remains derived** — a widening that touched only the artifact would
+   make the story spec lie about what it declares. Step (1)'s frontmatter edit and step (3)'s
+   artifact write deliberately target **different roots** when the caller's own project root is
+   a per-story worktree (the shape a real builder's cwd takes): the spec edit lands in the
+   caller's own root (`--project-dir`, typically the worktree — that copy is what gets
+   committed and merged), while `generate_permissions_artifact()` is called with its write root
+   resolved through `scope_guard._resolve_main_project_root()` and its read root pinned to the
+   caller's own root via the new `spec_project_path` keyword — because the artifact, like every
+   other scope_guard read, only ever lives under the MAIN checkout regardless of the calling
+   tool's cwd (INFRA-238); writing it anywhere else would edit the story spec without ever
+   un-blocking the write it names. The command refuses (writing nothing) for an
+   unknown/malformed story ID, a `--path` that resolves outside the project root (the same
+   resolve-then-`relative_to` containment `_normalise`/`permission_scope._safe_path` already
+   use, never a string `startswith`), or a `--path` matched by `scope_guard.PROTECTED_GLOBS` —
+   **a protected path is never widenable by this command under any flag**, reusing
+   `scope_guard._is_protected` rather than re-listing the globs. It is idempotent (a path
+   already in `primary_files`/`touches` is a no-op success) and a no-op for a path that is
+   already a standing surface (§ A above) — widening a standing path into `touches:` would
+   re-introduce exactly the per-story copy-pasting the standing-surfaces layer removes.
+   `--dry-run` echoes every write it would make and changes no byte of any file. This is not an
+   auto-widen (§ Out of scope R1 in INFRA-320): the grant is never implicit on a denied write —
+   a builder must name the path and state a reason, and `reviewer/procedure.md` § 9 RAIL SCOPE
+   judges the recorded reason rather than treating every undeclared-but-widened file as an
+   automatic MEDIUM finding.
+   **Rejected directions (INFRA-320 § Out of scope, recorded so a later reader does not
+   re-propose them):** auto-widening on deny — granting a path implicitly the first time a
+   builder attempts to write it — was rejected because it converts the allow-list into a log:
+   any path a builder attempts becomes allowed, exactly the property `check_path` exists to
+   deny; Layer 3 keeps the grant explicit instead. Turning the deny into a
+   `hookSpecificOutput.permissionDecision: "ask"` prompt was rejected because a prompt *is* the
+   human intervention CER-128 reports — it moves the friction rather than removing it, and makes
+   the outcome depend on operator attention rather than declared scope. Routing the widening
+   audit trail through `spec_exception.py` / the companion sidebar pipe was rejected because
+   `record_spec_exception` is reachable only via an interactive sidebar keypress
+   (`sidebar.py:1283-1320`) — unusable by the headless builder subagent population that needs
+   it; the trail lives in the story file instead, which every reviewer already reads. Glob or
+   prefix matching in `allowed_paths` (e.g. `docs/**`) was rejected for this story because it
+   would silently re-create the over-declaration CER-128 describes — exact paths keep a
+   declaration meaningful. A warn-only/advisory scope mode was rejected: a guard that only warns
+   is a guard nobody reads.
 
 3. **Builder spawn** — `model_selector.select_builder_model()` picks the model (haiku for
    doc/lesson, sonnet baseline for code, opus on high-scope signals or retry). The builder
@@ -754,6 +810,17 @@ so a claim never overrides commit evidence (CER-095.1).
    missing/empty/malformed, regardless of `_is_protected()`) was closed in
    INFRA-253 (Phase 100), which also retired the `PROTECTED_GLOBS`-duplicate
    static denies in flex's own `.claude/settings.json` (CER-048).
+
+   **Standing surfaces do not weaken this contract (INFRA-320, CER-128):** the
+   standing-surface union (§ Permission pre-write, Layer 3 above) is consulted
+   only inside the `status == "ok"` branch, only after `_is_protected()` has
+   already run, and only when the candidate is **not** protected — the
+   protected check's result is final and unconditional. No path in
+   `PROTECTED_GLOBS` is reachable by `STANDING_SURFACES`, by
+   `standing_paths_for()`'s per-story derived paths, or by `permissions-widen`
+   (which refuses a protected `--path` outright, § B2, before any write). A
+   protected path remains satisfiable only by an explicit entry in the
+   permissions artifact, exactly as before this story.
 
    **Input-normalisation contract (INFRA-255):** every `file_path` scope_guard
    receives — relative or absolute — is resolved to an absolute path and
