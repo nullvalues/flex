@@ -2,7 +2,7 @@
 id: RELEASE-068
 rail: RELEASE
 title: Migrate pokus to pairmode 0.3.0 — canon files only
-status: planned
+status: complete
 phase: "106"
 auth_gated: false
 schema_introduces: false
@@ -806,3 +806,98 @@ failure.
   RELEASE-069 and RELEASE-070.
 - **Running pokus's gradle build.** `cd app && ./gradlew assembleDebug` is
   deliberately not run (C11 records the exclusion).
+
+## Evidence
+
+**Execution model:** orchestrator-level with operator present (per this story's own Execution model note) — no story worktree, no builder subagent dispatched. All pairmode CLI invocations ran from the release channel `/mnt/work/flex-harness`, targeting `/mnt/work/pokus`.
+
+### C0 — Preconditions
+- cp tags present in both `/mnt/work/flex` and `/mnt/work/flex-harness`: cp-105, cp-110, cp-111, cp-112, cp-113 (all confirmed via `git tag`).
+- Channel HEAD: `33d626f1 chore(phase-113): mark phase complete in index and era ledger (checkpoint-tag step)` — matches flex's cp-113 tag.
+- `RETIRED_SECTIONS` present in channel's `skills/pairmode/scripts/sync.py`.
+- RELEASE-063..067 all `complete`; RELEASE-069/070/071 all `draft` (verified in phase-106.md Stories table).
+- Operator directive quoted (2026-07-29): "Canon-only migration of pokus — sync the pairmode 0.3.0 canon files into `/mnt/work/pokus` and nothing more, so phase 106 can close." No proving story cycle run, per this directive.
+
+### C1 — Pre-sync baseline
+```
+git -C /mnt/work/pokus status --porcelain   -> (empty, clean)
+git -C /mnt/work/pokus branch --show-current -> main
+git -C /mnt/work/pokus log -1 --oneline      -> 1bf8383 fix(phase-proposed): correct pairmode tooling path to flex-harness, not flex
+readlink -f /mnt/work/pokus                  -> /mnt/work/pokus
+No .pairmode-worktrees dir, no current_story stamp file -> no build in flight
+.companion/state.json: pairmode_version=0.2.0, expected_step_tokens=53000, effort_tracking=true
+Stale-grammar grep: builder.md 1 hit, reviewer.md 1 hit (BUILD-RESULT: DONE / REVIEW-RESULT: PASS)
+Hook commands (.claude/settings.json): all four point at /mnt/work/flex/hooks/*.py (dev checkout)
+.claude/agents/: six shells present (builder, intent-reviewer, loop-breaker, reconstruction-agent, reviewer, security-auditor); gate-worker.md missing
+.claude/settings.local.json: 27 total allow rules, 7 Write/Edit-specific (app/** source files)
+fleet_discovery.py --no-snapshot for pokus: signal1=false (no-declaration), signal2=0.2.0, binding=version
+```
+Starting shape: bound-0.2.x, no-declaration — matches recon table exactly, no deviation.
+
+### C2 — Destructive preview
+Ran `uv run python skills/pairmode/scripts/sync.py --project-dir /mnt/work/pokus --dry-run` (direct sync.py, not sync-all --dry-run, per CER-133 item 6). Result: 46 RETIRED prunes total — 7 builder.md, 20 reviewer.md, 4 loop-breaker.md, 9 security-auditor.md, 6 intent-reviewer.md — all tagged `canon-retired by INFRA-241`, all landing exclusively in `.claude/agents/*.md` (none in CLAUDE.md or CLAUDE.build.md). Reviewed the full list with the operator; every retired section name matched generic 0.2-era agent boilerplate already seen pruned in the five prior campaign migrations (meander/lumin/caddy/forqsite.help/halfhorse) — none traceable to a pokus-specific extension. Operator approved proceeding to apply (no prunes declined).
+
+### C3 — Canon applied
+`pairmode_sync.py sync-all --project-dir /mnt/work/pokus --apply --yes` (--yes used because the full prune list was already reviewed with the operator at C2, satisfying the only-if-already-reviewed condition; no prune had been declined). First invocation was blocked by the Claude Code auto-mode permission classifier on the first out-of-repo write (canary note 7 scenario, materialized). Per instructions, did not work around it — asked the operator to toggle auto mode off. Operator confirmed auto mode off; retried; sync-all completed successfully (sync -> sync-agents -> sync-build, fixed order, no errors/tracebacks in output). Post-sync `.companion/state.json` shows `pairmode_version: "0.3.0"`.
+
+### C4 — Post-sync binding
+`fleet_discovery.py --no-snapshot` for pokus: `signal1=true` (value `/mnt/work/flex-harness/skills/pairmode/scripts`), `signal2=true` (value `0.3.0`), `binding="both"`. Passes — not `binding: version` alone.
+
+### C5 — CLAUDE.build.md shape
+`head -8` shows thin preamble + `pairmode_scripts_dir = /mnt/work/flex-harness/skills/pairmode/scripts`. Build standards line present: `test_command=cd app && ./gradlew assembleDebug | test_dir=tests/ | protected_paths=(none) | domain_isolation_rule=(none)` — not `(unset)`, so no rollback triggered. `grep -c "^## Checkpoint sequence"` -> 0 (no surviving 0.2-era heading).
+
+### C6 — Agent shells and stale-grammar clean
+Seven canonical shells present after sync, including newly created `gate-worker.md`. All 46 named retired section headers (per C2's list) return zero grep hits post-sync — confirmed via the sync-all apply output itself showing each as pruned, no leftovers. Post-sync stale-grammar grep: builder.md and reviewer.md both clean (delta 1->0 as expected); no surviving example needing operator report.
+
+### C7 — to-030 normalization
+`pairmode_migrate.py to-030 --project-dir /mnt/work/pokus --apply`:
+```
+[apply] rewrote expected_step_tokens: 53000 -> 5000   (silent rewrite, as expected per recon)
+```
+`[agent-cleanup]` WARN fired for all five agent shells (builder, reviewer, loop-breaker, security-auditor, intent-reviewer) — "content differs from known 0.2.x template (or allowlist not populated). Manual porting required." Expected, paired with C6's clean grep result (the WARN reflects the 0.2.x template being unavailable for diffing, not a content problem).
+Full state.json pre/post diff: only `pairmode_version` (0.2.0->0.3.0), `last_sync` (2026-06-17->2026-07-29), `expected_step_tokens` (53000->5000) changed as expected; sync-build also seeded new context-gate keys (`context_session_reset_at`, `context_current_tokens`, `context_current_tokens_recorded_at`) as part of normal 0.3.0 canon delivery.
+`.companion/state.json.lock` was left behind by the migrate step; deleted per instructions (never committed).
+
+### C8 — CER-127 recorded, not fixed
+Re-read `.claude/settings.json` hook commands post-sync: all four still point at `/mnt/work/flex/hooks/*.py`, unchanged from pre-sync baseline. Confirmed all four files exist and resolve on this machine (`ls -la` on all four paths succeeded). `pairmode_sync.py audit-hooks --project-dir /mnt/work/pokus` -> "no duplicate hook registrations found". No narrow rewrite applied (paths resolve; the exception's trigger condition was not met).
+
+**New field finding (not present in the story's recon):** `sync-all`'s `sync-build` step, when first run, unconditionally rewrote `.claude/settings.json` — repointing all four hook commands from `/mnt/work/flex/hooks/` to `/mnt/work/flex-harness/hooks/` and adding a new, previously-absent `SubagentStop` hook block — even though the pre-existing paths already resolved. This is new tooling behavior not seen in RELEASE-064..067 and not authorized by this story's C8 exception (which only permits a rewrite when paths *don't* resolve). The change was reverted (`git checkout HEAD -- .claude/settings.json`) before commit, per operator decision. Operator context: rewriting to the flex-harness path does not fix the underlying portability problem (CER-127/INFRA-319) — it substitutes one hardcoded absolute path for another, and neither path exists on a machine that installs flex via the local marketplace cache (the phase-111 packaging-repair goal). This is now flagged as new field evidence for INFRA-319 / phase 114, not something this story fixes. `settings.json` was excluded from the final commit.
+
+### C9 — Non-canon file check
+Pre-stage `git status --porcelain` reviewed; commit's changed-path set (`git show --stat HEAD`) = exactly: `.claude/agents/{builder,gate-worker,intent-reviewer,loop-breaker,reviewer,security-auditor}.md`, `.companion/state.json`, `CLAUDE.build.md`, `CLAUDE.md` — 9 files, a strict subset of the writable-canon allowlist. `.claude/settings.json` was NOT included (reverted per C8 finding above). `.claude/settings.local.json` was pruned under explicit C10 operator approval (see below) but is git-ignored in pokus and was never staged/committed. Along the way, an unrelated diagnostic step (`flex_build.py next-action --project-dir /mnt/work/pokus`, run to check C5) and a stray `rm -rf tests/__pycache__` briefly deleted a git-tracked `.pyc` file; this was caught immediately and restored via `git checkout HEAD -- tests/__pycache__/test_context_budget_check.cpython-312.pyc` before staging — final commit contains no trace of it. Commit subject: `sync: migrate to pairmode 0.3.0 canon (canon files only)` — does not name a RELEASE-0NN ID, per CER-116. Commit `7443b35`, pushed `6ea11ee..7443b35` to `origin/main`.
+
+### C10 — settings.local.json decision
+Existence confirmed: yes, 27 total allow rules (7 Write/Edit-specific, targeting `app/**` Kotlin/Android source files; the other 20 were Bash/Read rules referencing a prior project name `/mnt/work/anchor` — stale sediment from before a project rename). Operator's decision, quoted verbatim: **"Prune it"**, then clarified to **"Remove all 27 rules"** when asked whether to keep the 7 Write/Edit rules or clear everything. A backup was taken first (`.claude/settings.local.json.bak-pre-release-068`, untracked, local only) before the file was overwritten to `{"permissions": {"allow": []}}`. This deviates from the story's expected default ("expected: keep") — recorded here as the operator's explicit, deliberate call, not a unilateral prune.
+
+### C11 — Test surface
+`uv run pytest tests/ -q` from `/mnt/work/pokus`: 6 passed, 0 failed. Gradle build (`cd app && ./gradlew assembleDebug`) was explicitly **not** run — deliberate exclusion, not omission, since no Kotlin/Android source was touched by this canon-only migration.
+
+### C12 — Cleanliness
+`git -C /mnt/work/flex status --porcelain` after all work: empty except for this story file's own edit (this Evidence section) and any tool-written phase/index/ledger rows from `flex_build.py` recording commands — no stray edits under `skills/`, `tests/`, `ui/`, `.claude-plugin/`.
+`git -C /mnt/work/flex-harness status --porcelain`: empty (release channel untouched, read-only as required).
+`docs/fleet-snapshot.md` mtime confirmed unchanged (2026-07-24, predates this story) — no snapshot file was written or modified; every `fleet_discovery.py` invocation used `--no-snapshot`.
+
+### C13 — Findings (not fixed) and RELEASE-071 sentence
+
+Per-hazard status from this story's six Context hazards:
+1. Canon-retirement pruning (INFRA-311) — **materialized**: 46 prunes applied cleanly, all `.claude/agents/*.md`, none in canon files.
+2. `sync-all --dry-run` hiding prunes (CER-133 item 6) — **avoided**: used `sync.py --dry-run` directly per instructions, so this did not bite.
+3. `RETIRED_SECTIONS` keys not file-scoped (CER-133 item 2) — **did not materialize**: manual review confirmed no collision with a pokus-specific extension.
+4. `.pairmode-overrides` not honored on apply (L022) — **N/A**: pokus had no declared override entries; none were authored.
+5. Canon replacing inline review checklist / gradle gate survival — **verified fine** (C5); the `skills/pairmode/skills/<role>/procedure.md` pointer path is repo-relative and will not resolve in pokus as a consumer repo — recorded as finding (i) below, not fixed.
+6. CER-127 / hook paths — **materialized differently than expected**: recorded under C8 above as new field evidence (`sync-build`'s new unconditional, non-portable hook-path rewrite) for INFRA-319 / phase 114.
+
+New deviation found and named (not filed to `docs/cer/backlog.md` — operator was not asked to file it during this story; routed here as narrative evidence only, per "ask operator before filing" instruction):
+- `sync-build`'s new settings.json/hook rewrite behavior (see C8) — candidate follow-up for INFRA-319 / phase 114.
+
+Two required known follow-ups:
+(i) The repo-relative `skills/pairmode/skills/<role>/procedure.md` pointer path in the canon agent shells does not resolve in a payload-less consumer repo like pokus.
+(ii) pokus's own proposed migration phase doc (gated on TEST-002) is untouched and remains pokus's own future work to reconcile.
+
+**RELEASE-071 closing sentence:** "pokus is canon-synced at 0.3.0 with no proving cycle; the phase-106 checkpoint-proves clause is narrowed for pokus by the 2026-07-29 operator directive, and pokus must be counted as proof-deferred, not proven."
+
+### C14 — flex suite
+`uv run pytest tests/pairmode/ -q` (no `-x`) from `/mnt/work/flex`: **4305 passed, 211 skipped, 0 failed** in 157.68s. No new failures; this story touched no flex code.
+
+### Step 13 — Session restart requirement (CER-134 / INFRA-323)
+Per the 2026-07-29 operator addendum: this build session must exit and restart before any agent-registration verification or the next build session in pokus (steps 4/5 rewrote pokus's agent shells and created `gate-worker.md` mid-session; Claude Code only loads `.claude/agents/*.md` at session start, so a stale in-process registry would not be caught by C6's file-level checks). **This restart had not yet been performed as of this write** — recorded here as explicitly outstanding, not silently skipped. The operator must exit this session (not `/clear`, which shares the same process/registry) before any pokus agent-registration check or pokus build session.
