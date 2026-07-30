@@ -226,3 +226,30 @@ survives apply byte-identically.
   `docs/checkpoints.md` (F3's larger half) — CER-121, gated.
 - **Template content changes.** This story moves the *mechanism*; any new
   canon rewrite rides phase 116.
+
+## Evidence
+
+- **README.md scope expansion.** README.md:209 promises non-destructive sync
+  ("It offers to apply the delta non-destructively"); this story changes that
+  contract, so the sentence was reworded in the same commit to the new
+  contract: sync preserves project extensions and prunes only canon-retired
+  sections (`RETIRED_SECTIONS`), each behind an explicit per-section
+  confirmation. `docs/architecture.md:52` ("apply delta from audit
+  non-destructively") was reworded identically.
+- **Registry seed (Requires 4).** The 46 retired section keys were recovered
+  from git history, not memory: `_split_sections` diff of
+  `skills/pairmode/templates/agents/*.md.j2` at `9acb9145^` (pre-INFRA-241
+  fat templates: builder 7, reviewer 20, loop-breaker 4, security-auditor 9,
+  intent-reviewer 6 = 46 occurrences, 42 unique keys after cross-shell
+  dedupe) against the current thin shells. All entries tagged `INFRA-241`.
+- **Parity reconciliation (Ensures 8).** `bootstrap.SCAFFOLD_FILES` vs
+  audit-tracked surfaces is out of parity for five entries. Reconciled as:
+  `docs/ideology.md` / `docs/reconstruction.md` are audit-tracked via the
+  dedicated `_check_ideology_staleness` / `_check_reconstruction_staleness`
+  checks (counted as tracked, `_DEDICATED_CHECK_FILES`);
+  `docs/architecture.md` / `docs/checkpoints.md` are known gaps held open by
+  CER-121 (untouched, still gated); `.pairmode-overrides` was a previously
+  unfiled gap — filed as CER-132 (Do Later) and excepted via `_KNOWN_GAPS`.
+  Two meta-tests keep the exceptions honest: every `_KNOWN_GAPS` tracker must
+  exist as a real backlog row, and every excepted path must still be
+  untracked (a closed gap fails the test until the exception is removed).

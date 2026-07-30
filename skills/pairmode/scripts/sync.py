@@ -1,8 +1,11 @@
 """
 sync.py — Pairmode project syncer.
 
-Applies the delta from an audit result to a project non-destructively.
-Project-specific content (EXTRA items) is always preserved.
+Applies the delta from an audit result to a project. EXTRA items are preserved
+unless canon has explicitly retired them (``RETIRED_SECTIONS``); project
+overrides win over retirement. Every change — additions, updates, and
+retirement prunes alike — is applied only behind an explicit per-section
+confirmation (or ``--yes``).
 """
 
 from __future__ import annotations
@@ -53,6 +56,77 @@ from skills.pairmode.scripts.bootstrap import (  # noqa: E402
 from skills.pairmode.scripts.story_new import _add_rail_to_era, _find_era  # noqa: E402
 
 # ---------------------------------------------------------------------------
+# Canon-retired sections registry (INFRA-311)
+# ---------------------------------------------------------------------------
+#
+# Section keys that canon once shipped in CANONICAL_FILES templates and has
+# since removed, mapped to the story ID that retired them. Sync deletes a
+# downstream EXTRA section **only** when its key appears here (and only in
+# CANONICAL_FILES — scaffold-file bodies are inherently project-specific);
+# everything else keeps the preservation contract verbatim. A project
+# `.pairmode-overrides` entry naming a retired key is a legitimate
+# "keep it anyway" signal and wins over this registry.
+#
+# Keys are the normalised section keys produced by audit._normalise on the
+# section boundary line (``##`` headers, ``###`` headers, and bold numbered
+# checklist markers — the same _SECTION_RE granularity audit uses).
+#
+# Seed content: the INFRA-241 thin-agent reduction. These 46 keys were present
+# in the pre-INFRA-241 fat agent templates (git 9acb9145^,
+# skills/pairmode/templates/agents/*.md.j2) and are absent from the thin
+# shells that replaced them.
+RETIRED_SECTIONS: dict[str, str] = {
+    # --- builder.md.j2 (retired by INFRA-241 thin-agent reduction) ---
+    "## starting a story": "INFRA-241",
+    "## before writing anything": "INFRA-241",
+    "## implementation rules": "INFRA-241",
+    "## ⚙️ developer action gates": "INFRA-241",
+    "## when you are done": "INFRA-241",
+    "## if you cannot complete the story": "INFRA-241",
+    "## final output to orchestrator": "INFRA-241",  # also reviewer.md.j2
+    # --- reviewer.md.j2 (retired by INFRA-241) ---
+    "## starting a review": "INFRA-241",
+    "## before reviewing": "INFRA-241",  # also intent-reviewer.md.j2
+    "## contract check": "INFRA-241",
+    "## review checklist": "INFRA-241",
+    "**1. protected files**": "INFRA-241",
+    "**2. story scope**": "INFRA-241",
+    "**2.5 story spec**": "INFRA-241",
+    "**3. build gate**": "INFRA-241",
+    "**4. documentation currency**": "INFRA-241",
+    "**5. ideology alignment**": "INFRA-241",
+    "**5a. conviction consistency**": "INFRA-241",
+    "**5b. constraint rationale preservation**": "INFRA-241",
+    "**5c. fingerprint awareness**": "INFRA-241",
+    "**6. rail scope (new stories only — skip if story has no story file)**": "INFRA-241",
+    "## test run": "INFRA-241",
+    "## decision": "INFRA-241",
+    "### pass conditions": "INFRA-241",
+    "### fail conditions": "INFRA-241",
+    "## what you must not do": "INFRA-241",  # also loop-breaker.md.j2
+    # --- loop-breaker.md.j2 (retired by INFRA-241) ---
+    "## input format": "INFRA-241",
+    "## your process": "INFRA-241",
+    "## output format": "INFRA-241",  # also intent-reviewer.md.j2
+    # --- security-auditor.md.j2 (retired by INFRA-241) ---
+    "## before auditing": "INFRA-241",
+    "## audit priorities": "INFRA-241",
+    "### 1. hook integrity (critical if violated)": "INFRA-241",
+    "### 2. credential exposure (critical if violated)": "INFRA-241",
+    "### 3. path traversal (high if violated)": "INFRA-241",
+    "### 4. domain isolation violation (high if violated)": "INFRA-241",
+    "### 5. layer violation (high if violated)": "INFRA-241",
+    "### 6. spec file protection (medium if violated)": "INFRA-241",
+    "## report format": "INFRA-241",
+    # --- intent-reviewer.md.j2 (retired by INFRA-241) ---
+    "## inputs you will receive": "INFRA-241",
+    "## story alignment": "INFRA-241",
+    "## design pivot detection": "INFRA-241",
+    "## calibration": "INFRA-241",
+}
+
+
+# ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
 
@@ -63,9 +137,11 @@ class SyncResult:
     applied: list[str] = field(default_factory=list)
     preserved: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    retired: list[str] = field(default_factory=list)
     pairmode_version: str = PAIRMODE_VERSION
     last_sync: str = field(default_factory=lambda: date.today().isoformat())
     lessons_applied: list[str] = field(default_factory=list)
+    dry_run: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +316,38 @@ def _replace_section_in_file(project_text: str, section_key: str, canonical_body
     return project_text  # not found
 
 
+def _remove_section_from_file(project_text: str, section_key: str) -> str:
+    """Remove the section identified by section_key (boundary line + body).
+
+    Uses the same ``_SECTION_RE`` boundary pattern as audit.py's
+    ``_split_sections`` so removal granularity exactly matches audit's EXTRA
+    classification granularity: the removed range is the matching boundary
+    line (``##``/``###`` header or bold checklist marker) through the line
+    before the next ``_SECTION_RE`` boundary (of any kind), or end of file.
+
+    If the section is not found, the text is returned unchanged.
+    """
+    lines = project_text.splitlines(keepends=True)
+    header_idx: int | None = None
+    for i, line in enumerate(lines):
+        stripped = line.rstrip("\n").rstrip("\r")
+        if _SECTION_RE.fullmatch(stripped) and _normalise(stripped) == section_key:
+            header_idx = i
+            break
+
+    if header_idx is None:
+        return project_text  # not found
+
+    end_idx = len(lines)
+    for i in range(header_idx + 1, len(lines)):
+        stripped = lines[i].rstrip("\n").rstrip("\r")
+        if _SECTION_RE.fullmatch(stripped):
+            end_idx = i
+            break
+
+    return "".join(lines[:header_idx] + lines[end_idx:])
+
+
 def _append_section_to_file(project_text: str, header_key: str, canonical_body: str) -> str:
     """Append a new section to the end of project_text.
 
@@ -338,14 +446,26 @@ def _make_diff(current_body: str, canonical_body: str, n: int = 10) -> str:
 # ---------------------------------------------------------------------------
 
 
-def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) -> SyncResult:
+def sync_project(
+    project_dir: Path,
+    applies_to: str = "all",
+    yes: bool = False,
+    dry_run: bool = False,
+) -> SyncResult:
     """
-    Runs audit, then applies MISSING and INCONSISTENT items.
-    Never modifies EXTRA items.
+    Runs audit, then applies MISSING and INCONSISTENT items and prunes EXTRA
+    items in CANONICAL_FILES whose section key canon has explicitly retired.
+    EXTRA items are preserved unless canon has explicitly retired them
+    (``RETIRED_SECTIONS``); project overrides win over retirement.
     Returns SyncResult describing what was changed and what was preserved.
 
-    When yes=False, the user is prompted before each change. Declined changes
-    are recorded in result.skipped.
+    When yes=False, the user is prompted before each change — retirement
+    prunes included, each named with its section key and retiring story ID.
+    Declined changes are recorded in result.skipped.
+
+    When dry_run=True, nothing is written and no prompts are shown; the
+    result carries the same classifications (including RETIRED) that the
+    apply path would act on.
     """
     project_dir = Path(project_dir).resolve()
 
@@ -357,7 +477,7 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
         )
         sys.exit(1)
 
-    result = SyncResult(project_dir=project_dir)
+    result = SyncResult(project_dir=project_dir, dry_run=dry_run)
 
     # Load saved template context for rendering when creating/patching files
     context = _load_project_context(project_dir)
@@ -394,6 +514,21 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
 
     # Build scaffold-file set for quick lookup (Phase 7 docs with section-level comparison)
     scaffold_dests = {d for d, _t in SCAFFOLD_FILES}
+    canonical_dests = {d for d, _t in CANONICAL_FILES}
+
+    # Classify EXTRA items (INFRA-311): an EXTRA section in a CANONICAL_FILES
+    # file whose key is in RETIRED_SECTIONS is RETIRED (once-canonical, since
+    # removed by canon) — everything else is a genuine project extension and
+    # keeps the preservation contract. Classification happens here, before
+    # any prompt/apply branch, so dry-run and apply consume the same records.
+    retired_by_file: dict[str, list[tuple[AuditItem, str]]] = {}
+    genuine_extra: list[AuditItem] = []
+    for item in audit.extra:
+        retiring_story = RETIRED_SECTIONS.get(item.section)
+        if retiring_story is not None and item.file in canonical_dests:
+            retired_by_file.setdefault(item.file, []).append((item, retiring_story))
+        else:
+            genuine_extra.append(item)
 
     # Process files with MISSING items
     for dest_rel, items in missing_by_file.items():
@@ -407,7 +542,7 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
             rendered_text = _render_template(template_rel, enriched_context) or _get_template_text(template_rel)
             project_path = project_dir / dest_rel
             if not project_path.exists():
-                if not yes:
+                if not yes and not dry_run:
                     confirmed = click.confirm(
                         f"Create {dest_rel} (file missing)?",
                         default=False,
@@ -417,8 +552,9 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
                             f"{dest_rel} (file missing) (user declined)"
                         )
                         continue
-                project_path.parent.mkdir(parents=True, exist_ok=True)
-                project_path.write_text(rendered_text, encoding="utf-8")
+                if not dry_run:
+                    project_path.parent.mkdir(parents=True, exist_ok=True)
+                    project_path.write_text(rendered_text, encoding="utf-8")
                 result.applied.append(f"Created {dest_rel} (file was missing)")
             else:
                 # File exists but is missing some sections — append them
@@ -437,7 +573,7 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
                         continue
                     if section_key in canonical_sections:
                         canonical_body = canonical_sections[section_key]
-                        if not yes:
+                        if not yes and not dry_run:
                             confirmed = click.confirm(
                                 f"Append section '{section_key}' to {dest_rel}?",
                                 default=False,
@@ -454,7 +590,7 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
                             f"Appended section '{section_key}' to {dest_rel}"
                         )
                         changed = True
-                if changed:
+                if changed and not dry_run:
                     project_path.write_text(project_text, encoding="utf-8")
             continue
 
@@ -463,7 +599,7 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
 
         if not project_path.exists():
             # File is entirely missing — create it with rendered canonical content
-            if not yes:
+            if not yes and not dry_run:
                 confirmed = click.confirm(
                     f"Create {dest_rel} (file missing)?",
                     default=False,
@@ -473,8 +609,9 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
                         f"{dest_rel} (file missing) (user declined)"
                     )
                     continue
-            project_path.parent.mkdir(parents=True, exist_ok=True)
-            project_path.write_text(rendered_text, encoding="utf-8")
+            if not dry_run:
+                project_path.parent.mkdir(parents=True, exist_ok=True)
+                project_path.write_text(rendered_text, encoding="utf-8")
             result.applied.append(f"Created {dest_rel} (file was missing)")
         else:
             # File exists but is missing some sections — append them
@@ -493,7 +630,7 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
                     continue
                 if section_key in canonical_sections:
                     canonical_body = canonical_sections[section_key]
-                    if not yes:
+                    if not yes and not dry_run:
                         confirmed = click.confirm(
                             f"Append section '{section_key}' to {dest_rel}?",
                             default=False,
@@ -510,7 +647,7 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
                         f"Appended section '{section_key}' to {dest_rel}"
                     )
                     changed = True
-            if changed:
+            if changed and not dry_run:
                 project_path.write_text(project_text, encoding="utf-8")
 
     # Process files with INCONSISTENT items (skipped when context file is absent)
@@ -534,7 +671,7 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
 
         if not project_path.exists():
             # Shouldn't happen (inconsistent means file exists), but handle gracefully
-            if not yes:
+            if not yes and not dry_run:
                 confirmed = click.confirm(
                     f"Create {dest_rel} (file missing)?",
                     default=False,
@@ -544,8 +681,9 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
                         f"{dest_rel} (file missing) (user declined)"
                     )
                     continue
-            project_path.parent.mkdir(parents=True, exist_ok=True)
-            project_path.write_text(rendered_text, encoding="utf-8")
+            if not dry_run:
+                project_path.parent.mkdir(parents=True, exist_ok=True)
+                project_path.write_text(rendered_text, encoding="utf-8")
             result.applied.append(f"Created {dest_rel} (file was missing during inconsistent pass)")
             continue
 
@@ -563,7 +701,7 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
                 continue
             if section_key in canonical_sections:
                 canonical_body = canonical_sections[section_key]
-                if not yes:
+                if not yes and not dry_run:
                     # Show diff before prompting
                     # Extract current body for this section
                     parts = _split_by_h2(project_text)
@@ -590,11 +728,55 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
                     f"Updated section '{section_key}' in {dest_rel} to match canonical"
                 )
                 changed = True
-        if changed:
+        if changed and not dry_run:
             project_path.write_text(project_text, encoding="utf-8")
 
-    # Record EXTRA items as preserved
-    for item in audit.extra:
+    # Process files with RETIRED items (INFRA-311): EXTRA sections in
+    # CANONICAL_FILES whose key canon has explicitly retired. Same three-way
+    # contract as every other mutation site: override wins first (recorded as
+    # override-kept), then per-section confirmation (default No) naming the
+    # section key and the retiring story ID, declined prunes go to skipped.
+    for dest_rel, records in retired_by_file.items():
+        project_path = project_dir / dest_rel
+        if not project_path.exists():
+            continue
+        project_text = project_path.read_text(encoding="utf-8")
+        changed = False
+        for item, retiring_story in records:
+            section_key = item.section
+            if (dest_rel, section_key) in overrides:
+                click.echo(
+                    f"  (kept: .pairmode-overrides declares this section as "
+                    f"project-owned; override wins over retirement)"
+                )
+                result.preserved.append(
+                    f"{dest_rel}: section '{section_key}' "
+                    f"(override-kept; canon-retired by {retiring_story})"
+                )
+                continue
+            if not yes and not dry_run:
+                confirmed = click.confirm(
+                    f"Remove retired section '{section_key}' from {dest_rel} "
+                    f"(canon-retired by {retiring_story})?",
+                    default=False,
+                )
+                if not confirmed:
+                    result.skipped.append(
+                        f"{dest_rel}: section '{section_key}' "
+                        f"(canon-retired by {retiring_story}) (user declined)"
+                    )
+                    continue
+            if not dry_run:
+                project_text = _remove_section_from_file(project_text, section_key)
+                changed = True
+            result.retired.append(
+                f"{dest_rel}: section '{section_key}' — canon-retired by {retiring_story}"
+            )
+        if changed and not dry_run:
+            project_path.write_text(project_text, encoding="utf-8")
+
+    # Record genuine (non-retired) EXTRA items as preserved
+    for item in genuine_extra:
         result.preserved.append(
             f"{item.file}: section '{item.section}' (project-specific)"
         )
@@ -604,17 +786,21 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
     missing_rails = _check_rail_gaps(project_dir, stack)
     for rail in missing_rails:
         click.echo(f"  \u26a0 Standard rail {rail} not in this project.")
-        if not yes:
+        if not yes and not dry_run:
             confirmed = click.confirm(f"Add rail {rail}?", default=False)
         else:
             confirmed = True
         if confirmed:
-            rail_dir = project_dir / "docs" / "stories" / rail
-            rail_dir.mkdir(parents=True, exist_ok=True)
-            era_path = _find_era(project_dir)
-            if era_path is not None:
-                _add_rail_to_era(era_path, rail)
+            if not dry_run:
+                rail_dir = project_dir / "docs" / "stories" / rail
+                rail_dir.mkdir(parents=True, exist_ok=True)
+                era_path = _find_era(project_dir)
+                if era_path is not None:
+                    _add_rail_to_era(era_path, rail)
             result.applied.append(f"Created rail directory docs/stories/{rail}/")
+
+    if dry_run:
+        return result
 
     # Register PreToolUse + context-budget-gate hooks in .claude/settings.json
     # (INFRA-206 PreToolUse; INFRA-208 UserPromptSubmit / SessionStart /
@@ -672,13 +858,26 @@ def sync_project(project_dir: Path, applies_to: str = "all", yes: bool = False) 
 def format_sync_output(result: SyncResult) -> str:
     """Human-readable sync report."""
     lines: list[str] = []
-    lines.append(f"SYNC COMPLETE — {result.project_dir.name}")
+    if result.dry_run:
+        lines.append(f"SYNC DRY-RUN — {result.project_dir.name} (no files written)")
+    else:
+        lines.append(f"SYNC COMPLETE — {result.project_dir.name}")
     lines.append("")
 
     if result.applied:
-        lines.append("Applied:")
+        lines.append("Would apply (dry-run):" if result.dry_run else "Applied:")
         for change in result.applied:
             lines.append(f"  \u2713 {change}")
+        lines.append("")
+
+    if result.retired:
+        lines.append(
+            "RETIRED (canon-removed, would prune):"
+            if result.dry_run
+            else "RETIRED (canon-removed, pruned):"
+        )
+        for item in result.retired:
+            lines.append(f"  \u2717 {item}")
         lines.append("")
 
     if result.preserved:
@@ -693,7 +892,10 @@ def format_sync_output(result: SyncResult) -> str:
             lines.append(f"  \u2717 {item}")
         lines.append("")
 
-    lines.append("State updated: .companion/state.json")
+    if result.dry_run:
+        lines.append("State not updated (dry-run)")
+    else:
+        lines.append("State updated: .companion/state.json")
 
     return "\n".join(lines)
 
@@ -723,9 +925,15 @@ def format_sync_output(result: SyncResult) -> str:
     default=False,
     help="Apply all changes without prompting for confirmation.",
 )
-def main(project_dir: Path, applies_to: str, yes: bool) -> None:
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Report what would change (including RETIRED prunes) without writing anything.",
+)
+def main(project_dir: Path, applies_to: str, yes: bool, dry_run: bool) -> None:
     """Sync a project directory against canonical pairmode templates."""
-    result = sync_project(project_dir, applies_to=applies_to, yes=yes)
+    result = sync_project(project_dir, applies_to=applies_to, yes=yes, dry_run=dry_run)
     click.echo(format_sync_output(result))
 
 

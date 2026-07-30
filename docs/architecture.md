@@ -49,7 +49,7 @@ flex/
       scripts/
         bootstrap.py              ← generate pairmode scaffold from spec
         audit.py                  ← diff project against canonical templates
-        sync.py                   ← apply delta from audit non-destructively
+        sync.py                   ← apply delta from audit: preserves project extensions; prunes only canon-retired sections (RETIRED_SECTIONS), each behind an explicit per-section confirmation
         lesson.py                 ← capture a lesson learned
         lesson_review.py          ← surface lessons, propose template updates; --drift-only runs drift promotion without lesson review
         context_budget.py         ← orchestrator context-window estimation + block decision logic (CER-027)
@@ -1139,6 +1139,22 @@ Audit compares section headers (structural presence of `##` headings) between pr
 and raw Jinja2 template source — it does not render templates before comparison. Section
 bodies in canonical templates contain Jinja2 variable expressions (`{{ project_name }}`
 etc.); body-level content comparison should not be relied upon for semantic drift detection.
+
+**Canon retirement (INFRA-311, CER-119/120):** Canon shrinkage propagates through an
+explicit canon-side registry — `sync.py`'s `RETIRED_SECTIONS`, normalised section keys
+canon once shipped in `CANONICAL_FILES` templates and has since removed, each mapped to
+the retiring story ID (seeded with the 46 INFRA-241 thin-agent reductions). Sync prunes
+a downstream EXTRA section only when its key is registered and the file is canonical,
+behind the same per-section confirmation as every addition; `--dry-run` reports the same
+RETIRED classification without writing anything. All other EXTRA content keeps the
+preservation contract verbatim, and a `.pairmode-overrides` entry naming a retired key
+wins over the registry (reported override-kept, never silently). Audit derives the same
+classification at report time (`audit.classify_extra`, lazy-importing the registry from
+`sync.py` — no duplicate): EXTRA inside a `CANONICAL_FILES` file is a finding — WARN for
+unregistered keys ("stale-canon candidate or deliberate extension"), ERROR for
+registry-matched keys ("canon-retired content still present; run sync"), and
+OVERRIDDEN / OVERRIDE-KEPT under a project override — while `SCAFFOLD_FILES` EXTRA keeps
+the keep-as-is rendering (scaffold bodies are inherently project-specific).
 
 ### Rails and eras
 

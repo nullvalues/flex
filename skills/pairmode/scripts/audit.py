@@ -680,6 +680,70 @@ def _enrich_scaffold_context(context: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# EXTRA classification (INFRA-311)
+# ---------------------------------------------------------------------------
+
+
+def _retired_sections() -> dict[str, str]:
+    """Return sync.py's RETIRED_SECTIONS registry (single source of truth).
+
+    Imported lazily: sync.py imports audit.py at module load, so a top-level
+    import here would be circular. The sibling-import pattern (lesson_utils,
+    _version) plus the repo-root sys.path insert makes the runtime import safe.
+    """
+    from skills.pairmode.scripts.sync import RETIRED_SECTIONS
+
+    return RETIRED_SECTIONS
+
+
+def classify_extra(
+    result: AuditResult, overrides: set[tuple[str, str]] | None = None
+) -> list[tuple[AuditItem, str, str | None]]:
+    """Classify each EXTRA item as a finding severity (INFRA-311, CER-120).
+
+    Returns a list of ``(item, severity, retired_by)`` records, one per
+    ``result.extra`` item, in order:
+
+    - ``"KEEP"``          — EXTRA in a SCAFFOLD_FILES file: body content is
+                            inherently project-specific; today's keep-as-is
+                            behaviour, unchanged. ``retired_by`` is None.
+    - ``"WARN"``          — EXTRA in a CANONICAL_FILES file, key not in
+                            RETIRED_SECTIONS, no override: stale-canon
+                            candidate or deliberate extension — confirm or
+                            override.
+    - ``"ERROR"``         — EXTRA in a CANONICAL_FILES file, key in
+                            RETIRED_SECTIONS, no override: canon-retired
+                            content still present; run sync.
+    - ``"OVERRIDDEN"``    — override-matched EXTRA in a canonical file
+                            (unregistered key): visible, no WARN.
+    - ``"OVERRIDE-KEPT"`` — registry-matched key under override: kept by the
+                            project's explicit override, reported visibly.
+
+    Severity is derived at call time from the registry and the project's
+    ``.pairmode-overrides`` — nothing is stored on AuditItem/AuditResult.
+    When *overrides* is None they are loaded from ``result.project_dir``.
+    """
+    if overrides is None:
+        overrides = _load_overrides(result.project_dir)
+    retired = _retired_sections()
+    canonical_dests = {d for d, _t in CANONICAL_FILES}
+
+    records: list[tuple[AuditItem, str, str | None]] = []
+    for item in result.extra:
+        if item.file not in canonical_dests:
+            records.append((item, "KEEP", None))
+            continue
+        retired_by = retired.get(item.section)
+        overridden = (item.file, item.section) in overrides
+        if retired_by is not None:
+            severity = "OVERRIDE-KEPT" if overridden else "ERROR"
+        else:
+            severity = "OVERRIDDEN" if overridden else "WARN"
+        records.append((item, severity, retired_by))
+    return records
+
+
+# ---------------------------------------------------------------------------
 # Output formatting
 # ---------------------------------------------------------------------------
 
@@ -750,10 +814,42 @@ def format_audit_output(result: AuditResult) -> str:
         lines.append("")
 
     if result.extra:
-        lines.append("EXTRA (project-specific, keep as-is)")
-        for item in result.extra:
-            lines.append(f"  \u2713 {item.file}: {item.description}")
-        lines.append("")
+        # INFRA-311 (CER-120): EXTRA inside CANONICAL_FILES is a finding, not
+        # a blessing. Scaffold files keep the keep-as-is rendering unchanged.
+        records = classify_extra(result)
+        canonical_records = [r for r in records if r[1] != "KEEP"]
+        scaffold_records = [r for r in records if r[1] == "KEEP"]
+
+        if canonical_records:
+            lines.append("EXTRA (canonical file \u2014 findings)")
+            for item, severity, retired_by in canonical_records:
+                if severity == "ERROR":
+                    lines.append(
+                        f"  \u2717 ERROR {item.file}: section '{item.section}' \u2014 "
+                        f"canon-retired content still present (retired by {retired_by}); run sync"
+                    )
+                elif severity == "WARN":
+                    lines.append(
+                        f"  \u26a0 WARN {item.file}: section '{item.section}' \u2014 "
+                        f"stale-canon candidate or deliberate extension \u2014 confirm or override"
+                    )
+                elif severity == "OVERRIDE-KEPT":
+                    lines.append(
+                        f"  \u2192 OVERRIDE-KEPT {item.file}: section '{item.section}' \u2014 "
+                        f"canon-retired by {retired_by}, kept by project override"
+                    )
+                else:  # OVERRIDDEN
+                    lines.append(
+                        f"  \u2192 OVERRIDDEN {item.file}: section '{item.section}' \u2014 "
+                        f"project override declares intentional divergence"
+                    )
+            lines.append("")
+
+        if scaffold_records:
+            lines.append("EXTRA (project-specific, keep as-is)")
+            for item, _severity, _retired_by in scaffold_records:
+                lines.append(f"  \u2713 {item.file}: {item.description}")
+            lines.append("")
 
     lines.append("RECOMMENDATION")
     lines.append(

@@ -1764,3 +1764,319 @@ class TestSyncBoldMarkerSectionGranularity:
         assert canonical_sections["**3. build gate**"].strip() in final_text, (
             "Non-overridden bold-marker sibling body should match canonical after sync"
         )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-311 — canon-retirement pruning (RETIRED_SECTIONS)
+# ---------------------------------------------------------------------------
+
+from skills.pairmode.scripts.sync import RETIRED_SECTIONS  # noqa: E402
+
+
+_REVIEWER_DEST = ".claude/agents/reviewer.md"
+
+# Stale-fleet shape: thin shell + appended retired fat canon (a retired H2
+# section and a retired bold-marker checklist item, both INFRA-241 keys,
+# including the `git clean -fd` residue the fleet actually carries).
+_FAT_RETIRED_BLOCK = (
+    "\n## Review checklist\n\n"
+    "Run `git clean -fd` before starting.\n\n"
+    "**1. PROTECTED FILES**\n\n"
+    "Check protected files are unmodified.\n"
+)
+
+# A genuine, never-canonical project extension that must survive byte-identically.
+_GENUINE_EXTENSION_BLOCK = (
+    "\n## Project extension notes\n\n"
+    "This section is a deliberate downstream extension.\n"
+)
+
+
+def _make_stale_fleet_fixture(project_dir: Path) -> Path:
+    """Fixture shaped like the observed fleet state (INFRA-311 Requires 5):
+
+    a full canonical baseline where `.claude/agents/reviewer.md` is the thin
+    shell + appended retired fat canon + one genuine extension section.
+    """
+    _copy_canonical_files(project_dir)
+    _write_ideology_md(project_dir)
+    reviewer_path = project_dir / _REVIEWER_DEST
+    reviewer_path.write_text(
+        reviewer_path.read_text(encoding="utf-8")
+        + _FAT_RETIRED_BLOCK
+        + _GENUINE_EXTENSION_BLOCK,
+        encoding="utf-8",
+    )
+    return reviewer_path
+
+
+def _snapshot_tree(project_dir: Path) -> dict[str, bytes]:
+    """Map of relative path → file bytes for every file under project_dir."""
+    return {
+        str(p.relative_to(project_dir)): p.read_bytes()
+        for p in sorted(project_dir.rglob("*"))
+        if p.is_file()
+    }
+
+
+class TestRetiredSectionsRegistry:
+    """Ensures 1 — the registry exists, is non-empty, and is load-bearing."""
+
+    def test_registry_non_empty(self) -> None:
+        assert len(RETIRED_SECTIONS) > 0
+
+    def test_registry_seeded_with_infra_241_reductions(self) -> None:
+        """The INFRA-241 fat-reviewer-checklist keys are the seed content."""
+        for key in (
+            "## review checklist",
+            "**1. protected files**",
+            "**3. build gate**",
+            "## final output to orchestrator",
+        ):
+            assert RETIRED_SECTIONS.get(key) == "INFRA-241", key
+
+    def test_registry_values_are_story_ids(self) -> None:
+        import re
+
+        for key, story_id in RETIRED_SECTIONS.items():
+            assert re.fullmatch(r"[A-Z]+-\d+", story_id), (key, story_id)
+
+    def test_registry_defined_and_consumed_in_sync_source(self) -> None:
+        """grep -c 'RETIRED_SECTIONS' sync.py >= 2 (definition + consumption)."""
+        source = (
+            Path(__file__).resolve().parents[2]
+            / "skills"
+            / "pairmode"
+            / "scripts"
+            / "sync.py"
+        ).read_text(encoding="utf-8")
+        assert source.count("RETIRED_SECTIONS") >= 2
+
+    def test_docstring_states_new_contract(self) -> None:
+        """sync.py's contract docstrings state retirement + override precedence."""
+        import skills.pairmode.scripts.sync as _sync_mod
+
+        module_doc = _sync_mod.__doc__ or ""
+        func_doc = sync_project.__doc__ or ""
+        for doc in (module_doc, func_doc):
+            assert "RETIRED_SECTIONS" in doc
+            assert "override" in doc.lower()
+
+
+class TestSyncPrunesRetiredSections:
+    """Ensures 2 — registry-matched EXTRA sections are pruned under apply.
+
+    The correct signal is the section's absence from the re-read written
+    file — not the report line alone.
+    """
+
+    def test_apply_removes_retired_sections_from_written_file(
+        self, tmp_path: Path
+    ) -> None:
+        reviewer_path = _make_stale_fleet_fixture(tmp_path)
+
+        sync_project(tmp_path, yes=True)
+
+        # Assert on the re-read written file, not the report.
+        written = reviewer_path.read_text(encoding="utf-8")
+        assert "## Review checklist" not in written
+        assert "**1. PROTECTED FILES**" not in written
+        assert "git clean -fd" not in written
+
+    def test_report_lists_retired_prunes_with_story_id(self, tmp_path: Path) -> None:
+        _make_stale_fleet_fixture(tmp_path)
+
+        result = sync_project(tmp_path, yes=True)
+        report = format_sync_output(result)
+
+        assert "RETIRED (canon-removed, pruned):" in report
+        assert len(result.retired) == 2
+        assert any(
+            "## review checklist" in entry and "INFRA-241" in entry
+            for entry in result.retired
+        )
+        assert any(
+            "**1. protected files**" in entry and "INFRA-241" in entry
+            for entry in result.retired
+        )
+
+    def test_registry_is_load_bearing_for_pruning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With the '## review checklist' registry entry removed, sync must
+        preserve the section (reviewer negative check (a): the registry is
+        load-bearing, not decorative)."""
+        import skills.pairmode.scripts.sync as _sync_mod
+
+        reviewer_path = _make_stale_fleet_fixture(tmp_path)
+        reduced = {
+            k: v for k, v in RETIRED_SECTIONS.items() if k != "## review checklist"
+        }
+        monkeypatch.setattr(_sync_mod, "RETIRED_SECTIONS", reduced)
+
+        result = sync_project(tmp_path, yes=True)
+
+        written = reviewer_path.read_text(encoding="utf-8")
+        assert "## Review checklist" in written
+        assert not any("## review checklist" in entry for entry in result.retired)
+
+
+class TestSyncPreservesGenuineExtensions:
+    """Ensures 3 — non-registry EXTRA items are byte-preserved under apply."""
+
+    def test_genuine_extension_survives_apply_byte_identically(
+        self, tmp_path: Path
+    ) -> None:
+        reviewer_path = _make_stale_fleet_fixture(tmp_path)
+
+        sync_project(tmp_path, yes=True)
+
+        written = reviewer_path.read_text(encoding="utf-8")
+        assert _GENUINE_EXTENSION_BLOCK in written
+
+    def test_genuine_extension_recorded_as_preserved(self, tmp_path: Path) -> None:
+        _make_stale_fleet_fixture(tmp_path)
+
+        result = sync_project(tmp_path, yes=True)
+
+        assert any(
+            _REVIEWER_DEST in entry
+            and "## project extension notes" in entry
+            and "project-specific" in entry
+            for entry in result.preserved
+        )
+
+    def test_retired_sections_not_recorded_as_plain_preserved(
+        self, tmp_path: Path
+    ) -> None:
+        _make_stale_fleet_fixture(tmp_path)
+
+        result = sync_project(tmp_path, yes=True)
+
+        assert not any(
+            "## review checklist" in entry and "project-specific" in entry
+            for entry in result.preserved
+        )
+
+
+class TestSyncRetirementDryRun:
+    """Ensures 4 — dry-run writes nothing and carries the same RETIRED
+    classification the apply path consumes (no dry-run-only code path)."""
+
+    def test_dry_run_writes_no_files(self, tmp_path: Path) -> None:
+        _make_stale_fleet_fixture(tmp_path)
+        before = _snapshot_tree(tmp_path)
+
+        result = sync_project(tmp_path, dry_run=True)
+
+        after = _snapshot_tree(tmp_path)
+        assert before == after
+        assert result.dry_run is True
+
+    def test_dry_run_classification_identical_to_apply(self, tmp_path: Path) -> None:
+        dry_dir = tmp_path / "dry"
+        apply_dir = tmp_path / "apply"
+        dry_dir.mkdir()
+        apply_dir.mkdir()
+        _make_stale_fleet_fixture(dry_dir)
+        _make_stale_fleet_fixture(apply_dir)
+
+        dry_result = sync_project(dry_dir, dry_run=True)
+        apply_result = sync_project(apply_dir, yes=True)
+
+        assert dry_result.retired == apply_result.retired
+        assert len(dry_result.retired) == 2
+
+    def test_dry_run_report_shows_retired_classification(self, tmp_path: Path) -> None:
+        _make_stale_fleet_fixture(tmp_path)
+
+        result = sync_project(tmp_path, dry_run=True)
+        report = format_sync_output(result)
+
+        assert "RETIRED (canon-removed, would prune):" in report
+        assert "INFRA-241" in report
+
+    def test_dry_run_still_contains_section_in_file(self, tmp_path: Path) -> None:
+        reviewer_path = _make_stale_fleet_fixture(tmp_path)
+
+        sync_project(tmp_path, dry_run=True)
+
+        assert "## Review checklist" in reviewer_path.read_text(encoding="utf-8")
+
+
+class TestSyncRetirementOverrideWins:
+    """Ensures 5 — a project override naming a retired key keeps the section."""
+
+    def test_override_keeps_retired_section_under_apply(self, tmp_path: Path) -> None:
+        reviewer_path = _make_stale_fleet_fixture(tmp_path)
+        (tmp_path / ".pairmode-overrides").write_text(
+            f"{_REVIEWER_DEST}: ## review checklist\n"
+            f"{_REVIEWER_DEST}: **1. protected files**\n",
+            encoding="utf-8",
+        )
+
+        result = sync_project(tmp_path, yes=True)
+
+        written = reviewer_path.read_text(encoding="utf-8")
+        assert "## Review checklist" in written
+        assert "**1. PROTECTED FILES**" in written
+        assert result.retired == []
+
+    def test_override_recorded_as_override_kept_not_pruned(
+        self, tmp_path: Path
+    ) -> None:
+        _make_stale_fleet_fixture(tmp_path)
+        (tmp_path / ".pairmode-overrides").write_text(
+            f"{_REVIEWER_DEST}: ## review checklist\n"
+            f"{_REVIEWER_DEST}: **1. protected files**\n",
+            encoding="utf-8",
+        )
+
+        result = sync_project(tmp_path, yes=True)
+
+        override_kept = [e for e in result.preserved if "override-kept" in e]
+        assert any(
+            "## review checklist" in e and "INFRA-241" in e for e in override_kept
+        )
+        # Not blessed as plain project-specific EXTRA either
+        assert not any(
+            "## review checklist" in e and "project-specific" in e
+            for e in result.preserved
+        )
+
+
+class TestSyncRetirementUserDeclined:
+    """The retirement prune is opt-in per section: declining preserves it."""
+
+    def test_declined_prune_keeps_section_and_records_skip(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import skills.pairmode.scripts.sync as _sync_mod
+
+        reviewer_path = _make_stale_fleet_fixture(tmp_path)
+
+        prompts: list[str] = []
+
+        def _decline(prompt: str, default: bool = False, **kwargs) -> bool:
+            prompts.append(prompt)
+            return False
+
+        monkeypatch.setattr(_sync_mod.click, "confirm", _decline)
+
+        result = sync_project(tmp_path, yes=False)
+
+        written = reviewer_path.read_text(encoding="utf-8")
+        assert "## Review checklist" in written
+        assert result.retired == []
+        assert any(
+            "## review checklist" in entry
+            and "canon-retired by INFRA-241" in entry
+            and "user declined" in entry
+            for entry in result.skipped
+        )
+        # The prompt names the section key and the retiring story ID.
+        retirement_prompts = [p for p in prompts if "Remove retired section" in p]
+        assert any(
+            "## review checklist" in p and "INFRA-241" in p
+            for p in retirement_prompts
+        )

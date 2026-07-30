@@ -206,7 +206,9 @@ in place.
 1. Run `/flex:pairmode audit`. It compares your project scaffold against the current
    canonical pairmode templates and reports drift: your CLAUDE.build.md is missing the
    permission-scope step added in Phase 16.
-2. Run `/flex:pairmode sync`. It offers to apply the delta non-destructively. You accept.
+2. Run `/flex:pairmode sync`. It offers to apply the delta — preserving your project's
+   own extensions and pruning only sections canon has explicitly retired
+   (`RETIRED_SECTIONS`), each behind a per-section confirmation. You accept.
 3. Check `docs/phases/phase-3.md`. The last completed story was `BILLING-007`. The next
    planned story is `BILLING-008`. Set the story: `story_context.py --set BILLING-008`.
 4. Optionally, run `/flex:companion` to load the spec into the sidebar. The sidebar will

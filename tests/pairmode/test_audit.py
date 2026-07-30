@@ -354,7 +354,9 @@ class TestFormatAuditOutput:
         output = format_audit_output(result)
         assert "EXTRA" in output
         assert ".claude/agents/builder.md" in output
-        assert "\u2713" in output  # ✓
+        # INFRA-311 (CER-120): EXTRA inside a CANONICAL_FILES file is a
+        # finding (WARN for unregistered keys), no longer a ✓ blessing.
+        assert "WARN" in output
 
     def test_recommendation_always_present(self) -> None:
         result = self._make_result()
@@ -2358,4 +2360,254 @@ class TestAuditBoldMarkerIndependentInconsistency:
         )
         assert protected_files_matches, (
             "Expected the unmodified PROTECTED FILES body to match canonical"
+        )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-311 — EXTRA inside CANONICAL_FILES is a finding (CER-120)
+# ---------------------------------------------------------------------------
+
+from skills.pairmode.scripts.audit import classify_extra  # noqa: E402
+
+
+_REVIEWER_DEST = ".claude/agents/reviewer.md"
+
+_FAT_RETIRED_BLOCK = (
+    "\n## Review checklist\n\n"
+    "Run `git clean -fd` before starting.\n\n"
+    "**1. PROTECTED FILES**\n\n"
+    "Check protected files are unmodified.\n"
+)
+
+_GENUINE_EXTENSION_BLOCK = (
+    "\n## Project extension notes\n\n"
+    "This section is a deliberate downstream extension.\n"
+)
+
+
+def _make_stale_fleet_fixture(project_dir: Path) -> Path:
+    """Stale-fleet shape (INFRA-311 Requires 5): thin shell + appended
+    retired fat canon + one genuine extension section."""
+    _copy_canonical_files(project_dir)
+    _write_ideology_md(project_dir)
+    reviewer_path = project_dir / _REVIEWER_DEST
+    reviewer_path.write_text(
+        reviewer_path.read_text(encoding="utf-8")
+        + _FAT_RETIRED_BLOCK
+        + _GENUINE_EXTENSION_BLOCK,
+        encoding="utf-8",
+    )
+    return reviewer_path
+
+
+def _reviewer_records(result) -> dict[str, tuple[str, str | None]]:
+    """section key → (severity, retired_by) for reviewer.md EXTRA items."""
+    return {
+        item.section: (severity, retired_by)
+        for item, severity, retired_by in classify_extra(result)
+        if item.file == _REVIEWER_DEST
+    }
+
+
+class TestExtraOnCanonicalIsFinding:
+    """Ensures 6 — EXTRA in CANONICAL_FILES classifies as ERROR/WARN, and the
+    finding signal is the classification records, not report text."""
+
+    def test_retired_extra_is_error_with_retiring_story(self, tmp_path: Path) -> None:
+        _make_stale_fleet_fixture(tmp_path)
+
+        result = audit_project(tmp_path)
+        records = _reviewer_records(result)
+
+        assert records["## review checklist"] == ("ERROR", "INFRA-241")
+        assert records["**1. protected files**"] == ("ERROR", "INFRA-241")
+
+    def test_unregistered_extra_is_warn(self, tmp_path: Path) -> None:
+        _make_stale_fleet_fixture(tmp_path)
+
+        result = audit_project(tmp_path)
+        records = _reviewer_records(result)
+
+        assert records["## project extension notes"] == ("WARN", None)
+
+    def test_stale_fleet_fixture_has_nonzero_finding_count(
+        self, tmp_path: Path
+    ) -> None:
+        """Correct signal: nonzero WARN/ERROR count from the classification
+        machinery; forbidden proxy: a reworded checkmark line that still
+        classifies everything clean."""
+        _make_stale_fleet_fixture(tmp_path)
+
+        result = audit_project(tmp_path)
+        findings = [
+            (item, severity)
+            for item, severity, _retired_by in classify_extra(result)
+            if severity in ("ERROR", "WARN")
+        ]
+
+        assert len(findings) >= 3  # two retired ERRORs + one extension WARN
+
+    def test_canonical_extra_not_rendered_as_keep_as_is(self, tmp_path: Path) -> None:
+        _make_stale_fleet_fixture(tmp_path)
+
+        result = audit_project(tmp_path)
+        report = format_audit_output(result)
+
+        assert "EXTRA (canonical file — findings)" in report
+        assert (
+            "ERROR .claude/agents/reviewer.md: section '## review checklist'"
+            in report
+        )
+        # The keep-as-is blessing must not name the canonical-file sections.
+        if "EXTRA (project-specific, keep as-is)" in report:
+            keep_block = report.split("EXTRA (project-specific, keep as-is)")[-1]
+            assert _REVIEWER_DEST not in keep_block
+
+    def test_scaffold_extra_keeps_todays_behaviour(self, tmp_path: Path) -> None:
+        """Scaffold files keep the keep-as-is contract (audit.py SCAFFOLD_FILES
+        distinction) — no WARN/ERROR for their EXTRA sections."""
+        _make_stale_fleet_fixture(tmp_path)
+        brief_path = tmp_path / "docs" / "brief.md"
+        brief_path.write_text(
+            brief_path.read_text(encoding="utf-8")
+            + "\n## Local operating notes\n\nScaffold-body extension.\n",
+            encoding="utf-8",
+        )
+
+        result = audit_project(tmp_path)
+        scaffold_records = {
+            item.section: severity
+            for item, severity, _retired_by in classify_extra(result)
+            if item.file == "docs/brief.md"
+        }
+        assert scaffold_records["## local operating notes"] == "KEEP"
+
+        report = format_audit_output(result)
+        assert "EXTRA (project-specific, keep as-is)" in report
+        assert "✓ docs/brief.md" in report
+
+
+class TestExtraOverrideVisibility:
+    """Ensures 7 — overrides suppress the WARN visibly; a registry-matched key
+    under override reports override-kept, never silently."""
+
+    def test_override_suppresses_warn_as_overridden(self, tmp_path: Path) -> None:
+        _make_stale_fleet_fixture(tmp_path)
+        (tmp_path / ".pairmode-overrides").write_text(
+            f"{_REVIEWER_DEST}: ## project extension notes\n",
+            encoding="utf-8",
+        )
+
+        result = audit_project(tmp_path)
+        records = _reviewer_records(result)
+
+        assert records["## project extension notes"] == ("OVERRIDDEN", None)
+
+        report = format_audit_output(result)
+        assert (
+            "OVERRIDDEN .claude/agents/reviewer.md: section "
+            "'## project extension notes'" in report
+        )
+        assert (
+            "WARN .claude/agents/reviewer.md: section '## project extension notes'"
+            not in report
+        )
+
+    def test_override_on_retired_key_reports_override_kept(
+        self, tmp_path: Path
+    ) -> None:
+        _make_stale_fleet_fixture(tmp_path)
+        (tmp_path / ".pairmode-overrides").write_text(
+            f"{_REVIEWER_DEST}: ## review checklist\n",
+            encoding="utf-8",
+        )
+
+        result = audit_project(tmp_path)
+        records = _reviewer_records(result)
+
+        assert records["## review checklist"] == ("OVERRIDE-KEPT", "INFRA-241")
+        # The bold-marker sibling has no override and stays ERROR.
+        assert records["**1. protected files**"] == ("ERROR", "INFRA-241")
+
+        report = format_audit_output(result)
+        assert (
+            "OVERRIDE-KEPT .claude/agents/reviewer.md: section "
+            "'## review checklist'" in report
+        )
+        assert "kept by project override" in report
+
+
+# ---------------------------------------------------------------------------
+# INFRA-311 — bootstrap.SCAFFOLD_FILES ⊆ audit-tracked parity (Ensures 8)
+# ---------------------------------------------------------------------------
+
+# Known parity gaps: bootstrap-seeded surfaces not yet tracked by any audit
+# surface, each held open by a live CER backlog row. When a gap is closed,
+# test_known_gaps_are_still_real_gaps fails and the entry must be removed.
+_KNOWN_GAPS: dict[str, str] = {
+    # Seeded, deny-listed, tracked by nothing — full body tracking is gated.
+    "docs/architecture.md": "CER-121",
+    "docs/checkpoints.md": "CER-121",
+    # Seeded by bootstrap, consumed by audit/sync as the override mechanism,
+    # but no audit surface checks its existence or health.
+    ".pairmode-overrides": "CER-132",
+}
+
+# Tracked outside CANONICAL_FILES/SCAFFOLD_FILES via dedicated audit checks:
+# audit_project reports file-missing and STALE PLACEHOLDER findings for these
+# through _check_ideology_staleness / _check_reconstruction_staleness.
+_DEDICATED_CHECK_FILES: frozenset[str] = frozenset(
+    ["docs/ideology.md", "docs/reconstruction.md"]
+)
+
+
+def _audit_tracked_dests() -> set[str]:
+    from skills.pairmode.scripts import audit as _a
+
+    return (
+        {dest for dest, _ in _a.CANONICAL_FILES}
+        | {dest for dest, _ in _a.SCAFFOLD_FILES}
+        | set(_DEDICATED_CHECK_FILES)
+    )
+
+
+class TestBootstrapScaffoldAuditParity:
+    """Every bootstrap scaffold surface is audit-tracked (or a named,
+    CER-backed exception). Styled after test_agent_files_subset_of_canonical_files."""
+
+    def test_scaffold_files_subset_of_audit_tracked(self) -> None:
+        from skills.pairmode.scripts import bootstrap as _b
+
+        scaffold_dests = {dest for dest, _ in _b.SCAFFOLD_FILES}
+        untracked = scaffold_dests - _audit_tracked_dests() - set(_KNOWN_GAPS)
+
+        assert not untracked, (
+            f"bootstrap.SCAFFOLD_FILES entries not tracked by any audit surface "
+            f"and not excepted in _KNOWN_GAPS: {untracked}. Either add them to "
+            f"audit.CANONICAL_FILES/SCAFFOLD_FILES (or a dedicated check) or "
+            f"file a CER row and except them here."
+        )
+
+    def test_known_gaps_have_real_backlog_rows(self) -> None:
+        """Meta-test: every _KNOWN_GAPS tracker must exist as a real row in
+        docs/cer/backlog.md — a phantom tracker is not an exception."""
+        backlog = (
+            Path(__file__).resolve().parents[2] / "docs" / "cer" / "backlog.md"
+        ).read_text(encoding="utf-8")
+
+        for dest, cer_id in _KNOWN_GAPS.items():
+            assert f"| {cer_id} |" in backlog, (
+                f"_KNOWN_GAPS excepts {dest!r} citing {cer_id}, but "
+                f"docs/cer/backlog.md has no such row."
+            )
+
+    def test_known_gaps_are_still_real_gaps(self) -> None:
+        """Meta-test: each _KNOWN_GAPS entry must still be untracked. When the
+        gap closes, remove the entry (and resolve its CER row)."""
+        tracked = _audit_tracked_dests()
+        stale_exceptions = {dest for dest in _KNOWN_GAPS if dest in tracked}
+
+        assert not stale_exceptions, (
+            f"_KNOWN_GAPS entries are now audit-tracked — remove them: "
+            f"{stale_exceptions}"
         )
