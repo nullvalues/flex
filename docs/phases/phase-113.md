@@ -21,13 +21,13 @@ Close the parsing, resolver-evidence, and spawn-recording defects both rails sta
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-296 | Flow-style frontmatter sequences: parse or refuse; never leave a half-created worktree | draft |
-| INFRA-297 | Scope commit build-evidence to the commit's own story; shared escaped-pipe table-split helper | draft |
-| INFRA-298 | Deterministic spawn completion: SubagentStop relay, quiescence demoted to backstop | draft |
-| INFRA-299 | Recording data integrity: enum-validate JSON BUILD outcomes; document attempts.phase and the acknowledged_at misnomer | draft |
-| INFRA-300 | Duplicate-hook detection precision: matcher-aware keying and actionable classification | draft |
-| INFRA-311 | Sync canon-shrink propagation; audit flags EXTRA inside canonical files; SCAFFOLD_FILES parity test | draft |
-| INFRA-320 | Mid-build scope relief: standing shared surfaces, audited permissions-widen, scope-implication preflight — hard block preserved | draft |
+| INFRA-296 | Flow-style frontmatter sequences: parse or refuse; never leave a half-created worktree | complete |
+| INFRA-297 | Scope commit build-evidence to the commit's own story; shared escaped-pipe table-split helper | complete |
+| INFRA-298 | Deterministic spawn completion: SubagentStop relay, quiescence demoted to backstop | complete |
+| INFRA-299 | Recording data integrity: enum-validate JSON BUILD outcomes; document attempts.phase and the acknowledged_at misnomer | complete |
+| INFRA-300 | Duplicate-hook detection precision: matcher-aware keying and actionable classification | complete |
+| INFRA-311 | Sync canon-shrink propagation; audit flags EXTRA inside canonical files; SCAFFOLD_FILES parity test | complete |
+| INFRA-320 | Mid-build scope relief: standing shared surfaces, audited permissions-widen, scope-implication preflight — hard block preserved | complete |
 
 INFRA-320 was pulled from **CER-128** (operator-flagged 2026-07-29, "scope friction") as an operator-directed mid-phase addition after the era-004 closeout agreements were applied; see `docs/closeout-agreements-20260729.md` § AG-9.
 

@@ -2,7 +2,7 @@
 id: INFRA-298
 rail: INFRA
 title: "Deterministic spawn completion: SubagentStop relay, quiescence demoted to backstop"
-status: draft
+status: complete
 phase: "113"
 auth_gated: false
 schema_introduces: false

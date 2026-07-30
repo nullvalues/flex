@@ -2,7 +2,7 @@
 id: INFRA-320
 rail: INFRA
 title: "Mid-build scope relief: standing shared surfaces, audited permissions-widen, scope-implication preflight — hard block preserved"
-status: draft
+status: complete
 phase: "113"
 story_class: code
 auth_gated: false

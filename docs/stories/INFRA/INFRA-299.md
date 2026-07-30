@@ -2,7 +2,7 @@
 id: INFRA-299
 rail: INFRA
 title: "Recording data integrity: enum-validate JSON BUILD outcomes; document attempts.phase and the acknowledged_at misnomer"
-status: draft
+status: complete
 phase: "113"
 story_class: code
 auth_gated: false

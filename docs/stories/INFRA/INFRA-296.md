@@ -2,7 +2,7 @@
 id: INFRA-296
 rail: INFRA
 title: Flow-style frontmatter sequences: parse or refuse; never leave a half-created worktree
-status: draft
+status: complete
 phase: "113"
 story_class: code
 auth_gated: false

@@ -2,7 +2,7 @@
 id: INFRA-297
 rail: INFRA
 title: Scope commit build-evidence to the commit's own story; shared escaped-pipe table-split helper
-status: draft
+status: complete
 phase: "113"
 story_class: code
 auth_gated: false

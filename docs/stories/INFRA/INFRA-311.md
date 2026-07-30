@@ -2,7 +2,7 @@
 id: INFRA-311
 rail: INFRA
 title: Sync canon-shrink propagation; audit flags EXTRA inside canonical files; SCAFFOLD_FILES parity test
-status: draft
+status: complete
 phase: "113"
 story_class: code
 auth_gated: false
