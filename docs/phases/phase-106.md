@@ -26,7 +26,7 @@ Finish the pairmode 0.3.0 fleet migration as a driven campaign: 8 remaining proj
 | RELEASE-065 | Migrate caddy to pairmode 0.3.0 (seed never delivered) | complete |
 | RELEASE-066 | Migrate forqsite.help to pairmode 0.3.0 | complete |
 | RELEASE-067 | Migrate halfhorse to pairmode 0.3.0 | complete |
-| RELEASE-068 | Migrate pokus to pairmode 0.3.0 (coordinate around in-flight UAT-gated work) | draft |
+| RELEASE-068 | Migrate pokus to pairmode 0.3.0 — canon files only | planned |
 | RELEASE-069 | Migrate base56 to pairmode 0.3.0 (reconcile stale index and history drift first) | draft |
 | RELEASE-070 | Migrate cora from 0.1.0 to 0.3.0 (unpark RELEASE-030 lesson-extraction carve-out) | draft |
 | RELEASE-071 | Campaign close: full-fleet DP8 gate, supersede RELEASE-043..057, clean stale seeds, mark phase-97 complete | draft |
@@ -39,9 +39,9 @@ record for the original IDs; RELEASE-071 formally closes it.
 ## Ordering
 
 RELEASE-063 (meander, canary) strictly first — it proves the campaign playbook.
-RELEASE-064..067 in any order after the canary passes. RELEASE-068 (pokus, in-flight
-UAT work), RELEASE-069 (base56, index drift), RELEASE-070 (cora, 0.1.0 gap) last,
-each carrying a complication. RELEASE-071 strictly last.
+RELEASE-064..067 in any order after the canary passes. RELEASE-068 (pokus — narrowed
+2026-07-29 to canon-only; see the note at the end of this doc), RELEASE-069 (base56,
+index drift), RELEASE-070 (cora, 0.1.0 gap) last, each carrying a complication. RELEASE-071 strictly last.
 
 ## Execution model (cross-repo — deviation from the standard loop)
 
@@ -120,3 +120,15 @@ from `outcome NULL` to `(sonnet, 7457, PASS)` / `(sonnet, 9145, PASS)` — the
 E6b content half is field-proven. cp-112 is promoted to the channel; campaign
 resumes at RELEASE-066 with `--no-snapshot` mandated on every discovery
 invocation per the corrected Signal-1 runbook form.
+
+**RELEASE-068 narrowed (2026-07-29, operator directive).** RELEASE-068 is now a
+**canon-only** migration of pokus: sync the 0.3.0 canon surfaces
+(`CLAUDE.md`, `CLAUDE.build.md`, the seven `.claude/agents/` shells,
+`.companion/state.json`) into `/mnt/work/pokus` and nothing more, so this phase can
+close. The original "coordinate around in-flight UAT-gated work" scope is
+**superseded** — the coordination risk is eliminated by not touching pokus's code,
+docs, stories, backlog or UAT work rather than by scheduling around them. No
+proving story cycle runs for pokus, so the § *Checkpoint proves* per-project
+proving clause is narrowed for pokus by this directive and RELEASE-071 must count
+it as **proof-deferred, not proven** (the campaign's downstream proof already
+stands on forqsite.help/halfhorse).
