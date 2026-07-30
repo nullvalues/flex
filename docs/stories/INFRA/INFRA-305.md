@@ -629,3 +629,67 @@ parity test that passes against the stale contract is worthless.
   sentences.
 - **Backfilling any CHANGELOG entry other than Phase 99**, and the 0.3.1
   release entry (INFRA-310).
+
+## Evidence
+
+**AST-walk output (step 2), run against `hooks/*.py` vs `skills/pairmode/scripts/*.py`
+module basenames, before any exception-block edits:**
+
+```
+exit_plan_mode.py -> (none)
+post_tool_use.py -> ['context_budget', 'session_state', 'state_utils', 'subagent_transcript']
+pre_tool_use.py -> ['cold_read_guard', 'context_budget', 'flex_build._read_story_frontmatter', 'flex_build._story_path', 'scope_guard', 'scope_guard.resolve_call_story', 'state_utils.update_state_json']
+session_end.py -> (none)
+session_start.py -> ['session_reset', 'session_state', 'state_utils', 'subagent_transcript.reconcile_pending_attempts']
+stop.py -> (none)
+subagent_stop.py -> ['subagent_transcript']
+user_prompt_submit.py -> ['user_turn_seq.record_user_turn']
+```
+
+This matches the Requires-4 table exactly (no discrepancy to record) — the
+`subagent_stop.py -> subagent_transcript` delegation was already correctly
+documented pre-story and is not part of the CER-078/084/100 defect set.
+
+**Ensures-12 negative check (pre-edit failure, post-edit pass).** With the
+security-auditor procedure's exception-block edits `git stash`ed (reverted
+to the pre-story text) and `test_hook_delegations_are_documented_exceptions`
+run directly:
+
+```
+FAILED tests/pairmode/test_procedure_skills.py::TestHookDelegationDocumentation::test_hook_delegations_are_documented_exceptions
+AssertionError: post_tool_use.py imports from 'state_utils' but that module is not
+named in the security-auditor procedure's exception block (CER-078/084/100 drift shape).
+```
+
+After `git stash pop` (edited text restored), the same test passes:
+`2 passed in 0.06s` for the full `TestHookDelegationDocumentation` class.
+
+**`grep -c 'INFRA-253' docs/architecture.md` — before/after (Ensures 7):**
+before = 4, after = 8 (strictly greater, per Ensures 7).
+
+**Ensures-13 feasibility note (state.json-key half of the parity check).**
+Only the *import* half of the security-auditor exception list is mechanically
+checkable (Ensures 12's AST walk over `hooks/*.py`). The *state.json key*
+half (e.g. `context_step_growth_samples`, `expected_step_tokens`,
+`context_budget_user_turn_seq`) is not, because those keys are written
+inside the delegate modules — `context_budget.record_step_growth()` writes
+its own keys, `session_reset.decide_reset()` returns a dict the hook splats
+— and never appear as string literals in the hook source the AST walk
+inspects. A key-level parity test would require either a hand-maintained
+hook→key map (the same drift surface it is meant to police) or a call-graph
+analysis into the delegate modules' own bodies. It is therefore not built
+here; see `## Out of scope`.
+
+**New-test count (acceptance note).** Three test *functions* were authored
+(`test_skill_count_prose_matches_skill_dirs`,
+`test_hook_delegations_are_documented_exceptions`, plus the pipe-path
+absence check), matching Ensures 10/11/12. Ensures 11 was authored as a
+parametrized test class (`TestPipePathAbsence`, 2 methods × 2 procedures =
+4 collected cases) rather than one test with four assertions, and Ensures 12
+gained a companion `test_plain_pipe_relays_absent_from_exception_block` to
+pin the negative case (stop.py/session_end.py/exit_plan_mode.py correctly
+absent) separately from the positive parity assertion — 7 collected test
+IDs total across the three Ensures. Full suite: 4366 passed, 211 skipped, 0
+failed (baseline drift from the story's stated 4116/211 is expected: this
+worktree already includes INFRA-301..304's own test additions ahead of
+INFRA-305; zero new failures is the acceptance bar this story owns).

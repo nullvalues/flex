@@ -7,7 +7,7 @@
 
 ## What this project produces
 
-Flex is a Claude Code plugin with three skills:
+Flex is a Claude Code plugin with four skills:
 
 **`/flex:pairmode`** — The primary flex workflow. Bootstraps and manages a structured
 builder/reviewer methodology on any project. Produces a full scaffold (CLAUDE.md, agent docs,
@@ -23,6 +23,10 @@ made during the session into the spec automatically.
 **`/flex:seed`** — Reads an existing codebase and all historical Claude Code transcripts to
 build a canonical spec from scratch: structured JSON records of decisions, rules, tradeoffs,
 and lineage for each module. Run once per project.
+
+**`/flex:observability`** — Browser-based dashboard for context budget, effort metrics, and
+story status across registered projects. Serves a local SPA showing phase status, context
+health, effort rollups, and lessons with promotion candidates.
 
 ---
 

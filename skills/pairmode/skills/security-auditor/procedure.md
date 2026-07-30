@@ -83,13 +83,29 @@ The following hooks are authorized thin dispatchers with permitted imports and
 state.json writes. They do not violate the thin-relay contract.
 
 - `hooks/pre_tool_use.py` — dispatches Task/Agent → `context_budget.py`
-  (CER-027/CER-049) and Edit/Write → `scope_guard.py` (Phase 55). Authorized
-  state.json write: `context_budget_acknowledged_at` (on block only).
+  (CER-027/CER-049) and Edit/Write → `scope_guard.py` (Phase 55), including
+  the `scope_guard.resolve_call_story` lookup (INFRA-281); dispatches Read →
+  `cold_read_guard.py` (INFRA-196); calls `state_utils.update_state_json` for
+  its own writes; and calls `flex_build`'s `_story_path` /
+  `_read_story_frontmatter` helpers to resolve the active story's frontmatter.
+  Authorized state.json writes: `context_budget_acknowledged_at` (on block
+  only) and `context_budget_acknowledged_user_turn_seq` (INFRA-193).
 - `hooks/post_tool_use.py` — pipe relay for Write/Edit/MultiEdit; dispatches
-  Task/Agent → `context_budget.py` (INFRA-182). Authorized state.json writes:
-  the live context-token count and its recorded-at timestamp.
+  Task/Agent → `context_budget.py` (INFRA-182), including
+  `context_budget.record_step_growth` (INFRA-254); reads session-scoped state
+  via `session_state`. It also delegates post-hoc effort recording to
+  `subagent_transcript` (INFRA-236) — the hook never parses or stores
+  transcript content itself, it only forwards the call to that module.
+  Authorized state.json writes: the live context-token count and its
+  recorded-at timestamp, plus `context_step_growth_samples` and
+  `expected_step_tokens` (INFRA-254).
 - `hooks/session_start.py` — dispatches source `clear`/`startup` →
-  `session_reset.py` (CER-047/INFRA-175). Authorized state.json writes:
+  `session_reset.py` (CER-047/INFRA-175); reads and writes session-scoped
+  state via `session_state` (INFRA-285); and on startup runs the
+  `subagent_transcript.reconcile_pending_attempts` sweep (INFRA-258) to
+  reconcile attempts left pending by a prior session — the hook never reads
+  or replays transcript content itself, it only calls the delegate to
+  reconcile database rows. Authorized state.json writes:
   the context-token count baseline, its recorded-at timestamp, and the
   session-reset timestamp.
 - `hooks/user_prompt_submit.py` — dispatches every `UserPromptSubmit` event →
@@ -116,8 +132,11 @@ remains CRITICAL. Any other hook that emits a decision-block response is CRITICA
 
 ### 2. PIPE CONTRACT (CRITICAL if violated)
 
-Do all hook scripts write only to the project-scoped pipe
-(read from `.companion/state.json["pipe_path"]`, fallback `/tmp/companion.pipe`)?
+Do all hook scripts write only to the single hardcoded pipe path
+(`os.path.join(tempfile.gettempdir(), "companion.pipe")`, the same
+convention `post_tool_use.py` established)? (INFRA-238) The `pipe_path`
+state.json key was retired by `pairmode_migrate.py`'s `to-030` step and no
+hook script reads it any longer.
 
 Do any hook scripts write directly to spec files or `.companion/` directories?
 

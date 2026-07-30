@@ -166,8 +166,10 @@ scripts checkout when invoked from a foreign cwd (explicit `--snapshot` /
 ```
 Claude Code session
     ↓ (after each response)
-stop.py hook → writes to /tmp/companion-<hash>.pipe (relay only, no API calls)
-    (pipe path is project-scoped; hash is first 8 chars of md5 of project dir)
+stop.py hook → writes to tempfile.gettempdir()/companion.pipe (relay only, no API calls)
+    (single hardcoded flat path, INFRA-238 — not project-scoped; every hook
+    that writes the pipe uses this same os.path.join(tempfile.gettempdir(),
+    "companion.pipe") convention)
     ↓
 sidebar.py reads pipe → calls model backend (claude_agent_sdk by default; Ollama when FLEX_MODEL_BACKEND=ollama) → extracts decisions
     ↓
@@ -1194,9 +1196,13 @@ written, and the builder/reviewer loop gates every commit against that spec.
 The two are coupled only through `.companion/state.json`. Companion writes `current_story`
 so the sidebar can surface story context; pairmode reads `pairmode_version` to compute
 audit deltas against the canonical templates. There is no other runtime dependency:
-pairmode functions without the sidebar (the deny list still blocks protected-file writes;
-the reviewer still runs), and companion functions without a pairmode scaffold (the
-sidebar still captures decisions; the spec still grows).
+pairmode functions without the sidebar (`scope_guard` + the per-story permissions
+artifacts — INFRA-253, § 9.5 — are the enforcement surface that blocks
+protected-file writes even with no sidebar running; the bootstrap-era
+`.claude/settings.json` deny list is a downstream convenience, not what
+pairmode itself relies on; the reviewer still runs), and companion functions
+without a pairmode scaffold (the sidebar still captures decisions; the spec
+still grows).
 
 **Reviewer-class agent tool restriction (build-loop safety).** Reviewer-class agents
 (`reviewer`, `intent-reviewer`, `loop-breaker`, `security-auditor`) are restricted to
@@ -1224,7 +1230,10 @@ model, the schema validators, and the non-negotiables that keep its bootstraps r
 
 **Spec-derived protections:** The deny list in a pairmode project's `.claude/settings.json`
 is generated from the project's `spec.json` non-negotiables, not hand-written. Each protection
-carries a comment linking back to the non-negotiable it encodes.
+carries a comment linking back to the non-negotiable it encodes. This generated deny
+list is a **bootstrap-era convenience** retained for downstream projects; it is not
+the surface flex itself relies on for enforcement — `scope_guard` and the per-story
+permissions artifacts are (INFRA-253, § 9.5's end-state doctrine).
 
 **Permission override capture:** When a developer edits a protected file, the sidebar
 (not the hook) classifies the file against `.claude/settings.deny-rationale.json` and
@@ -1629,7 +1638,10 @@ builder. The function returns a `(model, reason)` tuple:
 | `code` | any | ≥ 2 | opus | `retry-upgrade` | auto (no prompt) |
 
 `protected_files` is derived from the deny list in `CLAUDE.md` § Protected
-files and from `.claude/settings.json`. When the function returns
+files and from `.claude/settings.json` (the bootstrap-era deny list;
+`scope_guard` + the permissions artifacts, INFRA-253, are the actual
+enforcement surface — this list only feeds the model-selection heuristic
+above). When the function returns
 `prompted-upgrade`, the orchestrator displays the upgrade suggestion to the
 user and waits for confirmation before spawning the builder. If the user
 overrides the suggestion downward, the orchestrator records reason
@@ -2001,8 +2013,10 @@ as-is rather than parameterized.
     forward from the original lesson to its data-backed validation, enabling traceable
     methodology evolution.
 - Templates must render correctly for projects with no prior Flex spec (blank-slate bootstrap).
-- The deny list generator must include an inline comment on each generated rule linking it to
-  the non-negotiable that produced it.
+- The deny list generator (bootstrap-era convenience for downstream projects;
+  not flex's own enforcement surface — see INFRA-253) must include an inline
+  comment on each generated rule linking it to the non-negotiable that
+  produced it.
 - Pairmode bootstrap must never overwrite existing project files without explicit user confirmation.
 - Pairmode scripts that import sibling modules must either (a) use `sys.path` insertion to add
   the flex repo root at import time, or (b) be invoked with `PYTHONPATH` set to the flex
@@ -2522,7 +2536,7 @@ project root. The helper `skills/pairmode/scripts/story_context.py` provides:
 **Non-negotiable: hooks are thin relays.**
 
 Hooks must:
-- Write a JSON message to `/tmp/companion.pipe`
+- Write a JSON message to `tempfile.gettempdir()/companion.pipe` (INFRA-238)
 - Exit in milliseconds
 - Never make API calls
 - Never write to spec files directly
@@ -2903,7 +2917,13 @@ The remaining two registered hooks — `stop.py` and `session_end.py` — are pl
 The sidebar does all heavy work asynchronously. If the sidebar is not running, the pipe write
 silently fails and the session continues normally — no data is lost because the session
 transcript is always available for later mining.
-See `docs/pipe-architecture.md` for the project-scoped pipe design, its backwards-compatibility guarantee, and what changed relative to the original single-pipe design.
+`docs/pipe-architecture.md` is a **historical record of the superseded
+project-scoped pipe design** — it is not current. The design it describes was
+retired by INFRA-238; every hook today writes the single flat
+`tempfile.gettempdir()/companion.pipe` path (see § Data flow above). Note:
+`skills/companion/scripts/sidebar.py` still computes and reads the retired
+md5-hashed pipe path independently — that divergence is filed as CER-118 and
+is not fixed by this document correction.
 
 **Protected-file classification** belongs in the sidebar, not in the hook.
 The sidebar loads `.claude/settings.deny-rationale.json` lazily on first use (cached

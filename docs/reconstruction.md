@@ -9,7 +9,7 @@
 
 ## What you are building
 
-Flex is a Claude Code plugin with three skills:
+Flex is a Claude Code plugin with four skills:
 
 **`/flex:seed`** — Reads an existing codebase and all historical Claude Code transcripts to
 build a canonical spec from scratch: structured JSON records of decisions, rules, tradeoffs,
@@ -25,6 +25,10 @@ backlog) and enforces the build loop at every commit. Generates `docs/ideology.m
 conviction and constraint record that survives across implementations — and
 `docs/reconstruction.md` — a handoff prompt that seeds an independent agent to produce a
 competing implementation of the same project from ideology alone.
+
+**`/flex:observability`** — Browser-based dashboard for context budget, effort metrics, and
+story status across registered projects. Serves a local SPA showing phase status, context
+health, effort rollups, and lessons with promotion candidates.
 
 ---
 

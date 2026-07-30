@@ -65,7 +65,7 @@ Pairmode is the build loop. Companion is the memory it draws on.
 | **Actor that writes** | Developer (story spec) and builder/reviewer subagents | Sidebar, after the fact, from the transcript |
 | **Failure it prevents** | Builder hallucinating scope; reviewer-less commits; phase drift | Decision evaporation across sessions; silent contradiction of an earlier choice |
 | **Failure it cannot prevent** | A decision made mid-story that nobody captures into spec.json | A story that was never specced — companion can only record what was discussed |
-| **Composition** | Feeds companion: `current_story` written into `state.json` so the sidebar surfaces story context | Feeds pairmode: spec.json non-negotiables generate the deny list at bootstrap |
+| **Composition** | Feeds companion: `current_story` written into `state.json` so the sidebar surfaces story context | Feeds pairmode: spec.json non-negotiables generate the bootstrap-era deny list (`scope_guard` + INFRA-253 are the actual enforcement surface) |
 | **Use it when** | You want a structured build loop and want to specify intent before code | You want institutional memory across sessions and projects |
 | **Use both when** | You want intent both *enforced at the build gate* (pairmode) and *captured live* (companion) — the default for serious projects |
 
@@ -158,7 +158,7 @@ checklists reflect your actual project history.
 
 | Skill | Posture | What it does | Key command | Key output |
 |-------|---------|-------------|-------------|-----------|
-| `/flex:pairmode` | proactive | Scaffold and enforce structured build loop | `/flex:pairmode bootstrap` | CLAUDE.md, agent docs, phase files, deny list |
+| `/flex:pairmode` | proactive | Scaffold and enforce structured build loop | `/flex:pairmode bootstrap` | CLAUDE.md, agent docs, phase files, bootstrap-era deny list (`scope_guard` is the real enforcement surface, INFRA-253) |
 | `/flex:pairmode drift-report` | on-demand | Compare registered projects against canonical templates; surface convergent improvements for promotion | `/flex:pairmode drift-report --projects <path> [--convergent]` | Per-project MISSING/EXTRA/DRIFT report; convergence candidates for promotion |
 | `pairmode sync-build` | on-demand | Diff and optionally apply canonical `CLAUDE.build.md` template to an existing project | `pairmode sync-build --project-dir DIR [--dry-run] [--apply] [--yes]` | Unified diff; updated `CLAUDE.build.md` on `--apply` |
 | `pairmode register` | on-demand | Manage the list of projects used by drift detection | `pairmode register/unregister/list-projects --project-dir DIR` | Updated `registered_projects` in `.companion/state.json` |
@@ -175,7 +175,9 @@ You are starting a Python API service. The codebase is empty.
 1. Run `/flex:pairmode bootstrap`. Answer the prompts: project name `invoicing-api`,
    stack `Python/FastAPI/PostgreSQL`, modules `api`, `billing`, `auth`.
 2. Flex writes CLAUDE.md, CLAUDE.build.md, initial ideology, and a phase-1 spec file.
-   The deny list in `.claude/settings.json` is generated from your declared non-negotiables:
+   The deny list in `.claude/settings.json` (a bootstrap-era convenience —
+   `scope_guard` + the per-story permissions artifacts, INFRA-253, are what
+   actually enforces this) is generated from your declared non-negotiables:
    "no direct database writes outside the repository layer."
 3. You create story `BILLING-001: Add invoice creation endpoint` via `story_new.py`.
 4. You tell Claude Code "Build Phase 1." The orchestrator does not invoke any agent by
@@ -190,11 +192,14 @@ You are starting a Python API service. The codebase is empty.
    `hooks/pre_tool_use.py`'s `scope_guard` check blocks the Edit/Write at the tool-call
    level — the route handler is not declared in the story's `primary_files`/`touches`, so
    the write is rejected before it lands, not caught after the fact.
-7. `next-action` resolves to `spawn-reviewer` (exempt from the context-budget gate — it's
-   the loop's mandatory next step, never a discretionary spawn the gate could block). The
-   reviewer diffs the worktree against HEAD, runs the checklist and test suite, and
-   reports PASS. `merge-story-worktree` fast-forward-merges the worktree back onto main,
-   clears the attempt counter, and commits with the story tag.
+7. The orchestrator dispatches the reviewer itself, inside the same `spawn-builder`
+   iteration, immediately after the builder returns (CER-074: `next-action` never emits
+   `spawn-reviewer` — this is orchestrator-held prose, not a resolver action, and it is
+   exempt from the context-budget gate because it's the loop's mandatory next step, never
+   a discretionary spawn the gate could block). The reviewer diffs the worktree against
+   HEAD, runs the checklist and test suite, and reports PASS. `merge-story-worktree`
+   fast-forward-merges the worktree back onto main, clears the attempt counter, and
+   commits with the story tag.
 8. If `/flex:companion` is running, the sidebar picked up `current_story` while the story
    was active and can log the decision into `spec.json`; the constraint held either way.
 
@@ -221,9 +226,14 @@ Orchestration is code-resident, not orchestrator prose: `CLAUDE.build.md` is a ~
 template whose only real logic is a while-loop over
 `flex_build.py next-action --json --project-dir .`. The resolver
 (`skills/pairmode/scripts/next_action.py`) reads story/phase status and `state.json` and
-returns exactly one action per call — `spawn-builder`, `spawn-reviewer`, a checkpoint
-step, a paused/gate action awaiting an operator decision, or `done`. The orchestrator's
-job is to dispatch whatever comes back.
+returns exactly one action per call — `spawn-builder`, a checkpoint step, a paused/gate
+action awaiting an operator decision, or `done`. `spawn-reviewer` is never one of them
+(CER-074): the reviewer dispatch and the PASS/FAIL branch are orchestrator-held prose,
+not resolver output — the orchestrator dispatches the reviewer itself inside the same
+`spawn-builder` iteration, immediately after the builder returns, before polling
+`next-action` again (`next_action.py:163`'s comment is the code-side anchor). The
+orchestrator's job is to dispatch whatever the resolver returns and to run that
+intra-cycle reviewer step on every builder attempt.
 
 1. Write the story spec in `docs/stories/<RAIL>/<RAIL>-NNN.md` with frontmatter and an
    `## Ensures` acceptance section.

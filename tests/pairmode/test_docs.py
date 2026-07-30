@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
 
 def test_readme_exists_and_under_400_lines() -> None:
     readme = Path(__file__).resolve().parent.parent.parent / "README.md"
@@ -61,3 +63,39 @@ def test_pairmode_doc_contains_relation_to_companion_section() -> None:
     assert "in relation to companion" in text, (
         "PAIRMODE.md must contain a 'Pairmode in relation to companion' section"
     )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-305 Ensures 10 (CER-112) — durable skill-count parity.
+#
+# docs/brief.md and docs/reconstruction.md's "Flex is a Claude Code plugin
+# with N skills:" prose must match the live skills/*/SKILL.md count so it
+# cannot silently drift again (as it did when /flex:observability landed).
+# ---------------------------------------------------------------------------
+
+_SKILL_COUNT_WORDS = {3: "three", 4: "four", 5: "five", 6: "six"}
+
+
+def test_skill_count_prose_matches_skill_dirs() -> None:
+    skill_dirs = sorted(p.parent.name for p in (REPO_ROOT / "skills").glob("*/SKILL.md"))
+    n = len(skill_dirs)
+    # Anti-vacuity floor: a glob that matches nothing must fail this test,
+    # not pass it vacuously.
+    assert n >= 4, (
+        f"expected at least 4 skill directories with a SKILL.md, found {n}: {skill_dirs} "
+        "-- a glob matching nothing must fail, not pass"
+    )
+    assert n in _SKILL_COUNT_WORDS, f"no number-word mapping for skill count {n}"
+    word = _SKILL_COUNT_WORDS[n]
+    phrase = f"plugin with {word} skills"
+    for doc_name in ("brief.md", "reconstruction.md"):
+        doc_path = REPO_ROOT / "docs" / doc_name
+        text = doc_path.read_text(encoding="utf-8").lower()
+        assert phrase in text, (
+            f"{doc_path} must contain the phrase {phrase!r} matching the live "
+            f"skill count ({n} skills: {skill_dirs}) (CER-112)"
+        )
+        for skill_dir in skill_dirs:
+            assert skill_dir in text, (
+                f"{doc_path} must mention skill directory {skill_dir!r} at least once"
+            )

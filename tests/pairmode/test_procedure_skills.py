@@ -270,3 +270,159 @@ class TestAgentShellProcedurePointerIsAbsolute:
         ).resolve()
         assert resolved == REVIEWER_PROCEDURE.resolve()
         assert resolved.exists()
+
+
+# ---------------------------------------------------------------------------
+# INFRA-305 — CER-078/084/100 doc-currency and durable parity tests.
+#
+# The whole defect class (CER-078, 084, 100) exists because nothing tested
+# the security-auditor procedure's grading contract against the live hook
+# sources. These two tests close that gap: one pins the PIPE CONTRACT text
+# (Ensures 11), the other mechanizes the hook-import <-> exception-list
+# parity check so the class fails a test the next time it recurs
+# (Ensures 12).
+# ---------------------------------------------------------------------------
+
+import ast
+import re
+
+
+class TestPipePathAbsence:
+    """Ensures 11: neither cold-eyes procedure instructs reading the retired
+    `pipe_path` state.json key; both name the current tempfile.gettempdir()
+    convention. Pins the copy source (reviewer) against the copy (security-
+    auditor) so the two procedures cannot drift apart again."""
+
+    @pytest.mark.parametrize(
+        "procedure_path",
+        [SECURITY_AUDITOR_PROCEDURE, REVIEWER_PROCEDURE],
+        ids=["security-auditor", "reviewer"],
+    )
+    def test_no_read_from_pipe_path_instruction(self, procedure_path: pathlib.Path):
+        text = procedure_path.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            assert not re.search(r"read from .*pipe_path", line, re.IGNORECASE), (
+                f"{procedure_path} instructs reading the retired pipe_path "
+                f"state.json key (CER-078): {line!r}"
+            )
+
+    @pytest.mark.parametrize(
+        "procedure_path",
+        [SECURITY_AUDITOR_PROCEDURE, REVIEWER_PROCEDURE],
+        ids=["security-auditor", "reviewer"],
+    )
+    def test_names_tempfile_gettempdir(self, procedure_path: pathlib.Path):
+        text = procedure_path.read_text(encoding="utf-8")
+        assert "tempfile.gettempdir()" in text, (
+            f"{procedure_path} must name the current pipe-path convention "
+            "tempfile.gettempdir() (INFRA-238)"
+        )
+
+
+# The delegate-capable hooks and the plain pipe relays that must be absent
+# from the exception block (docs/architecture.md:2573).
+_HOOKS_DIR = REPO_ROOT / "hooks"
+_SCRIPTS_DIR = REPO_ROOT / "skills" / "pairmode" / "scripts"
+
+
+def _hook_delegates(hook_path: pathlib.Path) -> tuple[set[str], set[str]]:
+    """AST-walk a hook file for Import/ImportFrom nodes (module-level and
+    function-local) whose module basename is a skills/pairmode/scripts/
+    module. Returns (module_names, symbol_names)."""
+    mods = {p.stem for p in _SCRIPTS_DIR.glob("*.py")}
+    tree = ast.parse(hook_path.read_text(encoding="utf-8"), filename=str(hook_path))
+    module_names: set[str] = set()
+    symbol_names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                base = alias.name.split(".")[0]
+                if base in mods:
+                    module_names.add(base)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                base = node.module.split(".")[0]
+                if base in mods:
+                    module_names.add(base)
+                    for alias in node.names:
+                        symbol_names.add(alias.name)
+    return module_names, symbol_names
+
+
+def _exception_block_text() -> str:
+    text = SECURITY_AUDITOR_PROCEDURE.read_text(encoding="utf-8")
+    start = text.index("Documented thin-delegation exceptions")
+    end = text.index("### 2. PIPE CONTRACT", start)
+    return text[start:end]
+
+
+class TestHookDelegationDocumentation:
+    """INFRA-305 Ensures 12/13: the durable procedure-vs-architecture parity
+    test. This is the mechanical guard the CER-078/084/100 defect class
+    needed and never had — a hook that gains a new skills/pairmode/scripts/
+    delegation must be documented in the security-auditor exception block
+    (both the module name and, for `from module import name` delegations,
+    the imported symbol name) or this test fails.
+
+    Note (Ensures 13 feasibility record): only the *import* half of the
+    exception list is mechanically checkable this way. The *state.json key*
+    half (e.g. `context_step_growth_samples`, `expected_step_tokens`) is not,
+    because those keys are written inside the delegate modules
+    (`context_budget.record_step_growth` writes its own keys;
+    `session_reset.decide_reset` returns a dict the hook splats) and never
+    appear as literals in the hook source. A key-level parity test would
+    require either a hand-maintained hook->key map (the same drift surface
+    it is meant to police) or a call-graph analysis of the delegate modules.
+    Deliberately not built here (see docs/stories/INFRA/INFRA-305.md
+    § Out of scope).
+    """
+
+    def test_hook_delegations_are_documented_exceptions(self):
+        exception_block = _exception_block_text()
+        for hook_path in sorted(_HOOKS_DIR.glob("*.py")):
+            module_names, symbol_names = _hook_delegates(hook_path)
+            if not module_names and not symbol_names:
+                # Plain pipe relays are correctly absent from the block
+                # (docs/architecture.md:2573). Match the `hooks/<name>`
+                # form used in the bullets, not the bare basename -- a bare
+                # "stop.py" is a substring of "subagent_stop.py" and would
+                # false-positive.
+                assert f"hooks/{hook_path.name}" not in exception_block, (
+                    f"{hook_path.name} has no skills/pairmode/scripts/ "
+                    "delegation and must not appear in the documented "
+                    "thin-delegation exception block"
+                )
+                continue
+
+            assert f"hooks/{hook_path.name}" in exception_block, (
+                f"{hook_path.name} delegates to {module_names or symbol_names} "
+                "but is not named in the security-auditor procedure's "
+                "documented thin-delegation exception block "
+                f"(CER-078/084/100 drift shape). File: {SECURITY_AUDITOR_PROCEDURE}"
+            )
+            for module_name in module_names:
+                assert module_name in exception_block, (
+                    f"{hook_path.name} imports from {module_name!r} but that "
+                    "module is not named in the security-auditor procedure's "
+                    "exception block (CER-078/084/100 drift shape). "
+                    f"File: {SECURITY_AUDITOR_PROCEDURE}"
+                )
+            for symbol_name in symbol_names:
+                assert symbol_name in exception_block, (
+                    f"{hook_path.name} imports the symbol {symbol_name!r} but "
+                    "it is not named in the security-auditor procedure's "
+                    "exception block (CER-078/084/100 drift shape). "
+                    f"File: {SECURITY_AUDITOR_PROCEDURE}"
+                )
+
+    def test_plain_pipe_relays_absent_from_exception_block(self):
+        exception_block = _exception_block_text()
+        for name in ("stop.py", "session_end.py", "exit_plan_mode.py"):
+            hook_path = _HOOKS_DIR / name
+            module_names, symbol_names = _hook_delegates(hook_path)
+            assert not module_names and not symbol_names, (
+                f"{name} was expected to have no skills/pairmode/scripts/ "
+                "delegation (docs/architecture.md:2573) but does; update "
+                "this test's assumptions"
+            )
+            assert f"hooks/{name}" not in exception_block
