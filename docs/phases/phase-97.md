@@ -28,21 +28,21 @@ Resume HARNESS016-main's deferred tail: retry the doc sweep, migrate the fleet t
 | ID | Title | Status |
 |----|-------|--------|
 | RELEASE-042 | Pre-fold doc sweep — era status, post-flip staleness, reviewer input-scope contradiction (retry, scoped to drop forbidden brief.md section) | complete |
-| RELEASE-043 | Fleet migration — sync aab to pairmode 0.3.0 | deferred |
-| RELEASE-044 | Fleet migration — sync asp to pairmode 0.3.0 | deferred |
-| RELEASE-045 | Fleet migration — sync base56 to pairmode 0.3.0 | deferred |
-| RELEASE-046 | Fleet migration — sync caddy to pairmode 0.3.0 | deferred |
-| RELEASE-047 | Fleet migration — sync coherra to pairmode 0.3.0 | deferred |
-| RELEASE-048 | Fleet migration — sync forqsite to pairmode 0.3.0 | deferred |
-| RELEASE-049 | Fleet migration — sync forqsite.help to pairmode 0.3.0 | deferred |
-| RELEASE-050 | Fleet migration — sync halfhorse to pairmode 0.3.0 | deferred |
-| RELEASE-051 | Fleet migration — sync lumin to pairmode 0.3.0 | deferred |
-| RELEASE-052 | Fleet migration — sync meander to pairmode 0.3.0 | deferred |
-| RELEASE-053 | Fleet migration — sync pokus to pairmode 0.3.0 | deferred |
-| RELEASE-054 | Fleet migration — sync radar to pairmode 0.3.0 | deferred |
-| RELEASE-055 | Fleet migration — sync rockue to pairmode 0.3.0 | deferred |
-| RELEASE-056 | Fleet migration — sync stackabid to pairmode 0.3.0 | deferred |
-| RELEASE-057 | Fleet migration — sync ud to pairmode 0.3.0 | deferred |
+| RELEASE-043 | Fleet migration — sync aab to pairmode 0.3.0 | superseded — resolved by aab's own hand-migrated session (commit d40c44b), verified via RELEASE-071 fleet sweep |
+| RELEASE-044 | Fleet migration — sync asp to pairmode 0.3.0 | superseded — resolved by asp's own hand-migrated session (PM057-main), verified via RELEASE-071 fleet sweep |
+| RELEASE-045 | Fleet migration — sync base56 to pairmode 0.3.0 | superseded — resolved by phase-106 RELEASE-069 (decommissioned, not migrated, per operator directive) |
+| RELEASE-046 | Fleet migration — sync caddy to pairmode 0.3.0 | superseded — resolved by phase-106 RELEASE-065 |
+| RELEASE-047 | Fleet migration — sync coherra to pairmode 0.3.0 | superseded — resolved by coherra's own hand-migrated session (story-INFRA-045), verified via RELEASE-071 fleet sweep |
+| RELEASE-048 | Fleet migration — sync forqsite to pairmode 0.3.0 | superseded — resolved by forqsite's own hand-migrated session (story-INFRA-020), verified via RELEASE-071 fleet sweep |
+| RELEASE-049 | Fleet migration — sync forqsite.help to pairmode 0.3.0 | superseded — resolved by phase-106 RELEASE-066 |
+| RELEASE-050 | Fleet migration — sync halfhorse to pairmode 0.3.0 | superseded — resolved by phase-106 RELEASE-067 |
+| RELEASE-051 | Fleet migration — sync lumin to pairmode 0.3.0 | superseded — resolved by phase-106 RELEASE-064 |
+| RELEASE-052 | Fleet migration — sync meander to pairmode 0.3.0 | superseded — resolved by phase-106 RELEASE-063 (campaign canary) |
+| RELEASE-053 | Fleet migration — sync pokus to pairmode 0.3.0 | superseded — resolved by phase-106 RELEASE-068 (canon-only, proof-deferred) |
+| RELEASE-054 | Fleet migration — sync radar to pairmode 0.3.0 | superseded — resolved by radar's own hand-migrated session (story-MU-128), verified via RELEASE-071 fleet sweep |
+| RELEASE-055 | Fleet migration — sync rockue to pairmode 0.3.0 | superseded — resolved by rockue's own hand-migrated session (RK011-ante1), verified via RELEASE-071 fleet sweep |
+| RELEASE-056 | Fleet migration — sync stackabid to pairmode 0.3.0 | superseded — resolved by stackabid's own hand-migrated session (story-INFRA-014), verified via RELEASE-071 fleet sweep |
+| RELEASE-057 | Fleet migration — sync ud to pairmode 0.3.0 | superseded — resolved by ud's own hand-migrated session (INFRA-210/211), verified via RELEASE-071 fleet sweep |
 | RELEASE-058 | Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects | backlog |
 | RELEASE-059 | Fold merge — fold-prep into main, tag v0.3.0 | complete |
 | RELEASE-060 | Post-fold re-sync of migrated projects + RELEASE-002 status reconciliation | draft |
@@ -145,6 +145,17 @@ post-fold. RELEASE-058 is waived (status `backlog`), its gate tooling unbuilt �
 see the `## Resolution — operator override (2026-07-23)` section in
 `docs/stories/RELEASE/RELEASE-058.md`. RELEASE-059 (the fold merge) proceeds
 under this override.
+
+## Closed (2026-07-29, RELEASE-071)
+
+Phase closed by phase-106's RELEASE-071 (campaign close). All 15 deferred
+fleet-migration stubs (RELEASE-043..057) are superseded — 7 by phase-106's
+own driven campaign stories (RELEASE-063..069), 8 by each project's own
+independent hand-migrated session, all verified via a fresh
+`fleet_discovery.py --no-snapshot` sweep recorded in RELEASE-071's
+`## Evidence`. RELEASE-058 (DP8 gate) remains waived per the 2026-07-23
+operator override above — not reopened. See `docs/phases/phase-106.md` and
+`docs/stories/RELEASE/RELEASE-071.md` for the full disposition.
 
 ## Schema delivery
 

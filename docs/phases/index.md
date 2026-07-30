@@ -118,7 +118,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | HARNESS015-main | Checkpoint-sequence reset and state.json atomic-write adoption | complete | [phase-HARNESS015-main.md](phase-HARNESS015-main.md) · cp-HARNESS015-main |
 | HARNESS016-main | Final fold — pre-fold gate, merge to main, re-sync | deferred | [phase-HARNESS016-main.md](phase-HARNESS016-main.md) — paused 2026-07-21, forked to Phase 96 |
 | 96 | Build-loop revert safety and worktree-per-cycle isolation | complete | [phase-96.md](phase-96.md) |
-| 97 | Fold resume — pre-fold gate, fleet migration, merge to main, re-sync | deferred | [phase-97.md](phase-97.md) — paused 2026-07-24, phase-99 (post-fold self-sync) sequenced first per operator; resumes after cp-99 |
+| 97 | Fold resume — pre-fold gate, fleet migration, merge to main, re-sync | complete | [phase-97.md](phase-97.md) — closed 2026-07-29 by phase-106's RELEASE-071; deferred fleet-migration stubs RELEASE-043..057 superseded |
 | 98 | 0.2 → 0.3 regression remediation | complete | [phase-98.md](phase-98.md) · cp98-context-budget-regression-remediation |
 | 99 | Post-fold self-sync remediation | complete | [phase-99.md](phase-99.md) · cp99-post-fold-self-sync-remediation |
 | 100 | Scope-guard fail-closed completion (CER-048 close-out) | complete | [phase-100.md](phase-100.md) · cp100-scope-guard-fail-closed-completion |
