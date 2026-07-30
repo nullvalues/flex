@@ -27,7 +27,7 @@ Finish the pairmode 0.3.0 fleet migration as a driven campaign: 8 remaining proj
 | RELEASE-066 | Migrate forqsite.help to pairmode 0.3.0 | complete |
 | RELEASE-067 | Migrate halfhorse to pairmode 0.3.0 | complete |
 | RELEASE-068 | Migrate pokus to pairmode 0.3.0 — canon files only | complete |
-| RELEASE-069 | Migrate base56 to pairmode 0.3.0 (reconcile stale index and history drift first) | draft |
+| RELEASE-069 | Decommission pairmode from base56 (strip, not migrate — product is fully developed) | draft |
 | RELEASE-070 | Migrate cora from 0.1.0 to 0.3.0 (unpark RELEASE-030 lesson-extraction carve-out) | draft |
 | RELEASE-071 | Campaign close: full-fleet DP8 gate, supersede RELEASE-043..057, clean stale seeds, mark phase-97 complete | draft |
 
