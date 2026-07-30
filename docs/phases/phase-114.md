@@ -25,6 +25,55 @@ Remove recurring build-loop friction (unprovisioned worktrees, interactive scaff
 
 **Fourth backlog pull at spec time.** INFRA-323 was pulled into this phase from CER-134 (operator report 2026-07-29, bootstrap session lifecycle — Claude Code loads agent definitions, plugin/skill registrations and hook blocks at session start only, while `bootstrap`, `migrate`, `to-030`, `sync-agents`/`sync-all` and `audit-hooks` all write those surfaces mid-session and say nothing about it, so a freshly bootstrapped or migrated repo reads as a failed bootstrap until the operator happens to exit and relaunch). It lands in 114 because this phase already owns build-loop friction removal and doc-currency work, and because the forcing function is immediate: RELEASE-068's canon-only pokus migration (phase 106) creates `gate-worker.md` and rewrites seven agent shells mid-session, verifying only that the files are on disk. CER-134's phase column reads 114 and its resolution annotation lands when INFRA-323 completes. Recorded as AG-12 in `docs/closeout-agreements-20260729.md`.
 
+## Ordering
+
+**Group 1 — phase's own original scope, build first.** INFRA-301..305 in
+numeric order: non-interactive scaffolding, worktree provisioning,
+migration-tooling parity, spec_preflight containment parity, and the
+doc/procedure currency sweep. No cross-dependencies among them beyond
+numeric order; INFRA-305 (doc sweep) benefits from running last within
+this group since earlier stories in the group may themselves touch docs
+that need re-sweeping.
+
+**Group 2 — standalone, low-risk, build anytime after Group 1.** INFRA-326
+(era-ledger tie-break fix) first — small, self-contained, unblocks
+nothing but blocks nothing either. Then INFRA-319 (portable hook-command
+paths) — the most load-bearing backlog pull, directly referenced by
+RELEASE-068's and RELEASE-070's field findings (phase 106) and by
+INFRA-323 below. Then INFRA-323 (session-lifecycle restart notices) —
+sequenced after INFRA-319 since both touch `bootstrap.py`/`sync`/`migrate`
+adjacent surfaces and INFRA-323's restart-notice wording should reflect
+INFRA-319's corrected hook-path behavior, not the pre-fix one.
+
+**Group 3 — independent backlog pulls, any order.** INFRA-321 (two-track
+context accounting) and INFRA-322 (CER resolution-marker grammar) — no
+dependency on each other or on Groups 1/2.
+
+**Group 4 — docs-reviewer wiring.** INFRA-325 (wire docs-reviewer into
+canonical scaffold/dispatch) — independent, but do before Group 5 since
+Group 5's INFRA-324 also touches the checkpoint/dispatch surface and a
+correctly-wired docs-reviewer should exist before further checkpoint-path
+changes land, to avoid two dispatch-table edits colliding in review.
+
+**Group 5 — hooks/pre_tool_use.py changes, build together, in this order.**
+INFRA-324 (reviewer Bash allowlist — adds a new `Bash` dispatch branch)
+then INFRA-327 (loop-breaker context-budget exemption — edits
+`BUILD_CYCLE_SUBAGENTS`) — both touch `hooks/pre_tool_use.py`; sequencing
+them adjacently (324 first, since it adds a new branch entirely, 327
+second, since it only edits an existing set) keeps each diff small and
+easy to review against the other.
+
+**Group 6 — the actual loop-breaker fix, highest priority within this
+phase's backlog pulls.** INFRA-328 (surface `fail_cause` into
+`spawn-loop-breaker`'s dispatch) — this is the confirmed root cause of the
+live operator-reported behavior ("loop-breaker should run automatically
+after two failed attempts; human intervention is only needed if its fix
+doesn't work"). INFRA-327 (Group 5) is a real, separately-valid gap but
+was confirmed *not* the cause of what was observed — INFRA-328 is. Build
+after Group 5 (no file conflict — INFRA-328 touches `next_action.py`, not
+`hooks/pre_tool_use.py` — but sequenced last so its regression tests can
+exercise a `hooks/pre_tool_use.py` already carrying Group 5's changes).
+
 ## Stories
 
 | ID | Title | Status |
