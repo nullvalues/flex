@@ -44,9 +44,9 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-113 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
+- [x] written-never-read — `widenings` field in BUILD-RESULT (builder procedure) has no code/orchestrator consumer and is absent from worker_result.py's allowed set (security-audit MEDIUM #3; the real audit record — the story-file `## Scope widenings` table — does have a reviewer-procedure consumer). INFRA-311's attempt-2 `AuditItem.retired_by`/`AuditResult.finding_count` were caught in review and dropped; attempt 3 stores no fields. INFRA-298 gave `attempts.agent_id` its first production reader.
+- [x] required-never-written — none found: reconcile_one's guard reads only columns every writer produces; `standing_paths`/`story_phase` artifact keys are written by generate_permissions_artifact and check_path unions live computation for older artifacts (no migration dependency).
+- [x] duplicate state — RETIRED_SECTIONS is single-sourced in sync.py (audit lazy-imports it); RECOGNISED_BUILD_OUTCOMES deliberately mirrors worker_result.py's enum with a mirror-and-why comment and a test pinning both (accepted mirror, not silent duplication). Attempt counter remains hook-written/orchestrator-read (this session: hook recording did not fire for async spawns — CER-114 confirmed live; manually reconciled via record-attempt/write-attempt-count; fixed going forward by INFRA-298's relay).
+- [x] half-implementation — sync.py's new `--dry-run` is unreachable from the sync-all wrapper (pairmode_sync.py hard-skip) — filed as CER-133(6) with the SKILL.md stale claims (5), gated to the pre-fleet-campaign pass. CER-131 filed for relay-path rejections not logging to effort_recording.log (INFRA-298/299 same-phase sequencing seam).
 
-— developer fills in after phase completion —
+— filled by orchestrator at CP-113, 2026-07-29 —
