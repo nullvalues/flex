@@ -1421,6 +1421,237 @@ class TestStoryWorktreeLifecycle:
         assert (main_untracked / "keep.md").read_text() == "precious\n"
 
 
+def _write_pairmode_context(project: Path, data) -> Path:
+    """Write ``.companion/pairmode_context.json`` with *data*.
+
+    A ``str`` is written verbatim (for malformed-JSON test cases); anything
+    else is JSON-encoded.
+    """
+    companion = project / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    context_path = companion / "pairmode_context.json"
+    if isinstance(data, str):
+        context_path.write_text(data, encoding="utf-8")
+    else:
+        context_path.write_text(json.dumps(data), encoding="utf-8")
+    return context_path
+
+
+class TestCreateStoryWorktreeProvisioning:
+    """worktree_provision — CER-075, INFRA-302."""
+
+    def test_c1_no_config_is_a_no_op(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path)
+        result = _create_worktree(tmp_path, "WTP-001")
+        assert result.returncode == 0, result.stderr
+        wt = tmp_path / ".pairmode-worktrees" / "WTP-001"
+        assert result.stdout.strip().splitlines() == [str(wt.resolve())]
+        assert "worktree_provision" not in result.stderr
+
+    def test_c1_config_present_no_key_is_a_no_op(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path)
+        _write_pairmode_context(tmp_path, {"test_command": "pytest"})
+        result = _create_worktree(tmp_path, "WTP-002")
+        assert result.returncode == 0, result.stderr
+        wt = tmp_path / ".pairmode-worktrees" / "WTP-002"
+        assert result.stdout.strip().splitlines() == [str(wt.resolve())]
+        assert "worktree_provision" not in result.stderr
+
+    def test_c2_stdout_is_one_line_when_provisioned(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path)
+        (tmp_path / "node_modules").mkdir()
+        (tmp_path / "node_modules" / "pkg.json").write_text("{}", encoding="utf-8")
+        _write_pairmode_context(tmp_path, {"worktree_provision": ["node_modules"]})
+        result = _create_worktree(tmp_path, "WTP-003")
+        assert result.returncode == 0, result.stderr
+        wt = tmp_path / ".pairmode-worktrees" / "WTP-003"
+        assert result.stdout.strip().splitlines() == [str(wt.resolve())]
+
+    def test_happy_path_creates_absolute_symlink(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path)
+        src = tmp_path / "node_modules"
+        src.mkdir()
+        (src / "pkg.json").write_text("{}", encoding="utf-8")
+        _write_pairmode_context(tmp_path, {"worktree_provision": ["node_modules"]})
+        result = _create_worktree(tmp_path, "WTP-004")
+        assert result.returncode == 0, result.stderr
+        wt = tmp_path / ".pairmode-worktrees" / "WTP-004"
+        link = wt / "node_modules"
+        assert link.is_symlink()
+        # B4: the target is absolute, so the link survives regardless of the
+        # worktree's depth relative to the main checkout.
+        assert os.readlink(link) == str(src.resolve())
+
+    def test_condition2_absolute_path_rejected(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path)
+        _write_pairmode_context(tmp_path, {"worktree_provision": ["/etc/passwd"]})
+        result = _create_worktree(tmp_path, "WTP-005")
+        assert result.returncode == 0, result.stderr
+        assert "must be a project-relative path without .." in result.stderr
+
+    def test_condition2_dotdot_path_rejected(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path)
+        _write_pairmode_context(tmp_path, {"worktree_provision": ["../escape"]})
+        result = _create_worktree(tmp_path, "WTP-006")
+        assert result.returncode == 0, result.stderr
+        assert "must be a project-relative path without .." in result.stderr
+
+    def test_condition3_missing_source_skipped(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path)
+        _write_pairmode_context(tmp_path, {"worktree_provision": ["does-not-exist"]})
+        result = _create_worktree(tmp_path, "WTP-007")
+        assert result.returncode == 0, result.stderr
+        assert "not present in the main checkout" in result.stderr
+
+    def test_condition4_symlink_escape_rejected(self, tmp_path: Path) -> None:
+        """A naive `startswith` containment check would miss this: the entry
+        string itself has no `..`, but the symlink it names in the main
+        checkout resolves outside the project root."""
+        _init_git_repo(tmp_path)
+        outside = tmp_path.parent / f"{tmp_path.name}-outside"
+        outside.mkdir(exist_ok=True)
+        (tmp_path / "escaping_link").symlink_to(outside, target_is_directory=True)
+        _write_pairmode_context(tmp_path, {"worktree_provision": ["escaping_link"]})
+        result = _create_worktree(tmp_path, "WTP-008")
+        assert result.returncode == 0, result.stderr
+        assert "resolves outside the main checkout" in result.stderr
+
+    def test_condition5_already_present_in_worktree_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        # README.md is tracked (see _init_git_repo), so it is already
+        # materialised in the fresh worktree before provisioning runs.
+        _write_pairmode_context(tmp_path, {"worktree_provision": ["README.md"]})
+        result = _create_worktree(tmp_path, "WTP-009")
+        assert result.returncode == 0, result.stderr
+        assert "already present in the worktree" in result.stderr
+
+    def test_condition6_missing_parent_in_worktree_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        # Untracked in the main checkout, so `git worktree add` never
+        # materialises its parent directory in the fresh worktree.
+        (tmp_path / "untracked_dir").mkdir()
+        (tmp_path / "untracked_dir" / "file.txt").write_text("x\n", encoding="utf-8")
+        _write_pairmode_context(
+            tmp_path, {"worktree_provision": ["untracked_dir/file.txt"]}
+        )
+        result = _create_worktree(tmp_path, "WTP-010")
+        assert result.returncode == 0, result.stderr
+        assert "parent directory missing in the worktree" in result.stderr
+
+    def test_condition7_tracked_path_skipped(self, tmp_path: Path) -> None:
+        """Direct unit test on `_provision_story_worktree`: the CLI end-to-end
+        path always materialises a tracked file on disk, so condition 5 fires
+        first (see B3's comment chain). Condition 7 exists for the case where
+        the index still tracks an entry that has since been removed from the
+        worktree's working tree — reproduced here directly."""
+        import flex_build  # noqa: E402
+
+        _init_git_repo(tmp_path)
+        (tmp_path / "tracked_file.txt").write_text("payload\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "add", "tracked_file.txt"], cwd=str(tmp_path), check=True
+        )
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "add tracked_file"],
+            cwd=str(tmp_path),
+            check=True,
+        )
+        wt = tmp_path / "wt-direct"
+        subprocess.run(
+            ["git", "worktree", "add", "-b", "wt-direct-branch", str(wt), "HEAD"],
+            cwd=str(tmp_path),
+            check=True,
+        )
+        # Remove the checked-out file from disk without staging the removal —
+        # the index (and therefore `git ls-files`) still calls it tracked.
+        (wt / "tracked_file.txt").unlink()
+
+        warnings = flex_build._provision_story_worktree(
+            tmp_path, wt, ["tracked_file.txt"]
+        )
+        assert any("tracked by git" in w for w in warnings), warnings
+
+    def test_b5_four_bad_entries_exit_zero_four_warnings(
+        self, tmp_path: Path
+    ) -> None:
+        _init_git_repo(tmp_path)
+        _write_pairmode_context(
+            tmp_path,
+            {
+                "worktree_provision": [
+                    "does-not-exist",
+                    "../escape",
+                    "/etc/passwd",
+                    "README.md",
+                ]
+            },
+        )
+        result = _create_worktree(tmp_path, "WTP-011")
+        assert result.returncode == 0, result.stderr
+        wt = tmp_path / ".pairmode-worktrees" / "WTP-011"
+        assert result.stdout.strip().splitlines() == [str(wt.resolve())]
+        warning_lines = [
+            line
+            for line in result.stderr.splitlines()
+            if "worktree_provision entry" in line
+        ]
+        assert len(warning_lines) == 4, result.stderr
+
+    def test_b7_duplicate_entry_is_a_noop_not_an_error(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path)
+        src = tmp_path / "node_modules"
+        src.mkdir()
+        (src / "pkg.json").write_text("{}", encoding="utf-8")
+        _write_pairmode_context(
+            tmp_path, {"worktree_provision": ["node_modules", "node_modules"]}
+        )
+        result = _create_worktree(tmp_path, "WTP-012")
+        assert result.returncode == 0, result.stderr
+        wt = tmp_path / ".pairmode-worktrees" / "WTP-012"
+        link = wt / "node_modules"
+        assert link.is_symlink()
+        assert os.readlink(link) == str(src.resolve())
+        assert "already present in the worktree" in result.stderr
+
+    def test_a2_absent_config_file_returns_empty(self, tmp_path: Path) -> None:
+        import flex_build  # noqa: E402
+
+        assert flex_build._read_worktree_provision(tmp_path) == []
+
+    def test_a2_invalid_json_returns_empty(self, tmp_path: Path) -> None:
+        import flex_build  # noqa: E402
+
+        _write_pairmode_context(tmp_path, "{ not json")
+        assert flex_build._read_worktree_provision(tmp_path) == []
+
+    def test_a2_string_value_returns_empty_with_one_warning(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        import flex_build  # noqa: E402
+
+        _write_pairmode_context(tmp_path, {"worktree_provision": "node_modules"})
+        result = flex_build._read_worktree_provision(tmp_path)
+        assert result == []
+        captured = capsys.readouterr()
+        assert captured.err.count("warning:") == 1
+        assert "not a list" in captured.err
+
+    def test_a2_non_string_member_dropped_valid_members_kept(
+        self, tmp_path: Path
+    ) -> None:
+        import flex_build  # noqa: E402
+
+        _write_pairmode_context(
+            tmp_path, {"worktree_provision": ["node_modules", 5, ""]}
+        )
+        result = flex_build._read_worktree_provision(tmp_path)
+        assert result == ["node_modules"]
+
+
 class TestCreateStoryWorktreeAtomicity:
     """create-story-worktree is all-or-nothing (INFRA-296, CER-115)."""
 

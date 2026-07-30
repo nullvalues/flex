@@ -37,6 +37,12 @@ FLEX_ROOT = Path(__file__).resolve().parents[2]
 #    (scripts/__pycache__) — never vendored payload, and correctly still
 #    ignored by the global dist//build/ and __pycache__/ patterns. These only
 #    appear on disk after a build has actually been run.
+# 3. `skills/observability/ui/tsconfig.tsbuildinfo` (CER-070 addendum /
+#    INFRA-302) — our own generated incremental-typecheck cache, not vendored
+#    package payload, and it lives outside every node_modules tree. It is
+#    deliberately untracked and ignored (see .gitignore) because `tsc -b`
+#    rewrites it on every UI-build-gate run, dirtying a story worktree and
+#    making merge-story-worktree's rebase refuse.
 #
 # Nothing else may be added here: any other ignored path under a vendored
 # node_modules is exactly the defect class (CER-090) this test exists to
@@ -51,6 +57,7 @@ ALLOWED_IGNORED_EXACT = (
     "skills/observability/ui/dist/",
     "skills/observability/api/dist/",
     "skills/observability/scripts/__pycache__/",
+    "skills/observability/ui/tsconfig.tsbuildinfo",
 )
 
 
@@ -213,3 +220,33 @@ def test_gitignore_still_ignores_our_own_build_output() -> None:
             "vendored node_modules payload has become too broad and is now "
             "swallowing our own build output."
         )
+
+
+def test_tsconfig_tsbuildinfo_is_untracked() -> None:
+    """
+    CER-070 addendum (INFRA-302): tsconfig.tsbuildinfo must not be tracked by
+    git — a tracked file that `tsc -b` rewrites on every UI-build-gate run
+    dirties a story worktree and makes merge-story-worktree's rebase refuse.
+    """
+    _require_git()
+    result = _git("ls-files", "--", "skills/observability/ui/tsconfig.tsbuildinfo")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "", (
+        "skills/observability/ui/tsconfig.tsbuildinfo is tracked by git — it "
+        "must be untracked (git rm --cached) so a UI-build-gate run cannot "
+        "dirty a story worktree."
+    )
+
+
+def test_tsconfig_tsbuildinfo_is_ignored() -> None:
+    """
+    CER-070 addendum (INFRA-302): tsconfig.tsbuildinfo must be ignored so a
+    regenerated copy never re-surfaces as an untracked file in `git status`.
+    """
+    _require_git()
+    result = _git("check-ignore", "-q", "skills/observability/ui/tsconfig.tsbuildinfo")
+    assert result.returncode == 0, (
+        "skills/observability/ui/tsconfig.tsbuildinfo is not ignored by "
+        ".gitignore — a regenerated copy would re-surface as an untracked "
+        "file and dirty every story worktree that runs the UI build gate."
+    )

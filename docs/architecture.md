@@ -214,6 +214,21 @@ checkpoint-stage workers (`checkpoint-security`, `checkpoint-intent`, `checkpoin
 are read-mostly, never commit, and stay on the main worktree unwrapped. `.pairmode-worktrees/`
 is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
 
+**Worktree build-environment provisioning (CER-075, INFRA-302).** A git worktree contains
+exactly what git tracks, so a project's deliberately gitignored build inputs (`node_modules`,
+`.env.local`, etc.) are absent from every fresh story worktree. An optional `worktree_provision`
+list in `.companion/pairmode_context.json` — project-relative paths, e.g. `["node_modules",
+".env.local", "apps/web/node_modules"]` — names paths `create-story-worktree` symlinks
+(absolute-target) from the main checkout into the fresh worktree, once the permissions gate has
+passed. Every entry is skip-with-warning, never fatal: a missing source, an escaping or already-
+tracked path, or any other unsatisfiable entry degrades to one stderr warning naming the entry and
+the reason, and cannot fail or strand the worktree. Absent config is a byte-identical no-op — there
+is no implicit `node_modules` default; a project that wants a path linked says so. The list lives in
+`pairmode_context.json`, not `.companion/state.json`: the latter is runtime state under
+single-writer ownership, rewritten every build/merge cycle, while `worktree_provision` is durable,
+hand-authored operator intent that should never share a lock-protected, machine-rewritten file with
+ephemeral state.
+
 **Worktree as in-flight claim (CER-095.1, INFRA-280).** The worktree created above is not
 only an isolation boundary — it is also the *only* record of which stories are currently
 being built, and the resolver reads it. The claim is taken by `create-story-worktree` (it
@@ -3608,6 +3623,11 @@ at runtime, still ignored. The tree is a linux-x64 snapshot, including a compile
 `better_sqlite3.node` addon; other platforms run `pnpm rebuild better-sqlite3` rather than
 reinstalling. The repair path for a broken vendored tree is `git checkout`, never
 `pnpm install` — the latter can rewrite the lockfile and resolve different versions.
+`skills/observability/ui/tsconfig.tsbuildinfo` is the sole deliberate exception outside the
+node-gyp intermediates above: it is **untracked and ignored** (CER-070 addendum / INFRA-302),
+not vendored payload — `tsc -b` (`ui/tsconfig.json` sets `"noEmit": true`) rewrites this pure
+incremental typecheck cache on every UI-build-gate run, including failing ones, which used to
+dirty a story worktree and make `merge-story-worktree`'s rebase refuse. Do not "restore" it.
 
 **Resolver state model** (`flex_build.py resolver-state --json`): pure-read subcommand added
 in HARNESS007/OBS-001. Returns `{action, position, effort_by_role, index}`. The TS reader

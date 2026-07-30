@@ -221,6 +221,192 @@ def _worktree_paths(story_id: str, project_dir: Path) -> tuple[Path, Path, str]:
     return wt_rel, wt_abs, branch
 
 
+def _read_worktree_provision(project_path: Path) -> list[str]:
+    """Read the optional ``worktree_provision`` list from
+    ``<project_dir>/.companion/pairmode_context.json`` (CER-075, INFRA-302).
+
+    Returns a list of project-relative paths to symlink into a fresh story
+    worktree from the main checkout. Total: never raises, never exits.
+
+    Read from ``pairmode_context.json`` rather than ``.companion/state.json``:
+    ``state.json`` is runtime state under single-writer ownership
+    (``docs/ideology.md:124-132`` — "Sidebar owns all state writes"; its
+    writers take ``state_lock``), rewritten every build/merge cycle, while
+    ``worktree_provision`` is durable, hand-authored operator intent that is
+    never machine-written — mixing an operator-edited key into a
+    lock-protected, machine-rewritten file invites a lost update and mixes
+    intent with ephemera. ``pairmode_context.json`` is already the
+    project-level operator config file (written once by bootstrap, read-only
+    thereafter) and already holds the sibling build-environment keys
+    ``build_command``/``test_command``/``test_dir``.
+
+    Declared shape: a list of paths relative to the project (main checkout)
+    root, e.g. ``["node_modules", ".env.local", "apps/web/node_modules"]``.
+    Absolute paths and paths containing a ``..`` segment are rejected (by
+    ``_provision_story_worktree``), not normalised.
+    """
+    context_path = project_path / ".companion" / "pairmode_context.json"
+    if not context_path.exists():
+        return []
+    try:
+        data = json.loads(context_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return []
+    if not isinstance(data, dict) or "worktree_provision" not in data:
+        return []
+
+    raw = data["worktree_provision"]
+    if not isinstance(raw, list):
+        click.echo(
+            f"warning: worktree_provision in {context_path} is not a list; ignoring",
+            err=True,
+        )
+        return []
+
+    entries: list[str] = []
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            entries.append(item)
+        else:
+            click.echo(
+                f"warning: worktree_provision entry {item!r} in {context_path} "
+                "is not a non-empty string; skipping",
+                err=True,
+            )
+    return entries
+
+
+def _provision_story_worktree(
+    project_path: Path, wt_abs: Path, entries: list[str]
+) -> list[str]:
+    """Symlink ``entries`` (project-relative paths) from ``project_path`` into
+    ``wt_abs`` (CER-075, INFRA-302).
+
+    Returns a list of human-readable warning lines (empty on full success).
+    Never raises, never exits — a misconfigured or partially-satisfiable
+    ``worktree_provision`` list must never cost an operator a worktree; each
+    skip is loud (one warning line naming the entry and the reason) but
+    non-fatal (docs/ideology.md:102-110 — "Never silently pass
+    contradictions": the contradiction lives in the config, not in the
+    worktree, so refusing to hand back a valid worktree would punish the
+    wrong thing).
+
+    Conditions are checked in cheap-to-expensive order; only when none of
+    them holds is the link created.
+    """
+    project_root = project_path.resolve()
+    warnings: list[str] = []
+
+    for entry in entries:
+        # 1. Must be a non-empty string (the reader already filters this, but
+        # the provisioner is a public contract in its own right and must not
+        # assume its only caller is well-behaved).
+        if not isinstance(entry, str) or not entry.strip():
+            warnings.append(f"worktree_provision entry {entry!r}: not a path string")
+            continue
+
+        entry_path = Path(entry)
+
+        # 2. Absolute paths and any ".." segment are rejected outright, not
+        # normalised — a provisioner that "helpfully" resolves a traversal is
+        # a provisioner that hides one.
+        if entry_path.is_absolute() or ".." in entry_path.parts:
+            warnings.append(
+                f"worktree_provision entry {entry!r}: must be a project-relative "
+                "path without .."
+            )
+            continue
+
+        src = project_path / entry_path
+
+        # 3. Source must exist in the main checkout.
+        if not src.exists():
+            warnings.append(
+                f"worktree_provision entry {entry!r}: not present in the main checkout"
+            )
+            continue
+
+        # 4. Containment is checked on the *resolved* target, not the literal
+        # string, so a symlink in the main checkout that points outside the
+        # project is rejected too. This matters because the permission
+        # artifact (docs/phases/permissions/<id>.json) — the Layer 1
+        # allow-list scope_guard.py enforces — is written in terms of
+        # project-relative paths; a link that silently escapes the checkout
+        # would let a scope-allowed write land outside every path the guard
+        # believes it is enforcing. Config here is operator-authored, so this
+        # is a footgun guard, not a trust boundary.
+        try:
+            src_resolved = src.resolve()
+        except OSError:
+            warnings.append(f"worktree_provision entry {entry!r}: resolves outside the main checkout")
+            continue
+        if src_resolved != project_root and project_root not in src_resolved.parents:
+            warnings.append(
+                f"worktree_provision entry {entry!r}: resolves outside the main checkout"
+            )
+            continue
+
+        dst = wt_abs / entry_path
+
+        # 5. Already present in the worktree — including a broken symlink,
+        # which os.path.exists() would report False for, so lexists is used.
+        if os.path.lexists(dst):
+            warnings.append(
+                f"worktree_provision entry {entry!r}: already present in the worktree"
+            )
+            continue
+
+        # 6. Parent directory must already exist in the worktree; the
+        # provisioner never invents directory structure — a provisioner that
+        # does is a provisioner that can quietly reshape a worktree.
+        dst_parent = dst.parent
+        if not dst_parent.exists():
+            warnings.append(
+                f"worktree_provision entry {entry!r}: parent directory missing in the worktree"
+            )
+            continue
+        try:
+            dst_parent_resolved = dst_parent.resolve()
+        except OSError:
+            warnings.append(
+                f"worktree_provision entry {entry!r}: parent directory missing in the worktree"
+            )
+            continue
+        wt_abs_resolved = wt_abs.resolve()
+        if dst_parent_resolved != wt_abs_resolved and wt_abs_resolved not in dst_parent_resolved.parents:
+            warnings.append(
+                f"worktree_provision entry {entry!r}: parent directory missing in the worktree"
+            )
+            continue
+
+        # 7. Refuse to shadow content git already tracks in the worktree —
+        # this is the other half of this story (§ Ensures B3): shadowing a
+        # tracked path with a symlink makes the worktree permanently dirty
+        # and merge-story-worktree's rebase (flex_build.py:3618) refuse, the
+        # same failure mode the tsconfig.tsbuildinfo half of this story
+        # removes.
+        tracked_check = _run_git(
+            ["ls-files", "--error-unmatch", "--", entry],
+            wt_abs,
+        )
+        if tracked_check.returncode == 0:
+            warnings.append(
+                f"worktree_provision entry {entry!r}: tracked by git; refusing to "
+                "shadow tracked content"
+            )
+            continue
+
+        # 8. Create the link. Target is absolute so it survives regardless of
+        # the worktree's depth relative to the main checkout.
+        try:
+            os.symlink(src_resolved, dst)
+        except OSError as exc:
+            warnings.append(f"worktree_provision entry {entry!r}: {exc}")
+            continue
+
+    return warnings
+
+
 def _teardown_story_worktree(project_path: Path, story_id: str) -> list[str]:
     """Remove a story's worktree and branch; return residue descriptions.
 
@@ -4035,6 +4221,20 @@ def cmd_create_story_worktree(story_id: str, project_dir: str) -> None:
         for line in _residue_lines(story_id, residue):
             click.echo(line, err=True)
         sys.exit(1)
+
+    # CER-075 (INFRA-302): provisioning runs last, after the permissions
+    # gate — a worktree about to be torn down for a missing permission
+    # artifact must not be provisioned first, and provisioning must not run
+    # before the story's Layer 1 allow-list exists.
+    try:
+        for line in _provision_story_worktree(
+            project_path, wt_abs, _read_worktree_provision(project_path)
+        ):
+            click.echo(line, err=True)
+    except Exception as exc:  # noqa: BLE001
+        # CER-075: provisioning is a convenience layered on a worktree that is
+        # already valid. Nothing here may strand or fail it.
+        click.echo(f"warning: worktree provisioning failed: {exc}", err=True)
 
     click.echo(str(wt_abs))
 

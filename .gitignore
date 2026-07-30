@@ -41,3 +41,12 @@ flex_eph/
 # loaded at runtime. The compiled addon beside them (better_sqlite3.node) IS tracked.
 **/node_modules/**/build/Release/obj/
 **/node_modules/**/build/Release/obj.target/
+
+# tsconfig.tsbuildinfo (CER-070 addendum / INFRA-302) — a pure incremental
+# *typecheck* cache (ui/tsconfig.json sets "noEmit": true), rewritten by
+# `tsc -b` on every UI-build-gate run, including failing ones, which dirties a
+# story worktree and makes merge-story-worktree's rebase refuse. Its paired
+# output (ui/dist) is already ignored; tracking one half of an incremental
+# pair is how a `tsc -b` gets talked out of doing any work. Regenerated on
+# demand and has no reader.
+/skills/observability/ui/tsconfig.tsbuildinfo
