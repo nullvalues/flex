@@ -41,6 +41,7 @@ Remove recurring build-loop friction (unprovisioned worktrees, interactive scaff
 | INFRA-324 | Bash dispatch/allowlist for reviewer subagent git commands (reviewer FAIL-path improvisation gap) | draft |
 | INFRA-325 | Wire docs-reviewer (WORKER-011) into canonical scaffold and checkpoint dispatch — role is fully specced but never created | draft |
 | INFRA-326 | Dual-active-era tie-break silently skips the wrong era ledger row (INFRA-267 no-op) | draft |
+| INFRA-327 | Exempt loop-breaker from the context-budget gate — it is the deterministic double-fail step, not discretionary | draft |
 
 ## Schema delivery
 
