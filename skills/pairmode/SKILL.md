@@ -647,13 +647,31 @@ with frontmatter and section stubs, and optionally registers the story in a phas
 - `--title TEXT` — story title (required).
 - `--phase NNN` — optional phase number. When provided, appends a story row to the phase manifest.
 - `--project-dir PATH` — target project root (default: current directory).
+- `--create-rail` / `--no-create-rail` — (CER-117) resolve a missing rail directory
+  non-interactively. `--create-rail` creates it with no prompt (exit 0). `--no-create-rail`
+  refuses and exits 1 without writing any directory or story file (a script assertion
+  failing — distinct from an interactive decline, which exits 0). Default is unspecified
+  (`None`), which preserves the interactive prompt.
+- `--yes` / `-y` — auto-confirm all prompts for non-interactive/CI use, mirroring the repo's
+  established `--yes` convention. When `create_rail` is unspecified, `--yes` implies
+  `--create-rail`. `--yes` combined with `--no-create-rail` is a contradiction and exits 1
+  before any filesystem mutation.
 
 **What it does:**
 1. Resolves and validates `project_dir` (path traversal guard: rejects paths with fewer than
    3 components).
 2. Normalizes the rail name to uppercase.
-3. Checks if `<project_dir>/docs/stories/<RAIL>/` exists.
-   - If not: prompts `"Rail <RAIL> does not exist. Create it? [Y/n]"`. Aborts on `n`.
+3. Checks if `<project_dir>/docs/stories/<RAIL>/` exists. If not, resolves flag-first,
+   prompt-fallback:
+   - `--no-create-rail`: writes a stderr message naming the rail and the flag, exits 1. No
+     directory or story file is created.
+   - `--create-rail` (or `--yes` when `create_rail` is unspecified): creates the directory
+     with no prompt, exits 0.
+   - Otherwise (both unspecified): falls back to the existing interactive prompt
+     `"Rail <RAIL> does not exist. Create it? [Y/n]"` (`n` → `Aborted.`, exit 0). If stdin is
+     not interactive (the prompt hits EOF/`click.Abort`), an explicit stderr error names the
+     rail and points to `--create-rail`/`--yes`, and exits 1 — rather than the bare
+     `Aborted!` non-interactive callers used to see (CER-117).
    - If creating: creates the directory. If a current era exists in `docs/eras/`, adds the
      rail to the era's Rails table.
 4. Scans existing `<RAIL>-NNN.md` files in the rail directory. Next sequence = max existing + 1,
@@ -661,7 +679,9 @@ with frontmatter and section stubs, and optionally registers the story in a phas
 5. Writes `<project_dir>/docs/stories/<RAIL>/<RAIL>-NNN.md` with frontmatter and section stubs.
 6. If `--phase` given: opens `<project_dir>/docs/phases/phase-<NNN>.md` (or glob for
    `<NNN>-*.md`), finds or creates the `## Stories` table, and appends a row
-   `| <RAIL>-NNN | <title> | draft |`.
+   `| <RAIL>-NNN | <title> | draft |`. If no matching manifest is found, the story file is
+   still created (exit 0) and a warning naming the story ID and the phase is written to
+   stderr — phase-manifest registration failure is a warning, not an error (CER-062).
 7. Prints: `  Created <RAIL>-NNN: <title>` (and `  Added to Phase <NNN>` if applicable).
 
 **Story file format written:**

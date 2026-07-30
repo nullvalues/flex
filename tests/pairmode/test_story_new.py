@@ -134,6 +134,164 @@ class TestNewRailPrompt:
         assert result.exit_code == 0, result.output
 
 
+class TestNonInteractiveRailCreation:
+    """CER-117 — --create-rail / --no-create-rail / --yes non-interactive contract."""
+
+    def test_create_rail_flag_creates_no_prompt(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            ["--rail", "NEWRAIL", "--title", "First", "--create-rail", "--project-dir", str(tmp_path)],
+            input=None,
+        )
+        assert result.exit_code == 0, result.output
+        rail_dir = tmp_path / "docs" / "stories" / "NEWRAIL"
+        assert rail_dir.is_dir()
+        assert (rail_dir / "NEWRAIL-001.md").exists()
+
+    def test_no_create_rail_flag_refuses_and_exits_1(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            ["--rail", "NEWRAIL", "--title", "First", "--no-create-rail", "--project-dir", str(tmp_path)],
+            input=None,
+        )
+        assert result.exit_code == 1
+        rail_dir = tmp_path / "docs" / "stories" / "NEWRAIL"
+        assert not rail_dir.exists()
+        assert "NEWRAIL" in result.output
+
+    def test_yes_flag_creates_no_prompt(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            ["--rail", "NEWRAIL", "--title", "First", "--yes", "--project-dir", str(tmp_path)],
+            input=None,
+        )
+        assert result.exit_code == 0, result.output
+        rail_dir = tmp_path / "docs" / "stories" / "NEWRAIL"
+        assert rail_dir.is_dir()
+
+    def test_yes_and_no_create_rail_contradiction_exits_1(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--rail", "NEWRAIL",
+                "--title", "First",
+                "--yes",
+                "--no-create-rail",
+                "--project-dir", str(tmp_path),
+            ],
+            input=None,
+        )
+        assert result.exit_code == 1
+        rail_dir = tmp_path / "docs" / "stories" / "NEWRAIL"
+        assert not rail_dir.exists()
+        assert not (tmp_path / "docs" / "stories" / "NEWRAIL" / "NEWRAIL-001.md").exists()
+        assert "--yes" in result.output
+        assert "--no-create-rail" in result.output
+
+    def test_missing_rail_no_flags_eof_stdin_exits_1_with_actionable_message(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        result = invoke(
+            ["--rail", "NEWRAIL", "--title", "First", "--project-dir", str(tmp_path)],
+            input="",
+        )
+        assert result.exit_code == 1
+        assert result.output.strip() != "Aborted!"
+        assert "NEWRAIL" in result.output
+        assert "--create-rail" in result.output
+        rail_dir = tmp_path / "docs" / "stories" / "NEWRAIL"
+        assert not rail_dir.exists()
+
+    def test_existing_prompt_tests_unmodified_decline(self, tmp_path: pathlib.Path) -> None:
+        """TestNewRailPrompt decline case still exits 0 with create_rail unspecified."""
+        result = invoke(
+            ["--rail", "NEWRAIL", "--title", "First", "--project-dir", str(tmp_path)],
+            input="n\n",
+        )
+        assert result.exit_code == 0, result.output
+        rail_dir = tmp_path / "docs" / "stories" / "NEWRAIL"
+        assert not rail_dir.exists()
+
+
+class TestPhaseRegistrationWarning:
+    """CER-062 residual — the shared warning helper names both story and phase,
+    and both entry points stay on the success path."""
+
+    def test_create_story_returns_path_and_warns_on_missing_manifest(
+        self, tmp_path: pathlib.Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        rail_dir = tmp_path / "docs" / "stories" / "INFRA"
+        rail_dir.mkdir(parents=True)
+        story_path = create_story(rail="INFRA", title="No manifest", project_dir=tmp_path, phase="999")
+        assert story_path.exists()
+        captured = capsys.readouterr()
+        assert "INFRA-001" in captured.err
+        assert "999" in captured.err
+
+    def test_cli_missing_manifest_exits_0_and_warns(self, tmp_path: pathlib.Path) -> None:
+        rail_dir = tmp_path / "docs" / "stories" / "INFRA"
+        rail_dir.mkdir(parents=True)
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "No manifest CLI",
+                "--phase", "999",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        assert "INFRA-001" in result.output
+        assert "999" in result.output
+
+
+class TestAppendToPhaseGlobShapePin:
+    """Pin the three _append_to_phase glob shapes (CER-062/INFRA-197)."""
+
+    def test_shape_prefix_number_dash_suffix(self, tmp_path: pathlib.Path) -> None:
+        phases_dir = tmp_path / "docs" / "phases"
+        phases_dir.mkdir(parents=True)
+        phase_path = phases_dir / "999-something.md"
+        phase_path.write_text(
+            "# Phase 999\n\n## Stories\n\n| Story ID | Title | Status |\n|----------|-------|--------|\n",
+            encoding="utf-8",
+        )
+        rail_dir = tmp_path / "docs" / "stories" / "SHAPE"
+        rail_dir.mkdir(parents=True)
+        result = invoke(
+            ["--rail", "SHAPE", "--title", "Shape one", "--phase", "999", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        assert "SHAPE-001" in phase_path.read_text()
+
+    def test_shape_phase_dash_number(self, tmp_path: pathlib.Path) -> None:
+        phases_dir = tmp_path / "docs" / "phases"
+        phases_dir.mkdir(parents=True)
+        phase_path = phases_dir / "phase-999.md"
+        phase_path.write_text(
+            "# Phase 999\n\n## Stories\n\n| Story ID | Title | Status |\n|----------|-------|--------|\n",
+            encoding="utf-8",
+        )
+        rail_dir = tmp_path / "docs" / "stories" / "SHAPE"
+        rail_dir.mkdir(parents=True)
+        result = invoke(
+            ["--rail", "SHAPE", "--title", "Shape two", "--phase", "999", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        assert "SHAPE-001" in phase_path.read_text()
+
+    def test_shape_phase_dash_number_dash_suffix(self, tmp_path: pathlib.Path) -> None:
+        phases_dir = tmp_path / "docs" / "phases"
+        phases_dir.mkdir(parents=True)
+        phase_path = phases_dir / "phase-999-suffix.md"
+        phase_path.write_text(
+            "# Phase 999\n\n## Stories\n\n| Story ID | Title | Status |\n|----------|-------|--------|\n",
+            encoding="utf-8",
+        )
+        rail_dir = tmp_path / "docs" / "stories" / "SHAPE"
+        rail_dir.mkdir(parents=True)
+        result = invoke(
+            ["--rail", "SHAPE", "--title", "Shape three", "--phase", "999", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        assert "SHAPE-001" in phase_path.read_text()
+
+
 class TestPhaseFlag:
     """--phase appends a row to the phase manifest."""
 

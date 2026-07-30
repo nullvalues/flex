@@ -1426,6 +1426,32 @@ the `phase:` field convention). This closes CER-064's cross-phase status-leakage
 update to one phase's story row could leak into an unrelated phase manifest carrying a colliding
 bare story ID.
 CLI: `uv run python skills/pairmode/scripts/story_update.py --story-id RAIL-NNN --status complete --project-dir .`
+
+**`story_new.py` non-interactive scaffolding contract (CER-117, INFRA-301).** The `story_new`
+CLI carries a tri-state `--create-rail/--no-create-rail` flag pair (`create_rail`,
+`default=None`, so "unspecified" is distinguishable from both "yes" and "no") plus a `--yes`/`-y`
+flag mirroring `bootstrap.py`'s convention. When the target rail directory is missing:
+`--no-create-rail` refuses (stderr message naming the rail and the flag, exit 1, no directory or
+story file written); `--create-rail` or `--yes` creates it with no prompt (exit 0); with neither
+flag, the original interactive `click.prompt` runs unchanged (`n` → exit 0, an interactive
+cancel). `--yes` combined with `--no-create-rail` is rejected before any filesystem mutation
+(exit 1, naming both flags). Non-interactive stdin with no flag is detected by catching the
+prompt's own `click.Abort`/`EOFError` — not by pre-emptively testing `sys.stdin.isatty()`,
+because `click.testing.CliRunner` and every legitimate piped-stdin invocation both present a
+non-TTY stdin, so an `isatty()` gate would reject working callers as a side effect — and produces
+an explicit stderr error naming the rail and pointing at `--create-rail`/`--yes`, exit 1, instead
+of click's bare `Aborted!`.
+
+**Phase-manifest registration failure is a warning, not an error (CER-062 residual,
+INFRA-301).** `_phase_registration_warning(story_id, phase)` is the single source of the warning
+text emitted when `_append_to_phase` (glob shapes unchanged, see above) returns `False`; it names
+both the story ID and the phase. Both entry points — the CLI (`:362-370`-region) and the
+programmatic `create_story()` — emit this text to stderr on failure and stay on their success
+path (CLI exit 0; `create_story` still returns the created `Path`). This is a deliberate
+departure from "fail loudly": the story file itself is the durable artifact and was written
+correctly; the manifest row is derived state an operator or `check-index` can reconcile.
+Failing the command would strand a correctly-written story behind a non-zero exit and push
+callers toward ignoring the exit code entirely.
 **Current status (corrected — the current `CLAUDE.build.md` is a ~52-line thin loop with no
 numbered "Step 3" and never calls `story_update.py`; neither does
 `skills/pairmode/skills/reviewer/procedure.md`):** frontmatter/phase-table story status is not

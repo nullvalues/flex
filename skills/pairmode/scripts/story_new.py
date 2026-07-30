@@ -135,6 +135,23 @@ def _add_rail_to_era(era_path: Path, rail: str) -> None:
         era_path.write_text(content.rstrip() + addition, encoding="utf-8")
 
 
+def _phase_registration_warning(story_id: str, phase: str) -> str:
+    """Single source of the phase-manifest registration-failure warning (CER-062).
+
+    Decision (Ensures 12): a failed phase-manifest registration is a warning,
+    not an error — both entry points (the CLI and create_story()) stay on
+    their success path. The story file itself was written correctly and is
+    the durable artifact; the manifest row is derived state an operator or
+    check-index can reconcile. Failing the command would strand a correctly
+    written story behind a non-zero exit and push callers toward ignoring
+    the exit code entirely. See docs/architecture.md for the same note.
+    """
+    return (
+        f"  Warning: {story_id} was created but could not be registered in a "
+        f"phase manifest for phase '{phase}' — add the Stories-table row manually."
+    )
+
+
 def _append_to_phase(project_dir: Path, phase: str, story_id: str, title: str) -> bool:
     """Append a story row to the phase manifest.  Returns True if successful."""
     phase_glob = str(project_dir / "docs" / "phases" / f"{phase}-*.md")
@@ -248,7 +265,9 @@ def create_story(
     story_path.write_text(content, encoding="utf-8")
 
     if phase is not None:
-        _append_to_phase(resolved, phase, story_id, title)
+        registered = _append_to_phase(resolved, phase, story_id, title)
+        if not registered:
+            click.echo(_phase_registration_warning(story_id, phase), err=True)
 
     return story_path
 
@@ -285,7 +304,24 @@ def create_story(
     type=click.Path(exists=True, file_okay=False),
     help="Root directory of the target project.",
 )
-def story_new(rail: str, title: str, phase: str | None, story_class: str | None, source: str | None, test_gate: str | None, project_dir: str) -> None:
+@click.option(
+    "--create-rail/--no-create-rail",
+    "create_rail",
+    default=None,
+    help=(
+        "Resolve a missing rail directory non-interactively: --create-rail creates it "
+        "with no prompt (exit 0); --no-create-rail refuses and exits 1 (a script assertion "
+        "failing, distinct from an interactive decline which exits 0). Omit to preserve the "
+        "interactive prompt."
+    ),
+)
+@click.option(
+    "--yes", "-y",
+    is_flag=True,
+    default=False,
+    help="Auto-confirm all prompts. Use for non-interactive/CI invocations.",
+)
+def story_new(rail: str, title: str, phase: str | None, story_class: str | None, source: str | None, test_gate: str | None, project_dir: str, create_rail: bool | None, yes: bool) -> None:
     """Create a new story file on the specified rail."""
 
     resolved = Path(project_dir).resolve()
@@ -323,23 +359,63 @@ def story_new(rail: str, title: str, phase: str | None, story_class: str | None,
         )
         sys.exit(1)
 
+    # CER-117 — reject the contradictory combination before any filesystem
+    # mutation happens (Ensures 6).
+    if yes and create_rail is False:
+        click.echo(
+            "Error: --yes and --no-create-rail contradict each other "
+            "(--yes implies creating a missing rail; --no-create-rail refuses).",
+            err=True,
+        )
+        sys.exit(1)
+
     # Check / create rail directory
     if not rail_dir.is_dir():
-        answer = click.prompt(
-            f"Rail {rail} does not exist. Create it? [Y/n]",
-            default="Y",
-            show_default=False,
-        )
-        if answer.strip().lower() == "n":
-            click.echo("Aborted.")
-            sys.exit(0)
+        if create_rail is False:
+            click.echo(
+                f"Error: rail {rail} does not exist and --no-create-rail was passed; "
+                "no directory or story file was created.",
+                err=True,
+            )
+            sys.exit(1)
+        elif create_rail is True or yes:
+            rail_dir.mkdir(parents=True, exist_ok=True)
 
-        rail_dir.mkdir(parents=True, exist_ok=True)
+            # Add rail to current era if one exists
+            era_path = _find_era(resolved)
+            if era_path is not None:
+                _add_rail_to_era(era_path, rail)
+        else:
+            # CER-117: non-interactivity is detected by catching the prompt's
+            # own EOF/Abort, not by pre-emptively testing sys.stdin.isatty().
+            # click's CliRunner and every legitimate piped-stdin invocation
+            # both present a non-TTY stdin, so an isatty() gate would reject
+            # working callers (including this story's own test suite) as a
+            # side effect.
+            try:
+                answer = click.prompt(
+                    f"Rail {rail} does not exist. Create it? [Y/n]",
+                    default="Y",
+                    show_default=False,
+                )
+            except (click.Abort, EOFError):
+                click.echo(
+                    f"Error: rail {rail} does not exist and stdin is not interactive "
+                    "(no answer available). Pass --create-rail or --yes to create it "
+                    "non-interactively.",
+                    err=True,
+                )
+                sys.exit(1)
+            if answer.strip().lower() == "n":
+                click.echo("Aborted.")
+                sys.exit(0)
 
-        # Add rail to current era if one exists
-        era_path = _find_era(resolved)
-        if era_path is not None:
-            _add_rail_to_era(era_path, rail)
+            rail_dir.mkdir(parents=True, exist_ok=True)
+
+            # Add rail to current era if one exists
+            era_path = _find_era(resolved)
+            if era_path is not None:
+                _add_rail_to_era(era_path, rail)
 
     # Determine next sequence number
     seq = _next_sequence(rail_dir, rail)
@@ -364,10 +440,7 @@ def story_new(rail: str, title: str, phase: str | None, story_class: str | None,
         if added:
             click.echo(f"  Added to Phase {phase}")
         else:
-            click.echo(
-                f"  Warning: could not find phase manifest for phase '{phase}'",
-                err=True,
-            )
+            click.echo(_phase_registration_warning(story_id, phase), err=True)
 
 
 if __name__ == "__main__":
