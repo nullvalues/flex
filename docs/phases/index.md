@@ -132,7 +132,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 111 | Plugin packaging repair: local marketplace source and skill-name de-namespacing (index-ordered before held phase 106 — scaffolded 2026-07-28) | complete | [phase-111.md](phase-111.md) |
 | 112 | Campaign unblockers: worker result-grammar reconciliation, CER-guard placeholder fix, snapshot write targeting (index-ordered before blocked phase 106 — scaffolded 2026-07-28) | complete | [phase-112.md](phase-112.md) |
 | 113 | Shared blockers: frontmatter, resolver evidence, recording determinism (index-ordered before held phase 106 — reordered 2026-07-29) | complete | [phase-113.md](phase-113.md) |
-| 106 | Fleet migration campaign (driven from flex) | planned | [phase-106.md](phase-106.md) |
+| 106 | Fleet migration campaign (driven from flex) | complete | [phase-106.md](phase-106.md) |
 | 107 | CER backlog drain to zero | planned | [phase-107.md](phase-107.md) |
 | 108 | Era 003 close (gated on observability delivery) | planned | [phase-108.md](phase-108.md) |
 | 114 | Build-loop closeout: worktrees, scaffolding, migration tooling, doc currency | planned | [phase-114.md](phase-114.md) |

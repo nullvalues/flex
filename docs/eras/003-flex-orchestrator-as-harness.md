@@ -194,7 +194,7 @@ post-fold numeric phases; the era's earlier HARNESS phases are recorded in
 | 104 | Recording and checkpoint correctness | complete |
 | 109 | Single-orchestrator parallel build concurrency (index-ordered after 104 — scaffolded 2026-07-25, builds before 105) | complete |
 | 105 | Campaign preflight: hooks, discovery, scope-guard, channel canon | complete |
-| 106 | Fleet migration campaign (driven from flex) | planned |
+| 106 | Fleet migration campaign (driven from flex) | complete |
 | 107 | CER backlog drain to zero | planned |
 | 108 | Era 003 close (gated on observability delivery) | planned |
 | 110 | Effort-recording data-flow remediation (CER-101..104) | complete |

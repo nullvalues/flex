@@ -40,6 +40,7 @@ Remove recurring build-loop friction (unprovisioned worktrees, interactive scaff
 | INFRA-323 | Session-lifecycle notices for agent-registration writes: RESTART REQUIRED at the end of bootstrap/migrate/sync paths that changed agent shells or hook registrations, restart step in the runbooks and SKILL.md flows, SessionStart staleness advisory (pulled from CER-134) | draft |
 | INFRA-324 | Bash dispatch/allowlist for reviewer subagent git commands (reviewer FAIL-path improvisation gap) | draft |
 | INFRA-325 | Wire docs-reviewer (WORKER-011) into canonical scaffold and checkpoint dispatch — role is fully specced but never created | draft |
+| INFRA-326 | Dual-active-era tie-break silently skips the wrong era ledger row (INFRA-267 no-op) | draft |
 
 ## Schema delivery
 
