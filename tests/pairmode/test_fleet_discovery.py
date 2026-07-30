@@ -504,12 +504,49 @@ class TestCheckDuplicateHooks:
         assert set(after.keys()) == set(before.keys())
 
 
+class TestCheckMachineAbsoluteHooks:
+    """INFRA-319/CER-127: fleet-level twin of pairmode_sync's audit finding."""
+
+    def test_finds_stale_flex_harness_command(self, tmp_path: Path) -> None:
+        proj = tmp_path / "stale_project"
+        proj.mkdir()
+        _write_hook_settings(proj, {
+            "UserPromptSubmit": [
+                {"hooks": [
+                    {"type": "command",
+                     "command": "uv run python /mnt/work/flex-harness/hooks/user_prompt_submit.py"},
+                ]},
+            ]
+        })
+        findings = fd._check_machine_absolute_hooks(proj)
+        assert len(findings) == 1
+        assert findings[0]["reason"] == "stale-flex-harness"
+
+    def test_empty_for_portable_project(self, tmp_path: Path) -> None:
+        proj = tmp_path / "portable_project"
+        proj.mkdir()
+        _write_hook_settings(proj, {
+            "PreToolUse": [
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": f"uv run python {proj}/hooks/pre_tool_use.py"},
+                ]},
+            ]
+        })
+        assert fd._check_machine_absolute_hooks(proj) == []
+
+    def test_empty_for_missing_settings(self, tmp_path: Path) -> None:
+        proj = tmp_path / "no_settings"
+        proj.mkdir()
+        assert fd._check_machine_absolute_hooks(proj) == []
+
+
 class TestDiscoverDuplicateHooksKey:
     def test_discover_includes_duplicate_hooks_key(self, fleet: dict) -> None:
         results = fd.discover(fleet["candidates"])
         assert results, "expected at least one discovered project"
         for r in results:
             assert "duplicate_hooks" in r
+            assert "machine_absolute_hooks" in r
             assert "path" in r
             assert "signal1" in r
             assert "signal1_value" in r

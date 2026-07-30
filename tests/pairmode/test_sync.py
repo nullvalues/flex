@@ -1520,17 +1520,21 @@ def _plugin_root() -> Path:
 
 
 class TestSyncRegistersPreToolUseHook:
-    """sync_project registers the PreToolUse hook in .claude/settings.json."""
+    """sync_project registers the PreToolUse hook in .claude/settings.local.json
+    (INFRA-319 / CER-127: moved out of the committed settings.json — a
+    machine-bound absolute path in a committed, shared file is portable for
+    exactly one machine)."""
 
     def test_sync_registers_pretooluse_hook(self, tmp_path: Path) -> None:
-        """After sync, .claude/settings.json contains a PreToolUse hook entry
-        under the canonical combined matcher (INFRA-206)."""
+        """After sync, .claude/settings.local.json contains a PreToolUse hook
+        entry under the canonical combined matcher (INFRA-206), and the
+        committed settings.json does not."""
         _copy_canonical_files(tmp_path)
 
         sync_project(tmp_path, yes=True)
 
-        settings_path = tmp_path / ".claude" / "settings.json"
-        assert settings_path.exists(), ".claude/settings.json should exist after sync"
+        settings_path = tmp_path / ".claude" / "settings.local.json"
+        assert settings_path.exists(), ".claude/settings.local.json should exist after sync"
 
         data = json.loads(settings_path.read_text(encoding="utf-8"))
         hooks = data.get("hooks", {})
@@ -1557,6 +1561,19 @@ class TestSyncRegistersPreToolUseHook:
         assert expected_command in commands, (
             f"Expected command {expected_command!r} in hook commands: {commands}"
         )
+
+        # INFRA-319 (CER-127): the committed settings.json never carries a
+        # flex hook entry — only settings.local.json does.
+        committed_settings_path = tmp_path / ".claude" / "settings.json"
+        if committed_settings_path.exists():
+            committed_data = json.loads(committed_settings_path.read_text(encoding="utf-8"))
+            committed_pre_tool_use = committed_data.get("hooks", {}).get("PreToolUse", [])
+            for block in committed_pre_tool_use:
+                for h in block.get("hooks", []):
+                    assert h.get("command") != expected_command, (
+                        "committed settings.json must not carry the "
+                        "PreToolUse hook command"
+                    )
 
 
 class TestSyncSeedsContextBudgetDefaults:

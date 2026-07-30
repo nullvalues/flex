@@ -3281,12 +3281,13 @@ class TestRegisterPreToolUseHook:
         """Calling _register_pretooluse_hook on a tmp settings path writes the hook entry
         under the canonical combined matcher (INFRA-206)."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_pretooluse_hook(settings_path, plugin_root)
 
-        assert settings_path.exists(), "settings.json should be created"
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        assert settings_local_path.exists(), "settings.json should be created"
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         hooks = data.get("hooks", {})
         pre_tool_use_list = hooks.get("PreToolUse", [])
         assert len(pre_tool_use_list) > 0, "PreToolUse list should be non-empty"
@@ -3317,12 +3318,13 @@ class TestRegisterPreToolUseHook:
         the command, one copy of the command, and a matcher that is not re-widened
         or duplicated."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_pretooluse_hook(settings_path, plugin_root)
         _register_pretooluse_hook(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         pre_tool_use_list = data["hooks"]["PreToolUse"]
 
         pre_tool_use_py = str(plugin_root / "hooks" / "pre_tool_use.py")
@@ -3349,6 +3351,7 @@ class TestRegisterPreToolUseHook:
         "Task"-only block carrying the pre_tool_use.py command alongside an unrelated
         command is migrated in place to the canonical combined matcher (INFRA-206)."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         pre_tool_use_py = str(plugin_root / "hooks" / "pre_tool_use.py")
@@ -3370,11 +3373,11 @@ class TestRegisterPreToolUseHook:
             }
         }
         settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+        settings_local_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
 
         _register_pretooluse_hook(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         pre_tool_use_list = data["hooks"]["PreToolUse"]
 
         # No orphaned "Task"-only sibling block remains
@@ -3404,6 +3407,7 @@ class TestRegisterPreToolUseHook:
         """A legacy "Task"-only block carrying the pre_tool_use.py command is upgraded
         in place to the canonical combined matcher, with no orphaned sibling."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         pre_tool_use_py = str(plugin_root / "hooks" / "pre_tool_use.py")
@@ -3422,11 +3426,11 @@ class TestRegisterPreToolUseHook:
             }
         }
         settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+        settings_local_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
 
         _register_pretooluse_hook(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         pre_tool_use_list = data["hooks"]["PreToolUse"]
 
         assert len(pre_tool_use_list) == 1, (
@@ -3445,7 +3449,7 @@ class TestRegisterPreToolUseHook:
 
         # Running the registrar again must not duplicate the block or command
         _register_pretooluse_hook(settings_path, plugin_root)
-        data2 = json.loads(settings_path.read_text(encoding="utf-8"))
+        data2 = json.loads(settings_local_path.read_text(encoding="utf-8"))
         pre_tool_use_list2 = data2["hooks"]["PreToolUse"]
         assert len(pre_tool_use_list2) == 1
         block2 = pre_tool_use_list2[0]
@@ -3459,6 +3463,7 @@ class TestRegisterPreToolUseHook:
         migration) is migrated in place to the new plugin_root's path, leaving
         exactly one block with one command, not a duplicate sibling."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root_a = tmp_path / "flex"          # stale 0.2.0 root
         plugin_root_b = tmp_path / "flex-harness"  # new 0.3.0 root
 
@@ -3478,11 +3483,11 @@ class TestRegisterPreToolUseHook:
             }
         }
         settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+        settings_local_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
 
         _register_pretooluse_hook(settings_path, plugin_root_b)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         pre_tool_use_list = data["hooks"]["PreToolUse"]
 
         # Exactly one block — no duplicate sibling appended for the new root.
@@ -3508,6 +3513,7 @@ class TestRegisterPreToolUseHook:
         event, the stale sibling is removed rather than left as a dead
         duplicate that keeps firing."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = tmp_path / "flex-harness"
 
         correct_command = f"uv run python {plugin_root / 'hooks' / 'pre_tool_use.py'}"
@@ -3526,11 +3532,11 @@ class TestRegisterPreToolUseHook:
             }
         }
         settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+        settings_local_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
 
         _register_pretooluse_hook(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         pre_tool_use_list = data["hooks"]["PreToolUse"]
 
         all_pre_tool_use_commands = [
@@ -3549,6 +3555,7 @@ class TestRegisterPreToolUseHook:
         """A sibling block whose entries all have a different basename (e.g.
         a local my_guard.py hook) is left untouched by the prune."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = tmp_path / "flex-harness"
 
         local_command = "uv run python /some/project/my_guard.py"
@@ -3562,11 +3569,11 @@ class TestRegisterPreToolUseHook:
             }
         }
         settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+        settings_local_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
 
         _register_pretooluse_hook(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         pre_tool_use_list = data["hooks"]["PreToolUse"]
 
         local_block = self._find_block_with_command(pre_tool_use_list, local_command)
@@ -3580,6 +3587,7 @@ class TestRegisterPreToolUseHook:
         with a stale sibling block produces byte-identical output the second
         time around."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = tmp_path / "flex-harness"
 
         correct_command = f"uv run python {plugin_root / 'hooks' / 'pre_tool_use.py'}"
@@ -3598,13 +3606,13 @@ class TestRegisterPreToolUseHook:
             }
         }
         settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+        settings_local_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
 
         _register_pretooluse_hook(settings_path, plugin_root)
-        first_pass = settings_path.read_text(encoding="utf-8")
+        first_pass = settings_local_path.read_text(encoding="utf-8")
 
         _register_pretooluse_hook(settings_path, plugin_root)
-        second_pass = settings_path.read_text(encoding="utf-8")
+        second_pass = settings_local_path.read_text(encoding="utf-8")
 
         assert first_pass == second_pass, "Second run must be byte-identical to the first"
 
@@ -3657,23 +3665,24 @@ class TestPruneStaleHookEntries:
         """A settings file whose top-level "hooks" value is a list, or whose
         event value is a string, is treated as absent rather than raising."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = tmp_path / "flex-harness"
 
         # hooks value is a list, not a dict
         settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(json.dumps({"hooks": ["not", "a", "dict"]}), encoding="utf-8")
+        settings_local_path.write_text(json.dumps({"hooks": ["not", "a", "dict"]}), encoding="utf-8")
         _register_pretooluse_hook(settings_path, plugin_root)  # must not raise
         _register_context_budget_hooks(settings_path, plugin_root)  # must not raise
 
         # event value is a string, not a list
-        settings_path.write_text(
+        settings_local_path.write_text(
             json.dumps({"hooks": {"PreToolUse": "not-a-list", "UserPromptSubmit": "nope"}}),
             encoding="utf-8",
         )
         _register_pretooluse_hook(settings_path, plugin_root)  # must not raise
         _register_context_budget_hooks(settings_path, plugin_root)  # must not raise
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         assert isinstance(data["hooks"]["PreToolUse"], list)
         assert isinstance(data["hooks"]["UserPromptSubmit"], list)
 
@@ -3703,11 +3712,12 @@ class TestRegisterContextBudgetHooks:
         """After the call, UserPromptSubmit has a matcher-less block carrying
         the user_prompt_submit.py command."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         event_list = data["hooks"]["UserPromptSubmit"]
 
         expected_command = f"uv run python {plugin_root / 'hooks' / 'user_prompt_submit.py'}"
@@ -3719,11 +3729,12 @@ class TestRegisterContextBudgetHooks:
         """After the call, SessionStart has a matcher-less block carrying the
         session_start.py command."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         event_list = data["hooks"]["SessionStart"]
 
         expected_command = f"uv run python {plugin_root / 'hooks' / 'session_start.py'}"
@@ -3735,11 +3746,12 @@ class TestRegisterContextBudgetHooks:
         """After the call, PostToolUse has a block with matcher Task|Agent
         carrying the post_tool_use.py command."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         event_list = data["hooks"]["PostToolUse"]
 
         expected_command = f"uv run python {plugin_root / 'hooks' / 'post_tool_use.py'}"
@@ -3753,6 +3765,7 @@ class TestRegisterContextBudgetHooks:
         """A pre-existing local PostToolUse block (e.g. a pytest runner) is
         preserved untouched as a separate sibling of the new Task|Agent block."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         pytest_command = "uv run python /some/pytest_runner.py"
@@ -3769,11 +3782,11 @@ class TestRegisterContextBudgetHooks:
             }
         }
         settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+        settings_local_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
 
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         event_list = data["hooks"]["PostToolUse"]
 
         assert len(event_list) == 2, f"Expected two sibling blocks, got: {event_list}"
@@ -3794,12 +3807,13 @@ class TestRegisterContextBudgetHooks:
         hook's command, and exactly one copy of the command inside it, for
         each of the three events."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_context_budget_hooks(settings_path, plugin_root)
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
 
         checks = [
             ("UserPromptSubmit", plugin_root / "hooks" / "user_prompt_submit.py"),
@@ -3831,11 +3845,12 @@ class TestRegisterContextBudgetHooks:
         carries no block for the Write|Edit|MultiEdit file-change relay
         command."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         hooks_top = data.get("hooks", {})
 
         assert "Stop" not in hooks_top
@@ -3855,12 +3870,13 @@ class TestRegisterContextBudgetHooks:
         """A single registrar invocation of both functions leaves the
         INFRA-206 PreToolUse Task|Agent|Edit|Write|Read block intact."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_pretooluse_hook(settings_path, plugin_root)
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         pre_tool_use_list = data["hooks"]["PreToolUse"]
 
         pre_tool_use_command = f"uv run python {plugin_root / 'hooks' / 'pre_tool_use.py'}"
@@ -3875,6 +3891,7 @@ class TestRegisterContextBudgetHooks:
         new plugin_root's path, leaving exactly one command per event, not a
         duplicate."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root_a = tmp_path / "flex"          # stale 0.2.0 root
         plugin_root_b = tmp_path / "flex-harness"  # new 0.3.0 root
 
@@ -3893,13 +3910,13 @@ class TestRegisterContextBudgetHooks:
             existing_hooks[event] = [block]
 
         settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(
+        settings_local_path.write_text(
             json.dumps({"hooks": existing_hooks}, indent=2), encoding="utf-8"
         )
 
         _register_context_budget_hooks(settings_path, plugin_root_b)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
 
         for event, hook_file, _matcher in specs:
             stale_command = f"uv run python {plugin_root_a / 'hooks' / hook_file}"
@@ -3948,11 +3965,12 @@ class TestRegisterContextBudgetHooks:
 
     def test_registers_user_prompt_submit(self, tmp_path):
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         event_list = data["hooks"]["UserPromptSubmit"]
 
         expected_command = f"uv run python {plugin_root / 'hooks' / 'user_prompt_submit.py'}"
@@ -3962,11 +3980,12 @@ class TestRegisterContextBudgetHooks:
 
     def test_registers_session_start(self, tmp_path):
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         event_list = data["hooks"]["SessionStart"]
 
         expected_command = f"uv run python {plugin_root / 'hooks' / 'session_start.py'}"
@@ -3976,11 +3995,12 @@ class TestRegisterContextBudgetHooks:
 
     def test_registers_posttooluse_task_agent(self, tmp_path):
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         event_list = data["hooks"]["PostToolUse"]
 
         expected_command = f"uv run python {plugin_root / 'hooks' / 'post_tool_use.py'}"
@@ -3990,6 +4010,7 @@ class TestRegisterContextBudgetHooks:
 
     def test_posttooluse_task_agent_is_sibling_of_existing_block(self, tmp_path):
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         pytest_command = "uv run python /some/pytest_runner.py"
@@ -4006,11 +4027,11 @@ class TestRegisterContextBudgetHooks:
             }
         }
         settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+        settings_local_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
 
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         event_list = data["hooks"]["PostToolUse"]
 
         assert len(event_list) == 2, (
@@ -4032,12 +4053,13 @@ class TestRegisterContextBudgetHooks:
 
     def test_context_budget_hooks_idempotent(self, tmp_path):
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_context_budget_hooks(settings_path, plugin_root)
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
 
         checks = [
             ("UserPromptSubmit", f"uv run python {plugin_root / 'hooks' / 'user_prompt_submit.py'}"),
@@ -4065,11 +4087,12 @@ class TestRegisterContextBudgetHooks:
 
     def test_does_not_register_deferred_blocks(self, tmp_path):
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         hooks_top = data.get("hooks", {})
 
         assert "Stop" not in hooks_top
@@ -4092,12 +4115,13 @@ class TestRegisterContextBudgetHooks:
 
     def test_pretooluse_still_registered_alongside(self, tmp_path):
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_pretooluse_hook(settings_path, plugin_root)
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         pre_tool_use_list = data["hooks"]["PreToolUse"]
 
         expected_command = f"uv run python {plugin_root / 'hooks' / 'pre_tool_use.py'}"
@@ -4110,6 +4134,7 @@ class TestRegisterContextBudgetHooks:
         block + stale /mnt/work/flex block); after the call each event has
         exactly one surviving entry, and it is the plugin_root one."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = tmp_path / "flex-harness"
 
         specs = [
@@ -4130,13 +4155,13 @@ class TestRegisterContextBudgetHooks:
             existing_hooks[event] = [correct_block, stale_block]
 
         settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(
+        settings_local_path.write_text(
             json.dumps({"hooks": existing_hooks}, indent=2), encoding="utf-8"
         )
 
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         for event, hook_file, _matcher in specs:
             correct_command = f"uv run python {plugin_root / 'hooks' / hook_file}"
             event_list = data["hooks"][event]
@@ -4154,6 +4179,7 @@ class TestRegisterContextBudgetHooks:
         """A local pytest-runner PostToolUse block with a different basename
         is left present and unmodified by the prune."""
         settings_path = tmp_path / ".claude" / "settings.json"
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         pytest_command = "uv run python /some/pytest_runner.py"
@@ -4167,11 +4193,11 @@ class TestRegisterContextBudgetHooks:
             }
         }
         settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
+        settings_local_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
 
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         event_list = data["hooks"]["PostToolUse"]
 
         pytest_block = self._find_block_with_command(event_list, pytest_command)
@@ -4387,13 +4413,14 @@ class TestPluginSourcedRegistrationSkip:
     ) -> None:
         project_dir = tmp_path / "project"
         settings_path = project_dir / ".claude" / "settings.json"
+        settings_local_path = project_dir / ".claude" / "settings.local.json"
         self._install_plugin_post_tool_use(_isolated_home)
         plugin_root = self._plugin_root()
 
         _register_context_budget_hooks(settings_path, plugin_root)
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
 
         # No settings-level PostToolUse entry for post_tool_use.py at all.
         post_commands = self._commands_for_event(data, "PostToolUse")
@@ -4419,11 +4446,12 @@ class TestPluginSourcedRegistrationSkip:
         before — all three specs land."""
         project_dir = tmp_path / "project"
         settings_path = project_dir / ".claude" / "settings.json"
+        settings_local_path = project_dir / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         pt_command = f"uv run python {plugin_root / 'hooks' / 'post_tool_use.py'}"
         assert pt_command in self._commands_for_event(data, "PostToolUse")
         assert self._commands_for_event(data, "UserPromptSubmit")
@@ -4462,11 +4490,12 @@ class TestPluginSourcedRegistrationSkip:
         the completion relay."""
         project_dir = tmp_path / "project"
         settings_path = project_dir / ".claude" / "settings.json"
+        settings_local_path = project_dir / ".claude" / "settings.local.json"
         plugin_root = self._plugin_root()
 
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         ss_command = f"uv run python {plugin_root / 'hooks' / 'subagent_stop.py'}"
         assert ss_command in self._commands_for_event(data, "SubagentStop")
 
@@ -4479,13 +4508,14 @@ class TestPluginSourcedRegistrationSkip:
         gets, proving SubagentStop's tuple membership actually wires it up."""
         project_dir = tmp_path / "project"
         settings_path = project_dir / ".claude" / "settings.json"
+        settings_local_path = project_dir / ".claude" / "settings.local.json"
         self._install_plugin_subagent_stop(_isolated_home)
         plugin_root = self._plugin_root()
 
         _register_context_budget_hooks(settings_path, plugin_root)
         _register_context_budget_hooks(settings_path, plugin_root)
 
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
         ss_commands = self._commands_for_event(data, "SubagentStop")
         assert all(
             not (isinstance(c, str) and c.rsplit("/", 1)[-1] == "subagent_stop.py")
@@ -4500,3 +4530,222 @@ class TestPluginSourcedRegistrationSkip:
 
         out = capsys.readouterr().out
         assert "skipping SubagentStop registration for subagent_stop.py" in out
+
+
+# ---------------------------------------------------------------------------
+# INFRA-319 (CER-127): portable hook-command paths — plugin-root registration
+# targets .claude/settings.local.json, never the committed settings.json.
+# ---------------------------------------------------------------------------
+
+from skills.pairmode.scripts.bootstrap import (  # noqa: E402
+    _register_pretooluse_hook as _r_pretooluse,
+    _register_context_budget_hooks as _r_context_budget,
+    _hook_settings_path,
+)
+
+
+class TestPortableHookRegistration:
+    """A1-A7 (INFRA-319): plugin-first skip on PreToolUse, target file moved
+    to settings.local.json, no ${CLAUDE_PLUGIN_ROOT} literal, .gitignore
+    guard, and eviction of any stale committed-file entry."""
+
+    def _plugin_root(self) -> pathlib.Path:
+        return pathlib.Path(__file__).resolve().parent.parent.parent
+
+    def test_pretooluse_registration_skipped_when_plugin_provides_it(
+        self, tmp_path: pathlib.Path, _isolated_home: pathlib.Path, capsys
+    ) -> None:
+        """A1: PreToolUse gets the same plugin-source skip
+        _register_context_budget_hooks already has."""
+        project_dir = tmp_path / "project"
+        settings_path = project_dir / ".claude" / "settings.json"
+        settings_local_path = project_dir / ".claude" / "settings.local.json"
+        plugin_file = (
+            _isolated_home / ".claude" / "plugins" / "marketplace" / "flex"
+            / "hooks" / "hooks.json"
+        )
+        plugin_file.parent.mkdir(parents=True)
+        plugin_file.write_text(
+            json.dumps({
+                "hooks": {
+                    "PreToolUse": [
+                        {"matcher": "Task|Agent|Edit|Write|Read", "hooks": [
+                            {"type": "command",
+                             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use.py"},
+                        ]},
+                    ]
+                }
+            }, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        plugin_root = self._plugin_root()
+
+        _r_pretooluse(settings_path, plugin_root)
+
+        assert not settings_local_path.exists() or json.loads(
+            settings_local_path.read_text(encoding="utf-8")
+        ).get("hooks", {}).get("PreToolUse", []) == [], (
+            "no settings-level PreToolUse entry should be written when a "
+            "plugin already provides it"
+        )
+        out = capsys.readouterr().out
+        assert "skipping PreToolUse registration for pre_tool_use.py" in out
+        assert "CER-104" in out or "CER-127" in out
+
+    def test_hook_registration_targets_settings_local_json(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """A2: both registrars write to .claude/settings.local.json, never
+        to .claude/settings.json."""
+        project_dir = tmp_path / "project"
+        settings_path = project_dir / ".claude" / "settings.json"
+        settings_local_path = project_dir / ".claude" / "settings.local.json"
+        plugin_root = self._plugin_root()
+
+        _r_pretooluse(settings_path, plugin_root)
+        _r_context_budget(settings_path, plugin_root)
+
+        assert not settings_path.exists(), (
+            "settings.json must not be created by the registrars"
+        )
+        assert settings_local_path.exists()
+        data = json.loads(settings_local_path.read_text(encoding="utf-8"))
+        assert data["hooks"]["PreToolUse"]
+        assert data["hooks"]["UserPromptSubmit"]
+
+    def test_hook_settings_path_helper_is_the_single_construction_site(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        assert _hook_settings_path(tmp_path) == tmp_path / ".claude" / "settings.local.json"
+
+    def test_hook_registration_never_emits_plugin_root_token(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """A5: the command string stays an absolute path under plugin_root;
+        no ${CLAUDE_PLUGIN_ROOT} literal is ever emitted into a project's
+        own settings file."""
+        project_dir = tmp_path / "project"
+        settings_path = project_dir / ".claude" / "settings.json"
+        settings_local_path = project_dir / ".claude" / "settings.local.json"
+        plugin_root = self._plugin_root()
+
+        _r_pretooluse(settings_path, plugin_root)
+        _r_context_budget(settings_path, plugin_root)
+
+        text = settings_local_path.read_text(encoding="utf-8")
+        assert "${CLAUDE_PLUGIN_ROOT}" not in text
+        assert f"uv run python {plugin_root}" in text
+
+    def test_hook_registration_appends_gitignore_entry_idempotently(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """A4: .claude/settings.local.json is added to the project's own
+        .gitignore (created if absent), and a second run appends nothing."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True)
+        settings_path = project_dir / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _r_pretooluse(settings_path, plugin_root)
+
+        gitignore_path = project_dir / ".gitignore"
+        assert gitignore_path.exists()
+        first_text = gitignore_path.read_text(encoding="utf-8")
+        assert ".claude/settings.local.json" in first_text.splitlines()
+
+        _r_pretooluse(settings_path, plugin_root)
+        second_text = gitignore_path.read_text(encoding="utf-8")
+        assert second_text == first_text, "second run must append nothing"
+
+    def test_hook_registration_appends_gitignore_when_file_has_other_entries(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """A4: an existing .gitignore with unrelated entries gets the new
+        line appended, not replaced."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True)
+        gitignore_path = project_dir / ".gitignore"
+        gitignore_path.write_text("node_modules/\n", encoding="utf-8")
+        settings_path = project_dir / ".claude" / "settings.json"
+        plugin_root = self._plugin_root()
+
+        _r_pretooluse(settings_path, plugin_root)
+
+        text = gitignore_path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        assert "node_modules/" in lines
+        assert ".claude/settings.local.json" in lines
+
+    def test_hook_registration_evicts_committed_settings_entry_preserving_unrelated_hooks(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """A7: a stale flex hook entry in the committed settings.json is
+        evicted after the correct entry lands in settings.local.json; an
+        unrelated entry (e.g. a project's own PostToolUse Edit|Write hook)
+        is left byte-identical."""
+        project_dir = tmp_path / "project"
+        settings_path = project_dir / ".claude" / "settings.json"
+        settings_path.parent.mkdir(parents=True)
+
+        unrelated_block = {
+            "matcher": "Edit|Write",
+            "hooks": [
+                {"type": "command", "command": "uv run python /some/project/pytest_hook.py"}
+            ],
+        }
+        committed = {
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "Task|Agent", "hooks": [
+                        {"type": "command",
+                         "command": "uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py"},
+                    ]},
+                ],
+                "PostToolUse": [unrelated_block],
+            }
+        }
+        settings_path.write_text(json.dumps(committed, indent=2) + "\n", encoding="utf-8")
+        committed_before = settings_path.read_text(encoding="utf-8")
+
+        plugin_root = self._plugin_root()
+        _r_pretooluse(settings_path, plugin_root)
+
+        # Correct entry landed in settings.local.json first.
+        settings_local_path = project_dir / ".claude" / "settings.local.json"
+        local_data = json.loads(settings_local_path.read_text(encoding="utf-8"))
+        pre_tool_use_py = str(plugin_root / "hooks" / "pre_tool_use.py")
+        expected_command = f"uv run python {pre_tool_use_py}"
+        local_commands = [
+            h.get("command")
+            for block in local_data["hooks"]["PreToolUse"]
+            for h in block.get("hooks", [])
+        ]
+        assert expected_command in local_commands
+
+        # Stale committed entry evicted; committed PreToolUse block list is
+        # now empty (block itself pruned since it held only the stale entry).
+        committed_after = json.loads(settings_path.read_text(encoding="utf-8"))
+        assert committed_after["hooks"].get("PreToolUse", []) == []
+
+        # Unrelated PostToolUse block is untouched, byte-identical to before.
+        assert committed_after["hooks"]["PostToolUse"] == [unrelated_block]
+        assert committed_before != settings_path.read_text(encoding="utf-8"), (
+            "the committed file should have actually changed (eviction happened)"
+        )
+
+    def test_hook_registration_committed_settings_untouched_when_nothing_stale(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """A7: a committed settings.json with no flex hook entries is left
+        byte-identical (no rewrite when nothing to evict)."""
+        project_dir = tmp_path / "project"
+        settings_path = project_dir / ".claude" / "settings.json"
+        settings_path.parent.mkdir(parents=True)
+        committed = {"permissions": {"deny": ["Edit(docs/phases/permissions/**)"]}}
+        settings_path.write_text(json.dumps(committed, indent=2) + "\n", encoding="utf-8")
+        committed_before = settings_path.read_text(encoding="utf-8")
+
+        plugin_root = self._plugin_root()
+        _r_pretooluse(settings_path, plugin_root)
+
+        assert settings_path.read_text(encoding="utf-8") == committed_before

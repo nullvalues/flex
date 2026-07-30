@@ -23,6 +23,7 @@ touches:
   - docs/architecture.md
   - docs/cer/backlog.md
   - docs/stories/INFRA/INFRA-319.md
+  - tests/pairmode/test_sync.py
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
@@ -152,6 +153,13 @@ lands as a new `to-030` block instead. On `docs/cer/backlog.md`, edit only the
 CER-127 row. No sibling story is a build-order prerequisite; if INFRA-303 has
 already merged when this builds, re-read `cmd_to_030` for its
 `--keep-expected-step-tokens` option before touching the command's option list.
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| tests/pairmode/test_sync.py | sync.py is in the story's touches list and INFRA-319 changes its hook-registration target file, breaking TestSyncRegistersPreToolUseHook's existing assertions | 2026-07-30T20:52:51Z |
 
 ## Ensures
 

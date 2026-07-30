@@ -249,6 +249,99 @@ def merged_hook_view(
     return view
 
 
+#: Basenames of flex's own hook scripts (INFRA-319/CER-127). Used to scope
+#: the machine-absolute-path finding to flex's hooks — flex does not police
+#: an unrelated project hook (e.g. a local pytest-runner PostToolUse entry).
+_FLEX_HOOK_BASENAMES = frozenset(
+    {
+        "pre_tool_use.py",
+        "post_tool_use.py",
+        "user_prompt_submit.py",
+        "session_start.py",
+        "session_end.py",
+        "subagent_stop.py",
+        "stop.py",
+    }
+)
+
+
+def machine_absolute_hook_entries(
+    view: "list[dict] | Any", project_dir: "Path | str"
+) -> "list[dict]":
+    """Return one dict per offending entry in *view* (CER-127, C1-C2).
+
+    An entry is offending when it is a flex hook command (basename in
+    ``_FLEX_HOOK_BASENAMES``) registered from the **committed**
+    ``.claude/settings.json`` (``source == "settings"``) and either:
+
+    - contains ``flex-harness`` — the pre-rename
+      ``/mnt/work/flex-harness/hooks/*`` shape (``reason ==
+      "stale-flex-harness"``), flagged even if it would otherwise pass; or
+    - contains an absolute path token that does not resolve under
+      *project_dir* (``reason == "machine-absolute"``).
+
+    A ``settings.local`` entry is never flagged (a machine-bound value is
+    correct there) and neither is a ``plugin`` entry using
+    ``${CLAUDE_PLUGIN_ROOT}`` (the portable shape), a relative or
+    ``$CLAUDE_PROJECT_DIR``-rooted command, or a non-flex basename.
+
+    Each returned dict has keys ``event``, ``basename``, ``command``,
+    ``source``, ``path``, and ``reason``. *project_dir* is a required
+    parameter, never inferred from ``os.getcwd()``. Total — malformed input
+    (including an unresolvable *project_dir*) returns ``[]``, never raises.
+    """
+    findings: "list[dict]" = []
+    try:
+        if not isinstance(view, list):
+            return []
+        project_path = Path(project_dir).resolve()
+    except Exception:
+        return []
+
+    try:
+        for entry in view:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("source") != HOOK_SOURCE_SETTINGS:
+                continue
+            basename = entry.get("basename")
+            command = entry.get("command")
+            if not isinstance(basename, str) or basename not in _FLEX_HOOK_BASENAMES:
+                continue
+            if not isinstance(command, str):
+                continue
+
+            reason = None
+            if "flex-harness" in command:
+                reason = "stale-flex-harness"
+            else:
+                for token in command.split():
+                    if not token.startswith("/"):
+                        continue
+                    try:
+                        Path(token).resolve().relative_to(project_path)
+                    except (OSError, ValueError):
+                        reason = "machine-absolute"
+                    break
+
+            if reason is None:
+                continue
+
+            findings.append(
+                {
+                    "event": entry.get("event"),
+                    "basename": basename,
+                    "command": command,
+                    "source": entry.get("source"),
+                    "path": entry.get("path"),
+                    "reason": reason,
+                }
+            )
+    except Exception:
+        return []
+    return findings
+
+
 def duplicate_hook_groups(view: "list[dict] | Any") -> "list[dict]":
     """Group a merged view's entries and report every duplicated
     ``(event, basename)`` pair (B6, refined CER-110).

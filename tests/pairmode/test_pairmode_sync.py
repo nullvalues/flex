@@ -1594,6 +1594,9 @@ def test_audit_hooks_dry_run_writes_nothing_and_exits_1(tmp_path: pathlib.Path) 
 
 
 def test_audit_hooks_clean_project_exits_0(tmp_path: pathlib.Path) -> None:
+    """INFRA-319: the command is project-relative-absolute (under tmp_path)
+    so this fixture stays clean of the new machine-absolute finding class
+    too — a path outside the project dir is exactly what that class flags."""
     from click.testing import CliRunner
 
     _write_settings(
@@ -1601,7 +1604,7 @@ def test_audit_hooks_clean_project_exits_0(tmp_path: pathlib.Path) -> None:
         {
             "PreToolUse": [
                 {"matcher": "Task", "hooks": [
-                    {"type": "command", "command": "uv run python /a/hooks/pre_tool_use.py"},
+                    {"type": "command", "command": f"uv run python {tmp_path}/hooks/pre_tool_use.py"},
                 ]},
             ]
         },
@@ -2080,3 +2083,56 @@ def test_audit_hooks_apply_leaves_plugin_internal_only_settings_byte_identical(
         "settings.json must be byte-identical when the only group is "
         "plugin-internal"
     )
+
+
+def test_audit_hooks_reports_cer127_shape_and_clears_when_moved_local(
+    tmp_path: pathlib.Path,
+) -> None:
+    """C5: a committed settings.json holding the exact CER-127 shape
+    (stale /mnt/work/flex-harness/hooks/* command) produces one finding with
+    reason == "stale-flex-harness"; the same fixture with that entry in
+    settings.local.json instead produces zero findings."""
+    from click.testing import CliRunner
+
+    settings_path = _write_settings(
+        tmp_path,
+        {
+            "UserPromptSubmit": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "uv run python /mnt/work/flex-harness/hooks/user_prompt_submit.py",
+                        }
+                    ]
+                }
+            ]
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path)],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "MACHINE-ABSOLUTE" in result.output
+    assert "reason=stale-flex-harness" in result.output
+    assert "to-030" in result.output
+
+    # Move the entry to settings.local.json instead — zero findings.
+    settings_local_path = tmp_path / ".claude" / "settings.local.json"
+    settings_data = json.loads(settings_path.read_text(encoding="utf-8"))
+    settings_local_path.write_text(
+        json.dumps(settings_data, indent=2) + "\n", encoding="utf-8"
+    )
+    settings_path.write_text(json.dumps({"hooks": {}}, indent=2) + "\n", encoding="utf-8")
+
+    result2 = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path)],
+        catch_exceptions=False,
+    )
+    assert result2.exit_code == 0
+    assert "MACHINE-ABSOLUTE" not in result2.output

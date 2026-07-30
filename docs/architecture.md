@@ -2912,6 +2912,49 @@ itself, not `.claude/settings.json`. Rationale:
   fix is one canonical surface, not better deduplication logic across two
   live surfaces.
 
+**Downstream settings-level registration targets `.claude/settings.local.json`, never the committed `.claude/settings.json` (INFRA-319, CER-127).**
+The decision above is about flex's *own* checkout, where the plugin manifest is
+canonical — but `bootstrap.py`/`sync.py` still write a settings-level block for
+downstream fleet projects that may not have flex installed as a plugin at all
+(see the first rationale bullet above). That settings-level command was
+originally written into the *committed* `.claude/settings.json`, which every
+fleet repo tracks in git (`git ls-files .claude/` lists `settings.json`). A
+committed, shared file can hold exactly one machine's absolute path — CER-127's
+live failure was a freshly-cloned project inheriting another developer's
+`/mnt/work/flex-harness/hooks/*` command and hard-blocking every prompt. As of
+this story, both registrars (`_register_pretooluse_hook`,
+`_register_context_budget_hooks`) write to `.claude/settings.local.json`
+instead — a pre-existing, machine-local surface (`permission_scope.py` already
+writes allow rules there, `scope_guard.py` already treats it as machine-local,
+`hook_view.py` already reads it as `HOOK_SOURCE_SETTINGS_LOCAL`) — and ensure
+the project's own `.gitignore` excludes it, so a fresh clone by a different
+developer never inherits a stale absolute path. A registrar run also evicts
+any flex hook entry left in the committed `settings.json` by an earlier
+bootstrap/sync run, after the correct entry is guaranteed present in
+`settings.local.json` (ordering is load-bearing: the project is never left
+with zero registrations for that hook mid-repair). `PreToolUse` also gained
+the plugin-already-registered skip `_register_context_budget_hooks` already
+had (INFRA-288/CER-104) — the plugin entry now wins for all four
+settings-level-eligible events, not three.
+
+**Rejected fix direction, recorded so it is not re-proposed:** CER-127's
+literal wording proposed emitting `${CLAUDE_PLUGIN_ROOT}` into the project's
+`.claude/settings.json`. That token is expanded by Claude Code only for
+commands declared in a *plugin's own* `hooks/hooks.json` — never for commands
+a project writes into its own settings file — so writing the literal token
+there would substitute one unresolvable path for another, not fix anything.
+The command string therefore keeps its existing shape, an absolute path
+resolved from `plugin_root` (`uv run python <path under plugin_root>`); only
+the destination *file* moved, from the committed settings.json to the
+machine-local settings.local.json. `pairmode_migrate.py`'s `to-030 --apply`
+gained a repair block (not a new `MigrationRule` — INFRA-303 pins the
+14-entry count) that relocates a stale/machine-absolute entry an
+already-migrated repo's committed settings.json still carries, and
+`hook_view.py`'s `machine_absolute_hook_entries()` gives `audit-hooks` and the
+fleet scan a finding class for the CER-127 shape, so both surface it before a
+fresh clone's first prompt does. This introduces no new persistent schema
+object — `.claude/settings.local.json` is a pre-existing surface.
+
 The remaining two registered hooks — `stop.py` and `session_end.py` — are plain pipe relays with no dispatch logic and no state.json writes. They do not require thin-delegation exception documentation.
 
 The sidebar does all heavy work asynchronously. If the sidebar is not running, the pipe write

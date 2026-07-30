@@ -318,6 +318,23 @@ def _check_duplicate_hooks(project_dir: Path) -> list[dict]:
     return hook_view.duplicate_hook_groups(hook_view.merged_hook_view(project_dir))
 
 
+def _check_machine_absolute_hooks(project_dir: Path) -> list[dict]:
+    """Fleet-level twin of pairmode_sync's audit finding (INFRA-319/CER-127):
+    a committed .claude/settings.json holding a machine-bound absolute hook
+    command (or the pre-rename ``/mnt/work/flex-harness/hooks/*`` shape) is a
+    live per-machine breakage for the next clone.
+
+    Reaches the classifier through ``hook_view`` — fleet_discovery.py and
+    pairmode_sync.py must not depend on each other. Returns one dict per
+    offending entry (``event``, ``basename``, ``command``, ``source``,
+    ``path``, ``reason``). Read-only. Returns [] on missing/unparseable
+    files or no findings.
+    """
+    return hook_view.machine_absolute_hook_entries(
+        hook_view.merged_hook_view(project_dir), project_dir
+    )
+
+
 def discover(candidate_dirs: list[Path]) -> list[dict]:
     """Scan candidate_dirs and return discovery results.
 
@@ -332,6 +349,7 @@ def discover(candidate_dirs: list[Path]) -> list[dict]:
         signal1_absent_reason: str | None
         signal1_absent_detail: str | None
         duplicate_hooks: list[dict]
+        machine_absolute_hooks: list[dict]  # INFRA-319/CER-127
 
     CER-059(a): a project with neither signal fired is normally skipped — but
     when its Signal-1 absence reason is SIGNAL1_ABSENT_INLINE_ONLY or
@@ -377,6 +395,7 @@ def discover(candidate_dirs: list[Path]) -> list[dict]:
             "signal1_absent_reason": reason,
             "signal1_absent_detail": detail,
             "duplicate_hooks": _check_duplicate_hooks(d),
+            "machine_absolute_hooks": _check_machine_absolute_hooks(d),
         })
 
     return results
@@ -528,6 +547,22 @@ def _write_snapshot(results: list[dict], snapshot_path: Path) -> None:
             lines.append(f"- `{r['path']}` — duplicated events: {events}")
     lines.append("")
 
+    lines.append("## Machine-absolute hook paths (CER-127 / INFRA-319)")
+    lines.append("")
+    machine_absolute_results = [
+        r for r in results if r.get("machine_absolute_hooks")
+    ]
+    if not machine_absolute_results:
+        lines.append("_No machine-absolute hook paths found._")
+    else:
+        for r in machine_absolute_results:
+            reasons = ", ".join(
+                f"{f['event']}/{f['basename']} ({f['reason']})"
+                for f in r["machine_absolute_hooks"]
+            )
+            lines.append(f"- `{r['path']}` — {reasons} — remedy: `to-030 --apply`")
+    lines.append("")
+
     snapshot_path.parent.mkdir(parents=True, exist_ok=True)
     snapshot_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -649,6 +684,16 @@ def cli(
                         f"    plugin-internal duplicate hooks: {r['path']} "
                         f"— events: {events}"
                     )
+                machine_absolute = r.get("machine_absolute_hooks") or []
+                if machine_absolute:
+                    reasons = ", ".join(
+                        f"{f['event']}/{f['basename']} ({f['reason']})"
+                        for f in machine_absolute
+                    )
+                    click.echo(
+                        f"    MACHINE-ABSOLUTE HOOKS: {r['path']} — {reasons} "
+                        "— remedy: to-030 --apply"
+                    )
 
         projects_with_actionable_duplicates = sum(
             1
@@ -667,6 +712,13 @@ def cli(
         click.echo(
             "Projects with plugin-internal duplicate hooks (non-actionable): "
             f"{projects_with_plugin_internal_duplicates}"
+        )
+        projects_with_machine_absolute_hooks = sum(
+            1 for r in results if r.get("machine_absolute_hooks")
+        )
+        click.echo(
+            "Projects with machine-absolute hook paths (CER-127): "
+            f"{projects_with_machine_absolute_hooks}"
         )
 
     if not no_snapshot:

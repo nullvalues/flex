@@ -601,3 +601,126 @@ class TestSettingsOnlyParity:
         assert hook_view.duplicate_hook_groups(
             hook_view.merged_hook_view(project, home=tmp_path / "home")
         ) == []
+
+
+# ---------------------------------------------------------------------------
+# INFRA-319 (CER-127): machine_absolute_hook_entries
+# ---------------------------------------------------------------------------
+
+
+class TestMachineAbsoluteHookEntries:
+    """C1-C2: classify offending entries in the committed settings.json."""
+
+    def test_machine_absolute_hook_entries_classification_matrix(
+        self, tmp_path: Path
+    ) -> None:
+        project = tmp_path / "project"
+        home = tmp_path / "home"
+
+        # plugin source, ${CLAUDE_PLUGIN_ROOT} -> not flagged
+        plugin_file = (
+            home / ".claude" / "plugins" / "marketplace" / "flex"
+            / "hooks" / "hooks.json"
+        )
+        _write_json(
+            plugin_file,
+            _hooks_doc(
+                "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use.py",
+                event="PreToolUse",
+                matcher="Task|Agent|Edit|Write|Read",
+            ),
+        )
+
+        # settings.local, absolute path -> not flagged (machine-local file)
+        _write_json(
+            project / ".claude" / "settings.local.json",
+            _hooks_doc(
+                f"uv run python {project}/hooks/session_start.py",
+                event="SessionStart",
+                matcher=None,
+            ),
+        )
+
+        # settings, absolute path outside project dir -> flagged machine-absolute
+        # settings, command contains flex-harness -> flagged stale-flex-harness
+        # settings, relative command -> not flagged
+        # settings, non-flex basename -> not flagged
+        _write_json(
+            project / ".claude" / "settings.json",
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": "Task|Agent|Edit|Write|Read",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "uv run python /some/other/machine/hooks/pre_tool_use.py",
+                                }
+                            ],
+                        }
+                    ],
+                    "UserPromptSubmit": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "uv run python /mnt/work/flex-harness/hooks/user_prompt_submit.py",
+                                }
+                            ]
+                        }
+                    ],
+                    "SessionStart": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "uv run python hooks/session_start.py",
+                                }
+                            ]
+                        }
+                    ],
+                    "PostToolUse": [
+                        {
+                            "matcher": "Edit|Write",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "uv run python /some/other/machine/pytest_hook.py",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        view = hook_view.merged_hook_view(project, home=home)
+        findings = hook_view.machine_absolute_hook_entries(view, project)
+
+        by_reason = {(f["event"], f["basename"]): f["reason"] for f in findings}
+        assert by_reason == {
+            ("PreToolUse", "pre_tool_use.py"): "machine-absolute",
+            ("UserPromptSubmit", "user_prompt_submit.py"): "stale-flex-harness",
+        }
+
+    def test_total_on_malformed_view_and_project_dir(self) -> None:
+        assert hook_view.machine_absolute_hook_entries("not a list", "/x") == []
+        assert hook_view.machine_absolute_hook_entries([{"bad": 1}], "/x") == []
+        assert hook_view.machine_absolute_hook_entries([], None) == []
+
+    def test_project_dir_is_a_required_parameter_never_cwd(self, tmp_path: Path) -> None:
+        project = tmp_path / "project"
+        _write_json(
+            project / ".claude" / "settings.json",
+            _hooks_doc(
+                "uv run python /elsewhere/hooks/post_tool_use.py",
+                event="PostToolUse",
+            ),
+        )
+        view = hook_view.merged_hook_view(project, home=tmp_path / "home")
+        # A wildly different project_dir changes the classification.
+        findings_wrong_dir = hook_view.machine_absolute_hook_entries(view, tmp_path / "unrelated")
+        findings_right_dir = hook_view.machine_absolute_hook_entries(view, project)
+        assert findings_wrong_dir == findings_right_dir  # /elsewhere is outside both
+        assert findings_right_dir[0]["reason"] == "machine-absolute"

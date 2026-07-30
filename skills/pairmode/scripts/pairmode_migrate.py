@@ -1041,6 +1041,143 @@ def cmd_to_030(project_dir: str, apply: bool, keep_expected_step_tokens: bool) -
             click.echo("[would] remove 'context_story_tokens' key from state.json")
 
     # -----------------------------------------------------------------------
+    # CER-127 / INFRA-319: repair stale flex hook-command entries left in the
+    # project's *committed* .claude/settings.json — Defect 1 (a pre-rename
+    # "/mnt/work/flex-harness/hooks/*" command surviving the 0.2.x -> 0.3.0
+    # fold) and Defect 2 (any other machine-absolute path in the committed,
+    # shared file — portable for exactly one machine). MIGRATION_RULES
+    # intentionally gains no new rule for this (INFRA-303 pins the
+    # 14-entry count, § Requires); the repair lands here instead, and routes
+    # every write through bootstrap.py's registrars (the § A construction
+    # site) rather than a second inline "uv run python {…}" build.
+    # -----------------------------------------------------------------------
+    settings_json_path = project_path / ".claude" / "settings.json"
+    if settings_json_path.exists() and _try_parse_json(settings_json_path):
+        try:
+            settings_data = json.loads(settings_json_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            settings_data = None
+        hooks_top = settings_data.get("hooks") if isinstance(settings_data, dict) else None
+        if isinstance(hooks_top, dict):
+            _flex_hook_basenames = {
+                "pre_tool_use.py",
+                "post_tool_use.py",
+                "user_prompt_submit.py",
+                "session_start.py",
+                "session_end.py",
+            }
+            # basename -> event the registrars actually construct a correct
+            # replacement command for. session_end.py is deliberately absent:
+            # INFRA-208 excluded the opt-in companion-sidebar hooks from
+            # settings-level registration, so a stale session_end.py entry
+            # can only be flagged (§ C), never repaired with a known-correct
+            # command — the safe arm is the same as B4's unresolvable-
+            # plugin_root arm: leave it in place, WARN.
+            _repairable_basenames = {
+                "pre_tool_use.py": "PreToolUse",
+                "post_tool_use.py": "PostToolUse",
+                "user_prompt_submit.py": "UserPromptSubmit",
+                "session_start.py": "SessionStart",
+            }
+
+            offending: list[dict] = []
+            for event, block_list in hooks_top.items():
+                if not isinstance(block_list, list):
+                    continue
+                for block in block_list:
+                    if not isinstance(block, dict):
+                        continue
+                    inner_hooks = block.get("hooks")
+                    if not isinstance(inner_hooks, list):
+                        continue
+                    for entry in inner_hooks:
+                        if not isinstance(entry, dict):
+                            continue
+                        command = entry.get("command")
+                        if not isinstance(command, str):
+                            continue
+                        basename = command.rsplit("/", 1)[-1]
+                        if basename not in _flex_hook_basenames:
+                            continue
+                        if "flex-harness" in command:
+                            classification = "stale-flex-harness"
+                        else:
+                            classification = None
+                            for token in command.split():
+                                if token.startswith("/"):
+                                    try:
+                                        Path(token).resolve().relative_to(
+                                            project_path.resolve()
+                                        )
+                                    except ValueError:
+                                        classification = "machine-absolute"
+                                    break
+                            if classification is None:
+                                continue  # portable — left untouched
+                        offending.append(
+                            {
+                                "event": event,
+                                "basename": basename,
+                                "command": command,
+                                "classification": classification,
+                            }
+                        )
+
+            if offending:
+                plugin_root = _FLEX_ROOT
+                plugin_root_valid = (plugin_root / "hooks" / "pre_tool_use.py").is_file()
+
+                to_repair_events: set = set()
+                for item in offending:
+                    event = item["event"]
+                    basename = item["basename"]
+                    classification = item["classification"]
+                    label = (
+                        "stale pre-rename"
+                        if classification == "stale-flex-harness"
+                        else "machine-absolute"
+                    )
+                    if not apply:
+                        click.echo(
+                            f"[would] repair {event}/{basename}: {label} "
+                            f"({item['command']}) — move to settings.local.json"
+                        )
+                        continue
+                    if basename not in _repairable_basenames:
+                        click.echo(
+                            f"[WARN] {event}/{basename}: {label} entry left in "
+                            "place — no settings-level replacement is "
+                            "constructed for this hook (INFRA-208: opt-in "
+                            "companion-sidebar hooks are never settings-registered)"
+                        )
+                        continue
+                    if not plugin_root_valid:
+                        click.echo(
+                            f"[WARN] {event}/{basename}: {label} entry left in "
+                            "place — flex is not locally available to to-030, "
+                            "so no correct replacement command could be "
+                            "constructed (CER-127)"
+                        )
+                        continue
+                    to_repair_events.add(event)
+                    click.echo(
+                        f"[apply] relocating {event}/{basename} from "
+                        f"settings.json to settings.local.json ({label})"
+                    )
+
+                if apply and to_repair_events:
+                    sys.path.insert(0, str(_SCRIPTS_DIR))
+                    from bootstrap import (  # noqa: PLC0415
+                        _register_pretooluse_hook,
+                        _register_context_budget_hooks,
+                    )
+
+                    if "PreToolUse" in to_repair_events:
+                        _register_pretooluse_hook(settings_json_path, plugin_root)
+                    if to_repair_events - {"PreToolUse"}:
+                        _register_context_budget_hooks(settings_json_path, plugin_root)
+
+    # -----------------------------------------------------------------------
     # B8: effort_tracking backfill (INFRA-236)
     #
     # bootstrap.py's _record_state() auto-enables effort_tracking on every

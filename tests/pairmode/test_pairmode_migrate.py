@@ -1428,3 +1428,184 @@ def test_to030_keyed_counter_untouched_and_silent(tmp_path: Path) -> None:
     assert exit_code == 0
     assert counter_path.read_bytes() == before
     assert "attempt_counter" not in output
+
+
+# ---------------------------------------------------------------------------
+# CER-127 / INFRA-319: to-030 hook-path repair block
+# ---------------------------------------------------------------------------
+
+
+def _write_settings_json(project: Path, hooks: dict) -> Path:
+    settings_path = project / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps({"hooks": hooks}, indent=2) + "\n", encoding="utf-8"
+    )
+    return settings_path
+
+
+def test_to030_dry_run_leaves_both_settings_files_byte_identical(
+    tmp_path: Path,
+) -> None:
+    """B3: a dry run echoes [would] lines and writes nothing to either
+    settings file."""
+    project = _build_030_project(
+        tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS
+    )
+    settings_path = _write_settings_json(
+        project,
+        {
+            "PreToolUse": [
+                {
+                    "matcher": "Task|Agent|Edit|Write|Read",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    before_settings = settings_path.read_bytes()
+    local_path = project / ".claude" / "settings.local.json"
+    assert not local_path.exists()
+
+    exit_code, output = _invoke_030(project, apply=False)
+
+    assert exit_code == 0
+    assert "[would] repair PreToolUse/pre_tool_use.py" in output
+    assert "stale pre-rename" in output
+    assert settings_path.read_bytes() == before_settings
+    assert not local_path.exists(), "dry run must write nothing"
+
+
+def test_to030_relocates_stale_flex_harness_hook_command(tmp_path: Path) -> None:
+    """B3: --apply removes the stale flex-harness entry from settings.json
+    and writes the correct entry to settings.local.json, through the § A
+    registrar (single construction site)."""
+    project = _build_030_project(
+        tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS
+    )
+    settings_path = _write_settings_json(
+        project,
+        {
+            "PreToolUse": [
+                {
+                    "matcher": "Task|Agent|Edit|Write|Read",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    assert "[apply] relocating PreToolUse/pre_tool_use.py" in output
+
+    settings_data = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert settings_data.get("hooks", {}).get("PreToolUse", []) == []
+
+    local_path = project / ".claude" / "settings.local.json"
+    assert local_path.exists()
+    local_data = json.loads(local_path.read_text(encoding="utf-8"))
+    commands = [
+        h.get("command")
+        for block in local_data["hooks"]["PreToolUse"]
+        for h in block.get("hooks", [])
+    ]
+    assert any(c.endswith("hooks/pre_tool_use.py") and "flex-harness" not in c for c in commands)
+
+
+def test_to030_warns_and_keeps_entry_when_plugin_root_unresolvable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B4: when plugin_root cannot be resolved (flex not locally available
+    to to-030), the block removes nothing and echoes a [WARN] line."""
+    project = _build_030_project(
+        tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS
+    )
+    settings_path = _write_settings_json(
+        project,
+        {
+            "PreToolUse": [
+                {
+                    "matcher": "Task|Agent|Edit|Write|Read",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    before = settings_path.read_bytes()
+    monkeypatch.setattr(_mod, "_FLEX_ROOT", tmp_path / "no-such-flex-checkout")
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    assert "[WARN]" in output
+    assert "no correct replacement command could be constructed" in output
+    assert settings_path.read_bytes() == before, "nothing should be removed"
+    assert not (project / ".claude" / "settings.local.json").exists()
+
+
+def test_to030_hook_block_noop_on_unparseable_settings(tmp_path: Path) -> None:
+    """B5: an unparseable settings.json is a silent no-op for this block —
+    to-030 stays total."""
+    project = _build_030_project(
+        tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS
+    )
+    settings_path = project / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text("{not valid json", encoding="utf-8")
+    before = settings_path.read_bytes()
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    assert "repair" not in output
+    assert "WARN" not in output
+    assert settings_path.read_bytes() == before
+
+
+def test_to030_hook_block_noop_on_portable_only_settings(tmp_path: Path) -> None:
+    """B5: a settings.json holding only a portable (project-relative) flex
+    hook entry produces no output and no write."""
+    project = _build_030_project(
+        tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS
+    )
+    settings_path = _write_settings_json(
+        project,
+        {
+            "PreToolUse": [
+                {
+                    "matcher": "Task|Agent|Edit|Write|Read",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f"uv run python {project}/hooks/pre_tool_use.py",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    before = settings_path.read_bytes()
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    assert "repair" not in output
+    assert "relocating" not in output
+    assert settings_path.read_bytes() == before

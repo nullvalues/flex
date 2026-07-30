@@ -424,8 +424,107 @@ def _prune_stale_hook_entries(
     return removed
 
 
+def _hook_settings_path(project_dir: pathlib.Path) -> pathlib.Path:
+    """Single construction site for where a portable hook command is written
+    (INFRA-319 / CER-127): the project's machine-local settings file, never
+    the committed ``.claude/settings.json``. Both registrars and ``to-030``'s
+    repair block (pairmode_migrate.py) call this — there is exactly one
+    definition of the target file across the codebase.
+
+    ``${CLAUDE_PLUGIN_ROOT}`` is not usable here: it is expanded by Claude
+    Code only for commands declared in a *plugin's own* hooks.json, not for a
+    project's settings file, so the command itself is still built as an
+    absolute path resolved from plugin_root — only the destination file
+    moves.
+    """
+    return project_dir / ".claude" / "settings.local.json"
+
+
+def _ensure_gitignore_ignores_settings_local(project_dir: pathlib.Path) -> None:
+    """A4 (INFRA-319): ensure ``.claude/settings.local.json`` is ignored by
+    *this project's own* ``.gitignore`` — not by any developer's global
+    ignore, which a fresh clone by another user will not have. Idempotent: a
+    second run appends nothing. Creates ``.gitignore`` with just this entry
+    when absent. A malformed or unreadable ``.gitignore`` is a silent skip,
+    never an exception — this helper must stay total.
+    """
+    entry = ".claude/settings.local.json"
+    gitignore_path = project_dir / ".gitignore"
+    try:
+        if gitignore_path.exists():
+            text = gitignore_path.read_text(encoding="utf-8")
+            if entry in text.splitlines():
+                return
+            if text and not text.endswith("\n"):
+                text += "\n"
+            text += entry + "\n"
+            gitignore_path.write_text(text, encoding="utf-8")
+        else:
+            gitignore_path.parent.mkdir(parents=True, exist_ok=True)
+            gitignore_path.write_text(entry + "\n", encoding="utf-8")
+    except OSError:
+        return
+
+
+def _plugin_registered_hook_pairs(project_dir: pathlib.Path) -> set:
+    """(event, basename) pairs already provided by an installed plugin's
+    hooks.json, per the merged hook view (INFRA-288/CER-104). Shared by both
+    registrars (INFRA-319 A1) so PreToolUse gets the same skip
+    _register_context_budget_hooks already applied to the other four events.
+
+    Best-effort: degrades to ``set()`` on any failure. Failing closed here
+    (registering nothing) would leave a project with no gate hook at all,
+    which is strictly worse than a duplicated one — see callers' docstrings.
+    """
+    try:
+        return {
+            (entry.get("event"), entry.get("basename"))
+            for entry in hook_view.merged_hook_view(project_dir)
+            if entry.get("source") == hook_view.HOOK_SOURCE_PLUGIN
+        }
+    except Exception:
+        return set()
+
+
+def _evict_stale_committed_hook_entries(
+    committed_settings_path: pathlib.Path, event: str, basename: str
+) -> int:
+    """A7 (INFRA-319): remove any entry for (event, basename) left in the
+    project's *committed* ``.claude/settings.json``, now that the correct
+    entry is guaranteed to live in ``.claude/settings.local.json``.
+
+    Callers must invoke this only **after** the correct entry has already
+    been written to settings.local.json — the ordering is load-bearing: at
+    no point does the project have zero registrations for this pair. Reuses
+    ``_prune_stale_hook_entries``'s empty-block cleanup with a keep_command
+    that can never match a real command, so every same-basename entry is
+    evicted unconditionally. A missing, unparseable, or malformed-shape
+    committed settings file is a no-op — never raises. Rewrites the file
+    only when something was actually removed, so an unaffected project's
+    committed settings.json stays byte-identical.
+    """
+    if not committed_settings_path.exists():
+        return 0
+    try:
+        data = json.loads(committed_settings_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return 0
+    hooks_top = data.get("hooks")
+    if not isinstance(hooks_top, dict):
+        return 0
+    event_list = hooks_top.get(event)
+    if not isinstance(event_list, list):
+        return 0
+    removed = _prune_stale_hook_entries(event_list, basename, "")
+    if removed:
+        committed_settings_path.write_text(
+            json.dumps(data, indent=2) + "\n", encoding="utf-8"
+        )
+    return removed
+
+
 def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> None:
-    """Merge a PreToolUse hook entry into .claude/settings.json.
+    """Merge a PreToolUse hook entry into .claude/settings.local.json.
 
     Registers the combined matcher PRETOOLUSE_MATCHER ("Task|Agent|Edit|Write|Read")
     covering all three pre_tool_use.py dispatch families (CER-065 / INFRA-206).
@@ -440,14 +539,39 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
     appended. The command is added to the block's inner hooks only if not already
     present (idempotent).
 
-    Creates the file if it does not exist.
+    INFRA-319 (CER-127): *settings_path* is the project's **committed**
+    ``.claude/settings.json`` path — kept as the parameter shape callers
+    already pass (``<project>/.claude/settings.json``) so ``project_dir`` can
+    be derived as ``settings_path.parent.parent`` — but the hook entry itself
+    is written to ``.claude/settings.local.json`` (see _hook_settings_path):
+    a machine-bound absolute path belongs in the machine-local file, never in
+    the committed one. Any stale entry already in the committed file is
+    evicted after the correct entry is guaranteed present (A7). Also gains
+    the same plugin-source skip _register_context_budget_hooks already had
+    (A1, INFRA-288/CER-104): a project that already gets PreToolUse from an
+    installed plugin's hooks.json must not also get a settings-level entry.
+
+    Creates the local settings file (and its .gitignore guard) if absent.
     """
+    project_dir = settings_path.parent.parent
+    local_settings_path = _hook_settings_path(project_dir)
+
     pre_tool_use_path = plugin_root / "hooks" / "pre_tool_use.py"
     command = f"uv run python {pre_tool_use_path}"
 
-    if settings_path.exists():
+    plugin_registered = _plugin_registered_hook_pairs(project_dir)
+    if ("PreToolUse", pre_tool_use_path.name) in plugin_registered:
+        click.echo(
+            "skipping PreToolUse registration for pre_tool_use.py: already "
+            "registered by an installed plugin's hooks.json — a "
+            "settings-level duplicate would run the hook twice per event "
+            "(INFRA-288/CER-104, CER-127)"
+        )
+        return
+
+    if local_settings_path.exists():
         try:
-            data = json.loads(settings_path.read_text(encoding="utf-8"))
+            data = json.loads(local_settings_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             data = {}
     else:
@@ -506,10 +630,16 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
     # event with zero flex hooks.
     _prune_stale_hook_entries(pre_tool_use_list, pre_tool_use_path.name, command)
 
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(
+    local_settings_path.parent.mkdir(parents=True, exist_ok=True)
+    local_settings_path.write_text(
         json.dumps(data, indent=2) + "\n", encoding="utf-8"
     )
+    _ensure_gitignore_ignores_settings_local(project_dir)
+
+    # A7: evict any stale entry left in the committed settings.json now that
+    # the correct entry is guaranteed present above — ordering is
+    # load-bearing (never zero registrations for this pair in between).
+    _evict_stale_committed_hook_entries(settings_path, "PreToolUse", pre_tool_use_path.name)
 
 
 # Load-bearing context-budget-gate hooks that must be registered downstream
@@ -550,8 +680,8 @@ CONTEXT_BUDGET_HOOK_SPECS: tuple[dict, ...] = (
 
 
 def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> None:
-    """Merge the three load-bearing context-budget-gate hook entries into
-    .claude/settings.json (INFRA-208; see CER-067, INFRA-192, INFRA-175, INFRA-182).
+    """Merge the four load-bearing context-budget-gate hook entries into
+    .claude/settings.local.json (INFRA-208; see CER-067, INFRA-192, INFRA-175, INFRA-182).
 
     Registers UserPromptSubmit and SessionStart with no matcher (they fire
     unconditionally per event in hooks.json) and PostToolUse Task|Agent as a
@@ -565,7 +695,7 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
     place); if not found, a new block is appended. The command is added to a
     block's inner hooks only if not already present.
 
-    Reads the file once, mutates all three events, and writes once (trailing
+    Reads the file once, mutates all four events, and writes once (trailing
     newline, json.dumps(..., indent=2)). Creates the file if it does not exist.
 
     INFRA-288 (CER-104): a spec is SKIPPED (with one line saying so) when the
@@ -576,10 +706,21 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
     duplicate-pair shape). If the merged view cannot be computed, registration
     proceeds as before: failing closed here would leave a project with *no*
     recording hook, which is strictly worse than a duplicated one.
+
+    INFRA-319 (CER-127): *settings_path* is the project's **committed**
+    ``.claude/settings.json`` path — kept as the parameter shape callers
+    already pass so ``project_dir`` can be derived as
+    ``settings_path.parent.parent`` — but every entry is written to
+    ``.claude/settings.local.json`` (see _hook_settings_path); any stale
+    entry already in the committed file for a spec actually registered this
+    run is evicted afterward (A7).
     """
-    if settings_path.exists():
+    project_dir = settings_path.parent.parent
+    local_settings_path = _hook_settings_path(project_dir)
+
+    if local_settings_path.exists():
         try:
-            data = json.loads(settings_path.read_text(encoding="utf-8"))
+            data = json.loads(local_settings_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             data = {}
     else:
@@ -595,14 +736,9 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
     # INFRA-288: (event, basename) pairs already registered by an installed
     # plugin's hooks.json. Best-effort — see the docstring for why a failure
     # here must degrade to "register as today", never to "register nothing".
-    try:
-        plugin_registered = {
-            (entry.get("event"), entry.get("basename"))
-            for entry in hook_view.merged_hook_view(settings_path.parent.parent)
-            if entry.get("source") == hook_view.HOOK_SOURCE_PLUGIN
-        }
-    except Exception:
-        plugin_registered = set()
+    plugin_registered = _plugin_registered_hook_pairs(project_dir)
+
+    registered_this_run: list[tuple[str, str]] = []
 
     for spec in CONTEXT_BUDGET_HOOK_SPECS:
         hook_path = plugin_root / spec["hook_file"]
@@ -665,10 +801,20 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
         # sibling blocks (a different basename entirely).
         _prune_stale_hook_entries(event_list, hook_path.name, command)
 
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(
+        registered_this_run.append((spec["event"], hook_path.name))
+
+    local_settings_path.parent.mkdir(parents=True, exist_ok=True)
+    local_settings_path.write_text(
         json.dumps(data, indent=2) + "\n", encoding="utf-8"
     )
+    _ensure_gitignore_ignores_settings_local(project_dir)
+
+    # A7: evict any stale committed-settings.json entry for every (event,
+    # basename) pair actually registered above — never for a spec that was
+    # skipped (a plugin-sourced entry already covers it and this run wrote
+    # nothing local to guarantee as a replacement).
+    for event, basename in registered_this_run:
+        _evict_stale_committed_hook_entries(settings_path, event, basename)
 
 
 def _merge_allow_rules(settings_path: pathlib.Path, new_entries: list[str]) -> None:
@@ -1432,13 +1578,19 @@ def bootstrap(
         _merge_deny_list(settings_path, effective_deny)
 
     # ------------------------------------------------------------------
-    # 5b. Register PreToolUse + context-budget-gate hooks into .claude/settings.json
-    #     (INFRA-206 PreToolUse; INFRA-208 UserPromptSubmit / SessionStart /
-    #     PostToolUse Task|Agent — see CER-067)
+    # 5b. Register PreToolUse + context-budget-gate hooks into
+    #     .claude/settings.local.json (INFRA-206 PreToolUse; INFRA-208
+    #     UserPromptSubmit / SessionStart / PostToolUse Task|Agent — see
+    #     CER-067; moved out of the committed settings.json by INFRA-319 /
+    #     CER-127 — a machine-bound absolute path in a committed file is
+    #     portable for exactly one machine)
     # ------------------------------------------------------------------
     plugin_root = pathlib.Path(__file__).resolve().parent.parent.parent.parent
     if dry_run:
-        click.echo(f"  [dry-run] would register PreToolUse + context-budget-gate hooks in: {settings_path}")
+        click.echo(
+            f"  [dry-run] would register PreToolUse + context-budget-gate "
+            f"hooks in: {_hook_settings_path(project_path)}"
+        )
     else:
         _register_pretooluse_hook(settings_path, plugin_root)
         _register_context_budget_hooks(settings_path, plugin_root)

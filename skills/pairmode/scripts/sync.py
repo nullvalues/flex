@@ -802,9 +802,13 @@ def sync_project(
     if dry_run:
         return result
 
-    # Register PreToolUse + context-budget-gate hooks in .claude/settings.json
-    # (INFRA-206 PreToolUse; INFRA-208 UserPromptSubmit / SessionStart /
-    # PostToolUse Task|Agent — see CER-067)
+    # Register PreToolUse + context-budget-gate hooks in
+    # .claude/settings.local.json (INFRA-206 PreToolUse; INFRA-208
+    # UserPromptSubmit / SessionStart / PostToolUse Task|Agent — see
+    # CER-067; moved out of the committed settings.json by INFRA-319 /
+    # CER-127). settings_path stays the committed-file path — the
+    # registrars derive project_dir from it and evict any stale entry left
+    # there (A7).
     settings_path = project_dir / ".claude" / "settings.json"
     plugin_root = Path(__file__).resolve().parent.parent.parent.parent
     _register_pretooluse_hook(settings_path, plugin_root)

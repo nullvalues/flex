@@ -1190,9 +1190,16 @@ def audit_hooks(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None
 
     duplicates = _audit_duplicate_hooks(settings_path)
 
+    # C3 (INFRA-319/CER-127): machine-absolute/stale-flex-harness findings,
+    # reported alongside duplicates. Report-only — audit-hooks --apply does
+    # not rewrite hook paths; to-030 (§ B) owns that write path.
+    machine_absolute_findings = hook_view.machine_absolute_hook_entries(
+        hook_view.merged_hook_view(project_path), project_path
+    )
+
     effective_apply = bool(apply)
 
-    if not duplicates:
+    if not duplicates and not machine_absolute_findings:
         click.echo("no duplicate hook registrations found")
         sys.exit(0)
 
@@ -1214,7 +1221,18 @@ def audit_hooks(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None
             "install's hooks.json"
         )
 
+    for finding in machine_absolute_findings:
+        click.echo(
+            f"MACHINE-ABSOLUTE: event={finding['event']} "
+            f"basename={finding['basename']} source={finding['path']} "
+            f"reason={finding['reason']} — remedy: run "
+            "`pairmode-migrate to-030 --project-dir <project> --apply` "
+            "to relocate it to .claude/settings.local.json"
+        )
+
     if not actionable_duplicates:
+        # Machine-absolute findings are report-only (C3) — never gate exit
+        # code or the --apply cleaner, which handles duplicates only.
         sys.exit(0)
 
     if not effective_apply:
