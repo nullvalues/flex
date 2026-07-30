@@ -200,8 +200,12 @@ The scan flags unverifiable route and constant references in the story body
 (INFRA-320 § C) declared-scope gaps — a repo path named in `## Ensures`/
 `## Instructions` that exists in the working tree but is absent from
 `primary_files`/`touches`/the standing surfaces (prefixed `scope: ` in the
-output). It is informational only — it always exits 0 and never blocks. If it
-reports findings, fix them before returning: remove or correct a hallucinated
+output). It is informational only — it exits 0 for the scan itself (clean,
+warned, or a well-formed-but-missing story file) and never blocks on findings;
+it exits 2 only when `--story-id` is malformed or escapes the stories tree,
+because a scan that cannot locate its subject must not report as clean
+(CER-064, INFRA-304). `<scalar>` here is always well-formed, so this case is
+not expected to appear in normal use. If it reports findings, fix them before returning: remove or correct a hallucinated
 route/constant reference, or add the named path to `touches:` for a `scope: `
 finding; if a finding is intentional (the route/constant is created by this
 story, or the path is legitimately out of scope), leave it and note it in the

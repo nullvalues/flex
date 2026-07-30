@@ -124,3 +124,62 @@ def test_run_preflight_cli_exits_0(tmp_path):
         ["--story-id", "INFRA-190", "--project-dir", str(tmp_path)],
     )
     assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# INFRA-304 (CER-064) — parity between the two spec-preflight entry points.
+#
+# spec_preflight.spec_preflight (this module's standalone command) and
+# flex_build's `spec-preflight` subcommand must reject a malformed/escaping
+# --story-id identically: same exit code, same stderr text, no filesystem
+# read of the offending payload. Both now route through flex_build's single
+# story_path_checked helper (E2/E3).
+# ---------------------------------------------------------------------------
+
+import flex_build as fb  # noqa: E402
+
+
+_CER_064_PAYLOADS = [
+    "../../../etc/passwd",
+    "INFRA-190/../../../../etc/passwd",
+    "../INFRA-190",
+    "infra-190",
+    "INFRA-19",
+]
+
+
+@pytest.mark.parametrize("payload", _CER_064_PAYLOADS)
+def test_cer_064_both_entry_points_reject_malformed_story_id_identically(payload):
+    runner = CliRunner()
+    standalone_result = runner.invoke(
+        sp.spec_preflight, ["--story-id", payload, "--project-dir", "."]
+    )
+    flex_build_result = runner.invoke(
+        fb.flex_build, ["spec-preflight", "--story-id", payload, "--project-dir", "."]
+    )
+
+    # Equality first — both must agree with each other...
+    assert standalone_result.exit_code == flex_build_result.exit_code
+    assert standalone_result.output == flex_build_result.output
+
+    # ...then the absolute values, so this test cannot pass by both entry
+    # points being broken the same (wrong) way.
+    assert standalone_result.exit_code == 2
+    assert payload in standalone_result.output
+    assert "invalid story ID" in standalone_result.output
+
+
+def test_cer_064_both_entry_points_still_exit_0_for_wellformed_missing_story(tmp_path):
+    """A well-formed ID for a story that does not exist is not a shape/escape
+    failure — both entry points must still exit 0 (E4), so this test cannot
+    pass by making every payload fail."""
+    runner = CliRunner()
+    standalone_result = runner.invoke(
+        sp.spec_preflight, ["--story-id", "INFRA-999", "--project-dir", str(tmp_path)]
+    )
+    flex_build_result = runner.invoke(
+        fb.flex_build,
+        ["spec-preflight", "--story-id", "INFRA-999", "--project-dir", str(tmp_path)],
+    )
+    assert standalone_result.exit_code == 0
+    assert flex_build_result.exit_code == 0

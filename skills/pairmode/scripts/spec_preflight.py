@@ -2,9 +2,12 @@
 spec_preflight.py — Scan a story file's body sections for route and constant
 references and verify they exist in the project source tree.
 
-Always exits 0. Output is plain-text warnings; empty output means clean.
+Exit 0 means the scan ran (clean or with warnings), including the
+well-formed-but-missing story file case. Exit 2 means the --story-id itself
+is malformed or resolves outside the stories tree — a scan that cannot
+locate its subject must not report as clean (CER-064).
 
-Story: INFRA-190.
+Story: INFRA-190. Exit-2 contract: INFRA-304.
 """
 from __future__ import annotations
 
@@ -13,6 +16,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+# Also make sibling scripts (e.g. flex_build) importable by bare name when
+# this file is run directly as a script (INFRA-304, mirrors flex_build.py:31).
+sys.path.insert(0, str(Path(__file__).parent))
 
 import click
 
@@ -133,11 +139,19 @@ def run_preflight(story_path: Path, project_dir: Path) -> list[str]:
 def spec_preflight(story_id: str, project_dir: str) -> None:
     """Scan a story's body sections for unverifiable route and constant references.
 
-    Always exits 0. Non-empty output = warnings to review before building.
+    Exit 0 means the scan ran (clean or with warnings), including the
+    well-formed-but-missing story file case. Exit 2 means the --story-id
+    itself is malformed or resolves outside the stories tree — a scan that
+    cannot locate its subject must not report as clean.
     """
+    from flex_build import story_path_checked  # noqa: PLC0415
+
     project_path = Path(project_dir).resolve()
-    rail = story_id.split("-", 1)[0]
-    story_path = project_path / "docs" / "stories" / rail / f"{story_id}.md"
+    try:
+        story_path = story_path_checked(story_id, project_path)
+    except ValueError as exc:
+        click.echo(f"spec-preflight: {exc}", err=True)
+        sys.exit(2)
 
     if not story_path.exists():
         click.echo(f"spec-preflight: story file not found: {story_path}", err=True)

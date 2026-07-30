@@ -153,6 +153,22 @@ def _story_path(story_id: str, project_dir: Path) -> Path:
     return resolved
 
 
+def story_path_checked(story_id: str, project_dir: Path) -> Path:
+    """Resolve *story_id* to its spec path, validating shape first (CER-064).
+
+    ``spec-preflight`` has two entry points (this module's ``spec-preflight``
+    subcommand and the standalone ``spec_preflight.py`` script) and they must
+    not disagree about what counts as a valid story ID. This is the single
+    validated resolver both use: it rejects a *story_id* that ``_STORY_ID_RE``
+    does not match, then delegates to ``_story_path`` for containment
+    resolution, letting that function's own escape-guard ``ValueError``
+    propagate unchanged.
+    """
+    if not _STORY_ID_RE.match(story_id):
+        raise ValueError(f"invalid story ID: {story_id!r}")
+    return _story_path(story_id, project_dir)
+
+
 def _read_story_frontmatter(story_path: Path) -> dict:
     """Read and parse YAML frontmatter from a story spec file.
 
@@ -2742,12 +2758,19 @@ def cmd_check_story_scope(story_id: str, project_dir: str) -> None:
 def cmd_spec_preflight(story_id: str, project_dir: str) -> None:
     """Scan a story's body sections for unverifiable routes and constants.
 
-    Always exits 0. Non-empty output = informational warnings.
+    Exit 0 means the scan ran (clean or with warnings), including the
+    well-formed-but-missing story file case. Exit 2 means the *story_id*
+    itself is malformed or resolves outside the stories tree — a scan that
+    cannot locate its subject must not report as clean.
     """
     import spec_preflight as _sp  # noqa: PLC0415
 
     project_path = Path(project_dir).resolve()
-    story_path = _story_path(story_id, project_path)
+    try:
+        story_path = story_path_checked(story_id, project_path)
+    except ValueError as exc:
+        click.echo(f"spec-preflight: {exc}", err=True)
+        sys.exit(2)
 
     if not story_path.exists():
         click.echo(f"spec-preflight: story file not found: {story_path}", err=True)

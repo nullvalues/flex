@@ -139,3 +139,134 @@ class TestDataFlowChecks:
     def test_reviewer_item_13_report_line_format(self):
         text = REVIEWER_PROCEDURE.read_text(encoding="utf-8")
         assert "DATA FLOW: <identifier> — writers: <file:line,...> — readers: <file:line,...>" in text
+
+
+# ---------------------------------------------------------------------------
+# INFRA-304 E8 — the current revert contract gains an executing test.
+#
+# CER-065's prescribed fix (asserting `git clean -fd`'s absence from the
+# reviewer template) was rejected: the whole-tree revert is the intentional
+# legacy-scope fallback, still documented in docs/architecture.md. The real
+# residue was that this contract — declared-scope revert, with the
+# whole-tree form gated on "no declared scope" — had no executing test
+# anywhere. These tests close that gap by reading the live procedure text
+# (unskipped) and the live-rendered agent template.
+# ---------------------------------------------------------------------------
+
+
+class TestReviewerRevertContract:
+    def test_declared_scope_revert_present(self):
+        text = REVIEWER_PROCEDURE.read_text(encoding="utf-8")
+        assert "git checkout -- <path>" in text
+        # Line-wrapped in the source: "git clean -fd --\n<path>".
+        assert "git clean -fd --" in text
+        assert "<path>" in text
+
+    def test_whole_tree_fallback_present_and_gated(self):
+        text = REVIEWER_PROCEDURE.read_text(encoding="utf-8")
+        start = text.index("On FAIL, revert:")
+        fence_index = text.index("git checkout .", start)
+        gate_section = text[start:fence_index]
+        assert "Only when both" in gate_section
+        assert "primary_files" in gate_section
+        assert "touches" in gate_section
+        fence = text[fence_index : fence_index + 60]
+        assert "git checkout ." in fence
+        assert "git clean -fd" in fence
+
+    def test_fail_cause_precedes_revert_block(self):
+        text = REVIEWER_PROCEDURE.read_text(encoding="utf-8")
+        fail_cause_index = text.index("FAIL-CAUSE:")
+        revert_index = text.index("On FAIL, revert:")
+        assert fail_cause_index < revert_index
+
+
+class TestReviewerTemplateThinShell:
+    """Pins the thin-shell property (HARNESS-002) that makes CER-065's
+    bootstrap re-introduction vector inert: the rendered reviewer agent
+    carries no `git` command at all, only a pointer at the procedure skill
+    where the revert logic actually lives."""
+
+    def test_rendered_reviewer_has_no_git_command_and_points_at_procedure(self):
+        import jinja2
+
+        templates_dir = REPO_ROOT / "skills" / "pairmode" / "templates"
+        loader = jinja2.FileSystemLoader(str(templates_dir))
+        env = jinja2.Environment(loader=loader, undefined=jinja2.StrictUndefined)
+        context = {
+            "project_name": "myapp",
+            "build_command": "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q",
+            "test_command": "PATH=$HOME/.local/bin:$PATH uv run pytest tests/ -x -q",
+            "pairmode_scripts_dir": "/path/to/flex/skills/pairmode/scripts",
+            "protected_paths": [],
+            "domain_isolation_rule": "filter all queries by workspace_id",
+            "checklist_items": [],
+        }
+        output = env.get_template("agents/reviewer.md.j2").render(**context)
+        assert "git " not in output
+        assert "skills/pairmode/skills/reviewer/procedure.md" in output
+
+
+# ---------------------------------------------------------------------------
+# INFRA-304 E13 — the agent-shell procedure pointer resolves.
+#
+# Verified experimentally (see INFRA-304 § Evidence) that the bare relative
+# path does NOT resolve in a bootstrapped fixture project's own tree, so the
+# templates now render the pointer absolute via the existing
+# `pairmode_scripts_dir` context variable. This test pins the resolvable
+# path shape so a future edit cannot silently reintroduce a bare relative
+# pointer.
+# ---------------------------------------------------------------------------
+
+
+class TestAgentShellProcedurePointerIsAbsolute:
+    _TEMPLATES = [
+        ("agents/builder.md.j2", "skills/pairmode/skills/builder/procedure.md"),
+        ("agents/reviewer.md.j2", "skills/pairmode/skills/reviewer/procedure.md"),
+        ("agents/intent-reviewer.md.j2", "skills/pairmode/skills/intent-reviewer/procedure.md"),
+        ("agents/loop-breaker.md.j2", "skills/pairmode/skills/loop-breaker/procedure.md"),
+        ("agents/security-auditor.md.j2", "skills/pairmode/skills/security-auditor/procedure.md"),
+        ("agents/gate-worker.md.j2", "skills/pairmode/gate_worker/SKILL.md"),
+    ]
+
+    @pytest.mark.parametrize("template_name,pointer_suffix", _TEMPLATES)
+    def test_rendered_pointer_is_absolute_and_resolvable_shape(self, template_name, pointer_suffix):
+        import jinja2
+
+        templates_dir = REPO_ROOT / "skills" / "pairmode" / "templates"
+        loader = jinja2.FileSystemLoader(str(templates_dir))
+        env = jinja2.Environment(loader=loader, undefined=jinja2.StrictUndefined)
+        context = {
+            "project_name": "myapp",
+            "build_command": "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q",
+            "test_command": "PATH=$HOME/.local/bin:$PATH uv run pytest tests/ -x -q",
+            "pairmode_scripts_dir": "/path/to/flex/skills/pairmode/scripts",
+            "protected_paths": [],
+            "domain_isolation_rule": "filter all queries by workspace_id",
+            "checklist_items": [],
+        }
+        output = env.get_template(template_name).render(**context)
+        assert pointer_suffix in output, (
+            f"{template_name} must still contain the {pointer_suffix} pointer "
+            "as a suffix of its rendered (now-absolute) path"
+        )
+        # Resolvable path shape: absolute (starts with "/"), and the full
+        # rendered line resolves via normal filesystem ".." handling to the
+        # real pairmode-install-relative path — pinned by finding the line
+        # that carries the pointer and asserting it starts with "/".
+        lines_with_pointer = [
+            line.strip() for line in output.splitlines() if pointer_suffix in line
+        ]
+        assert len(lines_with_pointer) == 1
+        assert lines_with_pointer[0].startswith("/")
+
+    def test_pairmode_pkg_dir_resolves_against_real_scripts_dir(self):
+        # End-to-end sanity: with the *real* pairmode_scripts_dir this repo
+        # runs from, the rendered pointer resolves to an actual file on disk.
+        real_scripts_dir = REPO_ROOT / "skills" / "pairmode" / "scripts"
+        resolved = (
+            real_scripts_dir / ".." / ".." / ".." / "skills" / "pairmode" / "skills"
+            / "reviewer" / "procedure.md"
+        ).resolve()
+        assert resolved == REVIEWER_PROCEDURE.resolve()
+        assert resolved.exists()

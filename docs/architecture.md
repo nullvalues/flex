@@ -68,7 +68,7 @@ flex/
         scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json; fails open on non-protected paths when no active story, but fails closed (blocks) on PROTECTED_GLOBS paths even without an active story (INFRA-196), on protected paths in the active-story missing/malformed/empty-artifact branches (INFRA-253), and on any path that resolves outside the project root — all inputs resolved+contained before glob/permission checks (INFRA-255); INFRA-271 (CER-080/CER-087) adds two more layers: (1) the state.json fallback (`_resolve_story_from_state`) ages a `current_stories`/`current_story` entry out at `STATE_STORY_MAX_AGE_HOURS` (24h) via the public `entry_is_fresh()` predicate — a stamp missing/unparseable `set_at` or older than the cutoff resolves to the `"stale"` source (fail-open for ordinary paths, naming the cutoff and the `clear-stale-stories` remedy; still fail-closed for `PROTECTED_GLOBS`), while a worktree claim (`worktree-cwd`/`worktree-path`) never ages out; (2) `harness_owned_prefixes()` derives a narrow allow-list of out-of-root paths the harness itself owns (the session's `~/.claude/projects/<key>/memory/` notes directory and `<tmp>/claude-<uid>/<key>/` scratchpad root, plus `~/.claude/plans`), and `_out_of_root_decision()` consults it — on the *resolved* path, never a string prefix — before either `"path escapes project root"` deny site returns; `_normalise`'s containment itself is unchanged; INFRA-320 (CER-128) § A adds a third layer — a **standing shared surfaces** allowance sitting inside the `status == "ok"` branch, after the protected check: `STANDING_SURFACES` (a stdlib-only, immutable `tuple[str, ...]` — currently `docs/cer/backlog.md` and `docs/architecture.md`) names exact documentation/record paths every story may write without declaring them, admissible only when (i) documentation/record, never code, (ii) not matched by `PROTECTED_GLOBS`, and (iii) legitimately touched by a majority of stories — adding a code path to it is a CRITICAL review finding; `standing_paths_for(story_id, story_phase)` is the pure, I/O-free helper that unions `STANDING_SURFACES` with the two per-story derived paths (the story's own spec, and its one phase doc when a phase key is supplied) and is total (never raises, degrading a malformed ID or absent phase to the static set alone); `check_path` resolves the effective standing set as the permissions artifact's own `standing_paths` key (when present and well-formed) **union** a live call to `standing_paths_for()` — the live half is what lets a pre-INFRA-320 artifact (generated before this story, carrying no `standing_paths` key) still grant the standing surfaces with no migration step, and a malformed `standing_paths` value degrades to the live union rather than raising. A standing-surface allow returns the reason string `"allowed (standing shared surface)"`, distinguishable in a hook transcript from a plain declared-file `"allowed"`. The protected check always runs first and its result is final — a path matched by `PROTECTED_GLOBS` is denied even were it (invalidly) listed in `STANDING_SURFACES`; no standing or widening mechanism (see `permissions-widen` below) ever reaches a protected path
         state_utils.py            ← shared helper for atomic state.json writes (`_atomic_write_json`); adopted by all remaining state.json writers as of HARNESS015-main (INFRA-202) — hooks/post_tool_use.py, story_context.py, bootstrap.py, skills/companion/scripts/sidebar.py (pairmode_sync.py/pairmode_register.py already had their own inline atomic implementation)
         session_reset.py          ← pure decision logic for SessionStart counter reset; no I/O (mirrors context_budget.py D11 boundary); CER-047 / Phase 68 INFRA-175
-        spec_preflight.py         ← INFRA-190/191 — scans story body sections for unverifiable route and constant references; informational only (always exits 0)
+        spec_preflight.py         ← INFRA-190/191 — scans story body sections for unverifiable route and constant references; informational only, exits 0 for a clean/warned scan (including a well-formed-but-missing story file), exits 2 only when --story-id itself is malformed or resolves outside the stories tree — a scan that cannot locate its subject must not report as clean (CER-064, INFRA-304)
         story_resolver.py         ← resolve story IDs to story file content; parse phase manifest Stories tables
         next_story.py             ← find next unbuilt story from a phase file; CLI: uv run next_story.py <phase-file> [--json] [--project-dir DIR]; build evidence is scope-restricted with whole-subject fallback (CER-116/INFRA-297 — see § Pairmode build loop)
         table_utils.py            ← INFRA-297 (CER-069): `split_table_row` — the single owner of Markdown-table row splitting; splits on unescaped pipes only, returns raw un-stripped parts, never unescapes `\|`; stdlib-only with no sibling imports so it cannot join an import cycle. New table readers import it rather than writing a fresh split
@@ -358,7 +358,11 @@ so a claim never overrides commit evidence (CER-095.1).
    After all gates pass, `flex_build.py spec-preflight` scans the story's
    Ensures/Instructions/Implementation-notes sections for API route references and
    SCREAMING_SNAKE constants and warns when none are found in the source tree;
-   informational only, always exits 0. (Phase 84 INFRA-190/191)
+   informational only — exits 0 for the scan itself (clean, warned, or a
+   well-formed-but-missing story file) and exits 2 only when `--story-id` is
+   malformed or escapes the stories tree, because a scan that cannot locate its
+   subject must not report as clean. (Phase 84 INFRA-190/191; exit-2 contract:
+   Phase 114 INFRA-304, CER-064)
    Then the **pre-story scope check** runs `flex_build.py check-story-scope` to
    surface likely-missing file declarations (missing sibling test, missing
    live-rendered template counterpart); it is informational only and never blocks.
@@ -1200,12 +1204,18 @@ read-only tools plus `Bash` (all four reviewer-class agents declare
 `tools: [Read, Bash, Glob, Grep]`; Bash is needed for test runs and git operations in
 the reviewer and loop-breaker; security-auditor includes it for consistency). Tool
 restriction prevents the reviewer from backdooring a fix into the code instead of
-reverting it. Both commit and revert paths in the reviewer template are Bash-mediated.
-The commit path stages files via `git add` scoped to the story's declared
-`primary_files` + `touches` paths (or `git add -A` for legacy stories with no declared
-scope). The revert path runs `git checkout -- <path>` and `git clean -fd -- <path>` for
-each declared path (or `git checkout . && git clean -fd` for legacy stories with no
-declared scope), ensuring revert never touches files outside the story's scope.
+reverting it. Both commit and revert paths live in the reviewer procedure skill
+(`skills/pairmode/skills/reviewer/procedure.md`, "On FAIL, revert:") and are
+Bash-mediated; the agent template (`skills/pairmode/templates/agents/reviewer.md.j2`)
+is a thin shell (HARNESS-002) that only points at the procedure skill and carries
+no `git` command of its own. The commit path stages files via `git add` scoped to
+the story's declared `primary_files` + `touches` paths (or `git add -A` for legacy
+stories with no declared scope). The revert path runs `git checkout -- <path>` and
+`git clean -fd -- <path>` for each declared path; the whole-tree form
+`git checkout . && git clean -fd` survives *only* as the fallback for a legacy story
+with no declared `primary_files`/`touches` — it is not the default path and remains
+gated on that condition, ensuring revert never touches files outside the story's
+scope.
 
 This document describes pairmode's internals: the scaffold it generates, the rails/eras
 model, the schema validators, and the non-negotiables that keep its bootstraps repeatable.

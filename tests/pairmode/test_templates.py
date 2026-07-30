@@ -465,6 +465,7 @@ AGENT_CONTEXT = {
     "project_name": "myapp",
     "build_command": "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q",
     "test_command": "PATH=$HOME/.local/bin:$PATH uv run pytest tests/ -x -q",
+    "pairmode_scripts_dir": "/path/to/flex/skills/pairmode/scripts",
     "protected_paths": [
         "hooks/",
         "skills/seed/scripts/",
@@ -551,7 +552,7 @@ class TestBuilderAgentTemplate:
 # Reviewer agent template tests
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skip(reason="HARNESS-002: legacy agent .md.j2 templates retired (agents/reviewer.md.j2 deleted)")
+@pytest.mark.skip(reason="INFRA-304: HARNESS-002 retired agents/reviewer.md.j2 to a thin shell (not deleted — it is still rendered by bootstrap.py); these assertions describe the pre-HARNESS-002 fat template and no longer hold. See tests/pairmode/test_procedure_skills.py for the current, executing revert-contract test.")
 class TestReviewerAgentTemplate:
     def setup_method(self):
         self.output = render("agents/reviewer.md.j2", AGENT_CONTEXT)

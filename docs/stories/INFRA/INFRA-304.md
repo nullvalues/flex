@@ -25,6 +25,7 @@ touches:
   - tests/pairmode/test_procedure_skills.py
   - docs/architecture.md
   - docs/cer/backlog.md
+  - skills/pairmode/scripts/bootstrap.py
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
@@ -145,6 +146,13 @@ builder, not assertions to preserve.
   in unrelated regions (`_parse_frontmatter` consumers, table splitting,
   `cmd_create_story_worktree`). Keep this story's `flex_build.py` diff to the few lines
   named in `## Ensures` so the overlap stays trivially rebasable.
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| skills/pairmode/scripts/bootstrap.py | E13 fix requires a new pairmode_pkg_dir context var so agent templates can render absolute procedure pointers | 2026-07-30T19:15:42Z |
 
 ## Ensures
 
@@ -506,3 +514,59 @@ created by this story, so a preflight finding naming it is expected. `_STORY_ID_
 - **Backlog truth pass.** Only the two rows named in E10 are annotated. Enumerating and
   closing the remaining un-annotated rows, and refreshing the file's "Last updated:" line,
   is INFRA-310.
+
+## Evidence
+
+**E13 resolution experiment (run before any template was touched).**
+
+Method: bootstrapped a fixture "consuming repo" from this checkout's own
+`bootstrap.py`, then checked whether the rendered `.claude/agents/reviewer.md`'s
+bare relative pointer (`skills/pairmode/skills/reviewer/procedure.md`) exists
+relative to the fixture project's own directory tree — the same relation a
+spawned worker's cwd (its per-story worktree) would have to a genuinely
+separate downstream project.
+
+```
+$ uv run python skills/pairmode/scripts/bootstrap.py \
+    --project-dir <scratch>/myapp --project-name myapp --stack Python \
+    --what "test app" --why testing --build-command pytest --test-dir tests \
+    --phase-title "Phase 1" --phase-goal goal --yes
+  ...
+  wrote: <scratch>/myapp/.claude/agents/reviewer.md
+  ...
+
+$ ls -la <scratch>/myapp/skills
+ls: cannot access '<scratch>/myapp/skills': No such file or directory
+
+$ cd <scratch>/myapp && test -f skills/pairmode/skills/reviewer/procedure.md \
+    && echo RESOLVES || echo "DOES NOT RESOLVE (file not found relative to project cwd)"
+DOES NOT RESOLVE (file not found relative to project cwd)
+```
+
+Supporting evidence that no other runtime mechanism substitutes for this at
+render time: `bootstrap.py` and `pairmode_sync.py` never `shutil.copy`/vendor
+the `skills/pairmode/` tree into a target project (`grep -rn "shutil\|copytree"
+skills/pairmode/scripts/bootstrap.py skills/pairmode/scripts/sync.py
+skills/pairmode/scripts/pairmode_sync.py` — no output). The only documented
+plugin-root path-substitution mechanism in this codebase is
+`${CLAUDE_PLUGIN_ROOT}`, and it is scoped exclusively to `hooks.json` command
+strings (interpolated by the Claude Code hook runner before exec, per
+`hook_view.py:203,258,269` and `hooks/hooks.json`); it does not apply to prose
+paths inside an agent's rendered markdown body, which a subagent can only act
+on via its own `Read` tool (which requires an absolute path).
+
+**Verdict: does not resolve.** Branch 3 (E13 step 3) applies: the pointer is
+now rendered absolute in all six affected templates (`builder`, `reviewer`,
+`intent-reviewer`, `loop-breaker`, `security-auditor`, `gate-worker`), anchored
+on the existing `pairmode_scripts_dir` context variable (already populated
+identically by both `bootstrap.py` and `pairmode_sync.py` — no new context
+variable was added, despite an initial `permissions-widen` grant for
+`skills/pairmode/scripts/bootstrap.py` recorded in `## Scope widenings` above;
+on finding the existing variable sufficient, `bootstrap.py` was left
+unmodified). `reconstruction-agent.md.j2` was checked and carries no procedure
+pointer at all — confirmed no equivalent, no change needed. A parametrised
+test in `tests/pairmode/test_procedure_skills.py`
+(`TestAgentShellProcedurePointerIsAbsolute`) pins the resolvable-absolute
+shape for all six templates, plus an end-to-end check that the real
+`pairmode_scripts_dir` this repo runs from resolves to the actual
+`reviewer/procedure.md` file on disk.

@@ -24,10 +24,17 @@ You will be given:
 
 ## Procedure
 
-Load and follow the gate judgment procedure from the plugin-versioned skill:
+Load and follow the gate judgment procedure from the plugin-versioned skill.
+The path below is rendered absolute (anchored on the pairmode install this
+project was bootstrapped/synced from, via the existing `pairmode_scripts_dir`
+context variable) because a spawned worker's cwd is its own per-story
+worktree, which has no vendored `skills/pairmode/` tree — a bare relative
+pointer here does not resolve for any downstream consuming project
+(INFRA-304 E13, verified against a bootstrapped fixture; see INFRA-304 §
+Evidence):
 
 ```
-skills/pairmode/gate_worker/SKILL.md
+{{ pairmode_scripts_dir }}/../../../skills/pairmode/gate_worker/SKILL.md
 ```
 
 Read that file in full before doing anything else. All judgment logic lives
