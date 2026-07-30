@@ -28,7 +28,7 @@ Finish the pairmode 0.3.0 fleet migration as a driven campaign: 8 remaining proj
 | RELEASE-067 | Migrate halfhorse to pairmode 0.3.0 | complete |
 | RELEASE-068 | Migrate pokus to pairmode 0.3.0 — canon files only | complete |
 | RELEASE-069 | Decommission pairmode from base56 (strip, not migrate — product is fully developed) | complete |
-| RELEASE-070 | Migrate cora from 0.1.0 to 0.3.0 (unpark RELEASE-030 lesson-extraction carve-out) | complete |
+| RELEASE-070 | Migrate cora from 0.1.0 to 0.3.0 (unpark RELEASE-030 lesson-extraction carve-out) | complete — hand-migrated outside this campaign, carve-out unverified |
 | RELEASE-071 | Campaign close: full-fleet DP8 gate, supersede RELEASE-043..057, clean stale seeds, mark phase-97 complete | complete |
 
 **Parent phase:** Phase 97 (Fold resume) — its RELEASE-043..057 fleet-migration stubs were
@@ -41,7 +41,13 @@ record for the original IDs; RELEASE-071 formally closes it.
 RELEASE-063 (meander, canary) strictly first — it proves the campaign playbook.
 RELEASE-064..067 in any order after the canary passes. RELEASE-068 (pokus — narrowed
 2026-07-29 to canon-only; see the note at the end of this doc), RELEASE-069 (base56,
-index drift), RELEASE-070 (cora, 0.1.0 gap) last, each carrying a complication. RELEASE-071 strictly last.
+originally scoped as an index-drift migration, **reversed 2026-07-29 to a full
+decommission** — pairmode stripped, not upgraded, per operator directive; see the note
+at the end of this doc), RELEASE-070 (cora, originally scoped as a 0.1.0 migration gap
+— **recorded as already hand-migrated outside this campaign's driven mechanic**,
+verification only, no build performed; the RELEASE-030 lesson-extraction carve-out this
+story's title names was never separately verified, see RELEASE-070 § Evidence) last,
+each carrying a complication. RELEASE-071 strictly last.
 
 ## Execution model (cross-repo — deviation from the standard loop)
 
@@ -63,6 +69,15 @@ DP8 fleet snapshot shows 16/16 projects at pairmode 0.3.0 with single-block hook
 migrated project completed one proving story cycle whose attempt rows landed correctly in
 its effort.db — the live downstream validation of the CER-091 fix (INFRA-264); phase-97
 is closed in the index.
+
+**Denominator corrected 2026-07-29 (RELEASE-071).** base56 was decommissioned from
+pairmode entirely (RELEASE-069), not migrated — the fleet denominator drops from 16 to
+15. Final DP8 disposition, per RELEASE-071's fresh fleet sweep: **14/15 clean**
+(binding: both, 0.3.0), **1/15 partial** (cora — `binding: version` only, hooks resolve
+to the flex dev checkout rather than the release channel; INFRA-319 candidate, not fixed
+here), **1 project out of scope by design** (base56, decommissioned). The "16/16" text
+above is left as historical record of the phase's original acceptance bar; see
+RELEASE-071 § Evidence for the corrected final disposition and per-project detail.
 
 ## Schema delivery
 
