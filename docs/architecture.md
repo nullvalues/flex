@@ -712,6 +712,20 @@ so a claim never overrides commit evidence (CER-095.1).
      observable via the existing `/context` observability route / companion
      surfaces (no dedicated management UI required for this bounded,
      regenerated-on-observation buffer).
+   - **Migration-time `to-030` contract for `expected_step_tokens`
+     (CER-111, INFRA-303).** `pairmode_migrate.py`'s `to-030` normalisation
+     command rewrites a `state.json` `expected_step_tokens` value of exactly
+     `53000` (`ERA2_STAMP`, the Era 2 fleet-wide bootstrap stamp) down to
+     `5000` (`THIN_HARNESS_STEP_TOKENS`). `state.json` records only a number,
+     never its provenance, so a project holding a *deliberately-chosen* value
+     of exactly `53000` is definitionally indistinguishable from one still
+     carrying the stamp — `to-030` cannot tell the two apart, and no code
+     change can. The `--keep-expected-step-tokens` flag is the operator's
+     explicit opt-out: it suppresses the rewrite (and its `[WARN]` sibling
+     arm for non-stamp custom values) entirely, is scoped to this one step,
+     and does not change any other `to-030` normalisation. Any other
+     non-`None`, non-`5000` value is left unchanged with a `[WARN]` regardless
+     of the flag — that branch predates this story and was never removed.
 
    **On the threshold constant (INFRA-241).** The live default threshold
    (`context_budget.py`'s `decide()`: `int(state.get("context_budget_threshold",

@@ -93,6 +93,9 @@ def _build_anchor_project(tmp_path: Path) -> Path:
     companion_scripts.mkdir(parents=True)
 
     (root / "skills" / "companion" / "SKILL.md").write_text(
+        "---\n"
+        "name: anchor:companion\n"
+        "---\n"
         "# Companion skill\nUse /anchor:companion to start.\n",
         encoding="utf-8",
     )
@@ -124,6 +127,9 @@ def _build_anchor_project(tmp_path: Path) -> Path:
     pairmode_skill = root / "skills" / "pairmode"
     pairmode_skill.mkdir(parents=True)
     (pairmode_skill / "SKILL.md").write_text(
+        "---\n"
+        "name: anchor:pairmode\n"
+        "---\n"
         "Use /anchor:pairmode to bootstrap a project.\n",
         encoding="utf-8",
     )
@@ -334,6 +340,35 @@ def test_migrate_rule_8_rewrites_seed_name_bare_not_flex_prefixed(
     assert "name: flex:seed" not in seed_skill_md
 
 
+def test_migrate_rules_9_10_rewrite_pairmode_companion_names_bare_not_flex_prefixed(
+    tmp_path: Path,
+) -> None:
+    """CER-108: rules 9 and 10 must reach frontmatter parity with rule 8.
+
+    Runs the real migrate-from-anchor apply path (not a unit test over the
+    `patterns` tuples — F1) against a fixture whose skills/pairmode/SKILL.md
+    and skills/companion/SKILL.md carry `anchor:`-prefixed frontmatter
+    `name:` values, alongside the existing `/anchor:` prose. After apply,
+    both SKILL.md files must carry the bare name (INFRA-292's rationale:
+    Claude Code already applies the plugin namespace, so a `flex:` prefix
+    in frontmatter would double it), and the `anchor:` name must be gone
+    entirely.
+    """
+    project = _build_anchor_project(tmp_path)
+
+    _run_migrate_no_subprocess(project, apply=True, yes=True)
+
+    pairmode_skill_md = (project / "skills" / "pairmode" / "SKILL.md").read_text()
+    assert "name: pairmode" in pairmode_skill_md
+    assert "name: flex:pairmode" not in pairmode_skill_md
+    assert "anchor:pairmode" not in pairmode_skill_md
+
+    companion_skill_md = (project / "skills" / "companion" / "SKILL.md").read_text()
+    assert "name: companion" in companion_skill_md
+    assert "name: flex:companion" not in companion_skill_md
+    assert "anchor:companion" not in companion_skill_md
+
+
 # ---------------------------------------------------------------------------
 # Test 3 — state.json pairmode_version bumped
 # ---------------------------------------------------------------------------
@@ -495,6 +530,9 @@ def _build_minimal_anchor_project(tmp_path: Path) -> Path:
     # skills/pairmode/
     (root / "skills" / "pairmode").mkdir(parents=True)
     (root / "skills" / "pairmode" / "SKILL.md").write_text(
+        "---\n"
+        "name: anchor:pairmode\n"
+        "---\n"
         "Use /anchor:pairmode\n",
         encoding="utf-8",
     )
@@ -503,6 +541,9 @@ def _build_minimal_anchor_project(tmp_path: Path) -> Path:
     companion_scripts = root / "skills" / "companion" / "scripts"
     companion_scripts.mkdir(parents=True)
     (root / "skills" / "companion" / "SKILL.md").write_text(
+        "---\n"
+        "name: anchor:companion\n"
+        "---\n"
         "/anchor:companion\n",
         encoding="utf-8",
     )
@@ -805,7 +846,12 @@ def _build_030_project(tmp_path: Path, **state_overrides: object) -> Path:
     return root
 
 
-def _invoke_030(project_dir: Path, *, apply: bool = False) -> tuple[int, str]:
+def _invoke_030(
+    project_dir: Path,
+    *,
+    apply: bool = False,
+    keep_expected_step_tokens: bool = False,
+) -> tuple[int, str]:
     """Invoke cmd_to_030 via the Click test runner; return (exit_code, output)."""
     from click.testing import CliRunner
 
@@ -813,6 +859,8 @@ def _invoke_030(project_dir: Path, *, apply: bool = False) -> tuple[int, str]:
     args = ["to-030", "--project-dir", str(project_dir)]
     if apply:
         args.append("--apply")
+    if keep_expected_step_tokens:
+        args.append("--keep-expected-step-tokens")
     # Mock subprocess.run so git log doesn't depend on the project being a real repo.
     with patch("pairmode_migrate.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -854,7 +902,12 @@ def test_to030_dryrun_does_not_rewrite_era2_stamp(tmp_path: Path) -> None:
 
 
 def test_to030_keeps_custom_expected_step_tokens(tmp_path: Path) -> None:
-    """to-030 must leave a non-Era2 custom value unchanged and emit a WARN."""
+    """to-030 must leave a non-Era2 custom value unchanged and emit a WARN.
+
+    This is the proof (CER-111) that keep+WARN was never removed: the
+    three-way branch has been live the whole time. It is not deleted by
+    INFRA-303 — it is the evidence the CER-111 backlog annotation rests on.
+    """
     custom_val = 25000
     project = _build_030_project(tmp_path, expected_step_tokens=custom_val)
     state_path = project / ".companion" / "state.json"
@@ -867,6 +920,100 @@ def test_to030_keeps_custom_expected_step_tokens(tmp_path: Path) -> None:
         "Custom expected_step_tokens was changed."
     )
     assert "[WARN]" in output and "custom" in output.lower()
+
+
+def test_to030_rewrite_message_names_ambiguity_and_opt_out(tmp_path: Path) -> None:
+    """B4: both [apply] and [would] rewrite messages must name the escape hatch."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.ERA2_STAMP)
+
+    _, apply_output = _invoke_030(project, apply=True)
+    assert "--keep-expected-step-tokens" in apply_output
+    assert "53000" in apply_output
+
+    project2 = _build_030_project(tmp_path / "dry", expected_step_tokens=_mod.ERA2_STAMP)
+    _, dryrun_output = _invoke_030(project2, apply=False)
+    assert "--keep-expected-step-tokens" in dryrun_output
+    assert "53000" in dryrun_output
+
+
+def test_to030_keep_flag_suppresses_era2_rewrite(tmp_path: Path) -> None:
+    """--keep-expected-step-tokens on a 53000 value: emit [keep], leave value unchanged,
+    and emit no rewrite/WARN line."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.ERA2_STAMP)
+    state_path = project / ".companion" / "state.json"
+
+    exit_code, output = _invoke_030(project, apply=True, keep_expected_step_tokens=True)
+
+    assert exit_code == 0
+    state = json.loads(state_path.read_text())
+    assert state["expected_step_tokens"] == _mod.ERA2_STAMP
+    assert "[keep]" in output
+    assert "rewrote" not in output
+    assert "[WARN]" not in output
+
+
+def test_to030_keep_flag_dryrun_writes_nothing(tmp_path: Path) -> None:
+    """B6: dry-run with the flag writes nothing — state.json bytes identical before/after."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.ERA2_STAMP)
+    state_path = project / ".companion" / "state.json"
+    before = state_path.read_bytes()
+
+    exit_code, output = _invoke_030(project, apply=False, keep_expected_step_tokens=True)
+
+    assert exit_code == 0
+    assert state_path.read_bytes() == before
+    assert "[keep]" in output
+
+
+def test_to030_keep_flag_does_not_suppress_other_steps(tmp_path: Path) -> None:
+    """B3: with the flag passed, other to-030 steps (e.g. B4 pipe_path removal)
+    still fire, byte-identical to a run without the flag."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.ERA2_STAMP,
+        pipe_path="/tmp/old.pipe",
+    )
+    state_path = project / ".companion" / "state.json"
+
+    exit_code, output = _invoke_030(project, apply=True, keep_expected_step_tokens=True)
+
+    assert exit_code == 0
+    state = json.loads(state_path.read_text())
+    assert "pipe_path" not in state, "B4 pipe_path removal did not fire under the flag"
+    assert state["expected_step_tokens"] == _mod.ERA2_STAMP
+
+
+def test_to030_warns_and_keeps_53416(tmp_path: Path) -> None:
+    """E1 row 3: 53416 is the value four live fleet projects (RELEASE-067..)
+    actually held — it is not the Era 2 stamp, so keep+WARN applies."""
+    custom_val = 53416
+    project = _build_030_project(tmp_path, expected_step_tokens=custom_val)
+    state_path = project / ".companion" / "state.json"
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    state = json.loads(state_path.read_text())
+    assert state["expected_step_tokens"] == custom_val
+    assert "[WARN]" in output
+
+
+def test_to030_silent_when_already_thin_harness_value(tmp_path: Path) -> None:
+    """E1 row 4: expected_step_tokens already 5000 (THIN_HARNESS_STEP_TOKENS) —
+    silent no-op: no rewrite, no WARN, no keep line."""
+    project = _build_030_project(
+        tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS
+    )
+    state_path = project / ".companion" / "state.json"
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    state = json.loads(state_path.read_text())
+    assert state["expected_step_tokens"] == _mod.THIN_HARNESS_STEP_TOKENS
+    assert "rewrote" not in output
+    assert "[WARN]" not in output
+    assert "[keep]" not in output
 
 
 # ---------------------------------------------------------------------------

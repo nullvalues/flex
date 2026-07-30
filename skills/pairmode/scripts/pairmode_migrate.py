@@ -189,6 +189,7 @@ MIGRATION_RULES: list[MigrationRule] = [
         strategy="regex",
         patterns=[
             (r"/anchor:pairmode\b", "/flex:pairmode"),
+            (r"\bname:\s*anchor:pairmode\b", "name: pairmode"),
         ],
     ),
     # 10 — skills/companion/SKILL.md
@@ -198,6 +199,7 @@ MIGRATION_RULES: list[MigrationRule] = [
         strategy="regex",
         patterns=[
             (r"/anchor:companion\b", "/flex:companion"),
+            (r"\bname:\s*anchor:companion\b", "name: companion"),
         ],
     ),
     # 11 — skills/pairmode/scripts/*.py
@@ -917,7 +919,19 @@ def cmd_anchor_to_flex(
     default=False,
     help="Actually write changes. Default is dry-run (--dry-run).",
 )
-def cmd_to_030(project_dir: str, apply: bool) -> None:
+@click.option(
+    "--keep-expected-step-tokens",
+    is_flag=True,
+    default=False,
+    help=(
+        "Suppress the expected_step_tokens Era 2 stamp (53000) rewrite step. "
+        "Use this when the project's current 53000 was a deliberately-chosen "
+        "value rather than the Era 2 fleet-wide stamp — the two are "
+        "definitionally indistinguishable in state.json, so this flag is the "
+        "operator's only way to say 'keep it'."
+    ),
+)
+def cmd_to_030(project_dir: str, apply: bool, keep_expected_step_tokens: bool) -> None:
     """Normalise a 0.2.x project to the 0.3.0 schema.
 
     Dry-run by default — pass --apply to write changes.
@@ -951,20 +965,39 @@ def cmd_to_030(project_dir: str, apply: bool) -> None:
 
     # -----------------------------------------------------------------------
     # B6: expected_step_tokens — rewrite Era 2 fleet-wide stamp (53000 → 5000)
+    #
+    # CER-111: a deliberately-chosen 53000 and the Era 2 stamp are
+    # definitionally indistinguishable in state.json — the file records a
+    # number, not its provenance. keep+WARN below was never removed (it has
+    # been live since this branch was written); the only genuine gap was that
+    # an operator holding a deliberate 53000 had no way to say "no" to the
+    # rewrite arm. --keep-expected-step-tokens (INFRA-303) is that escape
+    # hatch — it is the operator's only way to override the rewrite arm.
     # -----------------------------------------------------------------------
     est = state.get("expected_step_tokens")
-    if est == ERA2_STAMP:
+    if keep_expected_step_tokens:
+        click.echo(
+            f"[keep] expected_step_tokens={est!r} — left unchanged "
+            "(--keep-expected-step-tokens)"
+        )
+    elif est == ERA2_STAMP:
         if apply:
             state["expected_step_tokens"] = THIN_HARNESS_STEP_TOKENS
             sys.path.insert(0, str(_SCRIPTS_DIR))
             from state_utils import _atomic_write_json  # noqa: PLC0415
             _atomic_write_json(state_path, state)
             click.echo(
-                f"[apply] rewrote expected_step_tokens: {ERA2_STAMP} → {THIN_HARNESS_STEP_TOKENS}"
+                f"[apply] rewrote expected_step_tokens: {ERA2_STAMP} → {THIN_HARNESS_STEP_TOKENS} "
+                f"— {ERA2_STAMP} is the Era 2 fleet-wide stamp, indistinguishable from a "
+                "deliberately-chosen value of the same number; pass "
+                "--keep-expected-step-tokens to keep a deliberate value."
             )
         else:
             click.echo(
-                f"[would] rewrite expected_step_tokens: {ERA2_STAMP} → {THIN_HARNESS_STEP_TOKENS}"
+                f"[would] rewrite expected_step_tokens: {ERA2_STAMP} → {THIN_HARNESS_STEP_TOKENS} "
+                f"— {ERA2_STAMP} is the Era 2 fleet-wide stamp, indistinguishable from a "
+                "deliberately-chosen value of the same number; pass "
+                "--keep-expected-step-tokens to keep a deliberate value."
             )
     elif est is not None and est != THIN_HARNESS_STEP_TOKENS:
         click.echo(
