@@ -15,7 +15,7 @@ phase_class: production
 <!-- State this phase's single purpose in one or two sentences (docs/architecture.md
      § Phase-authoring convention, INFRA-243). If the work naturally splits into more
      than one purpose, that's a signal to open a sibling phase, not to widen this one. -->
-Harden the observability companion's shared entry points against non-loopback exposure, make the vendored-payload guards honest and self-maintaining, remove non-build noise from effort rollups, and functionally validate the observability UI — the era's stated beta deliverable — before anything is stamped. The backlog truth pass and the 0.3.1 record moved to phase 116 (AG-7, `docs/closeout-agreements-20260729.md`); this phase closes observability, it does not close the era.
+Harden the observability companion's shared entry points against non-loopback exposure, make the vendored-payload guards honest and self-maintaining, remove non-build noise from effort rollups, and functionally validate the observability UI **and effort-recording data** — the era's stated beta deliverables — before anything is stamped. The backlog truth pass and the 0.3.1 record moved to phase 116 (AG-7, `docs/closeout-agreements-20260729.md`); this phase closes observability, it does not close the era.
 
 ## Stories
 
@@ -26,6 +26,7 @@ Harden the observability companion's shared entry points against non-loopback ex
 | INFRA-308 | Plugin-manifest skill guard: glob-derived expectations with anti-vacuity floor | draft |
 | INFRA-309 | Rollup hygiene: shared NON_BUILD_ROLES exclusion across Python and TS read paths | draft |
 | INFRA-312 | Observability UI functional validation: dogfood checklist over ≥2 registered repos plus a scoped TypeScript route-test runner | draft |
+| INFRA-329 | Effort-db integrity audit on post-campaign fleet data — validate the forward-only L5 fixes against real rows | draft |
 
 ## Schema delivery
 

@@ -195,8 +195,8 @@ post-fold numeric phases; the era's earlier HARNESS phases are recorded in
 | 109 | Single-orchestrator parallel build concurrency (index-ordered after 104 — scaffolded 2026-07-25, builds before 105) | complete |
 | 105 | Campaign preflight: hooks, discovery, scope-guard, channel canon | complete |
 | 106 | Fleet migration campaign (driven from flex) | complete |
-| 107 | CER backlog drain to zero | planned |
-| 108 | Era 003 close (gated on observability delivery) | planned |
+| 107 | CER backlog drain to zero | deferred |
+| 108 | Era 003 close (gated on observability delivery) | deferred |
 | 110 | Effort-recording data-flow remediation (CER-101..104) | complete |
 | 111 | Plugin packaging repair: local marketplace source and skill-name de-namespacing | complete |
 | 112 | Campaign unblockers: worker result-grammar reconciliation, CER-guard placeholder fix, snapshot write targeting | complete |

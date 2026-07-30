@@ -107,7 +107,11 @@ the era finished:
    eras are active, and `era_transition._find_active_eras` returns a list;
    INFRA-314's by-ID targeting is the tool), INFRA-279's exit criterion is
    written into the era-003 doc, and INFRA-278's validation obligation is
-   discharged by pointing at INFRA-312's evidence. Phase 108 itself is
+   discharged by pointing at **both** INFRA-312's evidence (SPA/UI half) and
+   INFRA-329's evidence (effort-db integrity half — added by the 2026-07-30
+   reconciliation sweep to phase 115 as a sibling of INFRA-312, since
+   INFRA-312 alone is UI/route-shaped and never touches effort.db; see
+   phase-108.md's `## Superseded` note, Ensures 24). Phase 108 itself is
    dispositioned like phase 107 — superseded, not revived. Exactly one era
    (004) is active at tag time.
 
@@ -273,12 +277,23 @@ by line number.**
    - `docs/phases/index.md:135` — `| 107 | CER backlog drain to zero | planned | [phase-107.md](phase-107.md) |`
    - `docs/eras/003-flex-orchestrator-as-harness.md:198` — `| 107 | CER backlog drain to zero | planned |`
 
-   **Both must change to `deferred` together.** `_mark_phase_complete_in_era_ledger`
-   (`flex_build.py:1184`) only writes the **highest-numbered active era**
-   (`flex_build.py:1231` — `target = active[-1]`), which is era 004 while
-   both 003 and 004 are active. The tooling will therefore **never** touch
-   era 003's ledger — the phase-107 edits are manual. **This is a correction
-   to the plan's §C.1, which named only the index row.**
+   **Both must change to `deferred` together.**
+
+   **Correction 2026-07-30 (reconciliation sweep):** this Requires previously
+   stated that `_mark_phase_complete_in_era_ledger` only writes the
+   highest-numbered active era and therefore never touches era 003's ledger —
+   that premise is now false. INFRA-326 (phase 114, builds before this story)
+   fixes the dual-active-era tie-break: the function now locates whichever
+   era doc actually **contains** the phase's row, rather than picking the
+   highest-ID active era unconditionally. Re-verify `_mark_phase_complete_in_era_ledger`'s
+   live behavior at build time — do not assume either the old or the new
+   tie-break rule without checking. In any case, **both edits below were
+   already applied by hand as part of the 2026-07-30 reconciliation sweep**
+   (see this story's Ensures 9/10), so this Requires is now a verification
+   step, not a manual-edit instruction: confirm the index and era-003 ledger
+   rows already read `deferred` in lockstep before proceeding. This is a
+   correction to the plan's §C.1, which named only the index row, and to this
+   story's own earlier text, which assumed the tooling could never help.
 
    `deferred` is an established phase status in both surfaces
    (`index.md:30`, `:70`, `:119`, `:121`;
@@ -339,11 +354,19 @@ by line number.**
 14. **Era-004 ledger.** `docs/eras/004-flex-operational-closeout-and-0-3-1.md`
     is `status: active` and its Phases table lists 113/114/115/116 (locate by
     row, not line — the doc gained a scope-revision paragraph 2026-07-29).
-    Because era 004 is the highest active era,
     `_mark_phase_complete_in_era_ledger` **does** advance these rows
-    automatically as each phase is checkpointed — so 113, 114 and 115 should
-    already read `complete` when this story runs. Verify rather than assume;
-    the phase-116 row is still `planned` and stays that way until cp-116.
+    automatically as each phase is checkpointed, because era 004's own
+    ledger contains the 113/114/115/116 rows — so 113, 114 and 115 should
+    already read `complete` when this story runs. **Correction 2026-07-30:**
+    the reason stated here previously ("because era 004 is the highest
+    active era") is no longer the operative rule — INFRA-326 (phase 114)
+    replaces the highest-ID tie-break with contains-the-row targeting, so the
+    conclusion for 113/114/115 survives (era 004's ledger does contain those
+    rows) but for a different reason than originally written. Do not rely on
+    "highest active era wins" for any other phase — re-verify
+    `_mark_phase_complete_in_era_ledger`'s live behavior at build time (see
+    Requires 8's correction). Verify rather than assume; the phase-116 row is
+    still `planned` and stays that way until cp-116.
 
 15. **`check-index` invocation.**
     `PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py check-index --project-dir .`
@@ -536,12 +559,15 @@ result so the reviewer can execute it verbatim.
      does not report a CER Do Now block.
 
 9. **Phase-107 index row deferred with a pointer.**
-   `docs/phases/index.md`'s phase-107 row status cell reads `deferred` and its
-   Tag/notes cell names the superseding phases.
-   - `grep '^| 107 |' docs/phases/index.md` → contains `deferred` and all
-     of `113`, `114`, `115`, `116`.
+   **Already applied by the 2026-07-30 reconciliation sweep — this Ensures is
+   now a verification, not an edit.** `docs/phases/index.md`'s phase-107 row
+   status cell reads `deferred` and its Tag/notes cell names the superseding
+   phases.
+   - `grep '^| 107 |' docs/phases/index.md` → contains `deferred` and
+     `113–116` / `INFRA-310`.
 
 10. **Phase-107 era-003 ledger row deferred, in lockstep (Requires 8).**
+    **Already applied by the 2026-07-30 reconciliation sweep — verify only.**
     - `grep '^| 107 |' docs/eras/003-flex-orchestrator-as-harness.md` →
       contains `deferred`.
     - The status strings in the two files are **byte-identical** for
@@ -563,7 +589,8 @@ result so the reviewer can execute it verbatim.
     - `grep -c 'phase-113\|113' docs/phases/phase-107.md` → ≥ 1.
 
 12. **INFRA-273..277 flipped to `status: backlog` with a superseded-by note
-    each (Requires 9).** Each of the five story files has frontmatter
+    each (Requires 9).** **Already applied by the 2026-07-30 reconciliation
+    sweep — verify only.** Each of the five story files has frontmatter
     `status: backlog` (**not** `deferred` — it is not a valid story status)
     and a body note naming the era-004 story or stories that absorbed its
     scope. The files are **not deleted** and their `phase: "107"` frontmatter
@@ -720,16 +747,23 @@ result so the reviewer can execute it verbatim.
       `for s in 044 045 046 047 048 049 050 051 052 053 054 055 056; do awk '/^## Deferred stories/,0' docs/phases/phase-97.md | grep -q "RELEASE-$s" || echo "MISSING RELEASE-$s"; done`
       → no output. Phase-97's status everywhere stays `deferred`.
 
-24. **Phase 108 superseded, mirroring phase 107 (AG-3).** `phase-108.md`
-    gains a `## Superseded` section stating: INFRA-278's validation
-    obligation was discharged by INFRA-312 (name its evidence section),
-    INFRA-279's exit criterion was folded into the era-003 doc (Ensures 26),
-    RELEASE-072's transition was executed by this story; nothing deleted.
-    Index and era-003 ledger rows for 108 flip to `deferred` in lockstep
-    (byte-identical status strings, same Requires-8 rule as phase 107);
-    INFRA-278/279 and RELEASE-072 story files flip to `status: backlog`
-    (**not** `deferred` — Requires 9's rule) with a superseded-by note each.
+24. **Phase 108 superseded, mirroring phase 107 (AG-3).**
+    **Partially applied by the 2026-07-30 reconciliation sweep.** The index
+    and era-003 ledger rows for 108 already flip to `deferred` in lockstep
+    (byte-identical status strings, same Requires-8 rule as phase 107), and
+    INFRA-278/279 and RELEASE-072 story files already flip to `status:
+    backlog` (**not** `deferred` — Requires 9's rule) with a superseded-by
+    note each — verify these, do not re-edit. **Still this story's job:**
+    `phase-108.md` gains a `## Superseded` section stating: INFRA-278's
+    validation obligation splits in two — the SPA/UI half was discharged by
+    INFRA-312 (name its evidence section), the effort-db integrity half was
+    never discharged by INFRA-312 and was rescued as new story INFRA-329
+    (phase 115, added by the 2026-07-30 reconciliation sweep as a sibling of
+    INFRA-312 — name it here); INFRA-279's exit criterion was folded into the
+    era-003 doc (Ensures 26); RELEASE-072's transition was executed by this
+    story; nothing deleted.
     - `grep -c '^## Superseded' docs/phases/phase-108.md` → 1.
+    - `grep -q 'INFRA-329' docs/phases/phase-108.md` → hit.
     - `for f in docs/stories/INFRA/INFRA-278.md docs/stories/INFRA/INFRA-279.md docs/stories/RELEASE/RELEASE-072.md; do grep -q '^status: backlog' $f || echo "BAD $f"; done`
       → no output.
 

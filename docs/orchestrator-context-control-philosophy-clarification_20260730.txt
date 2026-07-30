@@ -1,0 +1,42 @@
+Regarding INFRA-316, I'll describe the context control issue one more time so we can get it right.
+
+Here's the process we'll follow:
+1) I'll describe the intent, below.
+
+2) you'll ask questions: you're free to read and dig, but do nothing without asking questions.
+
+3) we'll agree, point by point on any discrepancies in the theory versus the existing build, and you'll write our agreements to a durable document.
+
+4) we'll revise or create specs to match
+
+5) we'll integrate these specs into the closeout phase (era 4)
+
+6) we'll continue building
+
+Premise:
+There are two context processes:
+
+a) Context expenditure by build loop agents, which is accumulated in the effort database. This is used to collect build costs for historical reasons, largely so we can estimate costs to build future projects. It is also used to inform b) to avoid drift.
+
+b) Orchestrator context control, which is used to manage context drift within tested boundaries that might be subject to change later. That limit is currently about 150k tokens, no matter the model, though Fable does seem slightly more durable. To give us some flexibility in that process, we set the alarm threshold (default) at 120k, and offer an allowance, as a percentage, that an orchestrator can use to exercise some leeway near that boundary, without prompting the user. Both the upper limit and the alarm limit, as well as the percentage are bound to change over time, so they are designed as variables. Further, less complicated projects are likely to be less sensitive to drift, so users may choose to move the upper boundary, the alarm, the allowance, or all three. In no case should any of these limit stop the user from overriding by choice. In many situations, it makes sense to keep building (when near a checkpoint, for example, where drift is of little concern), so the user may choose to simply ignore these at times and should not be stopped, though they might be re-prompted with further confirmations. These are hygiene reminders, not hard limits.
+
+Architecture:
+Because of a limitation of the orchestrator with respect to seeing its own context, we use hooks to record the orchestrator's context that matches the literal output of the /context command, and do not let the orchestrator estimate its own context, which is usually wildly wrong. My understanding of how we're currently accomplishing that, is that claude has no tool to read /context directly, so our hooks parse the orchestrator for the context annotations, and then write it where the orchestrator can read it. We understand this to be fragile to an extent, but is more durable than it was with 0.1.0 and 0.2.0 versions.
+
+These hooks both force the writing of context, as well as the reading of context prior to build operations. Prior to building, the hook and hook related machination alerts the orchestrator to current context as well as estimated next step cost, which the orchestrator then compares against the alarm threshold, the working limit, and the allowance. If current context plus story build exceeds the alarm, but not the alarm plus allowance, the orchestrator can choose to proceed at its discretion. If context plus story exceeds the upper limit, the user gets prompted to clear and continue, or override and continue building. This intentional pause is only for the user's sake for managing drift, not a hard stop or enforced boundary that they may not proceed past. If the user chooses to continue to the model limit and compaction, they may.
+
+These hooks and the pairmode process are only intended for build operations and are not intended to limit other uses of claude within the repo, such as cleanup, investigation, or housekeeping. They user can choose to structure any of those, including things like documentation cleanup, narrative or archticture drafts, and what-if analysis, as phase builds, but they are not required.
+
+Ideology:
+Flex is intended to do three things: 1) control drift, which causes rework through errors; 2) refocus specs, builds, and reviews on system of record (ideology, narratives, architecture, and policy decisions); and 3) make build processes more reliable by letting the LLM do LLM things that it's good at, while shifting non-deterministic processes to files and code, which the LLM won't do well. This is why we implement file security through system of record, for example, so a builder cannot choose to expand and include unintended scope, and why we use hooks for context as they LLM cannot choose to ignore the event.
+
+General observations about this specific story and its genesis:
+Story cadence is why we intentionally set the alarm below the working limit, and why we push, via thin agents, context hungry parts of the process to dispoable agents, rather than letting the orchestrator supply context. In general, builds work better with strong specs in a with fresh context, as do reviews, and that end-to-end process works best when the orchestrator is observing and directing, not doing. So, while a subagent might accumulate more than 150k context, if our story specs are created with these limits in mind, they normally don't, so we don't worry about that at build time. If our analysis shows that many stories exceed 150k within the build, we'll narrow the spec process to contain that, knowing that 150k might not always be a limit we'll be forced to work within.
+
+So the context from CORA is appropriate as indicated: "The 0.3.0 harness checks context health at *checkpoint* time and gates
+via the PostToolUse JSONL hook continuously, but the resolver itself never looks at the orchestrator's context budget when deciding to hand out the next story — so a degrading session gets story N+1 anyway, and fresh-session economics ("fresh sessions are cheap, degraded ones expensive") never enter the decision. ", but the remainder of that story drifts, and I'm not sure how, as we've specified this process and corrected several times, particularly in 0.3.0 tooling which should be weighted heavily over earlier attempts. There is not, should not, and has never been any intent to *SUM* context, in any way. The only context that matters to the orchestrator is current context, as harvested by the PostToolUse hook and written where it can be read by the orchestrator. Any summation being performed is ostensibly an accumulated amount from dispoable agent sessions, which aren't relevant.
+
+This is the crux of what needs resolved, and where LLMs truly fail at this sort of work: there are two related, but independent context processes at work and our spec writing has apparently comingled them several times, continuing to drift back to some sort of model training norm toward summation. Our current context decision does use an estimate, based on complexity and story type, of the next block of work to be built, and it adds that to the current context that was harvested (or in some cases seeded, for fresh sessions), and compares this to variables we have set for alarms and working limit, but that is the entirety of where dispoable agent context comes into the equation for orchestrator context control.
+
+For our purposes, need both: we need context from subagents written to the effort database, and we need real orchestrator context values for inter-build decision points. It seems to make sense to do both under a single skill, but perhaps it's asking too much and we need to shift context tracking for builds into an isolated process from orchestrator control.
+

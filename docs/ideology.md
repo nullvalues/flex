@@ -132,6 +132,15 @@ Format each entry as:
 **Override path:** No override permitted.
 
 
+### Build-cost accounting and orchestrator context control are two independent tracks
+
+**Rule:** There are two distinct context-tracking processes and they must never be summed into one another. (a) Build-loop/subagent token spend accumulates in `effort.db` — historical cost data, used for future-cost estimation and, only as informational reporting, to help spot drift. (b) Orchestrator context control manages the orchestrator's own live context window against a threshold/alarm/allowance — variables subject to change, never hard stops. A subagent's or story's accumulated cost must never be summed into, or substituted for, the orchestrator's own window-occupancy reading, and the orchestrator's own reading must never be estimated from effort.db totals.
+
+**Protects:** The context-health/budget prompt firing on the right quantity. Comingling the two tracks makes the prompt fire on the wrong signal in both directions at once — pausing a build whose orchestrator window is nearly empty because story spend summed high, and failing to pause one whose orchestrator window is nearly full because subagent accumulation was never counted toward it.
+
+**Rationale:** This has been reinvented and violated multiple times despite being fixed each time (Phase 43's original reversal, CER-053/INFRA-254's re-severing of the effort.db-derived estimate, and CER-129/AG-10's discovery that three live consumers — `context_health.py`, `context_budget_check.py`, and the observability `/context` route — still compared an effort.db quantity against an orchestrator-window threshold). Each fix corrected the code without stopping the underlying spec-writing habit of treating the two tracks as one number. The durable record of the current design is AG-10 and AG-10a in `docs/closeout-agreements-20260729.md`; both context tracks live as clearly labeled, additive keys in the same `context_model.py`/state.json — that shared-schema shape is acceptable only as long as the comingling stays stopped, not as license to blur the two signals again.
+
+**Override path:** No override permitted on the never-sum rule itself. The threshold, alarm, and allowance *values* within track (b) are deliberately tunable and may always be overridden by the user's explicit choice to keep building past an alert — that user override is a feature of track (b), not an exception to this constraint.
 
 
 ---

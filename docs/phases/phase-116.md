@@ -38,6 +38,26 @@ terminal — it is the last story built in era 004 and requires every other
 era-004 story complete. The 0.3.1 tag itself remains the operator's checkpoint
 act after cp-116 gates pass.
 
+**Cross-phase dependencies added 2026-07-30 (reconciliation sweep, AG-10a in
+`docs/closeout-agreements-20260729.md`):**
+
+- **INFRA-316 requires INFRA-321 (phase 114) complete.** Re-verify INFRA-316's
+  spec against INFRA-321's shipped orchestrator-track surface
+  (`context_model.py`, per INFRA-321 § F6) before build — do not consult
+  `context_budget_check.py`'s phase-spend sum for the between-story pause
+  decision (INFRA-321 §B6: that summed signal stops rendering an
+  orchestrator-facing exceeded message once INFRA-321 ships). INFRA-316's own
+  spec body (`touches`, Requires) has not yet been rewritten to match; that
+  rewrite is deferred until INFRA-321 has actually shipped, per AG-10a.
+- **INFRA-313 and INFRA-314 both insert at the `checkpoint-tag` seam and both
+  depend on INFRA-322 (phase 114) having already rewritten the CER Do-Now
+  guard's resolution predicate.** Build 313 → 314 with the seam reviewed once,
+  jointly, against INFRA-322's shipped form — INFRA-313's Requires currently
+  anchors on the pre-INFRA-322 predicate and a disposition-token vocabulary
+  that diverges from AG-11's on-the-record rejection of vocabulary widening;
+  reconcile both against INFRA-322's actual shipped predicate before build,
+  not against this spec's current text.
+
 ## Schema delivery
 
 For each new persistent schema object (table, collection, migration) introduced in

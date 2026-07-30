@@ -229,6 +229,72 @@ reconciled input.
   INFRA-303 (same phase): no orchestrator-track state key is renamed; the new
   `story_spend_threshold` is additive.
 
+#### AG-10a — INFRA-316 reconciliation and philosophy restatement (2026-07-30)
+
+A cold-eyes pass across the full planned corpus (2026-07-30) re-flagged INFRA-316
+(phase 116) as colliding with AG-10/INFRA-321 — not because AG-10's model was
+wrong, but because AG-10 fixed the *concept* and was never propagated into the
+one downstream spec still written against the pre-AG-10 world. The operator
+supplied a restatement of intent
+(`docs/orchestrator-context-control-philosophy-clarification_20260730.txt`) to
+settle this in durable form rather than leave it to spec-writer inference.
+Reconciled point by point:
+
+- **The two-process model is confirmed, not revised.** (a) Build-loop/subagent
+  spend accumulates in `effort.db` — historical cost data, used for future-cost
+  estimation and (only indirectly, via INFRA-321's informational surfacing) to
+  help avoid drift. (b) Orchestrator context control manages the orchestrator's
+  *own* live window against a threshold/alarm/allowance, all declared as
+  variables subject to change, never as hard stops — the user may always
+  override past the alarm, the ceiling, or into compaction. These are hygiene
+  reminders, not enforced limits. AG-10's shipped design already matches this:
+  `context_budget.decide()` reads only `context_current_tokens` (JSONL-derived,
+  sidechain-filtered, PostToolUse-written) plus a live-derived
+  `expected_step_tokens` — never effort.db. Confirmed correct and untouched by
+  INFRA-321.
+- **No summation of subagent/build cost into orchestrator control — restated as
+  binding, not just historically true.** The operator is explicit: "there is
+  not, should not, and has never been any intent to SUM context, in any way."
+  Any apparent summation in the resolver's cadence decisions is only ever
+  effort.db bookkeeping (process a), never a substitute for (b). This is DP7
+  exactly, and AG-10's six rejected directions already enforce it; this note
+  makes the "never SUM" framing explicit as the standing test for any future
+  story touching this seam, not just an inference from precedent.
+- **Isolation question resolved: additive keys in one schema remain sufficient.**
+  The operator's open question ("perhaps we need to shift context tracking for
+  builds into an isolated process from orchestrator control") is resolved
+  in favor of AG-10's shipped shape — two clearly labeled, additive tracks in
+  the same `context_model.py`/state.json — **conditional on the comingling
+  actually being stopped**, not merely renamed. If a future story is found
+  re-comingling the two signals (as INFRA-316 currently does), that is grounds
+  to revisit physical separation into distinct mechanisms; it is not grounds to
+  weaken AG-10's current shape pre-emptively.
+- **The concrete residual gap: INFRA-316 (phase 116) was never rewritten against
+  AG-10.** As drafted it still names `context_budget_check.py`'s phase-spend sum
+  as its measuring tool and still argues, in its own Requires section, that the
+  DP7 lesson applies to "headroom claims" but not to its own "etiquette check" —
+  an argument that should not need to exist once AG-10/INFRA-321 ship. Required
+  before INFRA-316 builds:
+  1. `touches` drops `context_budget_check.py`; adds INFRA-321's orchestrator-
+     track surface (`context_model.py`, per INFRA-321 § F6).
+  2. The DP7 re-litigation in Requires is removed and replaced with a direct
+     dependency statement citing AG-10/INFRA-321 as settled, not re-derived.
+  3. Phase 116's `## Ordering` section gets an explicit cross-reference:
+     "INFRA-316 requires INFRA-321 (phase 114) complete; re-verify against its
+     shipped orchestrator-track surface before build — do not consult
+     `context_budget_check.py`'s phase-spend sum for the between-story pause
+     decision (INFRA-321 §B6: that summed signal stops rendering an
+     orchestrator-facing exceeded message once INFRA-321 ships)."
+- **No live gate is currently misbehaving.** `context_budget_check.py` has no
+  caller anywhere in the live build loop (`CLAUDE.build.md`, hooks,
+  `next_action.py`) today — only its own test file exercises it. This is a
+  spec-correctness fix ahead of a build, not a production incident.
+
+Next: revise INFRA-316's spec (and phase-116's Ordering section) to match the
+three points above — via the spec-writer, not a direct orchestrator edit,
+per the story-scope guard — once INFRA-321 (phase 114) has shipped its
+orchestrator-track surface for INFRA-316 to target.
+
 
 ### AG-11 — CER-130 (phase 114): anchored CER resolution-marker grammar
 Filed after this document's original agreements and after AG-8/AG-9/AG-10, from
