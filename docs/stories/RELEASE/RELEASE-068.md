@@ -655,6 +655,17 @@ All pairmode CLI invocations below are run **from `/mnt/work/flex-harness`** wit
     `binding: both`, no non-canon file touched, no proving cycle run (by
     directive), and list the follow-ups named.
 
+13. **Exit and restart the session before any agent-registration verification or
+    the next build session in pokus (post-spec operator addendum, 2026-07-29).**
+    Steps 4 and 5 rewrite pokus's seven agent shells and create `gate-worker.md`
+    **mid-session**, and Claude Code loads `.claude/agents/*.md` at session start
+    only — step 6's checks are *file* checks and pass regardless, so nothing in
+    this story's verification would catch the stale registry. `/clear` is not
+    sufficient (same process, same registry). Record in `## Evidence` that the
+    restart was performed, or that agent registration was explicitly left
+    unverified. Tracked as CER-134 / INFRA-323 (phase 114), which adds the
+    missing notice to the tooling itself; this line is the interim manual step.
+
 **Ideology note.** `docs/ideology.md` was read. The narrowing this story applies
 — canon surfaces only, findings named not fixed, no bespoke hook surgery — is
 resolved *toward* the constraint rather than through it: where the global

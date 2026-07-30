@@ -293,6 +293,85 @@ rather than from either reconciled input.
   and `docs/stories/INFRA/INFRA-299.md` are untouched; the only `backlog.md`
   edits are CER-130's own row and the preamble paragraph.
 
+### AG-12 — CER-134 (phase 114): session-lifecycle notices for agent-registration writes
+Filed after this document's original agreements and after AG-8/AG-9/AG-10/AG-11,
+from a live operator report (2026-07-29, bootstrap session lifecycle) rather than
+from either reconciled input.
+
+- Claude Code loads `.claude/agents/*.md` agent definitions, plugin/skill
+  registrations, and the `hooks` blocks of `.claude/settings*.json` **at session
+  start only**. Every pairmode path that installs or updates those surfaces
+  writes them **mid-session**: `bootstrap` renders all seven agent shells and
+  registers four hook events; `pairmode_sync sync-agents` rewrites shell
+  frontmatter in place, `sync-all` runs it as chain step 2, and
+  `audit-hooks --apply` rewrites both settings files' hook blocks;
+  `pairmode_migrate` rule 2 delegates to `sync-agents`, rule 3 substitutes shell
+  bodies, and `to-030`'s B7 deletes or flags shells. In the session that just
+  bootstrapped or migrated a repo, none of it is in effect — spawns fall back to
+  `general-purpose` or fail, and the operator concludes the bootstrap failed.
+- **Nothing in the codebase says a restart is required.** A grep for `restart` /
+  `new session` / `exit the session` across the four scripts,
+  `hooks/session_start.py`, `SKILL.md`, the cutover runbook and `PAIRMODE.md`
+  returns one unrelated hit. `bootstrap._print_next_steps` routes the operator
+  into `story_new` → `story_context` → `audit`, none of which exercise the
+  registry, so the scaffold looks healthy until the first spawn.
+- **`/clear` is the trap, and it is what makes the hook-side check worth having.**
+  A `/clear` or `/compact` resets the context window inside the *same* process;
+  the registry is untouched, while `hooks/session_start.py` prints a reassuring
+  `Pairmode v… is active` block that is true about `state.json` and silent about
+  registration. `startup` and `resume` are fresh CLI processes and are therefore
+  excluded from the advisory on the record — warning there would be false and
+  would train operators to dismiss the true warning.
+- Pulled into **phase 114** as **INFRA-323**: this phase already owns build-loop
+  friction removal and doc currency, and the forcing function is immediate —
+  RELEASE-068's canon-only pokus migration creates `gate-worker.md` and rewrites
+  seven agent shells via `sync-all --apply`, then verifies only that the *files*
+  are on disk, which passes in a stale session.
+- Three deliverables: (a) one `session_lifecycle.py` module defining the
+  `RESTART REQUIRED` notice **once** — enumerating the changed surfaces, naming
+  the action, stating that `/clear` is not sufficient, printed **last** by
+  bootstrap, migrate, `to-030`, `sync-agents`, `sync-all` and `audit-hooks`, and
+  **only when something actually changed**; (b) the restart step written into
+  `SKILL.md`'s four command flows, the cutover runbook's 6-step mechanic
+  (positioned before any step that verifies agents) and one architecture
+  subsection; (c) a SessionStart staleness advisory — a pure-read comparison of
+  two additive `state.json` keys (`agent_surfaces_written_at` /
+  `_written_by`, stamped by the tooling that already writes that file) against
+  the pre-mutation session view, emitting one context line and **no additional
+  state write**, inside the hook's existing best-effort discipline.
+- **No gate is added.** The precondition is unverifiable from inside the process
+  — the tooling cannot read Claude Code's loaded registry — so a block would fire
+  on a guess, and CER-067's lesson is that an un-clearable mechanical gate gets
+  routed around and then protects nothing. Advisory, fail-open, unmissable.
+- Nine directions are rejected on the record rather than deferred: making the
+  tooling restart the session itself (a child process cannot reload its parent's
+  registry, and faking it violates the hook/state boundary in
+  `docs/ideology.md:113-130`); relying on operators reading the docs as the
+  primary mechanism; a blocking gate; mtime-only staleness detection as the
+  authoritative signal (`git checkout`, worktree creation and the CER-090
+  `rsync` workaround all rewrite mtimes without changing content); warning on
+  `startup`/`resume`; a new state file or persisted notice log; a notice on
+  every run regardless of changes (notice fatigue is CER-067's lesson applied to
+  output); parsing child stdout in `sync_all` to detect changes (children
+  inherit stdout by design — a stamp is the cleaner contract); and treating
+  `CLAUDE.build.md`/`CLAUDE.md` as restart surfaces (read per invocation, not at
+  session start).
+- Sibling-constrained inside phase 114: **INFRA-319** holds `bootstrap.py` and
+  `pairmode_migrate.py` as `primary_files` and rewrites hook registration
+  itself — INFRA-323 adds only terminal output and one state stamp to the same
+  commands, and where INFRA-319 changes *which* settings file is written the
+  notice follows it; **INFRA-303** also holds `pairmode_migrate.py` (no rule
+  added or renumbered); **INFRA-305** holds `docs/architecture.md` (the new
+  subsection is additive); **INFRA-321** must not also edit
+  `hooks/session_start.py`; **INFRA-304** owns the agent templates, which this
+  story does not touch. `hooks/session_start.py` is a **protected** path
+  (`scope_guard.PROTECTED_GLOBS`) and is declared explicitly in `touches:`.
+- RELEASE-068 (phase 106) received a dated one-line **post-spec operator
+  addendum** at INFRA-323's spec time adding the exit-and-restart step before
+  agent verification, so the pokus migration is not blocked on this story
+  landing. `RELEASE-068.md` is deliberately **not** in INFRA-323's `touches:`.
+
+
 ---
 
 ## Unambiguous dispositions (no decision was needed)

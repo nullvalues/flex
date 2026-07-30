@@ -23,6 +23,8 @@ Remove recurring build-loop friction (unprovisioned worktrees, interactive scaff
 
 **Third backlog pull at spec time.** INFRA-322 was pulled into this phase from CER-130 (operator report 2026-07-29, phase-35 checkpoint on a consuming repo — the `cer-do-now` checkpoint guard's bare, case-sensitive substring test reads a title-case `Resolved` backlog as permanently unresolved and reads `UNRESOLVED` as resolved). It lands in 114 because this phase already owns build-loop truth-restoration and doc-currency work, and because the defect is live fleet-blocking: the observed remedy was a manual `checkpoint-tag` bypass of the gate, the CER-067 failure class. CER-130's phase column now reads 114 and its resolution annotation lands when INFRA-322 completes. Recorded as AG-11 in `docs/closeout-agreements-20260729.md`.
 
+**Fourth backlog pull at spec time.** INFRA-323 was pulled into this phase from CER-134 (operator report 2026-07-29, bootstrap session lifecycle — Claude Code loads agent definitions, plugin/skill registrations and hook blocks at session start only, while `bootstrap`, `migrate`, `to-030`, `sync-agents`/`sync-all` and `audit-hooks` all write those surfaces mid-session and say nothing about it, so a freshly bootstrapped or migrated repo reads as a failed bootstrap until the operator happens to exit and relaunch). It lands in 114 because this phase already owns build-loop friction removal and doc-currency work, and because the forcing function is immediate: RELEASE-068's canon-only pokus migration (phase 106) creates `gate-worker.md` and rewrites seven agent shells mid-session, verifying only that the files are on disk. CER-134's phase column reads 114 and its resolution annotation lands when INFRA-323 completes. Recorded as AG-12 in `docs/closeout-agreements-20260729.md`.
+
 ## Stories
 
 | ID | Title | Status |
@@ -35,6 +37,7 @@ Remove recurring build-loop friction (unprovisioned worktrees, interactive scaff
 | INFRA-319 | Portable hook-command paths: plugin-root/settings.local registration, migrate rewrite of machine-absolute and pre-rename hook commands, audit finding | draft |
 | INFRA-321 | Two-track context accounting: orchestrator-window occupancy vs story/subagent spend; health verdict re-based on the orchestrator track; between-spawn coverage; surfaces labeled (pulled from CER-129) | draft |
 | INFRA-322 | Anchored, case-insensitive CER resolution-marker grammar: shared `cer.is_resolution_marked` predicate, cer-do-now guard stops reading `Resolved` as unresolved and `UNRESOLVED` as resolved, grammar published for consuming repos (pulled from CER-130) | draft |
+| INFRA-323 | Session-lifecycle notices for agent-registration writes: RESTART REQUIRED at the end of bootstrap/migrate/sync paths that changed agent shells or hook registrations, restart step in the runbooks and SKILL.md flows, SessionStart staleness advisory (pulled from CER-134) | draft |
 
 ## Schema delivery
 
