@@ -2,7 +2,7 @@
 id: RELEASE-069
 rail: RELEASE
 title: Decommission pairmode from base56 (strip, not migrate — product is fully developed)
-status: draft
+status: complete
 phase: "106"
 auth_gated: false
 schema_introduces: false
@@ -247,3 +247,44 @@ commit/push confirmation.
   separate effort per the operator's "re-seed later" framing.
 - RELEASE-070 (cora) and RELEASE-071 (campaign close) — untouched by this
   story.
+
+## Evidence
+
+**Execution model:** orchestrator-level with operator present, per this story's own execution model — no story worktree, no builder subagent. All commands ran directly against `/mnt/work/base56`.
+
+### Step 1-2 — Precondition and baseline
+```
+git -C /mnt/work/base56 status --porcelain  -> (empty, clean)
+.pairmode-worktrees/ absent, no in-flight build
+git -C /mnt/work/base56 log -1 --oneline    -> 318c471 fix(phase-proposed): correct pairmode tooling path to flex-harness, not flex
+```
+Tracked docs pre-strip (`git ls-files | grep -E "^docs/|^CLAUDE"`):
+`docs/architecture.md`, `docs/cer/backlog.md`, `docs/phases/phase-2.md`..`phase-6.md`,
+`docs/phases/phase-proposed-pairmode-030-migration-20260722-001.md`.
+SHA-256 hashes recorded for architecture.md, cer/backlog.md, phase-2..6.md, brief.md, phase-1.md before any change (baseline for later diff).
+
+### Step 3 — Operator confirmation
+Operator explicitly confirmed, live, in two separate decisions:
+1. The exact six-item delete list (`.claude/`, `.companion/`, `CLAUDE.md`, `CLAUDE.build.md`, `docs/checkpoints.md`, `docs/phases/index.md`) — approved as-is, no changes.
+2. The `docs/phases/phase-1.md` rescue extrapolation (treat it the same as `docs/brief.md`, since it's real Phase-1 content that happened to be gitignored while phase-2..6 weren't) — operator agreed explicitly: "Yes, rescue phase-1.md too."
+
+### Step 4 — Backup
+Backup of the about-to-be-deleted untracked surface (`.claude/`, `.companion/`, `CLAUDE.md`, `CLAUDE.build.md`, `docs/checkpoints.md`, `docs/phases/index.md`) taken as a tarball at the session scratchpad path (outside both the flex and base56 repos, so it doesn't pollute either repo's git status), before any deletion.
+
+### Step 5-7 — Rescue and moot-doc removal
+`.gitignore` edited to remove the `docs/brief.md` and `docs/phases/phase-1.md` entries. `git add docs/brief.md docs/phases/phase-1.md` (un-ignored, newly tracked) and `git rm docs/phases/phase-proposed-pairmode-030-migration-20260722-001.md`. Staged diff confirmed exactly four paths: `.gitignore` (M), `docs/brief.md` (A), `docs/phases/phase-1.md` (A), `docs/phases/phase-proposed-pairmode-030-migration-20260722-001.md` (D). Committed as `32882eb` ("docs: rescue brief/phase-1, drop moot pairmode-migration proposal" — no RELEASE-0NN ID in the subject, per CER-116) and pushed `c7f6f04..32882eb` to `origin/main`.
+
+### Step 8 — Delete local pairmode surface
+`rm -rf .claude .companion CLAUDE.md CLAUDE.build.md docs/checkpoints.md docs/phases/index.md` from `/mnt/work/base56`. All six confirmed gone from disk.
+
+### Step 9 — Post-strip verification
+`git -C /mnt/work/base56 status --porcelain` -> empty (the six deleted paths were all gitignored/untracked, so their removal produces no git status change — confirms no git impact from the delete step, as predicted at spec time). Re-hashed `docs/architecture.md`, `docs/cer/backlog.md`, `docs/phases/phase-2.md`..`phase-6.md`, `docs/brief.md`, `docs/phases/phase-1.md` — **all nine hashes matched the step-2 baseline exactly, byte-for-byte, no drift**. `git ls-files | grep -E "^docs/|^CLAUDE"` now returns exactly: `docs/architecture.md`, `docs/brief.md`, `docs/cer/backlog.md`, `docs/phases/phase-1.md`, `docs/phases/phase-2.md`, `docs/phases/phase-3.md`, `docs/phases/phase-4.md`, `docs/phases/phase-5.md`, `docs/phases/phase-6.md` — no `CLAUDE.md`/`CLAUDE.build.md`, no proposed-migration doc, `brief.md`/`phase-1.md` now present as tracked.
+
+### Step 10 — Smoke test
+`npm test` from `/mnt/work/base56` (vitest run): **142 passed, 5 skipped (pg-store, no DB configured — expected), 0 failed**, 5 test files. No product code was touched by this story, so this is a smoke confirmation, not a real risk surface.
+
+### Fleet-registry check
+`grep -rln base56 /mnt/work/flex-harness/.companion/` returned no hits at spec time and was not re-checked at build time since nothing in the strip touches the release channel — no fleet-registry entry exists to clean up.
+
+### Outcome
+base56 is fully decommissioned from pairmode: all local build-loop machinery removed (no git impact, confirmed), real product content (brief.md, phase-1.md) rescued into git history, the one moot pairmode-process doc (proposed 0.3.0 migration) removed, and all other tracked product/history docs verified byte-identical. No proving cycle applies here (this is a removal, not a migration) — RELEASE-071 (campaign close) should note base56 as **decommissioned, not migrated**, distinct from pokus's proof-deferred status.
