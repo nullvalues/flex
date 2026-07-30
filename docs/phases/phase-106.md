@@ -28,7 +28,7 @@ Finish the pairmode 0.3.0 fleet migration as a driven campaign: 8 remaining proj
 | RELEASE-067 | Migrate halfhorse to pairmode 0.3.0 | complete |
 | RELEASE-068 | Migrate pokus to pairmode 0.3.0 — canon files only | complete |
 | RELEASE-069 | Decommission pairmode from base56 (strip, not migrate — product is fully developed) | complete |
-| RELEASE-070 | Migrate cora from 0.1.0 to 0.3.0 (unpark RELEASE-030 lesson-extraction carve-out) | complete — hand-migrated outside this campaign, carve-out unverified |
+| RELEASE-070 | Migrate cora from 0.1.0 to 0.3.0 (unpark RELEASE-030 lesson-extraction carve-out) — hand-migrated outside this campaign, carve-out unverified, see § Evidence | complete |
 | RELEASE-071 | Campaign close: full-fleet DP8 gate, supersede RELEASE-043..057, clean stale seeds, mark phase-97 complete | complete |
 
 **Parent phase:** Phase 97 (Fold resume) — its RELEASE-043..057 fleet-migration stubs were
