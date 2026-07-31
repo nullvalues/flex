@@ -569,3 +569,49 @@ def test_deferred_phase_no_spurious_violations(tmp_path: Path) -> None:
 def test_backlog_phase_inactive() -> None:
     """is_phase_inactive returns True for 'backlog' — CER-056."""
     assert is_phase_inactive("backlog") is True
+
+
+# ---------------------------------------------------------------------------
+# INFRA-314, Ensures 3 — one shared "formally deferred" predicate
+# ---------------------------------------------------------------------------
+
+
+def test_is_formally_deferred_round_trip_with_check_index(tmp_path: Path) -> None:
+    """A story formally deferred per is_formally_deferred never trips check
+    4's deferred-without-section violation, and vice versa — same predicate,
+    not two independently-maintained copies."""
+    from index_integrity import is_formally_deferred
+
+    project = make_resolver_project(
+        tmp_path,
+        {
+            "phase_status": "active",
+            "stories": [("TEST-001", "deferred", "code", [])],
+            "git_commits": [],
+            "phase_ref": "1",
+        },
+    )
+    _write_story(project, "TEST-001", status="deferred", phase_ref="1")
+    phase_path = project / "docs" / "phases" / "phase-1.md"
+    _add_deferred_section(phase_path, "TEST-001")
+    phase_text = phase_path.read_text(encoding="utf-8")
+
+    assert is_formally_deferred("deferred", "TEST-001", phase_text) is True
+
+    violations = check_index(project)
+    deferred_v = [v for v in violations if v.kind == "deferred-without-section"]
+    assert deferred_v == [], f"Predicate says formally deferred but check 4 disagreed: {deferred_v}"
+
+
+def test_is_formally_deferred_false_without_section(tmp_path: Path) -> None:
+    from index_integrity import is_formally_deferred
+
+    phase_text = "# Phase 1\n\n## Stories\n\n| ID | Title | Status |\n|--|--|--|\n"
+    assert is_formally_deferred("deferred", "TEST-001", phase_text) is False
+
+
+def test_is_formally_deferred_false_when_status_not_deferred() -> None:
+    from index_integrity import is_formally_deferred
+
+    phase_text = "# Phase 1\n\n## Deferred stories\n\nTEST-001 was deferred.\n"
+    assert is_formally_deferred("planned", "TEST-001", phase_text) is False

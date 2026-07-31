@@ -13,6 +13,7 @@ primary_files:
   - skills/pairmode/scripts/phase_new.py
 touches:
   - skills/pairmode/scripts/index_integrity.py
+  - tests/pairmode/test_index_integrity.py
   - docs/phases/index.md
   - skills/pairmode/templates/docs/phases/phase.md.j2
   - skills/pairmode/scripts/story_new.py
