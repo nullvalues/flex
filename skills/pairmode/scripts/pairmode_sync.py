@@ -597,6 +597,9 @@ def _build_template_context(project_dir: Path) -> dict:
         # own "(unset)" default → next_action._intent_review_opt_in reads
         # anything other than the literal "pre-build" as opted out.
         "intent_review": pctx.get("intent_review") or state.get("intent_review") or "",
+        # INFRA-317: covered-contracts pairs (doc-section::source-file), same
+        # empty-and-harmless default pattern as protected_paths.
+        "covered_contracts": pctx.get("covered_contracts") or state.get("covered_contracts") or [],
     }
 
 

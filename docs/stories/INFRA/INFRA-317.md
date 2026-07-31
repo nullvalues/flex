@@ -13,6 +13,7 @@ primary_files:
 touches:
   - CLAUDE.build.md
   - skills/pairmode/scripts/bootstrap.py
+  - skills/pairmode/scripts/pairmode_sync.py
   - tests/pairmode/test_procedure_skills.py
   - tests/pairmode/test_templates.py
   - docs/architecture.md
