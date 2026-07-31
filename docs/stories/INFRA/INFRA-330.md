@@ -2,7 +2,7 @@
 id: INFRA-330
 rail: INFRA
 title: Correct stale draft status on 13 merged, reviewer-PASSed phase-114 stories
-status: draft
+status: complete
 phase: "114"
 story_class: doc
 auth_gated: false
