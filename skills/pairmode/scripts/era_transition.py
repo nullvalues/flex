@@ -105,17 +105,54 @@ def _era_display_name(era_path: Path, fm: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _phase_ledger_gate_message(era_path: Path, era_text: str) -> "str | None":
+    """Return a close-era refusal message when *era_path*'s ``## Phases``
+    ledger holds a phase not ``is_phase_inactive`` (INFRA-314, Ensures 2), or
+    ``None`` when the gate is clean.
+
+    Reuses ``index_integrity``'s own predicates — ``_parse_era_phase_table``
+    (the ledger parser) and ``is_phase_inactive`` (``complete``/``deferred``/
+    ``backlog`` — CER-056) — rather than forking a variant "not complete/not
+    deferred" check (Requires 3).
+    """
+    from index_integrity import _parse_era_phase_table, is_phase_inactive  # noqa: PLC0415
+
+    rows = _parse_era_phase_table(era_text)
+    undispositioned = [
+        (phase_ref, status) for phase_ref, status in rows if not is_phase_inactive(status)
+    ]
+    if not undispositioned:
+        return None
+
+    listed = "; ".join(f"{ref} (status: {status!r})" for ref, status in undispositioned)
+    return (
+        "era-transition: refused — "
+        f"{len(undispositioned)} undispositioned phase(s) in {era_path.name}'s "
+        f"## Phases ledger: {listed}. Each must be resolved before closing the "
+        "era: complete it, or formally defer it, before retrying."
+    )
+
+
 def era_transition_cli(
     project_dir: str,
     name: str | None,
     intent: str,
     yes: bool,
+    era_id: "str | None" = None,
 ) -> int:
     """
     Execute the era transition.
 
     Returns 0 on success, 1 on any error.
     Used by flex_build.py as an importable delegate.
+
+    *era_id* (INFRA-314, Ensures 2) names the era to close explicitly. Two
+    eras can be active simultaneously (the live incident this story closes),
+    so "the active era" is no longer a safe implicit target: *era_id* is
+    optional only while exactly one active era exists (it then defaults to
+    that sole era, preserving every existing single-active-era call site
+    unchanged); with two or more active eras it is required — closing
+    ``active[-1]`` implicitly is the forbidden proxy this story removes.
     """
     resolved = Path(project_dir).resolve()
 
@@ -142,18 +179,42 @@ def era_transition_cli(
         click.echo("No active era to close. Use era_new.py to create one.")
         return 1
 
-    if len(active_eras) > 1:
+    if era_id is not None:
+        matches = []
+        for p in active_eras:
+            fm = _parse_era_frontmatter(p.read_text(encoding="utf-8")) or {}
+            if fm.get("id") == era_id:
+                matches.append(p)
+        if not matches:
+            names = [p.name for p in active_eras]
+            click.echo(
+                f"error: --era-id {era_id!r} does not match any active era "
+                f"(active: {names}).",
+                err=True,
+            )
+            return 1
+        current_era_path = matches[0]
+    elif len(active_eras) > 1:
         names = [p.name for p in active_eras]
         click.echo(
             f"Multiple active eras found: {names}. Resolve manually before transitioning."
         )
         return 1
+    else:
+        current_era_path = active_eras[0]
 
-    current_era_path = active_eras[0]
     current_content = current_era_path.read_text(encoding="utf-8")
     current_fm = _parse_era_frontmatter(current_content)
     current_id = current_fm.get("id", "???") if current_fm else "???"
     current_name = current_fm.get("name", current_era_path.stem) if current_fm else current_era_path.stem
+
+    # 1b. Phase-ledger disposition gate (INFRA-314, Ensures 2). Checked before
+    # any prompting or write — a refusal here never reaches
+    # _close_era_frontmatter and the era file stays byte-identical.
+    gate_message = _phase_ledger_gate_message(current_era_path, current_content)
+    if gate_message is not None:
+        click.echo(gate_message, err=True)
+        return 1
 
     # 2. Prompt for new era name / intent (unless --yes + --name provided)
     if yes:
@@ -239,11 +300,21 @@ def era_transition_cli(
     default=False,
     help="Skip interactive prompts; --name must be provided.",
 )
+@click.option(
+    "--era-id",
+    default=None,
+    help=(
+        "Explicit ID of the active era to close (INFRA-314). Optional when "
+        "exactly one era is active (defaults to it); required when two or "
+        "more are active — there is no implicit 'last active era' target."
+    ),
+)
 def era_transition(
     name: str | None,
     intent: str,
     project_dir: str,
     yes: bool,
+    era_id: str | None,
 ) -> None:
     """Formally close the current active era and open the next one."""
     rc = era_transition_cli(
@@ -251,6 +322,7 @@ def era_transition(
         name=name,
         intent=intent,
         yes=yes,
+        era_id=era_id,
     )
     sys.exit(rc)
 

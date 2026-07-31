@@ -79,6 +79,42 @@ def is_phase_inactive(status: str) -> bool:
     return status in ("complete", "deferred", "backlog")
 
 
+def _deferred_section_text(phase_text: str) -> "str | None":
+    """Return the body text of *phase_text*'s ``## Deferred stories`` section,
+    or ``None`` when no such section exists.
+
+    Shared substring-scan helper: both ``is_formally_deferred`` and check 4's
+    two-message logic below call this one function rather than each
+    re-deriving the section-heading regex and boundary scan.
+    """
+    m = _DEFERRED_SECTION_RE.search(phase_text)
+    if not m:
+        return None
+    section_text = phase_text[m.end():]
+    next_heading = re.search(r"^##\s+", section_text, re.MULTILINE)
+    if next_heading:
+        section_text = section_text[: next_heading.start()]
+    return section_text
+
+
+def is_formally_deferred(status: str, story_id: str, phase_text: str) -> bool:
+    """Return True when *story_id* is formally deferred against *phase_text*.
+
+    The single shared definition of "formally deferred" (INFRA-314, Ensures 3):
+    the story's own status is ``'deferred'`` AND its ID is named inside the
+    phase doc's ``## Deferred stories`` section. Both check 4 below (deferred
+    without section) and the story->phase checkpoint-tag gate
+    (``flex_build._deferral_gate_message``) call this one function — neither
+    forks its own variant predicate.
+    """
+    if status != "deferred":
+        return False
+    section_text = _deferred_section_text(phase_text)
+    if section_text is None:
+        return False
+    return story_id in section_text
+
+
 # ---------------------------------------------------------------------------
 # Era phase table parser
 # ---------------------------------------------------------------------------
@@ -372,8 +408,8 @@ def check_index(project_dir: Path) -> list[Violation]:
         except OSError:
             continue
 
-        m = _DEFERRED_SECTION_RE.search(phase_text)
-        if not m:
+        section_text = _deferred_section_text(phase_text)
+        if section_text is None:
             violations.append(
                 Violation(
                     kind="deferred-without-section",
@@ -388,11 +424,6 @@ def check_index(project_dir: Path) -> list[Violation]:
             continue
 
         # Section exists — verify it names this story ID.
-        section_text = phase_text[m.end():]
-        next_heading = re.search(r"^##\s+", section_text, re.MULTILINE)
-        if next_heading:
-            section_text = section_text[: next_heading.start()]
-
         if story_id not in section_text:
             violations.append(
                 Violation(

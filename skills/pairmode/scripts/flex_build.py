@@ -3332,11 +3332,21 @@ def cmd_check_auth_gate(story_id: str, project_dir: str) -> None:
     default=False,
     help="Skip interactive prompts; --name must be provided.",
 )
+@click.option(
+    "--era-id",
+    default=None,
+    help=(
+        "Explicit ID of the active era to close (INFRA-314). Optional when "
+        "exactly one era is active (defaults to it); required when two or "
+        "more are active — there is no implicit 'last active era' target."
+    ),
+)
 def cmd_transition_era(
     name: str | None,
     intent: str,
     project_dir: str,
     yes: bool,
+    era_id: str | None,
 ) -> None:
     """Formally close the current active era and open the next one."""
     from era_transition import era_transition_cli  # noqa: PLC0415
@@ -3347,6 +3357,7 @@ def cmd_transition_era(
             name=name,
             intent=intent,
             yes=yes,
+            era_id=era_id,
         )
     )
 
@@ -3751,6 +3762,69 @@ def _cer_do_now_gate_message(project_dir: Path) -> "str | None":
     )
 
 
+def _deferral_gate_message(phase_key: str, project_dir: Path) -> "str | None":
+    """Return a checkpoint-tag refusal message when *phase_key*'s stories hold
+    a story that is neither ``'complete'`` nor formally deferred (INFRA-314,
+    Ensures 1), or ``None`` when the gate is clean.
+
+    "Formally deferred" is ``index_integrity.is_formally_deferred`` — status
+    ``'deferred'`` AND named in the phase doc's ``## Deferred stories``
+    section — imported, not re-derived, so this gate and ``check-index``
+    check 4 can never disagree about what counts as a formal deferral
+    (Ensures 3). Every story whose frontmatter ``phase:`` names *phase_key* is
+    scanned directly (not the phase doc's own ``## Stories`` table column,
+    which can drift from the story's own frontmatter) — same source
+    ``index_integrity`` check 4 reads. A missing phase key, missing phase
+    doc, or missing stories directory all fail open: nothing to refuse over.
+    """
+    from index_integrity import is_formally_deferred  # noqa: PLC0415
+
+    if not phase_key:
+        return None
+
+    phase_file = project_dir / "docs" / "phases" / f"phase-{phase_key}.md"
+    if not phase_file.exists():
+        return None
+    try:
+        phase_text = phase_file.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    stories_dir = project_dir / "docs" / "stories"
+    if not stories_dir.exists():
+        return None
+
+    undispositioned: list[tuple[str, str]] = []
+    for story_file in sorted(stories_dir.rglob("*.md")):
+        try:
+            text = story_file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fm = _parse_frontmatter(text) or {}
+        story_phase = str(fm.get("phase") or "").strip()
+        if story_phase != phase_key:
+            continue
+        story_id = (fm.get("id") or story_file.stem).strip()
+        status = (fm.get("status") or "").lower().strip()
+        if status == "complete":
+            continue
+        if is_formally_deferred(status, story_id, phase_text):
+            continue
+        undispositioned.append((story_id, status))
+
+    if not undispositioned:
+        return None
+
+    listed = "; ".join(f"{sid} (status: {status!r})" for sid, status in undispositioned)
+    return (
+        "record-checkpoint-step: checkpoint-tag refused — "
+        f"{len(undispositioned)} undispositioned story(ies) in phase {phase_key}: "
+        f"{listed}. Each must be resolved before tagging: complete it, or "
+        "formally defer it (status: deferred AND a named entry in the phase "
+        "doc's ## Deferred stories section)."
+    )
+
+
 def _record_checkpoint_step(
     step_id: str, project_dir: Path, phase_key: "str | None" = None
 ) -> int:
@@ -3774,6 +3848,13 @@ def _record_checkpoint_step(
     written re-triage to another quadrant. This shares
     ``cer.find_open_do_now_rows`` with ``next_action._check_cer_do_now`` —
     one Do Now scan, two callers, not a forked second copy.
+    Returns 4 when *step_id* is the terminal step and the resolved phase key
+    holds a story that is neither ``'complete'`` nor formally deferred
+    (INFRA-314, Ensures 1) — ``_deferral_gate_message`` names each
+    undispositioned story ID and its status, and states the two legal
+    resolutions (complete it, or formally defer it). No write occurs on a
+    4-exit path either: checked once ``effective_key`` is resolved (A3) but
+    before the idempotency check and before ``_mark_phase_complete_in_index``.
 
     Storage shape (INFRA-283, CER-095.4). Completed steps are stored in
     ``state.json["checkpoint_steps"]``, a ``dict[phase_key, list[step_id]]``
@@ -3946,6 +4027,19 @@ def _record_checkpoint_step(
             # warning and stamp the documented INFRA-260 fallback value.
             click.echo(f"warning: {message}", err=True)
             effective_key = ""
+
+    # --- INFRA-314 (Ensures 1): the terminal step (checkpoint-tag) refuses
+    # to record when the resolved phase holds a story that is neither
+    # 'complete' nor formally deferred. Checked once effective_key is known
+    # (this gate is phase-scoped, unlike the CER Do Now gate above) but
+    # before the idempotency check and before any write — a refusal here
+    # performs no state.json write and does not reach
+    # _mark_phase_complete_in_index. ---
+    if is_terminal:
+        deferral_message = _deferral_gate_message(effective_key, project_dir)
+        if deferral_message is not None:
+            click.echo(deferral_message, err=True)
+            return 4
 
     # --- Idempotency is now checked here, after the key is resolved, not
     # before A2/A4/A3 (INFRA-283). Idempotency is per-key: whether step_id is

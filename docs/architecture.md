@@ -1007,6 +1007,20 @@ so a claim never overrides commit evidence (CER-095.1).
     `docs/cer/backlog.md` fails open on both paths, matching the resolver's own guard — a project
     that has never run `cer.py` is never blocked by it.
 
+    **Deferral/disposition gates at both boundaries (INFRA-314, cora A#6/AG-6).** Two more
+    refusals compose at the same `checkpoint-tag` seam as the CER gate above, plus one at the
+    era-close seam — one shared predicate (`index_integrity.is_formally_deferred`: status
+    `deferred` AND named in the phase doc's `## Deferred stories` section), so the two never
+    disagree about what "formally deferred" means. *Story→phase:* `record-checkpoint-step
+    checkpoint-tag` scans every story whose frontmatter `phase:` names the resolved key; a story
+    that is neither `complete` nor formally deferred returns exit code 4 (`_deferral_gate_message`)
+    and records/marks nothing — fix-or-defer, never auto-defer. *Phase→era:* `era_transition_cli`
+    now takes the era to close by explicit `--era-id` (required once two or more eras are active —
+    "the active era" stopped being a safe implicit target the day two were live simultaneously) and
+    refuses to close an era whose `## Phases` ledger holds a phase failing
+    `index_integrity.is_phase_inactive` (`complete`/`deferred`/`backlog`), writing nothing
+    (`_close_era_frontmatter` unreached). Both gates fail open on a missing phase/era doc.
+
     `cer.py groom --project-dir <dir>` re-reads `## Do Later` and `## Do Much Later` for every
     open row (same placeholder/resolution exemptions as Do Now) and prints each row's ID,
     quadrant, and `gate:` condition text (or `(no gate:)` when the row carries none), plus a
@@ -4303,7 +4317,11 @@ phases do not appear in the main phase table in `docs/phases/index.md`; they app
 a `## Proposed phases (not yet sequenced)` section. When sequenced, stories are absorbed
 into the next available sequential phase, the proposed file is deleted via `git rm`, and
 the row is removed from the index. See `CLAUDE.build.md` § Proposed phases for the full
-sequencing workflow.
+sequencing workflow. `phase_new.py --proposed <name>` (INFRA-314) writes this filename
+directly (NNN monotonic per date, across all proposed files that day) without touching
+`index.md`. `--parent-phase <id>` stamps a `**Parent phase:** Phase <id> — <title>` line
+under any new phase's H1, per the phase-continuity policy (root `CLAUDE.md`); omitted, the
+output is unchanged.
 
 - New phases are always created using `phase_new.py --phase-id ID [--suffix SUFFIX]`.
   Integer IDs produce `phase-N.md`; string predicates with suffixes produce
