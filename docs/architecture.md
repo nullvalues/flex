@@ -3316,7 +3316,7 @@ outside the phases/rails model. The `backend` column (`"anthropic"` or
 `"ollama"`) distinguishes the call path on sidebar rows.
 
 **Non-build roles are read-side excluded, never write-side deleted
-(INFRA-309, correcting CER-107).** `seed-miner`, `seed-reconcile`, and
+(Phase 115, INFRA-309, correcting CER-107).** `seed-miner`, `seed-reconcile`, and
 `sidebar-extractor` (the three cross-skill `agent_role` values named above)
 record real token cost that is not a pairmode build-loop attempt. CER-107
 originally diagnosed these rows as "polluting build-role medians" and offered
@@ -4038,7 +4038,7 @@ addendum / INFRA-302), not vendored payload — `tsc -b` (`ui/tsconfig.json` set
 including failing ones, which used to dirty a story worktree and make
 `merge-story-worktree`'s rebase refuse. Do not "restore" it.
 
-*Tracked native binaries (CER-094 / INFRA-307):* seven `.node` addons are tracked, each
+*Tracked native binaries (Phase 115, CER-094 / INFRA-307):* seven `.node` addons are tracked, each
 justified: Rollup's native core (`rollup.linux-x64-{gnu,musl}.node`, Vite loads it during
 the UI build gate); Tailwind 4's Rust engine
 (`tailwindcss-oxide.linux-x64-{gnu,musl}.node`, the CSS pipeline); Lightning CSS
@@ -4053,7 +4053,7 @@ own `loadExtension` test suite, never loaded by this project — was **deleted**
 `tests/pairmode/test_vendored_payload_tracked.py::test_tracked_native_binaries_match_enumerated_set`;
 update the doc and the test together.
 
-*The `.claude/` tolerance (CER-093 / INFRA-307):* upstream npm packages sometimes ship a
+*The `.claude/` tolerance (Phase 115, CER-093 / INFRA-307):* upstream npm packages sometimes ship a
 `.claude/` directory inside their published tarball. A **machine-local** git exclude (e.g.
 `~/.config/git/ignore`, git's default `core.excludesFile`) can then make those files
 ignored-but-untracked, which the payload guard
@@ -4093,7 +4093,7 @@ mapped to FAIL (OBS-005/CER-055).
 to `127.0.0.1:7777` (loopback, dev-local only) by default; `--host`/`FLEX_OBS_HOST` can override
 this to expose the API beyond the local machine.
 
-**CORS policy and path disclosure (INFRA-306, CER-042/CER-043):** the API was documented as
+**CORS policy and path disclosure (Phase 115, INFRA-306, CER-042/CER-043):** the API was documented as
 loopback-only but built without the code ever checking the bind host, so an operator-chosen
 `--host 0.0.0.0` silently kept the wildcard CORS origin and the full absolute path of every
 user memory/policy file in the response — both indefensible once the API is reachable off this

@@ -6,6 +6,14 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Fixed [pairmode] — Phase 115 (Observability closeout: API hardening, payload guards, rollup hygiene, functional validation)
+- Loopback-honest CORS and abs_path disclosure gating (INFRA-306, CER-042/CER-043): the observability API no longer returns `Access-Control-Allow-Origin: *` to non-loopback hosts, and `abs_path` is withheld unless the caller explicitly opts in with `?include_path=true`.
+- Vendored payload guards made pattern-based instead of package-literal (INFRA-307, CER-093/CER-094): `.claude/` noise from upstream npm packages is now tolerated by a regex pattern rather than an ever-growing allowlist; `test_extension.node` (an unused native-addon test fixture) deleted; the seven tracked `.node` binaries are now enumerated and guarded against silent growth.
+- Plugin-manifest skill-name guard rebuilt on a filesystem glob with an anti-vacuity floor (INFRA-308), replacing a hardcoded expected-skills dict that couldn't catch a new skill shipping with the wrong (`flex:`-prefixed) name.
+- Shared `NON_BUILD_ROLES` exclusion (INFRA-309, correcting CER-107): `seed-miner`, `seed-reconcile`, and `sidebar-extractor` rows are now excluded identically across every Python and TypeScript effort-rollup read path, fixing an unattributed-bucket pollution bug in the SPA's headline attempt counter (not the median-pollution bug CER-107 originally diagnosed).
+- Observability UI functional validation (INFRA-312): a hermetic vitest route-smoke suite for all five API routes plus the CORS contract, and a dogfood checklist run against real registered repos with evidence in-story; found and fixed a live `resolverState.ts` path defect (`resolver_state` was always `null`) along the way.
+- Effort-db integrity audit against real post-campaign fleet data (INFRA-329): validates the INFRA-287/288/289/299 forward-only fixes hold on real rows across six sibling repos; zero defects found, with the two remaining `unattributed:*` rows reasoned as documented `CHECKPOINT_ROLES` honest-fallback behavior rather than bugs.
+
 ### Fixed [pairmode] — Phase 114 (Build-loop closeout: worktrees, scaffolding, migration tooling, doc currency)
 - Non-interactive scaffolding and worktree provisioning (INFRA-301, INFRA-302): `create-rail` flag surfaces phase-manifest registration failures instead of swallowing them; per-story worktrees provision a working build environment and no longer track `tsconfig.tsbuildinfo`.
 - Migration tooling parity (INFRA-303): rules 9/10 name parity restored; `expected_step_tokens` gained an honest opt-out and CER-111 disposition.
