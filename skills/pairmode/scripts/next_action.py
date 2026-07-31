@@ -131,6 +131,20 @@ row):
   checkpoint no longer fails this guard on the placeholder alone. Pure-read
   and grammar-unchanged: no ``SCHEMA_VERSION`` bump, no Position shape or
   routing change.
+
+INFRA-322 (Phase 114 -- anchored, case-insensitive CER resolution-marker
+grammar, CER-130):
+  ``_check_cer_do_now``'s membership test — a bare, case-sensitive
+  ``"RESOLVED" not in stripped and "SUPERSEDED" not in stripped`` — is
+  replaced with a call to the shared ``cer.is_resolution_marked`` predicate.
+  The old test was wrong in both directions: it permanently blocked
+  title-case ``Resolved cp-34 — …`` rows (a consuming repo's convention),
+  and it silently passed genuinely unresolved rows like ``UNRESOLVED …``
+  and ``should be RESOLVED``. The guard's shape did not change — same
+  fail-open, same ``## Do Now``-only scan, same placeholder exemption, same
+  ``{"ok": …, "failed_guard": "cer-do-now"}`` contract at the call site —
+  only the grammar behind the boolean test changed. No ``SCHEMA_VERSION``
+  bump, no Position shape or routing change.
 """
 
 from __future__ import annotations
@@ -394,17 +408,28 @@ def _check_cer_do_now(project_dir: "Path") -> bool:
     """Return True when the CER Do Now backlog has no unresolved items.
 
     Scans ``docs/cer/backlog.md`` in ``project_dir``.  A row under
-    ``## Do Now`` without ``RESOLVED`` or ``SUPERSEDED`` anywhere in it is
-    treated as unresolved, *unless* it is the scaffolded empty-state
-    placeholder row the ``docs/cer/backlog.md.j2`` template emits for an
-    empty quadrant — that row is exempted via the shared predicate
-    ``cer.is_placeholder_row``
-    (INFRA-294), which is this exemption's source of truth. Without it,
-    every freshly bootstrapped project fails its first checkpoint on this
-    guard alone.  Returns True when the file is absent or unreadable
-    (fail-open).
+    ``## Do Now`` is unresolved unless it contains a resolution marker as
+    defined by ``cer.is_resolution_marked`` (INFRA-322/CER-130) — the
+    anchored, case-insensitive grammar that is the single source of truth
+    for what counts as a ``RESOLVED``/``SUPERSEDED`` annotation. The
+    keyword must *begin* an annotation segment (start of text, a `|` cell
+    boundary, sentence-ending punctuation plus a space, or an
+    emphasis/bracket opener); a bare case-sensitive substring test on
+    ``"RESOLVED"``/``"SUPERSEDED"`` anywhere in the row was replaced
+    because it was wrong in both directions — it blocked a title-case
+    ``Resolved cp-34 — …`` row forever, and it silently waved through
+    genuinely unresolved rows like ``UNRESOLVED …`` and
+    ``this should be RESOLVED before cp``.
+
+    A row is also exempted, before the resolution test runs, when it is
+    the scaffolded empty-state placeholder row the
+    ``docs/cer/backlog.md.j2`` template emits for an empty quadrant — via
+    the shared predicate ``cer.is_placeholder_row`` (INFRA-294), which is
+    this exemption's source of truth. Without it, every freshly
+    bootstrapped project fails its first checkpoint on this guard alone.
+    Returns True when the file is absent or unreadable (fail-open).
     """
-    from cer import is_placeholder_row  # type: ignore[import]
+    from cer import is_placeholder_row, is_resolution_marked  # type: ignore[import]
 
     cer_path = Path(project_dir) / "docs" / "cer" / "backlog.md"
     if not cer_path.exists():
@@ -434,7 +459,7 @@ def _check_cer_do_now(project_dir: "Path") -> bool:
                 continue  # header row
             if is_placeholder_row(cols):
                 continue  # scaffolded empty-state row, not a finding
-            if "RESOLVED" not in stripped and "SUPERSEDED" not in stripped:
+            if not is_resolution_marked(stripped):
                 return False  # unresolved Do Now item
 
     return True

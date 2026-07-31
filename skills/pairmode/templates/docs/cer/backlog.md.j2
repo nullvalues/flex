@@ -3,8 +3,17 @@
 *Last updated: {{ last_updated }}*
 
 This file is the structured triage log for findings from external cold-eyes reviews.
-Each finding is assigned to one quadrant. Findings are not deleted — resolved findings
-remain in place with a resolution note.
+Each finding is assigned to one quadrant. Findings are not deleted — a resolved
+finding keeps its row and gains a marker annotation of the form
+`**RESOLVED <phase or checkpoint> — <what landed>**` (or `**SUPERSEDED by
+CER-NNN**`). The marker must begin its annotation segment — at the start of the
+finding text, right after a sentence-ending `.`/`;`/`:`/em-dash plus a space, or
+inside an emphasis/bracket opener (`**`, `(`, `[`) — and its case does not
+matter (`RESOLVED`, `Resolved` and `resolved` are equivalent). The `cer-do-now`
+checkpoint guard reads exactly this form (`cer.is_resolution_marked`,
+INFRA-322/CER-130): a keyword appearing mid-clause, such as `UNRESOLVED` or
+`should be resolved`, is never read as a marker, so a genuinely open finding
+cannot be waved through a checkpoint by accident.
 
 ---
 

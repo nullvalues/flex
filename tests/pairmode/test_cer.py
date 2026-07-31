@@ -11,6 +11,7 @@ from skills.pairmode.scripts.cer import (
     cli,
     append_finding,
     is_placeholder_row,
+    is_resolution_marked,
     _escape_table_cell,
     _load_or_create_backlog,
     _next_cer_id,
@@ -620,3 +621,72 @@ def test_is_placeholder_row_real_finding_returns_false() -> None:
 
 def test_is_placeholder_row_empty_returns_false() -> None:
     assert is_placeholder_row([]) is False
+
+
+# ---------------------------------------------------------------------------
+# Test: is_resolution_marked (INFRA-322 / CER-130)
+# ---------------------------------------------------------------------------
+
+def test_bolded_upper_marker_is_recognised() -> None:
+    assert is_resolution_marked("… fixed. **RESOLVED Phase 55 — INFRA-1**") is True
+
+
+def test_plain_title_case_marker_is_recognised() -> None:
+    # CER-130 direction 1: a case-sensitive substring test on "RESOLVED"
+    # never matches this row, permanently blocking a consuming repo's
+    # checkpoint. It must match here.
+    assert is_resolution_marked("Resolved cp-34 — INFRA-1") is True
+    assert "RESOLVED" not in "Resolved cp-34 — INFRA-1"
+
+
+def test_lowercase_marker_is_recognised() -> None:
+    assert is_resolution_marked("resolved cp-34 — INFRA-1") is True
+
+
+def test_parenthesised_and_bracketed_markers_are_recognised() -> None:
+    assert is_resolution_marked("… (RESOLVED INFRA-297)") is True
+    assert is_resolution_marked("… [RESOLVED]") is True
+    assert is_resolution_marked("… *Resolved*") is True
+
+
+def test_superseded_keyword_is_recognised() -> None:
+    assert is_resolution_marked("… **SUPERSEDED by CER-9**") is True
+
+
+def test_marker_at_cell_boundary_is_recognised() -> None:
+    assert is_resolution_marked("| Resolved cp-34 — INFRA-1 |") is True
+
+
+def test_unresolved_is_not_a_marker() -> None:
+    # CER-130 direction 2: the bare substring test matched this row because
+    # "RESOLVED" is a substring of "UNRESOLVED".
+    assert is_resolution_marked("UNRESOLVED naming gap between …") is False
+
+
+def test_should_be_resolved_prose_is_not_a_marker() -> None:
+    assert is_resolution_marked("this should be RESOLVED before cp") is False
+
+
+def test_negated_prose_is_not_a_marker() -> None:
+    assert is_resolution_marked("to be resolved in 116") is False
+    assert is_resolution_marked("not resolved yet") is False
+    assert is_resolution_marked("**Not resolved**") is False
+
+
+def test_partially_resolved_is_not_a_marker() -> None:
+    assert is_resolution_marked("PARTIALLY RESOLVED phase 3") is False
+
+
+def test_quoted_or_code_span_literal_is_not_a_marker() -> None:
+    assert is_resolution_marked("the `RESOLVED` literal") is False
+    assert is_resolution_marked('if "RESOLVED" not in stripped') is False
+
+
+def test_underscore_identifier_is_not_a_marker() -> None:
+    assert is_resolution_marked("_RESOLVED_RE") is False
+
+
+def test_empty_and_non_string_inputs_return_false() -> None:
+    assert is_resolution_marked("") is False
+    assert is_resolution_marked(None) is False  # type: ignore[arg-type]
+    assert is_resolution_marked(0) is False  # type: ignore[arg-type]

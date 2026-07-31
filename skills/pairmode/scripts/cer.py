@@ -172,6 +172,95 @@ def is_placeholder_row(cells) -> bool:
     return False
 
 
+# Anchored, case-insensitive resolution-marker grammar (INFRA-322/CER-130).
+#
+# The keyword must *begin* an annotation segment: the start of the scanned
+# text, a newline, a `|` cell boundary or a sentence-ending punctuation mark
+# followed by one or more spaces/tabs, or an emphasis/bracket opener
+# (`*`, `(`, `[`). A `\b` word boundary is NOT sufficient here — a plain
+# space is also a word boundary, so `should be RESOLVED` and
+# `not resolved yet` would both incorrectly match a `\b`-based test. The
+# boundary is therefore consumed inside the match rather than checked with a
+# fixed-width lookbehind (which cannot express "punctuation followed by one
+# or more spaces").
+#
+# Deliberately NOT accepted as openers: backtick, double quote, single quote,
+# underscore. Each collides with prose that legitimately quotes the keyword
+# (e.g. CER-130's own row text: ``if "RESOLVED" not in stripped``) or with
+# Python identifier prose (`_RESOLVED_RE`). Where the grammar is uncertain it
+# fails closed: an unrecognised ornamentation reads as unresolved, producing
+# a visible, correctable block rather than a silent pass.
+_RESOLUTION_MARKER_RE = re.compile(
+    r"(?:^|\n|[.!?;:—–|)][ \t]+|[*(\[])"  # segment start
+    r"[*(\[]*"                            # optional emphasis/bracket openers
+    r"(?:RESOLVED|SUPERSEDED)"            # keyword
+    r"(?![A-Za-z0-9_])",                  # close boundary (not \b: excludes "_")
+    re.IGNORECASE,
+)
+
+
+def is_resolution_marked(text: str) -> bool:
+    """Return True when ``text`` contains at least one resolution marker.
+
+    A **resolution marker** is the keyword ``RESOLVED`` or ``SUPERSEDED``
+    (ASCII case-insensitive — ``RESOLVED``, ``Resolved`` and ``resolved`` all
+    match) beginning an annotation segment: the start of the text, a
+    newline, a ``|`` table-cell boundary, a sentence-ending
+    ``.``/``!``/``?``/``;``/``:``/em-dash/``)`` followed by one or more
+    spaces or tabs, or an emphasis/bracket opener (``*``, ``(``, ``[``) —
+    optionally with more than one opener stacked, e.g. ``**RESOLVED**`` or
+    ``(RESOLVED``. A keyword that appears mid-clause — preceded by a plain
+    space and a word — is NOT a marker.
+
+    Accepted forms (see INFRA-322 § A2 for the full table):
+        - ``**RESOLVED Phase 55 — INFRA-1**`` (flex's own bolded convention)
+        - ``Resolved cp-34 — INFRA-1`` (plain title-case, consuming-repo
+          convention — this is the CER-130 direction-1 case: a
+          case-sensitive substring test on ``"RESOLVED"`` blocked this
+          form's checkpoint forever)
+        - ``| Resolved cp-34 — INFRA-1 |`` (marker right after a `|` cell
+          boundary)
+        - ``(RESOLVED INFRA-297)``, ``[RESOLVED]``, ``*Resolved*``
+        - ``**SUPERSEDED by CER-9**``
+
+    Rejected forms — this is the CER-130 direction-2 case: a bare substring
+    test also matched these, silently waving through genuinely unresolved
+    rows:
+        - ``UNRESOLVED naming gap …`` (``RESOLVED`` preceded by ``UN``, not
+          a segment start)
+        - ``this should be RESOLVED before cp`` / ``to be resolved in 116``
+          / ``not resolved yet`` / ``**Not resolved**`` (mid-clause —
+          preceded by a space, not a segment boundary)
+        - ``PARTIALLY RESOLVED phase 3`` (mid-clause; a partial resolution
+          keeps a Do Now row blocking — BUILD-006 partial-resolution notes
+          are progress records, not closures)
+        - ```` the `RESOLVED` literal ```` / ``if "RESOLVED" not in
+          stripped`` (backtick/double-quote are deliberately not openers,
+          so prose or code quoting the literal — including CER-130's own
+          row text — is not a marker)
+        - ``_RESOLVED_RE`` (underscore is deliberately not an opener; it
+          collides with Python identifier prose)
+
+    A lowercase-only fix (``.upper()``/``.lower()`` before a bare substring
+    test) was considered and rejected: it repairs direction 1 but *widens*
+    direction 2, since ``unresolved``, ``should be resolved`` and
+    ``to be resolved`` would all begin matching once case is folded without
+    anchoring. Both directions must be fixed by the same anchored grammar.
+
+    Consumed by ``next_action._check_cer_do_now`` (the ``cer-do-now``
+    checkpoint guard). Any future consumer of the resolution-marker
+    convention must call this predicate rather than re-deriving its own
+    test — the same precedent ``is_placeholder_row`` set for the
+    placeholder-row rule (INFRA-294).
+
+    Pure: no I/O, no state, no mutation of ``text``. Returns False for
+    ``""`` and for any falsy non-``str`` input rather than raising.
+    """
+    if not text or not isinstance(text, str):
+        return False
+    return bool(_RESOLUTION_MARKER_RE.search(text))
+
+
 def _escape_table_cell(text: str) -> str:
     """Escape pipe characters so they don't corrupt markdown table cells."""
     return text.replace("|", "\\|")

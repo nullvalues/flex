@@ -972,6 +972,19 @@ so a claim never overrides commit evidence (CER-095.1).
     the sequence starts. The CER Do Now guard exempts the `docs/cer/backlog.md.j2` template's
     scaffolded empty-state placeholder row via the shared `cer.is_placeholder_row` predicate
     (INFRA-294), so a freshly bootstrapped repo's empty backlog does not fail its first checkpoint.
+    The guard classifies every other Do Now row as resolved or unresolved via
+    `cer.is_resolution_marked` (INFRA-322/CER-130): a row is resolved when the keyword `RESOLVED`
+    or `SUPERSEDED` (ASCII case-insensitive — `RESOLVED`, `Resolved` and `resolved` all match)
+    *begins* an annotation segment — the start of the row text, right after a `|` cell boundary or
+    a sentence-ending `.`/`!`/`?`/`;`/`:`/em-dash plus one or more spaces, or inside an
+    emphasis/bracket opener (`*`, `(`, `[`). A keyword appearing mid-clause, preceded by a plain
+    space and a word, is never a marker — this anchoring is what keeps `UNRESOLVED …` and
+    `this should be RESOLVED before cp` from being read as closures. The grammar replaced a bare,
+    case-sensitive substring test (`"RESOLVED" not in stripped and "SUPERSEDED" not in stripped`)
+    that was wrong in both directions: it permanently blocked title-case conventions
+    (`Resolved cp-34 — …`, hit live on a consuming repo's checkpoint) while silently waving
+    genuinely open rows through. `cer.is_resolution_marked` is the single implementation of this
+    grammar; no consumer re-derives its own test.
     Step state persists in `state.json["checkpoint_step"]`; the resolver emits
     one action per call, and the harness applies the checkpoint-agent model override (model_selector)
     when spawning each leaf worker. Documentation is updated, all planned stories are verified

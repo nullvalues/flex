@@ -2401,3 +2401,155 @@ class TestCheckCerDoNowEscapedPipe:
 
         self._write(tmp_path, "\n")
         assert _check_cer_do_now(tmp_path) is True
+
+
+# ---------------------------------------------------------------------------
+# INFRA-322 (CER-130) — _check_cer_do_now consumes the anchored,
+# case-insensitive cer.is_resolution_marked grammar.
+# ---------------------------------------------------------------------------
+
+
+class TestCheckCerDoNowResolutionMarkerGrammar:
+    """The membership test is now a call to ``cer.is_resolution_marked``
+    (INFRA-322). Both defect directions of CER-130 get a regression test
+    here: a title-case marker that a bare case-sensitive substring test
+    would never match (direction 1), and prose containing the letters
+    ``RESOLVED``/``UNRESOLVED`` mid-clause that a bare substring test would
+    incorrectly match (direction 2).
+    """
+
+    _HEADER = (
+        "# CER Backlog\n\n"
+        "## Do Now\n\n"
+        "| ID | Finding | Source | Date | Phase |\n"
+        "|----|---------|--------|------|-------|\n"
+    )
+
+    def _write(self, tmp_path: Path, rows: str) -> Path:
+        cer_dir = tmp_path / "docs" / "cer"
+        cer_dir.mkdir(parents=True, exist_ok=True)
+        (cer_dir / "backlog.md").write_text(
+            self._HEADER + rows + "\n## Do Later\n\n", encoding="utf-8"
+        )
+        return tmp_path
+
+    def test_cer_do_now_passes_on_title_case_resolved_row(
+        self, tmp_path: Path
+    ) -> None:
+        """CER-130 direction-1 regression test.
+
+        The old expression was
+        ``"RESOLVED" not in stripped and "SUPERSEDED" not in stripped``.
+        This row contains no uppercase ``RESOLVED`` and no ``SUPERSEDED``
+        substring at all, so the old expression would classify it
+        unresolved — permanently blocking a consuming repo's checkpoint.
+        """
+        from next_action import _check_cer_do_now
+
+        row = "| CER-999 | A finding. Resolved cp-34 — INFRA-1 | src | 2026-01-01 | 34 |\n\n"
+        self._write(tmp_path, row)
+        assert "RESOLVED" not in row
+        assert "SUPERSEDED" not in row
+        assert _check_cer_do_now(tmp_path) is True
+
+    def test_cer_do_now_fails_on_unresolved_row(self, tmp_path: Path) -> None:
+        """CER-130 direction-2 regression test."""
+        from next_action import _check_cer_do_now
+
+        self._write(
+            tmp_path,
+            "| CER-999 | UNRESOLVED naming gap between … | src | 2026-01-01 | 1 |\n\n",
+        )
+        assert _check_cer_do_now(tmp_path) is False
+
+    def test_cer_do_now_fails_on_aspirational_resolution_prose(
+        self, tmp_path: Path
+    ) -> None:
+        from next_action import _check_cer_do_now
+
+        self._write(
+            tmp_path,
+            "| CER-999 | the fix direction is documented; this SHOULD BE"
+            " RESOLVED before the 0.4 tag | src | 2026-01-01 | 1 |\n\n",
+        )
+        assert _check_cer_do_now(tmp_path) is False
+
+    def test_cer_do_now_passes_on_superseded_row(self, tmp_path: Path) -> None:
+        from next_action import _check_cer_do_now
+
+        self._write(
+            tmp_path,
+            "| CER-999 | A finding. **SUPERSEDED by CER-9** | src | 2026-01-01 | 1 |\n\n",
+        )
+        assert _check_cer_do_now(tmp_path) is True
+
+    def test_cer_do_now_fails_when_any_row_is_unmarked(self, tmp_path: Path) -> None:
+        """The guard is all-rows-must-be-marked, not any-row."""
+        from next_action import _check_cer_do_now
+
+        self._write(
+            tmp_path,
+            "| CER-998 | A finding. **RESOLVED Phase 1** | src | 2026-01-01 | 1 |\n\n"
+            "| CER-999 | A still-open finding | src | 2026-01-01 | 1 |\n\n",
+        )
+        assert _check_cer_do_now(tmp_path) is False
+
+    def test_placeholder_row_exempted_before_resolution_test(
+        self, tmp_path: Path
+    ) -> None:
+        from next_action import _check_cer_do_now
+
+        self._write(tmp_path, "| — | *(none)* | — | — | — |\n\n")
+        assert _check_cer_do_now(tmp_path) is True
+
+    def test_placeholder_row_is_not_itself_resolution_marked(self) -> None:
+        """Proves the exemption, not the grammar, is what carries the
+        placeholder row: if the ordering in ``_check_cer_do_now`` ever
+        inverted (resolution test before the placeholder exemption), a
+        fresh repo's first checkpoint would start failing again."""
+        from cer import is_resolution_marked
+
+        assert is_resolution_marked("— | *(none)* | — | — | —") is False
+
+
+def test_live_backlog_do_now_classification_parity() -> None:
+    """Parity test (INFRA-322 § F4): every non-placeholder ``## Do Now`` row
+    in flex's own live ``docs/cer/backlog.md`` is classified identically by
+    the new anchored grammar and by the old bare-substring expression it
+    replaced (verified at spec time: 14 rows, zero divergence). Reads the
+    repo's own backlog by path and skips cleanly if the file is absent, so
+    it cannot fail in a consuming checkout.
+    """
+    from cer import is_placeholder_row, is_resolution_marked
+    from table_utils import split_table_row
+
+    repo_root = Path(__file__).parent.parent.parent
+    backlog_path = repo_root / "docs" / "cer" / "backlog.md"
+    if not backlog_path.exists():
+        pytest.skip("docs/cer/backlog.md not present in this checkout")
+
+    text = backlog_path.read_text(encoding="utf-8")
+    in_do_now = False
+    checked_any = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## Do Now"):
+            in_do_now = True
+            continue
+        if in_do_now and stripped.startswith("## "):
+            break
+        if in_do_now and stripped.startswith("|"):
+            if "---" in stripped:
+                continue
+            cols = [c.strip() for c in split_table_row(stripped) if c.strip()]
+            if not cols or cols[0].lower() in ("id", "finding"):
+                continue
+            if is_placeholder_row(cols):
+                continue
+            old_result = "RESOLVED" in stripped or "SUPERSEDED" in stripped
+            new_result = is_resolution_marked(stripped)
+            assert old_result == new_result, (
+                f"classification diverged on row: {stripped!r}"
+            )
+            checked_any = True
+    assert checked_any, "expected at least one non-placeholder Do Now row"
