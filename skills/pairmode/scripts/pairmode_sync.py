@@ -55,6 +55,10 @@ from bootstrap import _prune_stale_hook_entries  # noqa: E402
 # comment below for why this lives in a third module.
 import hook_view  # noqa: E402
 
+# INFRA-323: RESTART REQUIRED notice + agent-surface stamp/read.
+import session_lifecycle  # noqa: E402
+from state_utils import _atomic_write_json  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -86,6 +90,29 @@ def _load_state(project_dir: Path) -> dict:
         return json.loads(state_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
+
+
+def _emit_restart_notice(project_path: Path, changed: list[str], action: str) -> None:
+    """Stamp the § A6 agent-surface keys into state.json and print the § A
+    RESTART REQUIRED notice (INFRA-323).
+
+    No-op when *changed* is empty — a no-op sync run stays quiet (§ D17) and
+    writes no stamp. One locked-free read/mutate/write of state.json (the CLI
+    tooling path, not the hook path — no ``state_utils.update_state_json``
+    lock discipline is required here since only one sync invocation runs at
+    a time against a given project).
+    """
+    if not changed:
+        return
+    project_path = Path(project_path)
+    state_path = project_path / ".companion" / "state.json"
+    state = _load_state(project_path)
+    session_lifecycle.stamp_agent_surfaces(state, changed=changed, action=action)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_json(state_path, state)
+    notice = session_lifecycle.render_restart_notice(changed, action=action)
+    if notice:
+        click.echo("\n" + notice)
 
 
 def _load_pairmode_context(project_dir: Path) -> dict:
@@ -796,6 +823,15 @@ def sync_agents(project_dir: str, dry_run: bool, yes: bool) -> None:
         agent_file.write_text(new_content, encoding="utf-8")
         click.echo(f"  updated: {agent_file.name}")
 
+    # INFRA-323 § D18: at least one file was written above — stamp and emit
+    # the restart notice, enumerating the files from this run's own
+    # ``changes`` list.
+    _emit_restart_notice(
+        project_path,
+        [str(agent_file.relative_to(project_path)) for agent_file, _old, _new in changes],
+        "sync-agents",
+    )
+
 
 def _seed_context_gate_state(project_dir: Path, state_path: Path, dry_run: bool) -> None:
     """Seed missing context gate keys in state.json.
@@ -1067,6 +1103,13 @@ def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
         ("sync-build (CLAUDE.build.md)", build_argv, False),
     ]
 
+    # INFRA-323 § D19: sync_all cannot see *what* a child changed — each
+    # child inherits stdout by design (R8: no output scraping). Instead it
+    # reads the § A6 stamp back after the chain: a baseline captured before
+    # any child runs, compared against the stamp's value once the chain
+    # completes.
+    baseline_stamp = _load_state(project_path).get("agent_surfaces_written_at")
+
     for label, argv, skip_in_dry_run in invocations:
         click.echo(f"=== {label} ===")
         if skip_in_dry_run and not effective_apply:
@@ -1082,6 +1125,20 @@ def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
                 err=True,
             )
             sys.exit(result.returncode)
+
+    # INFRA-323 § D19: one notice at the end of the chain, never one per
+    # child. Only meaningful in --apply mode — a dry-run chain writes
+    # nothing, so the stamp never advances.
+    if effective_apply:
+        final_state = _load_state(project_path)
+        new_stamp = final_state.get("agent_surfaces_written_at")
+        if new_stamp and new_stamp != baseline_stamp:
+            written_by = final_state.get("agent_surfaces_written_by") or "sync-agents"
+            notice = session_lifecycle.render_restart_notice(
+                [f"agent_shells (written by {written_by})"], action="sync-all"
+            )
+            if notice:
+                click.echo("\n" + notice)
 
 
 # ---------------------------------------------------------------------------
@@ -1338,6 +1395,11 @@ def audit_hooks(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None
         path.write_text(
             json.dumps(data, indent=2) + "\n", encoding="utf-8"
         )
+
+    # INFRA-323 § D21: a settings `hooks` block was just rewritten — emit
+    # the restart notice naming the hook_registration surface.
+    _emit_restart_notice(project_path, ["hook_registration"], "audit-hooks")
+
     sys.exit(0)
 
 

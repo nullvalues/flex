@@ -90,7 +90,9 @@ def main() -> None:
         session_id = None
 
     reset_notice: str | None = None
+    staleness_notice: str | None = None
     try:
+        import session_lifecycle
         import session_reset
         import session_state
         import state_utils
@@ -123,6 +125,21 @@ def main() -> None:
                 current, session_id, session_state.session_view(current, session_id)
             )
             return None
+
+        # INFRA-323 § F31/F33: read pre-mutation — best-effort, wrapped in its
+        # own try so a malformed stamp or view can never affect the reset
+        # decision above or this hook's exit status.
+        try:
+            staleness_notice = session_lifecycle.agent_staleness_notice(
+                source=source,
+                session_started_at=session_state.session_view(
+                    state, session_id
+                ).get("context_session_reset_at"),
+                written_at=state.get("agent_surfaces_written_at"),
+                written_by=state.get("agent_surfaces_written_by"),
+            )
+        except Exception:
+            staleness_notice = None
 
         updated = state_utils.update_state_json(state_path, _mutate)
         if isinstance(updated, dict):
@@ -168,6 +185,8 @@ def main() -> None:
     lines: list[str] = [f"Pairmode v{pairmode_version} is active in this repo."]
     if reset_notice:
         lines.append(reset_notice)
+    if staleness_notice:
+        lines.append(staleness_notice)
 
     # Current story
     story = state.get("current_story")

@@ -105,7 +105,12 @@ state.json writes. They do not violate the thin-relay contract.
   `subagent_transcript.reconcile_pending_attempts` sweep (INFRA-258) to
   reconcile attempts left pending by a prior session — the hook never reads
   or replays transcript content itself, it only calls the delegate to
-  reconcile database rows. Authorized state.json writes:
+  reconcile database rows. Also calls `session_lifecycle.agent_staleness_notice`
+  (INFRA-323 § F) with values already read from the state dict and
+  `session_state.session_view` — a single pure call, wrapped in its own
+  best-effort try/except, that reads (never writes) the
+  `agent_surfaces_written_at`/`agent_surfaces_written_by` stamp and returns at
+  most one advisory line. Authorized state.json writes:
   the context-token count baseline, its recorded-at timestamp, and the
   session-reset timestamp.
 - `hooks/user_prompt_submit.py` — dispatches every `UserPromptSubmit` event →

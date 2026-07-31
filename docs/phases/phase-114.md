@@ -86,7 +86,7 @@ exercise a `hooks/pre_tool_use.py` already carrying Group 5's changes).
 | INFRA-319 | Portable hook-command paths: plugin-root/settings.local registration, migrate rewrite of machine-absolute and pre-rename hook commands, audit finding | draft |
 | INFRA-321 | Two-track context accounting: orchestrator-window occupancy vs story/subagent spend; health verdict re-based on the orchestrator track; between-spawn coverage; surfaces labeled (pulled from CER-129) | draft |
 | INFRA-322 | Anchored, case-insensitive CER resolution-marker grammar: shared `cer.is_resolution_marked` predicate, cer-do-now guard stops reading `Resolved` as unresolved and `UNRESOLVED` as resolved, grammar published for consuming repos (pulled from CER-130) | draft |
-| INFRA-323 | Session-lifecycle notices for agent-registration writes: RESTART REQUIRED at the end of bootstrap/migrate/sync paths that changed agent shells or hook registrations, restart step in the runbooks and SKILL.md flows, SessionStart staleness advisory (pulled from CER-134) | draft |
+| INFRA-323 | Session-lifecycle notices for agent-registration writes: RESTART REQUIRED at the end of bootstrap/migrate/sync paths that changed agent shells or hook registrations, restart step in the runbooks and SKILL.md flows, SessionStart staleness advisory (pulled from CER-134) | complete |
 | INFRA-324 | Bash dispatch/allowlist for reviewer subagent git commands (reviewer FAIL-path improvisation gap) | draft |
 | INFRA-325 | Wire docs-reviewer (WORKER-011) into canonical scaffold and checkpoint dispatch — role is fully specced but never created | draft |
 | INFRA-326 | Dual-active-era tie-break silently skips the wrong era ledger row (INFRA-267 no-op) | draft |

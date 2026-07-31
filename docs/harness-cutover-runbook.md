@@ -239,6 +239,11 @@ beginning fleet project migration. In particular, RELEASE-009 fixes the `pairmod
 
 ### 6-step Era 3 procedure (per project P)
 
+(Now 7 steps — INFRA-323 inserted an explicit session-restart step between
+the sync/migrate steps and the first step that exercises the agent
+registry. The "6-step" heading name is kept as the historical/searchable
+label; see step 5 below.)
+
 **Step 1 — Confirm inter-story seam:** Verify that RELEASE-013 gate conditions are met for project P
 before proceeding. This confirms the project is in a stable state ready for migration.
 
@@ -267,7 +272,16 @@ PATH=$HOME/.local/bin:$PATH uv run python \
 ```
 This normalizes `.companion/state.json` to the 0.3.0 schema, including setting `pairmode_version: 0.3.0`.
 
-**Step 5 — Verify Signal-1 binding** (requires RELEASE-009): re-run fleet discovery and confirm
+**Step 5 — Restart the session (INFRA-323):** Steps 3 and 4 rewrote session-start-only surfaces —
+agent shells and/or hook registration — in the process's own repo P, but this operator session's
+Claude Code process still holds the registry it loaded at startup. Exit this session and start a new
+one before continuing to step 6, which spawns a builder against P. Step 3's `sync-all --apply` and
+step 4's `to-030 --apply` each print a `RESTART REQUIRED` notice as their final output whenever they
+changed a registration surface — treat its presence in either step's output as confirmation this step
+is required, and its absence (both steps changed nothing) as confirmation it is safe to skip. `/clear`
+and `/compact` do **not** substitute for a full exit-and-relaunch here.
+
+**Step 6 — Verify Signal-1 binding** (requires RELEASE-009): re-run fleet discovery and confirm
 `binding: scripts` appears for this project:
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python \
@@ -278,7 +292,7 @@ Required output: `binding: scripts` (Signal 1 (scripts path): present). If `Sign
 persists after sync, the project's `CLAUDE.build.md` was not updated by `sync-all`; do not proceed until
 this is resolved.
 
-**Step 6 — Verify build round and commit:** Run one complete story cycle through the migrated loop.
+**Step 7 — Verify build round and commit:** Run one complete story cycle through the migrated loop.
 After the story completes:
 ```bash
 # Confirm pairmode_version advanced to 0.3.0
@@ -312,7 +326,9 @@ the Era 2 loop — only `CLAUDE.build.md` and `.companion/state.json` govern whi
    canonical templates. On `--dry-run`, this is skipped (no dry-run mode for `sync.py`).
 
 2. **`sync-agents`** (with or without `--dry-run`): re-renders agent file frontmatter and merges new body
-   sections from the canonical templates. Prints a unified diff.
+   sections from the canonical templates. Prints a unified diff. **This step mutates a
+   session-start-only surface (INFRA-323):** the running operator session does not re-read
+   `.claude/agents/*.md` after this write — see Step 5 above.
 
 3. **`sync-build`** (with or without `--dry-run`): compares the project's `CLAUDE.build.md` against the
    canonical template rendered with the project's context, prints the diff, and (with `--apply`) writes

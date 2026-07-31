@@ -24,7 +24,7 @@ flex/
     post_tool_use.py              ← pair partner: relay file changes; Task/Agent branch: reads JSONL via context_budget.read_current_tokens() and writes context_current_tokens to state.json (INFRA-182); also calls subagent_transcript.record_attempt_from_transcript() to write one effort.db attempt row per spawn (INFRA-236)
     session_end.py                ← signal sidebar to summarize and exit
     pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename; INFRA-199 scoped to tool_input.subagent_type ∈ build-cycle agents only); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement); Read → cold_read_guard.py (INFRA-196 cold-read enforcement, registered/reachable since INFRA-205/INFRA-206, CER-065)
-    session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write (context_current_tokens + context_current_tokens_recorded_at + context_session_reset_at on clear/startup — INFRA-180)
+    session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write (context_current_tokens + context_current_tokens_recorded_at + context_session_reset_at on clear/startup — INFRA-180); also calls session_lifecycle.agent_staleness_notice() on clear/compact (INFRA-323 — see § Session-lifecycle contract)
 
   skills/
     pairmode/                     ← /flex:pairmode — bootstrap and manage pairmode
@@ -3009,6 +3009,52 @@ affect the reset decision or exit status. The reset dispatch:
   phase reserves for INFRA-241's drift-canary test alone. `45_000` is set above a
   directly-observed post-compact figure (~39k, dropped from ~166k pre-compact) so
   the fallback stays fail-safe (conservative/high) rather than risking under-block.
+
+**Session-lifecycle contract — agent/hook registration is session-start-only
+(INFRA-323).** Claude Code reads `.claude/agents/*.md` agent definitions,
+plugin/skill registration files (`.claude-plugin/`, `SKILL.md`), and the
+`hooks` blocks in `.claude/settings.json` / `.claude/settings.local.json`
+**once, at session start.** A running process never re-reads them mid-session.
+Every pairmode tooling path that writes one of those surfaces does so
+mid-session:
+
+- `bootstrap.py` — the `AGENT_FILES` write loop and
+  `_register_pretooluse_hook` / `_register_context_budget_hooks`.
+- `pairmode_sync.py` — `sync_agents` (agent shells), `sync_all` (aggregates
+  the chain's writes via a state.json stamp — see below), and `audit_hooks
+  --apply` (hook registration).
+- `pairmode_migrate.py` — `migrate --apply` (rules 2/3, agent shells) and
+  `to-030 --apply` (its B7 stale-agent-cleanup block).
+
+None of those writes take effect in the session that performed them. The
+tool cannot reload another process's registry (a skill script is a child
+process of the session it would have to replace — see
+`docs/stories/INFRA/INFRA-323.md` § Out of scope R1), so the operator
+surface is the only fix: `skills/pairmode/scripts/session_lifecycle.py` (pure,
+stdlib-only) is the single definition of:
+
+- `render_restart_notice()` — the `RESTART REQUIRED` banner every writing
+  command above prints as its terminal output, naming the action and
+  enumerating the changed surfaces. Printed **only** when something actually
+  changed (a no-op sync run stays quiet — CER-067's "an un-clearable gate
+  gets routed around" lesson applied to notices: firing on every run trains
+  operators to ignore it).
+- `stamp_agent_surfaces()` — writes `agent_surfaces_written_at` /
+  `agent_surfaces_written_by` into `state.json` alongside the same write
+  that changed a surface. This is how `sync_all` aggregates its three-command
+  chain into exactly one notice without parsing a child's inherited stdout,
+  and how the SessionStart hook (below) knows a write happened at all.
+- `agent_staleness_notice()` — a SessionStart-only advisory (see the hook's
+  own delegated-call entry above) for the one session boundary that does
+  **not** re-register the surfaces on its own: `/clear` and `/compact` reuse
+  the running process, so a write that landed after the session started is
+  silently stale. `startup` and `resume` are excluded — both are a fresh CLI
+  process that re-reads the registry, so a warning there would be false.
+
+A `/clear` is explicitly **not** a re-registration — this is the trap the
+advisory exists to catch: the mental model most operators carry is that
+`/clear` starts a session, but it only resets the context window inside the
+same process.
 
 **Documented exception — `hooks/user_prompt_submit.py` (INFRA-192, INFRA-248):**
 `user_prompt_submit.py` is a thin dispatcher for the `UserPromptSubmit` event —

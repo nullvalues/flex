@@ -2136,3 +2136,257 @@ def test_audit_hooks_reports_cer127_shape_and_clears_when_moved_local(
     )
     assert result2.exit_code == 0
     assert "MACHINE-ABSOLUTE" not in result2.output
+
+
+# ---------------------------------------------------------------------------
+# INFRA-323: RESTART REQUIRED notice for sync-agents / sync-all / audit-hooks
+# ---------------------------------------------------------------------------
+
+
+def _sync_agents_project(tmp_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
+    """Build a minimal project + synthetic templates dir with one changed agent."""
+    project_dir = tmp_path / "a" / "b" / "proj"
+    agents_dir = project_dir / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+    (agents_dir / "test-agent.md").write_text(
+        "---\nname: test-agent\ndescription: old\n---\n\nBody.\n", encoding="utf-8"
+    )
+
+    templates_dir = project_dir / "templates"
+    templates_dir.mkdir()
+    (templates_dir / "test-agent.md.j2").write_text(
+        "---\nname: test-agent\ndescription: new for {{ project_name }}\n---\n\nBody.\n",
+        encoding="utf-8",
+    )
+
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    (companion_dir / "state.json").write_text(
+        json.dumps({"project_name": "test"}), encoding="utf-8"
+    )
+    (companion_dir / "pairmode_context.json").write_text("{}", encoding="utf-8")
+    return project_dir, templates_dir
+
+
+def test_sync_agents_prints_restart_notice_after_writing(tmp_path: pathlib.Path) -> None:
+    import unittest.mock
+    from click.testing import CliRunner
+
+    project_dir, templates_dir = _sync_agents_project(tmp_path)
+
+    runner = CliRunner()
+    with unittest.mock.patch("pairmode_sync.TEMPLATES_DIR", templates_dir):
+        result = runner.invoke(
+            sync_agents, ["--project-dir", str(project_dir), "--yes"]
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "RESTART REQUIRED" in result.output
+    assert "test-agent.md" in result.output
+
+    state = json.loads(
+        (project_dir / ".companion" / "state.json").read_text(encoding="utf-8")
+    )
+    assert state.get("agent_surfaces_written_by") == "sync-agents"
+    assert state.get("agent_surfaces_written_at")
+
+
+def test_sync_agents_no_changes_prints_no_notice(tmp_path: pathlib.Path) -> None:
+    from click.testing import CliRunner
+
+    project_dir = tmp_path / "a" / "b" / "proj"
+    (project_dir / ".claude" / "agents").mkdir(parents=True)
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    (companion_dir / "pairmode_context.json").write_text("{}", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(sync_agents, ["--project-dir", str(project_dir), "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "No changes to apply." in result.output
+    assert "RESTART REQUIRED" not in result.output
+
+
+def test_sync_agents_dry_run_prints_no_notice(tmp_path: pathlib.Path) -> None:
+    import unittest.mock
+    from click.testing import CliRunner
+
+    project_dir, templates_dir = _sync_agents_project(tmp_path)
+
+    runner = CliRunner()
+    with unittest.mock.patch("pairmode_sync.TEMPLATES_DIR", templates_dir):
+        result = runner.invoke(
+            sync_agents, ["--project-dir", str(project_dir), "--dry-run"]
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "RESTART REQUIRED" not in result.output
+
+
+def test_sync_agents_declined_confirm_prints_no_notice(tmp_path: pathlib.Path) -> None:
+    import unittest.mock
+    from click.testing import CliRunner
+
+    project_dir, templates_dir = _sync_agents_project(tmp_path)
+
+    runner = CliRunner()
+    with unittest.mock.patch("pairmode_sync.TEMPLATES_DIR", templates_dir):
+        result = runner.invoke(
+            sync_agents, ["--project-dir", str(project_dir)], input="n\n"
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "Aborted." in result.output
+    assert "RESTART REQUIRED" not in result.output
+
+
+def test_sync_agents_stamps_state_json(tmp_path: pathlib.Path) -> None:
+    import unittest.mock
+    from click.testing import CliRunner
+
+    project_dir, templates_dir = _sync_agents_project(tmp_path)
+
+    runner = CliRunner()
+    with unittest.mock.patch("pairmode_sync.TEMPLATES_DIR", templates_dir):
+        result = runner.invoke(
+            sync_agents, ["--project-dir", str(project_dir), "--yes"]
+        )
+    assert result.exit_code == 0, result.output
+
+    state = json.loads(
+        (project_dir / ".companion" / "state.json").read_text(encoding="utf-8")
+    )
+    assert "agent_surfaces_written_at" in state
+    assert "agent_surfaces_written_by" in state
+
+
+def test_sync_all_prints_exactly_one_notice_for_the_chain(tmp_path: pathlib.Path) -> None:
+    """The chain's sync-agents step (mocked) stamps state.json; sync_all reads
+    the stamp back once and prints exactly one notice — never one per child."""
+    import unittest.mock
+
+    project_dir = _make_deep_project_dir(tmp_path)
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    (companion_dir / "state.json").write_text(json.dumps({}), encoding="utf-8")
+
+    def _run(argv, check=False):
+        if "sync-agents" in argv:
+            # Simulate the real sync-agents subprocess stamping state.json.
+            import session_lifecycle
+            from state_utils import _atomic_write_json
+
+            state_path = project_dir / ".companion" / "state.json"
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            session_lifecycle.stamp_agent_surfaces(
+                state, changed=[".claude/agents/builder.md"], action="sync-agents"
+            )
+            _atomic_write_json(state_path, state)
+        result = unittest.mock.MagicMock()
+        result.returncode = 0
+        return result
+
+    result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], _run)
+
+    assert result.exit_code == 0, result.output
+    assert result.output.count("RESTART REQUIRED") == 1, result.output
+
+
+def test_sync_all_reads_stamp_rather_than_parsing_child_output(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A child that prints RESTART REQUIRED to its own inherited stdout (but
+    never touches the stamp) must not trigger sync_all's own notice — the
+    aggregation reads the state.json stamp, never child stdout."""
+    project_dir = _make_deep_project_dir(tmp_path)
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    (companion_dir / "state.json").write_text(json.dumps({}), encoding="utf-8")
+
+    mock_run, _calls = _capturing_run([0, 0, 0])
+
+    result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
+
+    assert result.exit_code == 0, result.output
+    assert "RESTART REQUIRED" not in result.output
+
+
+def test_sync_build_only_prints_no_notice(tmp_path: pathlib.Path) -> None:
+    """sync-build alone never emits a restart notice — CLAUDE.build.md is
+    read per build-loop invocation, not at session start (§ D22)."""
+    from click.testing import CliRunner
+    from pairmode_sync import sync_build
+
+    project_dir = tmp_path / "a" / "b" / "proj"
+    project_dir.mkdir(parents=True)
+    (project_dir / "CLAUDE.build.md").write_text("stub\n", encoding="utf-8")
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    (companion_dir / "state.json").write_text(json.dumps({}), encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        sync_build,
+        ["--project-dir", str(project_dir), "--apply", "--yes"],
+        catch_exceptions=False,
+    )
+    assert "RESTART REQUIRED" not in result.output
+
+
+def test_audit_hooks_apply_prints_notice_naming_hook_registration(
+    tmp_path: pathlib.Path,
+) -> None:
+    from click.testing import CliRunner
+
+    _write_settings(
+        tmp_path,
+        {
+            "PreToolUse": [
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /a/hooks/pre_tool_use.py"},
+                ]},
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /b/hooks/pre_tool_use.py"},
+                ]},
+            ]
+        },
+    )
+    companion_dir = tmp_path / ".companion"
+    companion_dir.mkdir()
+    (companion_dir / "state.json").write_text(json.dumps({}), encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path), "--apply", "--yes"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "RESTART REQUIRED" in result.output
+    assert "hook_registration" in result.output
+
+
+def test_audit_hooks_dry_run_prints_no_notice(tmp_path: pathlib.Path) -> None:
+    from click.testing import CliRunner
+
+    _write_settings(
+        tmp_path,
+        {
+            "PreToolUse": [
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /a/hooks/pre_tool_use.py"},
+                ]},
+                {"matcher": "Task", "hooks": [
+                    {"type": "command", "command": "uv run python /b/hooks/pre_tool_use.py"},
+                ]},
+            ]
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        pairmode_cli,
+        ["audit-hooks", "--project-dir", str(tmp_path)],
+        catch_exceptions=False,
+    )
+    assert "RESTART REQUIRED" not in result.output

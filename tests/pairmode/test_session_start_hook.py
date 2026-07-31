@@ -512,3 +512,146 @@ def test_no_lock_file_is_left_inside_the_repository(tmp_path):
     assert (tmp_path / ".companion" / "state.json.lock").exists()
     gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
     assert ".companion/" in gitignore.splitlines()
+
+
+# ---------------------------------------------------------------------------
+# INFRA-323 § F — SessionStart staleness advisory
+# ---------------------------------------------------------------------------
+
+
+def test_clear_source_emits_staleness_advisory_when_stamp_is_newer(tmp_path):
+    """A `clear` source with a written_at stamp newer than the session's own
+    reset timestamp emits the advisory."""
+    _write_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "context_session_reset_at": _stamp(10),
+            "agent_surfaces_written_at": _stamp(1),
+            "agent_surfaces_written_by": "sync-agents",
+        },
+    )
+    result = _run_hook_with_stdin(tmp_path, {"source": "clear"}, tempdir=tmp_path)
+    assert result.returncode == 0
+    ctx = _additional_context(result.stdout)
+    assert "sync-agents" in ctx
+    # The advisory is a status-block context line, not the § A4 banner.
+    assert "RESTART REQUIRED" not in ctx
+
+
+def test_startup_source_emits_no_staleness_advisory(tmp_path):
+    """`startup` is a fresh process that re-reads the registry on its own —
+    no advisory, even with a newer stamp present (§ F29 / R5)."""
+    _write_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "context_session_reset_at": _stamp(10),
+            "agent_surfaces_written_at": _stamp(1),
+            "agent_surfaces_written_by": "sync-agents",
+        },
+    )
+    result = _run_hook_with_stdin(tmp_path, {"source": "startup"}, tempdir=tmp_path)
+    assert result.returncode == 0
+    ctx = _additional_context(result.stdout)
+    assert "sync-agents" not in ctx
+
+
+def test_advisory_does_not_add_a_state_write(tmp_path):
+    """The advisory is read-only — the hook never writes the stamp keys it
+    reads, and the existing single locked write is unchanged (§ F32)."""
+    seeded_written_at = _stamp(1)
+    _write_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "context_session_reset_at": _stamp(10),
+            "agent_surfaces_written_at": seeded_written_at,
+            "agent_surfaces_written_by": "sync-agents",
+        },
+    )
+    result = _run_hook_with_stdin(tmp_path, {"source": "clear"}, tempdir=tmp_path)
+    assert result.returncode == 0
+    ctx = _additional_context(result.stdout)
+    assert "sync-agents" in ctx  # advisory fired
+
+    state = _read_state_file(tmp_path)
+    assert state["agent_surfaces_written_at"] == seeded_written_at
+    assert state["agent_surfaces_written_by"] == "sync-agents"
+
+
+def test_advisory_absent_when_state_lacks_stamp_keys(tmp_path):
+    """No stamp keys present → no advisory, no crash."""
+    _write_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "context_session_reset_at": _stamp(10),
+        },
+    )
+    result = _run_hook_with_stdin(tmp_path, {"source": "clear"}, tempdir=tmp_path)
+    assert result.returncode == 0
+    ctx = _additional_context(result.stdout)
+    assert "Pairmode v0.1.0 is active" in ctx
+
+
+def test_advisory_failure_does_not_break_status_block(tmp_path):
+    """A raising agent_staleness_notice must not break the hook's exit status
+    or the rest of the status block (§ F33)."""
+    _write_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "context_session_reset_at": _stamp(10),
+            "agent_surfaces_written_at": _stamp(1),
+            "agent_surfaces_written_by": "sync-agents",
+        },
+    )
+
+    scripts_dir = Path(__file__).resolve().parent.parent.parent / "skills" / "pairmode" / "scripts"
+    stub_path = scripts_dir / "session_lifecycle.py"
+    original = stub_path.read_text(encoding="utf-8")
+    try:
+        stub_path.write_text(
+            original.replace(
+                "def agent_staleness_notice(",
+                "def agent_staleness_notice_ORIG_UNUSED(",
+            )
+            + "\n\ndef agent_staleness_notice(**kwargs):\n"
+            "    raise RuntimeError('boom — staleness check exploded')\n",
+            encoding="utf-8",
+        )
+        result = _run_hook_with_stdin(tmp_path, {"source": "clear"}, tempdir=tmp_path)
+    finally:
+        stub_path.write_text(original, encoding="utf-8")
+
+    assert result.returncode == 0
+    ctx = _additional_context(result.stdout)
+    assert "Pairmode v0.1.0 is active" in ctx
+
+
+def test_stamp_then_clear_round_trip_writer_and_reader_both_exist(tmp_path):
+    """A writer (bootstrap._record_state, § A6/B11) stamps the keys; a
+    subsequent clear-sourced hook invocation reads them back and emits the
+    advisory — neither half is landed alone (§ F34)."""
+    scripts_dir = Path(__file__).resolve().parent.parent.parent / "skills" / "pairmode" / "scripts"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    import bootstrap as _bootstrap
+
+    _write_state(
+        tmp_path,
+        {"pairmode_version": "0.1.0", "context_session_reset_at": _stamp(10)},
+    )
+    state_path = tmp_path / ".companion" / "state.json"
+    _bootstrap._record_state(
+        state_path,
+        "0.3.0",
+        restart_changed=[".claude/agents/builder.md"],
+        restart_action="bootstrap",
+    )
+
+    result = _run_hook_with_stdin(tmp_path, {"source": "clear"}, tempdir=tmp_path)
+    assert result.returncode == 0
+    ctx = _additional_context(result.stdout)
+    assert "bootstrap" in ctx

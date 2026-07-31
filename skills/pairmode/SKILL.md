@@ -116,6 +116,17 @@ writing `docs/ideology.md`:
 In non-TTY mode, `docs/ideology.md` is written as a placeholder with a warning. Pass `--conviction`
 or `--constraint` flags to populate it non-interactively.
 
+**Restart after bootstrap (INFRA-323):** If bootstrap wrote or overwrote any
+`.claude/agents/*.md` file, or registered a hook into `.claude/settings.local.json`,
+exit this session and start a new one before spawning a builder, spawning a
+reviewer, or otherwise relying on the agents/hooks bootstrap just wrote.
+Claude Code loads agent definitions and hook registrations at session start
+only — the running process still holds the registry it had when it started,
+so those writes are not in effect in this session. `/clear` and `/compact`
+are **not** sufficient; neither reloads the registry. A completed,
+non-dry-run bootstrap prints a `RESTART REQUIRED` notice as its final output
+whenever this applies; a re-bootstrap that changed nothing prints no notice.
+
 **Flags:**
 - `--project-dir PATH` — target project root (default: current directory)
 - `--project-name NAME` — project name (read from `product.json` or prompted if omitted)
@@ -258,6 +269,14 @@ State updated: .companion/state.json
 - Never overwrites project-specific content (EXTRA items)
 - Never modifies hooks/ or spec files
 - Never runs without showing audit output first
+
+**Restart after sync (INFRA-323, conditional):** If this run wrote an agent
+shell (`.claude/agents/*.md`) or a `SKILL.md`, exit the session and start a
+new one before relying on the agent registry — those are session-start-only
+surfaces. A `CLAUDE.md`-only sync is **not** a restart trigger; running
+`sync` alone never touches an agent shell, so it is silent on this by
+default. When invoked as step 1 of `sync-all`, the chain's own single
+end-of-run notice (see `sync-all` below) covers this condition.
 
 ---
 
@@ -740,6 +759,14 @@ project-specific body content.
 **Outputs:**
 - Updated `.claude/agents/*.md` files with re-rendered frontmatter.
 
+**Restart after sync-agents (INFRA-323):** When at least one agent file was
+written, exit this session and start a new one before spawning a builder or
+reviewer that depends on the updated agent registry. Claude Code loads
+`.claude/agents/*.md` at session start only; `/clear` and `/compact` do not
+reload it. A run that writes at least one file prints a `RESTART REQUIRED`
+notice as its final output; "No changes to apply.", `--dry-run`, and a
+declined confirmation all print no notice.
+
 **Flags:**
 - `--project-dir PATH` — target project root (default: current directory)
 - `--dry-run` — print diffs without writing any files
@@ -878,6 +905,15 @@ suppressing all prompts.
 **Fail-fast:** If any downstream command exits non-zero, the wrapper immediately prints an error
 identifying the failing command and exits with the same status code. Remaining commands in the
 chain are not invoked.
+
+**Restart after sync-all (INFRA-323):** In `--apply` mode, if the chain wrote
+an agent shell, exit this session and start a new one before relying on the
+agent registry. The wrapper never parses a child's inherited stdout to
+detect this — each writing step stamps a shared marker in
+`.companion/state.json`, and `sync-all` reads that marker back once the
+chain completes, printing **exactly one** `RESTART REQUIRED` notice for the
+whole chain (never one per step). A dry-run chain writes nothing and prints
+no notice.
 
 **CLI invocation:**
 ```bash
@@ -1043,6 +1079,14 @@ Idempotency gate results:
 
 When `--apply` is set, the summary shows "Applied" instead of "Would change", and lists backup
 files created (e.g. `CLAUDE.build.md.pre-flex-migration`).
+
+**Restart after migrate-from-anchor (INFRA-323):** When `--apply` changed
+any `.claude/agents/*.md` file (rule 2 or rule 3) or any hook-registration
+settings file, exit this session and start a new one before spawning a
+builder or reviewer against the migrated project. The migration summary's
+final output is a `RESTART REQUIRED` notice whenever this applies. Without
+`--apply` (report-only preview), and on the idempotency gate's "already
+migrated" early return, no notice is printed.
 
 **Flags:**
 

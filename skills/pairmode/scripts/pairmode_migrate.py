@@ -40,6 +40,10 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent        # skills/pairmode/scripts/
 _FLEX_ROOT   = _SCRIPTS_DIR.parent.parent.parent      # flex repo root
 _PAIRMODE_SYNC = _SCRIPTS_DIR / "pairmode_sync.py"
 
+# INFRA-323: RESTART REQUIRED notice + agent-surface classification.
+sys.path.insert(0, str(_SCRIPTS_DIR))
+import session_lifecycle  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Idempotency gate patterns
 # ---------------------------------------------------------------------------
@@ -767,6 +771,37 @@ def _load_state(companion_dir: Path) -> dict:
         return {}
 
 
+def _restart_surfaces_from_paths(paths: "list[str]") -> "list[str]":
+    """Return the subset of *paths* that classify as a § A registration
+    surface (INFRA-323) — agent shells, hook-registration settings files, or
+    plugin/skill registration files. Order-preserving, no dedup needed since
+    callers pass each rule's own distinct file list.
+    """
+    return [p for p in paths if session_lifecycle.classify_surface(p)]
+
+
+def _emit_migrate_restart_notice(
+    project_dir: Path, changed: "list[str]", action: str
+) -> None:
+    """Stamp the § A6 keys into *project_dir*'s state.json and print the § A
+    notice (INFRA-323). No-op when *changed* is empty.
+    """
+    if not changed:
+        return
+    companion_dir = project_dir / ".companion"
+    state_path = companion_dir / "state.json"
+    state = _load_state(companion_dir)
+    session_lifecycle.stamp_agent_surfaces(state, changed=changed, action=action)
+    companion_dir.mkdir(parents=True, exist_ok=True)
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+    from state_utils import _atomic_write_json  # noqa: PLC0415
+
+    _atomic_write_json(state_path, state)
+    notice = session_lifecycle.render_restart_notice(changed, action=action)
+    if notice:
+        click.echo("\n" + notice)
+
+
 def _counter_story_in_flight(project_path: Path, story_id: str) -> bool:
     """Return True when *story_id* appears to be an in-flight build (INFRA-290).
 
@@ -904,6 +939,17 @@ def cmd_anchor_to_flex(
         backup_suffix=backup_suffix,
     )
     _print_report(report, apply=do_apply)
+
+    # INFRA-323 § C13: notice after _print_report, as the command's final
+    # output, whenever report.changed includes an agent-shell or
+    # settings-file path — and only in --apply mode (report.changed entries
+    # written in dry-run carry a " (subprocess dry-run)" suffix and are never
+    # reached here because do_apply gates the whole block). already_migrated
+    # (§ C15) short-circuits report.changed to empty via migrate()'s early
+    # return, so that path naturally emits no notice too.
+    if do_apply:
+        restart_changed = _restart_surfaces_from_paths(report.changed)
+        _emit_migrate_restart_notice(project_path, restart_changed, "migrate")
 
 
 @cli.command("to-030")
@@ -1278,6 +1324,11 @@ def cmd_to_030(project_dir: str, apply: bool, keep_expected_step_tokens: bool) -
     # B7: Stale agent cleanup
     # -----------------------------------------------------------------------
     agents_dir = project_path / ".claude" / "agents"
+    # INFRA-323 § C14: paths this B7 block actually deleted (apply mode
+    # only) — the restart-notice surface list. Empty when every agent shell
+    # only took the flag-for-manual-porting branch (the
+    # _ERA2_AGENT_HASHES-empty path — no notice, § C14 negative).
+    deleted_agent_shells: list[str] = []
     if agents_dir.is_dir():
         click.echo("[agent-cleanup] Checking .claude/agents/ for stale 0.2.x renders...")
         for stem in _AGENT_STEMS:
@@ -1290,6 +1341,9 @@ def cmd_to_030(project_dir: str, apply: bool, keep_expected_step_tokens: bool) -
                 # Matches a known stale template — safe to delete
                 if apply:
                     agent_file.unlink()
+                    deleted_agent_shells.append(
+                        str(agent_file.relative_to(project_path))
+                    )
                     click.echo(
                         f"[apply] deleted stale agent {agent_file.name} "
                         f"(matched Era 2 hash)"
@@ -1326,6 +1380,12 @@ def cmd_to_030(project_dir: str, apply: bool, keep_expected_step_tokens: bool) -
         click.echo("[agent-cleanup] No .claude/agents/ directory found — skipping.")
 
     click.echo("\nto-030 complete.")
+
+    # INFRA-323 § C14: notice after the closing line, whenever B7 actually
+    # deleted an agent shell. apply-gated — deleted_agent_shells is always
+    # empty in dry-run mode (the [would] branch never appends to it).
+    if apply:
+        _emit_migrate_restart_notice(project_path, deleted_agent_shells, "to-030")
 
 
 def _try_parse_json(path: Path) -> bool:

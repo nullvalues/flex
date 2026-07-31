@@ -1609,3 +1609,129 @@ def test_to030_hook_block_noop_on_portable_only_settings(tmp_path: Path) -> None
     assert "repair" not in output
     assert "relocating" not in output
     assert settings_path.read_bytes() == before
+
+
+# ---------------------------------------------------------------------------
+# INFRA-323: RESTART REQUIRED notice for `migrate` and `to-030`
+# ---------------------------------------------------------------------------
+
+
+def _invoke_anchor_to_flex(
+    project_dir: Path,
+    *,
+    apply: bool = False,
+    yes: bool = True,
+    subprocess_side_effect=None,
+) -> tuple[int, str]:
+    """Invoke `anchor-to-flex` via the Click test runner; return (exit_code, output)."""
+    from click.testing import CliRunner
+
+    runner = CliRunner()
+    args = ["anchor-to-flex", "--project-dir", str(project_dir)]
+    if apply:
+        args.append("--apply")
+    if yes:
+        args.append("--yes")
+
+    if subprocess_side_effect is None:
+        mock_result = MagicMock(returncode=0, stderr="", stdout="")
+        subprocess_side_effect = lambda cmd, **kw: mock_result  # noqa: E731
+
+    with patch("pairmode_migrate.subprocess.run", side_effect=subprocess_side_effect):
+        result = runner.invoke(_mod.cli, args, catch_exceptions=False)
+    return result.exit_code, result.output
+
+
+def test_migrate_apply_prints_notice_when_agent_files_changed(tmp_path: Path) -> None:
+    """--apply prints the RESTART REQUIRED notice naming the changed agent
+    shells, as the command's final output."""
+    project = _build_anchor_project(tmp_path)
+    side_effect = _make_subprocess_side_effect(project, ".pre-flex-migration")
+
+    exit_code, output = _invoke_anchor_to_flex(
+        project, apply=True, subprocess_side_effect=side_effect
+    )
+
+    assert exit_code == 0, output
+    assert "RESTART REQUIRED" in output
+    # It is the final output — after the migration summary block.
+    summary_idx = output.index("--- Migration Summary ---")
+    notice_idx = output.index("RESTART REQUIRED")
+    assert notice_idx > summary_idx
+
+    state_path = project / ".companion" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state.get("agent_surfaces_written_by") == "migrate"
+
+
+def test_migrate_report_only_prints_no_notice(tmp_path: Path) -> None:
+    """Without --apply (report-only), no notice is printed."""
+    project = _build_anchor_project(tmp_path)
+
+    exit_code, output = _invoke_anchor_to_flex(project, apply=False)
+
+    assert exit_code == 0, output
+    assert "RESTART REQUIRED" not in output
+
+
+def test_migrate_already_migrated_prints_no_notice(tmp_path: Path) -> None:
+    """An already-migrated project's early return prints no notice."""
+    from click.testing import CliRunner
+
+    project = tmp_path / "clean-project"
+    project.mkdir()
+    (project / "CLAUDE.build.md").write_text("# Build guide\nAll clean.\n", encoding="utf-8")
+
+    runner = CliRunner()
+    mock_result = MagicMock(returncode=0, stderr="", stdout="")
+    with patch("pairmode_migrate.subprocess.run", side_effect=lambda cmd, **kw: mock_result):
+        result = runner.invoke(
+            _mod.cli,
+            ["anchor-to-flex", "--project-dir", str(project), "--apply", "--yes"],
+            catch_exceptions=False,
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "already migrated" in result.output.lower()
+    assert "RESTART REQUIRED" not in result.output
+
+
+def test_to_030_apply_prints_notice_when_agent_shell_deleted(tmp_path: Path) -> None:
+    """to-030 --apply prints the notice when B7 deletes a stale agent shell."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS)
+    agents_dir = project / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+
+    content = b"# builder agent v0.2.x stale template\n"
+    builder_file = agents_dir / "builder.md"
+    builder_file.write_bytes(content)
+    known_hash = hashlib.sha256(content).hexdigest()
+
+    with patch.dict(_mod._ERA2_AGENT_HASHES, {"builder": known_hash}):
+        exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    assert "RESTART REQUIRED" in output
+    complete_idx = output.index("to-030 complete.")
+    notice_idx = output.index("RESTART REQUIRED")
+    assert notice_idx > complete_idx
+
+    state_path = project / ".companion" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state.get("agent_surfaces_written_by") == "to-030"
+
+
+def test_to_030_flag_only_agent_cleanup_prints_no_notice(tmp_path: Path) -> None:
+    """to-030 --apply with only a flagged (not deleted) customised agent
+    prints no notice — _ERA2_AGENT_HASHES empty by default."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS)
+    agents_dir = project / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+
+    custom_content = b"# Highly customized builder - do not delete!\n"
+    (agents_dir / "builder.md").write_bytes(custom_content)
+
+    exit_code, output = _invoke_030(project, apply=True)
+
+    assert exit_code == 0
+    assert "RESTART REQUIRED" not in output

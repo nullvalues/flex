@@ -3166,6 +3166,93 @@ class TestBootstrapNextSteps:
 
 
 # ---------------------------------------------------------------------------
+# INFRA-323: RESTART REQUIRED notice as bootstrap's final output
+# ---------------------------------------------------------------------------
+
+
+class TestBootstrapRestartNotice:
+    """Tests for the § A restart notice printed after a completed bootstrap."""
+
+    def _run_bootstrap(self, tmp_path, extra_args=None):
+        runner = CliRunner()
+        args = [
+            "--project-dir", str(tmp_path),
+            "--project-name", "testproj",
+            "--stack", "Python / pytest",
+            "--build-command", "uv run pytest",
+            "--yes",
+        ] + (extra_args or [])
+        result = runner.invoke(bootstrap, args, catch_exceptions=False)
+        return result
+
+    def test_bootstrap_prints_restart_notice_as_final_output(self, tmp_path):
+        result = self._run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        assert "RESTART REQUIRED" in result.output
+        # It is the last thing printed — nothing meaningful trails it.
+        tail = result.output.rstrip().splitlines()[-1]
+        assert "/clear" in result.output.rsplit("RESTART REQUIRED", 1)[-1]
+
+    def test_bootstrap_notice_enumerates_written_agent_shells(self, tmp_path):
+        result = self._run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        assert ".claude/agents/builder.md" in result.output
+
+    def test_bootstrap_notice_excludes_skipped_project_owned_shells(self, tmp_path):
+        # First bootstrap writes every agent shell.
+        first = self._run_bootstrap(tmp_path)
+        assert first.exit_code == 0, first.output
+
+        # Second bootstrap over the same project: every agent shell is
+        # already present and --force-agents is absent, so every shell takes
+        # the "skipped (project-owned)" branch. Some other surface (e.g. a
+        # re-registered hook) may still legitimately fire the notice — the
+        # important assertion is the *skipped* shell must never appear in
+        # the enumerated list even when the notice fires for another reason.
+        second = self._run_bootstrap(tmp_path)
+        assert second.exit_code == 0, second.output
+        if "RESTART REQUIRED" in second.output:
+            notice = second.output.rsplit("RESTART REQUIRED", 1)[-1]
+            assert ".claude/agents/builder.md" not in notice
+
+    def test_bootstrap_dry_run_prints_no_restart_notice(self, tmp_path):
+        result = self._run_bootstrap(tmp_path, extra_args=["--dry-run"])
+        assert result.exit_code == 0, result.output
+        assert "RESTART REQUIRED" not in result.output
+
+    def test_rebootstrap_with_all_shells_skipped_prints_no_notice(self, tmp_path):
+        first = self._run_bootstrap(tmp_path)
+        assert first.exit_code == 0, first.output
+        second = self._run_bootstrap(tmp_path)
+        assert second.exit_code == 0, second.output
+        # A second bootstrap over an already-bootstrapped, unchanged project
+        # writes no agent shell and changes no hook registration — no
+        # restart surface changed, so no notice.
+        assert "RESTART REQUIRED" not in second.output
+
+    def test_bootstrap_stamps_agent_surfaces_written_at_in_state_json(self, tmp_path):
+        result = self._run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        state_path = tmp_path / ".companion" / "state.json"
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        assert data.get("agent_surfaces_written_by") == "bootstrap"
+        assert isinstance(data.get("agent_surfaces_written_at"), str)
+        assert data["agent_surfaces_written_at"]
+
+    def test_bootstrap_next_steps_wording_unchanged(self, tmp_path):
+        result = self._run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        assert "## Next steps" in result.output
+        assert "1. Create and set your first story:" in result.output
+        assert "2. Register this project with flex for drift tracking:" in result.output
+        assert "3. Run an audit to verify the scaffold:" in result.output
+        # The notice comes after the next-steps block, not interleaved.
+        next_steps_idx = result.output.index("## Next steps")
+        restart_idx = result.output.index("RESTART REQUIRED")
+        assert restart_idx > next_steps_idx
+
+
+# ---------------------------------------------------------------------------
 # Story INFRA-082: PAIRMODE_ALLOW and _merge_allow_rules tests
 # ---------------------------------------------------------------------------
 

@@ -2,7 +2,7 @@
 id: INFRA-323
 rail: INFRA
 title: "Session-lifecycle notices for agent-registration writes: RESTART REQUIRED after bootstrap/migrate/sync, runbook steps, SessionStart staleness advisory"
-status: draft
+status: complete
 phase: "114"
 story_class: code
 auth_gated: false
@@ -25,6 +25,8 @@ touches:
   - docs/cer/backlog.md
   - docs/phases/phase-114.md
   - docs/stories/INFRA/INFRA-323.md
+  - tests/pairmode/test_user_turn_seq.py
+  - skills/pairmode/skills/security-auditor/procedure.md
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
@@ -176,6 +178,14 @@ not line number, and note the drift in its report.
   § *6-step Era 3 procedure* (`:240`), § *What `sync-all` does* (`:307`),
   § *Context at sync time* (`:325`), § *Rollback procedure* (`:295`).
 
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| tests/pairmode/test_user_turn_seq.py | INFRA-323 legitimately edits hooks/session_start.py per its declared touches:; test_user_turn_seq.py's blanket 'hooks/ must be git-clean' guard (from an unrelated earlier story, INFRA-248) is a stale invariant that trips on any future authorized hook change and must be retired, not silenced. | 2026-07-31T01:56:43Z |
+
+| skills/pairmode/skills/security-auditor/procedure.md | hooks/session_start.py now imports session_lifecycle (INFRA-323 § F); the security-auditor's documented thin-delegation exception block must name it or the drift check (test_procedure_skills.py) fails. | 2026-07-31T01:57:00Z |
 ## Ensures
 
 ### A — one notice, defined once, in a new pure module
@@ -574,3 +584,19 @@ PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -q 2>&1 | tail -30
 - **Backlog rows CER-105, CER-106 and CER-113, and
   `docs/stories/INFRA/INFRA-299.md`** — owned by the unmerged INFRA-299 branch.
   The only `backlog.md` edit here is CER-134's own row.
+
+## Completion note
+
+**§ A35 mtime-based staleness fallback: omitted.** The builder implemented the
+stamp-based signal (`agent_surfaces_written_at` / `agent_surfaces_written_by`,
+written by § A6/B11/D19 and read by § F's `agent_staleness_notice`) as the sole
+mechanism and did not add an `.claude/agents/*.md` mtime-comparison fallback
+for repos whose last agent write predates this story. § A35 states the
+fallback is explicitly optional ("if the builder judges the fallback not
+worth its false-positive rate, omitting it is acceptable") and that "the
+stamp path is not optional" — the stamp path is fully implemented and tested
+per § H. The fallback was judged not worth its false-positive rate: per § A35
+and Out-of-scope R4, `git checkout`, worktree creation, and the CER-090
+`rsync` payload workaround all rewrite mtimes without changing content, so an
+mtime-driven advisory would produce false positives inside the very build
+loop this story's harness runs in.

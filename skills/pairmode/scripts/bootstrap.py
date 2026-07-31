@@ -27,6 +27,7 @@ from skills.pairmode.scripts._version import PAIRMODE_VERSION  # noqa: E402
 from skills.pairmode.scripts.context_model import THIN_HARNESS_STEP_TOKENS
 import ideology_parser as _ideology_parser
 import hook_view  # INFRA-288: merged hook view (stdlib-only, cheap) — see _register_context_budget_hooks
+import session_lifecycle  # INFRA-323: RESTART REQUIRED notice + agent-surface stamp
 from schema_validator import _parse_frontmatter
 from state_utils import _atomic_write_json
 
@@ -523,8 +524,15 @@ def _evict_stale_committed_hook_entries(
     return removed
 
 
-def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> None:
+def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> bool:
     """Merge a PreToolUse hook entry into .claude/settings.local.json.
+
+    Returns ``True`` when this call actually mutated the settings-level
+    ``hooks`` registration (a new command entry was appended, the matcher was
+    upgraded, or a stale sibling entry was pruned) — ``False`` for a pure
+    idempotent no-op or the plugin-sourced skip (INFRA-323 § A/B: the caller
+    uses this to decide whether the ``hook_registration`` restart surface
+    changed).
 
     Registers the combined matcher PRETOOLUSE_MATCHER ("Task|Agent|Edit|Write|Read")
     covering all three pre_tool_use.py dispatch families (CER-065 / INFRA-206).
@@ -567,7 +575,7 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
             "settings-level duplicate would run the hook twice per event "
             "(INFRA-288/CER-104, CER-127)"
         )
-        return
+        return False
 
     if local_settings_path.exists():
         try:
@@ -614,6 +622,7 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
         pre_tool_use_list.append(target_block)
 
     # Migrate the matcher in place (idempotent when already canonical).
+    matcher_changed = target_block.get("matcher") != PRETOOLUSE_MATCHER
     target_block["matcher"] = PRETOOLUSE_MATCHER
 
     inner_hooks = target_block.setdefault("hooks", [])
@@ -628,7 +637,7 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
     # Remove any stale same-basename sibling entries (CER-081): the correct
     # entry is guaranteed present above, so pruning here can never leave the
     # event with zero flex hooks.
-    _prune_stale_hook_entries(pre_tool_use_list, pre_tool_use_path.name, command)
+    pruned = _prune_stale_hook_entries(pre_tool_use_list, pre_tool_use_path.name, command)
 
     local_settings_path.parent.mkdir(parents=True, exist_ok=True)
     local_settings_path.write_text(
@@ -640,6 +649,8 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
     # the correct entry is guaranteed present above — ordering is
     # load-bearing (never zero registrations for this pair in between).
     _evict_stale_committed_hook_entries(settings_path, "PreToolUse", pre_tool_use_path.name)
+
+    return bool((not already_registered) or matcher_changed or pruned)
 
 
 # Load-bearing context-budget-gate hooks that must be registered downstream
@@ -679,9 +690,14 @@ CONTEXT_BUDGET_HOOK_SPECS: tuple[dict, ...] = (
 )
 
 
-def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> None:
+def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> bool:
     """Merge the four load-bearing context-budget-gate hook entries into
     .claude/settings.local.json (INFRA-208; see CER-067, INFRA-192, INFRA-175, INFRA-182).
+
+    Returns ``True`` when at least one spec's registration was actually new
+    (added, or a stale sibling entry was pruned) — ``False`` for a fully
+    idempotent no-op run (INFRA-323 § A/B: the ``hook_registration`` restart
+    surface only changed when this returns ``True``).
 
     Registers UserPromptSubmit and SessionStart with no matcher (they fire
     unconditionally per event in hooks.json) and PostToolUse Task|Agent as a
@@ -739,6 +755,7 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
     plugin_registered = _plugin_registered_hook_pairs(project_dir)
 
     registered_this_run: list[tuple[str, str]] = []
+    any_change = False
 
     for spec in CONTEXT_BUDGET_HOOK_SPECS:
         hook_path = plugin_root / spec["hook_file"]
@@ -799,7 +816,10 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
         # Remove any stale same-basename sibling entries for this event
         # (CER-081). The basename isolates this event's hook from unrelated
         # sibling blocks (a different basename entirely).
-        _prune_stale_hook_entries(event_list, hook_path.name, command)
+        pruned = _prune_stale_hook_entries(event_list, hook_path.name, command)
+
+        if (not already_registered) or pruned:
+            any_change = True
 
         registered_this_run.append((spec["event"], hook_path.name))
 
@@ -815,6 +835,8 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
     # nothing local to guarantee as a replacement).
     for event, basename in registered_this_run:
         _evict_stale_committed_hook_entries(settings_path, event, basename)
+
+    return any_change
 
 
 def _merge_allow_rules(settings_path: pathlib.Path, new_entries: list[str]) -> None:
@@ -878,8 +900,18 @@ def _load_seed_expected_step_tokens() -> int:
     return THIN_HARNESS_STEP_TOKENS
 
 
-def _record_state(state_path: pathlib.Path, version: str) -> bool:
+def _record_state(
+    state_path: pathlib.Path,
+    version: str,
+    *,
+    restart_changed: "list[str] | None" = None,
+    restart_action: str = "bootstrap",
+) -> bool:
     """Write pairmode_version into .companion/state.json, creating if absent.
+
+    INFRA-323 § B11: when *restart_changed* is non-empty, the § A6
+    ``agent_surfaces_written_at`` / ``agent_surfaces_written_by`` stamp is
+    folded into this same write — no second write of state.json.
 
     Pairmode bootstraps also auto-enable ``effort_tracking`` so the
     orchestrator's per-attempt recorder will start writing rows immediately.
@@ -910,6 +942,11 @@ def _record_state(state_path: pathlib.Path, version: str) -> bool:
     newly_enabled = "effort_tracking" not in data
     if newly_enabled:
         data["effort_tracking"] = True
+
+    if restart_changed:
+        session_lifecycle.stamp_agent_surfaces(
+            data, changed=restart_changed, action=restart_action
+        )
 
     # INFRA-127: seed context-budget defaults only for NEW state.json files.
     # Existing state.json files are left untouched per spec.
@@ -1517,6 +1554,12 @@ def bootstrap(
             sys.exit(1)
         _write_file(dest, content, dry_run=dry_run, yes=yes)
 
+    # INFRA-323 § B8: surfaces the notice actually enumerates — only agent
+    # shells whose write was performed. Never appended for the
+    # "skipped (project-owned)" branch, dry-run, or a declined overwrite
+    # prompt inside _write_file.
+    written_agent_shells: list[str] = []
+
     for dest_rel, template_name in AGENT_FILES:
         dest = project_path / dest_rel
         if not dry_run and dest.exists() and not force_agents:
@@ -1534,8 +1577,11 @@ def bootstrap(
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(content, encoding="utf-8")
             click.echo(f"  wrote: {dest}")
+            written_agent_shells.append(dest_rel)
         else:
-            _write_file(dest, content, dry_run=dry_run, yes=yes)
+            wrote = _write_file(dest, content, dry_run=dry_run, yes=yes)
+            if wrote and not dry_run:
+                written_agent_shells.append(dest_rel)
 
     # ------------------------------------------------------------------
     # 4.5. Save template context for audit/sync rendering
@@ -1586,14 +1632,16 @@ def bootstrap(
     #     portable for exactly one machine)
     # ------------------------------------------------------------------
     plugin_root = pathlib.Path(__file__).resolve().parent.parent.parent.parent
+    hook_registration_changed = False
     if dry_run:
         click.echo(
             f"  [dry-run] would register PreToolUse + context-budget-gate "
             f"hooks in: {_hook_settings_path(project_path)}"
         )
     else:
-        _register_pretooluse_hook(settings_path, plugin_root)
-        _register_context_budget_hooks(settings_path, plugin_root)
+        pretooluse_changed = _register_pretooluse_hook(settings_path, plugin_root)
+        context_budget_changed = _register_context_budget_hooks(settings_path, plugin_root)
+        hook_registration_changed = bool(pretooluse_changed or context_budget_changed)
 
     # ------------------------------------------------------------------
     # 5a. Merge allow rules into .claude/settings.local.json
@@ -1633,12 +1681,24 @@ def bootstrap(
     # ------------------------------------------------------------------
     # 7. Record pairmode version
     # ------------------------------------------------------------------
+    # INFRA-323 § A2/B8: the restart-notice surface list — agent shells whose
+    # write was actually performed, plus "hook_registration" when the
+    # settings-level registration actually changed something.
+    restart_changed: list[str] = list(written_agent_shells)
+    if hook_registration_changed:
+        restart_changed.append("hook_registration")
+
     state_path = project_path / ".companion" / "state.json"
     if dry_run:
         click.echo(f"  [dry-run] would record pairmode_version in: {state_path}")
     else:
         click.echo(f"Recording pairmode_version in {state_path}")
-        effort_newly_enabled = _record_state(state_path, PAIRMODE_VERSION)
+        effort_newly_enabled = _record_state(
+            state_path,
+            PAIRMODE_VERSION,
+            restart_changed=restart_changed,
+            restart_action="bootstrap",
+        )
         if effort_newly_enabled:
             click.echo(
                 "  effort tracking enabled (local sqlite only — no data leaves the host)"
@@ -1655,6 +1715,17 @@ def bootstrap(
     if not dry_run:
         repo_root = pathlib.Path(__file__).resolve().parent.parent.parent.parent
         _print_next_steps(project_path, repo_root)
+
+        # INFRA-323 § B7/B9/B10: the RESTART REQUIRED notice is the final
+        # output of a completed non-dry-run bootstrap. A dry run prints no
+        # notice (§ B9); a re-bootstrap where every agent shell was skipped
+        # and no hook registration changed prints nothing (§ B10 no-op
+        # contract).
+        notice = session_lifecycle.render_restart_notice(
+            restart_changed, action="bootstrap"
+        )
+        if notice:
+            click.echo("\n" + notice)
 
 
 if __name__ == "__main__":
