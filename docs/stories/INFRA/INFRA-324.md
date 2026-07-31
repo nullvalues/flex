@@ -9,6 +9,7 @@ auth_gated: false
 schema_introduces: false
 touches:
   - hooks/pre_tool_use.py
+  - hooks/hooks.json
   - skills/pairmode/scripts/reviewer_bash_guard.py
   - skills/pairmode/skills/reviewer/procedure.md
   - tests/pairmode/test_reviewer_bash_guard.py
@@ -82,6 +83,22 @@ subagent-issued tool calls (used today by the `Read` branch's
 `cold_read_guard.check_path(agent_type=...)` call) — the same field is
 available for a new `Bash` branch to identify reviewer-issued commands.
 
+5. **Scope widened mid-build (2026-07-30):** a builder attempted this story
+   as originally scoped (guard module + `pre_tool_use.py` dispatch branch
+   only) and hit BUILDER BLOCKED. The dispatch branch was built correctly,
+   but `hooks/hooks.json`'s `PreToolUse` array has no matcher entry for
+   `Bash` — only `Task|Agent`, `Edit|Write`, and `Read` are registered
+   (`hooks/hooks.json:26-57`) — so the new branch is unreachable dead code
+   in production; `pre_tool_use.py` is never invoked for a `Bash` tool call
+   at all. `hooks/hooks.json` is a PROTECTED path
+   (`scope_guard.PROTECTED_GLOBS`) and was not declared in this story's
+   original `touches:`, so the builder correctly refused to edit it and
+   stopped rather than improvising. The operator reviewed the finding and
+   explicitly approved widening this story's scope to include
+   `hooks/hooks.json`, so the guard is wired in and live in the same story
+   rather than deferred to a follow-up story. See `touches:` and the new
+   `Bash` matcher requirements in Ensures/Instructions below.
+
 ## Requires
 
 - `hooks/pre_tool_use.py`'s existing `Read` branch pattern (dispatch by
@@ -144,6 +161,17 @@ available for a new `Bash` branch to identify reviewer-issued commands.
   → hook exits 0 with no block decision printed).
 - No existing test in `tests/pairmode/` regresses (full suite run without
   `-x`, per this project's pytest-no-x-before-merge convention).
+- `hooks/hooks.json`'s `PreToolUse` array gains a new matcher entry for
+  `Bash`, appended after the existing `Read` entry
+  (`hooks/hooks.json:47-56`), following the exact same shape as the other
+  three `PreToolUse` entries: `{"matcher": "Bash", "hooks": [{"type":
+  "command", "command": "python3
+  ${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use.py", "timeout": 5}]}` — same
+  script invocation, same `"type": "command"`, same `timeout: 5` as
+  `Task|Agent`, `Edit|Write`, and `Read`. Without this entry the new `Bash`
+  dispatch branch in `hooks/pre_tool_use.py` is never invoked and the guard
+  does not run in production — this is the entry that closes the gap
+  discovered mid-build (see Context, item 5).
 
 ## Instructions
 
@@ -174,7 +202,12 @@ available for a new `Bash` branch to identify reviewer-issued commands.
    documented.
 7. Write `tests/pairmode/test_reviewer_bash_guard.py` and extend
    `tests/pairmode/test_pre_tool_use_hook.py` per the Ensures above.
-8. Run `uv run pytest tests/pairmode/ -q` (no `-x`) and confirm no
+8. Add the `Bash` matcher entry to `hooks/hooks.json`'s `PreToolUse` array
+   per the Ensures above — mirror the existing `Task|Agent`, `Edit|Write`,
+   and `Read` entries exactly (same `command`/`type`/`timeout` shape),
+   appending it after the `Read` entry so `hooks/pre_tool_use.py`'s new
+   `Bash` branch is actually reachable in production.
+9. Run `uv run pytest tests/pairmode/ -q` (no `-x`) and confirm no
    regressions.
 
 ## Tests
