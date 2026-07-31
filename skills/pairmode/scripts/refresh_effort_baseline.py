@@ -21,23 +21,46 @@ import datetime
 import json
 import sqlite3
 import statistics
+import sys
 from collections import defaultdict
 from pathlib import Path
 
 import click
 
+# Sibling-import wiring: this script's own directory holds effort_db.py.
+# When run directly (``uv run python .../refresh_effort_baseline.py``) the
+# interpreter already puts the script's directory at sys.path[0]; the
+# explicit insert below covers the case where this module is imported by
+# name from elsewhere (e.g. a test importing it from a different cwd),
+# matching the sibling-import style already used by pairmode_effort.py.
+sys.path.insert(0, str(Path(__file__).parent))
+
+import effort_db as _effort_db  # noqa: E402
+
 
 def _collect_rows(db_path: Path) -> list[tuple[str, int]]:
-    """Return list of (agent_role, tokens_total) tuples from one effort.db."""
+    """Return list of (agent_role, tokens_total) tuples from one effort.db.
+
+    Excludes INFRA-309's non-build roles (``effort_db.NON_BUILD_ROLES`` —
+    ``sidebar-extractor``, ``seed-miner``, ``seed-reconcile``) at the source,
+    rather than leaving every downstream consumer to filter them out: this
+    seed file feeds the ``expected_step_tokens`` guardrail baseline for
+    *build* work specifically, so a non-build role's token distribution has
+    no business shaping it.
+    """
     try:
         conn = sqlite3.connect(str(db_path))
     except sqlite3.Error:
         return []
     try:
         cur = conn.cursor()
+        roles = sorted(_effort_db.NON_BUILD_ROLES)
+        placeholders = ", ".join("?" for _ in roles)
         cur.execute(
             "SELECT agent_role, tokens_total FROM attempts "
-            "WHERE tokens_total IS NOT NULL AND agent_role IS NOT NULL"
+            "WHERE tokens_total IS NOT NULL AND agent_role IS NOT NULL "
+            f"AND agent_role NOT IN ({placeholders})",
+            roles,
         )
         rows = cur.fetchall()
     except sqlite3.Error:

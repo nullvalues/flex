@@ -2,6 +2,25 @@ import Database from 'better-sqlite3';
 import { createRequire } from 'node:module';
 
 // ---------------------------------------------------------------------------
+// INFRA-309: non-build agent roles
+// ---------------------------------------------------------------------------
+
+// Source of truth: skills/pairmode/scripts/effort_db.py NON_BUILD_ROLES.
+// TypeScript cannot import the Python constant; this list is duplicated
+// deliberately and pinned by tests/pairmode/test_waypoint_outcome.py's
+// parity test — change both or neither. See docs/architecture.md
+// § Effort tracking.
+export const NON_BUILD_ROLES = ['seed-miner', 'seed-reconcile', 'sidebar-extractor'] as const;
+
+/**
+ * SQL fragment (with `?` placeholders matching NON_BUILD_ROLES.length) that
+ * excludes INFRA-309's non-build roles while retaining NULL `agent_role`
+ * rows (a NULL role is not a *known* non-build role — matches the Python
+ * B5 rule). Bind `NON_BUILD_ROLES` (as a mutable array) as the parameters.
+ */
+const NON_BUILD_ROLE_EXCLUSION_SQL = `(agent_role IS NULL OR agent_role NOT IN (${NON_BUILD_ROLES.map(() => '?').join(', ')}))`;
+
+// ---------------------------------------------------------------------------
 // Output shapes
 // ---------------------------------------------------------------------------
 
@@ -129,6 +148,11 @@ function sqliteP90(
  * over_spend_band = tokens_total > spendThreshold * 0.85
  * delta_above_spend_threshold = tokens_total - spendThreshold when over, else null
  * NULL outcome is passed through as null — callers must not map NULL to FAIL (CER-055).
+ *
+ * INFRA-309: excludes non-build roles (`NON_BUILD_ROLES`) — sidebar
+ * extraction, seed mining, and seed reconciliation are real token cost but
+ * not build-loop attempts, and would otherwise flood this timeline as build
+ * events. A NULL `agent_role` is retained.
  */
 export function queryWaypoints(
   db: Database.Database,
@@ -161,10 +185,11 @@ export function queryWaypoints(
         `SELECT ${tsColumn} AS created_at, tokens_total, story_id, phase, agent_role, outcome
          FROM attempts
          WHERE tokens_total IS NOT NULL
+         AND ${NON_BUILD_ROLE_EXCLUSION_SQL}
          ORDER BY ${tsColumn} DESC
          LIMIT 100`,
       )
-      .all() as Row[];
+      .all(...NON_BUILD_ROLES) as Row[];
   } catch {
     return [];
   }
@@ -193,6 +218,13 @@ export function queryWaypoints(
 
 /**
  * Return totals and per-phase breakdown (max 20 phases, ordered by phase desc).
+ *
+ * INFRA-309: `total_attempts` excludes non-build roles (`NON_BUILD_ROLES`) —
+ * a bare `COUNT(*)` would otherwise report a majority-sidebar-extraction
+ * figure as the SPA's headline build-attempt count. The per-phase breakdown
+ * below is intentionally NOT touched: `attempts.phase` is populated only for
+ * checkpoint-role attempts by design (INFRA-299), so non-build rows already
+ * carry `phase = NULL` and never enter it.
  */
 export function queryEffortSummary(db: Database.Database): EffortSummary {
   interface TotalRow {
@@ -201,9 +233,9 @@ export function queryEffortSummary(db: Database.Database): EffortSummary {
 
   let total_attempts = 0;
   try {
-    const totalRow = db.prepare('SELECT COUNT(*) AS total FROM attempts').get() as
-      | TotalRow
-      | undefined;
+    const totalRow = db
+      .prepare(`SELECT COUNT(*) AS total FROM attempts WHERE ${NON_BUILD_ROLE_EXCLUSION_SQL}`)
+      .get(...NON_BUILD_ROLES) as TotalRow | undefined;
     total_attempts = totalRow?.total ?? 0;
   } catch {
     return { total_attempts: 0, by_phase: [] };
@@ -261,6 +293,11 @@ const SPEND_OUTLIER_MULTIPLE = 1.1;
  * Return rows where tokens_total > spendThreshold * SPEND_OUTLIER_MULTIPLE
  * (max 10, most recent first). `spendThreshold` is the STORY-SPEND threshold
  * (never the orchestrator-window ceiling) — see queryWaypoints's docstring.
+ *
+ * INFRA-309: excludes non-build roles (`NON_BUILD_ROLES`) from both the
+ * count and the listed rows, so the two stay in agreement — a non-build row
+ * with tokens above the ceiling would otherwise be reported as a build
+ * near-miss.
  */
 export function querySpendOutliers(
   db: Database.Database,
@@ -293,8 +330,10 @@ export function querySpendOutliers(
   let rows: SpendOutlierRow[] = [];
   try {
     const countRow = db
-      .prepare(`SELECT COUNT(*) AS n FROM attempts WHERE tokens_total > ?`)
-      .get(outlierFloor) as CountRow | undefined;
+      .prepare(
+        `SELECT COUNT(*) AS n FROM attempts WHERE tokens_total > ? AND ${NON_BUILD_ROLE_EXCLUSION_SQL}`,
+      )
+      .get(outlierFloor, ...NON_BUILD_ROLES) as CountRow | undefined;
     count = countRow?.n ?? 0;
 
     rows = db
@@ -302,10 +341,11 @@ export function querySpendOutliers(
         `SELECT ${tsColumn} AS created_at, phase, tokens_total, story_id
          FROM attempts
          WHERE tokens_total > ?
+         AND ${NON_BUILD_ROLE_EXCLUSION_SQL}
          ORDER BY ${tsColumn} DESC
          LIMIT 10`,
       )
-      .all(outlierFloor) as SpendOutlierRow[];
+      .all(outlierFloor, ...NON_BUILD_ROLES) as SpendOutlierRow[];
   } catch {
     return { count: 0, entries: [] };
   }

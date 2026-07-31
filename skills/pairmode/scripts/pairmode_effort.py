@@ -240,6 +240,28 @@ def _json_default(obj: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _non_build_role_exclusion() -> tuple[str, list[str]]:
+    """SQL fragment + bound params excluding INFRA-309's non-build roles.
+
+    Returns an ``AND (...)`` fragment that retains rows with a NULL
+    ``agent_role`` (per B5: a NULL role is not a *known* non-build role and
+    must not silently vanish from any cross-role aggregate) alongside rows
+    whose ``agent_role`` is not one of ``effort_db.NON_BUILD_ROLES``. The
+    placeholder count is derived from the constant's length so a role added
+    to (or removed from) the set needs no SQL edit at any call site.
+
+    Built once here rather than written out at each of ``_query_rollup``,
+    ``_attach_rollup_dollars``, and ``refresh_effort_baseline._collect_rows``
+    so B6's "identical exclusion" is mechanically true, not coincidentally
+    true.
+    """
+
+    roles = sorted(_effort_db.NON_BUILD_ROLES)
+    placeholders = ", ".join("?" for _ in roles)
+    fragment = f" AND (agent_role IS NULL OR agent_role NOT IN ({placeholders}))"
+    return fragment, roles
+
+
 def _query_rollup(
     conn: sqlite3.Connection,
     *,
@@ -250,8 +272,16 @@ def _query_rollup(
 
     Rows are ordered so that the rail with the largest total token spend
     appears first; within a rail, phase/model break ties.
+
+    Excludes INFRA-309's non-build roles (``effort_db.NON_BUILD_ROLES`` —
+    ``sidebar-extractor``, ``seed-miner``, ``seed-reconcile``): these rows
+    carry ``phase=NULL, rail=NULL`` and would otherwise land in a single
+    anonymous ``(NULL, NULL, model)`` bucket that dwarfs every real rail's
+    attempt count. A row with ``agent_role IS NULL`` is retained (B5) — it is
+    not a *known* non-build role.
     """
 
+    exclusion_sql, exclusion_params = _non_build_role_exclusion()
     sql = (
         "SELECT phase, rail, model, "
         "COALESCE(SUM(tokens_total), 0) AS total_tokens, "
@@ -260,9 +290,9 @@ def _query_rollup(
         "COALESCE(SUM(tokens_out), 0) AS sum_out, "
         "COALESCE(SUM(cache_read_tokens), 0) AS sum_cache_read, "
         "COALESCE(SUM(cache_write_tokens), 0) AS sum_cache_write "
-        "FROM attempts WHERE 1=1"
+        "FROM attempts WHERE 1=1" + exclusion_sql
     )
-    params: list[Any] = []
+    params: list[Any] = list(exclusion_params)
     if phase is not None:
         sql += " AND phase = ?"
         params.append(phase)
@@ -386,7 +416,17 @@ def _query_expensive(
 
 
 def _query_models(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Tokens, attempts, and PASS rate per (model, agent_role) pair."""
+    """Tokens, attempts, and PASS rate per (model, agent_role) pair.
+
+    Deliberately retains INFRA-309's non-build roles rather than excluding
+    them (C10): this report is already keyed on ``agent_role``, so a
+    non-build role forms its own group and cannot pollute a build role's
+    aggregate. Each row instead gains a ``role_class`` field (C11) — labelled
+    rather than hidden, because "how much did sidebar extraction cost" is a
+    question this report should still answer. A NULL ``agent_role`` is
+    classed ``"build"`` for consistency with B5's don't-silently-reclassify
+    rule (a NULL role is not a *known* non-build role).
+    """
 
     cur = conn.cursor()
     cur.execute(
@@ -414,6 +454,11 @@ def _query_models(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         row["fail_count"] = int(row.get("fail_count") or 0)
         row["total_tokens"] = int(row.get("total_tokens") or 0)
         row["attempts"] = attempts
+        row["role_class"] = (
+            "non-build"
+            if row.get("agent_role") in _effort_db.NON_BUILD_ROLES
+            else "build"
+        )
     return rows
 
 
@@ -435,10 +480,17 @@ def _attach_rollup_dollars(
     Each rollup row is grouped by ``(phase, rail, model)``; we re-query the
     underlying breakdown for that group so the projection uses the column-level
     breakdown rather than a single aggregate.
+
+    Applies the identical INFRA-309 non-build-role exclusion as
+    ``_query_rollup``: without it, a ``(phase, rail, model)`` group shared by
+    a build row and a non-build row would report ``total_tokens`` from the
+    filtered query but ``dollars_estimate`` from an unfiltered one (B6).
     """
 
     if pricing is None:
         return
+
+    exclusion_sql, exclusion_params = _non_build_role_exclusion()
 
     for row in rows:
         cur = conn.cursor()
@@ -449,9 +501,9 @@ def _attach_rollup_dollars(
             "COALESCE(SUM(tokens_out), 0), "
             "COALESCE(SUM(cache_read_tokens), 0), "
             "COALESCE(SUM(cache_write_tokens), 0) "
-            "FROM attempts WHERE 1=1"
+            "FROM attempts WHERE 1=1" + exclusion_sql
         )
-        params: list[Any] = []
+        params: list[Any] = list(exclusion_params)
         if row["phase"] is None:
             sql += " AND phase IS NULL"
         else:
@@ -637,7 +689,15 @@ def rollup_cmd(
     dollars: str | None,
     as_json: bool,
 ) -> None:
-    """Token rollup per (phase, rail, model); rails ranked by total tokens."""
+    """Token rollup per (phase, rail, model); rails ranked by total tokens.
+
+    Excludes INFRA-309's non-build roles (``effort_db.NON_BUILD_ROLES``) from
+    both the row set and the dollar projection — see ``_query_rollup`` and
+    ``_attach_rollup_dollars``. In text mode this is disclosed with a line
+    naming the excluded roles above the table; in ``--json`` mode the output
+    stays a bare array (no disclosure line, no wrapper object) and the
+    exclusion is documented here for a JSON consumer instead.
+    """
 
     db = _resolve_db(project_dir, db_path)
     pricing = _load_pricing(dollars)
@@ -656,6 +716,9 @@ def rollup_cmd(
     columns = ["phase", "rail", "model", "total_tokens", "attempts"]
     if pricing is not None:
         columns.append("dollars_estimate")
+    if not as_json:
+        excluded = ", ".join(sorted(_effort_db.NON_BUILD_ROLES))
+        click.echo(f"(excluding non-build roles: {excluded})")
     _emit(rows, columns, as_json)
 
 
@@ -781,6 +844,7 @@ def models_cmd(
     columns = [
         "model",
         "agent_role",
+        "role_class",
         "attempts",
         "total_tokens",
         "pass_count",

@@ -3315,16 +3315,85 @@ are left NULL for cross-skill rows because seed and sidebar work happens
 outside the phases/rails model. The `backend` column (`"anthropic"` or
 `"ollama"`) distinguishes the call path on sidebar rows.
 
+**Non-build roles are read-side excluded, never write-side deleted
+(INFRA-309, correcting CER-107).** `seed-miner`, `seed-reconcile`, and
+`sidebar-extractor` (the three cross-skill `agent_role` values named above)
+record real token cost that is not a pairmode build-loop attempt. CER-107
+originally diagnosed these rows as "polluting build-role medians" and offered
+two remedies: exclude them from rollups, or stop recording them. Both parts
+of that diagnosis were wrong. The medians claim does not hold: every
+per-role statistic (`flex_build._query_effort_by_role`,
+`refresh_effort_baseline._aggregate`, `pairmode_effort._query_models`) groups
+*on* `agent_role`, so a non-build role forms its own bucket by construction
+and cannot enter a builder's or reviewer's distribution. And "stop recording
+them" is rejected outright: sidebar extraction is a real LLM call against a
+real model with real token cost, and deleting the writer would trade a
+permanent loss of cost data for a cosmetic fix to a read path — a system that
+silently drops context cannot be trusted. **This story changes no writer.**
+
+The real harm was read-side and unattributed-bucket shaped, not median
+shaped: `pairmode_effort._query_rollup` groups by `(phase, rail, model)` with
+no role predicate, so the 297+ sidebar rows (`phase=NULL, rail=NULL`) landed
+in a single anonymous bucket that read as hundreds of zero-cost build
+attempts; and `skills/observability/api/src/readers/effortDb.ts`'s
+`queryEffortSummary.total_attempts` was a bare `COUNT(*)`, making the SPA's
+headline attempt counter majority non-build on a live repo.
+
+`effort_db.NON_BUILD_ROLES` (a `frozenset[str]`) is the **single Python
+definition** of this set — the three roles above, and nothing else. Every
+cross-role Python reader consumes it (never a hardcoded string literal):
+
+- `pairmode_effort._query_rollup` and `_attach_rollup_dollars` — both gain
+  the identical `agent_role IS NULL OR agent_role NOT IN (...)` predicate
+  (built once by a shared helper, `_non_build_role_exclusion`), so a
+  `(phase, rail, model)` group's `total_tokens` and `dollars_estimate`
+  are always computed over the same row set.
+- `refresh_effort_baseline._collect_rows` — excludes non-build roles at the
+  seed source, since the seed file feeds the `expected_step_tokens`
+  guardrail baseline for *build* work specifically.
+
+`effortDb.ts` cannot import a Python constant — the SPA API is TypeScript and
+there is no cross-language constant channel — so it carries its own exported
+`NON_BUILD_ROLES` array with a source-of-truth comment pointing back to
+`effort_db.py`. This is a deliberate, minimal (three strings), mechanically
+enforced duplication: a Python test
+(`tests/pairmode/test_waypoint_outcome.py::TestNonBuildRolesParity`)
+regex-parses the TS array literal and asserts set equality with the Python
+constant, failing loudly — not vacuously — if the literal is missing, empty,
+or diverges. `effortDb.ts` excludes non-build roles in `queryWaypoints`,
+`queryEffortSummary.total_attempts`, and `querySpendOutliers` (both its count
+and row queries).
+
+**Which readers deliberately do NOT exclude non-build roles.**
+`pairmode_effort._query_models` retains every role and instead labels each
+row with a `role_class` field (`"non-build"` or `"build"`) — "how much did
+sidebar extraction cost" is a question this report should still answer, so
+non-build rows are labelled, not hidden. (A NULL `agent_role` is classed
+`"build"`, since it is not a *known* non-build role — the same
+don't-silently-reclassify rule the exclusion predicate itself follows by
+retaining NULL-role rows.) `flex_build._query_effort_by_role` and
+`_query_effort_by_story_ids` need no change either: the first already keys
+by role, the second scopes by an explicit story-ID list — both are immune to
+the unattributed-bucket defect by construction. `effortDb.ts`'s per-phase
+breakdown (`SELECT DISTINCT phase` and the `by_phase` loop, immediately
+above) is also untouched: `attempts.phase` is checkpoint-role-only by design
+(INFRA-299/CER-105), so non-build rows already carry `phase = NULL` and never
+entered that breakdown in the first place.
+
 **How to use it.** `pairmode_effort.py` provides six read-time views over the
 recorded attempts:
 
-- `pairmode_effort.py rollup` — totals by phase, rail, model
+- `pairmode_effort.py rollup` — totals by phase, rail, model, **excluding
+  non-build roles** (disclosed in text mode with a line naming the excluded
+  roles; `--json` output stays a bare array with no disclosure line — see
+  the docstrings on `rollup_cmd` and `_query_rollup`)
 - `pairmode_effort.py rework` — stories/roles with `attempt_number > 1` (spawned
   more than once in total for that pair, including post-completion re-runs —
   NOT necessarily "this story failed review"; see the `attempt_number`
   derivation note below)
 - `pairmode_effort.py expensive` — top N attempts by tokens
-- `pairmode_effort.py models` — breakdown by model
+- `pairmode_effort.py models` — breakdown by model, **retaining every
+  `agent_role` including non-build ones, each labelled via `role_class`**
 - `pairmode_effort.py validate-rebalance` — evidence report for the
   sonnet-baseline-opus-on-demand methodology; see below.
 - `pairmode_effort.py pending` — read-only diagnostic view (CER-091) over

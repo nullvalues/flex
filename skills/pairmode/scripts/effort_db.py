@@ -182,6 +182,31 @@ BUSY_TIMEOUT_MS: int = 15000
 #: row and it is the row the reconciliation sweep already matches.
 AGENT_DEDUPE_WINDOW_SECONDS = 300
 
+#: INFRA-309 (CER-107 correction): ``agent_role`` values that record real
+#: token cost but are not pairmode build-loop attempts. These are exactly the
+#: three non-build-loop roles documented in ``record_attempt.py``'s
+#: ``--agent-role`` list (``:74-75``) — ``sidebar-extractor``
+#: (``skills/companion/scripts/sidebar.py``), ``seed-miner``
+#: (``skills/seed/scripts/mine_sessions.py``), and ``seed-reconcile``
+#: (``skills/seed/scripts/reconcile.py`` / ``effort_recorder.py``). Their rows
+#: are *deliberately retained* in ``attempts`` — the token cost they record is
+#: real, and deleting the write would trade permanent loss of cost data for a
+#: cosmetic fix to a read path. This constant exists for **read-side**
+#: cross-role aggregation only: it is never consulted by a writer, and it is
+#: complementary to — not a substitute for —
+#: ``subagent_transcript.RECORDABLE_SUBAGENT_ROLES``, which governs a
+#: different question (what ``subagent_transcript`` records in the first
+#: place). Every reader that aggregates *across* roles (rollups, baseline
+#: seeding, the observability SPA's summary counters) excludes these roles;
+#: readers that are already role-keyed (``models``, ``_query_effort_by_role``)
+#: retain and label them instead. See ``docs/architecture.md`` § Effort
+#: tracking.
+NON_BUILD_ROLES: frozenset[str] = frozenset({
+    "sidebar-extractor",
+    "seed-miner",
+    "seed-reconcile",
+})
+
 # Columns in the order they are bound by ``insert_attempt``.  ``id`` is
 # AUTOINCREMENT so it is omitted from the INSERT.
 _INSERT_COLUMNS: tuple[str, ...] = (

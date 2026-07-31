@@ -219,3 +219,66 @@ def test_idempotent_byte_identical_output(tmp_path):
     )
 
     assert output_1.read_bytes() == output_2.read_bytes()
+
+
+# ---------------------------------------------------------------------------
+# Test 5 (INFRA-309/D15): non-build roles excluded from the seed at the source
+# ---------------------------------------------------------------------------
+
+
+def test_non_build_roles_excluded_builder_stats_unchanged(tmp_path):
+    """A db containing sidebar-extractor rows with non-NULL tokens_total
+    produces a seed file with no sidebar-extractor key, and the builder
+    statistics are unchanged by their presence."""
+
+    builder_tokens = [10_000, 20_000, 30_000, 40_000, 50_000]
+    rows = [("builder", t) for t in builder_tokens] + [
+        ("sidebar-extractor", t) for t in [1, 2, 3, 4, 5, 6, 7]
+    ]
+    project_dir = _make_project(tmp_path, "proj_sidebar", rows)
+    output = tmp_path / "out.json"
+
+    runner = CliRunner()
+    result = runner.invoke(
+        refresh_main,
+        [
+            "--project-dirs", str(project_dir),
+            "--output", str(output),
+            "--generated-at", "2026-05-29T00:00:00Z",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+
+    data = json.loads(output.read_text())
+    assert "sidebar-extractor" not in data["by_role"]
+    assert data["by_role"]["builder"]["n"] == 5
+    assert data["by_role"]["builder"]["median"] == int(statistics.median(builder_tokens))
+
+
+def test_seed_miner_and_seed_reconcile_also_excluded(tmp_path):
+    """All three NON_BUILD_ROLES members are excluded, not just sidebar."""
+
+    rows = [("builder", 10_000)] + [
+        ("seed-miner", 500),
+        ("seed-reconcile", 700),
+    ]
+    project_dir = _make_project(tmp_path, "proj_seed", rows)
+    output = tmp_path / "out.json"
+
+    runner = CliRunner()
+    result = runner.invoke(
+        refresh_main,
+        [
+            "--project-dirs", str(project_dir),
+            "--output", str(output),
+            "--generated-at", "2026-05-29T00:00:00Z",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+
+    data = json.loads(output.read_text())
+    assert "seed-miner" not in data["by_role"]
+    assert "seed-reconcile" not in data["by_role"]
+    assert data["by_role"]["builder"]["n"] == 1

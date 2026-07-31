@@ -485,6 +485,90 @@ the main checkout; never `pnpm install`:
 cd skills/observability && pnpm --filter @flex-obs/api build
 ```
 
+## Evidence
+
+**Anchor correction (step 1).** The `## Requires` line-number anchors for
+`effort_db.py`, `pairmode_effort.py`, and `refresh_effort_baseline.py` matched
+source exactly at build time; no drift. `effortDb.ts` had one real anchor
+drift: the story's `## Requires` and `## Instructions` name a function
+`queryMisses` at `:246` (count `:277`, SELECT `:281-287`). No function of
+that name exists in the current `effortDb.ts` — the "near-miss" query is
+named `querySpendOutliers` (INFRA-321 § E3 renamed it away from the
+`_miss`/`_block` framing, since no block ever occurs at these numbers). E19's
+obligation ("exclude in both its count query and its row query, so the miss
+count and the listed entries agree") is honoured against the real function:
+`querySpendOutliers`'s `count` query and its `entries` row query both gained
+the identical `NON_BUILD_ROLE_EXCLUSION_SQL` predicate. `## Tests` § E23's
+mirror test is named accordingly
+(`_query_spend_outliers_mirror` / `TestNonBuildRoleExclusionTsMirror` in
+`tests/pairmode/test_waypoint_outcome.py`).
+
+**Before (step 2), against this repo's live `.companion/effort.db`:**
+
+Per-`agent_role` row counts:
+
+```
+('sidebar-extractor', 312)
+('builder',            118)
+('reviewer',           103)
+('security-auditor',    17)
+('intent-reviewer',     15)
+('loop-breaker',         1)
+```
+
+`SELECT COUNT(*) FROM attempts` → **566** (`total_attempts` before, mirroring
+`queryEffortSummary`).
+
+`pairmode_effort.py rollup --json` (before): 46 rows; `sum(attempts)` across
+all rows = **566**. The anonymous `(phase=NULL, rail=NULL, model='llama3.1:8b')`
+bucket — the sidebar-extraction rows' model tag on this repo — reports
+`attempts: 312, total_tokens: 0`, an unattributed row that dwarfs every real
+rail's attempt count. (Two further `phase=NULL, rail=NULL` rows also exist,
+`model='opus'` with 2 attempts and `model=NULL` with 2 attempts — these are
+unrelated non-sidebar rows with a null phase/rail, e.g. early loop-breaker
+recordings, and are correctly retained since their `agent_role` is not in
+`NON_BUILD_ROLES`.)
+
+**After (step 8), same database, same commands:**
+
+`pairmode_effort.py rollup --json` (after): 45 rows — the
+`model='llama3.1:8b'` anonymous bucket is gone entirely; `sum(attempts)` =
+**254**.
+
+**Arithmetic:** `566 - 254 = 312`, exactly the `sidebar-extractor` row count
+above. No `builder`/`reviewer`/`security-auditor`/`intent-reviewer`/
+`loop-breaker` row was touched — none of those roles are in
+`NON_BUILD_ROLES`, and the two non-sidebar `phase=NULL, rail=NULL` rows noted
+above survive in both the before and after row sets.
+
+`SELECT COUNT(*) FROM attempts WHERE agent_role IS NULL OR agent_role NOT IN
+('sidebar-extractor', 'seed-miner', 'seed-reconcile')` → **254** — the
+`queryEffortSummary.total_attempts` mirror (E18), confirming the SPA's
+headline attempt counter drops from 566 (63.8% attributable to
+`sidebar-extractor` on this repo, consistent with the story's Context
+observation of majority-non-build attempt counts) to 254 on this repo.
+
+Text-mode disclosure line, confirmed present:
+
+```
+(excluding non-build roles: seed-miner, seed-reconcile, sidebar-extractor)
+```
+
+**Type-check / build (E21):** `pnpm --filter @flex-obs/api build` succeeded
+(`tsc` clean, no output); `pnpm exec tsc --noEmit` in `skills/observability/api`
+also produced no output (clean).
+
+**`git diff` on `effortDb.ts`'s per-phase block (E20):**
+`git diff -U0 skills/observability/api/src/readers/effortDb.ts | grep -n 'DISTINCT phase'`
+and `... | grep -n 'by_phase'` both produced no output — no hunk touches
+that block.
+
+**Full suite (F26):** `uv run pytest tests/pairmode/ -q` (no `-x`) →
+**4586 passed, 211 skipped**, zero failures. `test_observability_ui.py`
+(37 tests) passed cleanly in this worktree — the CER-090 vendored
+`node_modules` gap this story's `## Requires` flagged as a known
+worktree-only risk did not reproduce here, so no rsync repair was needed.
+
 Machine-checkable Ensures:
 
 ```bash

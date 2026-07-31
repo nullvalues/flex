@@ -10,12 +10,18 @@ Tests use synthetic effort.db; no live fleet dependence (CER-057 lesson).
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from pathlib import Path
 
 import pytest
 
+from skills.pairmode.scripts import effort_db
+
 FLEX_ROOT = Path(__file__).resolve().parents[2]
+EFFORT_DB_TS = (
+    FLEX_ROOT / "skills" / "observability" / "api" / "src" / "readers" / "effortDb.ts"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -274,3 +280,198 @@ class TestPassRateReport:
             )
         finally:
             conn.close()
+
+
+# ---------------------------------------------------------------------------
+# INFRA-309 § E22: Python <-> TypeScript NON_BUILD_ROLES parity
+# ---------------------------------------------------------------------------
+
+
+def _parse_ts_non_build_roles() -> set[str]:
+    """Regex-extract effortDb.ts's ``NON_BUILD_ROLES`` array literal.
+
+    Fails loudly (rather than passing vacuously) if the literal cannot be
+    found or parses to an empty set — a missing/renamed export must fail
+    this test, not silently report equality-with-nothing.
+    """
+
+    text = EFFORT_DB_TS.read_text(encoding="utf-8")
+    match = re.search(
+        r"NON_BUILD_ROLES\s*=\s*\[([^\]]*)\]",
+        text,
+    )
+    assert match is not None, (
+        f"could not find a NON_BUILD_ROLES array literal in {EFFORT_DB_TS} — "
+        "has it been renamed or removed?"
+    )
+    literal_body = match.group(1)
+    roles = set(re.findall(r"'([^']*)'|\"([^\"]*)\"", literal_body))
+    # re.findall with two alternation groups yields ('value', '') or ('', 'value').
+    parsed = {a or b for a, b in roles if (a or b)}
+    assert parsed, (
+        f"NON_BUILD_ROLES literal in {EFFORT_DB_TS} parsed to an empty set — "
+        "this must fail loudly, not vacuously pass parity"
+    )
+    return parsed
+
+
+class TestNonBuildRolesParity:
+    def test_ts_mirror_matches_python_source_of_truth(self) -> None:
+        """effortDb.ts's NON_BUILD_ROLES must exactly match
+        effort_db.NON_BUILD_ROLES — change both or neither (INFRA-309 § E22)."""
+
+        ts_roles = _parse_ts_non_build_roles()
+        assert ts_roles == effort_db.NON_BUILD_ROLES, (
+            f"skills/observability/api/src/readers/effortDb.ts NON_BUILD_ROLES "
+            f"({sorted(ts_roles)}) diverges from "
+            f"skills/pairmode/scripts/effort_db.py NON_BUILD_ROLES "
+            f"({sorted(effort_db.NON_BUILD_ROLES)}) — update both files together"
+        )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-309 § E23: TS read-path non-build-role exclusion, pinned from Python
+#
+# effortDb.ts's actual queries cannot be executed from pytest (no JS test
+# runner, per this story's Out-of-scope). These fixture-backed tests mirror
+# the SQL shape of queryWaypoints, queryEffortSummary.total_attempts, and
+# querySpendOutliers (the "queryMisses" function named in this story's
+# ## Requires — renamed by INFRA-321; see ## Evidence) exactly as written in
+# effortDb.ts, following the existing _query_waypoints mirror pattern above.
+# ---------------------------------------------------------------------------
+
+
+def _make_mixed_role_db(tmp_path: Path) -> Path:
+    """A synthetic effort.db with builder, reviewer, NULL-role, and
+    sidebar-extractor rows, all with non-NULL tokens_total."""
+
+    db_path = tmp_path / "mixed_roles_effort.db"
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("""
+            CREATE TABLE attempts (
+                id INTEGER PRIMARY KEY,
+                story_id TEXT,
+                agent_role TEXT,
+                attempt_number INTEGER,
+                ts TEXT,
+                tokens_total INTEGER,
+                duration_ms INTEGER,
+                outcome TEXT,
+                phase TEXT,
+                rail TEXT
+            )
+        """)
+        rows = [
+            ("S-001", "builder", 1, "2026-01-01T00:01:00Z", 30000, "PASS"),
+            ("S-001", "reviewer", 1, "2026-01-01T00:02:00Z", 35000, "FAIL"),
+            ("S-002", None, 1, "2026-01-02T00:01:00Z", 20000, None),
+            ("sidebar:no-story", "sidebar-extractor", 1, "2026-01-03T00:01:00Z", 500000, None),
+        ]
+        conn.executemany(
+            "INSERT INTO attempts (story_id, agent_role, attempt_number, ts, tokens_total, outcome, phase, rail) "
+            "VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)",
+            rows,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return db_path
+
+
+def _query_waypoints_mirror(db_path: Path) -> list[dict]:
+    """Mirrors queryWaypoints's SELECT after the INFRA-309 exclusion."""
+    roles = sorted(effort_db.NON_BUILD_ROLES)
+    placeholders = ", ".join("?" for _ in roles)
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            f"""SELECT ts AS created_at, tokens_total, story_id, phase, agent_role, outcome
+               FROM attempts
+               WHERE tokens_total IS NOT NULL
+               AND (agent_role IS NULL OR agent_role NOT IN ({placeholders}))
+               ORDER BY ts DESC
+               LIMIT 100""",
+            roles,
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def _query_effort_summary_total_attempts_mirror(db_path: Path) -> int:
+    """Mirrors queryEffortSummary.total_attempts after the INFRA-309 exclusion."""
+    roles = sorted(effort_db.NON_BUILD_ROLES)
+    placeholders = ", ".join("?" for _ in roles)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS total FROM attempts "
+            f"WHERE (agent_role IS NULL OR agent_role NOT IN ({placeholders}))",
+            roles,
+        ).fetchone()
+        return row[0] if row else 0
+    finally:
+        conn.close()
+
+
+def _query_spend_outliers_mirror(db_path: Path, floor: int) -> tuple[int, list[dict]]:
+    """Mirrors querySpendOutliers (the story's 'queryMisses') after the
+    INFRA-309 exclusion, in both the count and row queries."""
+    roles = sorted(effort_db.NON_BUILD_ROLES)
+    placeholders = ", ".join("?" for _ in roles)
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    try:
+        count_row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM attempts WHERE tokens_total > ? "
+            f"AND (agent_role IS NULL OR agent_role NOT IN ({placeholders}))",
+            [floor, *roles],
+        ).fetchone()
+        count = count_row["n"] if count_row else 0
+        rows = conn.execute(
+            f"""SELECT ts AS created_at, phase, tokens_total, story_id
+               FROM attempts
+               WHERE tokens_total > ?
+               AND (agent_role IS NULL OR agent_role NOT IN ({placeholders}))
+               ORDER BY ts DESC
+               LIMIT 10""",
+            [floor, *roles],
+        ).fetchall()
+        return count, [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+class TestNonBuildRoleExclusionTsMirror:
+    def test_waypoints_mirror_excludes_sidebar_retains_others(
+        self, tmp_path: Path
+    ) -> None:
+        db_path = _make_mixed_role_db(tmp_path)
+        waypoints = _query_waypoints_mirror(db_path)
+        roles = {w["agent_role"] for w in waypoints}
+        assert "builder" in roles
+        assert "reviewer" in roles
+        assert None in roles
+        assert "sidebar-extractor" not in roles
+        assert len(waypoints) == 3
+
+    def test_summary_total_attempts_mirror_excludes_sidebar(
+        self, tmp_path: Path
+    ) -> None:
+        db_path = _make_mixed_role_db(tmp_path)
+        total = _query_effort_summary_total_attempts_mirror(db_path)
+        # 4 rows total; 1 is sidebar-extractor — excluded.
+        assert total == 3
+
+    def test_spend_outliers_mirror_excludes_sidebar_row_above_ceiling(
+        self, tmp_path: Path
+    ) -> None:
+        db_path = _make_mixed_role_db(tmp_path)
+        # Floor set below the sidebar row's 500000 tokens but above the
+        # builder/reviewer rows, so only the sidebar row would qualify as a
+        # "miss" if it were not excluded.
+        count, entries = _query_spend_outliers_mirror(db_path, floor=100000)
+        assert count == 0
+        assert entries == []

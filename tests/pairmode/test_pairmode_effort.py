@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -299,6 +300,167 @@ class TestRollup:
 
 
 # ---------------------------------------------------------------------------
+# INFRA-309: non-build-role exclusion
+# ---------------------------------------------------------------------------
+
+
+class TestNonBuildRoleExclusion:
+    """B4-B9, C10-C12: rollup/dollars exclude non-build roles; models retains
+    and labels them."""
+
+    def test_rollup_excludes_sidebar_bucket_and_retains_null_role(
+        self, project_dir: Path, seeded_db: Path
+    ) -> None:
+        db_path = project_dir / ".companion" / "effort.db"
+        # A NULL-role row (B5) with non-zero tokens. ``effort_db``'s live
+        # schema constrains ``agent_role NOT NULL`` — no writer intentionally
+        # omits it — but the rollup query still guards NULL defensively (a
+        # NULL role is not a *known* non-build role), so this row is inserted
+        # by rebuilding the table without that constraint, matching only what
+        # this test needs to prove: the SQL predicate's ``agent_role IS
+        # NULL OR ...`` branch retains such a row rather than silently
+        # dropping it.
+        con = sqlite3.connect(str(db_path))
+        con.execute("ALTER TABLE attempts RENAME TO attempts_orig")
+        con.execute("CREATE TABLE attempts AS SELECT * FROM attempts_orig")
+        con.execute("DROP TABLE attempts_orig")
+        con.execute(
+            "INSERT INTO attempts "
+            "(story_id, phase, rail, agent_role, model, attempt_number, "
+            " tokens_total, tokens_in, tokens_out, ts) "
+            "VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)",
+            (
+                "INFRA-100",
+                "22",
+                "INFRA",
+                "claude-sonnet-4-6",
+                1,
+                42,
+                40,
+                2,
+                "2026-05-01T00:00:00+00:00",
+            ),
+        )
+        con.commit()
+        con.close()
+        # Sidebar-extraction rows: phase=NULL, rail=NULL, a distinct model.
+        for _ in range(3):
+            _seed_attempt(
+                db_path,
+                story_id="sidebar:no-story",
+                phase=None,
+                rail=None,
+                model="llama3.1:8b",
+                agent_role="sidebar-extractor",
+                attempt_number=1,
+                tokens_total=0,
+                tokens_in=0,
+                tokens_out=0,
+                outcome=None,
+            )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["rollup", "--json", "--project-dir", str(project_dir)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        rows = json.loads(result.output)
+        # No row carries the sidebar-only bucket's model.
+        assert not any(r["model"] == "llama3.1:8b" for r in rows)
+        # The NULL-role row survives (B5).
+        null_role_rows = [r for r in rows if r["phase"] == "22" and r["rail"] == "INFRA"]
+        assert sum(r["attempts"] for r in null_role_rows) >= 1
+
+        # Text mode discloses the exclusion, naming all three roles.
+        text_result = runner.invoke(
+            cli,
+            ["rollup", "--project-dir", str(project_dir)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert "excluding non-build roles" in text_result.output
+        assert "seed-miner" in text_result.output
+        assert "seed-reconcile" in text_result.output
+        assert "sidebar-extractor" in text_result.output
+
+    def test_rollup_json_mode_has_no_disclosure_line(
+        self, project_dir: Path, seeded_db: Path
+    ) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["rollup", "--json", "--project-dir", str(project_dir)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        # JSON mode stays a bare list — no disclosure text anywhere.
+        assert "excluding non-build roles" not in result.output
+        rows = json.loads(result.output)
+        assert isinstance(rows, list)
+
+    def test_rollup_dollars_exclusion_matches_token_exclusion(
+        self,
+        project_dir: Path,
+        seeded_db: Path,
+        pricing_file: Path,
+    ) -> None:
+        """B6: a (phase, rail, model) group shared by a build row and a
+        non-build row must compute total_tokens and dollars_estimate over the
+        same (filtered) row set."""
+
+        db_path = project_dir / ".companion" / "effort.db"
+        # Share the exact (phase, rail, model) triple with an existing build
+        # row: INFRA-100 / INFRA / claude-sonnet-4-6, phase "22".
+        _seed_attempt(
+            db_path,
+            story_id="sidebar:INFRA-100",
+            phase="22",
+            rail="INFRA",
+            model="claude-sonnet-4-6",
+            agent_role="sidebar-extractor",
+            attempt_number=1,
+            tokens_total=9000,
+            tokens_in=9000,
+            tokens_out=0,
+            outcome=None,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "rollup",
+                "--dollars",
+                str(pricing_file),
+                "--json",
+                "--project-dir",
+                str(project_dir),
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        rows = json.loads(result.output)
+        group = next(
+            r
+            for r in rows
+            if r["phase"] == "22"
+            and r["rail"] == "INFRA"
+            and r["model"] == "claude-sonnet-4-6"
+        )
+        # total_tokens excludes the 9000-token sidebar row
+        # (1000 + 1500 + 500 = 3000 tokens_total across the three build rows).
+        assert group["total_tokens"] == 3000
+        # dollars_estimate must be computed over that same excluded set, not
+        # inflated by the sidebar row's 9000 input tokens.
+        # Sonnet rate: input 3 USD/Mtok, output 15 USD/Mtok.
+        # tokens_in 800+1200+400=2400; tokens_out 200+300+100=600.
+        expected = (2400 * 3.00 + 600 * 15.00) / 1_000_000.0
+        assert group["dollars_estimate"] == pytest.approx(expected, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
 # rework
 # ---------------------------------------------------------------------------
 
@@ -476,6 +638,70 @@ class TestModels:
         assert result.exit_code == 0, result.output
         assert "pass_rate_pct" in result.output
         assert "claude-sonnet-4-6" in result.output
+
+    def test_role_class_labels_non_build_and_build_rows(
+        self, project_dir: Path, seeded_db: Path
+    ) -> None:
+        """C10-C11: models retains every role and labels it; NULL role is
+        classed 'build' (consistent with B5's don't-silently-reclassify
+        rule)."""
+
+        db_path = project_dir / ".companion" / "effort.db"
+        _seed_attempt(
+            db_path,
+            story_id="sidebar:no-story",
+            phase=None,
+            rail=None,
+            model="llama3.1:8b",
+            agent_role="sidebar-extractor",
+            attempt_number=1,
+            tokens_total=0,
+            tokens_in=0,
+            tokens_out=0,
+            outcome=None,
+        )
+        # Rebuild the ``attempts`` table without its live ``agent_role NOT
+        # NULL`` constraint so a NULL-role row can be inserted directly — see
+        # the equivalent rebuild in TestNonBuildRoleExclusion for why: no
+        # writer intentionally omits agent_role, but the query must still
+        # not silently reclassify a NULL role that it may encounter.
+        con = sqlite3.connect(str(db_path))
+        con.execute("ALTER TABLE attempts RENAME TO attempts_orig")
+        con.execute("CREATE TABLE attempts AS SELECT * FROM attempts_orig")
+        con.execute("DROP TABLE attempts_orig")
+        con.execute(
+            "INSERT INTO attempts "
+            "(story_id, phase, rail, agent_role, model, attempt_number, "
+            " tokens_total, tokens_in, tokens_out, ts) "
+            "VALUES (?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?)",
+            ("INFRA-100", "claude-sonnet-4-6", 1, 42, 40, 2, "2026-05-01T00:00:00+00:00"),
+        )
+        con.commit()
+        con.close()
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["models", "--json", "--project-dir", str(project_dir)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        rows = json.loads(result.output)
+
+        sidebar_row = next(
+            r for r in rows if r["agent_role"] == "sidebar-extractor"
+        )
+        assert sidebar_row["role_class"] == "non-build"
+
+        builder_row = next(
+            r
+            for r in rows
+            if r["agent_role"] == "builder" and r["model"] == "claude-sonnet-4-6"
+        )
+        assert builder_row["role_class"] == "build"
+
+        null_role_row = next(r for r in rows if r["agent_role"] is None)
+        assert null_role_row["role_class"] == "build"
 
 
 # ---------------------------------------------------------------------------
