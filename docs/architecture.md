@@ -23,7 +23,7 @@ flex/
     exit_plan_mode.py             ← relay plan content for impact analysis
     post_tool_use.py              ← pair partner: relay file changes; Task/Agent branch: reads JSONL via context_budget.read_current_tokens() and writes context_current_tokens to state.json (INFRA-182); also calls subagent_transcript.record_attempt_from_transcript() to write one effort.db attempt row per spawn (INFRA-236)
     session_end.py                ← signal sidebar to summarize and exit
-    pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename; INFRA-199 scoped to tool_input.subagent_type ∈ build-cycle agents only); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement); Read → cold_read_guard.py (INFRA-196 cold-read enforcement, registered/reachable since INFRA-205/INFRA-206, CER-065)
+    pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename; INFRA-199 scoped to tool_input.subagent_type ∈ build-cycle agents only); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement); Read → cold_read_guard.py (INFRA-196 cold-read enforcement, registered/reachable since INFRA-205/INFRA-206, CER-065); Bash → reviewer_bash_guard.py (INFRA-324 reviewer-role git-subcommand allowlist enforcement, fails open for non-reviewer agent_type)
     session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write (context_current_tokens + context_current_tokens_recorded_at + context_session_reset_at on clear/startup — INFRA-180); also calls session_lifecycle.agent_staleness_notice() on clear/compact (INFRA-323 — see § Session-lifecycle contract)
 
   skills/
@@ -2718,8 +2718,8 @@ Hooks must:
 - Never make API calls
 - Never write to spec files directly
 
-**Documented exception — `hooks/pre_tool_use.py` (triple thin-delegate):**
-`pre_tool_use.py` dispatches to three modules. As of RELEASE-020, the
+**Documented exception — `hooks/pre_tool_use.py` (quadruple thin-delegate):**
+`pre_tool_use.py` dispatches to four modules. As of RELEASE-020, the
 `Task`/`Agent` branch also makes a fourth, read-only import — `flex_build`
 (for `_story_path` / `_read_story_frontmatter`) alongside `scope_guard`
 (for `resolve_call_story`, INFRA-281 — the per-call resolver superseding
@@ -2764,6 +2764,17 @@ resolution and no new dispatch branch is added.
   `.claude/agents/**`, directing the orchestrator to pass the story ID to a
   builder/reviewer subagent instead of reading it cold. Read-only; no state
   writes. `docs/phases/**` and `docs/architecture.md` reads are never blocked.
+- **`Bash` → `reviewer_bash_guard.py` (INFRA-324):** governs the reviewer
+  role only — fails open (`True`, no command inspection) whenever
+  `agent_type != "reviewer"`. For a reviewer-issued command, parses whether
+  it invokes `git` and, if so, which subcommand; blocks any subcommand
+  outside `skills/pairmode/skills/reviewer/procedure.md`'s "On FAIL, revert"
+  sanctioned set (`git checkout -- <path>` / whole-tree `git checkout .`,
+  `git clean -fd -- <path>` / whole-tree `git clean -fd`, `git add`, `git
+  commit`, `git diff`, `git status`, `git log`) — most notably `git reset
+  --hard` and `git revert`, the exact commands a reviewer subagent was
+  observed improvising on a FAIL verdict (see the story's Context). Read-only;
+  no state writes.
 
 **Documented exception — `hooks/subagent_stop.py` (INFRA-298, CER-114):**
 registered against the `SubagentStop` event — the one event the harness

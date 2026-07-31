@@ -17,6 +17,7 @@ touches:
   - docs/architecture.md
   - docs/phases/phase-114.md
   - docs/stories/INFRA/INFRA-324.md
+  - skills/pairmode/skills/security-auditor/procedure.md
 ---
 
 <!-- SPEC-WRITER NOTE (frontmatter): `touches:` is block-style per CER-115 —
@@ -111,6 +112,13 @@ available for a new `Bash` branch to identify reviewer-issued commands.
   revert" sanctioned command set (the two scoped forms + the legacy
   whole-tree fallback) as the authoritative allowlist source — do not
   invent a different allowlist than what the procedure already documents.
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| skills/pairmode/skills/security-auditor/procedure.md | test_hook_delegations_are_documented_exceptions requires reviewer_bash_guard named in the security-auditor exception block for the new Bash dispatch branch | 2026-07-31T03:13:18Z |
 
 ## Ensures
 

@@ -614,3 +614,52 @@ def test_flex_factor_absent_story_still_blocks_at_default_ceiling(tmp_path):
     assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert payload["decision"] == "block"
+
+
+# ---------------------------------------------------------------------------
+# Test 9 (INFRA-324): Bash dispatch → reviewer_bash_guard.check_command
+# ---------------------------------------------------------------------------
+
+
+def test_bash_reviewer_blocked_command_blocks(tmp_path):
+    """A reviewer-issued Bash call running a blocked git subcommand blocks."""
+    result = _run_hook({
+        "tool_name": "Bash",
+        "tool_input": {"command": "git reset --hard main"},
+        "cwd": str(tmp_path),
+        "agent_type": "reviewer",
+    })
+    assert result.returncode == 0
+    assert result.stdout.strip() != b""
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "block"
+    assert "reason" in payload
+    assert payload["reason"]
+
+
+def test_bash_reviewer_allowed_command_exits_cleanly(tmp_path):
+    """A reviewer-issued Bash call running a sanctioned git command does not block."""
+    result = _run_hook({
+        "tool_name": "Bash",
+        "tool_input": {"command": "git checkout -- foo.py"},
+        "cwd": str(tmp_path),
+        "agent_type": "reviewer",
+    })
+    assert result.returncode == 0
+    assert result.stdout.strip() == b""
+
+
+def test_bash_non_reviewer_agent_type_never_blocks(tmp_path):
+    """A blocked git subcommand issued by a non-reviewer agent_type (or no
+    agent_type at all) is never gated by this hook."""
+    for agent_type in (None, "builder", "loop-breaker"):
+        stdin_data = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "git reset --hard main"},
+            "cwd": str(tmp_path),
+        }
+        if agent_type is not None:
+            stdin_data["agent_type"] = agent_type
+        result = _run_hook(stdin_data)
+        assert result.returncode == 0
+        assert result.stdout.strip() == b""

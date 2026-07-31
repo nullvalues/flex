@@ -131,7 +131,7 @@ Hooks are thin relays only. Any blocking logic in a hook is CRITICAL.
 
 **Documented thin-delegation exceptions:**
 
-`hooks/pre_tool_use.py` is a thin dispatcher for three tool types:
+`hooks/pre_tool_use.py` is a thin dispatcher for four tool types:
 
 - `Task` / `Agent` → `skills/pairmode/scripts/context_budget.py`
   (CER-027 context-budget enforcement; both tool names accepted — CER-049).
@@ -143,6 +143,8 @@ Hooks are thin relays only. Any blocking logic in a hook is CRITICAL.
   (Phase 55 story file-scope enforcement)
 - `Read` → `skills/pairmode/scripts/cold_read_guard.py`
   (INFRA-196 cold-read enforcement)
+- `Bash` → `skills/pairmode/scripts/reviewer_bash_guard.py`
+  (INFRA-324 reviewer-role git-subcommand allowlist enforcement)
 
 For the `Task`/`Agent` dispatch: one tool-name check, one
 `tool_input.subagent_type` allowlist check (INFRA-199 — the gate is scoped to
@@ -171,6 +173,16 @@ Read, not a subagent Read) AND the target path falls under
 `docs/stories/**` or `.claude/agents/**`; the orchestrator must instead
 pass the story ID to the builder/reviewer subagent and let it read cold.
 `docs/phases/**` and `docs/architecture.md` reads are never blocked.
+
+For the `Bash` dispatch: one tool-name check, one delegated module call
+(`reviewer_bash_guard.check_command(command, agent_type)`), one stdout emit.
+The Bash branch is read-only — no state writes. It fails open (returns
+`True`, no command inspection) whenever `agent_type != "reviewer"`; for the
+reviewer role it parses whether the command invokes `git` and blocks
+subcommands outside the FAIL-path revert contract's sanctioned set (`git
+reset`, `git revert`, `git rebase`, `git push`, forced `git branch -D`, and
+any other non-allowlisted subcommand or bare `--force`/`-f` flag outside the
+two sanctioned `git clean -fd` forms).
 
 `hooks/post_tool_use.py` is a thin dispatcher for two tool types:
 
@@ -536,6 +548,13 @@ git clean -fd
 
 This mirrors the `git add -A` fallback already used in the "On PASS,
 commit" section above.
+
+(INFRA-324) This sanctioned command set is now enforced by
+`hooks/pre_tool_use.py`'s `Bash` dispatch branch (→
+`skills/pairmode/scripts/reviewer_bash_guard.py`), not prose alone — a
+reviewer-issued `git reset`, `git revert`, `git rebase`, `git push`, or
+forced `git branch -D` is blocked at the tool-call layer regardless of what
+this section says.
 
 Stop at the first CRITICAL finding. Do not run remaining checklist items.
 

@@ -85,8 +85,10 @@ state.json writes. They do not violate the thin-relay contract.
 - `hooks/pre_tool_use.py` — dispatches Task/Agent → `context_budget.py`
   (CER-027/CER-049) and Edit/Write → `scope_guard.py` (Phase 55), including
   the `scope_guard.resolve_call_story` lookup (INFRA-281); dispatches Read →
-  `cold_read_guard.py` (INFRA-196); calls `state_utils.update_state_json` for
-  its own writes; and calls `flex_build`'s `_story_path` /
+  `cold_read_guard.py` (INFRA-196); dispatches Bash → `reviewer_bash_guard.py`
+  (INFRA-324 reviewer-role git-subcommand allowlist enforcement — fails open
+  for every non-`reviewer` `agent_type`); calls `state_utils.update_state_json`
+  for its own writes; and calls `flex_build`'s `_story_path` /
   `_read_story_frontmatter` helpers to resolve the active story's frontmatter.
   Authorized state.json writes: `context_budget_acknowledged_at` (on block
   only) and `context_budget_acknowledged_user_turn_seq` (INFRA-193).

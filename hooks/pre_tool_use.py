@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-# thin dispatcher — Edit/Write → scope_guard.py; Task/Agent → context_budget.py
+# thin dispatcher — Edit/Write → scope_guard.py; Task/Agent → context_budget.py; Bash → reviewer_bash_guard.py
 """
-PreToolUse hook — dispatches to context_budget (Task/Agent) and scope_guard (Edit/Write).
+PreToolUse hook — dispatches to context_budget (Task/Agent), scope_guard
+(Edit/Write), cold_read_guard (Read), and reviewer_bash_guard (Bash).
 
 Thin dispatcher. Domain logic lives in the named modules:
   - Task/Agent → skills/pairmode/scripts/context_budget.py  (CER-027, CER-049, INFRA-182, INFRA-193)
@@ -28,6 +29,13 @@ Thin dispatcher. Domain logic lives in the named modules:
     payload) Reads of docs/stories/** and .claude/agents/** — these must be
     handed to the builder/reviewer subagent as a story ID, not read cold by
     the orchestrator itself.
+  - Bash → skills/pairmode/scripts/reviewer_bash_guard.py (INFRA-324)
+    Read-only; no state writes. Governs the reviewer role only — fails open
+    (no inspection) for every other/absent agent_type. Blocks a reviewer
+    Bash call that invokes a git subcommand outside the FAIL-path revert
+    contract's sanctioned set (reviewer/procedure.md's "On FAIL, revert"
+    section) — e.g. `git reset --hard` or `git revert`, which the procedure
+    never sanctions.
 
 CER-049: Current Claude Code harnesses name the agent-spawn tool `Agent`
 (was `Task` in earlier harnesses). The matcher in hooks.json and the
@@ -211,6 +219,20 @@ def main():
                 file_path=data.get("tool_input", {}).get("file_path", ""),
                 agent_type=data.get("agent_type"),
                 project_dir=Path(data.get("cwd") or "."),
+            )
+        except Exception:
+            sys.exit(0)
+        if not allowed:
+            print(json.dumps({"decision": "block", "reason": reason}))
+        sys.exit(0)
+
+    elif tool_name == "Bash":
+        try:
+            import reviewer_bash_guard
+
+            allowed, reason = reviewer_bash_guard.check_command(
+                command=data.get("tool_input", {}).get("command", ""),
+                agent_type=data.get("agent_type"),
             )
         except Exception:
             sys.exit(0)
