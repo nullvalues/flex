@@ -6,6 +6,22 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Fixed [pairmode] — Phase 114 (Build-loop closeout: worktrees, scaffolding, migration tooling, doc currency)
+- Non-interactive scaffolding and worktree provisioning (INFRA-301, INFRA-302): `create-rail` flag surfaces phase-manifest registration failures instead of swallowing them; per-story worktrees provision a working build environment and no longer track `tsconfig.tsbuildinfo`.
+- Migration tooling parity (INFRA-303): rules 9/10 name parity restored; `expected_step_tokens` gained an honest opt-out and CER-111 disposition.
+- Containment and template hygiene (INFRA-304): `spec_preflight` containment parity fixed; reviewer-template revert-assertion residue removed.
+- Build-loop doc and procedure currency sweep (INFRA-305).
+- Portable hook-command paths (INFRA-319): plugin-root/settings.local registration, `migrate` rewrite of machine-absolute and pre-rename hook commands, audit finding closed.
+- Two-track context accounting (INFRA-321, CER-129): orchestrator-window occupancy tracked separately from story/subagent spend; health verdict re-based on the orchestrator track; between-spawn coverage; surfaces labeled.
+- Anchored, case-insensitive CER resolution-marker grammar (INFRA-322, CER-130): shared `cer.is_resolution_marked` predicate stops the cer-do-now guard from misreading `Resolved`/`UNRESOLVED` casing; grammar published for consuming repos.
+- Session-lifecycle restart notices (INFRA-323, CER-134): RESTART REQUIRED notices at the end of bootstrap/migrate/sync paths that changed agent shells or hook registrations, restart steps in the runbooks and SKILL.md flows, SessionStart staleness advisory.
+- Reviewer Bash dispatch/allowlist (INFRA-324): closes the FAIL-path improvisation gap where a reviewer subagent could attempt unsanctioned destructive git commands.
+- checkpoint-docs (WORKER-011) wired into canonical scaffold and checkpoint dispatch (INFRA-325) — the role was fully specced but never created until this phase.
+- Dual-active-era tie-break fix (INFRA-326) — closes an INFRA-267 no-op that silently skipped the wrong era ledger row.
+- Loop-breaker exempted from the context-budget gate (INFRA-327) — it is the deterministic double-fail step, not discretionary.
+- `next-action`'s `spawn-loop-breaker` now carries the double-fail story's recorded `fail_cause` (INFRA-328), so the orchestrator can fill the required LOOP-BREAKER input.
+- Stale draft status corrected on 13 merged, reviewer-PASSed phase-114 stories (INFRA-330).
+
 ### Added [pairmode] — Phase 106 (Fleet migration campaign, driven from flex)
 - Six fleet projects migrated to pairmode 0.3.0 via a new orchestrator-level, cross-repo execution model (no builder subagent, no story worktree — direct pairmode-CLI invocation against the target repo under operator supervision, evidence-shaped acceptance criteria): meander (RELEASE-063, campaign canary), lumin (RELEASE-064), caddy (RELEASE-065), forqsite.help (RELEASE-066), halfhorse (RELEASE-067), pokus (RELEASE-068, canon-files-only per operator directive, no proving cycle — proof-deferred).
 - base56 decommissioned from pairmode entirely (RELEASE-069, reversed from a planned migration per operator directive — the product is fully developed, re-seed later rather than migrate now); all removed surfaces were gitignored/untracked, no git impact, with real product content (`docs/brief.md`, `docs/phases/phase-1.md`) rescued into tracked history first.
