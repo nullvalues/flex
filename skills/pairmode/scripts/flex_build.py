@@ -3716,6 +3716,41 @@ def _read_checkpoint_steps(state: dict) -> "dict[str, list[str]]":
     return {key: [item for item in flat if isinstance(item, str)]}
 
 
+def _cer_do_now_gate_message(project_dir: Path) -> "str | None":
+    """Return a checkpoint-tag refusal message when ``docs/cer/backlog.md``
+    holds an open ``## Do Now`` row, or ``None`` when the gate is clean
+    (INFRA-313, Ensures 3).
+
+    Shares ``cer.find_open_do_now_rows`` with
+    ``next_action._check_cer_do_now`` — one Do Now scan, not a second copy
+    forked for the checkpoint-tag path (Requires 1). Fail-open, matching the
+    resolver's own soft ``cer-do-now`` guard: a missing or unreadable
+    backlog.md returns ``None`` (nothing to refuse over), never blocking a
+    checkpoint the resolver itself would have let through.
+    """
+    from cer import find_open_do_now_rows  # noqa: PLC0415
+
+    backlog_path = project_dir / "docs" / "cer" / "backlog.md"
+    if not backlog_path.exists():
+        return None
+    try:
+        text = backlog_path.read_text(encoding="utf-8")
+    except OSError:
+        return None  # fail-open
+
+    open_rows = find_open_do_now_rows(text)
+    if not open_rows:
+        return None
+
+    listed = "; ".join(f"{row['id']}: {row['text'][:80]}" for row in open_rows)
+    return (
+        "record-checkpoint-step: checkpoint-tag refused — "
+        f"{len(open_rows)} open CER Do Now row(s): {listed}. Clear each row "
+        "with a RESOLVED/SUPERSEDED annotation or a written re-triage to "
+        "another quadrant — never by deletion — then retry."
+    )
+
+
 def _record_checkpoint_step(
     step_id: str, project_dir: Path, phase_key: "str | None" = None
 ) -> int:
@@ -3729,6 +3764,16 @@ def _record_checkpoint_step(
     ``docs/phases/index.md`` occurs on a 2-exit path; every validation and
     ambiguity check happens before the atomic state write and before
     ``_mark_phase_complete_in_index``.
+    Returns 3 when *step_id* is the terminal step (``checkpoint-tag``) and
+    ``docs/cer/backlog.md`` holds an open ``## Do Now`` row (INFRA-313,
+    Ensures 3) — ``_cer_do_now_gate_message`` names each open row's ID and
+    first 80 characters. No write occurs on a 3-exit path either: the gate
+    is checked before any of the A2/A3/A4 phase-key resolution below. The
+    refusal is fix-or-retriage, never delete: the message states that an
+    open row is cleared by a ``RESOLVED``/``SUPERSEDED`` annotation or a
+    written re-triage to another quadrant. This shares
+    ``cer.find_open_do_now_rows`` with ``next_action._check_cer_do_now`` —
+    one Do Now scan, two callers, not a forked second copy.
 
     Storage shape (INFRA-283, CER-095.4). Completed steps are stored in
     ``state.json["checkpoint_steps"]``, a ``dict[phase_key, list[step_id]]``
@@ -3807,6 +3852,17 @@ def _record_checkpoint_step(
         state = {}
 
     is_terminal = step_id == _CHECKPOINT_SEQUENCE[-1]
+
+    # --- INFRA-313 (Ensures 3): the terminal step (checkpoint-tag) refuses
+    # to record when docs/cer/backlog.md holds an open Do Now row. Checked
+    # before any read/validation below that could otherwise be mistaken for
+    # "in progress" — no state.json read has happened yet, so a refusal here
+    # performs no write of any kind. ---
+    if is_terminal:
+        gate_message = _cer_do_now_gate_message(project_dir)
+        if gate_message is not None:
+            click.echo(gate_message, err=True)
+            return 3
 
     # --- A2: an explicit --phase-key must name a real index row before any
     # write happens. ---

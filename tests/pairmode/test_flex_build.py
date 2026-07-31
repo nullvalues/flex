@@ -2580,3 +2580,113 @@ def test_next_action_advisory_path_reads_no_effort_db() -> None:
     # definition — no other line references it.
     references = [line for line in src.splitlines() if "_ADVISORY_CONTEXT" in line]
     assert len(references) == 1
+
+
+# ---------------------------------------------------------------------------
+# INFRA-313 — checkpoint-tag refuses to record over an open CER Do Now row
+# ---------------------------------------------------------------------------
+
+
+def _write_open_do_now_backlog(project_dir: Path, *, resolved: bool = False) -> Path:
+    """Write docs/cer/backlog.md with one Do Now row, open or resolved."""
+    cer_dir = project_dir / "docs" / "cer"
+    cer_dir.mkdir(parents=True, exist_ok=True)
+    backlog_path = cer_dir / "backlog.md"
+    finding = (
+        "A still-open finding blocking the tag."
+        if not resolved
+        else "A still-open finding blocking the tag. **RESOLVED Phase 116 — closed**"
+    )
+    backlog_path.write_text(
+        "# Project — CER Backlog\n\n"
+        "## Do Now\n\n"
+        "| ID | Finding | Source | Date | Phase |\n"
+        "|----|---------|--------|------|-------|\n"
+        f"| CER-900 | {finding} | cold-eyes | 2026-07-29 | 116 |\n\n"
+        "## Do Later\n\n"
+        "| ID | Finding | Source | Date | Phase |\n"
+        "|----|---------|--------|------|-------|\n"
+        "| — | *(none)* | — | — | — |\n",
+        encoding="utf-8",
+    )
+    return backlog_path
+
+
+class TestCheckpointTagCerDoNowGate:
+    """Ensures 3 (INFRA-313): the checkpoint-tag step of
+    record-checkpoint-step refuses to record when docs/cer/backlog.md holds
+    an open Do Now row, and succeeds once the row is annotated
+    RESOLVED/SUPERSEDED."""
+
+    def _setup(self, tmp_path: Path) -> Path:
+        project_dir = tmp_path / "sub" / "project"
+        companion = project_dir / ".companion"
+        companion.mkdir(parents=True)
+        (companion / "state.json").write_text(
+            json.dumps(
+                {
+                    "checkpoint_step": [
+                        "checkpoint-security",
+                        "checkpoint-intent",
+                        "checkpoint-docs",
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        return project_dir
+
+    def test_open_do_now_row_refuses_checkpoint_tag(self, tmp_path: Path) -> None:
+        project_dir = self._setup(tmp_path)
+        _write_open_do_now_backlog(project_dir, resolved=False)
+        state_path = project_dir / ".companion" / "state.json"
+        state_before = state_path.read_bytes()
+
+        result = _run(
+            "record-checkpoint-step",
+            "checkpoint-tag",
+            "--project-dir",
+            str(project_dir),
+        )
+
+        assert result.returncode != 0, result.stdout
+        assert "CER-900" in result.stderr
+        assert "checkpoint-tag" in result.stderr
+        # No write occurred — the refusal happens before any state mutation.
+        assert state_path.read_bytes() == state_before
+        # checkpoint_step must still hold the three completed gate steps —
+        # the step was NOT recorded.
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "checkpoint-tag" not in state["checkpoint_step"]
+
+    def test_resolved_do_now_row_allows_checkpoint_tag(self, tmp_path: Path) -> None:
+        project_dir = self._setup(tmp_path)
+        _write_open_do_now_backlog(project_dir, resolved=True)
+
+        result = _run(
+            "record-checkpoint-step",
+            "checkpoint-tag",
+            "--project-dir",
+            str(project_dir),
+        )
+
+        assert result.returncode == 0, result.stderr
+        state = json.loads(
+            (project_dir / ".companion" / "state.json").read_text(encoding="utf-8")
+        )
+        assert state["checkpoint_step"] == []
+
+    def test_missing_backlog_is_fail_open(self, tmp_path: Path) -> None:
+        """No docs/cer/backlog.md at all — the gate must not block a
+        project that has never run cer.py (fail-open, matching
+        next_action._check_cer_do_now)."""
+        project_dir = self._setup(tmp_path)
+
+        result = _run(
+            "record-checkpoint-step",
+            "checkpoint-tag",
+            "--project-dir",
+            str(project_dir),
+        )
+
+        assert result.returncode == 0, result.stderr

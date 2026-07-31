@@ -990,6 +990,42 @@ so a claim never overrides commit evidence (CER-095.1).
     (`Resolved cp-34 — …`, hit live on a consuming repo's checkpoint) while silently waving
     genuinely open rows through. `cer.is_resolution_marked` is the single implementation of this
     grammar; no consumer re-derives its own test.
+
+    **CER backlog gate and groom (INFRA-313, cora agreement A#1).** The Do Now scan behind the
+    guard above is a single shared function, `cer.find_open_do_now_rows(text)` — pure, no I/O,
+    returning `{"id", "text"}` for every open row — consumed by both
+    `next_action._check_cer_do_now` (the resolver's soft `cer-do-now` guard) and `cer.py gate`
+    (the checkpoint-hard gate below); no second copy of the scan exists. `cer.py gate
+    --project-dir <dir>` exits 0 when Do Now is clean (resolved-only, or the scaffolded
+    placeholder row) and exits 1, listing each open row's ID and first 80 characters, when it is
+    not — the exit code is the signal, never a printed warning with exit 0. The `checkpoint-tag`
+    step of `record-checkpoint-step` calls this same scan directly (`_cer_do_now_gate_message`)
+    before any state.json read or write: an open row makes the call return 3 (a new exit code,
+    distinct from 1 = unknown step_id and 2 = phase-key ambiguity, CER-077) and record nothing —
+    the message states that an open row is cleared by a `RESOLVED`/`SUPERSEDED` annotation or a
+    written re-triage to another quadrant, **never by deletion**. A missing or unreadable
+    `docs/cer/backlog.md` fails open on both paths, matching the resolver's own guard — a project
+    that has never run `cer.py` is never blocked by it.
+
+    `cer.py groom --project-dir <dir>` re-reads `## Do Later` and `## Do Much Later` for every
+    open row (same placeholder/resolution exemptions as Do Now) and prints each row's ID,
+    quadrant, and `gate:` condition text (or `(no gate:)` when the row carries none), plus a
+    summary count. groom's exit code is always 0 — it informs, it never decides — and it is
+    **read-only**: it never writes `docs/cer/backlog.md` and never promotes a row to Do Now
+    automatically. Pulling an arrived-gate row forward is always an operator decision, recorded in
+    the promotion ledger (`docs/phases/index.md` § backlog promotions, which this story does not
+    rebuild) — this is the preserved do-not-do from cora agreement A#1/AG-6. Per the global
+    backlog-grooming policy, every cold-eyes review should run `cer.py groom` and surface any
+    arrived-gate rows as "ready to pull forward" for the operator; the pull itself is never
+    automated.
+
+    A **`gate:` token** is a recognized inline marker inside a row's Finding cell — `gate:`
+    followed by free text running to the next bold-emphasis opener (`**`) or the cell's end
+    (`cer.extract_gate_condition`) — not a sixth table column: the 5-column
+    `ID | Finding | Source | Date | Phase` shape (parsed by `cer._parse_entries_from_backlog` and
+    by external greps) is unchanged. Live fixtures: CER-121 and CER-125 (`docs/cer/backlog.md`,
+    filed 2026-07-29) both carry a `gate:` token and are groom's first live test data.
+
     Step state persists in `state.json["checkpoint_step"]`; the resolver emits
     one action per call, and the harness applies the checkpoint-agent model override (model_selector)
     when spawning each leaf worker. Documentation is updated, all planned stories are verified

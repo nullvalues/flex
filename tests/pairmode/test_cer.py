@@ -10,6 +10,9 @@ from click.testing import CliRunner
 from skills.pairmode.scripts.cer import (
     cli,
     append_finding,
+    extract_gate_condition,
+    find_groomable_rows,
+    find_open_do_now_rows,
     is_placeholder_row,
     is_resolution_marked,
     _escape_table_cell,
@@ -690,3 +693,299 @@ def test_empty_and_non_string_inputs_return_false() -> None:
     assert is_resolution_marked("") is False
     assert is_resolution_marked(None) is False  # type: ignore[arg-type]
     assert is_resolution_marked(0) is False  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Tests: find_open_do_now_rows (INFRA-313, Requires 1)
+# ---------------------------------------------------------------------------
+
+_DO_NOW_HEADER = (
+    "# CER Backlog\n\n"
+    "## Do Now\n\n"
+    "| ID | Finding | Source | Date | Phase |\n"
+    "|----|---------|--------|------|-------|\n"
+)
+
+
+def test_find_open_do_now_rows_empty_section_returns_empty() -> None:
+    text = _DO_NOW_HEADER + "| — | *(none)* | — | — | — |\n\n## Do Later\n\n"
+    assert find_open_do_now_rows(text) == []
+
+
+def test_find_open_do_now_rows_open_row_returned() -> None:
+    text = (
+        _DO_NOW_HEADER
+        + "| CER-900 | A still-open finding | src | 2026-07-29 | 116 |\n\n"
+        "## Do Later\n\n"
+    )
+    rows = find_open_do_now_rows(text)
+    assert len(rows) == 1
+    assert rows[0]["id"] == "CER-900"
+    assert "still-open finding" in rows[0]["text"]
+
+
+def test_find_open_do_now_rows_resolved_row_excluded() -> None:
+    text = (
+        _DO_NOW_HEADER
+        + "| CER-900 | A finding. **RESOLVED Phase 1** | src | 2026-07-29 | 116 |\n\n"
+        "## Do Later\n\n"
+    )
+    assert find_open_do_now_rows(text) == []
+
+
+def test_find_open_do_now_rows_first_80_chars_truncatable() -> None:
+    long_finding = "X" * 200
+    text = (
+        _DO_NOW_HEADER
+        + f"| CER-901 | {long_finding} | src | 2026-07-29 | 116 |\n\n"
+        "## Do Later\n\n"
+    )
+    rows = find_open_do_now_rows(text)
+    assert len(rows) == 1
+    # The full row text is returned; callers (gate) truncate to 80 chars.
+    assert len(rows[0]["text"][:80]) == 80
+
+
+# ---------------------------------------------------------------------------
+# Tests: extract_gate_condition (Ensures 5)
+# ---------------------------------------------------------------------------
+
+
+def test_extract_gate_condition_present() -> None:
+    finding = (
+        "HIGH: something bad. gate: next canon change to a seeded-doc "
+        "template or the first post-0.3.1 fleet sync campaign."
+    )
+    condition = extract_gate_condition(finding)
+    assert condition == (
+        "next canon change to a seeded-doc template or the first "
+        "post-0.3.1 fleet sync campaign."
+    )
+
+
+def test_extract_gate_condition_stops_at_bold_token() -> None:
+    finding = "Some finding. gate: condition text here. **RESOLVED Phase 1**"
+    assert extract_gate_condition(finding) == "condition text here."
+
+
+def test_extract_gate_condition_absent_returns_none() -> None:
+    assert extract_gate_condition("A finding with no gate token at all.") is None
+
+
+def test_extract_gate_condition_case_insensitive() -> None:
+    finding = "A finding. GATE: some condition"
+    assert extract_gate_condition(finding) == "some condition"
+
+
+def test_extract_gate_condition_empty_or_none_input() -> None:
+    assert extract_gate_condition("") is None
+    assert extract_gate_condition(None) is None  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Tests: find_groomable_rows (Ensures 4/5 — live CER-121/CER-125 fixtures)
+# ---------------------------------------------------------------------------
+
+_LATER_HEADER = (
+    "# CER Backlog\n\n"
+    "## Do Now\n\n"
+    "| ID | Finding | Source | Date | Phase |\n"
+    "|----|---------|--------|------|-------|\n"
+    "| — | *(none)* | — | — | — |\n\n"
+    "## Do Later\n\n"
+    "| ID | Finding | Source | Date | Phase |\n"
+    "|----|---------|--------|------|-------|\n"
+)
+
+_MUCH_LATER_TRAILER = (
+    "\n## Do Much Later\n\n"
+    "| ID | Finding | Source | Date | Phase |\n"
+    "|----|---------|--------|------|-------|\n"
+)
+
+
+def test_find_groomable_rows_with_and_without_gate_shapes() -> None:
+    """CER-121 and CER-125 shape: a Do Later row with a gate: token and one
+    without, plus a Do Much Later row with a gate: token."""
+    text = (
+        _LATER_HEADER
+        + "| CER-121 | HIGH: some drift. gate: next canon change to a "
+        "seeded-doc template or the first post-0.3.1 fleet sync campaign — "
+        "whichever comes first. | Cold-eyes review 2026-07-29 | 2026-07-29 | — |\n\n"
+        + _MUCH_LATER_TRAILER
+        + "| CER-125 | LOW: stale manifest. gate: next hand edit to "
+        "phase-64.md for any reason. | Cold-eyes review 2026-07-29 | "
+        "2026-07-29 | — |\n\n"
+        "| CER-200 | A plain finding with no gate token. | src | "
+        "2026-07-29 | — |\n\n"
+    )
+    rows = find_groomable_rows(text)
+    by_id = {row["id"]: row for row in rows}
+
+    assert by_id["CER-121"]["quadrant"] == "Do Later"
+    assert by_id["CER-121"]["gate"] == (
+        "next canon change to a seeded-doc template or the first "
+        "post-0.3.1 fleet sync campaign — whichever comes first."
+    )
+
+    assert by_id["CER-125"]["quadrant"] == "Do Much Later"
+    assert by_id["CER-125"]["gate"] == (
+        "next hand edit to phase-64.md for any reason."
+    )
+
+    assert by_id["CER-200"]["quadrant"] == "Do Much Later"
+    assert by_id["CER-200"]["gate"] is None
+
+
+def test_find_groomable_rows_excludes_do_now() -> None:
+    """groom scans Do Later + Do Much Later only, never Do Now."""
+    text = (
+        _DO_NOW_HEADER
+        + "| CER-999 | An open Do Now finding | src | 2026-07-29 | 116 |\n\n"
+        "## Do Later\n\n"
+    )
+    assert find_groomable_rows(text) == []
+
+
+def test_find_groomable_rows_excludes_resolved_rows() -> None:
+    text = (
+        _LATER_HEADER
+        + "| CER-300 | A finding. **RESOLVED Phase 1** | src | "
+        "2026-07-29 | — |\n\n"
+    )
+    assert find_groomable_rows(text) == []
+
+
+def test_find_groomable_rows_excludes_placeholder_row() -> None:
+    text = _LATER_HEADER + "| — | *(none)* | — | — | — |\n\n"
+    assert find_groomable_rows(text) == []
+
+
+# ---------------------------------------------------------------------------
+# Tests: cer.py gate CLI subcommand (Ensures 1)
+# ---------------------------------------------------------------------------
+
+
+def test_gate_exits_0_on_clean_do_now(tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["gate", "--project-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+
+def test_gate_exits_1_and_lists_open_rows(tmp_path: Path) -> None:
+    cer_dir = tmp_path / "docs" / "cer"
+    cer_dir.mkdir(parents=True)
+    (cer_dir / "backlog.md").write_text(
+        _DO_NOW_HEADER
+        + "| CER-900 | A still-open finding blocking the tag | src | "
+        "2026-07-29 | 116 |\n\n## Do Later\n\n",
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+    result = runner.invoke(cli, ["gate", "--project-dir", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "CER-900" in result.output
+
+
+def test_gate_exits_0_when_do_now_resolved(tmp_path: Path) -> None:
+    cer_dir = tmp_path / "docs" / "cer"
+    cer_dir.mkdir(parents=True)
+    (cer_dir / "backlog.md").write_text(
+        _DO_NOW_HEADER
+        + "| CER-900 | A finding. **RESOLVED Phase 1** | src | "
+        "2026-07-29 | 116 |\n\n## Do Later\n\n",
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+    result = runner.invoke(cli, ["gate", "--project-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+
+# ---------------------------------------------------------------------------
+# Tests: cer.py groom CLI subcommand (Ensures 4 — never writes the backlog)
+# ---------------------------------------------------------------------------
+
+
+def test_groom_leaves_backlog_byte_identical(tmp_path: Path) -> None:
+    """Forbidden proxy check: groom's diff must be empty."""
+    cer_dir = tmp_path / "docs" / "cer"
+    cer_dir.mkdir(parents=True)
+    backlog_path = cer_dir / "backlog.md"
+    backlog_path.write_text(
+        _LATER_HEADER
+        + "| CER-121 | HIGH: some drift. gate: next canon change. | "
+        "Cold-eyes review 2026-07-29 | 2026-07-29 | — |\n\n",
+        encoding="utf-8",
+    )
+    before = backlog_path.read_bytes()
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["groom", "--project-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+    after = backlog_path.read_bytes()
+    assert after == before, "groom must never write docs/cer/backlog.md"
+
+
+def test_groom_prints_gate_condition_and_no_gate_marker(tmp_path: Path) -> None:
+    cer_dir = tmp_path / "docs" / "cer"
+    cer_dir.mkdir(parents=True)
+    (cer_dir / "backlog.md").write_text(
+        _LATER_HEADER
+        + "| CER-121 | HIGH: some drift. gate: next canon change to a "
+        "seeded-doc template. | Cold-eyes review 2026-07-29 | 2026-07-29 | — |\n\n"
+        + _MUCH_LATER_TRAILER
+        + "| CER-200 | A plain finding with no gate token. | src | "
+        "2026-07-29 | — |\n\n",
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+    result = runner.invoke(cli, ["groom", "--project-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "CER-121" in result.output
+    assert "next canon change to a seeded-doc template." in result.output
+    assert "CER-200" in result.output
+    assert "(no gate:)" in result.output
+
+
+def test_groom_exits_0_with_no_backlog(tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["groom", "--project-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+
+def test_groom_exit_code_always_0_even_with_open_rows(tmp_path: Path) -> None:
+    """Groom informs; the operator decides. Never a nonzero gate-like exit."""
+    cer_dir = tmp_path / "docs" / "cer"
+    cer_dir.mkdir(parents=True)
+    (cer_dir / "backlog.md").write_text(
+        _LATER_HEADER
+        + "| CER-121 | HIGH: some drift, no gate token. | src | "
+        "2026-07-29 | — |\n\n",
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+    result = runner.invoke(cli, ["groom", "--project-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+
+# ---------------------------------------------------------------------------
+# Test: cli group's default action still works with no subcommand
+# ---------------------------------------------------------------------------
+
+
+def test_cli_group_default_action_still_appends_finding(tmp_path: Path) -> None:
+    """Converting cli into a click.Group (INFRA-313) must not break the
+    historical no-subcommand invocation documented in SKILL.md."""
+    runner = CliRunner()
+    result = _invoke(
+        runner,
+        [
+            "--project-dir", str(tmp_path),
+            "--finding", "Group conversion parity check",
+            "--quadrant", "now",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    content = _backlog_path(tmp_path).read_text(encoding="utf-8")
+    assert "Group conversion parity check" in content

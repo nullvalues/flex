@@ -15,8 +15,18 @@ from pathlib import Path
 # Insert repo root so sibling imports work when run as CLI
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
+# Allow sibling imports (e.g. table_utils) when this module is imported from
+# the scripts directory itself, mirroring next_action.py's own guard — the
+# repo-root insert above does not put skills/pairmode/scripts/ on sys.path
+# when cer.py is imported via its package path (skills.pairmode.scripts.cer).
+_SCRIPTS_DIR = Path(__file__).parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
 import click
 import jinja2
+
+from table_utils import split_table_row  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -261,6 +271,144 @@ def is_resolution_marked(text: str) -> bool:
     return bool(_RESOLUTION_MARKER_RE.search(text))
 
 
+# ---------------------------------------------------------------------------
+# Do Now gate / Do Later+Much Later groom (INFRA-313)
+# ---------------------------------------------------------------------------
+
+
+def _scan_rows_in_sections(text: str, section_headers: "set[str]"):
+    """Walk *text* (a rendered ``backlog.md``), yielding one
+    ``(header, stripped_line, cols)`` tuple per parsed, non-placeholder table
+    row that falls under one of *section_headers* (e.g. ``{"## Do Now"}``).
+
+    Single shared row walk (INFRA-313): both ``find_open_do_now_rows`` (the
+    Do Now gate, one target section) and ``find_groomable_rows`` (Do Later +
+    Do Much Later, two target sections) build on this one loop rather than
+    each re-deriving their own copy of the header-tracking / separator-skip /
+    header-row-skip / placeholder-row-skip logic that already lives in
+    ``next_action._check_cer_do_now`` and ``_parse_entries_from_backlog``.
+
+    ``header`` is the exact matched heading string (e.g. ``"## Do Later"``),
+    ``stripped_line`` is the row's ``.strip()``ed raw text (needed by
+    ``is_resolution_marked``, which reads cell-boundary markers from the raw
+    line, not from the split cells), and ``cols`` is the row's non-empty,
+    ``.strip()``ed cells (via ``table_utils.split_table_row``, unescaped-pipe
+    aware — CER-069/INFRA-297).
+
+    Pure: no file I/O. The caller supplies the already-read text.
+    """
+    current_header: "str | None" = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            current_header = stripped if stripped in section_headers else None
+            continue
+        if current_header is None or not stripped.startswith("|"):
+            continue
+        if "---" in stripped:
+            continue  # separator row
+        cols = [c.strip() for c in split_table_row(stripped) if c.strip()]
+        if not cols or cols[0].lower() in ("id", "finding"):
+            continue  # header row
+        if is_placeholder_row(cols):
+            continue  # scaffolded empty-state row, not a finding
+        yield current_header, stripped, cols
+
+
+def find_open_do_now_rows(text: str) -> list[dict]:
+    """Return every open ``## Do Now`` row in *text* as
+    ``{"id": <CER-NNN>, "text": <stripped row text>}`` dicts, in source order.
+
+    An **open** row is neither the scaffolded placeholder row
+    (``is_placeholder_row``) nor resolution-marked
+    (``is_resolution_marked``, INFRA-322/CER-130) — i.e. exactly the rows a
+    checkpoint must not pass over.
+
+    This is the single shared Do Now scan (INFRA-313, Requires 1):
+    ``next_action._check_cer_do_now`` (the resolver's soft `cer-do-now`
+    checkpoint guard) and ``cer.py gate``/the ``checkpoint-tag`` refusal both
+    call this function rather than each forking their own copy of the scan —
+    a second, independently-drifting copy of the open-row predicate was
+    flagged as the duplicate-state risk this story exists to close.
+
+    Pure: no file I/O. Returns ``[]`` when *text* has no ``## Do Now``
+    section or no open rows in it.
+    """
+    return [
+        {"id": cols[0], "text": stripped}
+        for _header, stripped, cols in _scan_rows_in_sections(text, {"## Do Now"})
+        if not is_resolution_marked(stripped)
+    ]
+
+
+# `gate:` token grammar (Ensures 5): the keyword `gate:` (case-insensitive)
+# followed by free text running to the next bold-emphasis opener (`**`) or
+# the end of the (already cell-scoped) finding text — never a new table
+# column. Documented in docs/architecture.md's checkpoint/CER section and in
+# the backlog.md.j2 template preamble; do not add a sixth column instead.
+_GATE_TOKEN_RE = re.compile(r"gate:\s*(.*?)(?=\*\*|$)", re.IGNORECASE | re.DOTALL)
+
+
+def extract_gate_condition(finding_text: str) -> "str | None":
+    """Return the free-text condition following a ``gate:`` token in
+    *finding_text*, or ``None`` when no token is present (or its captured
+    text is empty/whitespace-only).
+
+    ``finding_text`` is a single Finding-cell string (already split out of
+    its row) — the token is recognised anywhere within it, per Ensures 5's
+    grammar: ``gate:`` followed by free text until the next ``**`` bold
+    opener or the cell's end. Live fixtures: CER-121 and CER-125
+    (``docs/cer/backlog.md``, filed 2026-07-29).
+
+    Pure: no file I/O, no mutation.
+    """
+    if not finding_text or not isinstance(finding_text, str):
+        return None
+    m = _GATE_TOKEN_RE.search(finding_text)
+    if not m:
+        return None
+    condition = m.group(1).strip()
+    return condition or None
+
+
+def find_groomable_rows(text: str) -> list[dict]:
+    """Scan *text*'s ``## Do Later`` and ``## Do Much Later`` sections and
+    return every open row as
+    ``{"id": <CER-NNN>, "quadrant": "Do Later"|"Do Much Later", "gate": <str|None>}``,
+    in source order.
+
+    An **open** row is neither the scaffolded placeholder row nor
+    resolution-marked (the same two exemptions ``find_open_do_now_rows``
+    applies to Do Now) — a row already closed by a ``RESOLVED``/
+    ``SUPERSEDED`` annotation has nothing left to groom. ``gate`` is the
+    row's ``gate:`` condition text (``extract_gate_condition``) or ``None``
+    when the row carries no such token.
+
+    This function only reads and reports — it never writes
+    ``docs/cer/backlog.md``. The operator decides which arrived-gate rows to
+    pull forward into ``## Do Now``; `groom` never promotes automatically
+    (preserved do-not-do, cora agreement A#1 / AG-6).
+
+    Pure: no file I/O. The caller supplies the already-read text.
+    """
+    rows: list[dict] = []
+    for header, stripped, cols in _scan_rows_in_sections(
+        text, {"## Do Later", "## Do Much Later"}
+    ):
+        if is_resolution_marked(stripped):
+            continue
+        finding = cols[1] if len(cols) > 1 else ""
+        quadrant = "Do Later" if header == "## Do Later" else "Do Much Later"
+        rows.append(
+            {
+                "id": cols[0],
+                "quadrant": quadrant,
+                "gate": extract_gate_condition(finding),
+            }
+        )
+    return rows
+
+
 def _escape_table_cell(text: str) -> str:
     """Escape pipe characters so they don't corrupt markdown table cells."""
     return text.replace("|", "\\|")
@@ -409,7 +557,22 @@ def _prompt_resolution() -> str:
 # CLI entry point
 # ---------------------------------------------------------------------------
 
-@click.command()
+def _resolve_project_dir(project_dir: str) -> Path:
+    """Resolve *project_dir*, enforcing the shared depth guard (CER-061).
+
+    Shared by the append-finding default action and the ``gate``/``groom``
+    subcommands (INFRA-313) so all three reject the same too-shallow paths
+    (e.g. ``/`` or ``/tmp``) with the same message, rather than each command
+    re-deriving its own check.
+    """
+    proj = Path(project_dir).resolve()
+    if not proj.is_dir() or len(proj.parts) < 3:
+        click.echo("Error: --project-dir is too shallow or not a directory.", err=True)
+        raise SystemExit(1)
+    return proj
+
+
+@click.group(invoke_without_command=True)
 @click.option(
     "--project-dir",
     "project_dir",
@@ -446,7 +609,9 @@ def _prompt_resolution() -> str:
     type=int,
     help="Phase number this finding is associated with.",
 )
+@click.pass_context
 def cli(
+    ctx: click.Context,
     project_dir: str,
     reviewer: str,
     finding: str | None,
@@ -454,12 +619,20 @@ def cli(
     resolution: str | None,
     phase: int | None,
 ) -> None:
-    """Triage a cold-eyes review finding into docs/cer/backlog.md."""
-    proj = Path(project_dir).resolve()
+    """Triage a cold-eyes review finding into docs/cer/backlog.md.
 
-    if not proj.is_dir() or len(proj.parts) < 3:
-        click.echo("Error: --project-dir is too shallow or not a directory.", err=True)
-        raise SystemExit(1)
+    A ``click.Group`` (INFRA-313) so ``gate`` and ``groom`` can live as
+    subcommands beside it, while the historical no-subcommand invocation
+    (``cer.py --project-dir ... --finding ... --quadrant ...``, documented
+    in ``skills/pairmode/SKILL.md``) keeps working unchanged: when no
+    subcommand is named, this callback runs the append-finding body below;
+    when ``gate``/``groom`` is named, this callback is a no-op and control
+    passes to that subcommand instead.
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+
+    proj = _resolve_project_dir(project_dir)
 
     # --- Non-interactive path ---
     if finding is not None and quadrant is not None:
@@ -517,6 +690,99 @@ def cli(
         phase=phase,
     )
     click.echo(f"Finding appended: {entry['id']} → {quadrant or internal_quadrant}")
+
+
+@cli.command("gate")
+@click.option(
+    "--project-dir",
+    "project_dir",
+    default=".",
+    show_default=True,
+    help="Root directory of the project.",
+    type=click.Path(file_okay=False, exists=True),
+)
+def cmd_gate(project_dir: str) -> None:
+    """Exit nonzero when docs/cer/backlog.md's Do Now section holds an open row.
+
+    Correct signal is the exit code, not stdout text: exits 0 when Do Now is
+    clean (every row resolved, or the scaffolded placeholder row), exits 1
+    listing each open row's ID and first 80 characters when it is not. Wired
+    into the ``checkpoint-tag`` step of ``record-checkpoint-step`` (Ensures
+    3) so a tag cannot be cut over an open Do Now finding. Shares
+    ``find_open_do_now_rows`` with ``next_action._check_cer_do_now`` — one
+    scan, two callers (INFRA-313, Requires 1).
+
+    A missing backlog.md is not an error here — nothing to gate — matching
+    the resolver's fail-open behaviour for the same file.
+    """
+    proj = _resolve_project_dir(project_dir)
+    backlog_path = proj / BACKLOG_REL_PATH
+    if not backlog_path.exists():
+        click.echo("gate: docs/cer/backlog.md not found — nothing to gate (pass).")
+        return
+
+    text = backlog_path.read_text(encoding="utf-8")
+    open_rows = find_open_do_now_rows(text)
+    if not open_rows:
+        click.echo("gate: Do Now is clean — no open rows.")
+        return
+
+    click.echo(f"gate: {len(open_rows)} open Do Now row(s) block checkpoint:")
+    for row in open_rows:
+        click.echo(f"  {row['id']}: {row['text'][:80]}")
+    click.echo(
+        "Clear each row with a RESOLVED/SUPERSEDED annotation or a written "
+        "re-triage to another quadrant — never by deletion."
+    )
+    raise SystemExit(1)
+
+
+@cli.command("groom")
+@click.option(
+    "--project-dir",
+    "project_dir",
+    default=".",
+    show_default=True,
+    help="Root directory of the project.",
+    type=click.Path(file_okay=False, exists=True),
+)
+def cmd_groom(project_dir: str) -> None:
+    """Re-read Do Later / Do Much Later and surface rows whose gate:
+    condition may have arrived.
+
+    Read-only: prints an inventory of every open row (ID, quadrant, and its
+    ``gate:`` condition text, or ``(no gate:)`` when the row carries none)
+    and a summary count. Exit code is always 0 — groom informs, it never
+    decides. **groom never edits docs/cer/backlog.md and never promotes a
+    row automatically; the operator decides every pull** (preserved
+    do-not-do, cora agreement A#1 / AG-6). Per the global backlog-grooming
+    policy, every cold-eyes review should run this command and present
+    arrived-gate rows as "ready to pull forward" — the pull itself is
+    recorded in the promotion ledger (``docs/phases/index.md`` § backlog
+    promotions), not built or automated here.
+    """
+    proj = _resolve_project_dir(project_dir)
+    backlog_path = proj / BACKLOG_REL_PATH
+    if not backlog_path.exists():
+        click.echo("groom: docs/cer/backlog.md not found — nothing to groom.")
+        return
+
+    text = backlog_path.read_text(encoding="utf-8")
+    rows = find_groomable_rows(text)
+    if not rows:
+        click.echo("groom: no open Do Later / Do Much Later rows.")
+        return
+
+    gated = 0
+    for row in rows:
+        gate_text = row["gate"] if row["gate"] else "(no gate:)"
+        if row["gate"]:
+            gated += 1
+        click.echo(f"{row['id']} [{row['quadrant']}]: {gate_text}")
+
+    click.echo(
+        f"groom: {len(rows)} open row(s), {gated} with a gate: condition."
+    )
 
 
 if __name__ == "__main__":

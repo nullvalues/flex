@@ -428,8 +428,16 @@ def _check_cer_do_now(project_dir: "Path") -> bool:
     this exemption's source of truth. Without it, every freshly
     bootstrapped project fails its first checkpoint on this guard alone.
     Returns True when the file is absent or unreadable (fail-open).
+
+    The scan itself (header tracking, separator/header-row/placeholder-row
+    skipping, the resolution-marker test) is hoisted into
+    ``cer.find_open_do_now_rows`` (INFRA-313, Requires 1) — this function is
+    now a thin file-read wrapper around it, so ``gate``/``checkpoint-tag``
+    (``cer.py``'s consumers of the same predicate) cannot silently drift
+    from the resolver's behaviour by each carrying their own copy of the
+    scan.
     """
-    from cer import is_placeholder_row, is_resolution_marked  # type: ignore[import]
+    from cer import find_open_do_now_rows  # type: ignore[import]
 
     cer_path = Path(project_dir) / "docs" / "cer" / "backlog.md"
     if not cer_path.exists():
@@ -439,30 +447,7 @@ def _check_cer_do_now(project_dir: "Path") -> bool:
     except OSError:
         return True  # fail open
 
-    in_do_now = False
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("## Do Now"):
-            in_do_now = True
-            continue
-        if in_do_now and stripped.startswith("## "):
-            break  # left the Do Now section
-        if in_do_now and stripped.startswith("|"):
-            if "---" in stripped:
-                continue  # separator row
-            # split rationale: `table_utils.split_table_row`. The `if c.strip()`
-            # filter is kept verbatim: it drops empty cells and shifts indices,
-            # and both the `cols[0]` header test below and
-            # `cer.is_placeholder_row` (INFRA-294) depend on the shifted shape.
-            cols = [c.strip() for c in split_table_row(stripped) if c.strip()]
-            if not cols or cols[0].lower() in ("id", "finding"):
-                continue  # header row
-            if is_placeholder_row(cols):
-                continue  # scaffolded empty-state row, not a finding
-            if not is_resolution_marked(stripped):
-                return False  # unresolved Do Now item
-
-    return True
+    return len(find_open_do_now_rows(text)) == 0
 
 
 def _run_build_gate_subprocess(project_dir: "Path") -> bool:
