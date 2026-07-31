@@ -2,7 +2,7 @@
 id: INFRA-319
 rail: INFRA
 title: "Portable hook-command paths: plugin-root/settings.local registration, migrate rewrite of machine-absolute and pre-rename hook commands, audit finding"
-status: draft
+status: complete
 phase: "114"
 story_class: code
 auth_gated: false

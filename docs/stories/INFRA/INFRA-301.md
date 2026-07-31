@@ -2,7 +2,7 @@
 id: INFRA-301
 rail: INFRA
 title: "Non-interactive scaffolding: create-rail flag; surface phase-manifest registration failures"
-status: draft
+status: complete
 phase: "114"
 story_class: code
 auth_gated: false

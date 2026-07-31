@@ -2,7 +2,7 @@
 id: INFRA-305
 rail: INFRA
 title: Build-loop doc and procedure currency sweep
-status: draft
+status: complete
 phase: "114"
 story_class: doc
 auth_gated: false

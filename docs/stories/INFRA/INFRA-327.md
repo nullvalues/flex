@@ -2,7 +2,7 @@
 id: INFRA-327
 rail: INFRA
 title: Exempt loop-breaker from the context-budget gate — it is the deterministic double-fail step, not discretionary
-status: draft
+status: complete
 phase: "114"
 story_class: code
 auth_gated: false

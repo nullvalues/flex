@@ -2,7 +2,7 @@
 id: INFRA-326
 rail: INFRA
 title: Dual-active-era tie-break silently skips the wrong era ledger row (INFRA-267 no-op)
-status: draft
+status: complete
 phase: "114"
 story_class: code
 auth_gated: false

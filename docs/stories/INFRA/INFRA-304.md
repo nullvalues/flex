@@ -2,7 +2,7 @@
 id: INFRA-304
 rail: INFRA
 title: Containment parity for spec_preflight; reviewer-template revert-assertion residue
-status: draft
+status: complete
 phase: "114"
 story_class: code
 auth_gated: false

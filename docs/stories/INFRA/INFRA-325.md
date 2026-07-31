@@ -2,7 +2,7 @@
 id: INFRA-325
 rail: INFRA
 title: Wire docs-reviewer (WORKER-011) into canonical scaffold and checkpoint dispatch — role is fully specced but never created
-status: draft
+status: complete
 phase: "114"
 story_class: code
 auth_gated: false

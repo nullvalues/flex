@@ -2,7 +2,7 @@
 id: INFRA-321
 rail: INFRA
 title: "Two-track context accounting: orchestrator-window occupancy vs story/subagent spend — the pause decision fires on the orchestrator track only"
-status: draft
+status: complete
 phase: "114"
 story_class: code
 auth_gated: false

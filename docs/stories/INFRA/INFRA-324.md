@@ -2,7 +2,7 @@
 id: INFRA-324
 rail: INFRA
 title: Bash dispatch/allowlist for reviewer subagent git commands (reviewer FAIL-path improvisation gap)
-status: draft
+status: complete
 phase: "114"
 story_class: code
 auth_gated: false

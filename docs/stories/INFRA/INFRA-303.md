@@ -2,7 +2,7 @@
 id: INFRA-303
 rail: INFRA
 title: "Migration tooling: rules 9/10 name parity; expected_step_tokens opt-out and honest CER-111 disposition"
-status: draft
+status: complete
 phase: "114"
 story_class: code
 auth_gated: false

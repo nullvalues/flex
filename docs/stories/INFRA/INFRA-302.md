@@ -2,7 +2,7 @@
 id: INFRA-302
 rail: INFRA
 title: Worktree build-environment provisioning; untrack tsconfig.tsbuildinfo
-status: draft
+status: complete
 phase: "114"
 story_class: code
 auth_gated: false

@@ -2,7 +2,7 @@
 id: INFRA-328
 rail: INFRA
 title: next-action's spawn-loop-breaker carries no fail_cause — orchestrator can't fill the required LOOP-BREAKER input
-status: draft
+status: complete
 phase: "114"
 story_class: code
 auth_gated: false

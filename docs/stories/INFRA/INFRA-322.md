@@ -2,7 +2,7 @@
 id: INFRA-322
 rail: INFRA
 title: "Anchored, case-insensitive CER resolution-marker grammar: the cer-do-now checkpoint guard stops reading Resolved as unresolved and UNRESOLVED as resolved"
-status: draft
+status: complete
 phase: "114"
 story_class: code
 auth_gated: false

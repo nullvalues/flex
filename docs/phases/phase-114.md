@@ -78,20 +78,20 @@ exercise a `hooks/pre_tool_use.py` already carrying Group 5's changes).
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-301 | Non-interactive scaffolding: create-rail flag; surface phase-manifest registration failures | draft |
-| INFRA-302 | Worktree build-environment provisioning; untrack tsconfig.tsbuildinfo | draft |
-| INFRA-303 | Migration tooling: rules 9/10 name parity; expected_step_tokens opt-out and honest CER-111 disposition | draft |
-| INFRA-304 | Containment parity for spec_preflight; reviewer-template revert-assertion residue | draft |
-| INFRA-305 | Build-loop doc and procedure currency sweep | draft |
-| INFRA-319 | Portable hook-command paths: plugin-root/settings.local registration, migrate rewrite of machine-absolute and pre-rename hook commands, audit finding | draft |
-| INFRA-321 | Two-track context accounting: orchestrator-window occupancy vs story/subagent spend; health verdict re-based on the orchestrator track; between-spawn coverage; surfaces labeled (pulled from CER-129) | draft |
-| INFRA-322 | Anchored, case-insensitive CER resolution-marker grammar: shared `cer.is_resolution_marked` predicate, cer-do-now guard stops reading `Resolved` as unresolved and `UNRESOLVED` as resolved, grammar published for consuming repos (pulled from CER-130) | draft |
+| INFRA-301 | Non-interactive scaffolding: create-rail flag; surface phase-manifest registration failures | complete |
+| INFRA-302 | Worktree build-environment provisioning; untrack tsconfig.tsbuildinfo | complete |
+| INFRA-303 | Migration tooling: rules 9/10 name parity; expected_step_tokens opt-out and honest CER-111 disposition | complete |
+| INFRA-304 | Containment parity for spec_preflight; reviewer-template revert-assertion residue | complete |
+| INFRA-305 | Build-loop doc and procedure currency sweep | complete |
+| INFRA-319 | Portable hook-command paths: plugin-root/settings.local registration, migrate rewrite of machine-absolute and pre-rename hook commands, audit finding | complete |
+| INFRA-321 | Two-track context accounting: orchestrator-window occupancy vs story/subagent spend; health verdict re-based on the orchestrator track; between-spawn coverage; surfaces labeled (pulled from CER-129) | complete |
+| INFRA-322 | Anchored, case-insensitive CER resolution-marker grammar: shared `cer.is_resolution_marked` predicate, cer-do-now guard stops reading `Resolved` as unresolved and `UNRESOLVED` as resolved, grammar published for consuming repos (pulled from CER-130) | complete |
 | INFRA-323 | Session-lifecycle notices for agent-registration writes: RESTART REQUIRED at the end of bootstrap/migrate/sync paths that changed agent shells or hook registrations, restart step in the runbooks and SKILL.md flows, SessionStart staleness advisory (pulled from CER-134) | complete |
-| INFRA-324 | Bash dispatch/allowlist for reviewer subagent git commands (reviewer FAIL-path improvisation gap) | draft |
-| INFRA-325 | Wire docs-reviewer (WORKER-011) into canonical scaffold and checkpoint dispatch — role is fully specced but never created | draft |
-| INFRA-326 | Dual-active-era tie-break silently skips the wrong era ledger row (INFRA-267 no-op) | draft |
-| INFRA-327 | Exempt loop-breaker from the context-budget gate — it is the deterministic double-fail step, not discretionary | draft |
-| INFRA-328 | next-action's spawn-loop-breaker carries no fail_cause — orchestrator can't fill the required LOOP-BREAKER input | draft |
+| INFRA-324 | Bash dispatch/allowlist for reviewer subagent git commands (reviewer FAIL-path improvisation gap) | complete |
+| INFRA-325 | Wire docs-reviewer (WORKER-011) into canonical scaffold and checkpoint dispatch — role is fully specced but never created | complete |
+| INFRA-326 | Dual-active-era tie-break silently skips the wrong era ledger row (INFRA-267 no-op) | complete |
+| INFRA-327 | Exempt loop-breaker from the context-budget gate — it is the deterministic double-fail step, not discretionary | complete |
+| INFRA-328 | next-action's spawn-loop-breaker carries no fail_cause — orchestrator can't fill the required LOOP-BREAKER input | complete |
 | INFRA-330 | Correct stale draft status on 13 merged, reviewer-PASSed phase-114 stories | draft |
 
 ## Schema delivery
