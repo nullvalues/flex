@@ -3997,7 +3997,39 @@ mapped to FAIL (OBS-005/CER-055).
 **CLI entry point:** `skills/observability/scripts/flex_observability.py` provides `register`,
 `unregister`, `list`, `serve`. Before first `serve`, run
 `cd skills/observability && pnpm install && pnpm --filter @flex-obs/api build`. Server binds
-to `127.0.0.1:7777` (loopback, dev-local only).
+to `127.0.0.1:7777` (loopback, dev-local only) by default; `--host`/`FLEX_OBS_HOST` can override
+this to expose the API beyond the local machine.
+
+**CORS policy and path disclosure (INFRA-306, CER-042/CER-043):** the API was documented as
+loopback-only but built without the code ever checking the bind host, so an operator-chosen
+`--host 0.0.0.0` silently kept the wildcard CORS origin and the full absolute path of every
+user memory/policy file in the response — both indefensible once the API is reachable off this
+machine, though harmless on the loopback default. The fix keeps the permissive default on
+loopback and fails closed the moment the operator opts into exposure, loudly rather than
+silently, per `docs/ideology.md` § Core convictions (rationale-bearing decisions over bare
+rules; codifying policy over implicit convention):
+
+| bind host | CORS policy | trigger |
+|---|---|---|
+| loopback (`127.x.x.x`, `::1`, `localhost`) | `Access-Control-Allow-Origin: *` | default; `isLoopbackHost()` true |
+| non-loopback + `FLEX_OBS_ALLOWED_ORIGINS` set | allow-listed origins only (comma-separated) | operator opts into exposure and names origins |
+| non-loopback + `FLEX_OBS_ALLOWED_ORIGINS` unset/empty | deny all cross-origin requests | operator opts into exposure, no allow-list — this is the fail-closed default, not a falsy fall-through |
+
+`server.ts` exports `isLoopbackHost(host)` and `resolveCorsOrigin(host, allowedOriginsRaw)` as
+pure functions so the policy is testable independent of the Fastify wiring; `buildServer(host)`
+takes the host as an explicit parameter (single caller, `main()`) instead of re-reading the
+environment. When the resolved host is non-loopback, `main()` prints one `console.error` warning
+naming the bind host and the effective CORS policy before `app.listen()` — exposure stays an
+operator choice, not an error, so nothing is blocked or exits non-zero.
+
+Independently, `/api/user/memories` and `/api/user/policies` (`routes/user.ts`) declare
+`abs_path` as optional and only populate it when the request supplies `?include_path=true`
+(strict string match). This is a separate gate from the CORS policy — it applies in both
+loopback and exposed modes — because the field discloses filesystem layout regardless of who
+can reach the port; the dev-convenience case the original audit acknowledged is preserved
+behind an explicit opt-in instead of being always-on. The SPA has no consumer of `abs_path` or
+`/api/user/*` (verified by grep over `skills/observability/ui/src/`), so no UI change was
+required to close this gate.
 
 ---
 

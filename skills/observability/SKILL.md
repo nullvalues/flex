@@ -52,12 +52,41 @@ Available subcommands: `register`, `unregister`, `list`, `serve`.
 
 **Flags:**
 - `--port N` — listen on port N instead of 7777 (default: 7777)
-- `--host HOST` — bind to HOST instead of 127.0.0.1 (default: 127.0.0.1 loopback only)
+- `--host HOST` — bind to HOST instead of 127.0.0.1 (default: 127.0.0.1 loopback only). Setting
+  `--host` (or the `FLEX_OBS_HOST` environment variable it writes into the child process) to
+  anything the code does not recognise as loopback — e.g. `0.0.0.0`, `::`, or a LAN address —
+  makes the API reachable from other machines. The server detects this at startup and prints one
+  `console.error` warning naming the bind host and the effective CORS policy before it starts
+  listening; nothing about the bind itself is blocked, but the exposure is loud, not silent.
+
+**CORS policy (CER-042):** on a loopback bind, the API keeps its permissive default —
+`Access-Control-Allow-Origin: *` — so the dev dashboard and any local tooling work without
+configuration. The moment the bind host is non-loopback, that wildcard is no longer safe (any
+website a browser on the exposed network visits could read repo data), so the policy flips to
+**deny all cross-origin requests by default**. To allow specific origins once exposed, set
+`FLEX_OBS_ALLOWED_ORIGINS` to a comma-separated list of origins (e.g.
+`FLEX_OBS_ALLOWED_ORIGINS="https://dashboard.example.com,https://ops.example.com"`) in the
+environment `flex_observability.py serve` runs in — it is passed through to the Node child
+unchanged, no CLI flag needed. Only consulted off loopback; ignored (loopback stays `*`) on the
+default bind.
+
+**Path disclosure gate (CER-043):** `/api/user/memories` and `/api/user/policies` return the
+absolute filesystem path of every memory/policy file (`abs_path`) — this discloses the
+operator's home directory, username, and directory layout. That field is **omitted by default**
+and only included in the response when the request is made with `?include_path=true` (exact
+string match; `1`, `yes`, and a bare `?include_path` do not count). This is a dev-convenience
+opt-in, not an auth control — pair it with a loopback bind or an allow-listed origin if the API
+is exposed.
 
 **Typical workflow:**
 ```bash
 flex_observability.py serve
 # Browser opens automatically; dashboard shows all registered projects
+
+# Exposing the API beyond loopback: allow only a known dashboard origin
+FLEX_OBS_ALLOWED_ORIGINS="https://dashboard.example.com" flex_observability.py serve --host 0.0.0.0
+# stderr prints: flex-observability api is binding to 0.0.0.0, which is reachable beyond this
+# machine; CORS policy: allowed origins: https://dashboard.example.com
 ```
 
 ---
@@ -174,8 +203,9 @@ of near-miss and overrun events.
 mechanically from methodology_change.affects and description patterns; see Phase 63 D6).
 
 **User Context tab:** User-scoped memories (from `~/.claude/projects/*/memory/*.md`) and
-policies (from `~/.claude/policies/*.md`), listed with filename, first heading, modification
-time, and absolute path.
+policies (from `~/.claude/policies/*.md`), listed with filename, first heading, and modification
+time. Absolute path is available on request only — see `?include_path=true` under CER-043 above;
+the SPA does not request it and does not render it.
 
 ---
 
@@ -187,8 +217,14 @@ time, and absolute path.
   in any repo. Managed only by the CLI; Fastify reads it on every request (cheap at ≤10 entries).
 - **Database read-only:** Fastify opens `effort.db` with `?mode=ro` URI parameter — no write
   contention with running pairmode sessions.
-- **Loopback-only:** Server binds to `127.0.0.1:7777` (dev-local, not exposed to a network
-  interface).
+- **Loopback by default, honest off it (CER-042/CER-043):** Server binds to `127.0.0.1:7777`
+  (dev-local) unless `--host`/`FLEX_OBS_HOST` overrides it. On loopback, CORS stays wide open
+  (`origin: '*'`) and `abs_path` is available via `?include_path=true` — both are safe because
+  only processes on this machine can reach the port. The moment the bind host is not loopback,
+  CORS flips to deny-all unless `FLEX_OBS_ALLOWED_ORIGINS` allow-lists specific origins, and a
+  startup warning is printed naming the bind host and the effective policy. `abs_path` stays
+  gated behind `?include_path=true` in both modes — exposure changes who can reach the API, not
+  what a request without the query param discloses.
 - **Phase 1 (read-only) / Phase 2 (controls) boundary:** Phase 63 is pure window-glass; all
   routes are GET. Phase 64 adds PUT/POST write routes that shell out to `flex_build.py`
   subcommands, preserving the "exactly one writer per operation" principle.

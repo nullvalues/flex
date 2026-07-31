@@ -12,7 +12,11 @@ interface MemoryFile {
   filename: string;
   first_heading: string;
   modified_at: string;
-  abs_path: string;
+  // CER-043: abs_path leaks the operator's home directory, username, and
+  // directory layout — harmless on loopback, a real disclosure once CER-042's
+  // exposure path is taken. Optional and omitted by default; only populated
+  // when the request opts in via ?include_path=true.
+  abs_path?: string;
   size_bytes: number;
 }
 
@@ -34,7 +38,8 @@ interface PolicyFile {
   filename: string;
   first_heading: string;
   modified_at: string;
-  abs_path: string;
+  // CER-043: same gate as MemoryFile.abs_path — see comment there.
+  abs_path?: string;
   size_bytes: number;
 }
 
@@ -86,83 +91,91 @@ async function safeStat(filePath: string): Promise<{ mtime: Date; size: number }
 
 export async function registerUserRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/user/memories
-  app.get('/api/user/memories', async (_request, reply) => {
-    const generated_at = new Date().toISOString();
-    const projectsRoot = path.join(os.homedir(), '.claude', 'projects');
+  app.get<{ Querystring: { include_path?: string } }>(
+    '/api/user/memories',
+    async (request, reply) => {
+      const includePath = request.query.include_path === 'true';
+      const generated_at = new Date().toISOString();
+      const projectsRoot = path.join(os.homedir(), '.claude', 'projects');
 
-    const projectDirs = await listDir(projectsRoot);
-    if (projectDirs.length === 0) {
-      reply.header('Content-Type', 'application/json');
-      return { generated_at, projects: [] } satisfies MemoriesOut;
-    }
-
-    const projects: ProjectMemories[] = [];
-
-    for (const projectHash of projectDirs) {
-      const memoryDir = path.join(projectsRoot, projectHash, 'memory');
-      let memFiles: string[];
-      try {
-        memFiles = await fs.readdir(memoryDir);
-      } catch {
-        // No memory directory — skip this project
-        continue;
+      const projectDirs = await listDir(projectsRoot);
+      if (projectDirs.length === 0) {
+        reply.header('Content-Type', 'application/json');
+        return { generated_at, projects: [] } satisfies MemoriesOut;
       }
 
-      const memories: MemoryFile[] = [];
+      const projects: ProjectMemories[] = [];
 
-      for (const filename of memFiles) {
+      for (const projectHash of projectDirs) {
+        const memoryDir = path.join(projectsRoot, projectHash, 'memory');
+        let memFiles: string[];
+        try {
+          memFiles = await fs.readdir(memoryDir);
+        } catch {
+          // No memory directory — skip this project
+          continue;
+        }
+
+        const memories: MemoryFile[] = [];
+
+        for (const filename of memFiles) {
+          if (!filename.endsWith('.md')) continue;
+          const absPath = path.join(memoryDir, filename);
+          const [content, st] = await Promise.all([safeReadFile(absPath), safeStat(absPath)]);
+          if (content === null || st === null) {
+            // Permission error or vanished — skip silently
+            continue;
+          }
+          const stem = filename.replace(/\.md$/, '');
+          memories.push({
+            filename,
+            first_heading: firstHeading(content, stem),
+            modified_at: st.mtime.toISOString(),
+            ...(includePath ? { abs_path: absPath } : {}),
+            size_bytes: st.size,
+          });
+        }
+
+        if (memories.length > 0) {
+          projects.push({ project_hash: projectHash, memories });
+        }
+      }
+
+      reply.header('Content-Type', 'application/json');
+      return { generated_at, projects } satisfies MemoriesOut;
+    },
+  );
+
+  // GET /api/user/policies
+  app.get<{ Querystring: { include_path?: string } }>(
+    '/api/user/policies',
+    async (request, reply) => {
+      const includePath = request.query.include_path === 'true';
+      const generated_at = new Date().toISOString();
+      const policiesDir = path.join(os.homedir(), '.claude', 'policies');
+
+      const entries = await listDir(policiesDir);
+      const policies: PolicyFile[] = [];
+
+      for (const filename of entries) {
         if (!filename.endsWith('.md')) continue;
-        const absPath = path.join(memoryDir, filename);
+        const absPath = path.join(policiesDir, filename);
         const [content, st] = await Promise.all([safeReadFile(absPath), safeStat(absPath)]);
         if (content === null || st === null) {
-          // Permission error or vanished — skip silently
           continue;
         }
         const stem = filename.replace(/\.md$/, '');
-        memories.push({
+        policies.push({
           filename,
           first_heading: firstHeading(content, stem),
           modified_at: st.mtime.toISOString(),
-          abs_path: absPath,
+          ...(includePath ? { abs_path: absPath } : {}),
           size_bytes: st.size,
         });
       }
 
-      if (memories.length > 0) {
-        projects.push({ project_hash: projectHash, memories });
-      }
-    }
-
-    reply.header('Content-Type', 'application/json');
-    return { generated_at, projects } satisfies MemoriesOut;
-  });
-
-  // GET /api/user/policies
-  app.get('/api/user/policies', async (_request, reply) => {
-    const generated_at = new Date().toISOString();
-    const policiesDir = path.join(os.homedir(), '.claude', 'policies');
-
-    const entries = await listDir(policiesDir);
-    const policies: PolicyFile[] = [];
-
-    for (const filename of entries) {
-      if (!filename.endsWith('.md')) continue;
-      const absPath = path.join(policiesDir, filename);
-      const [content, st] = await Promise.all([safeReadFile(absPath), safeStat(absPath)]);
-      if (content === null || st === null) {
-        continue;
-      }
-      const stem = filename.replace(/\.md$/, '');
-      policies.push({
-        filename,
-        first_heading: firstHeading(content, stem),
-        modified_at: st.mtime.toISOString(),
-        abs_path: absPath,
-        size_bytes: st.size,
-      });
-    }
-
-    reply.header('Content-Type', 'application/json');
-    return { generated_at, policies } satisfies PoliciesOut;
-  });
+      reply.header('Content-Type', 'application/json');
+      return { generated_at, policies } satisfies PoliciesOut;
+    },
+  );
 }

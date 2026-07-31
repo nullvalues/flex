@@ -28,11 +28,51 @@ function resolveUiDistDir(): string {
   return candidate;
 }
 
-export async function buildServer(): Promise<FastifyInstance> {
+// CER-042: the observability API is documented as loopback-only, but
+// buildServer() never saw the bind host, so `serve --host 0.0.0.0` silently
+// kept the wildcard CORS origin and handed any website read access to every
+// registered repo's data. isLoopbackHost() lets the code tell the two cases
+// apart so the permissive default can stay permissive only where it is safe.
+export function isLoopbackHost(host: string): boolean {
+  let normalised = host.trim().toLowerCase();
+  if (normalised.startsWith('[') && normalised.endsWith(']')) {
+    normalised = normalised.slice(1, -1);
+  }
+  if (normalised === 'localhost' || normalised === '::1') {
+    return true;
+  }
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalised);
+}
+
+// CER-042: resolve the effective CORS origin policy from the bind host and
+// the operator-supplied allow-list. Loopback keeps today's wildcard
+// behaviour verbatim. Off loopback, the default is deny-all — an explicit,
+// separately tested branch (not a falsy fall-through) per docs/ideology.md
+// § Core convictions: rationale-bearing decisions over bare rules.
+export function resolveCorsOrigin(
+  host: string,
+  allowedOriginsRaw: string | undefined,
+): '*' | string[] | false {
+  if (isLoopbackHost(host)) {
+    return '*';
+  }
+  const origins = (allowedOriginsRaw ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+  if (origins.length > 0) {
+    return origins;
+  }
+  return false;
+}
+
+export async function buildServer(
+  host: string = process.env.FLEX_OBS_HOST ?? '127.0.0.1',
+): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
 
   await app.register(cors, {
-    origin: '*',
+    origin: resolveCorsOrigin(host, process.env.FLEX_OBS_ALLOWED_ORIGINS),
   });
 
   app.addHook('onSend', async (_request, reply, payload) => {
@@ -94,7 +134,20 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const app = await buildServer();
+  const app = await buildServer(host);
+
+  if (!isLoopbackHost(host)) {
+    const allowedOriginsRaw = process.env.FLEX_OBS_ALLOWED_ORIGINS;
+    const corsDescription =
+      resolveCorsOrigin(host, allowedOriginsRaw) === false
+        ? 'all cross-origin requests are denied — set FLEX_OBS_ALLOWED_ORIGINS to permit specific origins'
+        : `allowed origins: ${allowedOriginsRaw}`;
+    // eslint-disable-next-line no-console
+    console.error(
+      `flex-observability api is binding to ${host}, which is reachable beyond this machine; CORS policy: ${corsDescription}`,
+    );
+  }
+
   try {
     await app.listen({ host, port });
     // eslint-disable-next-line no-console
