@@ -437,6 +437,60 @@ from either reconciled input.
   agent verification, so the pokus migration is not blocked on this story
   landing. `RELEASE-068.md` is deliberately **not** in INFRA-323's `touches:`.
 
+### AG-13 — CER-137..141 (phase 116): agent-dispatch completeness
+
+Filed after AG-12 and outside both reconciled input documents, from a live
+operator-directed process review during phase 115's build loop
+(2026-07-31) that started as a narrower question — why a `story_class: doc`
+elaboration story on a sibling project (cora's era-001 `docs/stories/DESIGN/`
+frontmatter work) kept failing on haiku with no escalation — and widened
+once the same session's own checkpoint-docs dispatch (this phase) hit an
+identical gap live: `docs-reviewer` fell back to a generic subagent because
+the role was never registered in flex's own `.claude/agents/`, despite
+INFRA-325 (Phase 114) being marked complete.
+
+- Three of the eight `templates/agents/` roles are not dispatchable:
+  `spec-writer` has a live, non-advisory dispatch action
+  (`next_action.py`'s `spawn-spec-writer`) and a fully-specced procedure but
+  no agent template at all; `docs-reviewer` and `gate-worker` have templates
+  and dispatch references but neither file exists in flex's own
+  `.claude/agents/` (CER-137).
+- The reason a fixed template can't self-heal an existing project: `sync-agents`
+  only rewrites files already present in a target's `.claude/agents/` — it has
+  no add-missing-file path. Only a fresh `bootstrap` run creates new agent
+  files. INFRA-325 landing did not, and structurally could not, backfill
+  flex's own registry (CER-138).
+- `model_selector.py` has a `select_*_model` function for five of eight roles;
+  `gate-worker`, `spec-writer`, and `docs-reviewer` each hardcode a model
+  inline instead (frontmatter literal or, for spec-writer, a literal in
+  `next_action.py:1299`) — `docs-reviewer.md.j2` already carries a comment
+  flagging its own gap here (CER-139).
+- `story_class` doubles as a proxy for verification-rigor tiering, but only
+  `code` has a real retry-upgrade path; `doc`/`lesson` dead-end at haiku
+  forever and `methodology` escalates only conditionally. This is the
+  originating live-hit: DESIGN-008/009-shaped work (heavy citation
+  verification, zero fabrication tolerance, no code-file touches) was
+  classified `doc` for lack of a better fit and then repeat-failed at a
+  model tier with no way up (CER-140).
+- No document states the work→agent-type routing rule or a definition-of-done
+  for wiring up a new agent type; four independent gaps above went
+  undetected until surfaced live, one at a time, in the same session
+  (CER-141).
+
+**Disposition: folded into phase 116, not a new phase.** The governing
+revision principle (era 004 expands rather than contains) applies, but "expand"
+here means synthesizing into the phase already carrying the era's
+process/methodology-gate work (INFRA-313..318 sit at the same
+resolver/dispatch/checkpoint seams) — not appending a thirteenth phase after
+INFRA-310's terminal position. Five stories, INFRA-331..335, ordered
+331→332→333→334→335 (registration before backfill before selection before
+escalation before doc) inside phase 116, ahead of INFRA-310, which derives
+its sibling-completeness set rather than pinning story IDs (AG-7) and so
+picks the new stories up without a spec change of its own. CER-137..141 filed
+in Do Later with disposition pointers to INFRA-331..335 respectively — filed
+there, not Do Now, so the currently in-flight phase 115 checkpoint (`cer.py
+gate`, INFRA-322) is not blocked by this same-session filing.
+
 
 ---
 
