@@ -592,6 +592,82 @@ class TestMarkPhaseCompleteEraLedger:
 
 
 # ---------------------------------------------------------------------------
+# INFRA-326 — multi-active-era tie-break no longer silently skips the row
+# ---------------------------------------------------------------------------
+
+
+class TestMarkPhaseCompleteMultiActiveEra:
+    """Two era docs both ``status: active`` — the row must be found and
+    flipped wherever it actually lives, not just in the highest-ID doc.
+    """
+
+    def test_row_in_non_highest_id_active_era_is_flipped(
+        self, tmp_path: Path
+    ) -> None:
+        """Reproduces the exact INFRA-267 no-op (INFRA-326): the phase's row
+        lives only in the lower-ID active era doc; the old 'highest ID wins'
+        tie-break picked the higher-ID doc, found no row there, and silently
+        no-opped. It must now be found and flipped."""
+        _write_phase_index(tmp_path, [("106", "Fleet migration campaign", "planned", "")])
+        lower_era = _write_era_doc(
+            tmp_path, "003", "active", [("106", "Fleet migration campaign", "planned")]
+        )
+        higher_era = _write_era_doc(
+            tmp_path, "004", "active", [("110", "Some other phase", "planned")]
+        )
+        higher_before = higher_era.read_bytes()
+
+        result = _run("mark-phase-complete", "--phase", "106", "--project-dir", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+
+        lower_text = _read_era(lower_era)
+        assert "| 106 | Fleet migration campaign | complete |" in lower_text
+        # The higher-ID active doc (which has no row for this phase) must be
+        # untouched — it never had the row to begin with.
+        assert higher_era.read_bytes() == higher_before
+        assert "| 106 | Fleet migration campaign | complete |" in _read_index(tmp_path)
+
+    def test_row_present_in_both_active_eras_flips_both(self, tmp_path: Path) -> None:
+        """Genuine ambiguity: the row is present in more than one active era
+        doc. Per this story's Ensures, both are flipped rather than one
+        being silently skipped."""
+        _write_phase_index(tmp_path, [("104", "Dup phase", "planned", "")])
+        era_a = _write_era_doc(tmp_path, "003", "active", [("104", "Dup phase", "planned")])
+        era_b = _write_era_doc(tmp_path, "004", "active", [("104", "Dup phase", "planned")])
+
+        result = _run("mark-phase-complete", "--phase", "104", "--project-dir", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+
+        assert "| 104 | Dup phase | complete |" in _read_era(era_a)
+        assert "| 104 | Dup phase | complete |" in _read_era(era_b)
+
+    def test_multi_active_era_prints_warning_to_stderr(self, tmp_path: Path) -> None:
+        """Two era docs simultaneously active is itself an unusual condition
+        and must surface a louder-than-silent signal (record-checkpoint-step's
+        own stdout/stderr is the lightest-weight mechanism)."""
+        _write_phase_index(tmp_path, [("106", "Fleet migration campaign", "planned", "")])
+        _write_era_doc(
+            tmp_path, "003", "active", [("106", "Fleet migration campaign", "planned")]
+        )
+        _write_era_doc(tmp_path, "004", "active", [("110", "Some other phase", "planned")])
+
+        result = _run("mark-phase-complete", "--phase", "106", "--project-dir", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+        assert "active" in result.stderr.lower()
+        assert "003-era.md" in result.stderr
+        assert "004-era.md" in result.stderr
+
+    def test_single_active_era_no_warning(self, tmp_path: Path) -> None:
+        """A single active era doc (the normal case) prints no warning."""
+        _write_phase_index(tmp_path, [("104", "Phase 104", "planned", "")])
+        _write_era_doc(tmp_path, "003", "active", [("104", "Phase 104", "planned")])
+
+        result = _run("mark-phase-complete", "--phase", "104", "--project-dir", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+        assert "simultaneously status: active" not in result.stderr
+
+
+# ---------------------------------------------------------------------------
 # INFRA-297 (CER-069) — escaped pipes in a title cell survive the rewrite
 # ---------------------------------------------------------------------------
 

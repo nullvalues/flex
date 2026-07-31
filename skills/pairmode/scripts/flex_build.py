@@ -1753,63 +1753,29 @@ def _is_era_ledger_heading(stripped: str) -> bool:
     return stripped == "## Phases" or stripped.startswith("## Phases ")
 
 
-def _mark_phase_complete_in_era_ledger(phase_key: str, project_dir: Path) -> bool:
-    """Set the status cell of *phase_key*'s row in the **active** era doc's
-    ``## Phases`` ledger to 'complete'.
+def _flip_era_ledger_row(text: str, phase_key: str) -> tuple[str | None, str]:
+    """Try to flip *phase_key*'s row to ``complete`` inside *text*'s ``##
+    Phases`` ledger table.
 
-    The era doc is the era's phase ledger: ``phase_new.py`` appends a
-    ``| <phase> | <title> | planned |`` row at scaffold time and this helper
-    advances it, keeping the ledger in parity with ``docs/phases/index.md``
-    (which ``check-index`` check 2c enforces). Before INFRA-267 nothing ever
-    advanced it, so every checkpointed phase read ``planned`` forever
-    (CER-082).
+    Returns ``(new_text, status)`` where *status* is one of:
 
-    Idempotent no-op (returns ``False``, writes nothing, raises nothing) when
-    ``docs/eras/`` is absent, no era doc has ``status: active``, the active era
-    doc has no ledger heading or table, no ledger row's first cell equals
-    *phase_key*, or that row already reads ``complete``. Legacy eras with no
-    ledger row must never crash a checkpoint. Returns ``True`` when a write
-    happened.
+    - ``"flipped"``: the row was found and updated; *new_text* holds the
+      rewritten document.
+    - ``"already_complete"``: the row was found but already reads
+      ``complete``; *new_text* is ``None``.
+    - ``"not_found"``: no ledger row's first cell equals *phase_key* (no
+      ledger heading/table counts as not-found too); *new_text* is ``None``.
 
-    Mirrors ``_mark_phase_complete_in_index``'s atomic-write contract
-    (``NamedTemporaryFile`` in the target's own directory + ``os.replace``) and
-    flips any non-``complete`` status, ``deferred`` included, so both writes
-    stay symmetric.
+    Pure function — never touches the filesystem. Split out of
+    ``_mark_phase_complete_in_era_ledger`` (INFRA-326) so the caller can run
+    it against every currently-``active`` era doc instead of a single
+    pre-chosen target.
     """
-    import tempfile  # noqa: PLC0415
-
-    eras_dir = project_dir / "docs" / "eras"
-    if not eras_dir.is_dir():
-        return False
-
-    # Collect active era docs. More than one: highest ID wins (last in sorted
-    # order), matching phase_new._detect_active_era — but silently; other
-    # tooling reads this CLI's stdout.
-    active: list[Path] = []
-    for era_path in sorted(eras_dir.glob("*.md")):
-        try:
-            text = era_path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        fm = _parse_frontmatter(text)
-        if fm is None:
-            continue
-        if fm.get("status") == "active":
-            active.append(era_path)
-
-    if not active:
-        return False
-
-    target = active[-1]
-    try:
-        text = target.read_text(encoding="utf-8")
-    except OSError:
-        return False
-
     new_lines: list[str] = []
     in_ledger_section = False
     in_ledger_table = False
     replaced = False
+    already_complete = False
 
     for line in text.splitlines(keepends=True):
         stripped = line.strip()
@@ -1832,7 +1798,10 @@ def _mark_phase_complete_in_era_ledger(phase_key: str, project_dir: Path) -> boo
                 cells = [p.strip() for p in split_table_row(stripped)[1:-1]]
                 if len(cells) >= 3 and cells[0] == phase_key:
                     if cells[2] == "complete":
-                        return False
+                        already_complete = True
+                        new_lines.append(line)
+                        replaced = True
+                        continue
                     cells[2] = "complete"
                     new_lines.append("| " + " | ".join(cells) + " |\n")
                     replaced = True
@@ -1843,27 +1812,118 @@ def _mark_phase_complete_in_era_ledger(phase_key: str, project_dir: Path) -> boo
 
         new_lines.append(line)
 
+    if already_complete:
+        return None, "already_complete"
     if not replaced:
+        return None, "not_found"
+    return "".join(new_lines), "flipped"
+
+
+def _mark_phase_complete_in_era_ledger(phase_key: str, project_dir: Path) -> bool:
+    """Set the status cell of *phase_key*'s row in whichever **active** era
+    doc's ``## Phases`` ledger actually contains it, to 'complete'.
+
+    The era doc is the era's phase ledger: ``phase_new.py`` appends a
+    ``| <phase> | <title> | planned |`` row at scaffold time and this helper
+    advances it, keeping the ledger in parity with ``docs/phases/index.md``
+    (which ``check-index`` check 2c enforces). Before INFRA-267 nothing ever
+    advanced it, so every checkpointed phase read ``planned`` forever
+    (CER-082).
+
+    INFRA-326: when more than one era doc carries ``status: active``
+    simultaneously, every active doc's ledger is searched for *phase_key*'s
+    row — the previous "highest ID wins" tie-break picked a single target
+    up front and silently no-opped whenever the phase actually belonged to
+    a *different* active era doc's ledger. If the row is found in more than
+    one active doc (genuine ambiguity), every matching row is flipped rather
+    than picking one, per this story's Ensures ("flip both", the safer
+    option — never a silent skip). A warning is also printed to stderr
+    whenever more than one era doc is simultaneously ``active``, since that
+    state is itself unusual and was previously only discoverable by
+    manually diffing ``docs/eras/``.
+
+    Idempotent no-op (returns ``False``, writes nothing, raises nothing) when
+    ``docs/eras/`` is absent, no era doc has ``status: active``, no active
+    era doc's ledger has a row whose first cell equals *phase_key*, or every
+    matching row already reads ``complete``. Legacy eras with no ledger row
+    must never crash a checkpoint. Returns ``True`` when at least one write
+    happened.
+
+    Mirrors ``_mark_phase_complete_in_index``'s atomic-write contract
+    (``NamedTemporaryFile`` in the target's own directory + ``os.replace``) and
+    flips any non-``complete`` status, ``deferred`` included, so both writes
+    stay symmetric.
+    """
+    import tempfile  # noqa: PLC0415
+
+    eras_dir = project_dir / "docs" / "eras"
+    if not eras_dir.is_dir():
         return False
 
-    new_text = "".join(new_lines)
+    # Collect every currently-active era doc — no pre-chosen "highest ID"
+    # target; each one is searched below for phase_key's row (INFRA-326).
+    active: list[Path] = []
+    for era_path in sorted(eras_dir.glob("*.md")):
+        try:
+            text = era_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fm = _parse_frontmatter(text)
+        if fm is None:
+            continue
+        if fm.get("status") == "active":
+            active.append(era_path)
 
-    dir_ = target.parent
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=dir_,
-            delete=False,
-            suffix=".tmp",
-        ) as tf:
-            tf.write(new_text)
-            tmp_path_str = tf.name
-        os.replace(tmp_path_str, target)
-    except OSError:
+    if not active:
         return False
 
-    return True
+    if len(active) > 1:
+        # Louder signal (INFRA-326): more than one era doc simultaneously
+        # status: active is unusual and previously only discoverable by
+        # manually diffing docs/eras/. record-checkpoint-step's own stdout
+        # is the lightest-weight place to surface it.
+        names = ", ".join(p.name for p in active)
+        click.echo(
+            "warning: record-checkpoint-step: "
+            f"{len(active)} era docs are simultaneously status: active "
+            f"({names}) — only one era doc is normally current (INFRA-326)",
+            err=True,
+        )
+
+    matches: list[tuple[Path, str, str | None]] = []
+    for era_path in active:
+        try:
+            text = era_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        new_text, status = _flip_era_ledger_row(text, phase_key)
+        if status != "not_found":
+            matches.append((era_path, status, new_text))
+
+    if not matches:
+        return False
+
+    wrote_any = False
+    for era_path, status, new_text in matches:
+        if status != "flipped" or new_text is None:
+            continue
+        dir_ = era_path.parent
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=dir_,
+                delete=False,
+                suffix=".tmp",
+            ) as tf:
+                tf.write(new_text)
+                tmp_path_str = tf.name
+            os.replace(tmp_path_str, era_path)
+            wrote_any = True
+        except OSError:
+            continue
+
+    return wrote_any
 
 
 @flex_build.command("mark-phase-complete")

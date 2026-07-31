@@ -13,6 +13,7 @@ touches:
   - docs/architecture.md
   - docs/phases/phase-114.md
   - docs/stories/INFRA/INFRA-326.md
+  - tests/pairmode/test_flex_build_mark_phase_complete.py
 ---
 
 <!-- SPEC-WRITER NOTE (frontmatter): `touches:` is block-style per CER-115 —
@@ -82,6 +83,13 @@ is evidently in right now, and which nothing currently prevents or flags).
   `docs/eras/004-flex-operational-closeout-and-0-3-1.md`, both
   `status: active`) as a live reproduction fixture, or an equivalent
   synthetic one in tests.
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| tests/pairmode/test_flex_build_mark_phase_complete.py | add INFRA-326 regression tests for multi-active-era ledger flip to the existing era-ledger test file | 2026-07-31T04:02:40Z |
 
 ## Ensures
 
