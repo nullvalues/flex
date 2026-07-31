@@ -3959,15 +3959,39 @@ payload, so a `**/node_modules/**/dist/` / `**/node_modules/**/build/` negation 
 it, anchored to `node_modules` so it never un-ignores our own `ui/dist`/`api/dist`. The one
 carved-out exception is node-gyp's compile intermediates under `better-sqlite3`
 (`build/Release/obj/`, `build/Release/obj.target/`) — reproducible `.o` files, never loaded
-at runtime, still ignored. The tree is a linux-x64 snapshot, including a compiled
-`better_sqlite3.node` addon; other platforms run `pnpm rebuild better-sqlite3` rather than
-reinstalling. The repair path for a broken vendored tree is `git checkout`, never
-`pnpm install` — the latter can rewrite the lockfile and resolve different versions.
-`skills/observability/ui/tsconfig.tsbuildinfo` is the sole deliberate exception outside the
-node-gyp intermediates above: it is **untracked and ignored** (CER-070 addendum / INFRA-302),
-not vendored payload — `tsc -b` (`ui/tsconfig.json` sets `"noEmit": true`) rewrites this pure
-incremental typecheck cache on every UI-build-gate run, including failing ones, which used to
-dirty a story worktree and make `merge-story-worktree`'s rebase refuse. Do not "restore" it.
+at runtime, still ignored. The tree is a linux-x64 snapshot; other platforms run
+`pnpm rebuild better-sqlite3` rather than reinstalling. The repair path for a broken vendored
+tree is `git checkout`, never `pnpm install` — the latter can rewrite the lockfile and resolve
+different versions. `skills/observability/ui/tsconfig.tsbuildinfo` is the sole deliberate
+exception outside the node-gyp intermediates above: it is **untracked and ignored** (CER-070
+addendum / INFRA-302), not vendored payload — `tsc -b` (`ui/tsconfig.json` sets
+`"noEmit": true`) rewrites this pure incremental typecheck cache on every UI-build-gate run,
+including failing ones, which used to dirty a story worktree and make
+`merge-story-worktree`'s rebase refuse. Do not "restore" it.
+
+*Tracked native binaries (CER-094 / INFRA-307):* seven `.node` addons are tracked, each
+justified: Rollup's native core (`rollup.linux-x64-{gnu,musl}.node`, Vite loads it during
+the UI build gate); Tailwind 4's Rust engine
+(`tailwindcss-oxide.linux-x64-{gnu,musl}.node`, the CSS pipeline); Lightning CSS
+(`lightningcss.linux-x64-{gnu,musl}.node`, pulled in by the Tailwind/Vite pipeline); and
+the API's SQLite addon (`better_sqlite3.node`, loaded at runtime by
+`require('bindings')('better_sqlite3.node')`, `lib/database.js:48`). The first six are
+optional, platform-gated dependencies (each parent package's `optionalDependencies` map);
+only the linux-x64 `gnu`/`musl` variants resolved into this snapshot.
+`better-sqlite3`'s second gyp target, `test_extension.node` — a fixture for that package's
+own `loadExtension` test suite, never loaded by this project — was **deleted** by INFRA-307
+(CER-094): it is not payload. This enumeration is machine-checked by
+`tests/pairmode/test_vendored_payload_tracked.py::test_tracked_native_binaries_match_enumerated_set`;
+update the doc and the test together.
+
+*The `.claude/` tolerance (CER-093 / INFRA-307):* upstream npm packages sometimes ship a
+`.claude/` directory inside their published tarball. A **machine-local** git exclude (e.g.
+`~/.config/git/ignore`, git's default `core.excludesFile`) can then make those files
+ignored-but-untracked, which the payload guard
+(`tests/pairmode/test_vendored_payload_tracked.py`) tolerates by pattern, anchored under any
+`node_modules` root and only there — a `.claude/` directory elsewhere in the tree is still a
+finding. This is deliberately **not** handled by editing the repo's own `.gitignore`: the
+repo is not the source of the ignore rule, so editing it would not be the cure.
 
 **Resolver state model** (`flex_build.py resolver-state --json`): pure-read subcommand added
 in HARNESS007/OBS-001. Returns `{action, position, effort_by_role, index}`. The TS reader

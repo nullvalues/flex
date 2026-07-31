@@ -41,6 +41,12 @@ flex_eph/
 # loaded at runtime. The compiled addon beside them (better_sqlite3.node) IS tracked.
 **/node_modules/**/build/Release/obj/
 **/node_modules/**/build/Release/obj.target/
+# ...and better-sqlite3's second gyp target (CER-094 / INFRA-307): a test fixture
+# for that package's own loadExtension test suite, never loaded by this project
+# (better-sqlite3/lib/database.js:48 requires only better_sqlite3.node). Deleted
+# from the tracked payload; `pnpm rebuild better-sqlite3` regenerates it on disk,
+# so it must stay ignored rather than resurface as an offending untracked file.
+**/node_modules/**/build/Release/test_extension.node
 
 # tsconfig.tsbuildinfo (CER-070 addendum / INFRA-302) — a pure incremental
 # *typecheck* cache (ui/tsconfig.json sets "noEmit": true), rewritten by
