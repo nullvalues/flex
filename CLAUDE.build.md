@@ -24,7 +24,7 @@ while true:
         on reviewer PASS: /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py merge-story-worktree --story-id a.scalar --project-dir .  # also clears the attempt counter (INFRA-237) and the current_story/permissions stamps (INFRA-238)
         on reviewer FAIL: /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py discard-story-worktree --story-id a.scalar --project-dir .  # also clears the current_story/permissions stamps (INFRA-238)
     else:
-        spawn leaf-worker-for(a.action) with subagent_type=ACTION_SUBAGENT_TYPE[a.action], scalar=a.scalar, model=a.model
+        spawn leaf-worker-for(a.action) with subagent_type=ACTION_SUBAGENT_TYPE[a.action], scalar=a.scalar, model=a.model  # INFRA-328: for spawn-loop-breaker, a.reason carries the double-fail story's most recent recorded fail_cause (or "" if none found); build the LOOP-BREAKER: [error] | FILE: [file:line] | TRIED: [what failed] prompt (CLAUDE.md § Loop-breaker mode) from it before spawning, extracting a FILE: value from a.reason when it names one
     # effort-attempt recording AND the attempt counter are both fully hook-side
     # (INFRA-236, INFRA-237): hooks/post_tool_use.py's Task/Agent branch calls
     # subagent_transcript.record_attempt_from_transcript() after every spawn, deriving

@@ -1342,11 +1342,48 @@ def resolve_next_action(
         meta["attempt"] = 3
         meta["fail_rung"] = "double-fail"
         loop_breaker_model, _loop_breaker_reason = select_loop_breaker_model()
+
+        # INFRA-328: surface the most recent FAIL attempt's recorded
+        # fail_cause (effort.db's `notes` column, written by
+        # subagent_transcript.record_attempt_from_transcript) as this
+        # action's `reason`, so the orchestrator can construct the
+        # `LOOP-BREAKER: [error] | FILE: [file:line] | TRIED: [what
+        # failed]` prompt CLAUDE.md's loop-breaker mode requires instead
+        # of dispatching with a bare empty string. `notes` is already a
+        # single free-text field that naturally embeds a file reference
+        # when one is available (e.g. "FAIL-CAUSE: ... file:line ..."),
+        # so no separate FILE extraction is attempted here.
+        #
+        # Fails open (Ensures): any error resolving project_dir/db path,
+        # an empty/missing effort.db, no FAIL rows, or a FAIL row with no
+        # notes all silently degrade to reason="" — the pre-INFRA-328
+        # behavior. This branch never blocks or downgrades the action.
+        fail_cause = ""
+        try:
+            import effort_db  # type: ignore[import]
+
+            _phase_path = (
+                Path(active_phase_file) if active_phase_file is not None else None
+            )
+            _project_dir = (
+                _phase_path.parent.parent.parent if _phase_path is not None else None
+            )
+            if _project_dir is not None:
+                db_path = effort_db.resolve_effort_db_path(Path(_project_dir).resolve())
+                rows = effort_db.query_by_story(db_path, next_story_id)
+                fail_rows = [r for r in rows if r.get("outcome") == OUTCOME_FAIL]
+                if fail_rows:
+                    notes = fail_rows[-1].get("notes")
+                    if notes:
+                        fail_cause = str(notes)
+        except Exception:  # noqa: BLE001
+            fail_cause = ""
+
         return make_action(
             SPAWN_LOOP_BREAKER,
             scalar=next_story_id,
             model=loop_breaker_model,
-            reason="",
+            reason=fail_cause,
             meta=_with_claimed_skipped(meta),
         )
 

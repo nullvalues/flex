@@ -49,6 +49,7 @@ from flex_build import (  # noqa: E402
     check_schema_gate_result,
     check_auth_gate_result,
 )
+import effort_db  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -1238,6 +1239,74 @@ class TestResolveNextActionSpawnLoopBreaker:
         assert action["scalar"] == "TEST-004"
         assert action["model"] == "fable"
         assert action["meta"]["fail_rung"] == "double-fail"
+        assert validate_action(action) == []
+
+    def test_row_6_double_fail_surfaces_recorded_fail_cause(
+        self, tmp_path: Any
+    ) -> None:
+        """INFRA-328: a recorded FAIL-attempt fail_cause is surfaced in reason."""
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+
+        db_path = effort_db.resolve_effort_db_path(tmp_path)
+        effort_db.insert_attempt(
+            db_path,
+            story_id="TEST-005",
+            agent_role="builder",
+            attempt_number=1,
+            ts="2026-07-29T00:00:00+00:00",
+            outcome=OUTCOME_FAIL,
+            notes="FAIL-CAUSE: undeclared file write, skills/pairmode/scripts/foo.py:42",
+        )
+        effort_db.insert_attempt(
+            db_path,
+            story_id="TEST-005",
+            agent_role="builder",
+            attempt_number=2,
+            ts="2026-07-29T01:00:00+00:00",
+            outcome=OUTCOME_FAIL,
+            notes="FAIL-CAUSE: test regression, tests/pairmode/test_foo.py:10",
+        )
+
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-005",
+            attempt_count=2,
+            builder_model="opus",
+            builder_model_reason="retry-upgrade",
+            last_attempt_outcome=OUTCOME_FAIL,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_LOOP_BREAKER
+        assert action["scalar"] == "TEST-005"
+        assert (
+            action["reason"]
+            == "FAIL-CAUSE: test regression, tests/pairmode/test_foo.py:10"
+        )
+        assert validate_action(action) == []
+
+    def test_row_6_double_fail_no_recorded_fail_cause_falls_back_empty(
+        self, tmp_path: Any
+    ) -> None:
+        """INFRA-328: no effort.db / no FAIL rows / no notes → reason="" (fail-open)."""
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+
+        # No effort.db at all — the pre-INFRA-328 default behaviour.
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-006",
+            attempt_count=2,
+            builder_model="opus",
+            builder_model_reason="retry-upgrade",
+            last_attempt_outcome=OUTCOME_FAIL,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_LOOP_BREAKER
+        assert action["scalar"] == "TEST-006"
+        assert action["reason"] == ""
         assert validate_action(action) == []
 
 
