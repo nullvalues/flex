@@ -27,6 +27,15 @@ pnpm --filter @flex-obs/api build
 (pnpm is the package manager; the project uses a pnpm workspace split into `api/` and `ui/`
 subdirectories.)
 
+**Running the API's TS test suite** (INFRA-312 — a scoped vitest route-smoke runner, not
+a coverage tool): from `skills/observability/api/`, run `pnpm test`. It boots the Fastify
+app in-process (`app.inject()`, no live port) against a hermetic fixture project tree and
+exercises all five API routes (`repos`, `context`, `lessons`, `system`, `user`) plus the
+INFRA-306 CORS/loopback contract — no live-repo registry or running server required. Run
+it alongside `pnpm build` (unaffected by the test runner) whenever either workspace or
+route code changes; cp-115's checkpoint and any future observability story should invoke
+`pnpm test` the same way the Python suite is invoked.
+
 ---
 
 ## Commands

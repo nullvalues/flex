@@ -70,6 +70,12 @@ FLEX_ROOT = Path(__file__).resolve().parents[2]
 #    `better_sqlite3.node`). `pnpm rebuild better-sqlite3` regenerates it;
 #    without this allow-list member (and the matching .gitignore
 #    re-exclusion) that regeneration would fail this guard.
+# 6. `skills/observability/api/node_modules/.vitest-cache/` (INFRA-312) — the
+#    scoped TS route-test runner's own run cache (`vitest.config.ts` pins
+#    `cacheDir` here precisely so it is a single, narrow path to ignore),
+#    same shape as category 3 above: our own generated cache, not vendored
+#    package payload, rewritten (a results.json under a content-hash
+#    subdirectory) on every `pnpm test` run including failing ones.
 #
 # Note on asymmetry: this list widens what test_no_vendored_payload_is_gitignored
 # tolerates, but test_no_untracked_files_under_observability below is
@@ -93,6 +99,7 @@ ALLOWED_IGNORED_EXACT = (
     "skills/observability/api/dist/",
     "skills/observability/scripts/__pycache__/",
     "skills/observability/ui/tsconfig.tsbuildinfo",
+    "skills/observability/api/node_modules/.vitest-cache/",
 )
 
 # CER-093 (INFRA-307): a compiled pattern, not literals. Upstream npm

@@ -149,3 +149,89 @@ exception.
 - Fixing INFRA-278/279's phase-108 record — INFRA-310 dispositions phase 108;
   this story only absorbs the *validation* obligation.
 - Any new API route or UI feature.
+
+## Scope widenings
+
+Files touched beyond the frontmatter `primary_files`/`touches` declarations,
+each an inherent consequence of "add a TS test runner" that could not be
+named in advance at spec time:
+
+| File | Reason |
+|---|---|
+| `skills/observability/api/vitest.config.ts` | New file — the test runner's own config (scopes test discovery to `tests/**`, pins `cacheDir`). |
+| `skills/observability/api/tests/**` | New files — the five route smoke-test files plus the fixture-project helper (Ensures 1/2/3). |
+| `skills/observability/api/node_modules/**`, `skills/observability/node_modules/**` | Vendored payload for the new `vitest` devDependency (and its transitive deps, hoisted into the workspace root per CER-090/INFRA-261's tracked-`node_modules` convention) — the necessary payload half of adding a devDependency declared in the already-in-scope `package.json`. |
+| `.gitignore` | One new entry ignoring `skills/observability/api/node_modules/.vitest-cache/` (vitest's own run cache), same precedent as INFRA-302's `tsconfig.tsbuildinfo` entry — required so `pnpm test` does not dirty a future story worktree. |
+| `tests/pairmode/test_vendored_payload_tracked.py` | One-line allow-list addition for the `.vitest-cache/` path above (category 6) — the guard test that enforces the vendored-payload/CER-090 policy needed updating to recognise the new, deliberately-ignored cache path as a category-3-shaped exception, not a CER-090 regression. |
+
+## Evidence
+
+**Serve command used:**
+```
+cd skills/observability/api && FLEX_OBS_PORT=7778 ./node_modules/.bin/tsx src/server.ts
+```
+(dev-mode tsx, loopback bind `127.0.0.1` — the default.)
+
+**Registered repos exercised (3, all pre-existing on the operator's registry,
+`~/.config/flex-observability/registry.json`):** `radar` (`/mnt/work/radar`),
+`forqsite` (`/mnt/work/forqsite`), `flex` (`/mnt/work/flex`).
+
+**Repos list** (`GET /api/repos`): returned all three, each
+`state_json_present: true` — `radar`, `forqsite`, `flex` all have a live
+`.companion/state.json`.
+
+**Context budget** (`GET /api/repos/:id/context`):
+- `radar`: `current.tokens = 25000`, `current.stale = true` (recorded_at
+  ~2 days old), `context_budget_overrun_pct = 0.25` (a real per-project
+  override, `source: "state.json"`, vs. the `0.10` default).
+- `forqsite`: `current.tokens = 109485`, `current.stale = false` (recorded
+  86s before the request), `context_budget_threshold = 150000` (also a
+  per-project override).
+- `flex`: `current.tokens = 272519`, `current.stale = true`,
+  `effort_summary.total_attempts` and `waypoints`/`spend_outliers` all
+  populated from the live `effort.db` (100 waypoints, capped at the
+  route's own LIMIT 100).
+
+**Effort/story status** (`GET /api/repos/:id/system`):
+- `radar`: 57 phases parsed; last phase `MU023-main`, status `complete`,
+  title "Migrate to pairmode 0.3.0", 1 story (`MU-128`,
+  `story_class: methodology`, `status: complete`).
+- `forqsite`: 96 phases parsed; last phase `PM068-main`, status `planned`.
+- `flex`: 127 phases parsed; last phase `HARNESS016-main`, status
+  `deferred`, title "Final fold — pre-fold gate, merge to main, re-sync".
+
+**Lessons** (`GET /api/repos/:id/lessons`):
+- `radar`, `forqsite`: `lessons: []` — both repos have no
+  `lessons/lessons.json` on disk; the route's fail-open (`parseLessons`
+  returns `[]` on ENOENT) is exercised for real, not the fixture only.
+- `flex`: 22 lessons parsed, 1 promotion candidate (`L001`,
+  `promotion_reasons: ["module-named: audit.py", "procedural-verb: 'add a
+  (check|warning|gate)'"]`).
+
+**User memories/policies** (`GET /api/user/memories`, `GET /api/user/policies`,
+operator's real `$HOME`): 14 project memory directories found (e.g.
+`-mnt-work` with 7 memory files, `-mnt-work-aab` with 15); 3 policy files
+found (`auth-abac.md`, `auth-coexistence.md`, `auth-rbac.md`), each with a
+real parsed `first_heading`.
+
+**CORS/loopback** (`GET /health` with `Origin: https://evil.example`, server
+bound to the default `127.0.0.1`): response carries
+`access-control-allow-origin: *`, matching the loopback-wildcard branch of
+the INFRA-306 contract as shipped — also pinned by
+`tests/cors.test.ts`'s live-`inject()` assertions for both the loopback and
+non-loopback-deny branches.
+
+**Failure-shaped case** (`GET /api/repos/nonexistent/system`,
+`GET /api/repos/nonexistent/context`): both returned `404`
+`{"error":"repo not found","id":"nonexistent"}` — handled, not a crash.
+
+**Defects found: 1, filed: CER-142.** `readResolverState`'s
+`getFlexBuildPath()` (`skills/observability/api/src/readers/resolverState.ts`)
+resolves one directory too high, so the spawned `flex_build.py
+resolver-state` call always fails and `resolver_state` is `null` on every
+route response — observed live against all three real repos above
+(`radar`, `forqsite`, `flex` all show `resolver_state: null`), not just the
+INFRA-312 test fixture. Out of this story's declared `touches:` scope
+(`src/readers/` is not listed), so filed rather than fixed in-scope per
+Ensures 5's explicit provision, with the exact one-line fix named in the
+CER row.

@@ -56,3 +56,13 @@ flex_eph/
 # pair is how a `tsc -b` gets talked out of doing any work. Regenerated on
 # demand and has no reader.
 /skills/observability/ui/tsconfig.tsbuildinfo
+
+# vitest cache (INFRA-312) — `skills/observability/api/vitest.config.ts` pins
+# `cacheDir` to this path (rather than vitest's default `node_modules/.vite`)
+# specifically so it can be ignored precisely: `pnpm test` rewrites a
+# results.json under a content-hash subdirectory on every run, including
+# failing ones, which otherwise leaves an untracked file inside the tracked
+# vendored `node_modules` payload (CER-090 / INFRA-261) and dirties a story
+# worktree the same way tsconfig.tsbuildinfo above did. Pure run-cache,
+# regenerated on demand, no reader.
+/skills/observability/api/node_modules/.vitest-cache/
