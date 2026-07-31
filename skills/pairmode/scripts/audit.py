@@ -37,7 +37,9 @@ TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 #
 # reconstruction-agent.md, gate-worker.md, and the five INFRA-241 shells are canonical:
 # must mirror AGENT_FILES in bootstrap.py so audit/sync keep these shells current after
-# template changes.
+# template changes. docs-reviewer.md (INFRA-325) is an eighth thin shell, added after
+# the role's procedure skill (checkpoint-docs, WORKER-011) and architecture.md/README.md
+# references existed but no scaffolded shell or ACTION_SUBAGENT_TYPE dispatch entry did.
 CANONICAL_FILES: list[tuple[str, str]] = [
     ("CLAUDE.md", "CLAUDE.md.j2"),
     ("CLAUDE.build.md", "CLAUDE.build.md.j2"),
@@ -48,6 +50,7 @@ CANONICAL_FILES: list[tuple[str, str]] = [
     (".claude/agents/loop-breaker.md", "agents/loop-breaker.md.j2"),
     (".claude/agents/security-auditor.md", "agents/security-auditor.md.j2"),
     (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
+    (".claude/agents/docs-reviewer.md", "agents/docs-reviewer.md.j2"),
 ]
 
 # Scaffold files: Phase 7 docs that receive full section-level comparison.

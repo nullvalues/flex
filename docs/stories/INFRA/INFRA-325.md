@@ -17,6 +17,8 @@ touches:
   - tests/pairmode/test_bootstrap.py
   - docs/phases/phase-114.md
   - docs/stories/INFRA/INFRA-325.md
+  - skills/pairmode/templates/agents/docs-reviewer.md.j2
+  - skills/pairmode/scripts/bootstrap.py
 ---
 
 <!-- SPEC-WRITER NOTE (frontmatter): `touches:` is block-style per CER-115 —
@@ -108,6 +110,14 @@ non-canonical substitute.
 - `CLAUDE.build.md`'s existing `ACTION_SUBAGENT_TYPE` map pattern as the
   model for adding a `checkpoint-docs: docs-reviewer` entry.
 
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| skills/pairmode/templates/agents/docs-reviewer.md.j2 | actual template dir is skills/pairmode/templates/agents, not skills/templates/agents as guessed in story frontmatter | 2026-07-31T03:40:01Z |
+
+| skills/pairmode/scripts/bootstrap.py | AGENT_FILES in bootstrap.py must mirror CANONICAL_FILES in audit.py for docs-reviewer.md to actually be scaffolded on fresh bootstrap, per Ensures | 2026-07-31T03:40:29Z |
 ## Ensures
 
 - A new template (path confirmed during Instructions, likely

@@ -112,6 +112,10 @@ EXPECTED_DEST_PATHS = [
     ".claude/agents/loop-breaker.md",
     ".claude/agents/security-auditor.md",
     ".claude/agents/intent-reviewer.md",
+    # docs-reviewer.md (INFRA-325): eighth thin shell, added after the role's
+    # procedure skill (checkpoint-docs, WORKER-011) existed but was never
+    # scaffolded or wired into orchestrator dispatch.
+    ".claude/agents/docs-reviewer.md",
     "docs/architecture.md",
     "docs/checkpoints.md",
     "docs/phases/index.md",
@@ -298,6 +302,8 @@ class TestBuildCycleSubagentDispatch:
         ("loop-breaker", "loop-breaker"),
         ("security-auditor", "security-auditor"),
         ("intent-reviewer", "intent-reviewer"),
+        # docs-reviewer (INFRA-325): eighth thin shell, over checkpoint-docs/procedure.md.
+        ("docs-reviewer", "checkpoint-docs"),
     ]
 
     @pytest.mark.parametrize("dest_stem,procedure_dir", BUILD_CYCLE_AGENTS)

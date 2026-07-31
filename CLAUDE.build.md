@@ -12,7 +12,7 @@ Story-build actions (`spawn-builder`, `spawn-reviewer`, and the reviewer-equival
 
 `leaf-worker-for(a.action)` spawns `Task`/`Agent` with `subagent_type` resolved from `a.action` via the fixed map below (never `general-purpose` for a story-build/checkpoint action — an unresolved `general-purpose` spawn is invisible to the context-budget gate, INFRA-199/INFRA-241); `model=a.model` always overrides an agent's frontmatter `model:` default (see `docs/architecture.md` § Spawn contract):
 
-ACTION_SUBAGENT_TYPE = {spawn-builder: builder, spawn-reviewer: reviewer, spawn-loop-breaker: loop-breaker, spawn-security-auditor: security-auditor, spawn-intent-reviewer: intent-reviewer, checkpoint-security: security-auditor, checkpoint-intent: intent-reviewer}  # other spawn/checkpoint actions keep their own existing dispatch, out of INFRA-241 scope
+ACTION_SUBAGENT_TYPE = {spawn-builder: builder, spawn-reviewer: reviewer, spawn-loop-breaker: loop-breaker, spawn-security-auditor: security-auditor, spawn-intent-reviewer: intent-reviewer, checkpoint-security: security-auditor, checkpoint-intent: intent-reviewer, checkpoint-docs: docs-reviewer}  # INFRA-325 adds checkpoint-docs: docs-reviewer — the role was fully specced (WORKER-011) but had no scaffolded shell or dispatch entry until this story; other spawn/checkpoint actions keep their own existing dispatch, out of INFRA-241 scope
 
 ```
 while true:

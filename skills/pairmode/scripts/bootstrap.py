@@ -83,6 +83,12 @@ SCAFFOLD_FILES: list[tuple[str, str]] = [
 # skills/pairmode/skills/<role>/procedure.md and defers all judgment/implementation
 # logic to it. Deployed to every newly-bootstrapped and re-synced project so the
 # fleet-wide context-budget gate (INFRA-199) has a real subagent_type to match on.
+#
+# docs-reviewer.md.j2 (INFRA-325): an eighth thin shell, mirroring the same pattern
+# over skills/pairmode/skills/checkpoint-docs/procedure.md (WORKER-011). Before this
+# story the role was fully specced (procedure skill + architecture.md/README.md
+# references) but never scaffolded — this list must stay mirrored with
+# CANONICAL_FILES in audit.py.
 AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/reconstruction-agent.md", "agents/reconstruction-agent.md.j2"),
     (".claude/agents/gate-worker.md", "agents/gate-worker.md.j2"),
@@ -91,6 +97,7 @@ AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/loop-breaker.md", "agents/loop-breaker.md.j2"),
     (".claude/agents/security-auditor.md", "agents/security-auditor.md.j2"),
     (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
+    (".claude/agents/docs-reviewer.md", "agents/docs-reviewer.md.j2"),
 ]
 
 # Default deny list written into .claude/settings.json.

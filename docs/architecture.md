@@ -4170,6 +4170,18 @@ steps or a "Step 5" — that description belonged to an earlier, monolithic
 0.2-era checkpoint prose block, superseded by the code-resident
 `_CHECKPOINT_SEQUENCE` since HARNESS006.)
 
+**Shell and dispatch (INFRA-325).** Before this story, `docs-reviewer` (WORKER-011) was
+fully specced — its procedure skill (`skills/pairmode/skills/checkpoint-docs/procedure.md`)
+and this section both described it as a real checkpoint step — but no `.claude/agents/
+docs-reviewer.md` shell was ever scaffolded (`audit.py`'s `CANONICAL_FILES` / `bootstrap.py`'s
+`AGENT_FILES` had no eighth entry) and the orchestrator's `ACTION_SUBAGENT_TYPE` map (see
+`CLAUDE.build.md`) had no `checkpoint-docs` key, so any checkpoint that reached this step had
+to improvise a substitute dispatch. `docs-reviewer.md.j2` is now an eighth canonical agent
+template (mirroring the other seven's thin-shell-over-procedure-skill pattern), scaffolded by
+`sync.py`/`bootstrap.py` like the rest, and `ACTION_SUBAGENT_TYPE` carries a
+`checkpoint-docs: docs-reviewer` entry so the orchestrator resolves a real `subagent_type`
+instead of falling back to an ad-hoc `general-purpose` spawn.
+
 **Phase completion gate:** A phase cannot be checkpointed with silently
 abandoned `planned` stories. Before tagging, all `planned` stories in the phase
 manifest must be either `complete` or formally deferred — added to a
