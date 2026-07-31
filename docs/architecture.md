@@ -2178,6 +2178,27 @@ The evidence is written by `flex_build.py record-intent-review --phase-key <key>
 worker returns — the same shape every other `state.json` writer in `flex_build.py` uses
 (atomic temp-file + `os.replace`), not a second, competing recording mechanism.
 
+#### `covered_contracts` gate (INFRA-317)
+
+A **covered contract** is a structured payload whose shape no database enforces —
+a JSON blob, a markdown table read by a parser, a wire format between scripts —
+where a canonical doc section describes the shape and a source file implements it.
+Without a gate, the doc drifts to aspirational and the code becomes the only truth
+(Cora item A#5, AG-6). `covered_contracts` is a Build standards key (INFRA-240
+per-project-facts pattern): a list of `doc-section::source-file` pairs, `::`-joined
+(the separator cannot appear in a heading or a repo-relative path, unlike `/` or `:`
+alone) and `, `-joined across pairs, same encoding style as `protected_paths`.
+Unset renders `(none)` and the gate is a no-op.
+
+The builder procedure's pre-build step (`builder/procedure.md` § Before writing
+anything) intersects a story's `primary_files:`/`touches:` against the declared
+pairs; a hit requires reading **both** halves before editing either, and quoting
+the relied-on contract line(s) into the story's `## Evidence` section. **The doc
+wins on conflict** — a trivial in-scope mismatch is corrected doc-first (or the
+doc is fixed if it, not the code, is stale) and recorded; anything larger is a CER
+row, not a silent code-first resolution. This is a procedure gate, not a runtime
+hook — mechanical enforcement is future work if the procedure proves insufficient.
+
 Downstream rollout of this opt-in to already-bootstrapped projects (setting
 `intent_review=pre-build` in their own `pairmode_context.json`/`state.json`) is
 deliberately out of scope for this story — see the phase-116 stories list.

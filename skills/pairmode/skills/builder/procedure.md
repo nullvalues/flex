@@ -84,6 +84,30 @@ You are given a story ID (e.g. `BUILD-012`). Before taking any other action:
    "<one sentence>"`
    and continue. This is the only case that self-resolves; the protected-file
    case in item 3 above is unchanged and still stops.
+5. **Covered-contracts gate (INFRA-317).** Before writing any code, compute
+   the intersection of this story's `primary_files:`/`touches:` frontmatter
+   with the project's declared covered-contract pairs:
+   - Read the `covered_contracts` value from `CLAUDE.build.md`'s Build
+     standards line. `(none)` → skip this gate entirely, no evidence needed.
+   - Otherwise split on `, ` to get pairs, then split each pair on `::` to
+     get `doc-section` and `source-file`. Example:
+     `grep -o 'covered_contracts=\`[^\`]*\`' CLAUDE.build.md` then split the
+     captured value on `, ` and `::`.
+   - For each pair whose `source-file` appears in this story's
+     `primary_files:`/`touches:` list: read **both** the named doc section
+     and the source file in full before making any edit to either.
+   - Quote the specific contract line(s) you relied on into this story
+     file's `## Evidence` section (create the section, appended at the end
+     of the story file, if it does not already exist).
+   - On divergence between the doc section and the source file:
+     **the doc wins.** If the fix is trivial and in-scope, correct the code (or the
+     doc, if the doc is what's stale and the fix is documentation-only) to
+     match; record what diverged and how it was resolved in `## Evidence`.
+     If the fix is not trivial or is out of scope for this story, do not
+     silently resolve it code-first — file a CER row (`cer.py --project-dir .
+     --finding "<description>" --quadrant now --reviewer builder`) and stop,
+     reporting `BUILDER STUCK` per § If you cannot complete the story.
+   - No intersection hit → no gate obligation; proceed normally.
 
 ---
 

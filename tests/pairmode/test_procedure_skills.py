@@ -69,6 +69,43 @@ class TestProcedureSkillsReferenceBuildStandards:
         assert "`CLAUDE.build.md`" in contract_section
 
 
+class TestCoveredContractsGate:
+    """Story INFRA-317: the builder procedure's pre-build step must be a
+    concrete, executable intersection gate -- not advisory "be aware of
+    covered contracts" prose. Pins: the intersection step, the doc-wins
+    rule, and the evidence-quoting obligation into the story's `## Evidence`
+    section. Forbidden proxy: awareness prose with no intersection/evidence
+    steps must not be what lands."""
+
+    def test_builder_procedure_names_covered_contracts(self):
+        text = BUILDER_PROCEDURE.read_text(encoding="utf-8")
+        assert "covered_contracts" in text
+        assert "covered-contracts gate" in text.lower()
+
+    def test_builder_procedure_has_intersection_step(self):
+        text = BUILDER_PROCEDURE.read_text(encoding="utf-8")
+        assert "primary_files" in text
+        assert "touches" in text
+        assert "intersection" in text.lower()
+
+    def test_builder_procedure_requires_reading_both_halves(self):
+        text = BUILDER_PROCEDURE.read_text(encoding="utf-8")
+        assert "read **both**" in text or "read both" in text.lower()
+
+    def test_builder_procedure_has_doc_wins_rule(self):
+        text = BUILDER_PROCEDURE.read_text(encoding="utf-8")
+        assert "the doc wins" in text.lower()
+
+    def test_builder_procedure_has_evidence_quoting_obligation(self):
+        text = BUILDER_PROCEDURE.read_text(encoding="utf-8")
+        assert "## Evidence" in text
+        assert "quote" in text.lower()
+
+    def test_builder_procedure_names_pair_separator(self):
+        text = BUILDER_PROCEDURE.read_text(encoding="utf-8")
+        assert "`::`" in text
+
+
 SECURITY_AUDITOR_PROCEDURE = (
     REPO_ROOT / "skills" / "pairmode" / "skills" / "security-auditor" / "procedure.md"
 )

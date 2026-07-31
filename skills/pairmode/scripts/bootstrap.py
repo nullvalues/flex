@@ -1481,6 +1481,7 @@ def bootstrap(
         "domain_model": "",
         "checklist_items": derived_checklist,  # spec-derived only; universal items are hardcoded in templates
         "protected_paths": [],
+        "covered_contracts": [],  # INFRA-317: doc-section::source-file pairs; empty-and-harmless default
         "non_negotiables": [],
         # architecture.md.j2 needs these; provide empty defaults
         "module_structure": [],
@@ -1609,6 +1610,7 @@ def bootstrap(
         "domain_isolation_rule": context["domain_isolation_rule"],
         "checklist_items": context["checklist_items"],
         "protected_paths": context["protected_paths"],
+        "covered_contracts": context["covered_contracts"],
         "non_negotiables": context["non_negotiables"],
         "module_structure": context["module_structure"],
         "layer_rules": context["layer_rules"],
