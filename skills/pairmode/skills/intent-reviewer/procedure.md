@@ -79,6 +79,34 @@ You are given a phase ID (e.g. `HARNESS003-main`). Before taking any other actio
 
 ---
 
+## Pre-build mode (INFRA-315)
+
+You may also be spawned **before** any story in the phase has been built — the
+resolver emits `spawn-intent-reviewer` with the phase key as scalar when the
+project has opted in (`CLAUDE.build.md`'s Build standards line carries
+`intent_review=`pre-build``) and every story in the phase's Stories table is
+still `draft`/`planned` with no build evidence. In this mode there is no diff
+yet (`git diff <prior-tag>..HEAD` is empty or meaningless) — `git diff` is not
+your input here.
+
+Compare instead: the phase doc's **Goal** vs each story's **Ensures**/**Instructions**
+vs the era's stated intent (`docs/eras/<era>.md` or equivalent, when present). Ask
+the same questions checkpoint-time review asks of a finished diff, but of the
+plan itself: does every story's Ensures actually satisfy the phase Goal? Does any
+story's Requires assume a shape another story in the same phase hasn't built yet
+(an ordering gap)? Does any story's acceptance criterion look unsatisfiable as
+written (an unsatisfiable Ensures)? Is there a gap between what the era claims
+this phase closes and what the phase's story list actually covers (an era gap)?
+
+The verdict shape is unchanged: `ALIGNED` (with or without advisory findings) lets
+the build proceed; `FAIL` is for blocking drift — here, a spec-level hole significant
+enough that building against it as written would waste an attempt. `STORY ALIGNMENT`
+in the Output format below has no built stories to enumerate yet in this mode; state
+that explicitly (`No stories built yet — pre-build review.`) rather than omitting the
+section.
+
+---
+
 ## Story alignment
 
 For each story in the phase, assess:

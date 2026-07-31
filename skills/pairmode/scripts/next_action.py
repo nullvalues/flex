@@ -145,6 +145,28 @@ grammar, CER-130):
   ``{"ok": …, "failed_guard": "cer-do-now"}`` contract at the call site —
   only the grammar behind the boolean test changed. No ``SCHEMA_VERSION``
   bump, no Position shape or routing change.
+
+INFRA-315 (Phase 116 -- pre-build intent review, resolver-emitted, opt-in):
+  Adds one new row (Row PBI), evaluated once a next unbuilt story is known
+  and before Row 8/Row 4/Row 3/Row 2. When the active project's
+  ``CLAUDE.build.md`` Build standards carry ``intent_review=`pre-build``,
+  the active phase's Stories table shows no story started
+  (``_phase_is_fresh``, reusing INFRA-297's ``_has_story_commit``/
+  ``_git_log_oneline`` for the git-evidence half of that check), and
+  ``attempt_count == 0``, the resolver emits ``spawn-intent-reviewer``
+  (scalar = phase key, ``model=null``) exactly once per phase — subsequent
+  calls read the recorded verdict from
+  ``state.json["pre_build_intent_review"][phase_key]`` (written by
+  ``flex_build.py record-intent-review``, mirroring the phase-keyed
+  ``checkpoint_steps`` shape from INFRA-283) and either fall through to
+  normal resolution (PASS/ALIGNED) or emit ``await-user`` (anything else —
+  spec drift is an operator decision). Absent the opt-in key (or any value
+  other than the literal string ``pre-build``), this row never fires and
+  resolver output for a given fixture is byte-identical to pre-INFRA-315
+  behaviour. No ``SCHEMA_VERSION`` bump — the action grammar itself is
+  unchanged (``SPAWN_INTENT_REVIEWER`` already existed); only the Position
+  dict gained three new pure-read keys (``intent_review_opt_in``,
+  ``phase_is_fresh``, ``pre_build_intent_verdict``).
 """
 
 from __future__ import annotations
@@ -668,6 +690,94 @@ def _resolve_active_phase(project_path: "Path") -> "Path | None":
 
 
 # ---------------------------------------------------------------------------
+# Pre-build intent review (INFRA-315)
+#
+# Build standards opt-in: ``**Build standards**`` in ``CLAUDE.build.md`` is a
+# one-line ``key=`value`` | key=`value` | ...`` block (INFRA-240 pattern,
+# rendered from ``CLAUDE.build.md.j2:50``). ``intent_review`` joins that
+# block; the only recognised value that turns this behaviour on is the
+# literal string ``pre-build``. Any other value (or the key's absence, or
+# the file's absence) leaves today's resolver output byte-identical —
+# ``_intent_review_opt_in`` fails closed (returns False) on every read
+# error, so a malformed/missing CLAUDE.build.md never silently opts a
+# project in.
+# ---------------------------------------------------------------------------
+
+_BUILD_STANDARDS_KV_RE = re.compile(r"(\w+)=`([^`]*)`")
+
+
+def _read_build_standards(project_dir: "Path") -> dict[str, str]:
+    """Parse the ``**Build standards**`` key=value line from CLAUDE.build.md.
+
+    Returns ``{}`` when the file is absent, unreadable, or carries no
+    ``**Build standards**`` line. Pure read: no I/O other than the one
+    ``read_text`` call.
+    """
+    claude_build_path = Path(project_dir) / "CLAUDE.build.md"
+    try:
+        text = claude_build_path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+
+    for line in text.splitlines():
+        if line.strip().startswith("**Build standards**"):
+            return dict(_BUILD_STANDARDS_KV_RE.findall(line))
+    return {}
+
+
+def _intent_review_opt_in(project_dir: "Path") -> bool:
+    """Return True when ``intent_review=`pre-build`` is set in Build standards."""
+    values = _read_build_standards(project_dir)
+    return values.get("intent_review", "").strip() == "pre-build"
+
+
+#: Story-table statuses that count as "not yet started" for freshness purposes.
+_FRESH_STORY_STATUSES: frozenset[str] = frozenset({"", "draft", "planned"})
+
+
+def _phase_is_fresh(active_phase_file: "Path", project_dir: "Path") -> bool:
+    """Return True when no story in *active_phase_file* has started.
+
+    "Started" means either: (a) the Stories table status is anything other
+    than ``draft``/``planned``/blank, or (b) the git log carries build
+    evidence for the story (INFRA-297's ``_has_story_commit``, reused here
+    rather than forked — Requires 4). An empty Stories table is not fresh
+    (vacuously false, mirroring the fail-closed posture of the opt-in
+    check above): there is nothing to pre-build-review. Returns False (not
+    fresh) on any read error — fail-closed, since this gate only ever
+    *adds* a spawn, never removes one; failing open here would risk an
+    infinite fresh-phase loop on a corrupt phase file.
+    """
+    from next_story import (  # type: ignore[import]
+        _git_log_oneline,
+        _has_story_commit,
+        _parse_stories_table_statuses,
+    )
+    from story_resolver import _parse_stories_table  # type: ignore[import]
+
+    try:
+        text = Path(active_phase_file).read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    story_ids = _parse_stories_table(text)
+    if not story_ids:
+        return False
+
+    statuses = _parse_stories_table_statuses(text)
+    for story_id in story_ids:
+        if statuses.get(story_id, "") not in _FRESH_STORY_STATUSES:
+            return False
+
+    git_log = _git_log_oneline(Path(project_dir))
+    for story_id in story_ids:
+        if _has_story_commit(story_id, git_log):
+            return False
+
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Position read-model (RESOLVER-002)
 # ---------------------------------------------------------------------------
 
@@ -730,6 +840,16 @@ def infer_position(project_dir: "str | Path") -> dict:
         True when a claim-filtered pass over the active phase found no
         story, but an unfiltered pass over the same phase did — i.e. every
         remaining story is claimed, not that the phase is complete.
+    intent_review_opt_in : bool
+        True when ``CLAUDE.build.md``'s Build standards line carries
+        ``intent_review=`pre-build``` (INFRA-315).
+    phase_is_fresh : bool
+        True when no story in the active phase's Stories table has started
+        (INFRA-315) — see ``_phase_is_fresh``.
+    pre_build_intent_verdict : str | None
+        The recorded pre-build intent-review verdict for the active phase's
+        key (``state.json["pre_build_intent_review"][phase_key]``), or None
+        when no review has been recorded yet (INFRA-315).
     """
     from next_story import find_next_story  # type: ignore[import]
     from model_selector import select_builder_model  # type: ignore[import]
@@ -996,6 +1116,45 @@ def infer_position(project_dir: "str | Path") -> dict:
     except Exception:  # noqa: BLE001
         pass
 
+    # ------------------------------------------------------------------
+    # 7. Pre-build intent review (INFRA-315)
+    #
+    # ``intent_review_opt_in`` and ``phase_is_fresh`` are pure-read
+    # derivations (Build standards text + Stories table + git log).
+    # ``pre_build_intent_verdict`` is the durable "already reviewed"
+    # evidence: ``state.json["pre_build_intent_review"]`` is a
+    # ``dict[phase_key, verdict_str]`` (mirrors the ``checkpoint_steps``
+    # phase-keyed shape above, INFRA-283 pattern) written by
+    # ``flex_build.py record-intent-review`` once the checkpoint-time
+    # ``intent-reviewer`` spawn returns. Absent entry → None (not yet
+    # reviewed). Pure read: this module never writes this key.
+    # ------------------------------------------------------------------
+    intent_review_opt_in: bool = _intent_review_opt_in(project_path)
+    phase_is_fresh: bool = False
+    if active_phase_file is not None:
+        try:
+            phase_is_fresh = _phase_is_fresh(Path(active_phase_file), project_path)
+        except Exception:  # noqa: BLE001
+            phase_is_fresh = False
+
+    pre_build_intent_verdict: "str | None" = None
+    if active_phase_file is not None:
+        _review_phase_key = Path(active_phase_file).stem
+        if _review_phase_key.startswith("phase-"):
+            _review_phase_key = _review_phase_key[len("phase-") :]
+        try:
+            state_path2 = project_path / ".companion" / "state.json"
+            if state_path2.exists():
+                raw_state2 = json.loads(state_path2.read_text(encoding="utf-8"))
+                if isinstance(raw_state2, dict):
+                    reviews = raw_state2.get("pre_build_intent_review")
+                    if isinstance(reviews, dict):
+                        candidate_verdict = reviews.get(_review_phase_key)
+                        if isinstance(candidate_verdict, str):
+                            pre_build_intent_verdict = candidate_verdict
+        except Exception:  # noqa: BLE001
+            pass
+
     return {
         "active_phase_file": active_phase_file,
         "next_story_id": next_story_id,
@@ -1012,6 +1171,9 @@ def infer_position(project_dir: "str | Path") -> dict:
         "claimed_stories": claimed_stories,
         "claimed_skipped": claimed_skipped,
         "all_stories_claimed": all_stories_claimed,
+        "intent_review_opt_in": intent_review_opt_in,
+        "phase_is_fresh": phase_is_fresh,
+        "pre_build_intent_verdict": pre_build_intent_verdict,
     }
 
 
@@ -1066,6 +1228,15 @@ def resolve_next_action(
                guard fail → await-user (checkpoint-guard-failed:<which>)
                guards pass → next uncompleted checkpoint step
                all steps done → done
+    Row PBI (INFRA-315) — opted-in (Build standards intent_review=`pre-build`)
+               + phase_is_fresh + attempt_count == 0:
+               no recorded verdict yet             → spawn-intent-reviewer
+                                                       (scalar=phase key, model=null)
+               recorded verdict PASS/ALIGNED        → falls through (Row 8/2, once only)
+               recorded verdict anything else       → await-user
+                                                       (pre-build-intent-review-flagged)
+               Absent the opt-in (or any other value), this row never fires and
+               resolver output is byte-identical to pre-INFRA-315 behaviour.
     Row 8  — story committed (PASS), more stories remain   → spawn-builder (next story, attempt 1)
     Row 4  — any pre-flight gate blocked                   → await-user (gate-blocked:<which>)
     Row 3  — model reason == prompted-upgrade, counter 0   → await-user (model-upgrade)
@@ -1193,6 +1364,66 @@ def resolve_next_action(
             meta_dict = dict(meta_dict)
             meta_dict["claimed_skipped"] = list(claimed_skipped)
         return meta_dict
+
+    # ------------------------------------------------------------------
+    # Row PBI — pre-build intent review (INFRA-315).
+    #
+    # Evaluated before Row 8/Row 2 (Instructions 1: "add the new row above
+    # the spawn-builder rows"). Guarded by three independent conditions, ALL
+    # of which must hold for this row to fire at all:
+    #   - opted in (Build standards intent_review=`pre-build`)
+    #   - phase_is_fresh (no story in the phase has started — Ensures 3)
+    #   - attempt_count == 0 (belt-and-suspenders: a fresh phase's first
+    #     story can only ever be at attempt 0 by definition, but this keeps
+    #     the guard self-contained rather than relying solely on
+    #     phase_is_fresh's git-log scan)
+    #
+    # Without the opt-in (or any value other than the literal "pre-build"),
+    # this whole block is skipped and resolution falls straight through to
+    # Row 8/Row 4/Row 3/Row 2 exactly as before this story (Ensures 1).
+    # ------------------------------------------------------------------
+    intent_review_opt_in: bool = bool(position.get("intent_review_opt_in"))
+    phase_is_fresh: bool = bool(position.get("phase_is_fresh"))
+    pre_build_intent_verdict: "str | None" = position.get("pre_build_intent_verdict")
+
+    if intent_review_opt_in and phase_is_fresh and attempt_count == 0:
+        _phase_key = Path(active_phase_file).stem
+        if _phase_key.startswith("phase-"):
+            _phase_key = _phase_key[len("phase-") :]
+
+        if pre_build_intent_verdict is None:
+            # No review recorded yet for this phase — spawn it once, before
+            # any builder. model=null (Requires 1: the model-null rule for
+            # non-builder spawns) — unlike checkpoint-time's
+            # checkpoint-intent, this emission carries no model override.
+            return make_action(
+                SPAWN_INTENT_REVIEWER,
+                scalar=_phase_key,
+                model=None,
+                reason="pre-build-intent-review",
+                meta=meta_base,
+            )
+
+        # A verdict is recorded (Requires 3 evidence). Ensures 4: mirrors
+        # the PASS/ALIGNED-clean vs FAIL/flag-block shape of the
+        # checkpoint-time intent-review verdict handling (worker_result's
+        # REVIEW-RESULT enum — PASS, FAIL, ALIGNED) rather than forking a
+        # new vocabulary. PASS/ALIGNED falls through to normal resolution
+        # below (Row 8/Row 2) — this is what makes the emission fire only
+        # once per phase (Ensures 2). Anything else (FAIL, or an
+        # unrecognised string) is spec drift — an operator decision, not an
+        # auto-fix — and blocks with await-user (Ensures 4).
+        if pre_build_intent_verdict not in ("PASS", "ALIGNED"):
+            meta = dict(meta_base)
+            meta["pre_build_intent_verdict"] = pre_build_intent_verdict
+            return make_action(
+                AWAIT_USER,
+                scalar="",
+                model=None,
+                reason="pre-build-intent-review-flagged",
+                meta=meta,
+            )
+        # else: PASS/ALIGNED — fall through to Row 8 / Row 4 / Row 3 / Row 2.
 
     # ------------------------------------------------------------------
     # Row 8 — story just committed (PASS) but more stories remain.

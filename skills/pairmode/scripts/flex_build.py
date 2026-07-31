@@ -4329,6 +4329,83 @@ def cmd_record_checkpoint_step(
     sys.exit(rc)
 
 
+@flex_build.command("record-intent-review")
+@click.option(
+    "--phase-key",
+    "phase_key",
+    required=True,
+    type=str,
+    help="Phase key (docs/phases/index.md row reference) this review is for.",
+)
+@click.option(
+    "--verdict",
+    "verdict",
+    required=True,
+    type=str,
+    help="Recognised REVIEW-RESULT verdict: PASS, FAIL, or ALIGNED.",
+)
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_record_intent_review(phase_key: str, verdict: str, project_dir: str) -> None:
+    """Record a pre-build intent-review verdict for *phase_key* (INFRA-315).
+
+    Writes ``state.json["pre_build_intent_review"][phase_key] = verdict``,
+    atomically (temp file + ``os.replace``, mirroring every other
+    ``state.json`` writer in this module). This is the durable "already
+    reviewed" evidence ``next_action._is_fresh_phase``/
+    ``resolve_next_action``'s Row PBI reads to fire the
+    ``spawn-intent-reviewer`` pre-build emission exactly once per phase
+    (Ensures 2) and to route a non-PASS/ALIGNED verdict to ``await-user``
+    instead of silently proceeding (Ensures 4).
+
+    ``verdict`` is validated against the same enum ``worker_result.py``'s
+    ``REVIEW-RESULT`` schema recognises (PASS, FAIL, ALIGNED) — not
+    imported directly (this module already imports enough; the mirror is
+    a two-line frozenset, not a forked schema) but kept in lockstep by
+    ``tests/pairmode/test_worker_result.py``'s enum-mirror test, the same
+    mechanism ``subagent_transcript.RECOGNISED_REVIEW_VERDICTS`` uses. An
+    unrecognised verdict string exits 1 with no write — a typo in the
+    orchestrator's call should never silently corrupt the evidence file.
+    """
+    _RECOGNISED_REVIEW_VERDICTS = frozenset({"PASS", "FAIL", "ALIGNED"})
+    if verdict not in _RECOGNISED_REVIEW_VERDICTS:
+        click.echo(
+            f"record-intent-review: unrecognised --verdict {verdict!r}. "
+            f"Valid values: {', '.join(sorted(_RECOGNISED_REVIEW_VERDICTS))}",
+            err=True,
+        )
+        sys.exit(1)
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    companion = project_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    state_path = companion / "state.json"
+
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            if not isinstance(state, dict):
+                state = {}
+        except (json.JSONDecodeError, OSError):
+            state = {}
+    else:
+        state = {}
+
+    reviews = state.get("pre_build_intent_review")
+    if not isinstance(reviews, dict):
+        reviews = {}
+    reviews[phase_key] = verdict
+    state["pre_build_intent_review"] = reviews
+
+    _atomic_write_json(state_path, state)
+    click.echo(f"pre-build intent review: recorded {verdict} for phase {phase_key}")
+
+
 @flex_build.command("check-index")
 @click.option(
     "--project-dir",

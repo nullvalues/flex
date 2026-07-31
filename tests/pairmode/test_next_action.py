@@ -607,6 +607,215 @@ class TestInferPositionExtractionsConsistency:
         assert pos["gate_auth"]["ok"] == standalone_auth["ok"]
 
 
+def _write_claude_build_md(project_dir: Path, *, intent_review: "str | None" = None) -> Path:
+    """Write a minimal CLAUDE.build.md with a Build standards line (INFRA-315)."""
+    lines = ["# CLAUDE.build.md\n\n", "## Checkpoint\n\n"]
+    if intent_review is not None:
+        lines.append(
+            f"**Build standards** test_command=`pytest` | test_dir=`tests/` | "
+            f"protected_paths=`(none)` | domain_isolation_rule=`(none)` | "
+            f"intent_review=`{intent_review}`\n"
+        )
+    else:
+        lines.append(
+            "**Build standards** test_command=`pytest` | test_dir=`tests/` | "
+            "protected_paths=`(none)` | domain_isolation_rule=`(none)`\n"
+        )
+    path = project_dir / "CLAUDE.build.md"
+    path.write_text("".join(lines), encoding="utf-8")
+    return path
+
+
+class TestInferPositionPreBuildIntentReview:
+    """infer_position-level fixtures for INFRA-315 (Instructions 3):
+    opted-in fresh, opted-out fresh, opted-in mid-phase."""
+
+    def test_opted_in_fresh_phase(self, tmp_path: Path, monkeypatch: Any) -> None:
+        _write_claude_build_md(tmp_path, intent_review="pre-build")
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(
+            tmp_path, "1", [("TEST-001", "draft"), ("TEST-002", "planned")]
+        )
+        _write_story(tmp_path, "TEST-001")
+        _write_story(tmp_path, "TEST-002")
+        _patch_git_log(monkeypatch, "")  # no commits at all
+
+        pos = infer_position(tmp_path)
+        assert pos["intent_review_opt_in"] is True
+        assert pos["phase_is_fresh"] is True
+        assert pos["pre_build_intent_verdict"] is None
+
+    def test_opted_out_fresh_phase(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """Absent the opt-in key, phase_is_fresh may still be True but
+        opt-in is False — Row PBI in resolve_next_action never fires."""
+        _write_claude_build_md(tmp_path, intent_review=None)
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "draft")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        assert pos["intent_review_opt_in"] is False
+
+    def test_opted_in_but_other_value_stays_opted_out(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Any value other than the literal 'pre-build' leaves opt-in False."""
+        _write_claude_build_md(tmp_path, intent_review="checkpoint-only")
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "draft")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        assert pos["intent_review_opt_in"] is False
+
+    def test_opted_in_mid_phase_not_fresh(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Ensures 3: a phase with >=1 complete/in-progress story is never
+        fresh, opted-in or not."""
+        _write_claude_build_md(tmp_path, intent_review="pre-build")
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(
+            tmp_path, "1", [("TEST-001", "complete"), ("TEST-002", "planned")]
+        )
+        _write_story(tmp_path, "TEST-001")
+        _write_story(tmp_path, "TEST-002")
+        _patch_git_log(monkeypatch, "abc123 story(TEST-001): done\n")
+
+        pos = infer_position(tmp_path)
+        assert pos["intent_review_opt_in"] is True
+        assert pos["phase_is_fresh"] is False
+
+    def test_opted_in_mid_phase_via_commit_evidence_not_fresh(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A story with commit evidence but a table status still 'planned'
+        is still not fresh (INFRA-297 helpers reused, Requires 4)."""
+        _write_claude_build_md(tmp_path, intent_review="pre-build")
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(
+            tmp_path, "1", [("TEST-001", "planned"), ("TEST-002", "planned")]
+        )
+        _write_story(tmp_path, "TEST-001")
+        _write_story(tmp_path, "TEST-002")
+        _patch_git_log(monkeypatch, "abc123 story(TEST-001): done\n")
+
+        pos = infer_position(tmp_path)
+        assert pos["phase_is_fresh"] is False
+
+    def test_pre_build_intent_verdict_read_from_state_json(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Requires 3: durable evidence lives in state.json, phase-keyed."""
+        _write_claude_build_md(tmp_path, intent_review="pre-build")
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "draft")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        (companion / "state.json").write_text(
+            json.dumps({"pre_build_intent_review": {"1": "ALIGNED"}}),
+            encoding="utf-8",
+        )
+
+        pos = infer_position(tmp_path)
+        assert pos["pre_build_intent_verdict"] == "ALIGNED"
+
+    def test_pre_build_intent_verdict_is_phase_scoped(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A later fresh phase (different key) re-fires — its own key holds
+        no evidence even though a sibling phase's key does."""
+        _write_claude_build_md(tmp_path, intent_review="pre-build")
+        _write_index(tmp_path, [("2", "Phase 2", "active")])
+        _write_phase(tmp_path, "2", [("TEST-010", "draft")])
+        _write_story(tmp_path, "TEST-010")
+        _patch_git_log(monkeypatch, "")
+
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        (companion / "state.json").write_text(
+            json.dumps({"pre_build_intent_review": {"1": "ALIGNED"}}),
+            encoding="utf-8",
+        )
+
+        pos = infer_position(tmp_path)
+        assert pos["pre_build_intent_verdict"] is None
+        assert pos["phase_is_fresh"] is True
+
+
+class TestPreBuildIntentReviewOnceOnlyRoundTrip:
+    """Instructions 3: the once-only round-trip, end to end through
+    infer_position + resolve_next_action + the record-intent-review CLI
+    write (Requires 3: the resolver is stateless per invocation — a fresh
+    process re-reads the same durable evidence and resolves consistently)."""
+
+    def test_stateless_rerun_after_recording_verdict(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from next_action import resolve_next_action  # type: ignore[import]
+        from flex_build import cmd_record_intent_review  # type: ignore[import]
+        from click.testing import CliRunner
+
+        _write_claude_build_md(tmp_path, intent_review="pre-build")
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "draft")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        # First resolution: no verdict recorded yet → spawn-intent-reviewer.
+        pos_before = infer_position(tmp_path)
+        action_before = resolve_next_action(pos_before)
+        assert action_before["action"] == SPAWN_INTENT_REVIEWER
+        assert action_before["scalar"] == "1"
+
+        # Record the verdict via the CLI (mirrors the orchestrator's call).
+        runner = CliRunner()
+        result = runner.invoke(
+            cmd_record_intent_review,
+            ["--phase-key", "1", "--verdict", "ALIGNED", "--project-dir", str(tmp_path)],
+        )
+        assert result.exit_code == 0, result.output
+
+        # A brand-new call to infer_position (simulating a fresh process /
+        # a /clear boundary) must read the durable evidence and never
+        # re-emit spawn-intent-reviewer for this phase.
+        pos_after = infer_position(tmp_path)
+        assert pos_after["pre_build_intent_verdict"] == "ALIGNED"
+        action_after = resolve_next_action(pos_after)
+        assert action_after["action"] == SPAWN_BUILDER
+        assert action_after["scalar"] == "TEST-001"
+
+    def test_recorded_fail_verdict_blocks_via_await_user(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from next_action import resolve_next_action  # type: ignore[import]
+        from flex_build import cmd_record_intent_review  # type: ignore[import]
+        from click.testing import CliRunner
+
+        _write_claude_build_md(tmp_path, intent_review="pre-build")
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "draft")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cmd_record_intent_review,
+            ["--phase-key", "1", "--verdict", "FAIL", "--project-dir", str(tmp_path)],
+        )
+        assert result.exit_code == 0, result.output
+
+        pos = infer_position(tmp_path)
+        action = resolve_next_action(pos)
+        assert action["action"] == AWAIT_USER
+        assert action["reason"] == "pre-build-intent-review-flagged"
+
+
 class TestInferPositionReadOnly:
     """infer_position must not write any files."""
 
@@ -643,6 +852,7 @@ from next_action import (  # noqa: E402
     SPAWN_LOOP_BREAKER,
     SPAWN_GATE_WORKER,
     SPAWN_REVIEWER,
+    SPAWN_INTENT_REVIEWER,
     CHECKPOINT,
     CHECKPOINT_SECURITY,
     CHECKPOINT_TAG,
@@ -667,6 +877,9 @@ def _make_position(
     gate_schema: "dict | None" = None,
     gate_auth: "dict | None" = None,
     last_attempt_outcome: str = OUTCOME_NONE,
+    intent_review_opt_in: bool = False,
+    phase_is_fresh: bool = False,
+    pre_build_intent_verdict: "str | None" = None,
 ) -> dict:
     """Build a synthetic Position dict for state-machine tests."""
     _ok_gate = {"ok": True, "blocked_reason": ""}
@@ -681,6 +894,10 @@ def _make_position(
         "gate_schema": gate_schema if gate_schema is not None else dict(_ok_gate),
         "gate_auth": gate_auth if gate_auth is not None else dict(_ok_gate),
         "last_attempt_outcome": last_attempt_outcome,
+        # INFRA-315
+        "intent_review_opt_in": intent_review_opt_in,
+        "phase_is_fresh": phase_is_fresh,
+        "pre_build_intent_verdict": pre_build_intent_verdict,
     }
 
 
@@ -1215,6 +1432,140 @@ class TestResolveNextActionSpawnBuilder:
         assert action["action"] == SPAWN_BUILDER
         assert action["scalar"] == "TEST-003"
         assert action["meta"]["attempt"] == 1
+        assert validate_action(action) == []
+
+
+class TestResolveNextActionPreBuildIntentReview:
+    """Row PBI (INFRA-315): pre-build intent review, resolver-emitted, opt-in.
+
+    Story fixtures (Instructions 3): opted-in fresh, opted-out fresh, opted-in
+    mid-phase, plus the once-only round-trip.
+    """
+
+    def _phase_file(self, tmp_path: Path, name: str = "1") -> Path:
+        phase_file = tmp_path / "docs" / "phases" / f"phase-{name}.md"
+        phase_file.parent.mkdir(parents=True, exist_ok=True)
+        phase_file.write_text("# Phase\n", encoding="utf-8")
+        return phase_file
+
+    def test_opted_in_fresh_no_verdict_spawns_intent_reviewer(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensures 1: opted-in + fresh + no attempts → spawn-intent-reviewer,
+        scalar=phase key, model=null, reason names pre-build intent review."""
+        phase_file = self._phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-001",
+            attempt_count=0,
+            builder_model="sonnet",
+            builder_model_reason="auto-baseline",
+            last_attempt_outcome=OUTCOME_NONE,
+            intent_review_opt_in=True,
+            phase_is_fresh=True,
+            pre_build_intent_verdict=None,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_INTENT_REVIEWER
+        assert action["scalar"] == "1"
+        assert action["model"] is None
+        assert "pre-build" in action["reason"]
+        assert validate_action(action) == []
+
+    def test_opted_out_fresh_byte_identical_to_baseline(self, tmp_path: Path) -> None:
+        """Ensures 1: without the opt-in, output is byte-identical to the
+        pre-INFRA-315 Row 2 resolution for the same fixture."""
+        phase_file = self._phase_file(tmp_path)
+        base_kwargs = dict(
+            active_phase_file=phase_file,
+            next_story_id="TEST-001",
+            attempt_count=0,
+            builder_model="sonnet",
+            builder_model_reason="auto-baseline",
+            last_attempt_outcome=OUTCOME_NONE,
+        )
+        pos_opted_out = _make_position(
+            **base_kwargs,
+            intent_review_opt_in=False,
+            phase_is_fresh=True,
+            pre_build_intent_verdict=None,
+        )
+        pos_no_flags = _make_position(**base_kwargs)
+        action_opted_out = resolve_next_action(pos_opted_out)
+        action_no_flags = resolve_next_action(pos_no_flags)
+        assert action_opted_out == action_no_flags
+        assert action_opted_out["action"] == SPAWN_BUILDER
+
+    def test_opted_in_but_not_fresh_never_fires(self, tmp_path: Path) -> None:
+        """Ensures 3: never mid-phase — phase_is_fresh False means the row
+        never fires even when opted in, regardless of verdict state."""
+        phase_file = self._phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-002",
+            attempt_count=0,
+            builder_model="sonnet",
+            builder_model_reason="auto-baseline",
+            last_attempt_outcome=OUTCOME_NONE,
+            intent_review_opt_in=True,
+            phase_is_fresh=False,
+            pre_build_intent_verdict=None,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+
+    def test_recorded_aligned_verdict_falls_through_to_spawn_builder(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensures 2: after the review outcome (ALIGNED) is recorded, the same
+        fixture resolves to spawn-builder — the emission fires once."""
+        phase_file = self._phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-001",
+            attempt_count=0,
+            builder_model="sonnet",
+            builder_model_reason="auto-baseline",
+            last_attempt_outcome=OUTCOME_NONE,
+            intent_review_opt_in=True,
+            phase_is_fresh=True,
+            pre_build_intent_verdict="ALIGNED",
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["scalar"] == "TEST-001"
+
+    def test_recorded_pass_verdict_also_falls_through(self, tmp_path: Path) -> None:
+        phase_file = self._phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-001",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+            intent_review_opt_in=True,
+            phase_is_fresh=True,
+            pre_build_intent_verdict="PASS",
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+
+    def test_recorded_fail_verdict_routes_to_await_user(self, tmp_path: Path) -> None:
+        """Ensures 4: verdict routing is advisory-block, not silent — a FAIL/
+        flag verdict routes to await-user (spec drift is an operator decision)."""
+        phase_file = self._phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-001",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+            intent_review_opt_in=True,
+            phase_is_fresh=True,
+            pre_build_intent_verdict="FAIL",
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == AWAIT_USER
+        assert action["reason"] == "pre-build-intent-review-flagged"
+        assert action["meta"]["pre_build_intent_verdict"] == "FAIL"
         assert validate_action(action) == []
 
 

@@ -593,6 +593,10 @@ def _build_template_context(project_dir: Path) -> dict:
         "default_branch": default_branch,
         "domain_isolation_rule": pctx.get("domain_isolation_rule") or state.get("domain_isolation_rule") or "",
         "protected_paths": pctx.get("protected_paths") or state.get("protected_paths") or [],
+        # INFRA-315: pre-build intent review opt-in. Absent → template's
+        # own "(unset)" default → next_action._intent_review_opt_in reads
+        # anything other than the literal "pre-build" as opted out.
+        "intent_review": pctx.get("intent_review") or state.get("intent_review") or "",
     }
 
 

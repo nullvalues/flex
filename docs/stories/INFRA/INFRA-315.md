@@ -14,6 +14,8 @@ touches:
   - skills/pairmode/skills/intent-reviewer/procedure.md
   - tests/pairmode/test_next_action.py
   - docs/architecture.md
+  - skills/pairmode/scripts/flex_build.py
+  - skills/pairmode/scripts/pairmode_sync.py
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
@@ -62,6 +64,14 @@ the behaviour must be resolver-emitted, not prose-suggested.**
    reuse its helpers for "no story in this phase has build evidence".
 5. Baseline 4116/211.
 
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| skills/pairmode/scripts/flex_build.py | durable evidence recorder (record-intent-review) for the pre-build intent-review verdict, mirroring record-checkpoint-step's state.json write shape | 2026-07-31T18:46:56Z |
+
+| skills/pairmode/scripts/pairmode_sync.py | wire intent_review through _build_template_context so the opt-in key can actually be sourced for sync-rendered projects | 2026-07-31T18:46:56Z |
 ## Ensures
 
 1. **Opt-in emission.** Fixture: opted-in project, phase all-`draft`/`planned`,

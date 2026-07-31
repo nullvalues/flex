@@ -2115,6 +2115,44 @@ became per-project, not the files. `hooks/`-layer conventions (hook thinness, th
 describe the shared plugin code every project runs, not a per-project fact — and were left
 as-is rather than parameterized.
 
+#### `intent_review` opt-in (INFRA-315)
+
+The Build standards line also carries `intent_review` (default rendered value:
+`(unset)`). This is a **behaviour switch**, not a per-project fact like the four keys
+above — it turns on the resolver's pre-build intent-review emission (Cora item A#2,
+AG-6: catch spec-level drift before the first builder spawn of a fresh phase, not only
+at checkpoint). The only value that opts a project in is the literal string
+`pre-build`; absent, or any other value, leaves `next_action.resolve_next_action`'s
+output byte-identical to pre-INFRA-315 behaviour for the same fixture — this is
+enforced by `next_action._intent_review_opt_in`, which fails closed (returns `False`)
+on a missing/unreadable `CLAUDE.build.md` rather than fail open.
+
+When opted in, `next_action.py`'s `infer_position` additionally computes
+`phase_is_fresh` (true when no story in the active phase's Stories table has started —
+reusing INFRA-297's `_has_story_commit`/`_git_log_oneline` git-evidence helpers rather
+than forking a second "has this been built" scan) and reads
+`state.json["pre_build_intent_review"][phase_key]` (a `dict[phase_key, verdict_str]`,
+mirroring the `checkpoint_steps` phase-keyed shape from INFRA-283) as the durable
+"already reviewed" evidence. `resolve_next_action`'s Row PBI, evaluated once a next
+unbuilt story is known and above Row 8/Row 2, uses these three signals: no verdict
+recorded yet → `spawn-intent-reviewer` (scalar = phase key, `model=null`); a recorded
+`PASS`/`ALIGNED` verdict → falls through to normal resolution (this is what makes the
+emission fire exactly once per phase — a later, genuinely fresh phase has its own key
+and re-fires independently); any other recorded verdict (`FAIL`, or an unrecognised
+string) → `await-user` — spec drift caught here is an operator decision, not an
+auto-fix, mirroring the PASS/ALIGNED-clean vs FAIL-block shape of checkpoint-time
+intent review rather than inventing a second vocabulary.
+
+The evidence is written by `flex_build.py record-intent-review --phase-key <key>
+--verdict <PASS|FAIL|ALIGNED> --project-dir .`, called by the orchestrator (per
+`CLAUDE.build.md.j2`'s Pre-build intent review section) after the `spawn-intent-reviewer`
+worker returns — the same shape every other `state.json` writer in `flex_build.py` uses
+(atomic temp-file + `os.replace`), not a second, competing recording mechanism.
+
+Downstream rollout of this opt-in to already-bootstrapped projects (setting
+`intent_review=pre-build` in their own `pairmode_context.json`/`state.json`) is
+deliberately out of scope for this story — see the phase-116 stories list.
+
 ### Pairmode non-negotiables
 
 - Template context uses separate keys for brief.md and ideology.md must-preserve content:
