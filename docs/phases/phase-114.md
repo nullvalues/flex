@@ -92,6 +92,7 @@ exercise a `hooks/pre_tool_use.py` already carrying Group 5's changes).
 | INFRA-326 | Dual-active-era tie-break silently skips the wrong era ledger row (INFRA-267 no-op) | draft |
 | INFRA-327 | Exempt loop-breaker from the context-budget gate — it is the deterministic double-fail step, not discretionary | draft |
 | INFRA-328 | next-action's spawn-loop-breaker carries no fail_cause — orchestrator can't fill the required LOOP-BREAKER input | draft |
+| INFRA-330 | Correct stale draft status on 13 merged, reviewer-PASSed phase-114 stories | draft |
 
 ## Schema delivery
 
