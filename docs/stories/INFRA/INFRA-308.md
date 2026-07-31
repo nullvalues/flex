@@ -2,7 +2,7 @@
 id: INFRA-308
 rail: INFRA
 title: Plugin-manifest skill guard: glob-derived expectations with anti-vacuity floor
-status: draft
+status: complete
 phase: "115"
 story_class: code
 auth_gated: false

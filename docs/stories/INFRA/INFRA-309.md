@@ -2,7 +2,7 @@
 id: INFRA-309
 rail: INFRA
 title: "Rollup hygiene: shared NON_BUILD_ROLES exclusion across Python and TS read paths"
-status: draft
+status: complete
 phase: "115"
 story_class: code
 auth_gated: false

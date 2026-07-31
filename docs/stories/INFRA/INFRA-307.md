@@ -2,7 +2,7 @@
 id: INFRA-307
 rail: INFRA
 title: "Vendored payload guards: dot-claude tolerance pattern; delete test_extension.node; enumerate native binaries"
-status: draft
+status: complete
 phase: "115"
 story_class: code
 auth_gated: false

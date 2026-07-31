@@ -2,7 +2,7 @@
 id: INFRA-329
 rail: INFRA
 title: Effort-db integrity audit on post-campaign fleet data — validate the forward-only L5 fixes against real rows
-status: draft
+status: complete
 phase: "115"
 story_class: code
 auth_gated: false

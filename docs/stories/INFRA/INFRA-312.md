@@ -2,7 +2,7 @@
 id: INFRA-312
 rail: INFRA
 title: Observability UI functional validation — dogfood checklist over ≥2 registered repos plus a scoped TypeScript route-test runner
-status: draft
+status: complete
 phase: "115"
 story_class: code
 auth_gated: false

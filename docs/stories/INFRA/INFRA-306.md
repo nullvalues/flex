@@ -2,7 +2,7 @@
 id: INFRA-306
 rail: INFRA
 title: Observability API: loopback-honest CORS and abs_path disclosure gating
-status: draft
+status: complete
 phase: "115"
 story_class: code
 auth_gated: false

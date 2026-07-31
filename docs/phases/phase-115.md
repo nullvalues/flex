@@ -21,12 +21,12 @@ Harden the observability companion's shared entry points against non-loopback ex
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-306 | Observability API: loopback-honest CORS and abs_path disclosure gating | draft |
-| INFRA-307 | Vendored payload guards: dot-claude tolerance pattern; delete test_extension.node; enumerate native binaries | draft |
-| INFRA-308 | Plugin-manifest skill guard: glob-derived expectations with anti-vacuity floor | draft |
-| INFRA-309 | Rollup hygiene: shared NON_BUILD_ROLES exclusion across Python and TS read paths | draft |
-| INFRA-312 | Observability UI functional validation: dogfood checklist over ≥2 registered repos plus a scoped TypeScript route-test runner | draft |
-| INFRA-329 | Effort-db integrity audit on post-campaign fleet data — validate the forward-only L5 fixes against real rows | draft |
+| INFRA-306 | Observability API: loopback-honest CORS and abs_path disclosure gating | complete |
+| INFRA-307 | Vendored payload guards: dot-claude tolerance pattern; delete test_extension.node; enumerate native binaries | complete |
+| INFRA-308 | Plugin-manifest skill guard: glob-derived expectations with anti-vacuity floor | complete |
+| INFRA-309 | Rollup hygiene: shared NON_BUILD_ROLES exclusion across Python and TS read paths | complete |
+| INFRA-312 | Observability UI functional validation: dogfood checklist over ≥2 registered repos plus a scoped TypeScript route-test runner | complete |
+| INFRA-329 | Effort-db integrity audit on post-campaign fleet data — validate the forward-only L5 fixes against real rows | complete |
 
 ## Schema delivery
 
