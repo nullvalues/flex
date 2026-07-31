@@ -167,6 +167,48 @@ INFRA-315 (Phase 116 -- pre-build intent review, resolver-emitted, opt-in):
   unchanged (``SPAWN_INTENT_REVIEWER`` already existed); only the Position
   dict gained three new pure-read keys (``intent_review_opt_in``,
   ``phase_is_fresh``, ``pre_build_intent_verdict``).
+
+INFRA-316 (Phase 116 -- between-story context etiquette, Row PC):
+  Adds ``pause-context`` to the action vocabulary (``SCHEMA_VERSION`` bumped
+  from 4 to 5) and wires a new check into the Row-8 seam only ("story just
+  committed (PASS), more stories remain"): before emitting the next
+  ``spawn-builder``, the resolver reads ``.companion/state.json`` directly
+  and delegates to ``context_budget.should_block`` -- the exact pure
+  predicate ``hooks/pre_tool_use.py``'s PreToolUse gate already uses -- to
+  decide whether the orchestrator's own context-window occupancy
+  (``context_current_tokens`` vs ``context_budget_threshold`` and its
+  overrun/margin/acknowledgment siblings) is over budget and unacknowledged.
+  When it is, ``pause-context`` is emitted instead of ``spawn-builder``
+  (scalar = the next story ID, model=null); one operator acknowledgment
+  clears both this seam and the hook gate, because both consult the same
+  ``context_budget_acknowledged_at`` / ``context_budget_acknowledged_user_turn_seq``
+  state keys through the same ``should_block`` predicate (Requires 3).
+
+  IMPORTANT (INFRA-321 F6 -- forward constraint honoured, not violated): this
+  seam consults the ORCHESTRATOR track only. It never imports, invokes, or
+  reads any output of ``context_budget_check.py``, whose sum is the
+  story-spend track (a phase-wide ``effort.db`` cost total) and is
+  explicitly forbidden as the source of a pause decision by INFRA-321 F6 --
+  wiring that sum in here would reintroduce the mis-attribution-2 pattern
+  INFRA-321 removed, just relabeled as a new feature. The story text's own
+  Context/Requires-1/Instructions-1 prose (drafted before INFRA-321 landed)
+  describes the older, superseded ``context_budget_check`` design; F6
+  explicitly supersedes it for this seam, and this implementation follows
+  F6. The emitted ``reason`` therefore carries ``tokens=<current>
+  threshold=<threshold> ceiling=<ceiling>`` (orchestrator-track quantities)
+  rather than the ``sum=... threshold=...`` phrasing the original story text
+  anticipated -- there is no effort.db sum in this data path to report.
+
+  Only the Row-8 seam is guarded (Instructions 2): Row 2 (first attempt of a
+  freshly-claimed phase) and attempt retries (Rows 5/6/7, same story) are
+  unaffected -- a mid-story pause would strand a half-built story (Requires
+  2/Ensures 3). Fail-open (Ensures 5): a missing/unreadable
+  ``state.json``, an absent ``context_current_tokens``, or any exception
+  raised while deriving the verdict all resolve to ``spawn-builder`` --
+  genuine errors additionally carry a warning in ``meta.warnings[]``; the
+  ordinary "no state.json yet" case does not warn, so an unconfigured
+  project's Row-8 output stays byte-identical to pre-INFRA-316 behaviour
+  (Ensures 1).
 """
 
 from __future__ import annotations
@@ -183,11 +225,22 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from table_utils import split_table_row  # noqa: E402
 
+# INFRA-316: the Row-8 context-etiquette check reuses context_budget's pure
+# should_block/effective_ceiling functions directly -- the same predicate
+# hooks/pre_tool_use.py's PreToolUse gate uses on the ORCHESTRATOR track
+# (INFRA-321 F6). This module deliberately does NOT import
+# context_budget_check (the story-spend/effort.db track); see the INFRA-316
+# module-docstring note above.
+try:
+    from skills.pairmode.scripts import context_budget  # noqa: E402
+except ImportError:  # flat import via hook/CLI sys.path
+    import context_budget  # type: ignore[no-redef]  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Schema version
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION: int = 4
+SCHEMA_VERSION: int = 5
 
 # ---------------------------------------------------------------------------
 # Action vocabulary (closed set for Era 003; designed to be extended later)
@@ -220,6 +273,13 @@ CHECKPOINT_DOCS: str = "checkpoint-docs"
 CHECKPOINT_TAG: str = "checkpoint-tag"  # inline action — NOT in _SPAWN_ACTIONS
 AWAIT_USER: str = "await-user"
 DONE: str = "done"
+# INFRA-316: between-story context-etiquette handoff, emitted at the Row-8
+# seam in place of spawn-builder when the ORCHESTRATOR track (INFRA-321 F6)
+# is over threshold and unacknowledged. An await-user-class action: model is
+# always null (NOT in _SPAWN_ACTIONS below). Consumers (the orchestrator
+# build loop) treat it as: record state, summarize, end session, resume
+# fresh — see CLAUDE.build.md.j2's one-line handoff instruction.
+PAUSE_CONTEXT: str = "pause-context"
 
 ACTIONS: frozenset[str] = frozenset(
     {
@@ -236,6 +296,7 @@ ACTIONS: frozenset[str] = frozenset(
         CHECKPOINT_TAG,
         AWAIT_USER,
         DONE,
+        PAUSE_CONTEXT,
     }
 )
 
@@ -1189,6 +1250,122 @@ _ADVISORY_GUARDRAIL: str = "guardrail-fired"
 _ADVISORY_CONTEXT: str = "context-budget-exceeded"
 
 
+def _read_state_for_context_pause(project_dir: "Path | None") -> dict:
+    """Read ``.companion/state.json`` for the Row-8 context-etiquette check.
+
+    Returns ``{}`` on any error (absent file, malformed JSON, non-dict root,
+    or ``project_dir`` being ``None``) -- fail-open (INFRA-316 Ensures 5).
+    Local reader, mirroring the same pattern ``context_health.py``'s
+    ``_read_state_for_headroom`` and ``context_budget.py``'s ``_read_state``
+    already use for this exact file.
+    """
+    if project_dir is None:
+        return {}
+    try:
+        state_path = Path(project_dir) / ".companion" / "state.json"
+        if not state_path.exists():
+            return {}
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _check_context_pause(project_dir: "Path | None") -> "tuple[str | None, str | None]":
+    """INFRA-316 Row-8 seam: between-story context etiquette.
+
+    Returns ``(pause_reason, warning)``:
+
+    - ``pause_reason`` is a non-empty string (embeds ``tokens=... threshold=...
+      ceiling=...``) when the resolver must emit ``pause-context`` instead of
+      ``spawn-builder``; ``None`` when the resolver should proceed normally.
+    - ``warning`` is a fail-open advisory string (for ``meta.warnings[]``)
+      when a genuine error prevented deriving a verdict; ``None`` for the
+      ordinary "nothing configured yet" case, so an unconfigured project's
+      Row-8 output stays byte-identical to pre-INFRA-316 behaviour.
+
+    Consults the ORCHESTRATOR track ONLY (INFRA-321 F6): reads
+    ``context_current_tokens`` / ``context_budget_threshold`` /
+    ``context_budget_overrun_pct`` / ``context_budget_reprompt_margin`` /
+    the acknowledgment pair from ``.companion/state.json`` and delegates the
+    over-threshold-and-not-acknowledged decision to
+    ``context_budget.should_block`` -- the same pure predicate
+    ``hooks/pre_tool_use.py``'s PreToolUse gate uses, so one operator
+    acknowledgment clears both surfaces (Requires 3). This function never
+    imports or calls ``context_budget_check`` (the story-spend/effort.db
+    track) -- that is the exact data source INFRA-321 F6 forbids here.
+
+    Never raises: any exception while reading state or deriving the verdict
+    is caught and reported as a fail-open warning (Ensures 5).
+    """
+    try:
+        state = _read_state_for_context_pause(project_dir)
+        if not state:
+            # No state.json (or unreadable) yet — nothing configured to pause
+            # on. This is the ordinary case for a project that has not yet
+            # recorded any orchestrator-track measurement; fail open, no
+            # warning (Ensures 1: byte-identical under-threshold output).
+            return None, None
+
+        current_tokens: "int | None" = None
+        raw = state.get("context_current_tokens")
+        if raw is not None:
+            try:
+                v = int(raw)
+                if v > 0:
+                    current_tokens = v
+            except (TypeError, ValueError):
+                current_tokens = None
+        if current_tokens is None:
+            # No measurement recorded yet — same "nothing to pause on" case.
+            return None, None
+
+        threshold = int(state.get("context_budget_threshold", 130000) or 130000)
+        overrun_pct = float(state.get("context_budget_overrun_pct", 0.10) or 0.10)
+        expected_next, _provenance = context_budget.derive_expected_step_tokens(state)
+        reprompt_margin = int(state.get("context_budget_reprompt_margin", 10000) or 10000)
+
+        acknowledged_at_raw = state.get("context_budget_acknowledged_at")
+        acknowledged_at: "int | None"
+        if acknowledged_at_raw is None:
+            acknowledged_at = None
+        else:
+            try:
+                acknowledged_at = int(acknowledged_at_raw)
+            except (TypeError, ValueError):
+                acknowledged_at = None
+
+        user_turn_seq = int(state.get("context_budget_user_turn_seq", 0) or 0)
+        ack_turn_seq_raw = state.get("context_budget_acknowledged_user_turn_seq")
+        acknowledged_user_turn_seq = (
+            int(ack_turn_seq_raw) if ack_turn_seq_raw is not None else None
+        )
+
+        # Shared predicate (Requires 3 / Instructions 3) — identical call
+        # shape to hooks/pre_tool_use.py's decide() -> should_block() path.
+        over = context_budget.should_block(
+            current_tokens=current_tokens,
+            expected_next=expected_next,
+            threshold=threshold,
+            overrun_pct=overrun_pct,
+            acknowledged_at=acknowledged_at,
+            reprompt_margin=reprompt_margin,
+            user_turn_seq=user_turn_seq,
+            acknowledged_user_turn_seq=acknowledged_user_turn_seq,
+        )
+        if not over:
+            return None, None
+
+        ceiling = context_budget.effective_ceiling(threshold, overrun_pct, 1.0)
+        return (
+            f"pause-context: tokens={current_tokens} threshold={threshold} "
+            f"ceiling={ceiling}",
+            None,
+        )
+    except Exception as exc:  # fail-open (Ensures 5) — never brick the loop.
+        return None, f"context-pause-check-failed:{exc}"
+
+
 def resolve_next_action(
     position: dict,
     *,
@@ -1237,7 +1414,11 @@ def resolve_next_action(
                                                        (pre-build-intent-review-flagged)
                Absent the opt-in (or any other value), this row never fires and
                resolver output is byte-identical to pre-INFRA-315 behaviour.
-    Row 8  — story committed (PASS), more stories remain   → spawn-builder (next story, attempt 1)
+    Row 8  — story committed (PASS), more stories remain:
+               ORCHESTRATOR track over threshold, unacknowledged (INFRA-316,
+               INFRA-321 F6)                                → pause-context
+                                                                (scalar=next story ID)
+               else                                          → spawn-builder (next story, attempt 1)
     Row 4  — any pre-flight gate blocked                   → await-user (gate-blocked:<which>)
     Row 3  — model reason == prompted-upgrade, counter 0   → await-user (model-upgrade)
     Row 2  — counter 0, auto model (RESOLVER-009 branch):
@@ -1429,9 +1610,31 @@ def resolve_next_action(
     # Row 8 — story just committed (PASS) but more stories remain.
     # The orchestrator hasn't cleared the counter yet, so we check outcome.
     # Attempt number for the next story resets to 1.
+    #
+    # INFRA-316: before handing out the next story, consult the
+    # ORCHESTRATOR-track context check (Requires 2 — only this seam; mid-story
+    # retries below are unguarded). INFRA-321 F6: this reads
+    # .companion/state.json directly and never touches context_budget_check
+    # (story-spend track).
     # ------------------------------------------------------------------
     if last_attempt_outcome == OUTCOME_PASS:
+        _phase_path = Path(active_phase_file) if active_phase_file is not None else None
+        _project_dir = _phase_path.parent.parent.parent if _phase_path is not None else None
+        _pause_reason, _pause_warning = _check_context_pause(_project_dir)
+
+        if _pause_reason is not None:
+            meta = dict(meta_base)
+            return make_action(
+                PAUSE_CONTEXT,
+                scalar=next_story_id,
+                model=None,
+                reason=_pause_reason,
+                meta=_with_claimed_skipped(meta),
+            )
+
         meta: dict = dict(meta_base)
+        if _pause_warning is not None:
+            meta["warnings"] = list(meta.get("warnings") or []) + [_pause_warning]
         meta["attempt"] = 1
         return make_action(
             SPAWN_BUILDER,

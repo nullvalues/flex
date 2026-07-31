@@ -222,8 +222,8 @@ class TestKeyedCheckpointStepsInPosition:
 
 class TestCheckpointActionVocabulary:
     def test_schema_version_is_4(self) -> None:
-        """SCHEMA_VERSION must be 4 after RESOLVER-009."""
-        assert SCHEMA_VERSION == 4
+        """SCHEMA_VERSION must be 5 after the INFRA-316 pause-context bump."""
+        assert SCHEMA_VERSION == 5
 
     def test_checkpoint_security_in_actions(self) -> None:
         assert CHECKPOINT_SECURITY == "checkpoint-security"

@@ -17,6 +17,14 @@ touches:
   - tests/pairmode/test_context_budget_check.py
   - docs/architecture.md
   - skills/pairmode/templates/CLAUDE.build.md.j2
+  - tests/pairmode/fixtures/next_action.schema.json
+  - tests/pairmode/fixtures/next_action_samples.json
+  - tests/pairmode/test_next_action_schema.py
+  - tests/pairmode/test_checkpoint_step.py
+  - tests/pairmode/test_harness003_isolation.py
+  - tests/pairmode/test_harness004_isolation.py
+  - tests/pairmode/test_harness005_isolation.py
+  - tests/pairmode/test_needs_spec.py
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
@@ -76,6 +84,20 @@ investigation/planning spawns.
    handoff means: record state, summarize, end session, resume fresh.
 5. Baseline 4116/211.
 
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| tests/pairmode/fixtures/next_action.schema.json | SCHEMA_VERSION bump (pause-context action) requires updating the enum/const fixture | 2026-07-31T19:31:17Z |
+
+| tests/pairmode/fixtures/next_action_samples.json | new pause-context action needs a covering sample (test_samples_cover_all_actions) | 2026-07-31T19:31:17Z |
+| tests/pairmode/test_next_action_schema.py | enum-closure test hardcodes the 13-action count/set; pause-context bumps it to 14 | 2026-07-31T19:31:17Z |
+| tests/pairmode/test_checkpoint_step.py | SCHEMA_VERSION bump 4->5 (pause-context) breaks this file's hardcoded ==4 assertion | 2026-07-31T19:46:59Z |
+| tests/pairmode/test_harness003_isolation.py | SCHEMA_VERSION bump 4->5 (pause-context) breaks this file's hardcoded ==4 assertion | 2026-07-31T19:46:59Z |
+| tests/pairmode/test_harness004_isolation.py | SCHEMA_VERSION bump 4->5 (pause-context) breaks this file's hardcoded ==4 assertion | 2026-07-31T19:46:59Z |
+| tests/pairmode/test_harness005_isolation.py | SCHEMA_VERSION bump 4->5 (pause-context) breaks this file's hardcoded ==4 assertion | 2026-07-31T19:47:00Z |
+| tests/pairmode/test_needs_spec.py | SCHEMA_VERSION bump 4->5 (pause-context) breaks this file's hardcoded ==4 assertion | 2026-07-31T19:47:00Z |
 ## Ensures
 
 1. **Over-threshold flips the default.** Fixture with phase token sum >

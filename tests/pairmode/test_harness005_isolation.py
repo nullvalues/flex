@@ -101,8 +101,8 @@ _OK_GATE: dict = {"ok": True, "blocked_reason": ""}
 
 
 def test_schema_version_is_4() -> None:
-    """SCHEMA_VERSION must be 4 after RESOLVER-009 bump."""
-    assert SCHEMA_VERSION == 4
+    """SCHEMA_VERSION must be 5 after the INFRA-316 pause-context bump."""
+    assert SCHEMA_VERSION == 5
 
 
 def test_spawn_spec_writer_in_actions() -> None:

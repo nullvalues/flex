@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://flex.halfhorse.com/schemas/next_action/v4",
+  "$id": "https://flex.halfhorse.com/schemas/next_action/v5",
   "title": "NextAction",
-  "description": "Versioned action grammar emitted by the next-action resolver (Era 003). Schema version 4 (RESOLVER-009 adds spawn-spec-writer + needs_spec flag).",
+  "description": "Versioned action grammar emitted by the next-action resolver (Era 003). Schema version 5 (INFRA-316 adds pause-context, the Row-8 between-story context-etiquette handoff).",
   "type": "object",
   "required": ["action", "scalar", "model", "reason", "meta"],
   "additionalProperties": false,
@@ -23,7 +23,8 @@
         "checkpoint-docs",
         "checkpoint-tag",
         "await-user",
-        "done"
+        "done",
+        "pause-context"
       ]
     },
     "scalar": {
@@ -47,9 +48,9 @@
       "required": ["schema_version"],
       "properties": {
         "schema_version": {
-          "description": "Integer version of this action grammar. Must equal 4 for Era 003 HARNESS005+.",
+          "description": "Integer version of this action grammar. Must equal 5 (INFRA-316 adds pause-context).",
           "type": "integer",
-          "const": 4
+          "const": 5
         },
         "attempt": {
           "description": "Builder attempt number (1-based).",

@@ -17,7 +17,7 @@ ACTION_SUBAGENT_TYPE = {spawn-builder: builder, spawn-reviewer: reviewer, spawn-
 ```
 while true:
     a = {{ pairmode_scripts_dir }}/flex_build.py next-action --json --project-dir .
-    if a.action == "done": break
+    if a.action == "done": break  # pause-context (INFRA-316): print a.reason (orchestrator tokens/threshold/ceiling), record state, end this session now, and resume fresh next session — do not spawn a worker for it
     if a.action is a story-build action (spawn-builder / spawn-reviewer):
         wt = {{ pairmode_scripts_dir }}/flex_build.py create-story-worktree --story-id a.scalar --project-dir .  # also stamps current_story + generates docs/phases/permissions/<scalar>.json (INFRA-238)
         spawn leaf-worker-for(a.action) with subagent_type=ACTION_SUBAGENT_TYPE[a.action], scalar=a.scalar, model=a.model, cwd=wt

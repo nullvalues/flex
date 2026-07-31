@@ -108,12 +108,12 @@ def _make_position(
 
 
 class TestSchemaVersion:
-    """SCHEMA_VERSION must equal 4 after the RESOLVER-009 bump."""
+    """SCHEMA_VERSION must equal 5 after the INFRA-316 bump."""
 
     def test_schema_version_is_4(self) -> None:
-        """next_action.SCHEMA_VERSION must be 4 (RESOLVER-009 spawn-spec-writer + needs_spec bump)."""
-        assert SCHEMA_VERSION == 4, (
-            f"Expected SCHEMA_VERSION == 4; got {SCHEMA_VERSION!r}"
+        """next_action.SCHEMA_VERSION must be 5 (INFRA-316 pause-context bump)."""
+        assert SCHEMA_VERSION == 5, (
+            f"Expected SCHEMA_VERSION == 5; got {SCHEMA_VERSION!r}"
         )
 
     def test_make_action_embeds_schema_version(self) -> None:

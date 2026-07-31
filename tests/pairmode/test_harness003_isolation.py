@@ -412,9 +412,9 @@ class TestInjectedResultRouting:
 
 class TestSchemaVersion:
     def test_schema_version_is_4(self):
-        """SCHEMA_VERSION must equal 4 (RESOLVER-009 bump: spawn-spec-writer + needs_spec)."""
-        assert next_action.SCHEMA_VERSION == 4, (
-            f"Expected next_action.SCHEMA_VERSION == 4, got {next_action.SCHEMA_VERSION}"
+        """SCHEMA_VERSION must equal 5 (INFRA-316 bump: pause-context)."""
+        assert next_action.SCHEMA_VERSION == 5, (
+            f"Expected next_action.SCHEMA_VERSION == 5, got {next_action.SCHEMA_VERSION}"
         )
 
 

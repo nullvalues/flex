@@ -967,8 +967,37 @@ so a claim never overrides commit evidence (CER-095.1).
    wired — when one is wired, it must read the **orchestrator** track
    (`context_health.orchestrator_headroom` / `check_context_health`'s `orchestrator`
    sub-object), never `context_budget_check.py`, whose verdict is story-spend by
-   construction. This constrains **INFRA-316** (Phase 116, draft, between-story context
+   construction. This constrains **INFRA-316** (Phase 116, between-story context
    etiquette), which is not itself edited by this story.
+
+   **INFRA-316 landed this constraint (Phase 116).** `next_action.py`'s Row 8
+   ("story committed (PASS), more stories remain") now runs a between-story
+   context-etiquette check *before* emitting the next `spawn-builder`. The
+   check (`next_action._check_context_pause`) reads `.companion/state.json`
+   directly and delegates to `context_budget.should_block` — the identical
+   pure predicate `hooks/pre_tool_use.py`'s PreToolUse gate already uses on
+   the ORCHESTRATOR track (`context_current_tokens` vs
+   `context_budget_threshold` and its overrun/margin/acknowledgment
+   siblings) — so one operator acknowledgment clears both surfaces. When the
+   check reports over-threshold-and-unacknowledged, the resolver emits a new
+   action, `pause-context` (`scalar`=the next story ID, `model=null`,
+   `reason` embeds `tokens=… threshold=… ceiling=…`), instead of
+   `spawn-builder`; `CLAUDE.build.md.j2`'s dispatch loop treats it as: record
+   state, summarize, end the session, resume fresh. This module never
+   imports or calls `context_budget_check.py` — doing so would have compared
+   the orchestrator-track threshold against a story-spend sum, exactly the
+   mis-attribution this section already forbade. `_ADVISORY_CONTEXT`
+   (`context-budget-exceeded`) remains unwired reserved vocabulary; it was
+   not reused for this seam because `pause-context` is a distinct
+   await-user-class action in its own right (`SCHEMA_VERSION` 4 → 5), not an
+   advisory attached to a still-emitted `spawn-builder` (a warned dispatch is
+   still a dispatch — the forbidden proxy this story's spec explicitly
+   named). Only the Row-8 seam is guarded: Row 2 (first attempt of a
+   freshly-claimed phase) and attempt retries (Rows 5/6/7, same story) are
+   unaffected, and the check fails open (missing/unreadable `state.json`, no
+   recorded `context_current_tokens`, or any exception while deriving the
+   verdict) to `spawn-builder`, with a warning in `meta.warnings[]` only for
+   the genuine-error case.
 
 10. **Checkpoint** — at phase end, the checkpoint sequence runs:
     `checkpoint-security` (security-auditor, WORKER-008) → `checkpoint-intent` (intent-reviewer,

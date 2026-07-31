@@ -59,8 +59,8 @@ from resolver_fixtures import make_resolver_project  # noqa: E402
 
 
 def test_schema_version_is_4() -> None:
-    """SCHEMA_VERSION must be 4 after RESOLVER-009 bump."""
-    assert SCHEMA_VERSION == 4
+    """SCHEMA_VERSION must be 5 after the INFRA-316 pause-context bump."""
+    assert SCHEMA_VERSION == 5
 
 
 def test_spawn_spec_writer_in_actions() -> None:
@@ -327,7 +327,7 @@ def test_resolve_spawn_spec_writer_action_passes_validate(tmp_path: Path) -> Non
     )
     violations = validate_action(action)
     assert violations == [], f"Unexpected violations: {violations}"
-    assert action["meta"]["schema_version"] == 4
+    assert action["meta"]["schema_version"] == 5
 
 
 # ---------------------------------------------------------------------------
