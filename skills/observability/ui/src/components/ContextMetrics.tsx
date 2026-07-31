@@ -252,12 +252,22 @@ export function ContextMetrics({ repoId }: Props) {
   const effectiveCeiling = Math.round(thresholdValue * (1 + overrunPct) * flexFactorValue);
 
   const current = data.current;
+  // INFRA-321 § E4: the progress bar and its tone thresholds stay bound to
+  // current.tokens (orchestrator-window track) — never fed by any effort.db
+  // value. This is the only place a headroom judgment appears in this
+  // component.
   const currentTokens = current.tokens ?? 0;
   const ratio = thresholdValue > 0 ? currentTokens / thresholdValue : 0;
   const progressTone = ratio >= 1.0 ? 'danger' : ratio >= 0.85 ? 'warning' : 'normal';
 
   const recentWaypoints = data.waypoints.slice(0, 10);
   const rs = data.resolver_state;
+
+  // INFRA-321 § E4: split the Thresholds table into the two tracked groups.
+  const orchestratorThresholds = data.thresholds.filter(
+    (t) => t.track === 'orchestrator-window',
+  );
+  const storySpendThresholds = data.thresholds.filter((t) => t.track === 'story-spend');
 
   return (
     <Card>
@@ -279,8 +289,14 @@ export function ContextMetrics({ repoId }: Props) {
             </>
           )}
 
-          {/* Current token count + progress */}
+          {/* INFRA-321 § E4: Orchestrator window — the only group where a
+              headroom judgment appears. */}
           <div>
+            <h4 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Orchestrator window
+            </h4>
+
+            {/* Current token count + progress */}
             <div className="mb-1 flex items-center justify-between text-xs">
               <span className="text-slate-600 dark:text-slate-300">
                 <span className="font-mono">{fmtTokens(current.tokens)}</span>
@@ -298,19 +314,12 @@ export function ContextMetrics({ repoId }: Props) {
               </div>
             </div>
             <Progress value={currentTokens} max={thresholdValue} tone={progressTone} />
-            <div className="mt-1 text-[10px] text-slate-500">
+            <div className="mb-2 mt-1 text-[10px] text-slate-500">
               recorded {fmtTs(current.recorded_at)}
               {current.age_seconds != null && ` (${current.age_seconds}s ago)`}
             </div>
-          </div>
 
-          <Separator />
-
-          {/* Thresholds table */}
-          <div>
-            <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Thresholds
-            </h4>
+            {/* Orchestrator-window thresholds */}
             <table className="w-full table-fixed text-xs">
               <thead>
                 <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
@@ -320,7 +329,7 @@ export function ContextMetrics({ repoId }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {data.thresholds.map((t) => (
+                {orchestratorThresholds.map((t) => (
                   <tr key={t.name} className="border-t border-slate-100 dark:border-slate-800">
                     <td className="py-1 font-mono text-[11px] text-slate-700 dark:text-slate-200">
                       {t.name}
@@ -343,11 +352,62 @@ export function ContextMetrics({ repoId }: Props) {
 
           <Separator />
 
-          {/* Waypoints (per-leaf-worker, agent_role keyed) */}
+          {/* Build loop — resolver state effort-by-role, positioned with the
+              orchestrator group above since it reflects live spawn activity. */}
+          {rs && rs.effort_by_role && Object.keys(rs.effort_by_role).length > 0 && (
+            <>
+              <RoleEffortPanel rs={rs} />
+              <Separator />
+            </>
+          )}
+
+          {/* Resolver index (OBS-002, CER-056) */}
+          {rs && rs.index.length > 0 && (
+            <>
+              <ResolverIndexPanel rs={rs} />
+              <Separator />
+            </>
+          )}
+
+          {/* INFRA-321 § E4: Story spend (subagent cost — not headroom) —
+              waypoints, effort totals, spend outliers, and story-spend
+              thresholds. This group never renders a headroom judgment. */}
           <div>
-            <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Waypoints (last 10)
+            <h4 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Story spend (subagent cost — not headroom)
             </h4>
+
+            {storySpendThresholds.length > 0 && (
+              <table className="mb-2 w-full table-fixed text-xs">
+                <thead>
+                  <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
+                    <th className="w-5/12 py-1">name</th>
+                    <th className="w-2/12 py-1 text-right">value</th>
+                    <th className="w-5/12 py-1 text-right">source</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {storySpendThresholds.map((t) => (
+                    <tr key={t.name} className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="py-1 font-mono text-[11px] text-slate-700 dark:text-slate-200">
+                        {t.name}
+                      </td>
+                      <td className="py-1 text-right font-mono text-[11px]">{t.value}</td>
+                      <td className="py-1 text-right">
+                        <Badge tone={t.source === 'state.json' ? 'info' : 'muted'}>
+                          {t.source}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {/* Waypoints (per-leaf-worker, agent_role keyed) */}
+            <h5 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              Waypoints (last 10)
+            </h5>
             {recentWaypoints.length === 0 ? (
               <p className="text-[11px] text-slate-500">No waypoints recorded yet.</p>
             ) : (
@@ -387,57 +447,37 @@ export function ContextMetrics({ repoId }: Props) {
                 </tbody>
               </table>
             )}
-          </div>
 
-          {/* Effort by role (OBS-002) */}
-          {rs && rs.effort_by_role && Object.keys(rs.effort_by_role).length > 0 && (
-            <>
-              <Separator />
-              <RoleEffortPanel rs={rs} />
-            </>
-          )}
-
-          {/* Effort totals (from effort.db, unchanged) */}
-          {data.effort_summary.total_attempts > 0 && (
-            <>
-              <Separator />
-              <div>
-                <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            {/* Effort totals (from effort.db, unchanged) */}
+            {data.effort_summary.total_attempts > 0 && (
+              <div className="mt-2">
+                <h5 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                   Effort totals
-                </h4>
+                </h5>
                 <p className="text-xs text-slate-600 dark:text-slate-300">
                   Total attempts:{' '}
                   <span className="font-mono">{data.effort_summary.total_attempts}</span>
                 </p>
               </div>
-            </>
-          )}
+            )}
 
-          {/* Resolver index (OBS-002, CER-056) */}
-          {rs && rs.index.length > 0 && (
-            <>
-              <Separator />
-              <ResolverIndexPanel rs={rs} />
-            </>
-          )}
-
-          {data.misses.count > 0 && (
-            <>
-              <Separator />
-              <div>
-                <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Near-miss blocks ({data.misses.count})
-                </h4>
+            {/* INFRA-321 § E4: "Near-miss blocks" → "Spend outliers" — no
+                block ever occurred at any of these numbers. */}
+            {data.spend_outliers.count > 0 && (
+              <div className="mt-2">
+                <h5 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Spend outliers ({data.spend_outliers.count})
+                </h5>
                 <ul className="space-y-0.5 text-[11px]">
-                  {data.misses.entries.slice(0, 5).map((m, i) => (
+                  {data.spend_outliers.entries.slice(0, 5).map((m, i) => (
                     <li key={`${m.ts}-${i}`} className="font-mono text-slate-600 dark:text-slate-300">
-                      {fmtTs(m.ts)} · {fmtTokens(m.tokens_at_block)} · {m.story_id ?? '—'}
+                      {fmtTs(m.ts)} · {fmtTokens(m.tokens_total)} · {m.story_id ?? '—'}
                     </li>
                   ))}
                 </ul>
               </div>
-            </>
-          )}
+            )}
+          </div>
         </div>
       </CardBody>
     </Card>

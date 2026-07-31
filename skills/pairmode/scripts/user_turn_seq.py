@@ -50,6 +50,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Allow the flat import below under every invocation style this module has
@@ -58,6 +59,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from state_utils import update_state_json  # noqa: E402
+
+try:
+    from skills.pairmode.scripts import context_budget  # type: ignore
+    from skills.pairmode.scripts import session_state  # type: ignore
+    from skills.pairmode.scripts.context_model import (  # type: ignore
+        CONTEXT_CURRENT_TOKENS_SOURCE_KEY,
+    )
+except ImportError:  # flat import via hook sys.path
+    import context_budget  # type: ignore[no-redef]
+    import session_state  # type: ignore[no-redef]
+    from context_model import (  # type: ignore[no-redef]
+        CONTEXT_CURRENT_TOKENS_SOURCE_KEY,
+    )
 
 
 def compute_fingerprint(data: dict | None) -> str:
@@ -120,16 +134,76 @@ def record_user_turn(project_dir: "str | Path", data: dict | None) -> None:
     of the critical section and cannot be hoisted outside the lock. The
     fingerprint algorithm and ``compute_fingerprint``'s signature are unchanged
     (INFRA-248: the counter is only ever compared ordinally).
+
+    INFRA-321 § C1: this function ALSO refreshes the orchestrator track
+    (``context_current_tokens`` / ``context_current_tokens_recorded_at``)
+    from the same real, ``isSidechain``-filtered JSONL measurement
+    ``hooks/post_tool_use.py`` uses (``context_budget.read_current_tokens``),
+    inside the SAME read-modify-write — one state write per invocation,
+    unchanged. This closes the between-spawn blind spot: everything that
+    enters the orchestrator's window between Task/Agent spawns (poll output,
+    merge output, task-completion notifications, spec-writer coordination) was
+    previously never observed.
+
+    § C3 (measurement-only, fail-open): a ``None`` measurement (no
+    ``session_id``, transcript not on disk, no non-sidechain assistant entry)
+    leaves ``context_current_tokens`` and its stamp untouched — never zeroed,
+    never estimated. The refresh and the turn-counter increment are two
+    independently-wrapped responsibilities (mirroring
+    ``hooks/post_tool_use.py``'s "two delegated calls, each independently
+    wrapped" posture) — an exception raised by the refresh must not prevent
+    the counter increment from being persisted.
+
+    § C4: ``context_budget.record_step_growth`` is deliberately NOT called
+    from this path. The ring buffer must stay a per-build-step growth series
+    (what ``expected_step_tokens``'s ceiling arithmetic assumes); mixing
+    per-user-turn deltas into it would corrupt that median.
+
+    § C6: when the refresh writes a measured value, it also stamps
+    ``context_current_tokens_source = "user-prompt-submit"`` — one of two live
+    writers of that provenance field (the other being the "manual"
+    ``set-context-tokens`` / ``bump-context-tokens`` commands). The third
+    named value, ``"post-tool-use"``, has NO live writer today:
+    ``hooks/post_tool_use.py`` is a protected path (``hooks/**``) and this
+    story does not edit it — see ``docs/cer/backlog.md``'s INFRA-321 follow-up
+    row. ``context_budget.decide()`` does not gate on this field either way.
     """
     try:
         project_dir = Path(project_dir)
         state_path = project_dir / ".companion" / "state.json"
         fingerprint = compute_fingerprint(data)
+        session_id = data.get("session_id", "") if isinstance(data, dict) else ""
 
         def _mutate(state: dict) -> "bool | None":
             if state.get("context_budget_user_turn_seq_fingerprint") == fingerprint:
                 # Duplicate firing of the same UserPromptSubmit event — skip.
                 return False
+
+            # § C1/C3: orchestrator-track refresh — wrapped independently so a
+            # failure here can never block the turn-counter increment below.
+            try:
+                live_tokens = context_budget.read_current_tokens(
+                    project_dir=project_dir,
+                    session_id=session_id,
+                )
+                if live_tokens is not None:
+                    view = session_state.session_view(state, session_id)
+                    view["context_current_tokens"] = live_tokens
+                    view["context_current_tokens_recorded_at"] = (
+                        datetime.now(timezone.utc).isoformat()
+                    )
+                    session_state.apply_session_view(state, session_id, view)
+                    # § C6 provenance stamp — additive, observability only.
+                    state[CONTEXT_CURRENT_TOKENS_SOURCE_KEY] = "user-prompt-submit"
+                    # § C4: record_step_growth() is deliberately NOT called
+                    # here — this is a per-user-turn measurement, not a
+                    # per-build-step one; mixing the two series would corrupt
+                    # expected_step_tokens's median.
+            except Exception:
+                pass
+
+            # Turn-counter increment (INFRA-248) — independent of the refresh
+            # above; always advances on a genuine (non-duplicate) event.
             current = state.get("context_budget_user_turn_seq", 0)
             try:
                 current = int(current)

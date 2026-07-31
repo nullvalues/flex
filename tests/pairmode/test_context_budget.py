@@ -2272,3 +2272,93 @@ class TestFailOpenSignals:
         result = context_budget.decide(tmp_path)
 
         assert result is None or isinstance(result, dict)
+
+
+# ---------------------------------------------------------------------------
+# INFRA-321 § A4 — effective_ceiling extraction parity
+# ---------------------------------------------------------------------------
+
+
+class TestEffectiveCeilingParity:
+    """test_effective_ceiling_parity_across_former_call_sites."""
+
+    _TRIPLES = [
+        (120000, 0.10, 1.0),
+        (130000, 0.10, 1.0),
+        (100000, 0.25, 1.5),
+        (50000, 0.0, 1.0),
+        (75000, 0.15, 0.5),
+    ]
+
+    def test_matches_should_block_former_inline_formula(self):
+        for threshold, overrun_pct, flex_factor in self._TRIPLES:
+            # should_block receives a pre-flex-multiplied threshold (decide()'s
+            # contract), so flex_factor=1.0 here — matching its former inline
+            # `threshold * (1.0 + overrun_pct)` (no truncation difference at
+            # these round inputs).
+            expected = int(threshold * flex_factor * (1.0 + overrun_pct))
+            got = context_budget.effective_ceiling(threshold * flex_factor, overrun_pct, 1.0)
+            assert got == expected
+
+    def test_matches_render_alert_prompt_former_inline_formula(self):
+        for threshold, overrun_pct, flex_factor in self._TRIPLES:
+            expected = int(threshold * (1.0 + overrun_pct) * flex_factor)
+            got = context_budget.effective_ceiling(threshold, overrun_pct, flex_factor)
+            assert got == expected
+
+    def test_render_alert_prompt_uses_extracted_ceiling(self):
+        prompt = context_budget.render_alert_prompt(
+            story_id="INFRA-321",
+            tokens=100000,
+            threshold=120000,
+            overrun_pct=0.10,
+            expected_next=5000,
+            flex_factor=1.0,
+        )
+        ceiling = context_budget.effective_ceiling(120000, 0.10, 1.0)
+        remaining = ceiling - 100000
+        assert f"{remaining:,}" in prompt
+
+
+class TestDecideOutputParityAfterCeilingExtraction:
+    """test_decide_output_parity_after_ceiling_extraction — decide() still
+    returns byte-identical dicts (modulo the extraction) for a fixture matrix.
+    """
+
+    def test_within_budget_returns_none(self, tmp_path):
+        state = dict(_BASE_BUDGET_STATE)
+        state["context_current_tokens"] = 1000
+        project_dir = _setup_project(tmp_path, state=state)
+        assert context_budget.decide(project_dir) is None
+
+    def test_over_budget_returns_block_dict_with_expected_keys(self, tmp_path):
+        state = dict(_BASE_BUDGET_STATE)
+        state["context_current_tokens"] = 200000
+        state["context_budget_threshold"] = 120000
+        project_dir = _setup_project(tmp_path, state=state)
+        result = context_budget.decide(project_dir)
+        assert result is not None
+        assert set(result.keys()) == {
+            "block", "reason", "tokens", "acknowledged_at", "user_turn_seq_at_block",
+        }
+        assert result["block"] is True
+        assert result["tokens"] == 200000
+
+
+class TestFlexFactorStillMultipliesEffectiveCeiling:
+    """test_flex_factor_still_multiplies_effective_ceiling."""
+
+    def test_flex_factor_widens_ceiling_after_extraction(self, tmp_path):
+        state = dict(_BASE_BUDGET_STATE)
+        # Set current tokens right above the un-flexed ceiling but below the
+        # flexed one.
+        state["context_budget_threshold"] = 100000
+        state["context_budget_overrun_pct"] = 0.0
+        state["context_current_tokens"] = 105000
+        project_dir = _setup_project(tmp_path, state=state)
+
+        blocked_without_flex = context_budget.decide(project_dir, flex_factor=1.0)
+        blocked_with_flex = context_budget.decide(project_dir, flex_factor=2.0)
+
+        assert blocked_without_flex is not None
+        assert blocked_with_flex is None

@@ -16,9 +16,25 @@ to callers.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import statistics
 from pathlib import Path
+
+try:
+    from skills.pairmode.scripts import context_budget
+    from skills.pairmode.scripts.context_model import (
+        TRACK_ORCHESTRATOR,
+        TRACK_STORY_SPEND,
+        track_label,
+    )
+except ImportError:  # flat import via hook/CLI sys.path
+    import context_budget  # type: ignore[no-redef]
+    from context_model import (  # type: ignore[no-redef]
+        TRACK_ORCHESTRATOR,
+        TRACK_STORY_SPEND,
+        track_label,
+    )
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -138,37 +154,147 @@ def rolling_phase_median(
     return (float(median), sample_size)
 
 
+def _read_state_for_headroom(project_dir: "Path | None") -> dict:
+    """Read ``.companion/state.json`` for :func:`orchestrator_headroom`.
+
+    Returns ``{}`` on any error (absent file, malformed JSON, non-dict root,
+    or ``project_dir`` being ``None``) — the same reader pattern this module
+    already uses for the effort.db path, kept local so ``orchestrator_headroom``
+    stays a pure function of a ``state`` dict for testability (§ B1).
+    """
+    if project_dir is None:
+        return {}
+    try:
+        state_path = Path(project_dir) / ".companion" / "state.json"
+        if not state_path.exists():
+            return {}
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def orchestrator_headroom(state: dict, flex_factor: float = 1.0) -> dict:
+    """Return a pure orchestrator-track headroom report over *state*.
+
+    Reads only ``state.json`` keys belonging to the orchestrator track
+    (INFRA-321 § A1/B1) — it opens no database, never writes, and never
+    raises. A malformed or empty ``state`` yields ``tokens=None`` and
+    ``recommendation="insufficient_data"``.
+
+    Reuses ``context_budget.derive_expected_step_tokens``,
+    ``context_budget.effective_ceiling`` and ``context_budget._is_stale``
+    rather than re-deriving any of them — this is the single verdict source
+    a pause decision may be computed from (DP7).
+    """
+    if not isinstance(state, dict):
+        state = {}
+
+    tokens = None
+    raw = state.get("context_current_tokens")
+    if raw is not None:
+        try:
+            v = int(raw)
+            if v > 0:
+                tokens = v
+        except (TypeError, ValueError):
+            tokens = None
+
+    threshold = int(state.get("context_budget_threshold", 130000) or 130000)
+    overrun_pct = float(state.get("context_budget_overrun_pct", 0.10) or 0.10)
+    ceiling = context_budget.effective_ceiling(threshold, overrun_pct, flex_factor)
+
+    expected_step_tokens, expected_step_provenance = (
+        context_budget.derive_expected_step_tokens(state)
+    )
+
+    stale = context_budget._is_stale(state)
+
+    headroom = None
+    steps_remaining = None
+    if tokens is not None:
+        headroom = ceiling - tokens
+        if expected_step_tokens and expected_step_tokens > 0:
+            steps_remaining = headroom // expected_step_tokens
+
+    if stale or tokens is None:
+        recommendation = "insufficient_data"
+    elif steps_remaining is None:
+        recommendation = "insufficient_data"
+    elif steps_remaining >= 3:
+        recommendation = "normal"
+    elif steps_remaining >= 1:
+        recommendation = "elevated"
+    else:
+        recommendation = "high"
+
+    label = track_label(TRACK_ORCHESTRATOR)
+    if recommendation == "insufficient_data":
+        message = f"{label}: insufficient data (stale or no measurement recorded)"
+    elif recommendation == "normal":
+        message = (
+            f"{label}: {tokens:,} / {ceiling:,} tokens, "
+            f"~{steps_remaining} steps of headroom remain"
+        )
+    elif recommendation == "elevated":
+        message = (
+            f"{label}: {tokens:,} / {ceiling:,} tokens, "
+            f"ELEVATED — ~{steps_remaining} step(s) of headroom remain, consider /clear"
+        )
+    else:  # high
+        message = (
+            f"{label}: {tokens:,} / {ceiling:,} tokens, "
+            f"HIGH — < 1 step of headroom remains, recommend /clear"
+        )
+
+    return {
+        "track": TRACK_ORCHESTRATOR,
+        "tokens": tokens,
+        "ceiling": ceiling,
+        "expected_step_tokens": expected_step_tokens,
+        "expected_step_provenance": expected_step_provenance,
+        "headroom": headroom,
+        "steps_remaining": steps_remaining,
+        "stale": stale,
+        "recommendation": recommendation,
+        "message": message,
+    }
+
+
 def check_context_health(
     db_path: Path,
     current_phase: str,
     lookback_phases: int = 10,
+    state: "dict | None" = None,
+    project_dir: "Path | None" = None,
 ) -> dict:
     """Return a structured context health report for *current_phase*.
 
-    Keys returned:
-    - ``phase`` (str) — the phase evaluated.
-    - ``retry_burden`` (int) — output-token count for this phase's FAIL reviewer rows.
-    - ``phase_median`` (float | None) — median across prior phases; None < 3 prior.
-    - ``ratio`` (float | None) — ``retry_burden / phase_median``; None when
-      phase_median is None or 0.0 (to avoid ZeroDivisionError and meaningless ratios).
-    - ``recommendation`` (str) — one of ``"insufficient_data"``, ``"normal"``,
-      ``"elevated"``, or ``"high"``.
-    - ``sample_size`` (int) — number of prior phases included in the median.
-    - ``message`` (str) — human-readable summary.
+    INFRA-321: this report is now two explicitly-tracked sub-objects rather
+    than a single flat dict — the top-level ``recommendation``/``message`` are
+    the ORCHESTRATOR track's verdict (the only track a pause/`/clear` decision
+    may be computed from, DP7); ``story_spend`` is informational only and
+    never drives the top-level verdict.
 
-    Recommendation thresholds (evaluated after setting ratio):
+    ``state`` (optional) is the state dict to derive ``orchestrator`` from —
+    when ``None``, it is read from ``project_dir/.companion/state.json`` (or
+    ``db_path``'s grandparent when ``project_dir`` is not given, matching this
+    module's existing effort.db-relative reader pattern). Passing ``state``
+    directly makes this callable purely in tests, with no filesystem I/O.
 
-    1. ``ratio is None``              → ``"insufficient_data"``
-    2. ``ratio < 2.0``                → ``"normal"``
-    3. ``2.0 <= ratio < 4.0``         → ``"elevated"``
-    4. ``ratio >= 4.0``               → ``"high"``
+    Returned shape::
 
-    Note: ratio is set to None whenever phase_median is None *or* phase_median
-    is 0.0, so both the "no prior phases" and "all prior phases had zero retry
-    burden" cases map to ``"insufficient_data"``.  A zero-median baseline is not
-    a meaningful signal — there is nothing to compare against.
+        {
+          "phase": "<phase>",
+          "orchestrator": {...orchestrator_headroom(...)...},
+          "story_spend": {"track": TRACK_STORY_SPEND, "retry_burden": N,
+                           "phase_median": M, "ratio": R, "sample_size": K,
+                           "informational": True, "message": "<captioned>"},
+          "recommendation": "<orchestrator.recommendation>",  # by identity
+          "message": "<orchestrator.message>; story spend: <story_spend.message>",
+        }
 
-    Never raises on missing DB.
+    Never raises on missing DB or missing state.json.
     """
     retry_burden = phase_retry_burden(db_path, current_phase)
     phase_median, sample_size = rolling_phase_median(db_path, current_phase, lookback_phases)
@@ -181,49 +307,63 @@ def check_context_health(
     else:
         ratio = retry_burden / phase_median
 
-    # Recommendation — gated on ratio, NOT on phase_median.  This correctly
-    # handles the zero-median case: when phase_median == 0.0, ratio is None,
-    # so we still land in "insufficient_data" rather than falling through to
-    # a TypeError on ratio < 2.0.
+    # Retry-churn banding — the number is a legitimate reviewer-churn signal
+    # (INFRA-321 § B4); it was only ever wearing the wrong ("headroom") hat.
     if ratio is None:
-        recommendation = "insufficient_data"
+        churn = "insufficient_data"
     elif ratio < 2.0:
-        recommendation = "normal"
+        churn = "normal"
     elif ratio < 4.0:
-        recommendation = "elevated"
+        churn = "elevated"
     else:
-        recommendation = "high"
+        churn = "high"
 
-    # Human-readable message.
-    if recommendation == "insufficient_data":
-        message = (
-            f"no data yet (retry burden: {retry_burden:,} tokens, "
+    spend_label = track_label(TRACK_STORY_SPEND)
+    if churn == "insufficient_data":
+        spend_message = (
+            f"{spend_label}: no data yet (retry burden: {retry_burden:,} tokens, "
             f"<3 prior phases recorded)"
         )
-    elif recommendation == "normal":
-        message = (
-            f"normal ({retry_burden:,} tokens, {ratio:.1f}× median, "  # noqa: RUF001
-            f"n={sample_size})"
+    elif churn == "normal":
+        spend_message = (
+            f"{spend_label}: retry churn: normal ({retry_burden:,} tokens, "
+            f"{ratio:.1f}× median, n={sample_size})"  # noqa: RUF001
         )
-    elif recommendation == "elevated":
-        message = (
-            f"ELEVATED ({retry_burden:,} tokens, {ratio:.1f}× median, "
-            f"n={sample_size}) — consider /clear before next phase"
+    elif churn == "elevated":
+        spend_message = (
+            f"{spend_label}: retry churn: ELEVATED ({retry_burden:,} tokens, "
+            f"{ratio:.1f}× median, n={sample_size})"
         )
     else:  # high
-        message = (
-            f"HIGH ({retry_burden:,} tokens, {ratio:.1f}× median, "
-            f"n={sample_size}) — recommend /clear before next phase"
+        spend_message = (
+            f"{spend_label}: retry churn: HIGH ({retry_burden:,} tokens, "
+            f"{ratio:.1f}× median, n={sample_size})"
         )
 
-    return {
-        "phase": current_phase,
+    story_spend = {
+        "track": TRACK_STORY_SPEND,
         "retry_burden": retry_burden,
         "phase_median": phase_median,
         "ratio": ratio,
-        "recommendation": recommendation,
         "sample_size": sample_size,
-        "message": message,
+        "informational": True,
+        "message": spend_message,
+    }
+
+    if state is None:
+        resolved_dir = project_dir if project_dir is not None else Path(db_path).resolve().parent.parent
+        state = _read_state_for_headroom(resolved_dir)
+
+    orchestrator = orchestrator_headroom(state)
+
+    return {
+        "phase": current_phase,
+        "orchestrator": orchestrator,
+        "story_spend": story_spend,
+        # By identity, not re-derivation (§ B3) — the top-level verdict is
+        # the orchestrator track's verdict, full stop.
+        "recommendation": orchestrator["recommendation"],
+        "message": f"{orchestrator['message']}; story spend: {story_spend['message']}",
     }
 
 
@@ -267,9 +407,14 @@ def _cli_main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "check":
-        db_path = resolve_effort_db_path(_Path(args.project_dir))
-        result = check_context_health(db_path=db_path, current_phase=args.phase)
+        project_dir = _Path(args.project_dir)
+        db_path = resolve_effort_db_path(project_dir)
+        result = check_context_health(
+            db_path=db_path, current_phase=args.phase, project_dir=project_dir
+        )
         print(result["message"])
+        # B5: exit 1 gates ONLY on the orchestrator track's recommendation —
+        # a phase with high retry churn and a healthy orchestrator exits 0.
         if result["recommendation"] in ("elevated", "high"):
             return 1
         return 0

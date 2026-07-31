@@ -75,10 +75,16 @@ def test_effortDb_exports_queryEffortSummary() -> None:
     )
 
 
-def test_effortDb_exports_queryMisses() -> None:
+def test_effortDb_exports_querySpendOutliers() -> None:
+    """INFRA-321 § E3: queryMisses renamed to querySpendOutliers — no field
+    in the payload asserts that a block occurred, because none did.
+    """
     content = (READERS / "effortDb.ts").read_text()
-    assert "export function queryMisses" in content, (
-        "queryMisses not exported from effortDb.ts"
+    assert "export function querySpendOutliers" in content, (
+        "querySpendOutliers not exported from effortDb.ts"
+    )
+    assert "export function queryMisses" not in content, (
+        "queryMisses should have been renamed to querySpendOutliers (INFRA-321)"
     )
 
 

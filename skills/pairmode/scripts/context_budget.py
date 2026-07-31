@@ -34,8 +34,13 @@ per-story dict. No stale fallback (absent or stale = hard block).
 Restored _derive_transcript_path, compute_context_tokens, read_current_tokens
 bounded to last 500 lines (INFRA-183).
 
-The companion phase-spend CLI ``context_budget_check.py`` is unrelated and
-remains untouched.
+INFRA-321: the companion phase-spend CLI ``context_budget_check.py`` was
+**not** unrelated — it shared ``context_budget_threshold`` with this module's
+gate (both read the same state.json key as if it meant the same thing). It now
+resolves its own dedicated ``story_spend_threshold`` key and never reads
+``context_budget_threshold`` at all; see ``context_model.py``'s two-track
+vocabulary (``TRACK_ORCHESTRATOR`` / ``TRACK_STORY_SPEND``) for the boundary
+rule that separates them.
 """
 
 from __future__ import annotations
@@ -62,6 +67,30 @@ except ImportError:
         CONTEXT_STEP_GROWTH_SAMPLES_MIN_FOR_LIVE,
         THIN_HARNESS_STEP_TOKENS,
     )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-321 § A4 — the ceiling formula, extracted once.
+# ---------------------------------------------------------------------------
+
+
+def effective_ceiling(
+    threshold: "int | float",
+    overrun_pct: float,
+    flex_factor: float = 1.0,
+) -> int:
+    """Return the effective orchestrator-window ceiling.
+
+    ``ceiling = int(threshold * (1 + overrun_pct) * flex_factor)``
+
+    This is the single formula every ceiling computation in this module
+    routes through — ``should_block``, ``decide``'s pre-multiplication, and
+    ``render_alert_prompt`` all call this rather than each computing it
+    inline. Arithmetic is byte-identical to what each of those three sites
+    computed before this extraction, including the ``int()`` truncation.
+    Pure function; no I/O.
+    """
+    return int(threshold * (1.0 + overrun_pct) * flex_factor)
 
 
 # ---------------------------------------------------------------------------
@@ -555,7 +584,10 @@ def should_block(
     outcomes when the token margin has not yet been crossed, so they must
     be evaluated as separate branches, not merged.
     """
-    ceiling = threshold * (1.0 + overrun_pct)
+    # INFRA-321 § A4: routed through the single extracted ceiling formula.
+    # ``threshold`` here already carries any flex_factor pre-multiplication
+    # applied by the caller (``decide()``), so flex_factor=1.0 here.
+    ceiling = effective_ceiling(threshold, overrun_pct, 1.0)
     if (current_tokens + expected_next) <= ceiling:
         return False
     if acknowledged_at is None:
@@ -600,7 +632,8 @@ def render_alert_prompt(
     """
     template = _FIXTURE_PATH.read_text(encoding="utf-8")
     story_label = story_id if story_id else "current"
-    ceiling = int(threshold * (1.0 + overrun_pct) * flex_factor)
+    # INFRA-321 § A4: routed through the single extracted ceiling formula.
+    ceiling = effective_ceiling(threshold, overrun_pct, flex_factor)
     remaining = ceiling - tokens
     rendered = template.replace("[story RAIL-NNN]", f"[story {story_label}]")
     rendered = rendered.replace("[N]", f"{tokens:,}")

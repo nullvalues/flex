@@ -146,98 +146,176 @@ class TestRollingPhaseMedian:
 
 
 class TestCheckContextHealth:
+    """INFRA-321: check_context_health's return shape is now two explicitly
+    tracked sub-objects (``orchestrator`` / ``story_spend``), with the
+    top-level ``recommendation``/``message`` sourced from the orchestrator
+    track only. Assertions on the old flat ``{retry_burden, ratio,
+    recommendation, message}`` shape are retargeted onto ``story_spend``
+    below, each naming INFRA-321.
+    """
+
     def test_returns_insufficient_data_when_db_absent(self, tmp_path: Path) -> None:
         missing = tmp_path / "no_such.db"
-        result = context_health.check_context_health(missing, "5")
+        result = context_health.check_context_health(missing, "5", state={})
         assert result["recommendation"] == "insufficient_data"
         assert result["phase"] == "5"
-        assert result["retry_burden"] == 0
-        assert result["phase_median"] is None
-        assert result["ratio"] is None
+        assert result["story_spend"]["retry_burden"] == 0
+        assert result["story_spend"]["phase_median"] is None
+        assert result["story_spend"]["ratio"] is None
 
     def test_all_keys_present(self, db_path: Path) -> None:
-        result = context_health.check_context_health(db_path, "1")
-        expected_keys = {
-            "phase", "retry_burden", "phase_median", "ratio",
-            "recommendation", "sample_size", "message",
-        }
+        result = context_health.check_context_health(db_path, "1", state={})
+        expected_keys = {"phase", "orchestrator", "story_spend", "recommendation", "message"}
         assert set(result.keys()) == expected_keys
+        expected_spend_keys = {
+            "track", "retry_burden", "phase_median", "ratio",
+            "sample_size", "informational", "message",
+        }
+        assert set(result["story_spend"].keys()) == expected_spend_keys
 
-    def test_normal_recommendation(self, db_path: Path) -> None:
-        # Prior phases each have 100 tokens → median = 100
+    def test_top_level_recommendation_is_orchestrator_recommendation_by_identity(
+        self, db_path: Path
+    ) -> None:
+        """INFRA-321 § B3: high retry churn does not affect the top-level
+        recommendation — only the (empty, insufficient_data) orchestrator does.
+        """
         for i in range(1, 4):
             _insert(db_path, phase=str(i), tokens_out=100)
-        # Current phase has 150 tokens → ratio = 1.5 < 2.0 → normal
-        _insert(db_path, phase="4", tokens_out=150)
-        result = context_health.check_context_health(db_path, "4")
-        assert result["recommendation"] == "normal"
-        assert result["ratio"] is not None
-        assert result["ratio"] < 2.0
+        _insert(db_path, phase="4", tokens_out=500)  # would be "high" churn
+        result = context_health.check_context_health(db_path, "4", state={})
+        assert result["story_spend"]["ratio"] == 5.0
+        assert result["recommendation"] is result["orchestrator"]["recommendation"]
+        assert result["recommendation"] == "insufficient_data"  # empty state
 
-    def test_elevated_recommendation(self, db_path: Path) -> None:
-        # Prior phases median = 100
-        for i in range(1, 4):
-            _insert(db_path, phase=str(i), tokens_out=100)
-        # Current phase = 250 → ratio = 2.5 → elevated
-        _insert(db_path, phase="4", tokens_out=250)
-        result = context_health.check_context_health(db_path, "4")
-        assert result["recommendation"] == "elevated"
-
-    def test_high_recommendation(self, db_path: Path) -> None:
-        # Prior phases median = 100
-        for i in range(1, 4):
-            _insert(db_path, phase=str(i), tokens_out=100)
-        # Current phase = 500 → ratio = 5.0 → high
-        _insert(db_path, phase="4", tokens_out=500)
-        result = context_health.check_context_health(db_path, "4")
-        assert result["recommendation"] == "high"
-
-    def test_message_insufficient_data(self, db_path: Path) -> None:
-        result = context_health.check_context_health(db_path, "1")
-        assert "no data yet" in result["message"]
-        assert "<3 prior phases recorded" in result["message"]
-
-    def test_message_normal_contains_ratio(self, db_path: Path) -> None:
+    def test_story_spend_churn_normal(self, db_path: Path) -> None:
+        """INFRA-321: retargeted from the old test_normal_recommendation."""
         for i in range(1, 4):
             _insert(db_path, phase=str(i), tokens_out=100)
         _insert(db_path, phase="4", tokens_out=150)
-        result = context_health.check_context_health(db_path, "4")
-        assert "normal" in result["message"]
-        assert "×" in result["message"] or "x" in result["message"].lower()
+        result = context_health.check_context_health(db_path, "4", state={})
+        assert "normal" in result["story_spend"]["message"]
+        assert result["story_spend"]["ratio"] < 2.0
 
-    def test_message_elevated_contains_clear_suggestion(self, db_path: Path) -> None:
+    def test_story_spend_churn_elevated(self, db_path: Path) -> None:
+        """INFRA-321: retargeted from the old test_elevated_recommendation."""
         for i in range(1, 4):
             _insert(db_path, phase=str(i), tokens_out=100)
         _insert(db_path, phase="4", tokens_out=250)
-        result = context_health.check_context_health(db_path, "4")
-        assert "ELEVATED" in result["message"]
-        assert "/clear" in result["message"]
+        result = context_health.check_context_health(db_path, "4", state={})
+        assert "ELEVATED" in result["story_spend"]["message"]
 
-    def test_message_high_contains_recommend(self, db_path: Path) -> None:
+    def test_story_spend_churn_high(self, db_path: Path) -> None:
+        """INFRA-321: retargeted from the old test_high_recommendation."""
         for i in range(1, 4):
             _insert(db_path, phase=str(i), tokens_out=100)
         _insert(db_path, phase="4", tokens_out=500)
-        result = context_health.check_context_health(db_path, "4")
-        assert "HIGH" in result["message"]
-        assert "/clear" in result["message"]
+        result = context_health.check_context_health(db_path, "4", state={})
+        assert "HIGH" in result["story_spend"]["message"]
+
+    def test_story_spend_message_insufficient_data(self, db_path: Path) -> None:
+        """INFRA-321: retargeted from the old test_message_insufficient_data."""
+        result = context_health.check_context_health(db_path, "1", state={})
+        assert "no data yet" in result["story_spend"]["message"]
+        assert "<3 prior phases recorded" in result["story_spend"]["message"]
+
+    def test_story_spend_message_normal_contains_ratio(self, db_path: Path) -> None:
+        """INFRA-321: retargeted from the old test_message_normal_contains_ratio."""
+        for i in range(1, 4):
+            _insert(db_path, phase=str(i), tokens_out=100)
+        _insert(db_path, phase="4", tokens_out=150)
+        result = context_health.check_context_health(db_path, "4", state={})
+        msg = result["story_spend"]["message"]
+        assert "normal" in msg
+        assert "×" in msg or "x" in msg.lower()
+
+    def test_story_spend_message_contains_no_clear_advice(self, db_path: Path) -> None:
+        """INFRA-321 § B4: '/clear' advice must appear nowhere in the
+        story-spend message across normal/elevated/high retry-burden fixtures
+        — retargeted from the old test_message_elevated/high_* tests, which
+        used to assert '/clear' WAS present. That was the mis-attribution.
+        """
+        fixtures = [150, 250, 500]  # normal, elevated, high
+        for tokens in fixtures:
+            for i in range(1, 4):
+                _insert(db_path, phase=f"p{tokens}-{i}", tokens_out=100)
+            _insert(db_path, phase=f"cur{tokens}", tokens_out=tokens)
+            result = context_health.check_context_health(db_path, f"cur{tokens}", state={})
+            msg = result["story_spend"]["message"]
+            assert "/clear" not in msg
+            assert "consider /clear" not in msg
+            assert "recommend /clear" not in msg
 
     def test_check_context_health_zero_median(self, db_path: Path) -> None:
         """Zero-median case: all prior phases had only PASS reviewer rows.
 
         phase_median == 0.0, sample_size >= 3.  The ratio cannot be computed
-        (ZeroDivisionError), so ratio must be None and recommendation must be
-        "insufficient_data".  No exception must propagate.
+        (ZeroDivisionError), so ratio must be None and story-spend churn must
+        be "insufficient_data". No exception must propagate.
         """
         # 3 prior phases, each with only PASS reviewer rows → burden = 0 each
         for i in range(1, 4):
             _insert(db_path, phase=str(i), outcome="PASS", tokens_out=500)
         # Current phase has some FAIL burden
         _insert(db_path, phase="4", tokens_out=300)
-        result = context_health.check_context_health(db_path, "4")
-        assert result["phase_median"] == 0.0
-        assert result["ratio"] is None
-        assert result["recommendation"] == "insufficient_data"
+        result = context_health.check_context_health(db_path, "4", state={})
+        assert result["story_spend"]["phase_median"] == 0.0
+        assert result["story_spend"]["ratio"] is None
+        assert "no data yet" in result["story_spend"]["message"]
         # Must not raise — we already got here, so that condition is met
+
+
+# ---------------------------------------------------------------------------
+# orchestrator_headroom (INFRA-321 § B1/B2)
+# ---------------------------------------------------------------------------
+
+
+class TestOrchestratorHeadroom:
+    def test_opens_no_database(self) -> None:
+        """§ B2: a monkeypatched sqlite3.connect that raises must never be hit."""
+        import sqlite3 as _sqlite3
+        from unittest.mock import patch as _patch
+
+        state = {"context_current_tokens": 50000}
+        with _patch.object(_sqlite3, "connect", side_effect=AssertionError("must not connect")):
+            result = context_health.orchestrator_headroom(state)
+        assert result["track"] == "orchestrator-window"
+        assert result["tokens"] == 50000
+
+    def test_recommendation_bands(self) -> None:
+        # ceiling = 130000 * 1.10 = 143000; expected_step_tokens default 5000
+        base_state = {
+            "context_budget_threshold": 130000,
+            "context_budget_overrun_pct": 0.10,
+            "expected_step_tokens": 5000,
+        }
+        # >= 3 steps remaining → normal
+        normal = dict(base_state, context_current_tokens=100000)
+        assert context_health.orchestrator_headroom(normal)["recommendation"] == "normal"
+        # 1 <= steps < 3 → elevated
+        elevated = dict(base_state, context_current_tokens=136000)
+        assert context_health.orchestrator_headroom(elevated)["recommendation"] == "elevated"
+        # < 1 step → high
+        high = dict(base_state, context_current_tokens=142000)
+        assert context_health.orchestrator_headroom(high)["recommendation"] == "high"
+
+    def test_stale_is_insufficient_data(self) -> None:
+        state = {
+            "context_current_tokens": 100000,
+            "context_current_tokens_recorded_at": "2026-01-01T00:00:00+00:00",
+            "context_session_reset_at": "2026-06-01T00:00:00+00:00",
+        }
+        result = context_health.orchestrator_headroom(state)
+        assert result["stale"] is True
+        assert result["recommendation"] == "insufficient_data"
+
+    def test_no_tokens_is_insufficient_data(self) -> None:
+        result = context_health.orchestrator_headroom({})
+        assert result["tokens"] is None
+        assert result["recommendation"] == "insufficient_data"
+
+    def test_never_raises_on_malformed_state(self) -> None:
+        result = context_health.orchestrator_headroom(None)  # type: ignore[arg-type]
+        assert result["recommendation"] == "insufficient_data"
 
 
 # ---------------------------------------------------------------------------

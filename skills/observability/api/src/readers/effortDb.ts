@@ -12,8 +12,11 @@ export interface Waypoint {
   phase: string | null;
   agent_role: string | null;
   outcome: string | null;
-  near_miss: boolean;
-  delta_above_threshold: number | null;
+  // INFRA-321 § E3: renamed from `near_miss` / `delta_above_threshold` — these
+  // are STORY-SPEND figures compared against the story-spend threshold, never
+  // the orchestrator-window ceiling. No field here asserts a block occurred.
+  over_spend_band: boolean;
+  delta_above_spend_threshold: number | null;
 }
 
 export interface PhaseEffort {
@@ -29,10 +32,12 @@ export interface EffortSummary {
   by_phase: PhaseEffort[];
 }
 
-export interface MissEntry {
+export interface SpendOutlierEntry {
   ts: string;
   phase: string | null;
-  tokens_at_block: number;
+  // INFRA-321 § E3: renamed from `tokens_at_block` — no block ever occurred
+  // at these numbers; this is a story-spend outlier, not a gate event.
+  tokens_total: number;
   story_id: string | null;
 }
 
@@ -116,13 +121,18 @@ function sqliteP90(
 
 /**
  * Return all recent attempts ordered by ts descending, max 100 rows.
- * near_miss = tokens_total > threshold * 0.85
- * delta_above_threshold = tokens_total - threshold when tokens_total > threshold, else null
+ *
+ * INFRA-321 § E3: `spendThreshold` is the STORY-SPEND threshold
+ * (`story_spend_threshold`, resolved by the caller) — never the
+ * orchestrator-window `context_budget_threshold`. No field here asserts a
+ * block occurred; these are informational spend-band signals only.
+ * over_spend_band = tokens_total > spendThreshold * 0.85
+ * delta_above_spend_threshold = tokens_total - spendThreshold when over, else null
  * NULL outcome is passed through as null — callers must not map NULL to FAIL (CER-055).
  */
 export function queryWaypoints(
   db: Database.Database,
-  threshold: number,
+  spendThreshold: number,
 ): Waypoint[] {
   interface Row {
     created_at: string | null;
@@ -161,8 +171,9 @@ export function queryWaypoints(
 
   return rows.map((row) => {
     const tokens = row.tokens_total;
-    const near_miss = tokens > threshold * 0.85;
-    const delta_above_threshold = tokens > threshold ? tokens - threshold : null;
+    const over_spend_band = tokens > spendThreshold * 0.85;
+    const delta_above_spend_threshold =
+      tokens > spendThreshold ? tokens - spendThreshold : null;
     return {
       ts: row.created_at ?? '',
       tokens,
@@ -170,8 +181,8 @@ export function queryWaypoints(
       phase: row.phase,
       agent_role: row.agent_role,
       outcome: row.outcome,
-      near_miss,
-      delta_above_threshold,
+      over_spend_band,
+      delta_above_spend_threshold,
     };
   });
 }
@@ -237,17 +248,25 @@ export function queryEffortSummary(db: Database.Database): EffortSummary {
 }
 
 // ---------------------------------------------------------------------------
-// Query: misses
+// Query: spend outliers
 // ---------------------------------------------------------------------------
 
+// INFRA-321 § E3: this was the orchestrator ceiling formula
+// (`threshold * (1 + overrun_pct)`, INFRA-165) applied to subagent cost — no
+// block ever occurred at any of these numbers. It is replaced entirely with a
+// plainly-named spend multiple that makes no ceiling claim.
+const SPEND_OUTLIER_MULTIPLE = 1.1;
+
 /**
- * Return rows where tokens_total > threshold * 1.10 (max 10, most recent first).
+ * Return rows where tokens_total > spendThreshold * SPEND_OUTLIER_MULTIPLE
+ * (max 10, most recent first). `spendThreshold` is the STORY-SPEND threshold
+ * (never the orchestrator-window ceiling) — see queryWaypoints's docstring.
  */
-export function queryMisses(
+export function querySpendOutliers(
   db: Database.Database,
-  threshold: number,
-): { count: number; entries: MissEntry[] } {
-  const ceiling = threshold * 1.1;
+  spendThreshold: number,
+): { count: number; entries: SpendOutlierEntry[] } {
+  const outlierFloor = spendThreshold * SPEND_OUTLIER_MULTIPLE;
 
   // Check timestamp column name
   let tsColumn = 'created_at';
@@ -263,7 +282,7 @@ export function queryMisses(
   interface CountRow {
     n: number;
   }
-  interface MissRow {
+  interface SpendOutlierRow {
     created_at: string | null;
     phase: string | null;
     tokens_total: number;
@@ -271,11 +290,11 @@ export function queryMisses(
   }
 
   let count = 0;
-  let rows: MissRow[] = [];
+  let rows: SpendOutlierRow[] = [];
   try {
     const countRow = db
       .prepare(`SELECT COUNT(*) AS n FROM attempts WHERE tokens_total > ?`)
-      .get(ceiling) as CountRow | undefined;
+      .get(outlierFloor) as CountRow | undefined;
     count = countRow?.n ?? 0;
 
     rows = db
@@ -286,15 +305,15 @@ export function queryMisses(
          ORDER BY ${tsColumn} DESC
          LIMIT 10`,
       )
-      .all(ceiling) as MissRow[];
+      .all(outlierFloor) as SpendOutlierRow[];
   } catch {
     return { count: 0, entries: [] };
   }
 
-  const entries: MissEntry[] = rows.map((row) => ({
+  const entries: SpendOutlierEntry[] = rows.map((row) => ({
     ts: row.created_at ?? '',
     phase: row.phase,
-    tokens_at_block: row.tokens_total,
+    tokens_total: row.tokens_total,
     story_id: row.story_id,
   }));
 

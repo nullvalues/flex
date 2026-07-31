@@ -29,6 +29,9 @@ touches:
   - docs/cer/backlog.md
   - docs/phases/phase-114.md
   - docs/stories/INFRA/INFRA-321.md
+  - tests/pairmode/test_context_model.py
+  - tests/pairmode/test_flex_build_story_cost_estimate.py
+  - tests/pairmode/test_observability_context_api.py
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
@@ -268,6 +271,15 @@ vendored-payload gap: fix by `rsync`-ing the payload from the main checkout,
 - **INFRA-316** (Phase 116, draft) is the downstream consumer this story
   constrains; nothing in phase 116 is edited here.
 
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| tests/pairmode/test_context_model.py | new test file for context_model.py's INFRA-321 track constants, not in the story's touches: list | 2026-07-31T00:31:58Z |
+
+| tests/pairmode/test_flex_build_story_cost_estimate.py | retarget the pinned 'estimate:' stdout string for § D2's track_label caption | 2026-07-31T00:45:24Z |
+| tests/pairmode/test_observability_context_api.py | retarget queryMisses export-name pin for the § E3 querySpendOutliers rename | 2026-07-31T00:55:24Z |
 ## Ensures
 
 ### A — one definition of the two tracks

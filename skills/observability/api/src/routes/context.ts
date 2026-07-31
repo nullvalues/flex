@@ -6,7 +6,7 @@ import {
   openEffortDb,
   queryWaypoints,
   queryEffortSummary,
-  queryMisses,
+  querySpendOutliers,
 } from '../readers/effortDb.js';
 import { readResolverState, type ResolverStateDoc } from '../readers/resolverState.js';
 import { parseStoryFrontmatter } from '../parsers/storyFrontmatter.js';
@@ -15,12 +15,19 @@ import { parseStoryFrontmatter } from '../parsers/storyFrontmatter.js';
 // Threshold definitions
 // ---------------------------------------------------------------------------
 
+// INFRA-321 § E1: every threshold carries an explicit track. This must never
+// be inferred from the name alone — 'orchestrator-window' is the only track a
+// pause/headroom judgment may be computed from; 'story-spend' is
+// informational (retrospective subagent cost).
+type Track = 'orchestrator-window' | 'story-spend';
+
 interface ThresholdDef {
   name: string;
   stateKey: string | null;
   default: number;
   editable_via: string | null;
   phase2_writable: boolean;
+  track: Track;
   source_override?: string; // used for flex_factor
   provenance?: string; // human-readable origin label (OBS-003)
 }
@@ -30,8 +37,12 @@ const THRESHOLD_DEFS: ThresholdDef[] = [
     name: 'context_budget_threshold',
     stateKey: 'context_budget_threshold',
     default: 120000,
-    editable_via: 'flex_build.py set-context-tokens',
+    // INFRA-321 § E2: 'flex_build.py set-context-tokens' was false —
+    // that command writes the *current count*, not this threshold. No
+    // dedicated write path exists for this key today.
+    editable_via: null,
     phase2_writable: true,
+    track: 'orchestrator-window',
   },
   {
     name: 'context_budget_overrun_pct',
@@ -39,6 +50,7 @@ const THRESHOLD_DEFS: ThresholdDef[] = [
     default: 0.10,
     editable_via: null,
     phase2_writable: true,
+    track: 'orchestrator-window',
   },
   {
     name: 'expected_step_tokens',
@@ -47,6 +59,7 @@ const THRESHOLD_DEFS: ThresholdDef[] = [
     editable_via: null,
     phase2_writable: false,
     provenance: 'thin-harness return-block growth',
+    track: 'orchestrator-window',
   },
   {
     name: 'context_budget_reprompt_margin',
@@ -54,6 +67,7 @@ const THRESHOLD_DEFS: ThresholdDef[] = [
     default: 10000,
     editable_via: null,
     phase2_writable: true,
+    track: 'orchestrator-window',
   },
   {
     name: 'flex_factor',
@@ -62,6 +76,18 @@ const THRESHOLD_DEFS: ThresholdDef[] = [
     editable_via: 'hand-edit story file',
     phase2_writable: true,
     source_override: 'story-frontmatter',
+    track: 'orchestrator-window',
+  },
+  {
+    // INFRA-321 § A3/E1: the dedicated story-spend threshold. Never falls
+    // back to context_budget_threshold when absent — the source field below
+    // (`state.json` vs `default`) makes that visible rather than silent.
+    name: 'story_spend_threshold',
+    stateKey: 'story_spend_threshold',
+    default: 120000,
+    editable_via: null,
+    phase2_writable: true,
+    track: 'story-spend',
   },
 ];
 
@@ -77,6 +103,7 @@ interface ThresholdOut {
   editable_via: string | null;
   phase2_writable: boolean;
   provenance: string | null;
+  track: Track;
 }
 
 interface CurrentOut {
@@ -96,7 +123,7 @@ interface ContextOut {
   thresholds: ThresholdOut[];
   waypoints: ReturnType<typeof queryWaypoints>;
   effort_summary: ReturnType<typeof queryEffortSummary>;
-  misses: ReturnType<typeof queryMisses>;
+  spend_outliers: ReturnType<typeof querySpendOutliers>;
   resolver_state: ResolverStateDoc | null;
 }
 
@@ -234,6 +261,7 @@ async function buildThresholds(
         editable_via: def.editable_via,
         phase2_writable: def.phase2_writable,
         provenance: def.provenance ?? null,
+        track: def.track,
       };
     }
 
@@ -255,6 +283,7 @@ async function buildThresholds(
       editable_via: def.editable_via,
       phase2_writable: def.phase2_writable,
       provenance: def.provenance ?? null,
+      track: def.track,
     };
   });
 }
@@ -277,9 +306,12 @@ async function buildContextPayload(
   // 4. Build thresholds (async — reads story frontmatter for flex_factor)
   const thresholds = await buildThresholds(projectDir, state);
 
-  // 5. Determine context_budget_threshold value for waypoints/misses queries
-  const thresholdValue =
-    thresholds.find((t) => t.name === 'context_budget_threshold')?.value ?? 120000;
+  // 5. Determine the STORY-SPEND threshold for waypoints/spend-outliers
+  //    queries (INFRA-321 § E3) — never the orchestrator-window
+  //    context_budget_threshold. story_spend_threshold's own default (above)
+  //    already covers the "absent from state.json" case.
+  const spendThresholdValue =
+    thresholds.find((t) => t.name === 'story_spend_threshold')?.value ?? 120000;
 
   // 6. Open effort.db
   const dbPath = path.join(projectDir, '.companion', 'effort.db');
@@ -290,13 +322,13 @@ async function buildContextPayload(
     total_attempts: 0,
     by_phase: [],
   };
-  let misses: ReturnType<typeof queryMisses> = { count: 0, entries: [] };
+  let spend_outliers: ReturnType<typeof querySpendOutliers> = { count: 0, entries: [] };
 
   if (db !== null) {
     try {
-      waypoints = queryWaypoints(db, thresholdValue);
+      waypoints = queryWaypoints(db, spendThresholdValue);
       effort_summary = queryEffortSummary(db);
-      misses = queryMisses(db, thresholdValue);
+      spend_outliers = querySpendOutliers(db, spendThresholdValue);
     } finally {
       db.close();
     }
@@ -309,7 +341,7 @@ async function buildContextPayload(
     thresholds,
     waypoints,
     effort_summary,
-    misses,
+    spend_outliers,
     resolver_state,
   };
 }

@@ -614,7 +614,13 @@ so a claim never overrides commit evidence (CER-095.1).
    the same value). When present and fresh, checks whether
    `current_tokens + expected_next` exceeds
    `threshold * (1 + overrun_pct) * flex_factor`; blocks when it does
-   (unless acknowledged within the reprompt margin).
+   (unless acknowledged within the reprompt margin). INFRA-321 § A4 extracted
+   this formula once as `context_budget.effective_ceiling(threshold,
+   overrun_pct, flex_factor)`; `should_block()`, `decide()`'s pre-
+   multiplication, and `render_alert_prompt()` all route through it now
+   instead of each computing it inline — the same helper `context_health.
+   orchestrator_headroom()` (§ The two-track model above) reuses rather than
+   re-deriving.
    The `decide()` signature is `(project_dir, flex_factor=1.0)` — no `story_id`.
    `pre_tool_use.py` resolves `flex_factor` itself (RELEASE-020) via
    `_resolve_flex_factor()`, which reuses `scope_guard.resolve_call_story()`
@@ -928,6 +934,36 @@ so a claim never overrides commit evidence (CER-095.1).
    applied, because Claude Code's auto-mode classifier blocks all agent
    writes to `.claude/settings.json` regardless of scope_guard's decision
    (INFRA-247 precedent, harness-level, above project hooks).
+
+   **Two-track coverage and provenance (INFRA-321).** The orchestrator track now has **two**
+   measurement writers, both reading the same `isSidechain`-filtered JSONL measurement
+   (`context_budget.read_current_tokens`): PostToolUse after each spawn (unchanged), and
+   `skills/pairmode/scripts/user_turn_seq.py`'s `record_user_turn()` on each human turn —
+   closing the between-spawn blind spot (poll output, merge output, task-completion
+   notifications, spec-writer coordination, the orchestrator's own reasoning were previously
+   unobserved between spawns). The refresh is fail-open (a `None` reading leaves the existing
+   value untouched) and independently wrapped from the INFRA-248 turn-counter increment.
+   `record_step_growth()` is **not** invoked from this path — the ring buffer must stay a
+   per-build-step growth series, since mixing in per-user-turn deltas would corrupt the
+   median `expected_step_tokens` derives from. Writer provenance is recorded via
+   `context_current_tokens_source`, additive and gate-indifferent — see § The two-track model
+   above for which writers actually stamp it today (two of three; the PostToolUse stamp is
+   deferred, `hooks/` being protected).
+
+   **No subagent-window gate exists (INFRA-321 § D3/D4).** `flex_factor` (above) is an
+   **orchestrator-track ceiling multiplier** — it scales the orchestrator's own ceiling for a
+   story known to need a longer run, not a guard on a builder's own context window.
+   `story-cost-estimate` is a **story-spend informational** figure (median PASS `tokens_total`
+   for a `(rail, story_class)`), captioned via `track_label` and carrying no threshold
+   comparison. No gate protecting a subagent's own context window exists today; a genuine one
+   would need a pre-spawn estimate of a builder's own input size, which nothing in the system
+   measures, and is named here as future work rather than half-built. `next_action.py`'s
+   `_ADVISORY_CONTEXT` (`context-budget-exceeded`) is reserved vocabulary with no producer
+   wired — when one is wired, it must read the **orchestrator** track
+   (`context_health.orchestrator_headroom` / `check_context_health`'s `orchestrator`
+   sub-object), never `context_budget_check.py`, whose verdict is story-spend by
+   construction. This constrains **INFRA-316** (Phase 116, draft, between-story context
+   etiquette), which is not itself edited by this story.
 
 10. **Checkpoint** — at phase end, the checkpoint sequence runs:
     `checkpoint-security` (security-auditor, WORKER-008) → `checkpoint-intent` (intent-reviewer,
@@ -2190,18 +2226,146 @@ further (per-step window growth ≈ return-block size, decoupled from story effo
 resolver must compute headroom *only* from context-control state and use `effort.db` *only*
 for cost / model display.
 
-### Codified comingling — FLAGGED FOR REMOVAL AT HARNESS006
+#### The two-track model (INFRA-321)
 
-`CLAUDE.build.md:320-326` compares `threshold − N` (remaining window) against the
-`story-cost-estimate` effort.db median (`flex_build.py:834`) and advises `/clear` — exactly
-the wrong cross-feed of the effort.db ≠ context-control invariant. The correct mechanism
-already exists separately at `CLAUDE.build.md:696-750` (`context_current_tokens +
-expected_step_tokens` vs threshold). The redesign at HARNESS006 deletes the comingled
-advisory; the resolver/gate reports window occupancy only, and any effort-cost figure shown
-is labelled cost (not headroom) and never compared to remaining window.
+The invariant above states the rule; this is the vocabulary and consumer inventory that
+makes it enforceable in code, added because three live consumers reinvented the exact
+mistake the rule already forbade (see below). `skills/pairmode/scripts/context_model.py`
+is the module home — stdlib-only, on the PreToolUse hook path — and carries:
 
-**This story (RELEASE-004) does NOT remove the comingled advisory at `CLAUDE.build.md:320-326`.
-That removal is HARNESS006 scope (the gate rewrite).**
+- `TRACK_ORCHESTRATOR = "orchestrator-window"` — live occupancy of the orchestrator's own
+  context window. The only quantity that can overflow a window, and therefore the only one
+  a pause decision may ever be computed from.
+- `TRACK_STORY_SPEND = "story-spend"` — retrospective subagent cost from `effort.db`. Burned
+  in a subagent's own disposable window; never entered the orchestrator's window.
+- `ORCHESTRATOR_TRACK_KEYS` — the `state.json` keys belonging to the orchestrator track:
+  `context_current_tokens`, `context_current_tokens_recorded_at`,
+  `context_step_growth_samples`, `expected_step_tokens`, `context_budget_threshold`,
+  `context_budget_overrun_pct`, `context_budget_reprompt_margin`,
+  `context_budget_acknowledged_at`, `context_budget_user_turn_seq`,
+  `context_budget_acknowledged_user_turn_seq`, `context_session_reset_at`.
+- `STORY_SPEND_SOURCES` — the `effort.db` columns belonging to the story-spend track:
+  `attempts.tokens_total`, `attempts.tokens_out`, `attempts.tokens_in`.
+- `track_label(track)` — the operator-facing caption for either track, so every Python
+  surface that prints one of the two numbers labels it through this one helper rather than
+  hand-writing a caption that can drift from its sibling.
+
+**Boundary rule (both directions):** a story-spend quantity may never be compared against an
+orchestrator-track threshold, and a subagent/story-spend token count may never be summed
+into an orchestrator-track state.json key.
+
+**A dedicated story-spend threshold.** `story_spend_threshold` (§ below, `context_budget_check.py`)
+is a separate state.json key from `context_budget_threshold`. When absent, a story-spend
+consumer falls back to its own module default and says so (`threshold_source=default`) — it
+never silently reads the orchestrator's threshold, which is how the conflation stayed
+invisible.
+
+**The three consumers that reinvented the mistake DP7 already forbade**, all re-based by
+INFRA-321 (Phase 114) onto the correct track without changing their underlying measurement:
+
+1. `context_health.py`'s `/clear` recommendation compared subagent retry-burden (reviewer
+   FAIL rows' output tokens) against a rolling median of prior phases and issued `/clear`
+   advice from that comparison alone — a pure story-spend signal wearing a headroom verdict's
+   hat. It now exposes `orchestrator_headroom(state)` (reads only `ORCHESTRATOR_TRACK_KEYS`,
+   opens no database, reuses `context_budget.derive_expected_step_tokens`,
+   `context_budget.effective_ceiling` and `context_budget._is_stale`) as the **only** source
+   of the top-level `recommendation`/`message` and CLI exit code. The retry-burden
+   measurement survives unchanged as `story_spend`, an informational "retry churn" signal
+   with no `/clear` language anywhere in its message.
+2. `context_budget_check.py` summed a phase's `effort.db` tokens and compared them against
+   `context_budget_threshold` — the same state.json key `context_budget.decide()` uses as the
+   orchestrator ceiling — then printed an orchestrator-pause instruction. It now resolves
+   `story_spend_threshold` (never `context_budget_threshold`), declares `track=story-spend`
+   in its stdout line, and its over-threshold message states plainly that the number is not a
+   context-headroom signal and points at `context-health` for the orchestrator track. Exit
+   codes (0/1/2) are unchanged.
+3. The observability `/context` surface's `queryWaypoints`/`queryMisses`
+   (`skills/observability/api/src/readers/effortDb.ts`) applied the orchestrator ceiling
+   formula (`threshold * 1.1`) to `attempts.tokens_total` and rendered the results under
+   "Near-miss blocks" — no block ever occurred at any of those numbers. `THRESHOLD_DEFS`
+   (`routes/context.ts`) now carries a `track` field per threshold, the waypoints/misses
+   queries take the story-spend threshold instead, and the fields are renamed
+   (`near_miss` → `over_spend_band`, `misses` → `spend_outliers`,
+   `tokens_at_block` → `tokens_total`) so no field asserts a block that never happened. The
+   SPA (`ContextMetrics.tsx`) renders the two tracks as two visually separate, captioned
+   groups.
+
+**Orchestrator-track coverage between spawns (§ C).** Before INFRA-321,
+`context_current_tokens` had exactly one automatic writer: `hooks/post_tool_use.py`'s
+Task/Agent branch, which refreshes only *after* an agent spawn completes. Everything else
+that enters the orchestrator's window between spawns — `next-action` poll output, merge and
+git output, task-completion notifications, spec-writer coordination, the orchestrator's own
+reasoning — was never observed, so a value many turns stale was not flagged stale (the
+gate's staleness check only compares recorded-at against the session-reset anchor). A second
+measurement writer now exists: `skills/pairmode/scripts/user_turn_seq.py`'s
+`record_user_turn()` — already the sole owner of `hooks/user_prompt_submit.py`'s
+read-modify-write (the hook itself is unedited; it remains a protected path) — additionally
+calls the same `isSidechain`-filtered JSONL measurement (`context_budget.read_current_tokens`)
+`post_tool_use.py` uses, and writes the refreshed value through the same
+`session_state.session_view`/`apply_session_view` pair, in the same read-modify-write, when
+the measurement succeeds. It is measurement-only and fail-open: a `None` reading (no
+session, no transcript, unreadable file) leaves the existing value untouched — never zeroed,
+never estimated — and the refresh is wrapped independently of the INFRA-248 turn-counter
+increment so a raising measurement never blocks the counter. `context_budget.record_step_growth`
+is **deliberately not called** from this path — the ring buffer must stay a per-build-step
+growth series, since that is what `expected_step_tokens`'s median is supposed to estimate;
+mixing in per-user-turn deltas would corrupt it.
+
+**Writer provenance (`context_current_tokens_source`).** Every writer of
+`context_current_tokens` *should* also stamp `context_current_tokens_source`, an additive,
+observability-only field (`context_budget.decide()` does not gate on it) that records which
+writer most recently wrote the value. **As of INFRA-321, only two of the three intended
+writers actually stamp it:**
+
+- `record_user_turn`'s refresh (§ C1 above) → `"user-prompt-submit"` — live.
+- `flex_build.py set-context-tokens` / `bump-context-tokens` (manual override /
+  debugging escape hatch) → `"manual"` — live.
+- `hooks/post_tool_use.py`'s Task/Agent branch → `"post-tool-use"` — **NOT yet wired**.
+  `hooks/` is a protected path (`scope_guard.PROTECTED_GLOBS`); INFRA-321's own § Out of
+  scope names this as the one exception that would require a hook edit, and instructs the
+  builder to report `BUILDER BLOCKED` rather than touch it. This is exactly what happened —
+  the PostToolUse writer's stamp is deferred to a follow-up row (`docs/cer/backlog.md`,
+  CER-129 annotation). Until that follow-up lands, a `context_current_tokens` value most
+  recently written by PostToolUse carries no source stamp (readers treat an absent/unknown
+  source exactly as before — no reader's behaviour depends on the field's presence).
+
+### Codified comingling — FLAGGED FOR REMOVAL AT HARNESS006 (RESOLVED, INFRA-321)
+
+`CLAUDE.build.md:320-326` used to compare `threshold − N` (remaining window) against the
+`story-cost-estimate` effort.db median and advise `/clear` — exactly the wrong cross-feed of
+the effort.db ≠ context-control invariant. **That advisory is gone: `CLAUDE.build.md` is now
+52 lines and contains no such comparison.**
+
+The original note treated that single advisory as the only comingled site and expected its
+removal (HARNESS006) to close the finding. It did not: **three other live consumers survived
+the comingling independently of `CLAUDE.build.md`**, none of which the original note
+anticipated —
+
+1. `context_health.py`'s `/clear` recommendation (subagent retry-burden vs. a rolling median,
+   with no reference to `context_current_tokens`),
+2. `context_budget_check.py`'s shared `context_budget_threshold` key (phase spend compared
+   against the same key the orchestrator gate uses), and
+3. the `/context` waypoints/misses queries (`effortDb.ts`) applying the orchestrator ceiling
+   formula to subagent cost and labelling the result "Near-miss blocks".
+
+INFRA-321 (Phase 114) is where each of the three was re-based onto the story-spend track
+without changing its underlying measurement — see § The two-track model above for the full
+per-consumer account. **No gate was weakened and no new gate was added**;
+`context_budget.decide()`'s decision logic is untouched by this story (only the § A4 ceiling-
+formula extraction touched it, and that extraction is arithmetic-preserving).
+
+**Rejected direction (recorded, not silently declined):** deriving orchestrator headroom (or
+a `/clear` recommendation) from `effort.db` totals was considered and rejected — it is
+exactly the mistake this invariant exists to forbid, and the fact that three separate
+consumers reinvented it despite the rule already being written down here is the strongest
+evidence that the rule needed to live next to the code, not only in this note (hence
+`context_model.py`'s constants carrying the boundary rule verbatim in their own docstrings).
+Also rejected: heuristically estimating orchestrator-window growth from poll/merge/notification
+output size (re-creates the invented-number failure CER-053/INFRA-254 already corrected once
+for `expected_step_tokens` — measure or do not write); summing subagent sidechain usage into
+`context_current_tokens` (INFRA-251 excludes sidechain entries for exactly this reason); and a
+single unified "context" number blending occupancy and spend (that is the bug, restated as a
+feature).
 
 ---
 

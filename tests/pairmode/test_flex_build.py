@@ -2487,3 +2487,96 @@ def test_spec_writer_procedure_references_spec_preflight() -> None:
     assert "flex_build.py" in text, (
         "flex_build.py invocation not referenced in spec-writer procedure.md"
     )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-321 § C6/C7/D1/D2/D4 — track vocabulary on flex_build.py CLI surfaces
+# ---------------------------------------------------------------------------
+
+
+def test_set_context_tokens_stamps_manual_source(tmp_path) -> None:
+    """test_context_current_tokens_source_stamped_by_each_writer (manual half)."""
+    (tmp_path / ".companion").mkdir(parents=True)
+    result = _run("set-context-tokens", "--tokens", "5000", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr
+    state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+    assert state["context_current_tokens"] == 5000
+    assert state["context_current_tokens_source"] == "manual"
+
+
+def test_bump_context_tokens_stamps_manual_source(tmp_path) -> None:
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True)
+    (companion / "state.json").write_text(json.dumps({"pairmode_version": "0.1.0"}))
+    result = _run("bump-context-tokens", "--cost", "1000", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr
+    state = json.loads((companion / "state.json").read_text())
+    assert state["context_current_tokens"] == 1000
+    assert state["context_current_tokens_source"] == "manual"
+
+
+def test_decide_ignores_context_current_tokens_source(tmp_path) -> None:
+    """test_decide_ignores_context_current_tokens_source — decide()'s verdict
+    is identical whether the field is present, absent, or garbage.
+    """
+    sys.path.insert(0, str(_REPO_ROOT / "skills" / "pairmode" / "scripts"))
+    import context_budget as _context_budget
+
+    companion = tmp_path / ".companion"
+    companion.mkdir(parents=True)
+    base_state = {
+        "context_current_tokens": 5000,
+        "context_budget_threshold": 120000,
+        "context_budget_overrun_pct": 0.10,
+        "expected_step_tokens": 5000,
+    }
+
+    results = []
+    for source_value in (None, "user-prompt-submit", "garbage-value"):
+        state = dict(base_state)
+        if source_value is not None:
+            state["context_current_tokens_source"] = source_value
+        (companion / "state.json").write_text(json.dumps(state))
+        results.append(_context_budget.decide(tmp_path))
+
+    assert results[0] == results[1] == results[2]
+
+
+def test_story_cost_estimate_prints_no_threshold_or_pause_language(tmp_path) -> None:
+    """test_story_cost_estimate_prints_no_threshold_or_pause_language."""
+    result = _run("story-cost-estimate", "--story-id", "INFRA-999", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr
+    out = result.stdout.lower()
+    assert "threshold" not in out
+    assert "/clear" not in out
+    assert "pause" not in out
+    assert "story spend" in out or "estimate" in out
+
+
+def test_context_health_cli_two_track_json_shape(tmp_path) -> None:
+    (tmp_path / ".companion").mkdir(parents=True)
+    result = _run("context-health", "--phase", "1", "--project-dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert set(payload.keys()) == {"phase", "orchestrator", "story_spend", "recommendation", "message"}
+    assert payload["orchestrator"]["track"] == "orchestrator-window"
+    assert payload["story_spend"]["track"] == "story-spend"
+
+
+def test_next_action_advisory_path_reads_no_effort_db() -> None:
+    """test_next_action_advisory_path_reads_no_effort_db — _ADVISORY_CONTEXT
+    is reserved but no code path in next_action.py opens effort.db/sqlite3 to
+    produce it (INFRA-321 § D4).
+    """
+    src = (
+        _REPO_ROOT / "skills" / "pairmode" / "scripts" / "next_action.py"
+    ).read_text(encoding="utf-8")
+    # The only sqlite/effort.db references belong to the (unrelated)
+    # effort_by_role summary path, not the advisory path — assert the
+    # advisory constant itself has no producer wired anywhere in the module.
+    assert "_ADVISORY_CONTEXT" in src
+    assert "warnings.append(_ADVISORY_CONTEXT" not in src
+    # No producer wired: the only appearance of the constant is its own
+    # definition — no other line references it.
+    references = [line for line in src.splitlines() if "_ADVISORY_CONTEXT" in line]
+    assert len(references) == 1

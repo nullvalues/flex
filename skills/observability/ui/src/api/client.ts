@@ -134,6 +134,10 @@ export interface SystemResponse {
   resolver_state: ResolverStateDoc | null;
 }
 
+// INFRA-321 § E1: 'orchestrator-window' is the only track a headroom/pause
+// judgment may be computed from; 'story-spend' is informational only.
+export type Track = 'orchestrator-window' | 'story-spend';
+
 export interface Threshold {
   name: string;
   value: number;
@@ -142,6 +146,7 @@ export interface Threshold {
   editable_via: string | null;
   phase2_writable: boolean;
   provenance: string | null;
+  track: Track;
 }
 
 export interface CurrentContext {
@@ -160,8 +165,10 @@ export interface Waypoint {
   phase: string | null;
   agent_role: string | null;
   outcome: string | null;
-  near_miss: boolean;
-  delta_above_threshold: number | null;
+  // INFRA-321 § E3: renamed from near_miss / delta_above_threshold — a
+  // story-spend signal, never a claim that a block occurred.
+  over_spend_band: boolean;
+  delta_above_spend_threshold: number | null;
 }
 
 export interface PhaseEffort {
@@ -177,16 +184,17 @@ export interface EffortSummary {
   by_phase: PhaseEffort[];
 }
 
-export interface MissEntry {
+export interface SpendOutlierEntry {
   ts: string;
   phase: string | null;
-  tokens_at_block: number;
+  // INFRA-321 § E3: renamed from tokens_at_block — no block ever occurred.
+  tokens_total: number;
   story_id: string | null;
 }
 
-export interface MissesBlock {
+export interface SpendOutliersBlock {
   count: number;
-  entries: MissEntry[];
+  entries: SpendOutlierEntry[];
 }
 
 export interface ContextResponse {
@@ -196,7 +204,7 @@ export interface ContextResponse {
   thresholds: Threshold[];
   waypoints: Waypoint[];
   effort_summary: EffortSummary;
-  misses: MissesBlock;
+  spend_outliers: SpendOutliersBlock;
   resolver_state: ResolverStateDoc | null;
 }
 

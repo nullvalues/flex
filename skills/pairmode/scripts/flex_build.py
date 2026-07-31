@@ -63,6 +63,11 @@ from permission_scope import (  # noqa: E402
 )
 from effort_db import check_guardrail, resolve_effort_db_path  # noqa: E402
 from context_health import check_context_health  # noqa: E402
+from context_model import (  # noqa: E402
+    CONTEXT_CURRENT_TOKENS_SOURCE_KEY,
+    TRACK_STORY_SPEND,
+    track_label,
+)
 from next_action import _CHECKPOINT_SEQUENCE  # noqa: E402
 from state_utils import _atomic_write_json, state_lock  # noqa: E402
 from story_context import (  # noqa: E402
@@ -1328,10 +1333,18 @@ def cmd_select_intent_reviewer_model(phase_class: str) -> None:
     help="Project root directory.",
 )
 def cmd_context_health(phase: str, project_dir: str) -> None:
-    """Run the context-health check; print the JSON result."""
+    """Run the context-health check; print the JSON result.
+
+    INFRA-321: the printed JSON is the two-tracked-sub-object shape from
+    context_health.check_context_health's § B3 restructure — ``orchestrator``
+    (the only track a pause/`/clear` verdict may be computed from) and
+    ``story_spend`` (informational, retry-churn signal, never gates).
+    """
     project_path = Path(project_dir).resolve()
     db_path = resolve_effort_db_path(project_path)
-    result = check_context_health(db_path=db_path, current_phase=phase)
+    result = check_context_health(
+        db_path=db_path, current_phase=phase, project_dir=project_path
+    )
     click.echo(json.dumps(result))
 
 
@@ -2376,7 +2389,12 @@ def _query_story_cost_samples(
     help="Project root directory.",
 )
 def cmd_story_cost_estimate(story_id: str, project_dir: str) -> None:
-    """Print a one-line median PASS-token estimate for (rail, story_class)."""
+    """Print a one-line median PASS-token estimate for (rail, story_class).
+
+    INFRA-321 § D2: a STORY-SPEND informational surface — captioned via
+    ``track_label`` so it reads as retrospective cost, not headroom. It
+    carries no threshold and no pause/`/clear` language; it is not a gate.
+    """
     import statistics
 
     project_path = Path(project_dir).resolve()
@@ -2389,10 +2407,11 @@ def cmd_story_cost_estimate(story_id: str, project_dir: str) -> None:
     db_path = resolve_effort_db_path(project_path)
     samples, tier = _query_story_cost_samples(db_path, rail, story_class)
     n = len(samples)
+    label = track_label(TRACK_STORY_SPEND)
 
     if tier == "insufficient":
         click.echo(
-            f"estimate: insufficient data ({n} PASS attempts on {rail}/{story_class})"
+            f"estimate ({label}): insufficient data ({n} PASS attempts on {rail}/{story_class})"
         )
         return
 
@@ -2400,15 +2419,15 @@ def cmd_story_cost_estimate(story_id: str, project_dir: str) -> None:
 
     if tier == "rail":
         click.echo(
-            f"estimate: {median} tokens (median of {n} PASS attempts on {rail}/{story_class})"
+            f"estimate ({label}): {median} tokens (median of {n} PASS attempts on {rail}/{story_class})"
         )
     elif tier == "all-rails":
         click.echo(
-            f"estimate: {median} tokens (median of {n} PASS attempts, all rails, story_class={story_class})"
+            f"estimate ({label}): {median} tokens (median of {n} PASS attempts, all rails, story_class={story_class})"
         )
     else:  # global
         click.echo(
-            f"estimate: {median} tokens (median of {n} PASS attempts, global)"
+            f"estimate ({label}): {median} tokens (median of {n} PASS attempts, global)"
         )
 
 
@@ -2458,6 +2477,9 @@ def cmd_set_context_tokens(tokens: int, project_dir: str) -> None:
     # Scalar write — the sole gate token source for INFRA-182.
     state["context_current_tokens"] = tokens
     state["context_current_tokens_recorded_at"] = now_iso
+    # INFRA-321 § C6/C7: this is one of the two live writers of the
+    # provenance field — a manual operator override, not a measurement.
+    state[CONTEXT_CURRENT_TOKENS_SOURCE_KEY] = "manual"
 
     _atomic_write_json(state_path, state)
     click.echo(f"context: recorded {tokens:,} tokens")
@@ -2495,6 +2517,12 @@ def cmd_bump_context_tokens(cost: int, project_dir: str) -> None:
     ``context_budget.compute_context_tokens``), never a subagent cost/effort.db
     figure — doing so reintroduces the exact conflation this invariant exists
     to prevent.
+
+    INFRA-321 § C7 (two-track vocabulary): ``--cost`` MUST be a measured
+    ``TRACK_ORCHESTRATOR`` delta, never a ``TRACK_STORY_SPEND`` figure. This
+    command stays dormant by design — § C1's ``user_turn_seq.record_user_turn``
+    measured refresh (real JSONL reads, not an estimate) is the reason no
+    caller is needed; this command's arithmetic and exit codes are unchanged.
     """
     if cost <= 0:
         click.echo(
@@ -2524,6 +2552,9 @@ def cmd_bump_context_tokens(cost: int, project_dir: str) -> None:
 
     state["context_current_tokens"] = base + cost
     state["context_current_tokens_recorded_at"] = datetime.now(timezone.utc).isoformat()
+    # INFRA-321 § C6/C7: manual writer — see the docstring's cost-source rule
+    # (a measured orchestrator-window delta, never a story-spend figure).
+    state[CONTEXT_CURRENT_TOKENS_SOURCE_KEY] = "manual"
     _atomic_write_json(state_path, state)
     click.echo(f"context: bumped by {cost:,} → total {state['context_current_tokens']:,} tokens")
 

@@ -228,3 +228,97 @@ def test_exit_2_when_db_missing(tmp_path):
     ])
     assert exit_code == 2
 
+
+# ---------------------------------------------------------------------------
+# INFRA-321 § B6 — story-spend track renaming, threshold provenance,
+# and removal of the "CONTEXT BUDGET EXCEEDED" / orchestrator-pause language.
+# ---------------------------------------------------------------------------
+
+
+def test_context_budget_check_stdout_declares_story_spend_track(tmp_path, capsys):
+    """test_context_budget_check_stdout_declares_story_spend_track."""
+    companion_dir = tmp_path / ".companion"
+    companion_dir.mkdir(parents=True)
+    _create_db(companion_dir, [{"story_id": "A-001", "phase": "1", "tokens_total": 40000}])
+    _create_state(companion_dir, {"effort_tracking": True})
+
+    exit_code = main(["--project-dir", str(tmp_path), "--phase", "1"])
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "track=story-spend" in out
+    assert "threshold_source=default" in out
+
+
+def test_context_budget_check_never_falls_back_to_orchestrator_threshold(tmp_path, capsys):
+    """A state.json carrying only context_budget_threshold (no
+    story_spend_threshold) must resolve to the module default, not to the
+    orchestrator's threshold value — test_story_spend_threshold_never_falls
+    _back_to_context_budget_threshold.
+    """
+    companion_dir = tmp_path / ".companion"
+    companion_dir.mkdir(parents=True)
+    # Sum is 130000 — over the module default (120000) but well under the
+    # orchestrator's context_budget_threshold (500000). If the code fell back
+    # to context_budget_threshold, this would report "ok"; it must report
+    # "over" because the default (120000) is what actually applies.
+    _create_db(companion_dir, [{"story_id": "A-001", "phase": "1", "tokens_total": 130000}])
+    _create_state(companion_dir, {"context_budget_threshold": 500000})
+
+    exit_code = main(["--project-dir", str(tmp_path), "--phase", "1"])
+    out = capsys.readouterr().out
+    assert exit_code == 1
+    assert "threshold=120000" in out
+    assert "threshold_source=default" in out
+
+
+def test_context_budget_check_reads_story_spend_threshold_key(tmp_path, capsys):
+    companion_dir = tmp_path / ".companion"
+    companion_dir.mkdir(parents=True)
+    _create_db(companion_dir, [{"story_id": "A-001", "phase": "1", "tokens_total": 90000}])
+    _create_state(companion_dir, {"story_spend_threshold": 80000})
+
+    exit_code = main(["--project-dir", str(tmp_path), "--phase", "1"])
+    out = capsys.readouterr().out
+    assert exit_code == 1
+    assert "threshold=80000" in out
+    assert "threshold_source=state" in out
+
+
+def test_context_budget_check_over_threshold_message_removed_strings(tmp_path, capsys):
+    """The strings 'CONTEXT BUDGET EXCEEDED' and 'Orchestrator MUST surface a
+    proceed-vs-pause prompt' must no longer appear anywhere in the module.
+    """
+    src = Path(__file__).resolve().parent.parent.parent.joinpath(
+        "skills", "pairmode", "scripts", "context_budget_check.py"
+    ).read_text(encoding="utf-8")
+    assert "CONTEXT BUDGET EXCEEDED" not in src
+    assert "Orchestrator MUST surface a proceed-vs-pause prompt" not in src
+
+    companion_dir = tmp_path / ".companion"
+    companion_dir.mkdir(parents=True)
+    _create_db(companion_dir, [{"story_id": "A-001", "phase": "1", "tokens_total": 200000}])
+    _create_state(companion_dir, {})
+    exit_code = main(["--project-dir", str(tmp_path), "--phase", "1"])
+    err = capsys.readouterr().err
+    assert exit_code == 1
+    assert "NOT a context-headroom signal" in err
+    assert "CONTEXT BUDGET EXCEEDED" not in err
+
+
+def test_context_budget_check_exit_codes_unchanged(tmp_path):
+    """test_context_budget_check_exit_codes_unchanged — the 0/1/2 exit-code
+    table is byte-identical to before this story for the same inputs.
+    """
+    companion_dir = tmp_path / ".companion"
+    companion_dir.mkdir(parents=True)
+    _create_db(companion_dir, [{"story_id": "A-001", "phase": "1", "tokens_total": 40000}])
+    _create_state(companion_dir, {})
+    assert main(["--project-dir", str(tmp_path), "--phase", "1"]) == 0
+
+    _create_db(companion_dir, [{"story_id": "A-001", "phase": "1", "tokens_total": 200000}])
+    assert main(["--project-dir", str(tmp_path), "--phase", "1"]) == 1
+
+    no_db_dir = tmp_path / "no-db"
+    (no_db_dir / ".companion").mkdir(parents=True)
+    _create_state(no_db_dir / ".companion", {})
+    assert main(["--project-dir", str(no_db_dir), "--phase", "1"]) == 2

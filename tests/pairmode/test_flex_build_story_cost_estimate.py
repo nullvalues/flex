@@ -132,7 +132,11 @@ def test_estimate_returns_median_when_sufficient_samples(tmp_path: Path) -> None
     assert result.returncode == 0, f"stderr: {result.stderr}"
     out = result.stdout.strip()
     # Median of [10000, 20000, 30000, 40000, 50000] = 30000
-    assert out == "estimate: 30000 tokens (median of 5 PASS attempts on BUILD/methodology)", out
+    # INFRA-321 § D2: the line is now captioned via track_label(TRACK_STORY_SPEND).
+    assert out == (
+        "estimate (story spend (subagent cost — not headroom)): 30000 tokens "
+        "(median of 5 PASS attempts on BUILD/methodology)"
+    ), out
 
 
 def test_estimate_insufficient_data_when_fewer_than_three_rows(tmp_path: Path) -> None:

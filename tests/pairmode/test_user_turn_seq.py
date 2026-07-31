@@ -228,3 +228,110 @@ def test_record_user_turn_duplicate_leaves_the_file_byte_identical(tmp_path):
     before = state_path.read_bytes()
     user_turn_seq.record_user_turn(tmp_path, payload)
     assert state_path.read_bytes() == before
+
+
+# ---------------------------------------------------------------------------
+# INFRA-321 § C1/C3/C4/C5/C6 — orchestrator-track refresh from record_user_turn
+# ---------------------------------------------------------------------------
+
+
+def test_record_user_turn_refreshes_orchestrator_tokens_from_measurement(tmp_path, monkeypatch):
+    """test_record_user_turn_refreshes_orchestrator_tokens_from_measurement."""
+    state_path = _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+    monkeypatch.setattr(user_turn_seq.context_budget, "read_current_tokens", lambda **kw: 42000)
+    user_turn_seq.record_user_turn(tmp_path, {"session_id": "s1", "prompt": "p1"})
+    state = _read_state(state_path)
+    assert state["context_current_tokens"] == 42000
+    assert "context_current_tokens_recorded_at" in state
+    assert state["context_current_tokens_source"] == "user-prompt-submit"
+
+
+def test_record_user_turn_leaves_tokens_untouched_when_measurement_is_none(tmp_path, monkeypatch):
+    """test_record_user_turn_leaves_tokens_untouched_when_measurement_is_none."""
+    state_path = _write_state(
+        tmp_path, {"pairmode_version": "0.1.0", "context_current_tokens": 99999}
+    )
+    monkeypatch.setattr(user_turn_seq.context_budget, "read_current_tokens", lambda **kw: None)
+    user_turn_seq.record_user_turn(tmp_path, {"session_id": "s1", "prompt": "p1"})
+    state = _read_state(state_path)
+    assert state["context_current_tokens"] == 99999
+    assert "context_current_tokens_source" not in state
+
+
+def test_record_user_turn_increments_counter_when_measurement_raises(tmp_path, monkeypatch):
+    """test_record_user_turn_increments_counter_when_measurement_raises."""
+    state_path = _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+
+    def _raise(**kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(user_turn_seq.context_budget, "read_current_tokens", _raise)
+    user_turn_seq.record_user_turn(tmp_path, {"session_id": "s1", "prompt": "p1"})
+    state = _read_state(state_path)
+    assert state["context_budget_user_turn_seq"] == 1
+    assert "context_current_tokens" not in state
+
+
+def test_record_user_turn_does_not_append_step_growth_sample(tmp_path, monkeypatch):
+    """test_record_user_turn_does_not_append_step_growth_sample (§ C4)."""
+    state_path = _write_state(
+        tmp_path,
+        {"pairmode_version": "0.1.0", "context_step_growth_samples": [1000, 2000]},
+    )
+    monkeypatch.setattr(user_turn_seq.context_budget, "read_current_tokens", lambda **kw: 5000)
+    user_turn_seq.record_user_turn(tmp_path, {"session_id": "s1", "prompt": "p1"})
+    state = _read_state(state_path)
+    assert state["context_step_growth_samples"] == [1000, 2000]
+
+
+def test_duplicate_user_prompt_increments_once_and_refreshes_tokens(tmp_path, monkeypatch):
+    """test_duplicate_user_prompt_increments_once_and_refreshes_tokens (§ C5)."""
+    state_path = _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+    monkeypatch.setattr(user_turn_seq.context_budget, "read_current_tokens", lambda **kw: 7000)
+    payload = {"session_id": "s1", "prompt": "same"}
+    user_turn_seq.record_user_turn(tmp_path, payload)
+    user_turn_seq.record_user_turn(tmp_path, payload)  # duplicate — skipped entirely
+    state = _read_state(state_path)
+    assert state["context_budget_user_turn_seq"] == 1
+    assert state["context_current_tokens"] == 7000
+
+
+def test_user_prompt_submit_hook_still_only_delegates():
+    """test_user_prompt_submit_hook_still_only_delegates — § C2, byte content
+    of the protected hook file is unchanged by this story.
+    """
+    hook_path = REPO_ROOT / "hooks" / "user_prompt_submit.py"
+    src = hook_path.read_text(encoding="utf-8")
+    assert "record_user_turn(" in src
+    # No new state.json I/O was added to the hook itself.
+    assert "import context_budget" not in src
+    assert "import session_state" not in src
+
+
+def test_context_current_tokens_source_stamped_by_each_writer(tmp_path, monkeypatch):
+    """test_context_current_tokens_source_stamped_by_each_writer — the
+    user-prompt-submit writer stamps "user-prompt-submit"; the "manual"
+    writer (flex_build.py set-context-tokens / bump-context-tokens) is
+    covered by tests/pairmode/test_flex_build.py. This module owns the
+    user-prompt-submit half only.
+    """
+    state_path = _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+    monkeypatch.setattr(user_turn_seq.context_budget, "read_current_tokens", lambda **kw: 1000)
+    user_turn_seq.record_user_turn(tmp_path, {"session_id": "s1", "prompt": "p1"})
+    state = _read_state(state_path)
+    assert state["context_current_tokens_source"] == "user-prompt-submit"
+
+
+def test_hooks_directory_has_no_uncommitted_changes_from_this_story():
+    """§ C2: hooks/** is a protected path; this story's changes must not
+    touch it. Guards against an accidental edit slipping into hooks/.
+    """
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "hooks/"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout.strip() == ""

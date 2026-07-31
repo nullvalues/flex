@@ -1,15 +1,22 @@
-"""context_budget_check.py — Check accumulated context token budget for a phase.
+"""context_budget_check.py — Check accumulated STORY-SPEND for a phase.
 
-Reads `.companion/effort.db` and `.companion/state.json` from the given
-project directory. Sums `tokens_total` for all attempts in the specified phase
-and compares against a threshold.
+INFRA-321: this CLI measures the story-spend track (TRACK_STORY_SPEND) —
+recorded subagent cost summed from effort.db — and renders a verdict about
+that track only. It is NOT a context-headroom / orchestrator-window signal;
+see `skills/pairmode/scripts/context_health.py`'s `orchestrator_headroom()`
+(or the `flex-build context-health` CLI) for that. Reads `.companion/effort.db`
+and `.companion/state.json` from the given project directory. Sums
+`tokens_total` for all attempts in the specified phase and compares against a
+STORY-SPEND threshold — resolved per § A3: --threshold > state.json
+`story_spend_threshold` > the module default. It never falls back to
+`context_budget_threshold`, which is an orchestrator-track key.
 
 Usage:
     PATH=$HOME/.local/bin:$PATH uv run python scripts/context_budget_check.py \
         --project-dir . \
         --phase <PHASE_ID>
 
-Exit codes:
+Exit codes (unchanged by INFRA-321 — only the rendered message changed):
     0  — status=ok  (sum <= threshold)
     1  — status=over (sum > threshold)
     2  — usage/IO error (missing DB, malformed args, etc.)
@@ -23,7 +30,18 @@ import sqlite3
 import sys
 from pathlib import Path
 
-_DEFAULT_THRESHOLD = 120000
+try:
+    from skills.pairmode.scripts.context_model import (
+        STORY_SPEND_THRESHOLD_DEFAULT,
+        STORY_SPEND_THRESHOLD_KEY,
+    )
+except ImportError:  # flat import via CLI sys.path
+    from context_model import (  # type: ignore[no-redef]
+        STORY_SPEND_THRESHOLD_DEFAULT,
+        STORY_SPEND_THRESHOLD_KEY,
+    )
+
+_DEFAULT_THRESHOLD = STORY_SPEND_THRESHOLD_DEFAULT
 
 
 def _resolve_db_path(project_dir: Path) -> Path:
@@ -44,7 +62,14 @@ def _resolve_db_path(project_dir: Path) -> Path:
 
 
 def _load_threshold_from_state(project_dir: Path) -> int | None:
-    """Return context_budget_threshold from state.json, or None if absent/invalid."""
+    """Return the STORY-SPEND threshold from state.json, or None if absent/invalid.
+
+    INFRA-321 § A3: reads ``story_spend_threshold`` — never
+    ``context_budget_threshold``, which is an orchestrator-track key. A
+    state.json carrying only ``context_budget_threshold`` (no
+    ``story_spend_threshold``) must resolve to the module default here, not
+    to the orchestrator's threshold value.
+    """
     state_path = project_dir / ".companion" / "state.json"
     if not state_path.exists():
         return None
@@ -52,7 +77,7 @@ def _load_threshold_from_state(project_dir: Path) -> int | None:
         data = json.loads(state_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
-    val = data.get("context_budget_threshold")
+    val = data.get(STORY_SPEND_THRESHOLD_KEY)
     if val is None:
         return None
     try:
@@ -96,8 +121,10 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=None,
         help=(
-            "Override the token threshold. "
-            "Priority: --threshold > state.json context_budget_threshold > 120000 (default)."
+            "Override the story-spend token threshold. "
+            f"Priority: --threshold > state.json {STORY_SPEND_THRESHOLD_KEY} > "
+            f"{STORY_SPEND_THRESHOLD_DEFAULT} (default). Never falls back to "
+            "context_budget_threshold (an orchestrator-track key)."
         ),
     )
     args = parser.parse_args(argv)
@@ -115,12 +142,20 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    # Resolve threshold: --threshold arg > state.json > built-in default
+    # Resolve threshold: --threshold arg > state.json story_spend_threshold >
+    # built-in default (§ A3). threshold_source makes the absence of a
+    # configured story_spend_threshold visible rather than silent.
     if args.threshold is not None:
         threshold = args.threshold
+        threshold_source = "cli"
     else:
         state_threshold = _load_threshold_from_state(project_dir)
-        threshold = state_threshold if state_threshold is not None else _DEFAULT_THRESHOLD
+        if state_threshold is not None:
+            threshold = state_threshold
+            threshold_source = "state"
+        else:
+            threshold = _DEFAULT_THRESHOLD
+            threshold_source = "default"
 
     # Query the DB
     try:
@@ -131,18 +166,22 @@ def main(argv: list[str] | None = None) -> int:
 
     status = "ok" if token_sum <= threshold else "over"
 
-    # Machine-parseable stdout line
+    # Machine-parseable stdout line. INFRA-321: names the track explicitly and
+    # surfaces threshold provenance so a silent default cannot pass as a
+    # configured one (the original conflation stayed invisible this way).
     print(
-        f"context_budget phase={args.phase} tokens={token_sum} "
-        f"threshold={threshold} status={status}"
+        f"story_spend track=story-spend phase={args.phase} tokens={token_sum} "
+        f"threshold={threshold} threshold_source={threshold_source} status={status}"
     )
 
     if status == "over":
         print(
-            f"CONTEXT BUDGET EXCEEDED — phase {args.phase} has accumulated "
-            f"{token_sum} tokens of recorded subagent work (threshold: {threshold}).\n"
-            "Orchestrator MUST surface a proceed-vs-pause prompt to the user before "
-            "spawning the next builder.",
+            f"STORY-SPEND OVER THRESHOLD — phase {args.phase} has accumulated "
+            f"{token_sum} tokens of recorded subagent work (threshold: {threshold}, "
+            f"source: {threshold_source}). This is NOT a context-headroom signal — "
+            "it measures cost already spent in subagent windows, never the "
+            "orchestrator's own window occupancy. See `flex-build context-health` "
+            "(context_health.orchestrator_headroom) for the orchestrator track.",
             file=sys.stderr,
         )
         return 1
