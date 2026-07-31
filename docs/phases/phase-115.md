@@ -41,9 +41,20 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-115 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
-
-— developer fills in after phase completion —
+- [x] written-never-read — does anything this phase persists have no reader?
+      No. INFRA-306's CORS/abs_path gating, INFRA-307's native-binary inventory, and
+      INFRA-309's `NON_BUILD_ROLES` exclusion are all consumed at read time by the
+      code paths they were added for; INFRA-312/329's audit evidence is written into
+      the story docs themselves, which is the intended durable record for an audit.
+- [x] required-never-written — does any read path depend on a value no writer produces?
+      No new read path introduced without a corresponding writer (checked by
+      checkpoint-security and checkpoint-intent against server.ts/user.ts/effortDb.ts).
+- [x] duplicate state — is any fact now stored twice with independent writers?
+      Yes, one instance, deliberately reconciled: `NON_BUILD_ROLES` (INFRA-309) is
+      defined once in Python (`effort_db.py`) and mirrored in TypeScript
+      (`effortDb.ts`) since the two runtimes don't share a module system. A
+      Python-parsed TS-parity test keeps the two lists in sync, so this is not an
+      unguarded duplicate-state risk (see checkpoint-security PASS).
+- [x] half-implementation — is any branch unreachable, or any producer without its
+      consumer? No unreachable branches or orphaned producers found by either
+      checkpoint-security or checkpoint-intent.
