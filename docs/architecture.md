@@ -754,13 +754,18 @@ so a claim never overrides commit evidence (CER-095.1).
 
    **On the gate's real dispatch scope (INFRA-241).** The subagent_type
    allowlist above (`BUILD_CYCLE_SUBAGENTS`) is a no-op unless spawns for
-   those four roles actually carry a real, registered `subagent_type` —
+   those three roles actually carry a real, registered `subagent_type` —
    see § Spawn contract: subagent_type resolution below for the full history
    of why this was previously fully decorative and how it was restored.
    `reviewer` is not in `BUILD_CYCLE_SUBAGENTS` (INFRA-246): it is the build
    loop's mandatory, deterministic next step after every builder attempt,
    with no legitimate alternative action for the gate to preserve by
-   blocking it, unlike the four discretionary/escalation roles above.
+   blocking it, unlike the three discretionary/escalation roles above.
+   `loop-breaker` is likewise not in `BUILD_CYCLE_SUBAGENTS` (INFRA-327):
+   `next_action.py`'s FAIL ladder fires `spawn-loop-breaker` unconditionally
+   on a double-fail, with no orchestrator alternative to "reconsider" — the
+   same mandatory, only-valid-next-step shape as `reviewer`'s dispatch, so
+   it is exempt for the identical reason.
 
 9.5 **Story file-scope enforcement** — `hooks/pre_tool_use.py` also intercepts
    `Edit` and `Write` tool calls. It delegates to
@@ -1810,8 +1815,9 @@ precedent) document the manual-invocation defaults only.
 
 **Observability.** The gate reconnecting to real spawns is directly testable:
 `tests/pairmode/test_pre_tool_use_hook.py::test_allowlisted_subagent_type_still_gates`
-(parametrized over all `BUILD_CYCLE_SUBAGENTS` values — four since INFRA-246
-removed `reviewer`) asserts `decide()` runs and blocks for each;
+(parametrized over all `BUILD_CYCLE_SUBAGENTS` values — three since INFRA-246
+removed `reviewer` and INFRA-327 removed `loop-breaker`) asserts `decide()`
+runs and blocks for each;
 `tests/pairmode/test_bootstrap.py`'s
 `TestBuildCycleSubagentDispatch` asserts each of the five shells is deployed,
 project-name-rendered, references its procedure skill, and its frontmatter

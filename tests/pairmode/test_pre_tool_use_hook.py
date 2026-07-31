@@ -389,7 +389,7 @@ _OVER_CEILING_STATE = {
 
 @pytest.mark.parametrize(
     "subagent_type",
-    ["builder", "loop-breaker", "security-auditor", "intent-reviewer"],
+    ["builder", "security-auditor", "intent-reviewer"],
 )
 def test_allowlisted_subagent_type_still_gates(tmp_path, subagent_type):
     """Each build-cycle subagent type over the ceiling still emits a block."""
@@ -518,6 +518,68 @@ def test_reviewer_subagent_type_never_gated(tmp_path, state):
         input=json.dumps({
             "tool_name": "Task",
             "tool_input": {"subagent_type": "reviewer"},
+            "cwd": str(tmp_path),
+        }).encode(),
+        capture_output=True,
+        env=env,
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == b""
+
+    state_after = json.loads((tmp_path / ".companion" / "state.json").read_text())
+    assert "context_budget_acknowledged_at" not in state_after
+    assert "context_budget_acknowledged_user_turn_seq" not in state_after
+
+
+# ---------------------------------------------------------------------------
+# Test (INFRA-327): `loop-breaker` is exempt from the context-budget gate —
+# it is the build loop's mandatory, deterministic next step on a double-fail
+# (next_action.py's FAIL ladder, Row 6), not a discretionary spawn, so it
+# must never be blocked regardless of the state of context_current_tokens.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        # missing context_current_tokens entirely
+        {
+            "context_budget_threshold": 1000,
+            "context_budget_overrun_pct": 0.0,
+            "expected_step_tokens": 100,
+            "context_budget_reprompt_margin": 0,
+        },
+        # over-ceiling context_current_tokens (would block a "builder" spawn
+        # under this identical state, per _OVER_CEILING_STATE above)
+        dict(_OVER_CEILING_STATE),
+    ],
+    ids=["missing-tokens", "over-ceiling-tokens"],
+)
+def test_loop_breaker_subagent_type_never_gated(tmp_path, state):
+    """A "loop-breaker" spawn always passes through (sys.exit(0), empty
+    stdout, no block), regardless of context_current_tokens state — missing
+    or over-ceiling. Proven via a spy stub whose decide() raises: a passing
+    test with empty stdout confirms the branch short-circuited before
+    import, the same pattern used by test_reviewer_subagent_type_never_gated.
+    Also asserts the acknowledgment keys are never written to state.json."""
+    import subprocess, os
+
+    _seed_state(tmp_path, state)
+
+    spy_scripts = tmp_path / "spy_scripts_loop_breaker"
+    spy_scripts.mkdir()
+    (spy_scripts / "context_budget.py").write_text(
+        "def decide(*args, **kwargs):\n"
+        "    raise AssertionError('decide must not be called for loop-breaker spawns')\n"
+    )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(spy_scripts)
+
+    result = subprocess.run(
+        [sys.executable, str(HOOK_PATH)],
+        input=json.dumps({
+            "tool_name": "Task",
+            "tool_input": {"subagent_type": "loop-breaker"},
             "cwd": str(tmp_path),
         }).encode(),
         capture_output=True,

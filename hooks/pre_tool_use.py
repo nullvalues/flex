@@ -11,9 +11,11 @@ Thin dispatcher. Domain logic lives in the named modules:
     tool_input.subagent_type is one of BUILD_CYCLE_SUBAGENTS. Non-build-cycle
     spawns (general-purpose / Plan / Explore / absent subagent_type) pass
     straight through ungated. BUILD_CYCLE_SUBAGENTS covers only discretionary
-    or escalation build-cycle spawns; `reviewer` is exempt (INFRA-246) because
-    it is the build loop's mandatory, deterministic next step after every
-    builder attempt and never reaches decide().
+    or escalation build-cycle spawns; `reviewer` is exempt (INFRA-246) and
+    `loop-breaker` is exempt (INFRA-327) because both are the build loop's
+    mandatory, deterministic next step — reviewer after every builder
+    attempt, loop-breaker after every double-fail — and neither ever reaches
+    decide().
     One delegated module call:
       decide(project_dir) — reads context_current_tokens from state.json
       (written by post_tool_use.py after each completed spawn, or by the
@@ -76,9 +78,14 @@ from state_utils import update_state_json  # noqa: E402
 # CLAUDE.build.md's `on reviewer PASS` / `on reviewer FAIL` routing, reviewer
 # is the deterministic next step after every builder attempt, and there is
 # no alternative action the gate would be preserving by blocking it.
+# `loop-breaker` is exempt (INFRA-327): next_action.py's FAIL ladder fires
+# spawn-loop-breaker unconditionally on a double-fail (attempt_count == 2),
+# with no orchestrator alternative to "reconsider" — the same mandatory,
+# only-valid-next-step shape as reviewer's dispatch. Blocking it pending
+# operator acknowledgment defeats the mechanism's purpose (autonomously
+# breaking a stuck build loop) at precisely the moment it's needed.
 BUILD_CYCLE_SUBAGENTS = frozenset({
     "builder",
-    "loop-breaker",
     "security-auditor",
     "intent-reviewer",
 })
