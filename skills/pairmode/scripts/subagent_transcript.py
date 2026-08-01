@@ -437,6 +437,50 @@ _LEGACY_BUILD_VERDICTS: dict[str, str] = {
 _REJECTED_OUTCOME_MAX_CHARS = 120
 
 
+def _iter_json_objects(text: str) -> "list[Any]":
+    """Yield each syntactically-parseable top-level JSON value found in
+    ``text``, in order (INFRA-337).
+
+    Replaces the prior non-nesting ``re.finditer(r"\\{[^{}]*\\}", ...)`` scan,
+    which truncated at the first inner ``}`` and so mis-parsed (or silently
+    dropped) any candidate object whose ``reason``/``findings``/``fail_cause``
+    string field itself quoted a literal ``{...}`` (routine reviewer prose in
+    this codebase, e.g. "the guard `if (x) { revert() }` is unreachable").
+
+    Uses ``json.JSONDecoder().raw_decode(text, idx)`` at each successive
+    ``{`` position rather than a hand-rolled brace/quote balancing scan —
+    this reuses the stdlib's own JSON string/escape handling instead of
+    reimplementing it, so a `{`/`}` pair embedded inside a quoted string
+    (with or without surrounding object nesting) is never mistaken for
+    structural JSON. On a decode failure at a given ``{`` (e.g. one that only
+    appears inside an already-consumed string, or an unterminated/malformed
+    object) the scan advances by one character and keeps looking — best
+    effort, never raises, mirrors the discipline the rest of this module
+    already follows. A ``{`` that falls inside the span already consumed by
+    a successful prior ``raw_decode`` call is skipped, so a brace embedded in
+    an already-parsed object's own string value is never re-offered as a
+    second top-level candidate.
+    """
+    decoder = json.JSONDecoder()
+    results: "list[Any]" = []
+    idx = 0
+    length = len(text)
+    while idx < length:
+        brace_idx = text.find("{", idx)
+        if brace_idx == -1:
+            break
+        try:
+            obj, end_idx = decoder.raw_decode(text, brace_idx)
+        except json.JSONDecodeError:
+            idx = brace_idx + 1
+            continue
+        results.append(obj)
+        # Advance past the consumed span (guard against a zero-length or
+        # non-advancing decode so the scan can never loop unboundedly).
+        idx = end_idx if end_idx > brace_idx else brace_idx + 1
+    return results
+
+
 def parse_worker_outcome(
     tool_response: Any,
     *,
@@ -498,11 +542,7 @@ def parse_worker_outcome(
     outcome: "str | None" = None
     fail_cause: "str | None" = None
 
-    for match in re.finditer(r"\{[^{}]*\}", text, re.DOTALL):
-        try:
-            obj = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            continue
+    for obj in _iter_json_objects(text):
         if not isinstance(obj, dict):
             continue
         rtype = obj.get("type")

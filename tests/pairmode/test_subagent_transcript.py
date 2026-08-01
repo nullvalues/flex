@@ -4295,6 +4295,83 @@ class TestParseWorkerOutcomeRejectedOutList:
         assert rejected == ["SUCCESS"]
 
 
+class TestParseWorkerOutcomeBalancedBraces:
+    """INFRA-337: `parse_worker_outcome` locates candidate JSON objects via
+    a balanced ``raw_decode`` scan (`_iter_json_objects`), not the old
+    non-nesting `\\{[^{}]*\\}` regex, which truncated at the first inner
+    `}` and so mis-parsed (or dropped entirely) any result whose
+    `reason`/`findings`/`fail_cause` string field quoted a literal
+    `{...}` — HIGH finding F6 of
+    `docs/build-loop-cold-eyes-review-20260801.md`.
+    """
+
+    def test_nested_dict_inside_string_and_list_no_longer_breaks_parsing(
+        self,
+    ) -> None:
+        # Ensures 3: a nested dict inside a list value, plus a `{`/`}` pair
+        # embedded inside a quoted string, in a single well-formed object.
+        text = json.dumps({
+            "type": "REVIEW-RESULT",
+            "verdict": "FAIL",
+            "findings": [
+                {
+                    "file": "x.py",
+                    "detail": "the guard `if (x) { revert() }` is unreachable",
+                    "severity": "HIGH",
+                }
+            ],
+        })
+        outcome, fail_cause = st.parse_worker_outcome(text)
+        assert outcome == "FAIL"
+        # fail_cause is not required to be set by this fixture (no
+        # `fail_cause` field present) — Ensures 3 only requires the
+        # outcome is recovered, not `(None, None)`.
+        assert (outcome, fail_cause) != (None, None)
+
+    def test_bare_quoted_brace_in_fail_cause_no_nested_dict(self) -> None:
+        # Ensures 4: a single non-nested object whose *string value* itself
+        # contains an unbalanced-looking `{`/`}` pair — the exact shape the
+        # old `\{[^{}]*\}` regex silently truncated at the first inner `}`.
+        text = json.dumps({
+            "type": "BUILD-RESULT",
+            "outcome": "FAIL",
+            "fail_cause": "the guard `if (x) { revert() }` is unreachable",
+        })
+        outcome, fail_cause = st.parse_worker_outcome(text)
+        assert outcome == "FAIL"
+        assert fail_cause == "the guard `if (x) { revert() }` is unreachable"
+
+    def test_multiple_candidate_objects_still_resolve_correctly(self) -> None:
+        # Ensures 5: two candidate objects in sequence — a legacy
+        # plain-text line followed by a JSON BUILD-RESULT whose `reason`
+        # string itself quotes what looks like a second JSON object as
+        # prose. JSON wins over the legacy fallback (existing precedence),
+        # and the brace-inside-string case no longer prevents the first
+        # (only) real JSON candidate from being found at all.
+        text = (
+            "BUILD-RESULT: DONE\n"
+            + json.dumps({
+                "type": "BUILD-RESULT",
+                "outcome": "FAIL",
+                "story_id": "INFRA-337",
+                "reason": 'looks like a second result: {"type": "BUILD-RESULT", "outcome": "PASS"}',
+            })
+        )
+        outcome, fail_cause = st.parse_worker_outcome(text)
+        assert outcome == "FAIL"
+
+    def test_malformed_input_still_returns_none_none_and_never_raises(
+        self,
+    ) -> None:
+        # Ensures 6: unterminated brace, no JSON at all.
+        assert st.parse_worker_outcome("{unterminated and not json at all") == (
+            None,
+            None,
+        )
+        assert st.parse_worker_outcome("no braces here whatsoever") == (None, None)
+        assert st.parse_worker_outcome("{ almost but not quite json") == (None, None)
+
+
 class TestLegacyPathPrecedenceUnchanged:
     """INFRA-293's plain-text fallback keeps its precedence (D2, D3)."""
 
