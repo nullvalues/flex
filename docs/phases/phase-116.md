@@ -89,9 +89,30 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-116 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
-
-— developer fills in after phase completion —
+- [x] written-never-read — does anything this phase persists have no reader?
+      No orphaned writers found. `gate:` backlog field (writer: `cer.py`/manual
+      edit; reader: `find_groomable_rows`), `intent_review` opt-in ->
+      `state.json["pre_build_intent_review"][phase_key]` (writer:
+      `record-intent-review`; reader: `next_action.py`'s pre-build gate), and
+      `covered_contracts` (writer: bootstrap/sync context; reader: builder
+      procedure's read gate) all have live readers — confirmed by
+      checkpoint-security.
+- [x] required-never-written — does any read path depend on a value no writer
+      produces? No. The three new `select_*_model` functions
+      (`select_gate_worker_model`/`select_docs_reviewer_model`/
+      `select_spec_writer_model`) are called from real dispatch sites in
+      `next_action.py`, not left as orphaned readers.
+- [x] duplicate state — is any fact now stored twice with independent
+      writers? No new instance this phase; the one pre-existing case
+      (`NON_BUILD_ROLES`, Python/TS mirror) predates Phase 116 and is
+      unaffected here.
+- [x] half-implementation — is any branch unreachable, or any producer
+      without its consumer? One known, deliberate exception: INFRA-333's
+      `select_gate_worker_model` result is surfaced as advisory
+      `meta["gate_worker_model"]`/`meta["gate_worker_model_reason"]` on the
+      `spawn-gate-worker` action rather than a real `model=` field, because
+      the action grammar forbids a non-null model on that action today (a
+      gate-worker verdict call, not a full agent spawn). This is documented
+      in the story's own Evidence section as intentional, not an oversight —
+      flagged LOW by the INFRA-333 reviewer, not blocking. No other
+      unreachable branch or producer-without-consumer found.
