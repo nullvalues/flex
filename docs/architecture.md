@@ -1925,9 +1925,13 @@ project-name-rendered, references its procedure skill, and its frontmatter
 ### Pairmode tooling
 
 **`pairmode_sync.py` — `sync-agents` subcommand.**
-Re-renders the frontmatter of each agent file in `<project_dir>/.claude/agents/` from the
-current canonical pairmode templates; also merges new H2 body sections from the rendered
-template into the target file additively (Phase 33+).
+Re-renders the frontmatter of each agent file already present in `<project_dir>/.claude/agents/`
+from the current canonical pairmode templates; also merges new H2 body sections from the
+rendered template into the target file additively (Phase 33+). Since INFRA-332, it additionally
+*adds* any `bootstrap.AGENT_FILES` entry that does not yet exist under `.claude/agents/` at
+all — the existing-files-only walk (below) has no path to add a file that exists only as a
+template but was never scaffolded into a given project; the add-missing-file path is the
+inverse enumeration that closes that gap.
 
 CLI:
 ```bash
@@ -1971,12 +1975,44 @@ All `*.md` files in `.claude/agents/` with a matching template are re-rendered, 
 skipped with a warning.
 - Default: prompts once ("Apply these changes? [y/N]") before writing.
 - If no matching template exists for an agent file: warns and skips that file.
-- If all files rendered cleanly and no diffs were found: prints "No changes to apply." and
-  exits 0. If rendering failed for one or more files: prints `"error: failed to render
-  {filename}: {reason}"` to stderr for each failed file, then exits 1 when no changes were
-  found. Partial success (some files changed, some errored) proceeds with the apply flow and
-  exits 0, with errors already printed to stderr.
+- If all files rendered cleanly and no diffs were found, and there are no missing
+  `bootstrap.AGENT_FILES` entries to add: prints "No changes to apply." and exits 0. If
+  rendering failed for one or more files: prints `"error: failed to render
+  {filename}: {reason}"` to stderr for each failed file, then exits 1 when no changes or
+  additions were found. Partial success (some files changed or added, some errored) proceeds
+  with the apply flow and exits 0, with errors already printed to stderr.
 - Agent files with no frontmatter block (no opening `---`): warns and skips.
+
+**Add-missing-file path (INFRA-332).** For every `(target_path, template_name)` pair in
+`bootstrap.AGENT_FILES` (the canonical source of "which templates should exist as agent
+files" — `sync-agents` imports it rather than hand-maintaining a second list) whose
+`target_path` does not already exist under `<project_dir>/.claude/agents/`, `sync-agents`
+renders the template in full and adds the file — mirroring `bootstrap --apply`'s own render
+call (`_render_full_template`, same `StrictUndefined`/`keep_trailing_newline` jinja2
+environment settings `bootstrap._render_template` uses), not a divergent implementation, so a
+backfilled file is byte-for-byte identical to what a fresh `bootstrap --apply` would have
+produced for the same entry. Additions are reported as a `new file:` line plus a unified diff
+(computed against an empty old-content string, so the diff renders as a pure addition),
+governed by the same `--dry-run`/`--yes`/confirm-prompt convention as the existing rewrite
+path — without `--apply`/`--dry-run` behavior, they are reported, not written; `--yes` skips
+the confirmation prompt for both rewrites and additions together. A run that adds at least
+one file fires the same `RESTART REQUIRED` notice (INFRA-323, below) as a run that rewrites at
+least one file's frontmatter.
+
+**`pairmode_scripts_dir` binding on re-sync (INFRA-332).** `_build_template_context()` does
+not unconditionally set `pairmode_scripts_dir` to `Path(__file__).parent` (wherever *this*
+sync invocation happens to be running from) on every call. It first reads the target
+project's own `CLAUDE.build.md` for an already-declared `pairmode_scripts_dir` line (same
+regex `fleet_discovery.py`'s Signal-1 scan uses) and preserves that verbatim when present —
+re-syncing (or backfilling) a project must never silently rebind it to a disposable
+invocation location, such as a per-story build worktree (the INFRA-332 root-cause incident:
+a backfill run from inside `.pairmode-worktrees/<story>/` baked that worktree's own transient
+path into rendered agent files in both `/mnt/work/flex` and `/mnt/work/flex-harness`). Only a
+project with no declaration yet (a fresh bootstrap, or a pre-0.3.0 project that has never run
+`sync-all --apply`) falls back to `Path(__file__).parent` — the same first-time-binding
+`bootstrap.py` itself uses. This preserves flex's own intentional sibling-worktree dogfood
+binding (§ Release channel — flex-harness, below) across re-syncs, regardless of which
+checkout's copy of `pairmode_sync.py` happens to perform the sync.
 
 **Body-merge duplication risk (resolved, INFRA-202):** `_merge_body_sections`
 previously deduped solely by exact `##`-heading string match. Target files

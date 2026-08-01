@@ -2192,6 +2192,15 @@ def test_sync_agents_prints_restart_notice_after_writing(tmp_path: pathlib.Path)
 
 
 def test_sync_agents_no_changes_prints_no_notice(tmp_path: pathlib.Path) -> None:
+    """No existing-file drift AND no AGENT_FILES entries missing (INFRA-332) ->
+    still a true no-op. TEMPLATES_DIR is patched to an empty synthetic dir so
+    the new add-missing-file path (which walks bootstrap.AGENT_FILES against
+    TEMPLATES_DIR.parent) finds no templates to add here — this test is about
+    "nothing to sync" in the pre-existing (update-only) sense, not the
+    empty-.claude/agents/-of-a-real-project case, which is covered by
+    test_sync_agents_add_missing_file_* below."""
+    import unittest.mock
+
     from click.testing import CliRunner
 
     project_dir = tmp_path / "a" / "b" / "proj"
@@ -2200,8 +2209,12 @@ def test_sync_agents_no_changes_prints_no_notice(tmp_path: pathlib.Path) -> None
     companion_dir.mkdir()
     (companion_dir / "pairmode_context.json").write_text("{}", encoding="utf-8")
 
+    empty_templates_dir = tmp_path / "empty-templates"
+    empty_templates_dir.mkdir()
+
     runner = CliRunner()
-    result = runner.invoke(sync_agents, ["--project-dir", str(project_dir), "--yes"])
+    with unittest.mock.patch("pairmode_sync.TEMPLATES_DIR", empty_templates_dir):
+        result = runner.invoke(sync_agents, ["--project-dir", str(project_dir), "--yes"])
     assert result.exit_code == 0, result.output
     assert "No changes to apply." in result.output
     assert "RESTART REQUIRED" not in result.output
@@ -2258,6 +2271,172 @@ def test_sync_agents_stamps_state_json(tmp_path: pathlib.Path) -> None:
     )
     assert "agent_surfaces_written_at" in state
     assert "agent_surfaces_written_by" in state
+
+
+# ---------------------------------------------------------------------------
+# INFRA-332: sync-agents add-missing-file path
+# ---------------------------------------------------------------------------
+
+
+def _fixture_project_with_companion(tmp_path: pathlib.Path, project_name: str = "proj"):
+    """A minimal, deep-enough project dir with companion state — no CLAUDE.build.md,
+    so pairmode_scripts_dir falls back to this checkout's own scripts dir (the
+    same fallback bootstrap.py itself uses for a first-time binding)."""
+    project_dir = tmp_path / "a" / "b" / project_name
+    (project_dir / ".claude" / "agents").mkdir(parents=True)
+    companion_dir = project_dir / ".companion"
+    companion_dir.mkdir()
+    (companion_dir / "pairmode_context.json").write_text("{}", encoding="utf-8")
+    (companion_dir / "state.json").write_text(
+        json.dumps({"project_name": project_name}), encoding="utf-8"
+    )
+    return project_dir
+
+
+def test_sync_agents_add_missing_files_matches_fresh_bootstrap(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Ensures #1 (correct signal): sync-agents --apply against a fixture project
+    missing all nine AGENT_FILES entries results in all of them present
+    afterward, byte-for-byte matching what a fresh bootstrap --apply would
+    have produced for the same entries."""
+    from click.testing import CliRunner
+
+    import bootstrap
+    from pairmode_sync import AGENT_FILES
+
+    project_dir = _fixture_project_with_companion(tmp_path)
+    ctx = _build_template_context(project_dir)
+
+    runner = CliRunner()
+    result = runner.invoke(sync_agents, ["--project-dir", str(project_dir), "--yes"])
+    assert result.exit_code == 0, result.output
+
+    agents_dir = project_dir / ".claude" / "agents"
+    assert len(list(agents_dir.glob("*.md"))) == len(AGENT_FILES), (
+        f"Expected all {len(AGENT_FILES)} AGENT_FILES entries present, "
+        f"got: {sorted(p.name for p in agents_dir.glob('*.md'))}"
+    )
+    for dest_rel, template_name in AGENT_FILES:
+        dest = project_dir / dest_rel
+        assert dest.exists(), f"{dest_rel} was not added"
+        expected = bootstrap._render_template(template_name, ctx)
+        assert dest.read_text(encoding="utf-8") == expected, (
+            f"{dest_rel} does not byte-for-byte match a fresh bootstrap --apply render"
+        )
+    assert "RESTART REQUIRED" in result.output
+
+
+def test_sync_agents_add_missing_files_dry_run_reports_without_writing(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Forbidden proxy check: without --dry-run's absence (i.e. WITH --dry-run),
+    sync-agents must report what would be added and must not write anything."""
+    from click.testing import CliRunner
+
+    from pairmode_sync import AGENT_FILES
+
+    project_dir = _fixture_project_with_companion(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(sync_agents, ["--project-dir", str(project_dir), "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "new file:" in result.output
+
+    agents_dir = project_dir / ".claude" / "agents"
+    for dest_rel, _template_name in AGENT_FILES:
+        assert not (project_dir / dest_rel).exists(), (
+            f"{dest_rel} must not be written in --dry-run mode"
+        )
+    assert list(agents_dir.glob("*.md")) == []
+    assert "RESTART REQUIRED" not in result.output
+
+
+def test_sync_agents_add_missing_files_confirm_prompt_declined_writes_nothing(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Without --yes and a declined confirmation, additions are not written
+    (mirrors the existing update-path convention, not a divergent one)."""
+    from click.testing import CliRunner
+
+    from pairmode_sync import AGENT_FILES
+
+    project_dir = _fixture_project_with_companion(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        sync_agents, ["--project-dir", str(project_dir)], input="n\n"
+    )
+    assert result.exit_code == 0, result.output
+    assert "Aborted." in result.output
+
+    for dest_rel, _template_name in AGENT_FILES:
+        assert not (project_dir / dest_rel).exists()
+
+
+def test_sync_agents_add_missing_files_fires_restart_notice_and_stamps_state(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Ensures #3: a run that adds one or more new agent files (with zero
+    pre-existing-file rewrites — nothing to update, only to add) prints the
+    same RESTART REQUIRED notice sync-agents already prints for frontmatter
+    rewrites, and stamps state.json exactly as an update-only run would."""
+    from click.testing import CliRunner
+
+    from pairmode_sync import AGENT_FILES
+
+    project_dir = _fixture_project_with_companion(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(sync_agents, ["--project-dir", str(project_dir), "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "RESTART REQUIRED" in result.output
+    # At least one of the nine newly-added files is named in the notice.
+    assert any(
+        pathlib.Path(dest_rel).name in result.output for dest_rel, _ in AGENT_FILES
+    )
+
+    state = json.loads(
+        (project_dir / ".companion" / "state.json").read_text(encoding="utf-8")
+    )
+    assert state.get("agent_surfaces_written_by") == "sync-agents"
+    assert state.get("agent_surfaces_written_at")
+
+
+def test_sync_agents_add_missing_files_leaves_existing_files_untouched(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Ensures #2 (regression-free): pre-existing agent files not named in
+    AGENT_FILES (a project-owned custom agent, or one already scaffolded) are
+    left exactly as they are by the add-missing-file path — it only ever adds,
+    never overwrites."""
+    from click.testing import CliRunner
+
+    from pairmode_sync import AGENT_FILES
+
+    project_dir = _fixture_project_with_companion(tmp_path)
+    agents_dir = project_dir / ".claude" / "agents"
+
+    # Pre-scaffold one of the nine (with content that does NOT match what a
+    # fresh render would produce) plus one custom, non-AGENT_FILES agent.
+    pre_existing_rel, _ = AGENT_FILES[0]
+    pre_existing = project_dir / pre_existing_rel
+    pre_existing.write_text("hand-edited content\n", encoding="utf-8")
+    custom = agents_dir / "totally-custom.md"
+    custom.write_text("---\nname: totally-custom\n---\nHi.\n", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(sync_agents, ["--project-dir", str(project_dir), "--yes"])
+    assert result.exit_code == 0, result.output
+
+    assert pre_existing.read_text(encoding="utf-8") == "hand-edited content\n", (
+        "add-missing-file path must not touch a file that already exists"
+    )
+    assert custom.read_text(encoding="utf-8") == (
+        "---\nname: totally-custom\n---\nHi.\n"
+    ), "a project-owned custom agent file with no matching template must be untouched"
+    # The other eight AGENT_FILES entries should have been added.
+    assert len(list(agents_dir.glob("*.md"))) == len(AGENT_FILES) + 1
 
 
 def test_sync_all_prints_exactly_one_notice_for_the_chain(tmp_path: pathlib.Path) -> None:

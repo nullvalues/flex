@@ -49,7 +49,15 @@ import jinja2
 # Sibling-script import, same style as the pairmode_register import below
 # (from pairmode_register import register, unregister, list_projects).
 # audit-hooks reuses bootstrap's dedupe helper rather than re-implementing it.
-from bootstrap import _prune_stale_hook_entries  # noqa: E402
+# INFRA-332: also reuses bootstrap's AGENT_FILES list as the canonical source
+# of "which templates should exist as agent files" for the sync-agents
+# add-missing-file path, rather than hand-maintaining a second list.
+from bootstrap import AGENT_FILES, _prune_stale_hook_entries  # noqa: E402
+
+# Signal-1 pattern for reading an already-declared pairmode_scripts_dir out
+# of a project's own CLAUDE.build.md (INFRA-332). Reused, not duplicated,
+# from fleet_discovery's Signal-1 scan so the two stay in lockstep.
+from fleet_discovery import _SCRIPTS_DIR_PATTERN  # noqa: E402
 
 # Shared merged-hook-view helpers (INFRA-288) — see the audit-hooks section
 # comment below for why this lives in a third module.
@@ -561,6 +569,36 @@ def _empty_variable_in_appended_sections(
 # ---------------------------------------------------------------------------
 
 
+def _resolve_pairmode_scripts_dir(project_dir: Path) -> str:
+    """Return the ``pairmode_scripts_dir`` value *project_dir* should bind to.
+
+    INFRA-332 root-cause fix: re-syncing (or backfilling) a project must never
+    silently rebind its ``pairmode_scripts_dir`` to wherever *this particular
+    script instance* happens to be running from — e.g. a disposable per-story
+    build worktree. If the target project's own ``CLAUDE.build.md`` already
+    declares a ``pairmode_scripts_dir`` (the normal case for any
+    already-bootstrapped/synced project, including flex's own dogfood binding
+    to the sibling flex-harness checkout — see docs/architecture.md § Release
+    channel — flex-harness), that declaration is authoritative and preserved
+    verbatim. Only a project with no declaration yet (a fresh bootstrap, or a
+    pre-0.3.0 project that has never run ``sync-all --apply``) falls back to
+    this script's own location — the same first-time-binding behavior
+    ``bootstrap.py`` already uses.
+    """
+    build_md = project_dir / "CLAUDE.build.md"
+    if build_md.is_file():
+        try:
+            text = build_md.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        match = _SCRIPTS_DIR_PATTERN.search(text)
+        if match:
+            declared = match.group(1).strip()
+            if declared:
+                return declared
+    return str(Path(__file__).resolve().parent)
+
+
 def _build_template_context(project_dir: Path) -> dict:
     """Build the Jinja2 context for rendering CLAUDE.build.md.j2.
 
@@ -589,7 +627,7 @@ def _build_template_context(project_dir: Path) -> dict:
         "test_command": pctx.get("test_command") or state.get("test_command") or "",
         "test_dir": pctx.get("test_dir") or state.get("test_dir") or "tests/",
         "migration_command": pctx.get("migration_command") or state.get("migration_command") or "",
-        "pairmode_scripts_dir": str(Path(__file__).parent),
+        "pairmode_scripts_dir": _resolve_pairmode_scripts_dir(project_dir),
         "default_branch": default_branch,
         "domain_isolation_rule": pctx.get("domain_isolation_rule") or state.get("domain_isolation_rule") or "",
         "protected_paths": pctx.get("protected_paths") or state.get("protected_paths") or [],
@@ -740,6 +778,61 @@ def _collect_changes(
     return changes, render_errors
 
 
+def _collect_missing_agent_files(
+    project_path: Path,
+    templates_root: Path,
+    context: dict,
+) -> tuple[list[tuple[Path, str, str]], list[tuple[str, str]]]:
+    """Return (additions, render_errors) for ``AGENT_FILES`` entries not yet on disk.
+
+    INFRA-332 Ensures #1: ``sync-agents``' existing enumeration
+    (``_collect_changes``) only ever walks files that already exist under
+    ``.claude/agents/`` — it has no path to *add* a file that exists only as
+    a template but was never scaffolded. This is the inverse enumeration:
+    for every ``(target_path, template_name)`` pair in ``bootstrap.AGENT_FILES``
+    whose ``target_path`` is missing, render it and report it as an addition.
+
+    *templates_root* is the directory ``AGENT_FILES``'s ``"agents/<name>.j2"``
+    entries are relative to (mirrors ``bootstrap.TEMPLATES_DIR``; callers pass
+    ``TEMPLATES_DIR.parent`` so a test's ``unittest.mock.patch`` of the module's
+    ``TEMPLATES_DIR`` — already the established pattern in this test suite —
+    transparently governs the add-path too, instead of it silently falling
+    back to this checkout's real production templates). An ``AGENT_FILES``
+    entry whose template does not exist under *templates_root* is not an
+    error — it means this template set does not define that optional agent
+    role here — and is skipped rather than added or reported as a failure.
+
+    Return shape mirrors ``_collect_changes`` — ``(agent_file, old_content,
+    new_content)`` with ``old_content=""`` so ``_print_diff`` renders a clean
+    addition — so callers (diff printing, the write loop, the restart-notice
+    list) can treat additions and rewrites uniformly.
+
+    Rendering reuses ``_render_full_template`` — the same jinja2 environment
+    settings (``StrictUndefined``, ``keep_trailing_newline``) ``bootstrap.py``'s
+    own ``_render_template`` uses for these same entries — so a backfilled
+    file is byte-for-byte identical to what a fresh ``bootstrap --apply``
+    would have produced for the same entry, given the same context.
+    """
+    additions: list[tuple[Path, str, str]] = []
+    render_errors: list[tuple[str, str]] = []
+
+    for dest_rel, template_name in AGENT_FILES:
+        dest = project_path / dest_rel
+        if dest.exists():
+            continue
+        template_path = templates_root / template_name
+        if not template_path.exists():
+            continue
+        try:
+            new_content = _render_full_template(template_path, context)
+        except (jinja2.TemplateError, ValueError) as exc:
+            render_errors.append((dest.name, str(exc)))
+            continue
+        additions.append((dest, "", new_content))
+
+    return additions, render_errors
+
+
 def _print_diff(agent_file: Path, old_content: str, new_content: str) -> None:
     """Print a unified diff for the given file change."""
     filename = agent_file.name
@@ -778,12 +871,18 @@ def _print_diff(agent_file: Path, old_content: str, new_content: str) -> None:
     help="Write files without prompting for confirmation.",
 )
 def sync_agents(project_dir: str, dry_run: bool, yes: bool) -> None:
-    """Re-render agent file frontmatter from canonical pairmode templates.
+    """Re-render agent file frontmatter from canonical pairmode templates, and
+    add any ``AGENT_FILES`` entry missing from ``.claude/agents/`` entirely.
 
     For each agent file found in <project-dir>/.claude/agents/, finds the
     matching template in skills/pairmode/templates/agents/ by filename stem,
     renders the template frontmatter, and replaces the frontmatter in the
     target file while preserving the body.
+
+    INFRA-332: additionally, for every ``(target_path, template_name)`` pair
+    in ``bootstrap.AGENT_FILES`` whose ``target_path`` does not exist yet in
+    the project's ``.claude/agents/``, renders the template in full (mirroring
+    ``bootstrap --apply``'s own render call) and adds it as a new file.
 
     With --dry-run, prints diffs without writing. With --yes, writes without
     prompting. Otherwise, prompts once before writing all changes.
@@ -795,12 +894,21 @@ def sync_agents(project_dir: str, dry_run: bool, yes: bool) -> None:
     context = _build_template_context(project_path)
 
     changes, render_errors = _collect_changes(agents_dir, TEMPLATES_DIR, context)
+    # AGENT_FILES entries are "agents/<name>.j2" relative to the templates
+    # *root* (mirrors bootstrap.TEMPLATES_DIR); TEMPLATES_DIR here is already
+    # the agents/ subdirectory, so its parent is that root. Deriving from the
+    # (possibly test-patched) TEMPLATES_DIR keeps the add-path governed by the
+    # same mock this test suite already uses for the update path.
+    additions, add_render_errors = _collect_missing_agent_files(
+        project_path, TEMPLATES_DIR.parent, context
+    )
+    render_errors = render_errors + add_render_errors
 
     # Emit each render error to stderr — these are no longer silently swallowed
     for filename, reason in render_errors:
         click.echo(f"error: failed to render {filename}: {reason}", err=True)
 
-    if not changes:
+    if not changes and not additions:
         if render_errors:
             click.echo(
                 f"sync-agents: {len(render_errors)} file(s) failed to render — "
@@ -811,8 +919,11 @@ def sync_agents(project_dir: str, dry_run: bool, yes: bool) -> None:
         click.echo("No changes to apply.")
         return
 
-    # Print diffs for all changed files
+    # Print diffs for all changed files, then additions (as pure-addition diffs)
     for agent_file, old_content, new_content in changes:
+        _print_diff(agent_file, old_content, new_content)
+    for agent_file, old_content, new_content in additions:
+        click.echo(f"  new file: {agent_file.name}")
         _print_diff(agent_file, old_content, new_content)
 
     if dry_run:
@@ -830,12 +941,21 @@ def sync_agents(project_dir: str, dry_run: bool, yes: bool) -> None:
         agent_file.write_text(new_content, encoding="utf-8")
         click.echo(f"  updated: {agent_file.name}")
 
+    # Write all added files
+    for agent_file, _old, new_content in additions:
+        agent_file.parent.mkdir(parents=True, exist_ok=True)
+        agent_file.write_text(new_content, encoding="utf-8")
+        click.echo(f"  added: {agent_file.name}")
+
     # INFRA-323 § D18: at least one file was written above — stamp and emit
     # the restart notice, enumerating the files from this run's own
-    # ``changes`` list.
+    # ``changes``+``additions`` lists.
     _emit_restart_notice(
         project_path,
-        [str(agent_file.relative_to(project_path)) for agent_file, _old, _new in changes],
+        [
+            str(agent_file.relative_to(project_path))
+            for agent_file, _old, _new in (changes + additions)
+        ],
         "sync-agents",
     )
 

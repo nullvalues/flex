@@ -131,3 +131,153 @@ diff against the corresponding fresh-bootstrap output.
 - Backfilling any fleet project other than flex and flex-harness — the
   fleet-wide propagation rides the existing post-checkpoint sync campaign
   mechanism (per INFRA-311's precedent), not this story.
+
+## Evidence
+
+**Root cause of the prior attempt's broken backfill (pre-retry corruption).**
+`_build_template_context()` in `skills/pairmode/scripts/pairmode_sync.py`
+unconditionally set `pairmode_scripts_dir` to `str(Path(__file__).parent)` —
+the location of *whichever copy of `pairmode_sync.py` happened to be running*
+— on every call, for both the `sync-build` (CLAUDE.build.md) and `sync-agents`
+(agent frontmatter/add-path) render contexts. This is a deliberate,
+documented design for the *initial* binding (`docs/architecture.md` §
+Pairmode tooling / § Fleet discovery: "`pairmode_scripts_dir =
+Path(__file__).parent` is baked in at sync time"), but it has no mechanism to
+*preserve* an already-established binding across a later re-sync run — every
+re-sync silently re-binds to wherever the tool is invoked from, whether or
+not that location is the project's intended canonical binding.
+
+The prior attempt ran the real-world backfill (Ensures #4) with the sync tool
+physically located under `.pairmode-worktrees/INFRA-332/skills/pairmode/scripts/`
+(a disposable per-story worktree) but passed `--project-dir /mnt/work/flex`
+(and separately `/mnt/work/flex-harness`) as the *target*. Because
+`pairmode_scripts_dir` was computed from `__file__` (the worktree) rather
+than from the target `project_dir`'s own already-declared binding, the three
+newly-rendered files (`docs-reviewer.md`, `gate-worker.md`, `spec-writer.md`)
+in *both* real checkouts baked in
+`/mnt/work/flex/.pairmode-worktrees/INFRA-332/skills/pairmode/scripts` — a
+path that stops existing the moment the story worktree is discarded — instead
+of each project's actual binding, `/mnt/work/flex-harness/skills/pairmode/scripts`
+(flex dogfoods its own pairmode via the sibling flex-harness checkout, per
+`docs/architecture.md` § Release channel — flex-harness; flex-harness's own
+`CLAUDE.build.md` declares the same path for itself). The broken files were
+deleted from both real checkouts before this retry.
+
+**Fix (code, not a one-off invocation workaround).** Added
+`_resolve_pairmode_scripts_dir(project_dir)` in `pairmode_sync.py`: it reads
+the target project's own `CLAUDE.build.md` for an already-declared
+`pairmode_scripts_dir` line (reusing `fleet_discovery.py`'s Signal-1 regex,
+imported rather than duplicated) and returns that verbatim when present.
+Only a project with no declaration yet (a fresh bootstrap, or a pre-0.3.0
+project that has never run `sync-all --apply`) falls back to
+`Path(__file__).resolve().parent` — the same first-time-binding behavior
+`bootstrap.py` itself already uses. `_build_template_context()` now calls
+this helper instead of computing `pairmode_scripts_dir` inline. This means
+re-syncing (or backfilling) a project is anchored to *that project's own*
+persisted binding regardless of where the sync tool physically runs from —
+running it from a disposable worktree, from the canonical flex checkout, or
+from anywhere else all produce the same, correct result for a given target
+project. Verified by test:
+`test_sync_agents_add_missing_files_matches_fresh_bootstrap` and the
+`TestBuildTemplateContext` class in
+`tests/pairmode/test_pairmode_sync.py` (existing tests continue to pass
+unmodified, confirming the fallback path for undeclared/fixture projects is
+unchanged).
+
+**Add-missing-file path (Ensures #1).** `_collect_missing_agent_files()`
+enumerates `bootstrap.AGENT_FILES` (imported, not hand-duplicated) against
+`.claude/agents/` and renders (via `_render_full_template`, the same jinja2
+`StrictUndefined`/`keep_trailing_newline` environment settings
+`bootstrap._render_template` uses) any entry whose target path is missing.
+Wired into `sync_agents()` alongside the pre-existing `_collect_changes()`
+update path; both share the diff-printing, confirm-prompt, write, and
+`_emit_restart_notice` (INFRA-323) call sites, so additions fire the same
+`RESTART REQUIRED` notice as rewrites (Ensures #3) without a second notice
+mechanism. Fixture test
+`test_sync_agents_add_missing_files_matches_fresh_bootstrap` asserts a
+project missing all nine `AGENT_FILES` entries has all nine present after
+`sync-agents --apply`, each byte-for-byte identical to
+`bootstrap._render_template()`'s output for the same entry and context.
+`test_sync_agents_add_missing_files_dry_run_reports_without_writing` and
+`test_sync_agents_add_missing_files_confirm_prompt_declined_writes_nothing`
+cover the forbidden-proxy case (report-without-write). Existing-file update
+behavior is regression-free (Ensures #2) — the full pre-existing
+`tests/pairmode/test_pairmode_sync.py` suite (84 tests, including the
+render-failure/no-op/restart-notice tests that invoke `sync_agents` via
+`CliRunner`) passes unmodified in behavior; one pre-existing test
+(`test_sync_agents_no_changes_prints_no_notice`) was updated to patch
+`TEMPLATES_DIR` to an empty synthetic directory, since an empty
+`.claude/agents/` directory is no longer a true no-op once the add-path
+exists — the updated test now documents that distinction explicitly rather
+than silently asserting stale behavior.
+
+**Real backfill (Ensures #4) — before/after, verified by reading the
+generated files, not by exit code.**
+
+Before (both projects, prior to this story's `sync-agents --apply` run):
+```
+$ ls /mnt/work/flex/.claude/agents/*.md
+builder.md  intent-reviewer.md  loop-breaker.md  reconstruction-agent.md  reviewer.md  security-auditor.md
+$ ls /mnt/work/flex-harness/.claude/agents/*.md
+builder.md  intent-reviewer.md  loop-breaker.md  reconstruction-agent.md  reviewer.md  security-auditor.md
+```
+6 of 9 present in both — missing `docs-reviewer.md`, `gate-worker.md`,
+`spec-writer.md` in both.
+
+Command run (from this story's worktree, target `--project-dir` pointed at
+each real checkout in turn):
+```
+uv run python skills/pairmode/scripts/pairmode_sync.py sync-agents --project-dir /mnt/work/flex --yes
+uv run python skills/pairmode/scripts/pairmode_sync.py sync-agents --project-dir /mnt/work/flex-harness --yes
+```
+
+After:
+```
+$ ls /mnt/work/flex/.claude/agents/*.md | wc -l
+9
+$ ls /mnt/work/flex-harness/.claude/agents/*.md | wc -l
+9
+```
+Both now have all nine. `git status --short .claude/agents/` in each real
+checkout:
+```
+flex:          ?? docs-reviewer.md  ?? gate-worker.md  ?? spec-writer.md
+               M  builder.md  M intent-reviewer.md  M loop-breaker.md
+               M  reconstruction-agent.md  M reviewer.md  M security-auditor.md
+flex-harness:  ?? docs-reviewer.md  ?? gate-worker.md  ?? spec-writer.md
+```
+(flex's six pre-existing files also picked up a stale `description:`
+frontmatter field re-render — a `flex-harness`→`flex` project-name
+correction — from the ordinary, pre-existing frontmatter-sync path
+unrelated to this story's add-path; flex-harness's six pre-existing files
+had no drift, so `sync-agents` reported no updates for them.)
+
+Read directly (not inferred from exit code) — every new file in both
+checkouts anchors to that project's own `pairmode_scripts_dir` declaration,
+never the story worktree:
+```
+$ grep -n '^/mnt/work' /mnt/work/flex/.claude/agents/{gate-worker,docs-reviewer,spec-writer}.md \
+    /mnt/work/flex-harness/.claude/agents/{gate-worker,docs-reviewer,spec-writer}.md
+flex/.claude/agents/gate-worker.md:37:/mnt/work/flex-harness/skills/pairmode/scripts/../../../skills/pairmode/gate_worker/SKILL.md
+flex/.claude/agents/docs-reviewer.md:43:/mnt/work/flex-harness/skills/pairmode/scripts/../../../skills/pairmode/skills/checkpoint-docs/procedure.md
+flex/.claude/agents/spec-writer.md:41:/mnt/work/flex-harness/skills/pairmode/scripts/../../../skills/pairmode/skills/spec-writer/procedure.md
+flex-harness/.claude/agents/gate-worker.md:37:/mnt/work/flex-harness/skills/pairmode/scripts/../../../skills/pairmode/gate_worker/SKILL.md
+flex-harness/.claude/agents/docs-reviewer.md:43:/mnt/work/flex-harness/skills/pairmode/scripts/../../../skills/pairmode/skills/checkpoint-docs/procedure.md
+flex-harness/.claude/agents/spec-writer.md:41:/mnt/work/flex-harness/skills/pairmode/scripts/../../../skills/pairmode/skills/spec-writer/procedure.md
+```
+All six new files (three per checkout) anchor to `/mnt/work/flex-harness/...`
+— each project's own registered `pairmode_scripts_dir` (both flex and
+flex-harness declare that same path in their own `CLAUDE.build.md`, per the
+sibling-worktree dogfood design) — with no occurrence of
+`.pairmode-worktrees` anywhere in either checkout's `.claude/agents/`.
+
+These real-checkout file writes are outside this story's own worktree and
+are not part of this story's commit; they are the required, direct
+operational side effect of Ensures #4, left in place in both real checkouts
+per the story's instructions.
+
+**Suite (Ensures #6).**
+```
+tests/pairmode/test_pairmode_sync.py: 84 passed
+tests/pairmode/: 4712 passed, 211 skipped
+```

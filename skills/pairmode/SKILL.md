@@ -736,11 +736,15 @@ Followed by `## Acceptance criterion`, `## Instructions`, and `## Tests` section
 
 **When to use:** When the canonical agent templates in the flex repo have been updated and you
 want to propagate those changes to a project's `.claude/agents/` files without overwriting
-project-specific body content.
+project-specific body content — and/or when a project's `.claude/agents/` is missing one or
+more of the roles `bootstrap.AGENT_FILES` defines (INFRA-332: e.g. a role's template shipped
+after the project's last fresh bootstrap and was never backfilled).
 
 **Inputs expected:**
-- `.claude/agents/` directory in the target project — one or more `*.md` agent files.
-- Matching `*.md.j2` templates in `skills/pairmode/templates/agents/` (matched by filename stem).
+- `.claude/agents/` directory in the target project — zero or more `*.md` agent files.
+- Matching `*.md.j2` templates in `skills/pairmode/templates/agents/` (matched by filename stem
+  for existing files; matched against `bootstrap.AGENT_FILES`'s canonical `(target_path,
+  template_name)` pairs for the add-missing-file path).
 - `.companion/state.json` in the target project (optional — used to read `project_name`).
 
 **What it does:**
@@ -751,19 +755,28 @@ project-specific body content.
    as fallback) and extracts only the frontmatter block (opening `---` through closing `---`).
 4. Replaces the frontmatter in the target agent file; preserves the body (everything after the
    second `---`) unchanged.
-5. Prints a unified diff of each changed file before writing.
-6. If no files would change: prints "No changes to apply." and exits 0.
-7. If at least one file would change and `--dry-run` is not set: prompts once
+5. **Add-missing-file path (INFRA-332):** for every `(target_path, template_name)` pair in
+   `bootstrap.AGENT_FILES` whose `target_path` does not already exist under the project's
+   `.claude/agents/`, renders the template in full — mirroring `bootstrap --apply`'s own render
+   call, not a divergent implementation — and reports it as a new file, alongside the frontmatter
+   diffs from steps 1–4. This is the inverse of the walk in step 1: step 1 can only ever update a
+   file that is already on disk; this step is the only path that can *add* one that was never
+   scaffolded.
+6. Prints a unified diff of each changed file, and a `new file:` line plus a diff for each
+   addition, before writing.
+7. If nothing would change and nothing would be added: prints "No changes to apply." and exits 0.
+8. If at least one file would change or be added and `--dry-run` is not set: prompts once
    "Apply these changes? [y/N]" before writing (suppressed with `--yes`).
 
 **Outputs:**
 - Updated `.claude/agents/*.md` files with re-rendered frontmatter.
+- Newly-added `.claude/agents/*.md` files for any previously-missing `bootstrap.AGENT_FILES` entry.
 
 **Restart after sync-agents (INFRA-323):** When at least one agent file was
-written, exit this session and start a new one before spawning a builder or
+written or added, exit this session and start a new one before spawning a builder or
 reviewer that depends on the updated agent registry. Claude Code loads
 `.claude/agents/*.md` at session start only; `/clear` and `/compact` do not
-reload it. A run that writes at least one file prints a `RESTART REQUIRED`
+reload it. A run that writes or adds at least one file prints a `RESTART REQUIRED`
 notice as its final output; "No changes to apply.", `--dry-run`, and a
 declined confirmation all print no notice.
 
