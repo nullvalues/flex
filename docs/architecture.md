@@ -2016,6 +2016,62 @@ runs and blocks for each;
 project-name-rendered, references its procedure skill, and its frontmatter
 `name:` matches the literal string `BUILD_CYCLE_SUBAGENTS` matches on.
 
+### Work→agent-type classification and agent-type completeness checklist (INFRA-335)
+
+**Work→agent-type dispatch table.** The eight agent types in the pairmode build loop, the kind of work each is the correct dispatch target for, and the `next_action.py` action(s) that route to each:
+
+| Agent role | Work scope | Dispatch action(s) |
+|---|---|---|
+| **builder** | Implements the story logic: reads the spec, makes code/doc changes, commits them. Applies complexity-signal-driven model selection (`story_class`, `primary_files`, `protected_files`). | `spawn-builder` |
+| **reviewer** | Validates a completed story build: checks acceptance criteria, reviews implementation against spec, verifies tests pass, approves or rejects for merge. Applies per-class and per-attempt retry-escalation model selection. | `spawn-reviewer` (intra-cycle, orchestrator-routed) |
+| **loop-breaker** | Escalation rung reached only on double-failure (`attempt_count >= 2` and last outcome was FAIL). Investigates the failure context and proposes recovery, debugging, or root-cause analysis. Unconditionally escalates to the fable tier (`select_loop_breaker_model`). | `spawn-loop-breaker` |
+| **security-auditor** | Checkpoint gate (schema-validity verdict): judges whether a story's changes conform to schema and auth requirements. Applies phase-class-driven model selection (production phases use opus, docs-only/pre-pr use sonnet/opus per judgment tier). | `checkpoint-security` |
+| **intent-reviewer** | Checkpoint gate (phase-intent verdict): judges whether a story's changes align with the phase's declared intent. Lighter-weight than security-auditor; uses the "advisory" tier model selection (production use sonnet, pre-pr use opus). | `checkpoint-intent` |
+| **docs-reviewer** | Checkpoint gate (documentation-currency checklist): runs the bundled cold-eyes documentation-currency checklist and reports items needing attention. Advisory role using the "advisory" tier model selection. | `checkpoint-docs` |
+| **gate-worker** | Judged gate (schema/auth conformance verdict): evaluates a story against declared schema and access-control requirements. Unlike `checkpoint-security` (which is a checkpoint-sequence gate), gate-worker is a planned-action gate — the story declares upfront whether it needs schema/auth vetting. Uses the "correctness" tier model selection (same as security-auditor). | `spawn-gate-worker` |
+| **spec-writer** | Elaborates a bare story stub into a full specification: expands Ensures/Instructions/Tests from a scaffold or outline into production-ready acceptance criteria. Unconditional opus regardless of `story_class` (spec elaboration carries the same judgment weight regardless of the class the finished story will end up in). | `spawn-spec-writer` |
+
+(Reconstruction-agent is noted separately as belonging to a different skill's documentation, not the story build loop.)
+
+**New-agent-type definition-of-done checklist.** Before a new agent type is considered fully wired up and integrated into the pairmode build loop, it must have all five of the following:
+
+1. **Template.** A `skills/pairmode/templates/agents/<role>.md.j2` jinja2 template whose body contains the agent's procedure skill's "Shell instruction" section.
+2. **Materialized files.** A `.claude/agents/<role>.md` file in every bootstrapped project (`bootstrap.py`'s `AGENT_FILES` list), with re-sync coverage for already-bootstrapped projects via `pairmode_sync.py sync-agents`'s add-missing-file path (INFRA-332).
+3. **Dispatch action.** An entry in `next_action.py`'s `ACTIONS` and/or `_SPAWN_ACTIONS` set(s), and a corresponding row in `CLAUDE.build.md`'s `ACTION_SUBAGENT_TYPE` map naming the exact `subagent_type` to emit when that action is dispatched.
+4. **Model selector function.** A `select_<role>_model(...)` function in `skills/pairmode/scripts/model_selector.py`, called from its real dispatch site (not hardcoded literals), that returns `(model, reason)` per the role's deterministic selection table.
+5. **Explicit escalation behavior.** An entry in the role's model-selection table for all cases where escalation may occur (or a deliberate "never escalates" row if that is the correct answer for the role). No missing rows — if a case is possible at the call site, the table must name the model and reason explicitly (as per INFRA-334's `story_class` table redesign; `code`/`doc`/`lesson`/`methodology` now all have real retry-upgrade paths instead of dead-ending or conditional escalation).
+
+**Escalation ladder: model selection by `story_class` and attempt number (INFRA-334).** The comprehensive table of builder and reviewer model selection across all four story classes and both attempt bands. This table determines what happens when a story fails and must be retried — the orchestrator consults this to escalate the model tier before re-dispatching the builder or reviewer.
+
+*Builder model selection table:*
+
+| `story_class` | attempt 1 | attempt ≥2 |
+|---|---|---|
+| `code` | **sonnet** (auto-baseline) or **opus** (prompted-upgrade if ≥5 primary_files or protected file in touches) | **opus** (retry-upgrade) |
+| `doc` | **haiku** (auto-downgrade) | **sonnet** (retry-upgrade) |
+| `lesson` | **haiku** (auto-downgrade) | **sonnet** (retry-upgrade) |
+| `methodology` | **sonnet** (auto-baseline) | **opus** (retry-upgrade) |
+
+*Reviewer model selection table:*
+
+| `story_class` | attempt 1 | attempt ≥2 |
+|---|---|---|
+| `code` | **sonnet** (auto-baseline) | **opus** (retry-upgrade) |
+| `doc` | **sonnet** (auto-baseline) | **sonnet** (doc-class-baseline — no escalation) |
+| `lesson` | **sonnet** (auto-baseline) | **sonnet** (doc-class-baseline — no escalation) |
+| `methodology` | **sonnet** (auto-baseline) | **opus** (retry-upgrade) |
+
+**Model tiers.** The ordinary three-rung ladder used in attempt-based escalation is: haiku < sonnet < opus. The loop-breaker's escalation uses a fourth tier, **fable**, which ranks *above* opus and is only reached on double-failure — it is never part of attempt-1 or attempt-2 builder/reviewer selection tables, only the `select_loop_breaker_model()` escalation path.
+
+**Checkpoint-agent model selection.** The three checkpoint agents (security-auditor, intent-reviewer, docs-reviewer) use `phase_class` rather than `story_class` to select a model, reflecting that a checkpoint gate's judgment weight applies consistently to any story in that phase, regardless of the story's own class.
+
+- **security-auditor** (schema/auth correctness judgment): production=opus, pre-pr=opus, docs-only=sonnet
+- **intent-reviewer** (phase-alignment advisory): production=sonnet, pre-pr=opus, docs-only=sonnet
+- **docs-reviewer** (documentation-currency advisory): production=sonnet, pre-pr=opus, docs-only=sonnet
+- **gate-worker** (schema/auth verdict, not checkpoint-sequenced): uses the same table as security-auditor (production=opus, pre-pr=opus, docs-only=sonnet)
+
+**Spec-writer model selection.** The spec-writer unconditionally selects **opus** regardless of the stub's `story_class`, because elaborating a bare story stub into a full spec carries the same judgment weight regardless of what class the story will eventually be assigned (a bad elaboration corrupts every downstream builder/reviewer attempt at that class). No attempt ladder: the spec-writer is only ever emitted once (at Row 2, before any builder attempt); a revised spec is re-routed through `SPEC-RESULT{revised}` handling in `CLAUDE.build.md` orchestrator prose.
+
 ### Pairmode tooling
 
 **`pairmode_sync.py` — `sync-agents` subcommand.**
