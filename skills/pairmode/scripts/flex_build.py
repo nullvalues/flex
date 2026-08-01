@@ -50,8 +50,9 @@ if __name__ == "__main__" and "flex_build" not in sys.modules:
 
 import click
 
-from schema_validator import _parse_frontmatter  # noqa: E402
+from schema_validator import _parse_frontmatter, VALID_MODEL_TIERS  # noqa: E402
 from model_selector import (  # noqa: E402
+    apply_declared_model_floor,
     select_builder_model,
     select_intent_reviewer_model,
     select_reviewer_model,
@@ -703,7 +704,19 @@ def cmd_check_guardrail(story_id: str, tokens: int, project_dir: str) -> None:
 def cmd_select_reviewer_model(
     story_id: str, attempt: int, project_dir: str
 ) -> None:
-    """Select the reviewer model; print ``model`` then ``reason``."""
+    """Select the reviewer model; print ``model`` then ``reason``.
+
+    INFRA-318: this is the live seam the orchestrator calls before every
+    reviewer spawn (see ``CLAUDE.build.md`` § Build loop). When the story
+    declares an optional ``reviewer_model:`` frontmatter field (validated
+    against ``schema_validator.VALID_MODEL_TIERS``), it is applied to the
+    auto-selected ``(model, reason)`` via
+    ``model_selector.apply_declared_model_floor`` — an outright override at
+    attempt 1, a floor (never a downgrade) on retry (attempt >= 2), mirroring
+    the builder-side ``model:`` floor in ``next_action.infer_position``.
+    A story without ``reviewer_model:`` gets byte-identical output to before
+    (Ensures 3/5).
+    """
     project_path = Path(project_dir).resolve()
     story_path = _story_path(story_id, project_path)
     fm = _read_story_frontmatter(story_path)
@@ -715,6 +728,16 @@ def cmd_select_reviewer_model(
         attempt_number=attempt,
         phase_id=phase_id_str,
         project_dir=project_path,
+    )
+    raw_declared_reviewer_model = fm.get("reviewer_model")
+    declared_reviewer_model = (
+        raw_declared_reviewer_model
+        if isinstance(raw_declared_reviewer_model, str)
+        and raw_declared_reviewer_model in VALID_MODEL_TIERS
+        else None
+    )
+    model, reason = apply_declared_model_floor(
+        model, reason, declared_reviewer_model, attempt
     )
     click.echo(model)
     click.echo(reason)

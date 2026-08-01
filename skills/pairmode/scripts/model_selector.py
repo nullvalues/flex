@@ -137,6 +137,15 @@ REASON_USER_OVERRIDE = "user-override"
 REASON_RETRY_UPGRADE = "retry-upgrade"
 REASON_ESCALATION_UPGRADE = "escalation-upgrade"
 
+# Rank of the ordinary three-rung ladder (haiku < sonnet < opus), used only to
+# compare a story-declared model floor against an auto-selected model.
+# ``fable`` is deliberately absent — it is the loop-breaker's escalation tier,
+# never a declarable floor (see schema_validator.VALID_MODEL_TIERS).
+MODEL_RANK = {MODEL_HAIKU: 0, MODEL_SONNET: 1, MODEL_OPUS: 2}
+
+# Reason value for an attempt-1 dispatch that carries a story-declared model.
+REASON_STORY_DECLARED = "story-declared"
+
 # story_class values that never upgrade to opus on retry
 _ALWAYS_SONNET_CLASSES = frozenset({"doc", "lesson"})
 
@@ -196,6 +205,42 @@ def select_reviewer_model(
             return MODEL_OPUS, "methodology-upgrade"
 
     return MODEL_SONNET, "methodology-baseline"
+
+
+def apply_declared_model_floor(
+    model: str,
+    reason: str,
+    declared_model: "str | None",
+    attempt_number: int,
+) -> tuple[str, str]:
+    """Apply a story-declared ``model:``/``reviewer_model:`` floor (INFRA-318)
+    to an already-auto-selected ``(model, reason)`` pair.
+
+    Asymmetric by design (Cora item A#7 / AG-6):
+
+    - ``attempt_number <= 1``: a declared model is an outright *override* —
+      the spec-writer's already-approved choice (raise or lower) replaces the
+      auto-selected baseline entirely. Reason becomes ``REASON_STORY_DECLARED``.
+    - ``attempt_number >= 2``: the auto-selected retry tier still applies, but
+      never drops below the declared floor's rank on the ordinary
+      haiku < sonnet < opus ladder — a *floor*, not an override, so
+      retry-upgrade keeps working unchanged whenever it is already at or
+      above the floor.
+
+    ``declared_model=None`` is a no-op: returns ``(model, reason)`` unchanged
+    — undeclared stories get byte-identical output to before this helper
+    existed (Ensures 2/5).
+    """
+    if declared_model is None:
+        return model, reason
+
+    if attempt_number <= 1:
+        return declared_model, REASON_STORY_DECLARED
+
+    if MODEL_RANK.get(model, 0) < MODEL_RANK.get(declared_model, 0):
+        return declared_model, reason
+
+    return model, reason
 
 
 # ---------------------------------------------------------------------------

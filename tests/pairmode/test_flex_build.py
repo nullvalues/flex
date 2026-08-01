@@ -52,6 +52,7 @@ def _write_story(
     story_class: str = "code",
     primary_files: list[str] | None = None,
     phase: str = "47",
+    reviewer_model: str | None = None,
 ) -> Path:
     """Write a minimal story spec under ``docs/stories/<RAIL>/<STORY_ID>.md``."""
     rail = story_id.split("-", 1)[0]
@@ -67,6 +68,10 @@ def _write_story(
     else:
         pf_block = "primary_files: []\n"
 
+    reviewer_model_line = (
+        f"reviewer_model: {reviewer_model}\n" if reviewer_model else ""
+    )
+
     frontmatter = (
         "---\n"
         f"id: {story_id}\n"
@@ -76,7 +81,8 @@ def _write_story(
         "status: planned\n"
         + pf_block
         + "touches: []\n"
-        "---\n\n"
+        + reviewer_model_line
+        + "---\n\n"
         "## Acceptance criterion\n\n_(fill in)_\n"
     )
     story_path.write_text(frontmatter, encoding="utf-8")
@@ -215,6 +221,58 @@ def test_select_reviewer_model_attempt_two_is_opus(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     lines = result.stdout.strip().splitlines()
     assert lines[0] == "opus"
+
+
+def test_select_reviewer_model_declared_override_attempt_one(tmp_path: Path) -> None:
+    """INFRA-318 Ensures 3: reviewer_model: overrides the auto-selected
+    model outright at attempt 1, through the real select-reviewer-model
+    CLI seam (not just the underlying helper in isolation)."""
+    _write_story(
+        tmp_path, "INFRA-318a", primary_files=["a.py"], reviewer_model="opus"
+    )
+    result = _run(
+        "select-reviewer-model",
+        "--story-id", "INFRA-318a",
+        "--attempt", "1",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "opus"
+    assert "story-declared" in lines[1]
+
+
+def test_select_reviewer_model_declared_floor_never_downgrades(tmp_path: Path) -> None:
+    """A declared reviewer_model: below attempt 2's auto-escalated opus is a
+    floor, not a ceiling — attempt 2 stays at opus, not the declared sonnet."""
+    _write_story(
+        tmp_path, "INFRA-318b", primary_files=["a.py"], reviewer_model="sonnet"
+    )
+    result = _run(
+        "select-reviewer-model",
+        "--story-id", "INFRA-318b",
+        "--attempt", "2",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "opus"
+
+
+def test_select_reviewer_model_undeclared_byte_identical(tmp_path: Path) -> None:
+    """A story with no reviewer_model: field gets the pre-INFRA-318 baseline
+    output, unaffected by the new declared-floor code path (Ensures 5)."""
+    _write_story(tmp_path, "INFRA-318c", primary_files=["a.py"])
+    result = _run(
+        "select-reviewer-model",
+        "--story-id", "INFRA-318c",
+        "--attempt", "1",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "sonnet"
+    assert "story-declared" not in lines[1]
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ from schema_validator import (
     validate_phase_manifest,
     VALID_STORY_CLASSES,
     DEFAULT_STORY_CLASS,
+    VALID_MODEL_TIERS,
     _parse_frontmatter,
     _parse_flow_sequence,
     FrontmatterError,
@@ -782,6 +783,101 @@ class TestTestGateField:
         assert any("Invalid test_gate" in e for e in errors), (
             f"Expected 'Invalid test_gate' error, got: {errors}"
         )
+
+
+# ---------------------------------------------------------------------------
+# model: / reviewer_model: fields (INFRA-318)
+# ---------------------------------------------------------------------------
+
+_VALID_STORY_WITH_MODEL_FIELDS = """\
+    ---
+    id: FEAT-001
+    rail: FEAT
+    title: Model field story
+    status: planned
+    phase: "001"
+    {model_line}
+    {reviewer_model_line}
+    primary_files:
+      - src/main.py
+    ---
+
+    ## Acceptance criterion
+
+    It works.
+"""
+
+
+def _model_fields_story(model: str = "", reviewer_model: str = "") -> str:
+    model_line = f"model: {model}" if model else ""
+    reviewer_model_line = f"reviewer_model: {reviewer_model}" if reviewer_model else ""
+    return _VALID_STORY_WITH_MODEL_FIELDS.format(
+        model_line=model_line, reviewer_model_line=reviewer_model_line
+    )
+
+
+class TestModelFields:
+    """model: / reviewer_model: frontmatter field validation (INFRA-318)."""
+
+    def test_model_absent_is_valid(self, tmp_path):
+        """A story with neither field validates exactly as today (Ensures 1)."""
+        p = _write(tmp_path, "FEAT-001.md", VALID_STORY)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors, got: {errors}"
+
+    @pytest.mark.parametrize("tier", sorted(VALID_MODEL_TIERS))
+    def test_model_valid_tier_is_valid(self, tmp_path, tier):
+        content = _model_fields_story(model=tier)
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors for model: {tier}, got: {errors}"
+
+    @pytest.mark.parametrize("tier", sorted(VALID_MODEL_TIERS))
+    def test_reviewer_model_valid_tier_is_valid(self, tmp_path, tier):
+        content = _model_fields_story(reviewer_model=tier)
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert errors == [], (
+            f"Expected no errors for reviewer_model: {tier}, got: {errors}"
+        )
+
+    def test_model_invalid_value_is_error(self, tmp_path):
+        content = _model_fields_story(model="always")
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert any("Invalid model" in e for e in errors), (
+            f"Expected 'Invalid model' error, got: {errors}"
+        )
+
+    def test_reviewer_model_invalid_value_is_error(self, tmp_path):
+        content = _model_fields_story(reviewer_model="always")
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert any("Invalid reviewer_model" in e for e in errors), (
+            f"Expected 'Invalid reviewer_model' error, got: {errors}"
+        )
+
+    def test_model_rejects_free_text(self, tmp_path):
+        """Free-text model names must never validate (Requires 1: shared
+        vocabulary constant, not free-text)."""
+        content = _model_fields_story(model="claude-4-opus-20260101")
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert any("Invalid model" in e for e in errors)
+
+    def test_model_rejects_fable(self, tmp_path):
+        """fable is the loop-breaker's escalation tier only — never a
+        spec-time declarable choice."""
+        content = _model_fields_story(model="fable")
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert any("Invalid model" in e for e in errors)
+
+    def test_model_and_reviewer_model_both_declared_is_valid(self, tmp_path):
+        content = _model_fields_story(model="opus", reviewer_model="sonnet")
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors, got: {errors}"
 
 
 # ---------------------------------------------------------------------------

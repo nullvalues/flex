@@ -16,7 +16,9 @@ from skills.pairmode.scripts.model_selector import (
     REASON_ESCALATION_UPGRADE,
     REASON_PROMPTED_UPGRADE,
     REASON_RETRY_UPGRADE,
+    REASON_STORY_DECLARED,
     _phase_has_code_story,
+    apply_declared_model_floor,
     select_builder_model,
     select_intent_reviewer_model,
     select_loop_breaker_model,
@@ -700,3 +702,69 @@ class TestCLI:
         nonexistent = tmp_path / "does_not_exist.md"
         result = _run_cli(nonexistent, ["--project-dir", str(tmp_path)])
         assert result.returncode == 1
+
+
+# ---------------------------------------------------------------------------
+# apply_declared_model_floor (INFRA-318)
+# ---------------------------------------------------------------------------
+
+
+class TestApplyDeclaredModelFloor:
+    def test_undeclared_is_noop(self) -> None:
+        """declared_model=None returns (model, reason) unchanged (Ensures 2/5)."""
+        model, reason = apply_declared_model_floor(
+            MODEL_SONNET, REASON_AUTO_BASELINE, None, 1
+        )
+        assert (model, reason) == (MODEL_SONNET, REASON_AUTO_BASELINE)
+
+        model, reason = apply_declared_model_floor(
+            MODEL_OPUS, REASON_RETRY_UPGRADE, None, 2
+        )
+        assert (model, reason) == (MODEL_OPUS, REASON_RETRY_UPGRADE)
+
+    def test_attempt_1_declared_raise_is_override(self) -> None:
+        """Attempt 1: declared model above the auto-baseline is an outright
+        override, reason becomes story-declared."""
+        model, reason = apply_declared_model_floor(
+            MODEL_SONNET, REASON_AUTO_BASELINE, MODEL_OPUS, 1
+        )
+        assert model == MODEL_OPUS
+        assert reason == REASON_STORY_DECLARED
+
+    def test_attempt_1_declared_lower_is_override(self) -> None:
+        """Attempt 1: declared model below the auto-baseline is also an
+        outright override (lowering is unilateral, per spec-writer procedure)."""
+        model, reason = apply_declared_model_floor(
+            MODEL_OPUS, REASON_PROMPTED_UPGRADE, MODEL_SONNET, 1
+        )
+        assert model == MODEL_SONNET
+        assert reason == REASON_STORY_DECLARED
+
+    def test_attempt_2_never_downgrades_below_declared_floor(self) -> None:
+        """Attempt >= 2: the auto-selected retry tier is floored at the
+        declared value's rank, never lowered below it."""
+        # Auto-selected haiku (hypothetical) with a declared opus floor must
+        # rise to opus.
+        model, reason = apply_declared_model_floor(
+            MODEL_HAIKU, REASON_AUTO_DOWNGRADE, MODEL_OPUS, 2
+        )
+        assert model == MODEL_OPUS
+        # Reason is preserved (still describes what the auto-selector
+        # decided) — this is a floor, not a declared override.
+        assert reason == REASON_AUTO_DOWNGRADE
+
+    def test_attempt_2_retry_upgrade_already_above_floor_is_unchanged(self) -> None:
+        """Attempt >= 2: retry-upgrade already at/above the declared floor is
+        left completely alone (no downgrade ever applied by this helper)."""
+        model, reason = apply_declared_model_floor(
+            MODEL_OPUS, REASON_RETRY_UPGRADE, MODEL_SONNET, 2
+        )
+        assert model == MODEL_OPUS
+        assert reason == REASON_RETRY_UPGRADE
+
+    def test_attempt_2_equal_rank_is_unchanged(self) -> None:
+        model, reason = apply_declared_model_floor(
+            MODEL_SONNET, REASON_AUTO_BASELINE, MODEL_SONNET, 2
+        )
+        assert model == MODEL_SONNET
+        assert reason == REASON_AUTO_BASELINE

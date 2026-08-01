@@ -16,6 +16,11 @@ touches:
   - tests/pairmode/test_schema_validator.py
   - tests/pairmode/test_spec_writer.py
   - docs/architecture.md
+  - skills/pairmode/scripts/flex_build.py
+  - CLAUDE.build.md
+  - skills/pairmode/templates/CLAUDE.build.md.j2
+  - skills/pairmode/scripts/model_selector.py
+  - tests/pairmode/test_model_selector.py
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
@@ -74,6 +79,17 @@ project's cold-eyes checklist.**
    fields are untouched).
 5. Baseline 4116/211.
 
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| skills/pairmode/scripts/flex_build.py | reviewer_model floor must reach the live select-reviewer-model CLI seam | 2026-08-01T00:24:44Z |
+
+| CLAUDE.build.md | orchestrator prose must invoke select-reviewer-model before the reviewer spawn or reviewer_model is unreachable dead code | 2026-08-01T00:24:44Z |
+| skills/pairmode/templates/CLAUDE.build.md.j2 | keep generated CLAUDE.build.md template in sync with the reviewer-model-resolution step | 2026-08-01T00:24:44Z |
+| skills/pairmode/scripts/model_selector.py | shared declared-model-floor helper used by both builder dispatch (next_action.py) and reviewer dispatch (flex_build.py select-reviewer-model) | 2026-08-01T00:26:23Z |
+| tests/pairmode/test_model_selector.py | unit-test the new apply_declared_model_floor helper directly | 2026-08-01T00:26:33Z |
 ## Ensures
 
 1. **Fields validate.** `model:` / `reviewer_model:` are optional; when
@@ -133,3 +149,27 @@ read is a FAIL); (b) undeclared-story resolver output byte-identical;
 - Cost accounting or effort-db changes (phase-37/110 surfaces untouched).
 - Model selection for spec-writer/security-auditor/intent-reviewer spawns.
 - Retroactively declaring models on existing stories.
+
+## Evidence
+
+Covered-contracts gate (INFRA-317): `primary_files:` includes
+`skills/pairmode/scripts/next_action.py`, which intersects the declared pair
+`## Module structure::skills/pairmode/scripts/next_action.py`. Both halves
+were read in full before editing either.
+
+`docs/architecture.md` § Module structure, `next_action.py` line:
+> `spawn-reviewer` is in ACTIONS/_SPAWN_ACTIONS for orchestrator dispatch but
+> is never emitted by `resolve_next_action` (CER-074)
+
+This confirms the null-rule relaxation Requires 2 asks for was already true
+before this story (spawn-reviewer has permitted a non-null `model` since
+HARNESS003-main) and confirms `reviewer_model:` cannot be threaded through
+`resolve_next_action`'s Position/action grammar — there is no resolver-legible
+`spawn-reviewer` action object for the field to ride on. This is why
+`reviewer_model:` is wired through the orchestrator's
+`flex_build.py select-reviewer-model` CLI call instead (CLAUDE.build.md §
+Build loop), while `model:` (which does reach a real `spawn-builder` action)
+is wired through `next_action.infer_position` directly. No divergence found
+between the doc and the source file — both already agreed on this shape;
+the source code comments were merely stale in naming *why* (see the updated
+`_SPAWN_ACTIONS` comment block in `next_action.py`), not wrong in behavior.

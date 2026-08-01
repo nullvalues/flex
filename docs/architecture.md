@@ -1806,6 +1806,24 @@ Reason: high-scope code story; opus reduces rework risk
 Say "upgrade" to use opus, or "continue" to proceed with sonnet.
 ```
 
+**Spec-time model override: `model:` / `reviewer_model:` (INFRA-318, Cora
+A#7/AG-6).** Optional story frontmatter fields, one shared vocabulary
+(`schema_validator.VALID_MODEL_TIERS = {haiku, sonnet, opus}`; `fable` is the
+loop-breaker's escalation tier only and is never declarable). Asymmetric by
+design: **lowering** is cheap to get wrong (one rework cycle) and the
+spec-writer may do it unilaterally with a one-line note; **raising** is
+expensive to get wrong silently (every attempt pays it) and requires an
+operator-approved note in the story (spec-writer/procedure.md). Dispatch
+applies the declared value via `model_selector.apply_declared_model_floor`:
+at attempt 1 it is an outright *override* of the auto-selected baseline
+(reason `story-declared`); at attempt >= 2 it is a *floor* — the normal
+retry-upgrade ladder still runs, but never resolves below the declared tier's
+rank. `model:` reaches `spawn-builder` via `next_action.infer_position`;
+`reviewer_model:` reaches the reviewer spawn via the orchestrator's
+`flex_build.py select-reviewer-model` call (CLAUDE.build.md § Build loop) —
+`resolve_next_action` never emits `spawn-reviewer` (CER-074), so this field
+cannot ride the action grammar. Undeclared stories: byte-identical to before.
+
 **Checkpoint-agent model selection.** The helper family is extended with two
 additional selectors driven by the `phase_class` frontmatter field:
 

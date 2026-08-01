@@ -104,8 +104,13 @@ def _write_story(
     auth_gated: bool = False,
     schema_introduces: bool = False,
     stub: bool = False,
+    model: str | None = None,
 ) -> Path:
-    """Write a minimal story spec."""
+    """Write a minimal story spec.
+
+    ``model`` (INFRA-318): optional declared ``model:`` frontmatter value —
+    omitted entirely when None, so existing callers get byte-identical output.
+    """
     rail = story_id.split("-", 1)[0]
     story_dir = project_dir / "docs" / "stories" / rail
     story_dir.mkdir(parents=True, exist_ok=True)
@@ -128,6 +133,7 @@ def _write_story(
             "- Tests pass.\n"
             "- No regressions introduced.\n"
         )
+    model_yaml = f"model: {model}\n" if model is not None else ""
     content = (
         f"---\n"
         f"id: {story_id}\n"
@@ -138,6 +144,7 @@ def _write_story(
         f"{pf_yaml}"
         f"auth_gated: {'true' if auth_gated else 'false'}\n"
         f"schema_introduces: {'true' if schema_introduces else 'false'}\n"
+        f"{model_yaml}"
         f"---\n\n"
         f"{body}"
     )
@@ -479,6 +486,126 @@ class TestInferPositionFailOutcome:
         )
         assert pos["builder_model"] == expected_model == "sonnet"
         assert pos["builder_model_reason"] == expected_reason == "auto-baseline"
+
+
+class TestInferPositionDeclaredModelFloor:
+    """INFRA-318: a story-declared `model:` frontmatter field reaches
+    infer_position's builder_model/builder_model_reason end-to-end — proving
+    the floor via a real story file on disk, not just at the
+    `select_builder_model`/`apply_declared_model_floor` function layer."""
+
+    def test_attempt_1_declared_model_is_override(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A story declaring `model: opus` carries opus at attempt 1, even
+        though the default selection for a low-complexity code story would
+        be sonnet (Ensures 2)."""
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001", model="opus")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        assert pos["attempt_count"] == 0
+        assert pos["last_attempt_outcome"] == OUTCOME_NONE
+        assert pos["builder_model"] == "opus"
+        assert pos["builder_model_reason"] == "story-declared"
+
+    def test_attempt_1_declared_model_lower_is_also_override(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Lowering is equally an outright override at attempt 1 (asymmetric
+        *approval flow* happens at spec-write time, not at dispatch time)."""
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001", model="haiku")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        assert pos["builder_model"] == "haiku"
+        assert pos["builder_model_reason"] == "story-declared"
+
+    def test_undeclared_story_is_byte_identical(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """No `model:` field → output unchanged from pre-INFRA-318 behaviour
+        (Ensures 2/5)."""
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        assert pos["builder_model"] == "sonnet"
+        assert pos["builder_model_reason"] == "auto-baseline"
+
+    def test_retry_never_downgrades_below_declared_floor(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A story declaring `model: opus` and failing attempt 1 stays at
+        opus on attempt 2 — retry-upgrade already meets/exceeds the floor,
+        never downgrades below it (Ensures 2, Do-not clause)."""
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001", model="opus")
+        _write_attempt_counter(tmp_path, "TEST-001", 1)
+        _patch_git_log(monkeypatch, "")  # no commit → FAIL
+
+        pos = infer_position(tmp_path)
+        assert pos["last_attempt_outcome"] == OUTCOME_FAIL
+        assert pos["builder_model"] == "opus"
+
+    def test_resolve_next_action_spawn_builder_carries_declared_floor(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """End-to-end: infer_position → resolve_next_action's emitted
+        spawn-builder action.model actually carries the declared floor, not
+        just Position's internal builder_model field."""
+        from next_action import resolve_next_action, SPAWN_BUILDER  # type: ignore[import]
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001", model="opus")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["model"] == "opus"
+        assert action["reason"] == "story-declared"
+
+    def test_resolve_next_action_undeclared_story_unaffected(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Same end-to-end path for an undeclared story — proves the floor
+        machinery is a true no-op absent the field (Ensures 5)."""
+        from next_action import resolve_next_action, SPAWN_BUILDER  # type: ignore[import]
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["model"] == "sonnet"
+        assert action["reason"] == "auto-baseline"
+
+    def test_invalid_declared_model_value_is_treated_as_undeclared(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A story with an invalid model: value (should have failed schema
+        validation upstream) is treated fail-safe as undeclared, never
+        guessed at or crashed on."""
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001", model="claude-4-opus-20260101")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        assert pos["builder_model"] == "sonnet"
+        assert pos["builder_model_reason"] == "auto-baseline"
 
 
 class TestInferPositionPerKeyEscalation:

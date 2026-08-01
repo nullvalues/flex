@@ -209,6 +209,42 @@ INFRA-316 (Phase 116 -- between-story context etiquette, Row PC):
   ordinary "no state.json yet" case does not warn, so an unconfigured
   project's Row-8 output stays byte-identical to pre-INFRA-316 behaviour
   (Ensures 1).
+
+INFRA-318 (Phase 116 -- spec-time model review, Cora item A#7/AG-6):
+  ``infer_position`` §4 (builder model selection) now reads the next story's
+  optional ``model:`` frontmatter field (validated against
+  ``schema_validator.VALID_MODEL_TIERS``) and applies it via
+  ``model_selector.apply_declared_model_floor`` to the already-auto-selected
+  ``(builder_model, builder_model_reason)`` pair: an outright override at
+  attempt 1 (reason becomes ``"story-declared"``), a floor -- never a
+  downgrade -- on retry (attempt >= 2). A story without ``model:`` gets
+  byte-identical output to pre-INFRA-318 behaviour (Ensures 2/5). This also
+  means Row 3's ``prompted-upgrade`` operator prompt never fires for a
+  declaring story at attempt 1, because its reason is already
+  ``"story-declared"`` by the time Row 3 checks it -- the spec-writer's
+  asymmetric raise/lower prompt (Requires 3, spec-writer/procedure.md)
+  already recorded operator approval for a raise at spec time, so dispatch
+  does not re-prompt.
+
+  ``reviewer_model:`` (the analogous floor for ``spawn-reviewer``) is
+  resolved entirely on the ``flex_build.py select-reviewer-model`` CLI path
+  (which the orchestrator calls directly before the manual reviewer spawn,
+  per ``CLAUDE.build.md`` § Build loop) using the same
+  ``apply_declared_model_floor`` helper -- it is NOT threaded through this
+  module's Position/action grammar, because ``resolve_next_action`` never
+  emits ``spawn-reviewer`` in the first place (CER-074, see the
+  ``SPAWN_REVIEWER`` constant's declaration comment below): there is no
+  resolver-legible action object for a reviewer-model field to ride on. The
+  null-rule relaxation Requires 2 asks for was already satisfied before this
+  story -- ``spawn-reviewer`` has been a member of ``_SPAWN_ACTIONS`` (and so
+  already permitted a non-null ``model``) since HARNESS003-main; this story
+  changes no code at ``validate_action``'s model-constraint check, only the
+  comment there, to say so explicitly.
+
+  Pure-read, grammar-unchanged: no new action type, no ``_REQUIRED_KEYS`` or
+  ``ACTIONS``/``_SPAWN_ACTIONS`` change, no ``SCHEMA_VERSION`` bump (still 5)
+  -- only Position's ``builder_model``/``builder_model_reason`` values can
+  differ, and only for a story that declares ``model:``.
 """
 
 from __future__ import annotations
@@ -307,6 +343,16 @@ ACTIONS: frozenset[str] = frozenset(
 # model override (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS.
 # (spawn-reviewer membership is for orchestrator dispatch only — the resolver
 # never emits it; see the CER-074 note at its declaration above.)
+# INFRA-318: this is also the null-rule relaxation a story-declared
+# `reviewer_model:` floor depends on — spawn-reviewer already permits a
+# non-null model (has since HARNESS003-main, well before INFRA-318), so no
+# code change was needed here for reviewer_model dispatch to reach a real
+# spawn-reviewer action object; only this comment is new. The actual
+# reviewer_model floor is applied by the orchestrator's
+# `flex_build.py select-reviewer-model` CLI call (see CLAUDE.build.md §
+# Build loop), not by anything in this module — see the INFRA-318 module
+# docstring entry above for why (resolve_next_action never emits
+# spawn-reviewer, so there is no action object here for the field to ride).
 # checkpoint-security, checkpoint-intent, checkpoint-docs carry a model override
 # (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS.
 # checkpoint-tag is an inline action and is NOT in _SPAWN_ACTIONS.
@@ -869,9 +915,14 @@ def infer_position(project_dir: "str | Path") -> dict:
         Persisted attempt count for the next story (0 when no attempts yet).
     builder_model : str | None
         Selected builder model name (e.g. "sonnet", "opus", "haiku"), or None
-        when no next story is known.
+        when no next story is known. INFRA-318: when the next story declares
+        a `model:` frontmatter field, this already reflects the declared
+        floor — an outright override at attempt 1, a floor (never a
+        downgrade) on retry — via
+        `model_selector.apply_declared_model_floor`.
     builder_model_reason : str | None
-        Selection reason (e.g. "auto-baseline", "prompted-upgrade"), or None.
+        Selection reason (e.g. "auto-baseline", "prompted-upgrade", or
+        "story-declared" when a `model:` floor applied at attempt 1), or None.
     gate_stub : dict
         ``{"ok": bool, "blocked_reason": str}`` for the stub check.
     gate_schema : dict
@@ -921,7 +972,7 @@ def infer_position(project_dir: "str | Path") -> dict:
         check_auth_gate_result,
         claimed_story_ids,
     )
-    from schema_validator import _parse_frontmatter  # type: ignore[import]
+    from schema_validator import _parse_frontmatter, VALID_MODEL_TIERS  # type: ignore[import]
 
     project_path = Path(project_dir).resolve()
 
@@ -950,6 +1001,12 @@ def infer_position(project_dir: "str | Path") -> dict:
     story_class: str = "code"
     primary_files: "list[str]" = []
     needs_spec: bool = False  # RESOLVER-009: set below when story file is read
+    # INFRA-318: story-declared `model:` floor, read alongside story_class /
+    # primary_files below. None when absent or not a valid model tier — an
+    # invalid value here means the story failed schema validation upstream,
+    # so this resolver treats it fail-safe as "undeclared" rather than
+    # guessing.
+    declared_model: "str | None" = None
 
     if active_phase_file is not None:
         try:
@@ -1000,6 +1057,12 @@ def infer_position(project_dir: "str | Path") -> dict:
                     primary_files = fm.get("primary_files") or []
                     ensures_count = _count_ensures_nonblank_lines(story_text)
                     needs_spec = ensures_count is None or ensures_count < 5
+                    _raw_declared_model = fm.get("model")
+                    if (
+                        isinstance(_raw_declared_model, str)
+                        and _raw_declared_model in VALID_MODEL_TIERS
+                    ):
+                        declared_model = _raw_declared_model
                 except OSError:
                     needs_spec = True  # fail-safe: unreadable file → treat as stub
 
@@ -1082,6 +1145,18 @@ def infer_position(project_dir: "str | Path") -> dict:
                 list(primary_files),
                 protected_files,
                 attempt_number=effective_attempt,
+            )
+            # INFRA-318: a story-declared `model:` floor overrides attempt 1
+            # outright and floors (never lowers) attempt >= 2's retry tier.
+            # No-op when declared_model is None — undeclared stories keep
+            # byte-identical output (Ensures 2/5).
+            from model_selector import apply_declared_model_floor  # type: ignore[import]
+
+            builder_model, builder_model_reason = apply_declared_model_floor(
+                builder_model,
+                builder_model_reason,
+                declared_model,
+                effective_attempt,
             )
         except Exception:  # noqa: BLE001
             pass
