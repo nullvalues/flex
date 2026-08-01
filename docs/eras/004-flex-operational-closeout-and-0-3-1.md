@@ -37,3 +37,4 @@ phase 116 as the era's last act.
 | 114 | Build-loop closeout: worktrees, scaffolding, migration tooling, doc currency | complete |
 | 115 | Observability closeout: API hardening, payload guards, rollup hygiene, functional validation | complete |
 | 116 | Cora upstream: methodology gates, resolver cadence, spec-time controls; backlog truth pass and 0.3.1 | complete |
+| 117 | Build-loop integrity remediation: escalation ladder, dead handoffs, CER-append corruption | planned |
