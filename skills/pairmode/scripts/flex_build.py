@@ -77,6 +77,8 @@ from story_context import (  # noqa: E402
     get_current_stories,
     read_state,
     CURRENT_STORIES_KEY,
+    mark_recently_discarded,
+    clear_story_bump_markers,
 )
 from scope_guard import (  # noqa: E402
     entry_is_fresh,
@@ -102,6 +104,14 @@ def _stamp_active_story(project_path: Path, story_id: str) -> None:
     companion_dir = project_path / ".companion"
     companion_dir.mkdir(parents=True, exist_ok=True)
     set_current_story(companion_dir, story_id, title=fm.get("title"))
+    # INFRA-336: a re-stamp means any prior discard/duplicate-FAIL history
+    # for this story_id is stale — a *new* attempt cycle is starting, so a
+    # later FAIL must not be treated as still belonging to the discard that
+    # preceded this retry (Ensures 3's bounded-lifetime contract).
+    try:
+        clear_story_bump_markers(companion_dir, story_id)
+    except Exception:
+        pass
 
 
 def _clear_active_story(project_path: Path, story_id: str) -> None:
@@ -2153,32 +2163,61 @@ def write_attempt_count(story_id: str, count: int, project_dir: Path) -> None:
     Persists via ``state_utils._atomic_write_json`` (temp-file + os.replace),
     not a direct in-place write, so a reader never observes a
     truncated/partial file.
+
+    CER-147 (INFRA-336): the read-modify-write critical section (the
+    ``_read_attempt_counters`` call through the ``_atomic_write_json`` call)
+    runs inside ``state_utils.state_lock``, taken on
+    ``attempt_counter.json`` itself (its own ``.lock`` sibling, never
+    ``state.json``'s) — mirroring ``story_context.py``'s
+    ``with state_lock(companion_dir / "state.json")`` call sites. Two
+    near-simultaneous writers for different story_ids (or a write racing a
+    ``bump_attempt_count``/``clear_attempt_count`` call) no longer risk one
+    silently clobbering the other's entry. ``state_lock`` is bounded/
+    advisory/fail-open — a lock-acquisition failure still degrades to the
+    pre-CER-147 unsynchronized write, never a stall or a raise.
     """
     path = _attempt_counter_path(project_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    counters = _read_attempt_counters(project_dir)
-    counters[story_id] = count
-    _atomic_write_json(path, {_ATTEMPT_COUNTER_STORIES_KEY: counters})
+    with state_lock(path):
+        counters = _read_attempt_counters(project_dir)
+        counters[story_id] = count
+        _atomic_write_json(path, {_ATTEMPT_COUNTER_STORIES_KEY: counters})
 
 
 def bump_attempt_count(story_id: str, project_dir: Path) -> int:
     """Increment and persist the attempt counter for *story_id*; return the new count.
 
-    Reads the current count via ``read_attempt_count`` and writes
-    ``count + 1`` under *story_id*'s own key. Bumps are per-key: each story
-    has its own entry in the counter file, so another story's entry is
-    neither read nor overwritten by this call — a story with no existing
-    entry starts at 1, not at whatever count a different story happens to
-    hold (INFRA-282, CER-095.3; this replaces the pre-story "a mismatched
-    story_id resets the counter to 1" whole-file semantics).
+    Bumps are per-key: each story has its own entry in the counter file, so
+    another story's entry is neither read nor overwritten by this call — a
+    story with no existing entry starts at 1, not at whatever count a
+    different story happens to hold (INFRA-282, CER-095.3; this replaces the
+    pre-story "a mismatched story_id resets the counter to 1" whole-file
+    semantics).
 
     Called on builder/reviewer FAIL (INFRA-237). The persisted counter is
     ``next_action.infer_position``'s sole durable signal that a story
     attempt failed before any commit exists — independent of
     ``effort_tracking`` (core build-loop control state, not observability).
+
+    CER-147 (INFRA-336): reading the current count and writing the
+    incremented one used to be two separate calls
+    (``read_attempt_count`` + ``write_attempt_count``) — exactly the window
+    ``state_lock`` exists to narrow, since each call took (and released) its
+    own lock, leaving a gap between them where a second bump for the same
+    ``story_id`` could read the same pre-increment value. This function now
+    takes ``state_lock`` **once** around the whole read-modify-write,
+    inlining the ``_read_attempt_counters``/``_atomic_write_json`` pair
+    directly (rather than composing ``read_attempt_count``/
+    ``write_attempt_count``, which would either double-acquire the same
+    process's lock or silently reduce to two independent critical sections).
     """
-    new_count = read_attempt_count(story_id, project_dir) + 1
-    write_attempt_count(story_id, new_count, project_dir)
+    path = _attempt_counter_path(project_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with state_lock(path):
+        counters = _read_attempt_counters(project_dir)
+        new_count = counters.get(story_id, 0) + 1
+        counters[story_id] = new_count
+        _atomic_write_json(path, {_ATTEMPT_COUNTER_STORIES_KEY: counters})
     return new_count
 
 
@@ -2257,22 +2296,30 @@ def clear_attempt_count(project_dir: Path, story_id: str | None = None) -> None:
     Extracted as a module-level helper (mirrors ``read_attempt_count``) so
     ``cmd_merge_story_worktree`` can clear the counter on a successful merge
     without shelling out to the CLI (INFRA-237).
+
+    CER-147 (INFRA-336): both the whole-file delete and the scoped
+    pop-one-entry-and-rewrite each run inside ``state_lock`` on
+    ``attempt_counter.json`` — a clear racing a sibling story's
+    ``bump_attempt_count``/``write_attempt_count`` call must not interleave
+    with it and drop the other's update.
     """
     path = _attempt_counter_path(project_dir)
     if story_id is None:
-        if path.exists():
-            path.unlink()
+        with state_lock(path):
+            if path.exists():
+                path.unlink()
         return
-    counters = _read_attempt_counters(project_dir)
-    if story_id not in counters:
-        return
-    counters.pop(story_id, None)
-    if not counters:
-        if path.exists():
-            path.unlink()
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_write_json(path, {_ATTEMPT_COUNTER_STORIES_KEY: counters})
+    with state_lock(path):
+        counters = _read_attempt_counters(project_dir)
+        if story_id not in counters:
+            return
+        counters.pop(story_id, None)
+        if not counters:
+            if path.exists():
+                path.unlink()
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_json(path, {_ATTEMPT_COUNTER_STORIES_KEY: counters})
 
 
 # ---------------------------------------------------------------------------
@@ -4709,6 +4756,16 @@ def cmd_merge_story_worktree(story_id: str, project_dir: str) -> None:
         # state, the same class of cross-story clobber INFRA-281 fixed for the
         # active-story stamp below.
         clear_attempt_count(project_path, story_id)
+        # INFRA-336: a landed story's prior discard/duplicate-FAIL bump
+        # history is no longer relevant — clear it alongside the attempt
+        # counter so a future, unrelated re-attempt of this story_id (a new
+        # phase re-opening it, say) never inherits a stale marker.
+        try:
+            companion_dir = project_path / ".companion"
+            if companion_dir.is_dir():
+                clear_story_bump_markers(companion_dir, story_id)
+        except Exception:
+            pass
         # INFRA-238: clear both artifacts create-story-worktree stamped — the
         # active-story marker and the Layer 1 permission artifact — so the next
         # story starts with a clean slate rather than inheriting this story's
@@ -4781,6 +4838,21 @@ def cmd_discard_story_worktree(story_id: str, project_dir: str) -> None:
         # still running in its own worktree.
         _clear_active_story(project_path, story_id)
         clear_permissions_artifact(story_id, project_path)
+        # INFRA-336: record that story_id was *just* discarded, at the same
+        # point the current_stories stamp is cleared above — this is what
+        # lets subagent_transcript._story_accepts_late_bump's reconciliation-
+        # time rule 2 still authorize the (possibly not-yet-reconciled) FAIL
+        # that caused this discard, even though the liveness stamp it would
+        # otherwise key on is gone by the time the next sweep runs. Bounded:
+        # consumed the moment that late bump fires, or the moment a retry
+        # re-stamps this story_id (`_stamp_active_story` /
+        # `clear_story_bump_markers`), whichever comes first.
+        try:
+            companion_dir = project_path / ".companion"
+            if companion_dir.is_dir():
+                mark_recently_discarded(companion_dir, story_id)
+        except Exception:
+            pass
 
         click.echo(f"discarded {branch}")
 

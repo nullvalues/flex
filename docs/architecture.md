@@ -433,6 +433,34 @@ so a claim never overrides commit evidence (CER-095.1).
    interleaved read-modify-write calls — a genuine advisory lock across `.companion/` writers is
    deferred to INFRA-285 (CER-097) rather than being pre-empted here with a second, competing
    locking scheme.
+   **INFRA-336 (CER-091 defect 4's real root cause, plus CER-147/CER-148):** the INFRA-264 E9
+   late-bump guard above still had a live gap — a story's *first* FAIL is commonly reconciled
+   from `effort.db` *after* `discard-story-worktree` has already cleared its `current_stories`
+   stamp (exactly the ordering `CLAUDE.build.md`'s build loop prescribes), and
+   `_story_accepts_late_bump`'s rule 2 read only `current_stories`/the flat mirror — never a
+   "this story was just discarded" signal — so that first FAIL's late bump was refused and the
+   escalation ladder stalled at attempt 1 forever. `discard-story-worktree` now writes
+   `state.json["recently_discarded_stories"][story_id]` (a timestamped marker, via
+   `story_context.mark_recently_discarded`) at the same point it clears the `current_stories`
+   stamp, and `_story_accepts_late_bump`'s rule 2 also accepts a story present in that marker.
+   The marker is bounded, not permanent: `story_context.consume_recently_discarded` removes it
+   the moment the late bump it authorized fires, and `story_context.clear_story_bump_markers`
+   removes it (and the CER-148 marker below) the moment `create-story-worktree` re-stamps the
+   same `story_id` or the story lands via `merge-story-worktree` — so it never re-authorizes a
+   later, unrelated FAIL for the same `story_id`. Separately (CER-148), the reconciliation
+   sweep (`subagent_transcript.reconcile_pending_attempts`) now recognises when a builder-FAIL
+   row and a reviewer-FAIL row belong to the *same* still-open attempt cycle — identified by
+   `state.json["current_stories"][story_id]["set_at"]` or the discard marker's own timestamp,
+   never row identity — and bumps the counter once per cycle, not once per FAIL row
+   (`state.json["fail_cycle_bumped"][story_id]`, via `story_context.cycle_already_bumped`/
+   `mark_cycle_bumped`). `write_attempt_count`/`bump_attempt_count`/`clear_attempt_count`
+   (CER-147) also now wrap their read-modify-write critical sections in `state_utils.state_lock`,
+   keyed to `attempt_counter.json`'s own `.lock` sibling (never `state.json`'s) — the advisory
+   lock deferred in the accepted-limitation note above, scoped to this one file. A reusable
+   stage-to-stage integration-test harness, `tests/pairmode/test_stage_integration.py`, drives
+   the real `next-action`/`create-story-worktree`/`discard-story-worktree` CLI surface end to
+   end against a real temporary project and proves the fix (and CER-147/CER-148) directly; later
+   phase-117 stories extend it rather than re-deriving the setup.
    **INFRA-285 (CER-097):** the context-budget accounting is the fourth structure this era
    keys, and the deferred lock above now exists. `state.json["context_sessions"][<session_id>]`
    holds `context_current_tokens`, `context_current_tokens_recorded_at`,

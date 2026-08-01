@@ -468,3 +468,128 @@ def test_parallel_cross_story_clobber_regression(tmp_path: Path) -> None:
 
     assert read_attempt_count(_STORY_A, tmp_path) == 0
     assert read_attempt_count(_STORY_B, tmp_path) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests — CER-147: attempt_counter.json writers are lock-protected (INFRA-336)
+# ---------------------------------------------------------------------------
+
+
+def test_bump_attempt_count_wraps_state_lock() -> None:
+    """CER-147, Ensures 4: bump_attempt_count's read-modify-write body is
+    wrapped in ``state_utils.state_lock`` — inline source inspection (not a
+    behavioural proxy) so the test fails if a future edit removes the lock
+    even when timing makes the concurrency test below flaky-pass."""
+    import inspect
+
+    from flex_build import bump_attempt_count as _bac
+
+    src = inspect.getsource(_bac)
+    assert "state_lock(" in src
+
+
+def test_write_and_clear_attempt_count_wrap_state_lock() -> None:
+    """CER-147, Ensures 4: write_attempt_count and clear_attempt_count also
+    wrap their critical sections in state_lock (not just bump_attempt_count —
+    the forbidden proxy named by Ensures 4 is wrapping only one of the
+    three)."""
+    import inspect
+
+    from flex_build import clear_attempt_count as _cac
+    from flex_build import write_attempt_count as _wac
+
+    assert "state_lock(" in inspect.getsource(_wac)
+    assert "state_lock(" in inspect.getsource(_cac)
+
+
+def test_attempt_counter_lock_file_is_scoped_not_shared_with_state_json(
+    tmp_path: Path,
+) -> None:
+    """CER-147, Instructions 3: the lock file used is
+    ``attempt_counter.json.lock``, a sibling of ``attempt_counter.json`` —
+    never ``state.json.lock``."""
+    write_attempt_count(_STORY_A, 1, tmp_path)
+    bump_attempt_count(_STORY_A, tmp_path)
+
+    lock_path = tmp_path / ".companion" / "attempt_counter.json.lock"
+    assert lock_path.exists()
+    assert not (tmp_path / ".companion" / "state.json.lock").exists()
+
+
+def test_concurrent_bumps_for_same_story_do_not_lose_an_update(
+    tmp_path: Path,
+) -> None:
+    """CER-147, Ensures 5: two near-simultaneous bump_attempt_count calls for
+    the *same* story_id, run as real threads (not a mock of the lock), both
+    land — the final count is the starting count + 2, not +1.
+
+    Uses real OS threads (not multiprocessing) so both calls share this
+    process's ``fcntl.flock`` — POSIX advisory locks are per (file, process),
+    so real inter-process contention needs subprocesses; the thread-level
+    contention here still exercises the same read-modify-write window this
+    story's fix narrows (the lock plus the atomic replace), and is the
+    concurrency shape the story's Ensures 5 text names ("real threads or
+    subprocesses, not a mock of the lock").
+    """
+    import threading
+
+    write_attempt_count(_STORY_A, 5, tmp_path)
+
+    barrier = threading.Barrier(2)
+
+    def _bump() -> None:
+        barrier.wait(timeout=5)
+        bump_attempt_count(_STORY_A, tmp_path)
+
+    threads = [threading.Thread(target=_bump) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert read_attempt_count(_STORY_A, tmp_path) == 7
+
+
+def test_concurrent_writers_for_different_stories_do_not_clobber(
+    tmp_path: Path,
+) -> None:
+    """CER-147, Ensures 5 (second test): simultaneous
+    bump_attempt_count/write_attempt_count/clear_attempt_count calls for two
+    *different* story_ids both land correctly and neither clobbers the
+    other's final entry."""
+    import threading
+
+    write_attempt_count(_STORY_A, 1, tmp_path)
+    write_attempt_count(_STORY_B, 10, tmp_path)
+
+    _STORY_C = "INFRA-284"
+    write_attempt_count(_STORY_C, 1, tmp_path)
+
+    barrier = threading.Barrier(3)
+
+    def _bump_a() -> None:
+        barrier.wait(timeout=5)
+        for _ in range(3):
+            bump_attempt_count(_STORY_A, tmp_path)
+
+    def _write_b() -> None:
+        barrier.wait(timeout=5)
+        write_attempt_count(_STORY_B, 20, tmp_path)
+
+    def _clear_c() -> None:
+        barrier.wait(timeout=5)
+        clear_attempt_count(tmp_path, _STORY_C)
+
+    threads = [
+        threading.Thread(target=_bump_a),
+        threading.Thread(target=_write_b),
+        threading.Thread(target=_clear_c),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert read_attempt_count(_STORY_A, tmp_path) == 4
+    assert read_attempt_count(_STORY_B, tmp_path) == 20
+    assert read_attempt_count(_STORY_C, tmp_path) == 0

@@ -74,11 +74,23 @@ try:
     from skills.pairmode.scripts import effort_db
     from skills.pairmode.scripts.effort_recorder import record_effort, record_effort_ex
     from skills.pairmode.scripts.flex_build import bump_attempt_count, read_attempt_count
+    from skills.pairmode.scripts.story_context import (
+        RECENTLY_DISCARDED_STORIES_KEY,
+        consume_recently_discarded,
+        cycle_already_bumped,
+        mark_cycle_bumped,
+    )
 except ImportError:
     from context_budget import _derive_transcript_path  # type: ignore[no-redef]  # flat import via hook sys.path
     import effort_db  # type: ignore[no-redef]  # flat import via hook sys.path
     from effort_recorder import record_effort, record_effort_ex  # type: ignore[no-redef]  # flat import via hook sys.path
     from flex_build import bump_attempt_count, read_attempt_count  # type: ignore[no-redef]  # flat import via hook sys.path
+    from story_context import (  # type: ignore[no-redef]  # flat import via hook sys.path
+        RECENTLY_DISCARDED_STORIES_KEY,
+        consume_recently_discarded,
+        cycle_already_bumped,
+        mark_cycle_bumped,
+    )
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -236,6 +248,12 @@ RECORDING_DECISIONS: frozenset[str] = frozenset({
     # the fallback path) — _ATOMIC_RECONCILE_FIELDS forbids writing tokens
     # alone, so nothing is committed.
     "skip:no-usage",
+    # INFRA-336 (CER-148): the sweep loop's own decision when a FAIL row
+    # resolves to a story_id/cycle that has already had its bump counted —
+    # a second FAIL row for the same still-open attempt (e.g. builder
+    # self-report then reviewer, both eventually reconciled) traces here
+    # instead of silently double-bumping.
+    "skip:duplicate-fail-in-cycle",
     # CER-113 (INFRA-299): a worker returned a syntactically valid
     # BUILD-RESULT/REVIEW-RESULT JSON object whose verdict word is outside
     # the WORKER-004 enum (RECOGNISED_BUILD_OUTCOMES /
@@ -1610,6 +1628,50 @@ def _extract_spawn_ref(tool_response: Any) -> "tuple[str | None, str | None]":
     return agent_id, output_file
 
 
+def _attempt_cycle_key(project_dir: "Path | str", story_id: str) -> "str | None":
+    """Return an identifier for *story_id*'s currently-open build-attempt
+    cycle (INFRA-336, CER-148), or ``None`` when there is no live marker to
+    anchor one on.
+
+    Derived from whichever of the two markers ``_story_accepts_late_bump``
+    also reads is present — ``current_stories[story_id]["set_at"]`` (the
+    story is still actively being built) takes priority over
+    ``recently_discarded_stories[story_id]`` (it was just discarded but not
+    yet re-stamped), since a story cannot be both at once and the "current"
+    marker is the fresher signal when both somehow exist. The prefix
+    (``current:``/``discarded:``) keeps the two source timestamps from
+    colliding if a discard and a fresh restamp ever produced the same
+    literal instant.
+
+    A story with neither marker (e.g. ``_story_accepts_late_bump`` returned
+    ``True`` only via ``counter_recorded``, an already-attempted story with
+    no currently-open cycle this function can identify) returns ``None`` —
+    the caller must not attempt CER-148 dedup in that case, only fall back
+    to the pre-CER-148 unconditional-bump behaviour. Pure read; never
+    raises.
+    """
+    try:
+        project_path = (
+            project_dir if isinstance(project_dir, Path) else Path(project_dir)
+        )
+        state = _read_state(project_path)
+        if not isinstance(state, dict):
+            return None
+
+        current_stories = state.get("current_stories")
+        if isinstance(current_stories, dict):
+            entry = current_stories.get(story_id)
+            if isinstance(entry, dict) and entry.get("set_at"):
+                return f"current:{entry['set_at']}"
+
+        discarded = state.get(RECENTLY_DISCARDED_STORIES_KEY)
+        if isinstance(discarded, dict) and story_id in discarded:
+            return f"discarded:{discarded[story_id]}"
+    except Exception:
+        pass
+    return None
+
+
 def _story_accepts_late_bump(project_dir: "Path | str", story_id: str) -> bool:
     """Gate a *reconciliation-time* FAIL bump of the attempt counter
     (CER-091 defect 4).
@@ -1621,15 +1683,35 @@ def _story_accepts_late_bump(project_dir: "Path | str", story_id: str) -> bool:
        :data:`_LATE_BUMP_BLOCKED_STATUSES`; or
     2. ``.companion/attempt_counter.json`` does not already record this
        ``story_id`` **and** ``.companion/state.json`` does not show it as
-       currently being built — the build loop is not currently building it,
-       so a bump would *create* a counter file for a story nobody is working
-       on. Liveness is resolved against the story-keyed ``current_stories``
-       record (INFRA-281's authority) when present; the flat
-       ``current_story`` key is a fallback for pre-INFRA-281 state files
-       only. With two builders in flight the flat mirror names only one of
-       them, so keying the check on it would refuse the *other* story's
-       first late FAIL bump and stall its escalation ladder at attempt 1
-       (INFRA-282, CER-095.3).
+       currently being built **and** ``state.json`` does not show it as
+       *just* discarded — the build loop is not currently building it and
+       did not just stop building it, so a bump would *create* a counter
+       file for a story nobody is working on. Liveness is resolved against
+       the story-keyed ``current_stories`` record (INFRA-281's authority)
+       when present; the flat ``current_story`` key is a fallback for
+       pre-INFRA-281 state files only. With two builders in flight the flat
+       mirror names only one of them, so keying the check on it would
+       refuse the *other* story's first late FAIL bump and stall its
+       escalation ladder at attempt 1 (INFRA-282, CER-095.3).
+
+       INFRA-336 (CER-091 defect 4's real root cause): a story's *first*
+       FAIL is common not to be reconciled from ``effort.db`` until
+       *after* ``discard-story-worktree`` has already cleared its
+       ``current_stories`` stamp — the exact ordering
+       ``CLAUDE.build.md``'s build loop prescribes (spawn-reviewer FAIL ->
+       discard-story-worktree -> next poll of ``next-action``, which is
+       what triggers the reconcile sweep). Without this widening, rule 2
+       would refuse that FAIL forever: ``counter_recorded`` is ``False``
+       (it is the story's *first* FAIL, nothing has bumped yet) and
+       ``is_current`` is also ``False`` (the discard already cleared the
+       stamp). ``state["recently_discarded_stories"]`` — written by
+       ``discard-story-worktree`` at the same point it clears the stamp,
+       and consumed the moment this rule authorizes a bump from it or the
+       story is re-stamped by a later ``create-story-worktree`` (see
+       :func:`skills.pairmode.scripts.story_context.mark_recently_discarded`
+       / :func:`...consume_recently_discarded`) — closes exactly that gap
+       without reopening it for a stale or replayed ``effort.db`` row
+       belonging to a story nobody is building and nobody just discarded.
 
     Returns ``True`` otherwise. Pure read (no writes on any path); never
     raises — an unreadable story file or state file falls through to rule 2
@@ -1666,6 +1748,7 @@ def _story_accepts_late_bump(project_dir: "Path | str", story_id: str) -> bool:
             counter_recorded = False
 
         is_current = False
+        recently_discarded = False
         try:
             state = _read_state(project_path)
             if isinstance(state, dict):
@@ -1676,10 +1759,14 @@ def _story_accepts_late_bump(project_dir: "Path | str", story_id: str) -> bool:
                     current = state.get("current_story")
                     if isinstance(current, dict) and current.get("id") == story_id:
                         is_current = True
+
+                discarded = state.get(RECENTLY_DISCARDED_STORIES_KEY)
+                if isinstance(discarded, dict):
+                    recently_discarded = story_id in discarded
         except Exception:
             pass
 
-        if not counter_recorded and not is_current:
+        if not counter_recorded and not is_current and not recently_discarded:
             return False
 
         return True
@@ -2212,15 +2299,61 @@ def reconcile_pending_attempts(
                         # never propagate and must never prevent the bump.
                         try:
                             if _story_accepts_late_bump(project_path, story_id):
-                                bump_attempt_count(story_id, project_path)
-                                try:
-                                    log_recording_event(
-                                        project_path, story_id=story_id,
-                                        row_id=row.get("id"),
-                                        decision="bump:late-fail",
-                                    )
-                                except Exception:
-                                    pass
+                                # CER-148 (INFRA-336): a second FAIL row for
+                                # the same still-open attempt (builder
+                                # self-report, then reviewer, both
+                                # eventually reconciled here) must not bump
+                                # twice for what is semantically one failed
+                                # cycle. cycle_key is None when there is no
+                                # live marker to anchor a cycle on — that
+                                # case always falls through to the
+                                # pre-CER-148 unconditional bump, matching
+                                # cycle_already_bumped's own contract.
+                                cycle_key = _attempt_cycle_key(project_path, story_id)
+                                companion_dir = project_path / ".companion"
+                                if cycle_key and cycle_already_bumped(
+                                    companion_dir, story_id, cycle_key
+                                ):
+                                    try:
+                                        log_recording_event(
+                                            project_path, story_id=story_id,
+                                            row_id=row.get("id"),
+                                            decision="skip:duplicate-fail-in-cycle",
+                                        )
+                                    except Exception:
+                                        pass
+                                else:
+                                    bump_attempt_count(story_id, project_path)
+                                    try:
+                                        mark_cycle_bumped(
+                                            companion_dir, story_id, cycle_key
+                                        )
+                                    except Exception:
+                                        pass
+                                    # The discard-side marker's job — keeping
+                                    # this bump reachable after
+                                    # discard-story-worktree cleared the
+                                    # current_stories stamp — is done the
+                                    # moment the bump it authorized actually
+                                    # fires (Ensures 3's bounded-lifetime
+                                    # contract). fail_cycle_bumped is
+                                    # deliberately NOT cleared here — it must
+                                    # survive to catch a second FAIL row for
+                                    # this same cycle.
+                                    try:
+                                        consume_recently_discarded(
+                                            companion_dir, story_id
+                                        )
+                                    except Exception:
+                                        pass
+                                    try:
+                                        log_recording_event(
+                                            project_path, story_id=story_id,
+                                            row_id=row.get("id"),
+                                            decision="bump:late-fail",
+                                        )
+                                    except Exception:
+                                        pass
                             else:
                                 try:
                                     log_recording_event(
