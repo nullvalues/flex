@@ -9,27 +9,30 @@ Public API:
     Returns a (model, reason) tuple for the reviewer agent given the story's
     class and the current attempt number.
 
-    Selection table:
+    Selection table (INFRA-334 — every class has a real retry-upgrade path;
+    the `methodology` same-phase-code-story conditional escalation from the
+    prior table is removed):
 
       story_class   attempt=1   attempt>=2
       -----------   ---------   ----------
       code          sonnet      opus
       doc           sonnet      sonnet
       lesson        sonnet      sonnet
-      methodology   sonnet      sonnet (upgrade to opus if a same-phase code
-                                        story exists — requires phase_id and
-                                        project_dir)
+      methodology   sonnet      opus
 
-    For methodology stories on attempt >= 2: the helper checks the phase
-    manifest for any code story (story_class="code", or absent which defaults
-    to "code"). If found, returns "opus"; otherwise "sonnet".
+    `doc`/`lesson` reviewers were already unconditionally sonnet at every
+    attempt (the CER-140 "no upgrade path" gap was a `select_builder_model`-
+    only defect for these two classes; see that function's docstring below).
+    `methodology` now escalates unconditionally to opus on retry, exactly
+    like `code` — the `phase_id`/`project_dir` parameters are retained on the
+    signature for call-site compatibility (`flex_build.py`'s
+    `cmd_select_reviewer_model` passes them by keyword) but no longer affect
+    the return value.
 
     Reason values:
       "auto-baseline"        — attempt 1 (all classes)
       "doc-class-baseline"   — doc or lesson class, any attempt >= 2
-      "retry-upgrade"        — code class, attempt >= 2
-      "methodology-upgrade"  — methodology, attempt >= 2, same-phase code story exists
-      "methodology-baseline" — methodology, attempt >= 2, no same-phase code story
+      "retry-upgrade"        — code or methodology class, attempt >= 2
 
   Unknown story_class values default to the "code" rules (conservative).
 
@@ -38,16 +41,21 @@ Public API:
     Returns a (model, reason) tuple for the builder agent given the story's
     class, the list of primary file paths, and the list of protected file paths.
 
-    Decision table:
+    Decision table (INFRA-334 — `doc`/`lesson`/`methodology` all gained a
+    real retry-upgrade path; `code`'s ladder is unchanged):
 
-      story_class   complexity signal                           model   reason
-      -----------   -----------------                           -----   ------
-      doc           any                                         haiku   auto-downgrade
-      lesson        any                                         haiku   auto-downgrade
-      methodology   any                                         sonnet  auto-baseline
-      code          <5 primary_files AND no protected file      sonnet  auto-baseline
-      code          >=5 primary_files OR protected file in      opus    prompted-upgrade
-                    touches
+      story_class   attempt   complexity signal                         model   reason
+      -----------   -------   -----------------                         -----   ------
+      doc           1         any                                       haiku   auto-downgrade
+      doc           >=2       any                                       sonnet  retry-upgrade
+      lesson        1         any                                       haiku   auto-downgrade
+      lesson        >=2       any                                       sonnet  retry-upgrade
+      methodology   1         any                                       sonnet  auto-baseline
+      methodology   >=2       any                                       opus    retry-upgrade
+      code          1         <5 primary_files AND no protected file    sonnet  auto-baseline
+      code          1         >=5 primary_files OR protected file in    opus    prompted-upgrade
+                              touches
+      code          >=2       any                                       opus    retry-upgrade
 
     If the caller has already received a user-override decision, it should
     pass the overridden model back through this function by using the return
@@ -252,10 +260,13 @@ MODEL_RANK = {MODEL_HAIKU: 0, MODEL_SONNET: 1, MODEL_OPUS: 2}
 # Reason value for an attempt-1 dispatch that carries a story-declared model.
 REASON_STORY_DECLARED = "story-declared"
 
-# story_class values that never upgrade to opus on retry
+# Reviewer-side: story_class values that stay sonnet at every attempt (no
+# retry escalation) — unaffected by INFRA-334, which only changed builder-
+# side doc/lesson and both sides' methodology behavior.
 _ALWAYS_SONNET_CLASSES = frozenset({"doc", "lesson"})
 
-# story_class values for builder that are auto-downgraded to haiku
+# Builder-side: story_class values auto-downgraded to haiku on attempt 1,
+# escalating to sonnet on retry (attempt >= 2) as of INFRA-334.
 _HAIKU_CLASSES = frozenset({"doc", "lesson"})
 
 # Minimum primary_files count that triggers an upgrade signal for code stories
@@ -279,15 +290,18 @@ def select_reviewer_model(
         story_class:    The story's class ("code", "doc", "lesson",
                         "methodology").  Unknown values are treated as "code".
         attempt_number: 1 for the first attempt, >=2 for retries.
-        phase_id:       Optional phase identifier (e.g. "24").  Required for
-                        the methodology same-phase-code-story check.
-        project_dir:    Optional path to the project root.  Required when
-                        phase_id is supplied and story files must be resolved.
+        phase_id:       Unused (INFRA-334) — retained on the signature only
+                        for call-site compatibility with
+                        `flex_build.py`'s `cmd_select_reviewer_model`, which
+                        passes it by keyword. The same-phase-code-story
+                        escalation this parameter used to feed was removed:
+                        `methodology` now escalates unconditionally, like
+                        `code`.
+        project_dir:    Unused (INFRA-334) — see `phase_id`.
 
     Returns:
         A (model, reason) tuple where model is "sonnet" or "opus" and reason
-        is one of "auto-baseline", "doc-class-baseline", "retry-upgrade",
-        "methodology-upgrade", "methodology-baseline".
+        is one of "auto-baseline", "doc-class-baseline", "retry-upgrade".
     """
     # Normalise / apply default
     if not story_class or story_class not in {"code", "doc", "lesson", "methodology"}:
@@ -301,16 +315,9 @@ def select_reviewer_model(
     if story_class in _ALWAYS_SONNET_CLASSES:
         return MODEL_SONNET, "doc-class-baseline"
 
-    if story_class == "code":
-        return MODEL_OPUS, "retry-upgrade"
-
-    # story_class == "methodology"
-    # Stays sonnet unless a same-phase code story exists
-    if phase_id is not None and project_dir is not None:
-        if _phase_has_code_story(phase_id, Path(project_dir)):
-            return MODEL_OPUS, "methodology-upgrade"
-
-    return MODEL_SONNET, "methodology-baseline"
+    # story_class in {"code", "methodology"} (or unknown, defaulted to
+    # "code" above) — both escalate unconditionally on retry (INFRA-334).
+    return MODEL_OPUS, REASON_RETRY_UPGRADE
 
 
 def apply_declared_model_floor(
@@ -382,13 +389,16 @@ def select_builder_model(
         - ``reason`` is one of ``"auto-downgrade"``, ``"auto-baseline"``,
           ``"prompted-upgrade"``, ``"retry-upgrade"``
 
-    Decision table:
+    Decision table (INFRA-334 — every class has a real retry-upgrade path):
 
       story_class   attempt   complexity signal                         model   reason
       -----------   -------   -----------------                         -----   ------
-      doc           any       any                                       haiku   auto-downgrade
-      lesson        any       any                                       haiku   auto-downgrade
-      methodology   any       any                                       sonnet  auto-baseline
+      doc           1         any                                       haiku   auto-downgrade
+      doc           >=2       any                                       sonnet  retry-upgrade
+      lesson        1         any                                       haiku   auto-downgrade
+      lesson        >=2       any                                       sonnet  retry-upgrade
+      methodology   1         any                                       sonnet  auto-baseline
+      methodology   >=2       any                                       opus    retry-upgrade
       code          1         <5 primary_files AND no protected file    sonnet  auto-baseline
       code          1         >=5 primary_files OR protected file       opus    prompted-upgrade
       code          >=2       any                                       opus    retry-upgrade
@@ -397,10 +407,15 @@ def select_builder_model(
     if not story_class or story_class not in {"code", "doc", "lesson", "methodology"}:
         story_class = DEFAULT_STORY_CLASS  # "code"
 
-    # Retry escalation: code stories on attempt >= 2 always use opus.
-    # doc/lesson/methodology classes never escalate (mirrors reviewer behaviour).
-    if attempt_number >= 2 and story_class == "code":
+    # Retry escalation (attempt >= 2): every class now has a real upgrade
+    # path (INFRA-334) — doc/lesson rise one rung (haiku -> sonnet), code
+    # and methodology rise to opus (unchanged for code; new for methodology).
+    if attempt_number >= 2:
+        if story_class in _HAIKU_CLASSES:
+            return (MODEL_SONNET, REASON_RETRY_UPGRADE)
         return (MODEL_OPUS, REASON_RETRY_UPGRADE)
+
+    # attempt == 1 — baseline rules
 
     # doc and lesson → auto-downgrade to haiku
     if story_class in _HAIKU_CLASSES:
@@ -562,60 +577,6 @@ def select_spec_writer_model(story_class: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-
-def _phase_has_code_story(phase_id: str, project_dir: Path) -> bool:
-    """Return True if any story in the phase has story_class "code" (or absent).
-
-    Looks up the phase manifest at docs/phases/phase-{phase_id}.md (or
-    docs/phases/{phase_id}.md if the canonical path does not exist).
-    Reads each story file's frontmatter to check story_class.
-
-    Returns False on any I/O or parse error (fail-safe: no upgrade).
-    """
-    # Import here to avoid circular-import risk; both are sibling modules.
-    try:
-        import story_resolver as _sr
-        import schema_validator as _sv
-    except ImportError:
-        # sys.path should already include _SCRIPTS_DIR; this is a safety net.
-        return False
-
-    # Locate the phase manifest
-    phase_path = _find_phase_file(phase_id, project_dir)
-    if phase_path is None:
-        return False
-
-    try:
-        story_ids = _sr.list_phase_stories(phase_path)
-    except Exception:
-        return False
-
-    for story_id in story_ids:
-        try:
-            story = _sr.resolve_story(story_id, project_dir)
-        except Exception:
-            continue
-
-        # Read story_class from the story file's raw frontmatter
-        story_path = (
-            project_dir
-            / "docs"
-            / "stories"
-            / story["rail"]
-            / f"{story_id}.md"
-        )
-        try:
-            text = story_path.read_text(encoding="utf-8")
-            fm = _sv._parse_frontmatter(text)
-            sc = (fm or {}).get("story_class", DEFAULT_STORY_CLASS)
-        except Exception:
-            sc = DEFAULT_STORY_CLASS
-
-        if sc == "code":
-            return True
-
-    return False
 
 
 def _find_phase_file(phase_id: str, project_dir: Path) -> Path | None:

@@ -1710,20 +1710,26 @@ template carries no `model:` field by design.
 `skills/pairmode/scripts/model_selector.select_reviewer_model(story_class,
 attempt_number, phase_id=None, project_dir=None)` before spawning each
 reviewer and passes the result as the Agent tool's `model` parameter. The
-helper implements the following selection table:
+helper implements the following selection table (INFRA-334 — every class has
+a real retry-upgrade path; the earlier `methodology` same-phase-code-story
+conditional escalation is removed):
 
 | `story_class` | `attempt_number = 1` | `attempt_number >= 2` |
 |---|---|---|
 | `code` | sonnet | opus |
 | `doc` | sonnet | sonnet |
 | `lesson` | sonnet | sonnet |
-| `methodology` | sonnet | sonnet (opus if a same-phase `code` story exists) |
+| `methodology` | sonnet | opus |
 
 Stories without a `story_class` field default to `code`. Unknown values also
-default to `code` (conservative). The "same-phase code story" check for
-`methodology` reads the phase manifest via `story_resolver.list_phase_stories`
-and inspects each story file's frontmatter; it returns `sonnet` (fail-safe) if
-the phase manifest or any story file cannot be read.
+default to `code` (conservative). `doc`/`lesson` reviewers were already
+unconditionally sonnet at every attempt before INFRA-334 (the CER-140 gap
+this table redesign closes was a `select_builder_model`-only defect for
+these two classes — see below). `methodology` now escalates to opus on
+retry unconditionally, exactly like `code`; the `phase_id`/`project_dir`
+parameters remain on the function signature for call-site compatibility
+with `flex_build.py`'s `cmd_select_reviewer_model` but no longer influence
+the return value.
 
 **Operational mechanism.** Override at *call time* via the Agent tool's
 `model` parameter. The template intent stays clean — it encodes the baseline,
@@ -1776,11 +1782,17 @@ builder. The function returns a `(model, reason)` tuple:
 - `reason` is one of `"auto-downgrade"`, `"auto-baseline"`, `"prompted-upgrade"`,
   `"retry-upgrade"`
 
+Selection table (INFRA-334 — `doc`/`lesson`/`methodology` all gained a real
+retry-upgrade path; `code`'s ladder is unchanged):
+
 | `story_class` | complexity signal | attempt | model | reason | action |
 |---|---|---|---|---|---|
-| `doc` | any | any | haiku | `auto-downgrade` | auto |
-| `lesson` | any | any | haiku | `auto-downgrade` | auto |
-| `methodology` | any | any | sonnet | `auto-baseline` | auto |
+| `doc` | any | 1 | haiku | `auto-downgrade` | auto |
+| `doc` | any | ≥ 2 | sonnet | `retry-upgrade` | auto (no prompt) |
+| `lesson` | any | 1 | haiku | `auto-downgrade` | auto |
+| `lesson` | any | ≥ 2 | sonnet | `retry-upgrade` | auto (no prompt) |
+| `methodology` | any | 1 | sonnet | `auto-baseline` | auto |
+| `methodology` | any | ≥ 2 | opus | `retry-upgrade` | auto (no prompt) |
 | `code` | < 5 `primary_files`, no protected file | 1 | sonnet | `auto-baseline` | auto |
 | `code` | ≥ 5 `primary_files` OR a protected file in touches | 1 | opus | `prompted-upgrade` | **prompt user** |
 | `code` | any | ≥ 2 | opus | `retry-upgrade` | auto (no prompt) |
