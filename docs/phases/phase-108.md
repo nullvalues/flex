@@ -21,9 +21,9 @@ Validate that observability — the era's purpose — was actually delivered (SP
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-278 | Observability validation: SPA over the post-campaign fleet, effort-db integrity audit on campaign data, evidence record | draft |
-| INFRA-279 | Define the era 003 exit criterion, finalize era summary and phase table through 108 | draft |
-| RELEASE-072 | Era transition: run era_transition.py, close era 003, scaffold era 004 | draft |
+| INFRA-278 | Observability validation: SPA over the post-campaign fleet, effort-db integrity audit on campaign data, evidence record | backlog |
+| INFRA-279 | Define the era 003 exit criterion, finalize era summary and phase table through 108 | backlog |
+| RELEASE-072 | Era transition: run era_transition.py, close era 003, scaffold era 004 | backlog |
 
 ## Ordering
 
@@ -44,6 +44,34 @@ this phase, record the management surface before the phase is checkpointed.
 | Object | Management surface | Exception |
 |---|---|---|
 | | | |
+
+## Superseded
+
+**2026-08-01 (INFRA-310, Phase 116, AG-3).** This phase's obligations —
+observability validation, the era exit criterion, and the era transition —
+were folded into era 004's closeout stories rather than resumed here.
+Nothing is deleted; the Goal, Stories table and Ordering above remain the
+historical record.
+
+- **INFRA-278** (observability validation) split in two along its own
+  title's two halves, because no single era-004 story covered both:
+  - The **SPA/UI functional-validation** half was discharged by
+    **INFRA-312** (Phase 115) — dogfood checklist over ≥2 registered repos
+    plus a scoped TypeScript route-test runner; see INFRA-312's `##
+    Evidence` section.
+  - The **effort-db integrity** half was never discharged by INFRA-312
+    (route/UI-shaped only, never touches `effort.db`) — rescued as new
+    story **INFRA-329** (Phase 115, added by the 2026-07-30 reconciliation
+    sweep as a sibling of INFRA-312) — effort-db integrity audit on
+    post-campaign fleet data; see INFRA-329's `## Evidence` section.
+- **INFRA-279**'s exit-criterion obligation was folded into
+  `docs/eras/003-flex-orchestrator-as-harness.md`'s own `## Exit criterion`
+  section, written by **INFRA-310** (this story, Ensures 26).
+- **RELEASE-072**'s era transition — closing era 003 by ID, verifying
+  exactly one era active at tag time — was executed by **INFRA-310** (this
+  story, Ensures 26) via INFRA-314's gated by-ID close path. Era 004
+  already exists and is active; no new era was scaffolded (RELEASE-072's
+  original title's "scaffold era 004" clause is stale).
 
 ---
 

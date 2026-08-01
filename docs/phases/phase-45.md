@@ -19,6 +19,8 @@ points so the orchestrator can call a script and read a result instead of
 re-deriving logic from scratch each time. No existing logic is replaced or
 rewritten — only CLI doors are added in front of what already works.
 
+## Stories
+
 **Four stories:**
 
 | ID | Title | Status |

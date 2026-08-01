@@ -2,7 +2,7 @@
 id: RELEASE-058
 rail: RELEASE
 title: Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects
-status: backlog
+status: deferred
 phase: "97"
 story_class: code
 auth_gated: false
@@ -150,5 +150,10 @@ each will be **manually patched post-fold**. The fold (RELEASE-059) proceeds
 under this override.
 
 The gate CLI/tooling described in this spec was **not built**. This story is
-waived by operator decision; its status is set to `backlog` (the closest
-available status to "waived") and this section carries the real disposition.
+waived by operator decision; its status is set to `deferred`
+(`docs/phases/phase-97.md`'s `## Deferred stories` section names it
+individually — INFRA-310, check-index status-drift/deferred-without-section
+fix, 2026-08-01; `backlog` was the prior best-effort approximation but
+`deferred` is the status the check-index invariant expects for closed,
+un-built waivers, and the phase doc already documents why it will not be
+resumed) and this section carries the real disposition.

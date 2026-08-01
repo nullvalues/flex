@@ -1,6 +1,6 @@
 ---
 id: INFRA-133
-phase: '49'
+phase: "47"
 rail: INFRA
 story_class: code
 status: complete
@@ -15,6 +15,16 @@ touches:
 ---
 
 # INFRA-133 — Wire context budget hook registration into bootstrap and sync
+
+**Phase-frontmatter correction (INFRA-310, check-index cross-link fix,
+2026-08-01):** `phase: '49'` pointed at a `docs/phases/phase-49.md` that
+was never created (a numbering/archival gap, not this story's fault — see
+`phase-50.md`'s back-link to a "Phase 49: Observability SPA" that is a
+different, unrelated topic). This story's own content is a direct
+CER-027/INFRA-127-129 follow-on (same hook, same module), so it is
+re-anchored to **Phase 47** and added to `phase-47.md`'s Stories table.
+No behavior or history changed — the story was built and complete either
+way; only the phase pointer was wrong.
 
 ## Background
 

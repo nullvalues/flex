@@ -43,7 +43,7 @@ Resume HARNESS016-main's deferred tail: retry the doc sweep, migrate the fleet t
 | RELEASE-055 | Fleet migration — sync rockue to pairmode 0.3.0 | superseded — resolved by rockue's own hand-migrated session (RK011-ante1), verified via RELEASE-071 fleet sweep |
 | RELEASE-056 | Fleet migration — sync stackabid to pairmode 0.3.0 | superseded — resolved by stackabid's own hand-migrated session (story-INFRA-014), verified via RELEASE-071 fleet sweep |
 | RELEASE-057 | Fleet migration — sync ud to pairmode 0.3.0 | superseded — resolved by ud's own hand-migrated session (INFRA-210/211), verified via RELEASE-071 fleet sweep |
-| RELEASE-058 | Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects | backlog |
+| RELEASE-058 | Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects | deferred |
 | RELEASE-059 | Fold merge — fold-prep into main, tag v0.3.0 | complete |
 | RELEASE-060 | Post-fold re-sync of migrated projects + RELEASE-002 status reconciliation | draft |
 | RELEASE-061 | Worktree and branch retirement — remove /mnt/work/flex-harness | skipped (superseded by RELEASE-062, phase 105 — see § Deferred stories) |
@@ -134,6 +134,39 @@ release channel (phase 102, `complete`), not a temporary worktree, so the
 teardown this story would have performed must never be executed — see
 `docs/stories/RELEASE/RELEASE-061.md` § *Superseded* and
 `docs/architecture.md` § *Release channel — flex-harness*.
+
+**Named individually (INFRA-310, check-index deferred-without-section fix,
+2026-08-01).** The prose range "RELEASE-043 through RELEASE-057" above did
+not satisfy `check-index` check 4's per-ID substring match for the thirteen
+IDs it does not spell out literally. Each of the following resumes
+post-0.3.1 at the fold, per this section's own resolution above, and each is
+already dispositioned by the story or phase named:
+- **RELEASE-044** (asp) — superseded by asp's own hand-migrated session
+  (`PM057-main`).
+- **RELEASE-045** (base56) — superseded by phase-106 RELEASE-069
+  (decommissioned, not migrated).
+- **RELEASE-046** (caddy) — superseded by phase-106 RELEASE-065.
+- **RELEASE-047** (coherra) — superseded by coherra's own hand-migrated
+  session (`story-INFRA-045`).
+- **RELEASE-048** (forqsite) — superseded by forqsite's own hand-migrated
+  session (`story-INFRA-020`).
+- **RELEASE-049** (forqsite.help) — superseded by phase-106 RELEASE-066.
+- **RELEASE-050** (halfhorse) — superseded by phase-106 RELEASE-067.
+- **RELEASE-051** (lumin) — superseded by phase-106 RELEASE-064.
+- **RELEASE-052** (meander) — superseded by phase-106 RELEASE-063 (campaign
+  canary).
+- **RELEASE-053** (pokus) — superseded by phase-106 RELEASE-068
+  (canon-only, proof-deferred).
+- **RELEASE-054** (radar) — superseded by radar's own hand-migrated session
+  (`story-MU-128`).
+- **RELEASE-055** (rockue) — superseded by rockue's own hand-migrated
+  session (`RK011-ante1`).
+- **RELEASE-056** (stackabid) — superseded by stackabid's own hand-migrated
+  session (`story-INFRA-014`).
+- **RELEASE-058** (DP8 pre-fold discovery gate) — waived by the 2026-07-23
+  operator override recorded in `## DP8 gate override` below and in
+  `docs/stories/RELEASE/RELEASE-058.md` § *Resolution*; its gate tooling was
+  never built and this is not a resume-later item, it is a closed waiver.
 
 ## DP8 gate override
 

@@ -1,7 +1,8 @@
 ---
 id: "003"
 name: flex — Orchestrator as harness
-status: active
+status: complete
+closed_at: 2026-08-01
 ---
 
 ## Strategic intent
@@ -184,7 +185,7 @@ post-fold numeric phases; the era's earlier HARNESS phases are recorded in
 | Phase | Title | Status |
 |-------|-------|--------|
 | 96 | Build-loop revert safety and worktree-per-cycle isolation | complete |
-| 97 | Fold resume — pre-fold gate, fleet migration, merge to main, re-sync | deferred |
+| 97 | Fold resume — pre-fold gate, fleet migration, merge to main, re-sync | complete |
 | 98 | 0.2 → 0.3 regression remediation | complete |
 | 99 | Post-fold self-sync remediation | complete |
 | 100 | Scope-guard fail-closed completion (CER-048 close-out) | complete |
@@ -258,13 +259,34 @@ Phase 64 plus the close-out defects **D1/D2/D3 (CER-053/054/055)** fold into
 **Phase G (HARNESS007-main)** rather than being built under 002 — see § Phase G
 scope above. The close-out record is `docs/agreements/era-002-closeout.md`.
 
+## Exit criterion (INFRA-279's obligation, folded in by INFRA-310, 2026-08-01)
+
+The era's strategic intent (§ *Strategic intent* above) was to invert the
+orchestrator from a procedure that *runs* the build loop into a harness that
+*dispatches* it — a code-resident `next-action` resolver holding the
+deterministic skeleton, thin agent-shell leaf workers holding each unit of
+work, and `CLAUDE.build.md` reduced to a stateless-across-clears dispatch
+loop. **Exit criterion: met.** The 8 designed HARNESS phases (below) shipped
+that inversion; the load-bearing invariant — the harness holds nothing not
+reconstructable from `next-action` — has held through every phase in
+§ *Phases* above, including the entire post-fold remediation arc (phases
+96–116). Field validation, the one item this criterion was gated on, is
+discharged in two parts, split because no single era-004 story covered both
+halves of the original observability-validation obligation:
+- **SPA/UI functional validation** — `docs/stories/INFRA/INFRA-312.md`
+  § Evidence (dogfood checklist over ≥2 registered repos plus a scoped
+  TypeScript route-test runner).
+- **Effort-db integrity on real campaign data** — `docs/stories/INFRA/INFRA-329.md`
+  § Evidence (post-campaign fleet effort.db audit).
+
+Phase 108 ("Era 003 close, gated on observability delivery") is itself
+superseded (`docs/phases/phase-108.md` § *Superseded*) — its gate is
+discharged by the two evidence pointers above, not by phase 108's own
+unbuilt stories.
+
 ## Era summary
 
-*(era active — not yet closed. The summary below is a provisional record of the
-planned-phase work; the final era summary will be written at formal close, once
-field validation is complete.)*
-
-The 8 designed HARNESS phases below, plus the HARNESS009-016 follow-ons, completed by 2026-07-21; the era then entered a post-fold remediation arc running as numeric phases 96 onward (tracked in § Phases above), and formal close is gated on phase 108:
+The 8 designed HARNESS phases below, plus the HARNESS009-016 follow-ons, completed by 2026-07-21; the era then entered a post-fold remediation arc running as numeric phases 96 onward (tracked in § Phases above). Formal close ran 2026-08-01 (INFRA-310) once phases 106/107/108 — the last three era-003 phase rows — were each dispositioned (106 complete-by-hand-migration, 107/108 superseded) and the exit criterion above was met:
 
 - **HARNESS001-ante1** — version pinned (`v0.2.0` tag), `harness` worktree established, dev-line isolated from `main`.
 - **HARNESS001-main** — `next-action` resolver built as a pure CLI state machine; sequencing, counters, model-selection routing in code; fully unit-tested in isolation alongside the old orchestrator.
@@ -276,4 +298,4 @@ The 8 designed HARNESS phases below, plus the HARNESS009-016 follow-ons, complet
 - **HARNESS007-main** (Phase G) — observability SPA/API reworked to read the resolver state model; Phase 64 deferred stories (INFRA-164–168) built; D1/D2/D3 defects (CER-053/054/055) closed.
 - **HARNESS008-main** — housekeeper: `index_integrity.py` pure-read graph-invariant checker (status drift, cross-link consistency, orphan stories, deferred-without-section); `check-index` CLI; CER-056 deferred-as-inactive rule shared between the checker and `infer_position`.
 
-The load-bearing invariant held throughout: the harness holds nothing not reconstructable from `next-action`. The era has not yet been run against real project builds at scale; formal close pending field validation.
+The load-bearing invariant held throughout: the harness holds nothing not reconstructable from `next-action`. Field validation is complete (see § Exit criterion above); the era is formally closed.
