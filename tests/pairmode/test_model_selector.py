@@ -17,7 +17,6 @@ from skills.pairmode.scripts.model_selector import (
     REASON_PROMPTED_UPGRADE,
     REASON_RETRY_UPGRADE,
     REASON_STORY_DECLARED,
-    _phase_has_code_story,
     apply_declared_model_floor,
     select_builder_model,
     select_docs_reviewer_model,
@@ -156,31 +155,36 @@ class TestAttemptTwoPlus:
         assert model == MODEL_SONNET
         assert reason == "doc-class-baseline"
 
-    def test_methodology_attempt2_no_phase_stays_sonnet(self) -> None:
-        """Methodology without phase_id always stays sonnet."""
+    def test_methodology_attempt2_no_phase_upgrades_to_opus(self) -> None:
+        """INFRA-334: methodology escalates unconditionally on retry, even
+        without phase_id/project_dir supplied."""
         model, reason = select_reviewer_model("methodology", 2)
-        assert model == MODEL_SONNET
-        assert reason == "methodology-baseline"
+        assert model == MODEL_OPUS
+        assert reason == REASON_RETRY_UPGRADE
 
-    def test_methodology_attempt2_with_phase_id_but_no_project_dir_stays_sonnet(
+    def test_methodology_attempt2_with_phase_id_but_no_project_dir_upgrades(
         self,
     ) -> None:
-        """phase_id alone (no project_dir) cannot resolve stories — stays sonnet."""
+        """INFRA-334: phase_id no longer influences the outcome — the
+        same-phase-code-story conditional escalation was removed."""
         model, reason = select_reviewer_model("methodology", 2, phase_id="24")
-        assert model == MODEL_SONNET
-        assert reason == "methodology-baseline"
+        assert model == MODEL_OPUS
+        assert reason == REASON_RETRY_UPGRADE
 
 
 # ---------------------------------------------------------------------------
-# Same-phase code story rule for methodology
+# INFRA-334: methodology no longer depends on a same-phase code story — the
+# conditional escalation is removed, methodology escalates unconditionally
+# on retry (like code). These tests confirm phase_id/project_dir no longer
+# affect the outcome in any direction (present, absent, or unreadable).
 # ---------------------------------------------------------------------------
 
 
-class TestMethodologySamePhaseCodeStory:
-    def test_upgrades_when_phase_has_explicit_code_story(
+class TestMethodologyUnconditionalEscalation:
+    def test_upgrades_regardless_of_same_phase_code_story(
         self, tmp_path: Path
     ) -> None:
-        """Methodology story on retry upgrades if a code story exists in phase."""
+        """A same-phase code story is no longer required for the upgrade."""
         _write_story(tmp_path, "INFRA-001", story_class="code")
         _write_story(tmp_path, "INFRA-002", story_class="methodology")
         _write_phase(tmp_path, "24", ["INFRA-001", "INFRA-002"])
@@ -189,26 +193,12 @@ class TestMethodologySamePhaseCodeStory:
             "methodology", 2, phase_id="24", project_dir=tmp_path
         )
         assert model == MODEL_OPUS
-        assert reason == "methodology-upgrade"
+        assert reason == REASON_RETRY_UPGRADE
 
-    def test_upgrades_when_phase_has_story_with_no_class(
+    def test_upgrades_when_phase_has_only_non_code_stories(
         self, tmp_path: Path
     ) -> None:
-        """story_class absent defaults to 'code', triggering upgrade."""
-        _write_story(tmp_path, "INFRA-001", story_class=None)  # no story_class
-        _write_story(tmp_path, "INFRA-002", story_class="methodology")
-        _write_phase(tmp_path, "24", ["INFRA-001", "INFRA-002"])
-
-        model, reason = select_reviewer_model(
-            "methodology", 2, phase_id="24", project_dir=tmp_path
-        )
-        assert model == MODEL_OPUS
-        assert reason == "methodology-upgrade"
-
-    def test_stays_sonnet_when_phase_has_only_non_code_stories(
-        self, tmp_path: Path
-    ) -> None:
-        """No code story in phase → methodology stays sonnet even on retry."""
+        """No code story in phase → methodology still upgrades (INFRA-334)."""
         _write_story(tmp_path, "INFRA-001", story_class="doc")
         _write_story(tmp_path, "LESSON-001", story_class="lesson")
         _write_story(tmp_path, "INFRA-002", story_class="methodology")
@@ -217,33 +207,33 @@ class TestMethodologySamePhaseCodeStory:
         model, reason = select_reviewer_model(
             "methodology", 2, phase_id="24", project_dir=tmp_path
         )
-        assert model == MODEL_SONNET
-        assert reason == "methodology-baseline"
+        assert model == MODEL_OPUS
+        assert reason == REASON_RETRY_UPGRADE
 
-    def test_stays_sonnet_when_phase_file_missing(self, tmp_path: Path) -> None:
-        """Missing phase manifest → fail-safe, stay sonnet."""
+    def test_upgrades_when_phase_file_missing(self, tmp_path: Path) -> None:
+        """Missing phase manifest no longer matters — upgrade is unconditional."""
         # No phase file written; project_dir is empty
         (tmp_path / "docs" / "phases").mkdir(parents=True, exist_ok=True)
 
         model, reason = select_reviewer_model(
             "methodology", 2, phase_id="99", project_dir=tmp_path
         )
-        assert model == MODEL_SONNET
-        assert reason == "methodology-baseline"
+        assert model == MODEL_OPUS
+        assert reason == REASON_RETRY_UPGRADE
 
-    def test_stays_sonnet_when_phase_has_empty_story_table(
+    def test_upgrades_when_phase_has_empty_story_table(
         self, tmp_path: Path
     ) -> None:
-        """Empty story list in phase → no code story → stay sonnet."""
+        """Empty story list in phase no longer matters — upgrade is unconditional."""
         _write_phase(tmp_path, "24", [])
 
         model, reason = select_reviewer_model(
             "methodology", 2, phase_id="24", project_dir=tmp_path
         )
-        assert model == MODEL_SONNET
-        assert reason == "methodology-baseline"
+        assert model == MODEL_OPUS
+        assert reason == REASON_RETRY_UPGRADE
 
-    def test_attempt1_methodology_never_upgrades_even_with_code_story(
+    def test_attempt1_methodology_stays_sonnet_even_with_code_story(
         self, tmp_path: Path
     ) -> None:
         """Attempt 1 is always sonnet regardless of same-phase code story."""
@@ -286,50 +276,6 @@ class TestUnknownStoryClass:
         model, reason = select_reviewer_model("", 1)
         assert model == MODEL_SONNET
         assert reason == "auto-baseline"
-
-
-# ---------------------------------------------------------------------------
-# _phase_has_code_story internal helper
-# ---------------------------------------------------------------------------
-
-
-class TestPhaseHasCodeStory:
-    def test_returns_true_for_code_story(self, tmp_path: Path) -> None:
-        _write_story(tmp_path, "INFRA-001", story_class="code")
-        _write_phase(tmp_path, "24", ["INFRA-001"])
-        assert _phase_has_code_story("24", tmp_path) is True
-
-    def test_returns_true_for_missing_story_class(self, tmp_path: Path) -> None:
-        """Absent story_class defaults to 'code'."""
-        _write_story(tmp_path, "INFRA-001", story_class=None)
-        _write_phase(tmp_path, "24", ["INFRA-001"])
-        assert _phase_has_code_story("24", tmp_path) is True
-
-    def test_returns_false_for_doc_story(self, tmp_path: Path) -> None:
-        _write_story(tmp_path, "INFRA-001", story_class="doc")
-        _write_phase(tmp_path, "24", ["INFRA-001"])
-        assert _phase_has_code_story("24", tmp_path) is False
-
-    def test_returns_false_for_lesson_story(self, tmp_path: Path) -> None:
-        _write_story(tmp_path, "LESSON-001", story_class="lesson")
-        _write_phase(tmp_path, "24", ["LESSON-001"])
-        assert _phase_has_code_story("24", tmp_path) is False
-
-    def test_returns_false_for_methodology_story(self, tmp_path: Path) -> None:
-        _write_story(tmp_path, "INFRA-001", story_class="methodology")
-        _write_phase(tmp_path, "24", ["INFRA-001"])
-        assert _phase_has_code_story("24", tmp_path) is False
-
-    def test_returns_false_for_missing_phase(self, tmp_path: Path) -> None:
-        (tmp_path / "docs" / "phases").mkdir(parents=True, exist_ok=True)
-        assert _phase_has_code_story("99", tmp_path) is False
-
-    def test_mixed_phase_returns_true(self, tmp_path: Path) -> None:
-        """A mix of doc and code → True (one code story is enough)."""
-        _write_story(tmp_path, "INFRA-001", story_class="doc")
-        _write_story(tmp_path, "INFRA-002", story_class="code")
-        _write_phase(tmp_path, "24", ["INFRA-001", "INFRA-002"])
-        assert _phase_has_code_story("24", tmp_path) is True
 
 
 # ---------------------------------------------------------------------------
@@ -696,15 +642,35 @@ class TestSelectBuilderModelRetry:
         assert model == MODEL_OPUS
         assert reason == REASON_RETRY_UPGRADE
 
-    def test_doc_attempt2_stays_haiku(self) -> None:
+    def test_doc_attempt2_escalates_to_sonnet(self) -> None:
+        """INFRA-334: doc no longer stays haiku forever — escalates on retry."""
         model, reason = select_builder_model("doc", [], _NO_PROTECTED, attempt_number=2)
-        assert model == MODEL_HAIKU
-        assert reason == REASON_AUTO_DOWNGRADE
-
-    def test_methodology_attempt2_stays_sonnet(self) -> None:
-        model, reason = select_builder_model("methodology", [], _NO_PROTECTED, attempt_number=2)
         assert model == MODEL_SONNET
-        assert reason == REASON_AUTO_BASELINE
+        assert reason == REASON_RETRY_UPGRADE
+
+    def test_doc_attempt5_stays_sonnet(self) -> None:
+        """Once escalated, doc does not escalate further past sonnet."""
+        model, reason = select_builder_model("doc", [], _NO_PROTECTED, attempt_number=5)
+        assert model == MODEL_SONNET
+        assert reason == REASON_RETRY_UPGRADE
+
+    def test_lesson_attempt2_escalates_to_sonnet(self) -> None:
+        """INFRA-334: lesson no longer stays haiku forever — escalates on retry."""
+        model, reason = select_builder_model("lesson", [], _NO_PROTECTED, attempt_number=2)
+        assert model == MODEL_SONNET
+        assert reason == REASON_RETRY_UPGRADE
+
+    def test_methodology_attempt2_escalates_to_opus(self) -> None:
+        """INFRA-334: methodology no longer stays sonnet forever — escalates
+        to opus on retry, unconditionally (no same-phase code story needed)."""
+        model, reason = select_builder_model("methodology", [], _NO_PROTECTED, attempt_number=2)
+        assert model == MODEL_OPUS
+        assert reason == REASON_RETRY_UPGRADE
+
+    def test_methodology_attempt3_stays_opus(self) -> None:
+        model, reason = select_builder_model("methodology", [], _NO_PROTECTED, attempt_number=3)
+        assert model == MODEL_OPUS
+        assert reason == REASON_RETRY_UPGRADE
 
     def test_unknown_class_attempt2_escalates(self) -> None:
         # Unknown defaults to code — should escalate.

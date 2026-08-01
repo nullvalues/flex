@@ -10,6 +10,7 @@ schema_introduces: false
 primary_files:
   - skills/pairmode/scripts/model_selector.py
 touches:
+  - tests/pairmode/test_model_selector.py
   - tests/pairmode/test_flex_build_story_cost_estimate.py
   - docs/stories/DESIGN
   - docs/architecture.md
