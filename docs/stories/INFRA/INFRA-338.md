@@ -259,3 +259,35 @@ PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -q 2>&1 | tail -30
   `**RESOLVED …**` text a past append may have already truncated in any consuming repo's backlog.
   A project that hit this before this story landed still needs `git checkout`/history inspection
   to recover, as the Context describes.
+
+## Evidence
+
+Covered-contracts gate (INFRA-317): `skills/pairmode/scripts/cer.py` is a `primary_files:` entry
+and appears in the `covered_contracts` pair `## Pairmode build loop::skills/pairmode/scripts/cer.py`
+declared in `CLAUDE.build.md`. Both the named doc section (`docs/architecture.md` § Pairmode build
+loop) and the source file were read in full before editing either.
+
+Contract lines relied on (`docs/architecture.md` § Pairmode build loop, step 10):
+
+- "`cer.py gate --project-dir <dir>` exits 0 when Do Now is clean (resolved-only, or the scaffolded
+  placeholder row) and exits 1, listing each open row's ID and first 80 characters, when it is not
+  — the exit code is the signal, never a printed warning with exit 0. The `checkpoint-tag` step of
+  `record-checkpoint-step` calls this same scan directly (`_cer_do_now_gate_message`) before any
+  state.json read or write" — confirms the real wiring `cmd_gate`'s docstring (§ C1) now states:
+  `checkpoint-tag` imports the shared scan directly and never shells out to `cer.py gate`. No
+  divergence found — the doc already described the direct-import wiring accurately; this story
+  brought `cer.py`'s own docstring into agreement with it.
+- "A **`gate:` token** is a recognized inline marker inside a row's Finding cell … not a sixth table
+  column: the 5-column `ID | Finding | Source | Date | Phase` shape (parsed by
+  `cer._parse_entries_from_backlog` and by external greps) is unchanged." — confirms § A5's
+  positional field contract (`cols[0]`..`cols[4]`, 6th column present only for Do Never rows) is
+  preserved by the rewrite; no divergence found.
+- "`cer.py groom --project-dir <dir>` … groom's exit code is always 0 — it informs, it never
+  decides … Per the global backlog-grooming policy, every cold-eyes review should run `cer.py
+  groom` …" — confirms `cmd_groom`'s corrected docstring (§ C2): groom has no checkpoint-step
+  wiring or scheduled reminder, running it is an operator-followed policy, not a mechanically
+  enforced one. No divergence found.
+
+No divergence between the doc section and the source file was found on any of the above — this
+story's docstring corrections align `cer.py`'s own text with what `docs/architecture.md` already
+documented as the real behavior.

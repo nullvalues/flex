@@ -50,18 +50,6 @@ QUADRANT_CHOICES = list(QUADRANT_MAP.keys())
 # Regex to match a CER-NNN id
 _CER_ID_RE = re.compile(r"\bCER-(\d{3})\b")
 
-# Regex to parse a table row: | ID | finding | source | date | phase [| resolution] |
-# We capture the leading pipe-delimited cells.
-_TABLE_ROW_RE = re.compile(
-    r"^\|\s*(CER-\d{3})\s*\|"  # ID
-    r"\s*(.+?)\s*\|"            # finding
-    r"\s*(.+?)\s*\|"            # source
-    r"\s*(.+?)\s*\|"            # date
-    r"\s*(.+?)\s*\|"            # phase
-    r"(?:\s*(.+?)\s*\|)?"       # optional resolution (Do Never)
-    r"\s*$"
-)
-
 # ---------------------------------------------------------------------------
 # Jinja2 environment
 # ---------------------------------------------------------------------------
@@ -117,20 +105,20 @@ def _parse_entries_from_backlog(content: str) -> list[dict]:
         else:
             # Parse table data row
             if current_quadrant and stripped.startswith("|"):
-                m = _TABLE_ROW_RE.match(stripped)
-                if m:
-                    cer_id = m.group(1)
-                    finding = m.group(2).strip()
-                    source = m.group(3).strip()
-                    entry_date = m.group(4).strip()
-                    phase_raw = m.group(5).strip()
-                    resolution_raw = m.group(6).strip() if m.group(6) else None
+                cols = [c.strip() for c in split_table_row(stripped) if c.strip()]
+                if cols and _CER_ID_RE.fullmatch(cols[0]) and len(cols) >= 5:
+                    cer_id = cols[0]
+                    finding = cols[1]
+                    source = cols[2]
+                    entry_date = cols[3]
+                    phase_raw = cols[4]
+                    resolution_raw = cols[5] if len(cols) > 5 else None
 
-                    # Skip placeholder rows. Defensive: _TABLE_ROW_RE already
-                    # excludes placeholder rows by requiring a CER-NNN id in
-                    # the first cell, so this branch cannot fire today — it is
-                    # a de-duplication of the shared rule, not a behaviour
-                    # change (INFRA-294).
+                    # Skip placeholder rows. Defensive: _CER_ID_RE.fullmatch
+                    # on the placeholder row's first cell (`—`, `–`, or `-`)
+                    # already fails before this branch is ever reached, so
+                    # this remains dead-but-intentional defense-in-depth, not
+                    # a behaviour change (INFRA-294).
                     if is_placeholder_row([cer_id, finding]):
                         continue
 
@@ -706,11 +694,18 @@ def cmd_gate(project_dir: str) -> None:
 
     Correct signal is the exit code, not stdout text: exits 0 when Do Now is
     clean (every row resolved, or the scaffolded placeholder row), exits 1
-    listing each open row's ID and first 80 characters when it is not. Wired
-    into the ``checkpoint-tag`` step of ``record-checkpoint-step`` (Ensures
-    3) so a tag cannot be cut over an open Do Now finding. Shares
-    ``find_open_do_now_rows`` with ``next_action._check_cer_do_now`` — one
-    scan, two callers (INFRA-313, Requires 1).
+    listing each open row's ID and first 80 characters when it is not.
+
+    This CLI subcommand is **not** what ``record-checkpoint-step``'s
+    ``checkpoint-tag`` step shells out to (CER-152). ``checkpoint-tag``'s
+    Do Now gate is ``flex_build._cer_do_now_gate_message``, which imports
+    ``find_open_do_now_rows`` directly and never invokes this command or any
+    other subprocess. ``cer.py gate`` is a standalone CLI entry point that
+    shares the same underlying scan (``find_open_do_now_rows``) for manual
+    or CI use outside the build loop — a second, independent surface reading
+    the same shared function, not a second implementation of it. Also
+    shared by ``next_action._check_cer_do_now`` (INFRA-313, Requires 1) —
+    one scan, multiple callers.
 
     A missing backlog.md is not an error here — nothing to gate — matching
     the resolver's fail-open behaviour for the same file.
@@ -755,11 +750,17 @@ def cmd_groom(project_dir: str) -> None:
     and a summary count. Exit code is always 0 — groom informs, it never
     decides. **groom never edits docs/cer/backlog.md and never promotes a
     row automatically; the operator decides every pull** (preserved
-    do-not-do, cora agreement A#1 / AG-6). Per the global backlog-grooming
-    policy, every cold-eyes review should run this command and present
-    arrived-gate rows as "ready to pull forward" — the pull itself is
-    recorded in the promotion ledger (``docs/phases/index.md`` § backlog
-    promotions), not built or automated here.
+    do-not-do, cora agreement A#1 / AG-6).
+
+    This command has no automated invocation, checkpoint-step wiring, or
+    scheduled reminder anywhere in the build loop today (CER-152) — nothing
+    in ``record-checkpoint-step`` or any other checkpoint sequence step
+    calls ``cer.py groom``. Running it is an operator-followed policy (the
+    global backlog-grooming policy, ``CLAUDE.md``: every cold-eyes review
+    should run this command and present arrived-gate rows as "ready to pull
+    forward"), not a mechanically enforced one. The pull itself is recorded
+    in the promotion ledger (``docs/phases/index.md`` § backlog promotions),
+    not built or automated here.
     """
     proj = _resolve_project_dir(project_dir)
     backlog_path = proj / BACKLOG_REL_PATH
