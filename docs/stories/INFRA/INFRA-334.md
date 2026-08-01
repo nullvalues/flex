@@ -2,7 +2,7 @@
 id: INFRA-334
 rail: INFRA
 title: Escalation ladder redesign — every story_class gets a real retry-upgrade path
-status: draft
+status: complete
 phase: "116"
 story_class: code
 auth_gated: false

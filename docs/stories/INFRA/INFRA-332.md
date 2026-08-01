@@ -2,7 +2,7 @@
 id: INFRA-332
 rail: INFRA
 title: Sync backfill — sync-agents gains an add-missing-file path; backfill flex and flex-harness
-status: draft
+status: complete
 phase: "116"
 story_class: code
 auth_gated: false

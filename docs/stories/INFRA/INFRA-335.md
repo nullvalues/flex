@@ -2,7 +2,7 @@
 id: INFRA-335
 rail: INFRA
 title: Work→agent-type classification doc and new-agent-type definition-of-done
-status: draft
+status: complete
 phase: "116"
 story_class: doc
 auth_gated: false

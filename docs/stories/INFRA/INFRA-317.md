@@ -2,7 +2,7 @@
 id: INFRA-317
 rail: INFRA
 title: Covered-contracts gate — Build standards covered_contracts pairs; builder pre-build read gate on scope intersection; doc wins on conflict
-status: draft
+status: complete
 phase: "116"
 story_class: code
 auth_gated: false

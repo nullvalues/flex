@@ -2,7 +2,7 @@
 id: INFRA-314
 rail: INFRA
 title: Deferral/disposition gates at both boundaries — checkpoint-tag refusal, era-transition check, phase_new --parent-phase/--proposed, forbidden-proxy stub
-status: draft
+status: complete
 phase: "116"
 story_class: code
 auth_gated: false

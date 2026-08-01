@@ -2,7 +2,7 @@
 id: INFRA-316
 rail: INFRA
 title: Between-story context etiquette — next-action consults context_budget_check between story iterations; pause-context handoff over threshold
-status: draft
+status: complete
 phase: "116"
 story_class: code
 auth_gated: false

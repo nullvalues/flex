@@ -2,7 +2,7 @@
 id: INFRA-333
 rail: INFRA
 title: Model-selection completeness — select_gate_worker_model, select_spec_writer_model, select_docs_reviewer_model
-status: draft
+status: complete
 phase: "116"
 story_class: code
 auth_gated: false

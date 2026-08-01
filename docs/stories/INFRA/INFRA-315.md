@@ -2,7 +2,7 @@
 id: INFRA-315
 rail: INFRA
 title: Pre-build intent review — resolver emits spawn-intent-reviewer before the first build of a fresh phase, behind Build-standards opt-in
-status: draft
+status: complete
 phase: "116"
 story_class: code
 auth_gated: false

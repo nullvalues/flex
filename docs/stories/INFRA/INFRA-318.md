@@ -2,7 +2,7 @@
 id: INFRA-318
 rail: INFRA
 title: Spec-time model review — story frontmatter model/reviewer_model honored by dispatch; asymmetric raise/lower prompt in spec-writer
-status: draft
+status: complete
 phase: "116"
 story_class: code
 auth_gated: false
