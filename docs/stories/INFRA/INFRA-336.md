@@ -39,6 +39,27 @@ should build that reusable integration-test harness alongside the fix, since lat
 phase (INFRA-339, INFRA-341, INFRA-344) also need to prove their fixes hold across a real stage
 transition rather than an isolated unit test.
 
+**Folded in (era 004's own goal is zero unresolved operational findings, not "later" — these are
+the same file/subsystem this story is already fixing, so fixing them separately would mean a
+second pass over the same code):**
+
+- **CER-147 (MEDIUM):** `attempt_counter.json`'s writers (`write_attempt_count`,
+  `bump_attempt_count`, `clear`) do a lock-free read-modify-write of the whole counter map, unlike
+  every `state.json` writer migrated under INFRA-285/CER-097's `state_lock`. Under the declared
+  parallel-build model (Phase 109's target capability), two near-simultaneous FAIL bumps for
+  different in-flight stories, or a merge-clear racing a sibling story's bump, can silently lose an
+  update. Route through the existing `state_lock` (or an equivalent file lock scoped to
+  `attempt_counter.json`), same pattern already used for `state.json`.
+- **CER-148 (MEDIUM):** a double-FAIL-in-one-cycle (builder self-reports FAIL, then the reviewer
+  also FAILs the same worktree) can double-bump the counter for what is semantically one failed
+  cycle, collapsing the 3-strike ladder to ~1.5 real cycles. The bump paths key only on `story_id` +
+  `outcome=="FAIL"`, blind to which role produced the FAIL — this needs a role-aware or
+  cycle-aware bump rule so one semantic attempt only ever counts once.
+
+The integration-test harness this story builds should assert both of these directly: a simulated
+concurrent bump doesn't lose an update, and a builder-FAIL-then-reviewer-FAIL sequence bumps the
+counter exactly once, not twice.
+
 ## Requires
 <!-- Prior stories, system state, or file conditions that must hold before building. -->
 

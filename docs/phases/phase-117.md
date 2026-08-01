@@ -15,7 +15,7 @@ phase_class: production
 <!-- State this phase's single purpose in one or two sentences (docs/architecture.md
      § Phase-authoring convention, INFRA-243). If the work naturally splits into more
      than one purpose, that's a signal to open a sibling phase, not to widen this one. -->
-Close the CRITICAL/HIGH gaps found by the two-model cold-eyes review of the build-loop harness itself (docs/build-loop-cold-eyes-review-20260801.md): a FAIL escalation ladder that measurably fails to advance about half the time, two features shipped in Phase 116 that are structurally unreachable in the live loop, a CER-backlog append path that can corrupt unrelated rows, a livelock in gate-worker dispatch, and the missing stage-to-stage integration test coverage that let all of the above ship reviewer-PASSed.
+Close every open finding from the two-model cold-eyes review of the build-loop harness itself (docs/build-loop-cold-eyes-review-20260801.md) — CRITICAL/HIGH and the MEDIUM/LOW findings folded in alongside them, per era 004's own stated goal of zero unresolved operational findings rather than deferring fresh findings the same session the era's core mandate was to stop deferring them. Covers: a FAIL escalation ladder that measurably fails to advance about half the time, two features shipped in Phase 116 that are structurally unreachable in the live loop, a CER-backlog append path that can corrupt unrelated rows, a livelock in gate-worker dispatch, the missing stage-to-stage integration test coverage that let all of the above ship reviewer-PASSed, the recurring merge-status-flip gap (CER-136) that manually blocked this session's own Phase 115 and 116 checkpoints, and a cluster of smaller correctness/hygiene gaps (dead effort.db columns, docstring rot, era-ledger/index bookkeeping, test-environment coupling to gpg signing) that are all adjacent to files this phase is already touching.
 
 ## Stories
 
@@ -32,6 +32,10 @@ Close the CRITICAL/HIGH gaps found by the two-model cold-eyes review of the buil
 | INFRA-344 | Commit spec-writer output before create-story-worktree branches off HEAD | draft |
 | INFRA-345 | De-duplicate attempt-recording writers: retire or reconcile the legacy record_attempt.py CLI path | draft |
 | INFRA-346 | Unify the two phase-completion definitions so the resolver's own gate is at least as strict as checkpoint-tag's deferral gate | draft |
+| INFRA-347 | merge-story-worktree must flip a landed story's status to complete (CER-136) | draft |
+| INFRA-348 | Wire or remove dead effort.db columns: tool_uses, duration_ms, story_class/model_selection_reason | draft |
+| INFRA-349 | Docstring-currency sweep: fix harness docstrings/comments that misdescribe live wiring | draft |
+| INFRA-350 | De-couple pairmode tests from operator gpg-signing config | draft |
 
 ## Ordering
 
@@ -61,6 +65,20 @@ attempt-writers) are each independent and can build in any order relative to the
 INFRA-346 (unify phase-completion definitions) should build after INFRA-339/340 land, since it
 touches the same `is_formally_deferred`/phase-completion-guard machinery INFRA-314 built and those
 two stories may also touch adjacent `next_action.py` code.
+
+INFRA-347 (CER-136's actual merge-status-flip fix) is independent and can build any time.
+
+INFRA-348 (dead effort.db columns) should build after INFRA-345 (duplicate-writer de-dup) lands,
+since retiring `record_attempt.py` as a writer may retire `story_class`/`model_selection_reason`'s
+only source along with it — check INFRA-345's landed shape before deciding those two columns' fate.
+
+INFRA-350 (gpg-signing test decoupling) is independent and can build any time — build it early if
+convenient, since every other story in this phase will hit the same commit-signing friction while
+being built and reviewed.
+
+INFRA-349 (docstring-currency sweep) should build **last** — after every other story in this phase
+lands — since it's explicitly a sweep against this phase's *final* wiring, not a mid-phase
+snapshot; building it earlier would just mean re-sweeping later stories' changes anyway.
 
 ## Schema delivery
 

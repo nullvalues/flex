@@ -254,7 +254,18 @@ CRITICAL and HIGH findings (F1–F13) are scoped into a new phase (Phase 117 —
 promise — reliable attempt escalation — is measurably broken in this repo's own live log, two of
 the broken features were built and reviewer-PASSed in the session immediately preceding this
 review, and a data-corrupting bug exists in the tooling this same checkpoint sequence depends on.
-MEDIUM/LOW findings (§5) are routed to the CER Do Later / Do Much Later backlog per the project's
-living-backlog policy.
+
+**Revised (2026-08-01, same session):** the MEDIUM/LOW findings in §5, plus split-severity F14/F15
+and the already-open CER-136, were initially filed to the CER Do Later / Do Much Later backlog
+under the project's living-backlog policy, on a severity-triage heuristic. That was reconsidered:
+era 004's own stated goal is explicitly "zero unresolved operational findings," not "defer some
+findings" — and every one of these items sits in a file or subsystem a Phase 117 story is already
+touching, meaning deferring them would only guarantee a second pass over the same code later.
+Deferring fresh findings the same session the era's core mandate was to *stop* deferring findings
+would also be a direct instance of the exact half-done-and-shipped pattern §7 identifies as this
+review's own through-line. All nine findings (CER-136, CER-147, CER-148, CER-152 through CER-158)
+are folded into Phase 117 — either merged into an existing CRITICAL/HIGH story's scope where
+file-adjacent (INFRA-336, INFRA-338, INFRA-346), or as four new dedicated stories (INFRA-347
+through INFRA-350). Nothing from this review is deferred to a future phase.
 
 *End of review.*

@@ -29,6 +29,16 @@ total parse failure, not partial corruption of a subset of rows.
 Fix direction: make the append path's row-splitting use the same `table_utils.split_table_row`
 the reader uses — one shared parser for both directions, not two independently-maintained ones.
 
+**Folded in (era 004's own goal is zero unresolved operational findings, not "later" — same file):**
+
+- **CER-152 (LOW):** `cer.py gate`/`cer.py groom`'s own docstrings claim they are wired into the
+  checkpoint sequence ("Wired into the `checkpoint-tag` step of `record-checkpoint-step`") — the
+  live gate (`flex_build._cer_do_now_gate_message`) imports the shared function directly and never
+  shells out to the CLI, and `groom` (era 002's stated "run on every cold-eyes review" policy) has
+  no enforcement or reminder anywhere in the loop. Either correct the docstrings to describe the
+  real (direct-import) wiring, or actually wire the CLI subcommands in if a second surface is
+  wanted — don't leave both existing with one silently unused.
+
 ## Requires
 <!-- Prior stories, system state, or file conditions that must hold before building. -->
 

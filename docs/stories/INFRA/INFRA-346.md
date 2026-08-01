@@ -33,6 +33,31 @@ check can no longer diverge from the stronger one and the resolver refuses to di
 `checkpoint-security` in the first place when a story's own frontmatter disagrees with its
 phase-table row.
 
+**Folded in (era 004's own goal is zero unresolved operational findings, not "later" — same
+checkpoint/era-completion subsystem this story is already touching):**
+
+- **CER-154 (LOW):** era-ledger flip failures are silently swallowed — `_flip_era_ledger_row`'s
+  `"not_found"` return value is computed and discarded by its caller, so `checkpoint-tag` can
+  silently leave the era ledger stale while the phase-index flip succeeds; compounded by the search
+  being restricted to `status: active` era docs, so re-tagging a phase from an already-closed era
+  silently skips the ledger entirely. Separately, `era_transition`'s disposition gate fails open on
+  any unparseable `## Phases` ledger table (no cells matching exactly `phase`/`status` → vacuous
+  `[]` → the gate passes and "Era N closed" prints over live, un-dispositioned phases). Surface
+  `"not_found"` as a real error/warning instead of discarding it, and make the disposition gate
+  fail *closed* (refuse) rather than open on an unparseable ledger.
+- **CER-155 (LOW):** `docs/phases/index.md`'s `Tag` column is never mechanically written by any
+  tool — rows 8-105 carry hand-written `· cpNN` suffixes, rows 106-116 carry none despite
+  `cp-106`..`cp-116` all existing. Have `checkpoint-tag`'s mark-complete step also write the `Tag`
+  cell, and have it verify the tag actually exists (git-side) before declaring the step done, so a
+  failed `git tag && push` after a successful mark-complete is detectable rather than silently
+  idempotent-and-useless on retry.
+- **CER-158 (LOW):** `record-checkpoint-step` without an explicit `--phase-key` degrades ambiguity
+  (one active phase plus queued `planned` rows — the common case) to a warning and stamps the step
+  under key `""`, invisible to the keyed-shape resolver read — the same gate step can re-emit
+  indefinitely. Since this story is already unifying the phase-completion checks, make this case a
+  hard refusal (matching the "fail closed on ambiguity" spirit of CER-154's disposition-gate fix)
+  rather than a silent no-op key.
+
 ## Requires
 <!-- Prior stories, system state, or file conditions that must hold before building. -->
 
