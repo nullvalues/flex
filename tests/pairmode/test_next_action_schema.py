@@ -43,6 +43,7 @@ from next_action import (  # noqa: E402
     CHECKPOINT_SECURITY,
     CHECKPOINT_TAG,
     DONE,
+    PAUSE_CONTEXT,
     SCHEMA_VERSION,
     SPAWN_BUILDER,
     SPAWN_LOOP_BREAKER,
@@ -162,12 +163,13 @@ class TestConstructor:
 
 
 class TestEnumClosure:
-    def test_actions_contains_exactly_thirteen_values(self):
+    def test_actions_contains_exactly_fourteen_values(self):
         # RESOLVER-005 added spawn-gate-worker (was five before HARNESS002-main).
         # WORKER-004 added spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer (was six).
         # RESOLVER-007 removed monolithic checkpoint and added four checkpoint-* actions (net +3).
         # RESOLVER-009 added spawn-spec-writer (was twelve).
-        assert len(ACTIONS) == 13
+        # INFRA-316 added pause-context (was thirteen).
+        assert len(ACTIONS) == 14
 
     def test_actions_contains_all_documented_values(self):
         expected = {
@@ -184,6 +186,7 @@ class TestEnumClosure:
             "checkpoint-tag",
             "await-user",
             "done",
+            "pause-context",
         }
         assert ACTIONS == expected
 
@@ -210,6 +213,7 @@ class TestEnumClosure:
             CHECKPOINT_TAG,
             AWAIT_USER,
             DONE,
+            PAUSE_CONTEXT,
         }
         assert named == ACTIONS
 
@@ -289,6 +293,13 @@ class TestValidateActionNegative:
         assert violations
         assert any("done" in v for v in violations)
 
+    def test_model_set_on_pause_context_rejected(self):
+        """pause-context is an await-user-class action; model must be null."""
+        obj = make_action(PAUSE_CONTEXT, model="sonnet")
+        violations = validate_action(obj)
+        assert violations
+        assert any("pause-context" in v for v in violations)
+
     def test_meta_missing_schema_version(self):
         obj = self._valid_done()
         del obj["meta"]["schema_version"]
@@ -323,6 +334,15 @@ class TestValidateActionNegative:
     def test_valid_spawn_builder_null_model_accepted(self):
         """model=null is also legal on spawn-builder (resolver may not know model yet)."""
         obj = make_action(SPAWN_BUILDER, scalar="X-001", model=None)
+        assert validate_action(obj) == []
+
+    def test_valid_pause_context_accepted(self):
+        obj = make_action(
+            PAUSE_CONTEXT,
+            scalar="X-001",
+            model=None,
+            reason="pause-context: tokens=132000 threshold=120000 ceiling=132000",
+        )
         assert validate_action(obj) == []
 
 

@@ -50,8 +50,9 @@ if __name__ == "__main__" and "flex_build" not in sys.modules:
 
 import click
 
-from schema_validator import _parse_frontmatter  # noqa: E402
+from schema_validator import _parse_frontmatter, VALID_MODEL_TIERS  # noqa: E402
 from model_selector import (  # noqa: E402
+    apply_declared_model_floor,
     select_builder_model,
     select_intent_reviewer_model,
     select_reviewer_model,
@@ -703,7 +704,19 @@ def cmd_check_guardrail(story_id: str, tokens: int, project_dir: str) -> None:
 def cmd_select_reviewer_model(
     story_id: str, attempt: int, project_dir: str
 ) -> None:
-    """Select the reviewer model; print ``model`` then ``reason``."""
+    """Select the reviewer model; print ``model`` then ``reason``.
+
+    INFRA-318: this is the live seam the orchestrator calls before every
+    reviewer spawn (see ``CLAUDE.build.md`` § Build loop). When the story
+    declares an optional ``reviewer_model:`` frontmatter field (validated
+    against ``schema_validator.VALID_MODEL_TIERS``), it is applied to the
+    auto-selected ``(model, reason)`` via
+    ``model_selector.apply_declared_model_floor`` — an outright override at
+    attempt 1, a floor (never a downgrade) on retry (attempt >= 2), mirroring
+    the builder-side ``model:`` floor in ``next_action.infer_position``.
+    A story without ``reviewer_model:`` gets byte-identical output to before
+    (Ensures 3/5).
+    """
     project_path = Path(project_dir).resolve()
     story_path = _story_path(story_id, project_path)
     fm = _read_story_frontmatter(story_path)
@@ -715,6 +728,16 @@ def cmd_select_reviewer_model(
         attempt_number=attempt,
         phase_id=phase_id_str,
         project_dir=project_path,
+    )
+    raw_declared_reviewer_model = fm.get("reviewer_model")
+    declared_reviewer_model = (
+        raw_declared_reviewer_model
+        if isinstance(raw_declared_reviewer_model, str)
+        and raw_declared_reviewer_model in VALID_MODEL_TIERS
+        else None
+    )
+    model, reason = apply_declared_model_floor(
+        model, reason, declared_reviewer_model, attempt
     )
     click.echo(model)
     click.echo(reason)
@@ -3332,11 +3355,21 @@ def cmd_check_auth_gate(story_id: str, project_dir: str) -> None:
     default=False,
     help="Skip interactive prompts; --name must be provided.",
 )
+@click.option(
+    "--era-id",
+    default=None,
+    help=(
+        "Explicit ID of the active era to close (INFRA-314). Optional when "
+        "exactly one era is active (defaults to it); required when two or "
+        "more are active — there is no implicit 'last active era' target."
+    ),
+)
 def cmd_transition_era(
     name: str | None,
     intent: str,
     project_dir: str,
     yes: bool,
+    era_id: str | None,
 ) -> None:
     """Formally close the current active era and open the next one."""
     from era_transition import era_transition_cli  # noqa: PLC0415
@@ -3347,6 +3380,7 @@ def cmd_transition_era(
             name=name,
             intent=intent,
             yes=yes,
+            era_id=era_id,
         )
     )
 
@@ -3716,6 +3750,104 @@ def _read_checkpoint_steps(state: dict) -> "dict[str, list[str]]":
     return {key: [item for item in flat if isinstance(item, str)]}
 
 
+def _cer_do_now_gate_message(project_dir: Path) -> "str | None":
+    """Return a checkpoint-tag refusal message when ``docs/cer/backlog.md``
+    holds an open ``## Do Now`` row, or ``None`` when the gate is clean
+    (INFRA-313, Ensures 3).
+
+    Shares ``cer.find_open_do_now_rows`` with
+    ``next_action._check_cer_do_now`` — one Do Now scan, not a second copy
+    forked for the checkpoint-tag path (Requires 1). Fail-open, matching the
+    resolver's own soft ``cer-do-now`` guard: a missing or unreadable
+    backlog.md returns ``None`` (nothing to refuse over), never blocking a
+    checkpoint the resolver itself would have let through.
+    """
+    from cer import find_open_do_now_rows  # noqa: PLC0415
+
+    backlog_path = project_dir / "docs" / "cer" / "backlog.md"
+    if not backlog_path.exists():
+        return None
+    try:
+        text = backlog_path.read_text(encoding="utf-8")
+    except OSError:
+        return None  # fail-open
+
+    open_rows = find_open_do_now_rows(text)
+    if not open_rows:
+        return None
+
+    listed = "; ".join(f"{row['id']}: {row['text'][:80]}" for row in open_rows)
+    return (
+        "record-checkpoint-step: checkpoint-tag refused — "
+        f"{len(open_rows)} open CER Do Now row(s): {listed}. Clear each row "
+        "with a RESOLVED/SUPERSEDED annotation or a written re-triage to "
+        "another quadrant — never by deletion — then retry."
+    )
+
+
+def _deferral_gate_message(phase_key: str, project_dir: Path) -> "str | None":
+    """Return a checkpoint-tag refusal message when *phase_key*'s stories hold
+    a story that is neither ``'complete'`` nor formally deferred (INFRA-314,
+    Ensures 1), or ``None`` when the gate is clean.
+
+    "Formally deferred" is ``index_integrity.is_formally_deferred`` — status
+    ``'deferred'`` AND named in the phase doc's ``## Deferred stories``
+    section — imported, not re-derived, so this gate and ``check-index``
+    check 4 can never disagree about what counts as a formal deferral
+    (Ensures 3). Every story whose frontmatter ``phase:`` names *phase_key* is
+    scanned directly (not the phase doc's own ``## Stories`` table column,
+    which can drift from the story's own frontmatter) — same source
+    ``index_integrity`` check 4 reads. A missing phase key, missing phase
+    doc, or missing stories directory all fail open: nothing to refuse over.
+    """
+    from index_integrity import is_formally_deferred  # noqa: PLC0415
+
+    if not phase_key:
+        return None
+
+    phase_file = project_dir / "docs" / "phases" / f"phase-{phase_key}.md"
+    if not phase_file.exists():
+        return None
+    try:
+        phase_text = phase_file.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    stories_dir = project_dir / "docs" / "stories"
+    if not stories_dir.exists():
+        return None
+
+    undispositioned: list[tuple[str, str]] = []
+    for story_file in sorted(stories_dir.rglob("*.md")):
+        try:
+            text = story_file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fm = _parse_frontmatter(text) or {}
+        story_phase = str(fm.get("phase") or "").strip()
+        if story_phase != phase_key:
+            continue
+        story_id = (fm.get("id") or story_file.stem).strip()
+        status = (fm.get("status") or "").lower().strip()
+        if status == "complete":
+            continue
+        if is_formally_deferred(status, story_id, phase_text):
+            continue
+        undispositioned.append((story_id, status))
+
+    if not undispositioned:
+        return None
+
+    listed = "; ".join(f"{sid} (status: {status!r})" for sid, status in undispositioned)
+    return (
+        "record-checkpoint-step: checkpoint-tag refused — "
+        f"{len(undispositioned)} undispositioned story(ies) in phase {phase_key}: "
+        f"{listed}. Each must be resolved before tagging: complete it, or "
+        "formally defer it (status: deferred AND a named entry in the phase "
+        "doc's ## Deferred stories section)."
+    )
+
+
 def _record_checkpoint_step(
     step_id: str, project_dir: Path, phase_key: "str | None" = None
 ) -> int:
@@ -3729,6 +3861,23 @@ def _record_checkpoint_step(
     ``docs/phases/index.md`` occurs on a 2-exit path; every validation and
     ambiguity check happens before the atomic state write and before
     ``_mark_phase_complete_in_index``.
+    Returns 3 when *step_id* is the terminal step (``checkpoint-tag``) and
+    ``docs/cer/backlog.md`` holds an open ``## Do Now`` row (INFRA-313,
+    Ensures 3) — ``_cer_do_now_gate_message`` names each open row's ID and
+    first 80 characters. No write occurs on a 3-exit path either: the gate
+    is checked before any of the A2/A3/A4 phase-key resolution below. The
+    refusal is fix-or-retriage, never delete: the message states that an
+    open row is cleared by a ``RESOLVED``/``SUPERSEDED`` annotation or a
+    written re-triage to another quadrant. This shares
+    ``cer.find_open_do_now_rows`` with ``next_action._check_cer_do_now`` —
+    one Do Now scan, two callers, not a forked second copy.
+    Returns 4 when *step_id* is the terminal step and the resolved phase key
+    holds a story that is neither ``'complete'`` nor formally deferred
+    (INFRA-314, Ensures 1) — ``_deferral_gate_message`` names each
+    undispositioned story ID and its status, and states the two legal
+    resolutions (complete it, or formally defer it). No write occurs on a
+    4-exit path either: checked once ``effective_key`` is resolved (A3) but
+    before the idempotency check and before ``_mark_phase_complete_in_index``.
 
     Storage shape (INFRA-283, CER-095.4). Completed steps are stored in
     ``state.json["checkpoint_steps"]``, a ``dict[phase_key, list[step_id]]``
@@ -3807,6 +3956,17 @@ def _record_checkpoint_step(
         state = {}
 
     is_terminal = step_id == _CHECKPOINT_SEQUENCE[-1]
+
+    # --- INFRA-313 (Ensures 3): the terminal step (checkpoint-tag) refuses
+    # to record when docs/cer/backlog.md holds an open Do Now row. Checked
+    # before any read/validation below that could otherwise be mistaken for
+    # "in progress" — no state.json read has happened yet, so a refusal here
+    # performs no write of any kind. ---
+    if is_terminal:
+        gate_message = _cer_do_now_gate_message(project_dir)
+        if gate_message is not None:
+            click.echo(gate_message, err=True)
+            return 3
 
     # --- A2: an explicit --phase-key must name a real index row before any
     # write happens. ---
@@ -3890,6 +4050,19 @@ def _record_checkpoint_step(
             # warning and stamp the documented INFRA-260 fallback value.
             click.echo(f"warning: {message}", err=True)
             effective_key = ""
+
+    # --- INFRA-314 (Ensures 1): the terminal step (checkpoint-tag) refuses
+    # to record when the resolved phase holds a story that is neither
+    # 'complete' nor formally deferred. Checked once effective_key is known
+    # (this gate is phase-scoped, unlike the CER Do Now gate above) but
+    # before the idempotency check and before any write — a refusal here
+    # performs no state.json write and does not reach
+    # _mark_phase_complete_in_index. ---
+    if is_terminal:
+        deferral_message = _deferral_gate_message(effective_key, project_dir)
+        if deferral_message is not None:
+            click.echo(deferral_message, err=True)
+            return 4
 
     # --- Idempotency is now checked here, after the key is resolved, not
     # before A2/A4/A3 (INFRA-283). Idempotency is per-key: whether step_id is
@@ -4177,6 +4350,83 @@ def cmd_record_checkpoint_step(
     _depth_guard(project_path)
     rc = _record_checkpoint_step(step_id, project_path, phase_key=phase_key)
     sys.exit(rc)
+
+
+@flex_build.command("record-intent-review")
+@click.option(
+    "--phase-key",
+    "phase_key",
+    required=True,
+    type=str,
+    help="Phase key (docs/phases/index.md row reference) this review is for.",
+)
+@click.option(
+    "--verdict",
+    "verdict",
+    required=True,
+    type=str,
+    help="Recognised REVIEW-RESULT verdict: PASS, FAIL, or ALIGNED.",
+)
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_record_intent_review(phase_key: str, verdict: str, project_dir: str) -> None:
+    """Record a pre-build intent-review verdict for *phase_key* (INFRA-315).
+
+    Writes ``state.json["pre_build_intent_review"][phase_key] = verdict``,
+    atomically (temp file + ``os.replace``, mirroring every other
+    ``state.json`` writer in this module). This is the durable "already
+    reviewed" evidence ``next_action._is_fresh_phase``/
+    ``resolve_next_action``'s Row PBI reads to fire the
+    ``spawn-intent-reviewer`` pre-build emission exactly once per phase
+    (Ensures 2) and to route a non-PASS/ALIGNED verdict to ``await-user``
+    instead of silently proceeding (Ensures 4).
+
+    ``verdict`` is validated against the same enum ``worker_result.py``'s
+    ``REVIEW-RESULT`` schema recognises (PASS, FAIL, ALIGNED) — not
+    imported directly (this module already imports enough; the mirror is
+    a two-line frozenset, not a forked schema) but kept in lockstep by
+    ``tests/pairmode/test_worker_result.py``'s enum-mirror test, the same
+    mechanism ``subagent_transcript.RECOGNISED_REVIEW_VERDICTS`` uses. An
+    unrecognised verdict string exits 1 with no write — a typo in the
+    orchestrator's call should never silently corrupt the evidence file.
+    """
+    _RECOGNISED_REVIEW_VERDICTS = frozenset({"PASS", "FAIL", "ALIGNED"})
+    if verdict not in _RECOGNISED_REVIEW_VERDICTS:
+        click.echo(
+            f"record-intent-review: unrecognised --verdict {verdict!r}. "
+            f"Valid values: {', '.join(sorted(_RECOGNISED_REVIEW_VERDICTS))}",
+            err=True,
+        )
+        sys.exit(1)
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    companion = project_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    state_path = companion / "state.json"
+
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            if not isinstance(state, dict):
+                state = {}
+        except (json.JSONDecodeError, OSError):
+            state = {}
+    else:
+        state = {}
+
+    reviews = state.get("pre_build_intent_review")
+    if not isinstance(reviews, dict):
+        reviews = {}
+    reviews[phase_key] = verdict
+    state["pre_build_intent_review"] = reviews
+
+    _atomic_write_json(state_path, state)
+    click.echo(f"pre-build intent review: recorded {verdict} for phase {phase_key}")
 
 
 @flex_build.command("check-index")

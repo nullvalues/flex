@@ -120,7 +120,10 @@ complete set of sections for this story.
 - `## Out of scope` must name at least one related capability that is intentionally
   excluded from this story.
 - Preserve the existing frontmatter exactly — do not change `id`, `rail`, `title`,
-  `status`, `phase`, `primary_files`, `touches`, `story_class`, or any other field.
+  `status`, `phase`, `primary_files`, `touches`, `story_class`, or any other field —
+  **except** the optional `model:` / `reviewer_model:` fields, which Step 4b below
+  may add (never edited if already present; a pre-existing declared value is a
+  human decision this procedure never overrides).
 - Preserve any existing body sections that are already complete — only add or expand
   what is missing.
 
@@ -159,6 +162,36 @@ note to `## Instructions` describing the adjustment and the conviction/constrain
 it was made to preserve; if flagged, describe the unresolved conflict in the
 `reason` you return.
 
+### Step 4b — Model proposal: asymmetric raise/lower (INFRA-318, Cora A#7/AG-6)
+
+Optional per-story override of the default model selection tables
+(`model_selector.py`'s `select_builder_model`/`select_reviewer_model`). Most
+stories should declare neither field — only act here when you have a
+specific, story-level reason the default is wrong for this story's actual
+complexity or review difficulty. The builder's `model:` and the reviewer's
+`reviewer_model:` are judged independently — review difficulty doesn't
+always track build difficulty.
+
+The rule is deliberately asymmetric, because the two mistakes cost
+differently:
+
+- **Lowering** below the default is cheap to get wrong (one rework cycle if
+  the story turns out harder than judged). Write it directly into
+  frontmatter with a one-line rationale note, no operator prompt:
+  `model: sonnet  # lower: templated documentation, low complexity`
+- **Raising** above the default is expensive to get wrong silently (every
+  attempt on every story pays the higher tier's cost). Do **not** write the
+  field unilaterally. Instead, present the story ID, the proposed override,
+  and the reason to the operator — add a `## Model review` section to the
+  story body naming all three, and return `status: "revised"` (Step 5) so a
+  human resolves it. Only once approval is recorded may the field appear,
+  in this pinned form: `model: opus  # raise approved: <date>, <reason>`
+  (same form for `reviewer_model:`).
+
+A story with a pre-existing `model:`/`reviewer_model:` value already in the
+stub's frontmatter is left untouched — a value already present means a human
+already decided; this step never edits or removes it.
+
 ### Step 5 — Check for human-review signals
 
 Return `status: "revised"` (rather than `"done"`) if any of the following apply:
@@ -172,6 +205,8 @@ Return `status: "revised"` (rather than `"done"`) if any of the following apply:
   completion is a prerequisite but whose story files do not yet exist.
 - Step 4a's ideology-alignment check found a conflict that could not be resolved
   inline within the spec draft (see Step 4a's conflict-resolution rule).
+- Step 4b proposes raising the builder or reviewer model above the default and
+  that raise has not yet been operator-approved in the pinned form.
 
 Otherwise return `status: "done"`.
 

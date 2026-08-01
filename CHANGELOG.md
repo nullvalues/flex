@@ -6,6 +6,18 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-08-01
+
+*The Phase 95/96/98 entries below predate the `v0.3.0` fold tag (2026-07-24)
+and were never given a release heading of their own; they are grouped here
+only because they fall chronologically under this heading now that one
+exists, not because they are 0.3.1 work.*
+
+### Added [pairmode] — Phase 116 (Cora upstream: methodology gates, resolver cadence, spec-time controls; backlog truth pass and 0.3.1)
+- Methodology/resolver gates (INFRA-313, INFRA-314, INFRA-315, INFRA-316, INFRA-317, INFRA-318): CER backlog gate+groom wired into checkpoint with a `gate:` field; deferral/disposition refusals at checkpoint-tag and era-transition (era-close now takes an explicit ID, no implicit "active era" pick), plus `phase_new.py --parent-phase`/`--proposed`; pre-build intent review behind opt-in; between-story context etiquette in `next-action`; a covered-contracts pre-build read gate (doc wins on divergence); spec-time `model:`/`reviewer_model:` frontmatter honored by dispatch.
+- Agent-type completeness (INFRA-331..335, CER-137..141): `spec-writer.md.j2` template + `ACTION_SUBAGENT_TYPE` registration for spec-writer/docs-reviewer/gate-worker; `sync-agents` add-missing-file backfill for already-bootstrapped projects (flex + flex-harness backfilled); `select_gate_worker_model`/`select_spec_writer_model`/`select_docs_reviewer_model` added to `model_selector.py`; every `story_class` now has a real retry-upgrade path; a work→agent-type classification doc and new-agent-type definition-of-done.
+- Backlog truth pass, phase-107 supersession, era-003 closure, zero-open audit, 0.3.1 version record (INFRA-310): 19 obsolete CER rows annotated with re-verified evidence; 3 off-format dispositions normalized; CER-031/CER-118 given honest retain dispositions; `check-index` driven to a true exit 0 (48 pre-existing violations fixed per category, not baselined); phases 106/107/108 dispositioned; era 003 formally closed by ID via INFRA-314's gated path with an `## Exit criterion` section; version bumped to 0.3.1 across all four surfaces plus flex's own `.companion/state.json`.
+
 ### Fixed [pairmode] — Phase 115 (Observability closeout: API hardening, payload guards, rollup hygiene, functional validation)
 - Loopback-honest CORS and abs_path disclosure gating (INFRA-306, CER-042/CER-043): the observability API no longer returns `Access-Control-Allow-Origin: *` to non-loopback hosts, and `abs_path` is withheld unless the caller explicitly opts in with `?include_path=true`.
 - Vendored payload guards made pattern-based instead of package-literal (INFRA-307, CER-093/CER-094): `.claude/` noise from upstream npm packages is now tolerated by a regex pattern rather than an ever-growing allowlist; `test_extension.node` (an unused native-addon test fixture) deleted; the seven tracked `.node` binaries are now enumerated and guarded against silent growth.

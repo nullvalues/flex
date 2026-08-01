@@ -147,3 +147,22 @@ proving story cycle runs for pokus, so the § *Checkpoint proves* per-project
 proving clause is narrowed for pokus by this directive and RELEASE-071 must count
 it as **proof-deferred, not proven** (the campaign's downstream proof already
 stands on forqsite.help/halfhorse).
+
+## Dispositioned complete-by-hand-migration (2026-08-01, INFRA-310, AG-3)
+
+This phase is dispositioned **complete by hand-migration**, per operator
+instruction, on the 2026-07-28 hold-lift lineage (`project_phase106_campaign_hold`
+memory: hold LIFTED at cp-112, E6b field-proven, RELEASE-066+ clear). All ten
+stories above already read `complete`.
+
+**Evidence limitation, stated honestly, not papered over:** hand-migration did
+**not** hold for the agent shells (finding F1 from the 2026-07-29 cold-eyes
+review) — several fleet projects' `.claude/agents/` bodies drifted from
+canon independently of their recorded `pairmode_version`. Canon parity for
+the fleet's agent shells arrives via the **post-0.3.1 sync campaign** that
+**INFRA-311** (Phase 113, `status: complete` — verified before this
+disposition was written) makes possible: INFRA-311's sync canon-shrink
+propagation, audit EXTRA-inside-canonical-files flagging, and
+`SCAFFOLD_FILES` parity test are the mechanism that a future sync-all sweep
+will run against the fleet. This phase does not itself run that sweep — it
+records that the tool to run it now exists.

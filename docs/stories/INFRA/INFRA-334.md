@@ -2,7 +2,7 @@
 id: INFRA-334
 rail: INFRA
 title: Escalation ladder redesign — every story_class gets a real retry-upgrade path
-status: draft
+status: complete
 phase: "116"
 story_class: code
 auth_gated: false
@@ -10,6 +10,7 @@ schema_introduces: false
 primary_files:
   - skills/pairmode/scripts/model_selector.py
 touches:
+  - tests/pairmode/test_model_selector.py
   - tests/pairmode/test_flex_build_story_cost_estimate.py
   - docs/stories/DESIGN
   - docs/architecture.md
@@ -170,3 +171,73 @@ it is gone.
   concern.
 - `story-cost-estimate`'s sampling behavior, even if Requires 4 finds an
   interaction — file a CER row if one is found; do not fix it here.
+
+## Evidence
+
+- **Requires 3 — tests touched.** `tests/pairmode/test_model_selector.py`:
+  - `TestAttemptTwoPlus.test_methodology_attempt2_no_phase_stays_sonnet` /
+    `test_methodology_attempt2_with_phase_id_but_no_project_dir_stays_sonnet`
+    renamed and updated to assert the new unconditional opus/retry-upgrade
+    outcome (`test_methodology_attempt2_no_phase_upgrades_to_opus` /
+    `test_methodology_attempt2_with_phase_id_but_no_project_dir_upgrades`).
+  - `TestMethodologySamePhaseCodeStory` renamed to
+    `TestMethodologyUnconditionalEscalation`; every test in the class updated
+    to assert `(opus, "retry-upgrade")` regardless of same-phase-code-story
+    presence/absence/unreadability (the conditional this class used to pin no
+    longer exists) — the attempt-1 test in the class is unchanged (still
+    `sonnet`/`auto-baseline`, since attempt 1 was never part of the removed
+    conditional).
+  - `TestPhaseHasCodeStory` deleted — it tested the internal
+    `_phase_has_code_story` helper directly; that helper's only call site
+    (`select_reviewer_model`'s same-phase-code-story lookup) was removed per
+    Ensures 2, and no other consumer references it (confirmed via
+    project-wide grep), so the helper itself was deleted as dead code, not
+    just its call site.
+  - `TestSelectBuilderModelRetry`: `test_doc_attempt2_stays_haiku` renamed to
+    `test_doc_attempt2_escalates_to_sonnet` (now asserts sonnet/retry-upgrade)
+    with a new `test_doc_attempt5_stays_sonnet` added (asserts no escalation
+    past sonnet); `test_lesson_attempt2_escalates_to_sonnet` added (lesson
+    mirrors doc); `test_methodology_attempt2_stays_sonnet` renamed to
+    `test_methodology_attempt2_escalates_to_opus` (now asserts opus/retry-
+    upgrade) with `test_methodology_attempt3_stays_opus` added.
+  - `code`-class tests in both `TestAttemptTwoPlus`
+    (`test_code_attempt2_upgrades_to_opus`, `test_code_attempt3_upgrades_to_opus`)
+    and `TestSelectBuilderModelRetry`
+    (`test_code_attempt2_escalates_to_opus`, `test_code_attempt3_escalates_to_opus`,
+    `test_code_attempt2_overrides_file_count_signal`) were left unmodified —
+    they pin the unchanged `code` ladder (Ensures 3) and pass unmodified.
+
+- **Requires 4 — story-cost-estimate interaction.** Read
+  `tests/pairmode/test_flex_build_story_cost_estimate.py` in full: it samples
+  `effort_db` rows keyed on `(rail, story_class)` from historical attempt
+  records inserted via `effort_db.insert_attempt` / recorded by
+  `record_attempt.py`; it never calls `model_selector.select_builder_model`
+  or `select_reviewer_model`, and the `(rail, story_class)` key this story
+  leaves untouched (`schema_validator.VALID_STORY_CLASSES` unchanged, Ensures
+  5). No interaction found — nothing to file as a CER row.
+
+- **Reason-string design decision (methodology's new escalation reason).**
+  The story text names `"retry-upgrade"` explicitly only for the doc/lesson
+  builder-side transition (Ensures 1, "reuse the existing reason string code
+  already uses for this transition"). For methodology's new escalation (both
+  builder and reviewer, Ensures 2) the same reasoning applies — it is the
+  same semantic event (unconditional retry escalation) as `code`'s existing
+  ladder — so `"retry-upgrade"` was reused there too rather than introducing
+  a fifth reason value, keeping exactly four reason values in play across
+  both selectors' attempt>=2 tables (`doc-class-baseline` is the only
+  remaining class-specific reason, and it describes a *non-escalation*, not
+  a transition).
+
+- **`phase_id`/`project_dir` parameters on `select_reviewer_model`.**
+  Confirmed via grep that `flex_build.py`'s `cmd_select_reviewer_model` is
+  the only production caller and passes both by keyword
+  (`skills/pairmode/scripts/flex_build.py:726-731`). Per Requires 2, the
+  parameters are left on the signature (accepted-but-unused) rather than
+  removed, with a docstring note explaining why, to avoid an unrelated
+  call-site signature change outside this story's scope.
+
+- **`_find_phase_file` retained.** Unlike `_phase_has_code_story`,
+  `_find_phase_file` has a second live caller (`_read_phase_class`, used by
+  the `intent-reviewer`/`security-auditor` CLI roles in `__main__`) unrelated
+  to the methodology same-phase-code-story logic this story removes — it was
+  left in place.

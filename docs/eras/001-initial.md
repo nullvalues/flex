@@ -68,7 +68,7 @@ effort-DB analytics, and surfacing the data era 001 accumulated.
 | 20 | PR readiness — documentation, changelog, git history | complete |
 | 21 | Orchestrator hardening and auth-policy integration | complete |
 | 22 | Effort tracking infrastructure | complete |
-| 23 | Drift detection foundations (pivoted — see Phase 29) | complete |
+| 23 | Drift detection foundations (pivoted — see Phase 29) | deferred |
 | 24 | Data-defensible model rebalance refinement | complete |
 | 25 | Backlog remediation and cross-project agent sync | complete |
 | 26 | Build loop retry automation and auth policy canonization | complete |
@@ -97,10 +97,10 @@ effort-DB analytics, and surfacing the data era 001 accumulated.
 | 50 | Phase/story spec boundary policy | complete |
 | 51 | Stub gate and phase-doc scan enforcement | complete |
 | 52 | Lean orchestrator and spec workflow | complete |
-| 53 | Phase 52 cold-eyes fixes + story cost estimation | planned |
-| 54 | sync-all wrapper command | planned |
-| 56 | Phase naming suffix convention | planned |
-| 57 | Global session hook + era-001 documentation close | planned |
+| 53 | Phase 52 cold-eyes fixes + story cost estimation | complete |
+| 54 | sync-all wrapper command | complete |
+| 56 | Phase naming suffix convention | complete |
+| 57 | Global session hook + era-001 documentation close | complete |
 
 ## Era summary
 

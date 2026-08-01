@@ -786,6 +786,19 @@ class TestStoryBodyFormat:
         ensures_pos = content.index("## Ensures")
         assert requires_pos < ensures_pos, "## Requires must appear before ## Ensures"
 
+    def test_ensures_carries_forbidden_proxy_stub(self, tmp_path: pathlib.Path) -> None:
+        """INFRA-314, Ensures 6: a comment under ## Ensures prompts the author
+        to state the correct signal AND the forbidden proxy."""
+        invoke(["--rail", "INFRA", "--title", "Forbidden proxy stub test", "--project-dir", str(tmp_path)])
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        ensures_pos = content.index("## Ensures")
+        instructions_pos = content.index("## Instructions")
+        ensures_block = content[ensures_pos:instructions_pos]
+        assert "<!--" in ensures_block
+        assert "forbidden proxy" in ensures_block.lower()
+        assert "correct signal" in ensures_block.lower()
+
 
 class TestAuthGatedSchemaIntroducesFields:
     """auth_gated and schema_introduces are scaffolded into new story frontmatter."""

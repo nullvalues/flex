@@ -21,18 +21,18 @@ Upstream the six methodology extensions field-proven on cora's 0.1.0→0.3.0 han
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-313 | CER backlog gate and groom: `cer.py gate` wired into checkpoint, `cer.py groom`, `gate:` field | draft |
-| INFRA-314 | Deferral/disposition gates at both boundaries: checkpoint-tag refusal, era-transition check, `phase_new.py --parent-phase` and `--proposed`, forbidden-proxy template stub | draft |
-| INFRA-315 | Pre-build intent review: resolver emits spawn-intent-reviewer before first build, behind Build-standards opt-in | draft |
-| INFRA-316 | Between-story context etiquette: next-action consults context_budget_check between story iterations; pause-context handoff | draft |
-| INFRA-317 | Covered-contracts gate: Build standards `covered_contracts:` pairs; builder pre-build read gate; doc wins on conflict | draft |
-| INFRA-318 | Spec-time model review: story frontmatter `model:`/`reviewer_model:` honored by dispatch; asymmetric raise/lower prompt | draft |
-| INFRA-331 | Agent registration completeness: `spec-writer.md.j2` template; register spec-writer/docs-reviewer/gate-worker in `ACTION_SUBAGENT_TYPE` | draft |
-| INFRA-332 | Sync backfill: `sync-agents` gains an add-missing-file path for already-bootstrapped projects; backfill flex and flex-harness | draft |
-| INFRA-333 | Model-selection completeness: `select_gate_worker_model`, `select_spec_writer_model`, `select_docs_reviewer_model` in `model_selector.py`; dispatch call sites route through them instead of hardcoded literals | draft |
-| INFRA-334 | Escalation ladder redesign: every `story_class` gets a real retry-upgrade path (`doc`/`lesson` haiku→sonnet, `methodology` sonnet→opus unconditional) instead of dead-ending or conditional escalation | draft |
-| INFRA-335 | Work→agent-type classification doc and new-agent-type definition-of-done, to prevent this class of drift recurring | draft |
-| INFRA-310 | Backlog truth pass, phase-107 supersession, era-003 closure, zero-open audit, and the 0.3.1 version record | draft |
+| INFRA-313 | CER backlog gate and groom: `cer.py gate` wired into checkpoint, `cer.py groom`, `gate:` field | complete |
+| INFRA-314 | Deferral/disposition gates at both boundaries: checkpoint-tag refusal, era-transition check, `phase_new.py --parent-phase` and `--proposed`, forbidden-proxy template stub | complete |
+| INFRA-315 | Pre-build intent review: resolver emits spawn-intent-reviewer before first build, behind Build-standards opt-in | complete |
+| INFRA-316 | Between-story context etiquette: next-action consults context_budget_check between story iterations; pause-context handoff | complete |
+| INFRA-317 | Covered-contracts gate: Build standards `covered_contracts:` pairs; builder pre-build read gate; doc wins on conflict | complete |
+| INFRA-318 | Spec-time model review: story frontmatter `model:`/`reviewer_model:` honored by dispatch; asymmetric raise/lower prompt | complete |
+| INFRA-331 | Agent registration completeness: `spec-writer.md.j2` template; register spec-writer/docs-reviewer/gate-worker in `ACTION_SUBAGENT_TYPE` | complete |
+| INFRA-332 | Sync backfill: `sync-agents` gains an add-missing-file path for already-bootstrapped projects; backfill flex and flex-harness | complete |
+| INFRA-333 | Model-selection completeness: `select_gate_worker_model`, `select_spec_writer_model`, `select_docs_reviewer_model` in `model_selector.py`; dispatch call sites route through them instead of hardcoded literals | complete |
+| INFRA-334 | Escalation ladder redesign: every `story_class` gets a real retry-upgrade path (`doc`/`lesson` haiku→sonnet, `methodology` sonnet→opus unconditional) instead of dead-ending or conditional escalation | complete |
+| INFRA-335 | Work→agent-type classification doc and new-agent-type definition-of-done, to prevent this class of drift recurring | complete |
+| INFRA-310 | Backlog truth pass, phase-107 supersession, era-003 closure, zero-open audit, and the 0.3.1 version record | complete |
 
 ## Ordering
 
@@ -89,9 +89,30 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-116 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
-
-— developer fills in after phase completion —
+- [x] written-never-read — does anything this phase persists have no reader?
+      No orphaned writers found. `gate:` backlog field (writer: `cer.py`/manual
+      edit; reader: `find_groomable_rows`), `intent_review` opt-in ->
+      `state.json["pre_build_intent_review"][phase_key]` (writer:
+      `record-intent-review`; reader: `next_action.py`'s pre-build gate), and
+      `covered_contracts` (writer: bootstrap/sync context; reader: builder
+      procedure's read gate) all have live readers — confirmed by
+      checkpoint-security.
+- [x] required-never-written — does any read path depend on a value no writer
+      produces? No. The three new `select_*_model` functions
+      (`select_gate_worker_model`/`select_docs_reviewer_model`/
+      `select_spec_writer_model`) are called from real dispatch sites in
+      `next_action.py`, not left as orphaned readers.
+- [x] duplicate state — is any fact now stored twice with independent
+      writers? No new instance this phase; the one pre-existing case
+      (`NON_BUILD_ROLES`, Python/TS mirror) predates Phase 116 and is
+      unaffected here.
+- [x] half-implementation — is any branch unreachable, or any producer
+      without its consumer? One known, deliberate exception: INFRA-333's
+      `select_gate_worker_model` result is surfaced as advisory
+      `meta["gate_worker_model"]`/`meta["gate_worker_model_reason"]` on the
+      `spawn-gate-worker` action rather than a real `model=` field, because
+      the action grammar forbids a non-null model on that action today (a
+      gate-worker verdict call, not a full agent spawn). This is documented
+      in the story's own Evidence section as intentional, not an oversight —
+      flagged LOW by the INFRA-333 reviewer, not blocking. No other
+      unreachable branch or producer-without-consumer found.

@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Reviewer verification worker for flex-harness. Loads the reviewer procedure skill and verifies a builder's diff against a story's Ensures.
+description: Reviewer verification worker for flex. Loads the reviewer procedure skill and verifies a builder's diff against a story's Ensures.
 tools: [Read, Bash, Grep, Glob]
 model: sonnet
 # fallback: haiku  (never below)

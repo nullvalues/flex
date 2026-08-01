@@ -95,6 +95,68 @@ def test_spec_writer_ideology_conflict_resolution_documented() -> None:
 
 
 # ---------------------------------------------------------------------------
+# spec-writer: Step 4b — asymmetric model raise/lower proposal (INFRA-318)
+# ---------------------------------------------------------------------------
+
+
+def test_spec_writer_model_proposal_step_present() -> None:
+    text = _read(_SPEC_WRITER_PROCEDURE)
+    assert "Step 4b" in text, (
+        "spec-writer procedure must add a numbered asymmetric model-proposal "
+        "step (INFRA-318, Cora A#7/AG-6)"
+    )
+    step = text.split("### Step 4b", 1)[1].split("### Step 5", 1)[0]
+    assert "model:" in step
+    assert "reviewer_model:" in step
+
+
+def test_spec_writer_model_proposal_is_asymmetric() -> None:
+    """Lowering is unilateral (no prompt); raising requires operator approval."""
+    text = _read(_SPEC_WRITER_PROCEDURE)
+    step = text.split("### Step 4b", 1)[1].split("### Step 5", 1)[0]
+    lower = step.lower()
+    assert "lower" in lower and "raise" in lower or "raising" in lower
+    # Lowering: no prompt.
+    assert "no operator prompt" in lower or "no prompt" in lower
+    # Raising: prompt with story / override / reason, before it may land.
+    assert "story id" in lower or "story" in lower
+    assert "operator" in lower
+
+
+def test_spec_writer_model_proposal_pins_approval_form() -> None:
+    """The raise path's operator-approval record must be pinned to one exact
+    frontmatter-adjacent form, not just described in prose (Requires 3)."""
+    text = _read(_SPEC_WRITER_PROCEDURE)
+    step = text.split("### Step 4b", 1)[1].split("### Step 5", 1)[0]
+    assert "# raise approved: <date>, <reason>" in step, (
+        "the raise-approval record must be pinned in the exact "
+        "`model: opus  # raise approved: <date>, <reason>` form"
+    )
+
+
+def test_spec_writer_step5_routes_unresolved_raise_to_revised() -> None:
+    """An unapproved raise proposal must route to status: revised (Step 5),
+    not silently proceed to status: done."""
+    text = _read(_SPEC_WRITER_PROCEDURE)
+    step5 = text.split("### Step 5", 1)[1].split("### Step 6", 1)[0]
+    assert "4b" in step5, (
+        "Step 5's human-review signals must reference Step 4b's unresolved-raise "
+        "case so a pending model raise routes to status: revised"
+    )
+
+
+def test_spec_writer_frontmatter_preserve_rule_exempts_model_fields() -> None:
+    """The 'preserve frontmatter exactly' drafting rule must carve out
+    model:/reviewer_model: — otherwise Step 4b could never write them."""
+    text = _read(_SPEC_WRITER_PROCEDURE)
+    drafting_rules = text.split("**Drafting rules:**", 1)[1].split(
+        "### Step 4a", 1
+    )[0]
+    assert "except" in drafting_rules.lower()
+    assert "model:" in drafting_rules
+
+
+# ---------------------------------------------------------------------------
 # reviewer: narrow, spec-gated IDEOLOGY DRIFT check
 # ---------------------------------------------------------------------------
 

@@ -137,7 +137,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 108 | Era 003 close (gated on observability delivery) | deferred | [phase-108.md](phase-108.md) — superseded by phases 113–116 / INFRA-310 (reconciliation sweep 2026-07-30) |
 | 114 | Build-loop closeout: worktrees, scaffolding, migration tooling, doc currency | complete | [phase-114.md](phase-114.md) |
 | 115 | Observability closeout: API hardening, payload guards, rollup hygiene, functional validation | complete | [phase-115.md](phase-115.md) |
-| 116 | Cora upstream: methodology gates, resolver cadence, spec-time controls; backlog truth pass and 0.3.1 | planned | [phase-116.md](phase-116.md) |
+| 116 | Cora upstream: methodology gates, resolver cadence, spec-time controls; backlog truth pass and 0.3.1 | complete | [phase-116.md](phase-116.md) |
 
 ---
 
@@ -155,5 +155,5 @@ _(List items promoted from the Do-Later / Do-Much-Later backlog into active phas
 
 - CER-071/073/074/076/077/082/088/089/091/016 → Phase 104 — recording/checkpoint correctness must precede the fleet campaign (cp-102 mandate on CER-091)
 - CER-081/058/059/080/087/040/041 → Phase 105 — campaign preflight; hook dedupe and scope-guard fixes de-risk cross-repo migration work
-- CER-078/079/084/085/086/035/014/065b, CER-012/006/010/069, CER-093/094/075, CER-070/062a/009/031 → Phase 107 — backlog drain to zero (fix, verify-and-close, or Do Never routing per operator decision 2026-07-25)
+- CER-078/079/084/085/086/035/014/065b, CER-012/006/010/069, CER-093/094/075, CER-070/062a/009/031 → Phase 107 — backlog drain to zero (fix, verify-and-close, or Do Never routing per operator decision 2026-07-25) — **superseded, re-routed to phases 113/114/115/116 by INFRA-310 (2026-08-01): phase 107 itself is superseded, not built; see `phase-107.md` § Superseded for the per-row disposition.**
 - CER-095/096/097/098 → Phase 109 — parallel-build concurrency audit findings (filed and promoted same day, 2026-07-25); phase builds between cp-104 and phase 105

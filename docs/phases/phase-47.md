@@ -570,6 +570,7 @@ INFRA-129.
 | BOOTSTRAP-004 | Add `## Schema delivery` section to `phase.md.j2` | complete |
 | BOOTSTRAP-005 | Enrich `index.md.j2` with queue semantics: next-to-build pointer, deferred-from column, backlog-promotion section | complete |
 | INFRA-131 | New `skills/pairmode/scripts/flex_build.py` CLI — collapse 8 inline `python -c` blocks in `CLAUDE.build.md.j2` into one-liner CLI calls | complete |
+| INFRA-133 | Wire context budget hook registration into bootstrap and sync (CER-027 follow-on; frontmatter previously misnumbered `phase: '49'`, a file that was never created — corrected to Phase 47, INFRA-310, check-index cross-link fix) | complete |
 | INFRA-132 | Add `--drift-only` flag to `lesson_review.py` CLI + fix SKILL.md drift detection workflow documentation | complete |
 
 ### Story INFRA-124 — Use `{{ test_command }}` variable in CLAUDE.md.j2 Story test verification block

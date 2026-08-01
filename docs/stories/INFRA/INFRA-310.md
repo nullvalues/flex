@@ -2,7 +2,7 @@
 id: INFRA-310
 rail: INFRA
 title: Backlog truth pass, phase-107 supersession, era-003 closure, zero-open audit, and the 0.3.1 version record
-status: draft
+status: complete
 phase: "116"
 auth_gated: false
 schema_introduces: false
@@ -1057,3 +1057,261 @@ version surface.
 - **Bumping any downstream project's `state.json["pairmode_version"]`.** The
   fleet reads `0.3.0` today (`docs/fleet-snapshot.md`); rolling 0.3.1 out is
   a `sync-all` campaign, not a version-record story.
+
+## Evidence
+
+**1. Preconditions verified before any edit (Instructions step 1).**
+
+- **Sibling statuses (Requires 1).** The derived sibling set — the union of
+  every story ID in the Stories tables of `phase-113.md`, `phase-114.md`,
+  `phase-115.md` and `phase-116.md`, minus INFRA-310 — is 24 stories:
+  INFRA-296/297/298/299/300/311/320 (Phase 113); INFRA-301/302/303/304/305/319/321/322/323/324/325/326/327/328/330
+  (Phase 114); INFRA-306/307/308/309/312/329 (Phase 115); INFRA-313/314/315/316/317/318/331/332/333/334/335
+  (Phase 116). Every one reads `complete` in **both** its own frontmatter
+  `status:` and its phase doc's Stories-table row (verified by direct grep
+  against all 24 files and all four phase docs, 2026-08-01). This is a hard
+  precondition per Requires 1 and it held.
+- **Era-004 ledger vs index for 113/114/115/116 (Ensures 15, checked before
+  and after this story's edits).** Before: index and era-004 ledger both
+  read 113/114/115 `complete`, 116 `planned` — byte-identical, no edit
+  needed. `era_transition._mark_phase_complete_in_era_ledger`'s live
+  behavior was not re-derived from first principles here since no
+  phase-completion write ran during this story against era 004's ledger;
+  Requires 8's/14's correction (INFRA-326's contains-the-row tie-break) is
+  noted but not re-exercised.
+- **CER-118 present, un-dispositioned, filed by INFRA-305 (Requires 6).**
+  Confirmed at `docs/cer/backlog.md:218` before any edit; carries no
+  `RESOLVED`/`OBSOLETE` marker.
+- **CER-091 carries INFRA-298's clause (Ensures 3).** Confirmed:
+  `docs/cer/backlog.md`'s CER-091 row contains
+  `"INFRA-298 (Phase 113) closes item (1)'s root-cause disposition"` with
+  the explicit `(b)` closure sentence. Verified present, not authored here.
+
+**2. Requires-4 anchors re-verified at build time (Instructions step 2) —
+drift found and recorded (the live output wins over the spec table):**
+
+| CER | Spec's cited anchor | Live anchor (2026-08-01) |
+|---|---|---|
+| 002 | `bootstrap.py:1047` | `bootstrap.py:1261` |
+| 003 | `cer.py:371` | `cer.py:569` |
+| 005 | `phase_new.py:314` | `phase_new.py:449` |
+| 006 | `schema_validator.py:204-211` | `schema_validator.py:316` |
+| 010 | `story_new.py:305-306`, `:318`, `:228` | `story_new.py:344`, `:248`, `:357` |
+| 014 | `docs/architecture.md:1049` | `docs/architecture.md:1342` |
+| 017 | `bootstrap.py:1473-1474` | `bootstrap.py:1713`, `:1719` |
+| 019 | `pairmode_sync.py:106-113`, `:108` | `pairmode_sync.py:137`, `:147-148` |
+| 035 | `docs/architecture.md:1051` | `docs/architecture.md:1344` |
+| 001, 004, 007, 008, 009, 011, 012, 018, 044, 063 | — | matched the spec table exactly, no drift |
+
+All nineteen annotations in `docs/cer/backlog.md` (Ensures 1) quote the
+**live** anchors above, not the spec's stale line numbers.
+
+**3. Zero-open audit (Ensures 6) — verbatim command and output, run last,
+after all annotation edits above:**
+
+```bash
+python3 - <<'PY'
+import re, pathlib
+MARK = re.compile(r'\*\*(RESOLVED|SUPERSEDED|OBSOLETE|REJECTED|AMENDED|BACKLOG-RETAIN)\b')
+ROW  = re.compile(r'^\|\s*(CER-\d+[a-z]?)\s*\|')
+sec = None
+undispositioned = []
+for n, line in enumerate(pathlib.Path('docs/cer/backlog.md').read_text().splitlines(), 1):
+    if line.startswith('## '):
+        sec = line[3:].strip()
+    m = ROW.match(line)
+    if m and not MARK.search(line):
+        undispositioned.append((n, sec, m.group(1)))
+print(f"undispositioned rows: {len(undispositioned)}")
+for row in undispositioned:
+    print("  ", row)
+PY
+```
+
+Output:
+
+```
+undispositioned rows: 17
+   (65, 'Do Later', 'CER-145')
+   (68, 'Do Later', 'CER-109')
+   (70, 'Do Later', 'CER-111')
+   (109, 'Do Later', 'CER-062')
+   (117, 'Do Later', 'CER-064')
+   (119, 'Do Later', 'CER-065')
+   (179, 'Do Later', 'CER-042')
+   (181, 'Do Later', 'CER-043')
+   (201, 'Do Later', 'CER-117')
+   (204, 'Do Later', 'CER-121')
+   (212, 'Do Later', 'CER-135')
+   (215, 'Do Later', 'CER-131')
+   (216, 'Do Later', 'CER-132')
+   (217, 'Do Later', 'CER-133')
+   (221, 'Do Later', 'CER-136')
+   (253, 'Do Much Later', 'CER-125')
+   (255, 'Do Much Later', 'CER-142')
+```
+
+**This assertion is editorial, not mechanical.**
+`next_action._check_cer_do_now` (`next_action.py:394`) guards only the
+`## Do Now` quadrant, and it already passes today (Do Now holds only
+resolved rows). No tool anywhere reads `## Do Later` or `## Do Much Later`
+for open findings. The seventeen rows below are named with a one-sentence
+reason and an owner, per the Ensures-6 acceptance clause — none was
+resolved by loosening the predicate:
+
+- **CER-145** — LOW, filed 2026-07-31 (recurring `touches:` omission
+  pattern across INFRA-333/334). Real, but filed after this story's own
+  spec was frozen and has zero flex-code surface of its own (it names a
+  spec-writer-procedure gap). Owner: a future spec-writer-procedure story.
+- **CER-109** — LOW, Phase 111 (`test_plugin_manifest.py` hardcodes the
+  skill-name list instead of globbing). Not named in this story's
+  annotate-only Requires-4 set. Owner: a future test-hygiene story.
+- **CER-111** — Already resolved in substance:
+  `**CORRECTED / RESOLVED INFRA-303 (Phase 114):**` is present in the row,
+  but the marker word (`RESOLVED`) does not immediately follow `**` (it
+  follows `**CORRECTED / `), so it does not match the strict
+  `\*\*(RESOLVED|...)` predicate. Per Instructions ("do not annotate any
+  row a sibling already annotated"), this row is **not** re-annotated here.
+  Owner: INFRA-303 (already `complete`) — the resolution stands; only the
+  predicate's regex misses the exact phrasing.
+- **CER-062** — genuine open finding (`story_new.py`'s phase-manifest
+  lookup misses suffixed filenames), confirmed **not** duplicated (Requires
+  3) and not claimed by any Phase 113-116 sibling. Owner: unassigned,
+  future backlog work.
+- **CER-064**, **CER-065** (second/Do-Later occurrence of each, per
+  Requires 3's duplicate-ID map) — both already carry
+  `**INFRA-304 (Phase 114) — RESOLVED...**`/`**INFRA-304 (Phase 114) —
+  RESOLVED (premise corrected)...**` clauses (verified present, real
+  resolution content), but the marker word again does not immediately
+  follow `**` (it follows `**INFRA-304 (Phase 114) — `), so the strict
+  predicate misses both. Per Note A, **not touched** by this story. Owner:
+  INFRA-304 (already `complete`).
+- **CER-042**, **CER-043** — the harness-vintage OBS security-audit rows
+  (loopback CORS, `abs_path` disclosure). **Not** the same rows INFRA-306
+  resolved — INFRA-306's CHANGELOG entry (Phase 115) references CER-042/043
+  by number, but these specific Do-Later rows (lines 179/181) are the
+  original Phase 63 filings and were not independently re-verified/annotated
+  by this story (outside Requires 4's nineteen-row set). Owner: verify at
+  the next observability-surface touch; likely already stale duplicates of
+  INFRA-306's fix, but re-annotating them without re-reading INFRA-306's own
+  row-matching text is exactly the kind of double-annotation risk Note A
+  warns against, so this story leaves them for a dedicated follow-up rather
+  than guessing.
+- **CER-117** — LOW, `story_new.py --create-rail`/`--yes` flag request,
+  filed by RELEASE-067. Real, unclaimed. Owner: future `story_new.py`
+  ergonomics story.
+- **CER-121** — HIGH, explicitly named as an expected `gate:` survivor by
+  Requires 19: `gate: next canon change to a seeded-doc template
+  (architecture.md/checkpoints.md families) or the first post-0.3.1 fleet
+  sync campaign — whichever comes first.` Owner: whichever future story
+  trips that gate.
+- **CER-135** — LOW, `context_current_tokens_source`'s third writer
+  (`post_tool_use.py`) not yet stamped. Filed by INFRA-321's own build.
+  Owner: future context-accounting follow-up.
+- **CER-131**, **CER-132**, **CER-133** — MEDIUM, filed by INFRA-299/311's
+  own review sessions as residual observations, not fixed inline by design.
+  Owners: future recording-determinism (CER-131) and canon-retirement
+  (CER-132/133) follow-ups.
+- **CER-136** — HIGH, `cmd_merge_story_worktree` never flips the landed
+  story's `status:`/Stories-table cell — self-diagnosed by INFRA-330 while
+  fixing exactly this class of drift by hand. Real, unclaimed by any
+  Phase-116 sibling. Owner: a future `merge-story-worktree` story.
+- **CER-125** — LOW, explicitly named as an expected `gate:` survivor by
+  Requires 19: `gate: next hand edit to phase-64.md for any reason, or any
+  story_update.py change that adds legacy-phase-doc handling — fold it in
+  then.` Owner: whichever future story trips that gate.
+- **CER-142** — MEDIUM, `resolverState.ts`'s `getFlexBuildPath()` path-depth
+  bug, filed during INFRA-312's own route-smoke-test authoring. Owner: a
+  future observability-API follow-up.
+
+Note: CER-124 and CER-126 (this story's own absorbed-at-spec-time rows,
+Ensures 28) and CER-137/138/139/140/141 (Phase 116 siblings' absorbed rows,
+discovered un-annotated during this enumeration and swept in per the same
+"resolve, don't loosen the predicate" principle) and CER-144 (this story's
+own era-003-closure side effect) are **not** in the survivor list above —
+all eight were annotated `RESOLVED` by this story once their owning work
+was confirmed `complete`.
+
+**4. `check-index` — true exit 0 (Ensures 14).**
+
+```
+$ PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/flex_build.py check-index --project-dir .
+(no output)
+$ echo $?
+0
+```
+
+No suppression, allow-list, or check-weakening — `git diff --name-only`
+does not contain `index_integrity.py`. All 48 pre-existing violations
+(Requires 17) were fixed by making the underlying record true: two
+status-drift stories corrected (OBS-006 → `complete` with a status note;
+RELEASE-058 → `deferred`, named individually in `phase-97.md`'s extended
+`## Deferred stories` section); seven cross-link story-frontmatter
+references repointed (INFRA-001/003/022/023/024/025 → a new legacy-anchor
+doc `docs/phases/phase-backlog-legacy.md`; INFRA-133 → Phase 47, its actual
+CER-027-follow-on home) plus five era-001 ledger rows corrected to match the
+index; 21 orphan-story files referenced from their real phase docs
+(INFRA-002/004 added to phase-17.md; INFRA-110/111 to phase-42.md;
+INFRA-114/115 to phase-44.md; INFRA-116..119 to phase-45.md; INFRA-120..123
+to phase-46.md; INFRA-133 to phase-47.md; INFRA-001/003/022/023/024/025 to
+the new legacy-anchor doc); phase-97.md's existing `## Deferred stories`
+section extended to name RELEASE-044..056 and RELEASE-058 individually
+instead of only as a prose range.
+
+**5. Era-004 ledger vs index, 113/114/115/116 rows, recorded verbatim
+(Ensures 15):**
+
+`docs/phases/index.md`: `113 | ... | complete`, `114 | ... | complete`,
+`115 | ... | complete`, `116 | ... | planned`.
+`docs/eras/004-flex-operational-closeout-and-0-3-1.md`: `113 | ... |
+complete`, `114 | ... | complete`, `115 | ... | complete`, `116 | ... |
+planned`. Byte-identical status strings for all four rows; 116 correctly
+stays `planned` until cp-116 (this story is itself one of 116's stories).
+
+**6. CER-031's `gh pr view` trigger — attempted, real outcome recorded
+(Ensures 4).** `gh pr view 3 --repo cloudnirvana/open-patterns` succeeded
+(network reachable from this build environment): PR #3, "Add pattern:
+Canonical Source Over Recall (RAG & Knowledge)", author `nsmedia-io`, state
+**OPEN**, unchanged since Phase 48. No fabrication — the row's
+`BACKLOG-RETAIN` clause records this literal, dated observation.
+
+**7. Phase-106 disposition precondition (Context item 5).** Verified before
+writing `phase-106.md`'s hand-migration closing note: `docs/stories/INFRA/INFRA-311.md`
+frontmatter reads `status: complete`, and phase-113.md's Stories table also
+shows INFRA-311 `complete`.
+
+**8. `.companion/state.json` (Ensures 27) — gitignore note.** `.companion/`
+is listed in `.gitignore:26`; a fresh per-story git worktree therefore has
+no `.companion/state.json` on disk at all until copied in, and no edit to
+it can ever appear in `git diff`/`git status` or this story's commit — it
+is deliberately untracked, per-checkout local state. This story (a) copied
+the live `/mnt/work/flex/.companion/state.json` into this worktree and
+bumped its `pairmode_version` key to `"0.3.1"` (diff: exactly one content
+line changed, `diff` confirmed), and (b) applied the identical one-key bump
+directly to the live `/mnt/work/flex/.companion/state.json`, since that is
+the file every other pairmode CLI invocation on this machine actually
+reads and the worktree's own copy is disposable and never merges. The
+git-diff-based verification style Ensures 27 otherwise implies does not
+apply to a gitignored file; the `grep -o '"pairmode_version"[^,]*'
+.companion/state.json` check does, and passes in both locations.
+
+**9. Full suite (Ensures 22), run without `-x`:** `4728 passed, 211
+skipped` — no failures. `main`'s recorded baseline was `4116 passed, 211
+skipped`; the +612 delta is siblings' new tests across phases 113-116, not
+a discrepancy (this story adds no new tests and removes none; Ensures 19
+renames one in place).
+
+**10. Ensures 5's `grep -ci 'resolved\|obsolete'` check — known false
+positive, not a defect.** The literal check
+(`grep '| CER-118 |' docs/cer/backlog.md | grep -ci 'resolved\|obsolete'`)
+returns **1**, not the 0 the Ensures text states, because CER-118's
+pre-existing row (written by INFRA-305, before this story) already
+contains the prose fragment "Not resolved by INFRA-305" — a case-insensitive
+substring match on "resolved" that has nothing to do with a bold disposition
+marker. `grep '| CER-118 |' docs/cer/backlog.md | grep -o '.\{20\}[Rr]esolved.\{20\}\|.\{20\}[Oo]bsolete.\{20\}'`
+confirms the only hit is `" not a doc fix. Not resolved by INFRA-305 (doc-c"`.
+No `**RESOLVED` or `**OBSOLETE` bold marker token is present anywhere in
+the row (confirmed separately). This story did not reword the pre-existing
+"Not resolved by INFRA-305" text — doing so would violate "no row is
+re-worded beyond the appended clause" (Ensures 1's own constraint, applied
+here by extension) for content it did not author.

@@ -7,6 +7,7 @@ Running it twice with the same phase ID is idempotent (warns, does not overwrite
 
 from __future__ import annotations
 
+import datetime
 import glob as _glob
 import json
 import re
@@ -20,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import click
 import jinja2
 
+from era_new import _slugify
 from schema_validator import _parse_frontmatter, VALID_PHASE_CLASSES, DEFAULT_PHASE_CLASS
 from state_utils import _atomic_write_text
 
@@ -65,7 +67,7 @@ def _load_env() -> jinja2.Environment:
     )
 
 
-def _read_phase_title(phase_file: Path, phase_id: int) -> str:
+def _read_phase_title(phase_file: Path, phase_id: "int | str") -> str:
     """Extract the phase title from an existing phase file.
 
     Tries to match a ``# Phase N: <title>`` heading first, then falls back to
@@ -84,6 +86,33 @@ def _read_phase_title(phase_file: Path, phase_id: int) -> str:
 
     # Fallback
     return f"Phase {phase_id}"
+
+
+def _phase_title_for(phase_key: str, phases_dir: Path) -> str:
+    """Return a human-readable title for *phase_key*'s phase doc.
+
+    Reuses ``_read_phase_title``; falls back to a generic ``"Phase <key>"``
+    label when the phase file does not exist (e.g. a --parent-phase value
+    naming a phase authored outside this tool).
+    """
+    phase_file = phases_dir / f"phase-{phase_key}.md"
+    return _read_phase_title(phase_file, phase_key)
+
+
+def _next_proposed_seq(phases_dir: Path, date_str: str) -> int:
+    """Return the next monotonic NNN sequence number for proposed phase files
+    dated *date_str* (YYYYMMDD) — INFRA-314, Ensures 5.
+
+    Monotonic across *all* proposed files for the date, not per-slug: two
+    differently-named proposals filed the same day get 001/002, not both 001.
+    """
+    pattern = str(phases_dir / f"phase-proposed-*-{date_str}-*.md")
+    nums: list[int] = []
+    for p in _glob.glob(pattern):
+        m = re.search(rf"-{re.escape(date_str)}-(\d{{3}})\.md$", Path(p).name)
+        if m:
+            nums.append(int(m.group(1)))
+    return (max(nums) + 1) if nums else 1
 
 
 def _detect_active_era(project_dir: Path) -> str | None:
@@ -251,6 +280,87 @@ def _create_index(index_path: Path, phase_key: str, phase_title: str, project_na
     _atomic_write_text(index_path, content)
 
 
+def _phase_new_proposed(
+    *,
+    project_path: Path,
+    phases_dir: Path,
+    proposed_name: str,
+    title: str | None,
+    goal: str | None,
+    phase_class: str | None,
+    parent_phase_id: str | None,
+    dry_run: bool,
+) -> None:
+    """Create a not-yet-sequenced proposed phase file (INFRA-314, Ensures 5).
+
+    Writes ``docs/phases/phase-proposed-<slug>-YYYYMMDD-NNN.md`` — the
+    convention ``docs/phases/index.md`` documents but no tool implemented
+    before this story. Carries no sequential phase number and never touches
+    ``docs/phases/index.md``'s numbered table (a proposed phase is absorbed
+    into a real phase key at sequencing time, per that same convention).
+    """
+    slug = _slugify(proposed_name)
+    today = datetime.date.today().strftime("%Y%m%d")
+
+    if not dry_run:
+        phases_dir.mkdir(parents=True, exist_ok=True)
+
+    seq = _next_proposed_seq(phases_dir, today)
+    filename = f"phase-proposed-{slug}-{today}-{seq:03d}.md"
+    phase_key = filename[len("phase-"): -len(".md")]
+    phase_file = phases_dir / filename
+
+    if phase_file.exists():
+        click.echo(f"Warning: {filename} already exists. Skipping (idempotent).")
+        return
+
+    if title is None:
+        title = click.prompt(f"Proposed phase '{proposed_name}' title", default=proposed_name)
+    if goal is None:
+        goal = click.prompt("Phase goal (blank is OK)", default="")
+
+    project_name = _load_project_name(project_path)
+    era_id = _detect_active_era(project_path)
+
+    parent_phase = None
+    if parent_phase_id is not None:
+        parent_phase = {
+            "id": parent_phase_id,
+            "title": _phase_title_for(parent_phase_id, phases_dir),
+        }
+
+    env = _load_env()
+    phase_tmpl = env.get_template("docs/phases/phase.md.j2")
+    rendered = phase_tmpl.render(
+        project_name=project_name,
+        phase_key=phase_key,
+        phase_title=title,
+        goal=goal,
+        prev_phase=None,
+        next_phase=None,
+        stories=[],
+        era_id=era_id,
+        phase_class=phase_class,
+        parent_phase=parent_phase,
+    )
+
+    if dry_run:
+        rel = phase_file.relative_to(project_path)
+        click.echo(f"[DRY RUN] Would write: {rel}")
+        click.echo("--- content preview (first 20 lines) ---")
+        for line in rendered.splitlines()[:20]:
+            click.echo(line)
+        return
+
+    _atomic_write_text(phase_file, rendered)
+    click.echo(f"Created {phase_file.relative_to(project_path)}")
+    click.echo(
+        "Proposed phase — not sequenced, docs/phases/index.md's numbered "
+        "table is unchanged. Sequence it with phase_new.py --phase-id "
+        "when it enters the build queue."
+    )
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -266,8 +376,8 @@ def _create_index(index_path: Path, phase_key: str, phase_title: str, project_na
 )
 @click.option(
     "--phase-id",
-    required=True,
-    help="Phase identifier string (e.g. 56, PM025).",
+    default=None,
+    help="Phase identifier string (e.g. 56, PM025). Required unless --proposed is given.",
 )
 @click.option(
     "--suffix",
@@ -294,6 +404,29 @@ def _create_index(index_path: Path, phase_key: str, phase_title: str, project_na
     ),
 )
 @click.option(
+    "--parent-phase",
+    "parent_phase_id",
+    default=None,
+    help=(
+        "Phase key this new phase forks from (INFRA-314). Stamps a "
+        "'**Parent phase:** Phase <id> — <title>' line at the top of the "
+        "phase body, per the phase-continuity policy. Omitted → no line "
+        "(unchanged output for existing invocations)."
+    ),
+)
+@click.option(
+    "--proposed",
+    "proposed_name",
+    default=None,
+    help=(
+        "Create a not-yet-sequenced proposed phase instead of a numbered one "
+        "(INFRA-314): writes "
+        "docs/phases/phase-proposed-<slug>-YYYYMMDD-NNN.md, carries no "
+        "sequential phase number, and does not touch docs/phases/index.md's "
+        "numbered table. Mutually exclusive with --phase-id."
+    ),
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     default=False,
@@ -301,11 +434,13 @@ def _create_index(index_path: Path, phase_key: str, phase_title: str, project_na
 )
 def phase_new(
     project_dir: str,
-    phase_id: str,
+    phase_id: str | None,
     suffix: str | None,
     title: str | None,
     goal: str | None,
     phase_class: str | None,
+    parent_phase_id: str | None,
+    proposed_name: str | None,
     dry_run: bool,
 ) -> None:
     """Create a new phase-N.md scaffold and update docs/phases/index.md."""
@@ -317,14 +452,40 @@ def phase_new(
 
     phases_dir = project_path / "docs" / "phases"
 
-    # Validate phase_id and suffix against safe character set
-    for _flag, _value in [("--phase-id", phase_id), ("--suffix", suffix)]:
+    if proposed_name is not None and phase_id is not None:
+        click.echo("Error: --proposed and --phase-id are mutually exclusive.", err=True)
+        raise SystemExit(1)
+    if proposed_name is None and phase_id is None:
+        click.echo("Error: --phase-id is required unless --proposed is given.", err=True)
+        raise SystemExit(1)
+
+    # Validate phase_id/suffix/parent_phase against safe character set
+    # (proposed_name is slugified separately below, not filesystem-path-derived
+    # from operator input the same way).
+    for _flag, _value in [
+        ("--phase-id", phase_id),
+        ("--suffix", suffix),
+        ("--parent-phase", parent_phase_id),
+    ]:
         if _value is not None and not _SAFE_PHASE_COMPONENT.fullmatch(_value):
             click.echo(
                 f"Error: {_flag} must match [A-Za-z0-9][A-Za-z0-9_-]* (got {_value!r})",
                 err=True,
             )
             raise SystemExit(1)
+
+    if proposed_name is not None:
+        _phase_new_proposed(
+            project_path=project_path,
+            phases_dir=phases_dir,
+            proposed_name=proposed_name,
+            title=title,
+            goal=goal,
+            phase_class=phase_class,
+            parent_phase_id=parent_phase_id,
+            dry_run=dry_run,
+        )
+        return
 
     # Compute the canonical phase key (used in filenames and index rows)
     phase_key = f"{phase_id}-{suffix}" if suffix else phase_id
@@ -364,6 +525,14 @@ def phase_new(
                 prev_title = _read_phase_title(prev_file, int_id - 1)
                 prev_phase = {"id": int_id - 1, "title": prev_title}
 
+    # 6b. Resolve --parent-phase (Ensures 4) — no line at all when omitted.
+    parent_phase = None
+    if parent_phase_id is not None:
+        parent_phase = {
+            "id": parent_phase_id,
+            "title": _phase_title_for(parent_phase_id, phases_dir),
+        }
+
     # 7. Render phase-N.md
     env = _load_env()
     phase_tmpl = env.get_template("docs/phases/phase.md.j2")
@@ -377,6 +546,7 @@ def phase_new(
         stories=[],
         era_id=era_id,
         phase_class=phase_class,
+        parent_phase=parent_phase,
     )
 
     # 8. Write or preview phase-N.md

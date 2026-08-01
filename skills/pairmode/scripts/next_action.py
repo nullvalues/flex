@@ -145,6 +145,141 @@ grammar, CER-130):
   ``{"ok": …, "failed_guard": "cer-do-now"}`` contract at the call site —
   only the grammar behind the boolean test changed. No ``SCHEMA_VERSION``
   bump, no Position shape or routing change.
+
+INFRA-315 (Phase 116 -- pre-build intent review, resolver-emitted, opt-in):
+  Adds one new row (Row PBI), evaluated once a next unbuilt story is known
+  and before Row 8/Row 4/Row 3/Row 2. When the active project's
+  ``CLAUDE.build.md`` Build standards carry ``intent_review=`pre-build``,
+  the active phase's Stories table shows no story started
+  (``_phase_is_fresh``, reusing INFRA-297's ``_has_story_commit``/
+  ``_git_log_oneline`` for the git-evidence half of that check), and
+  ``attempt_count == 0``, the resolver emits ``spawn-intent-reviewer``
+  (scalar = phase key, ``model=null``) exactly once per phase — subsequent
+  calls read the recorded verdict from
+  ``state.json["pre_build_intent_review"][phase_key]`` (written by
+  ``flex_build.py record-intent-review``, mirroring the phase-keyed
+  ``checkpoint_steps`` shape from INFRA-283) and either fall through to
+  normal resolution (PASS/ALIGNED) or emit ``await-user`` (anything else —
+  spec drift is an operator decision). Absent the opt-in key (or any value
+  other than the literal string ``pre-build``), this row never fires and
+  resolver output for a given fixture is byte-identical to pre-INFRA-315
+  behaviour. No ``SCHEMA_VERSION`` bump — the action grammar itself is
+  unchanged (``SPAWN_INTENT_REVIEWER`` already existed); only the Position
+  dict gained three new pure-read keys (``intent_review_opt_in``,
+  ``phase_is_fresh``, ``pre_build_intent_verdict``).
+
+INFRA-316 (Phase 116 -- between-story context etiquette, Row PC):
+  Adds ``pause-context`` to the action vocabulary (``SCHEMA_VERSION`` bumped
+  from 4 to 5) and wires a new check into the Row-8 seam only ("story just
+  committed (PASS), more stories remain"): before emitting the next
+  ``spawn-builder``, the resolver reads ``.companion/state.json`` directly
+  and delegates to ``context_budget.should_block`` -- the exact pure
+  predicate ``hooks/pre_tool_use.py``'s PreToolUse gate already uses -- to
+  decide whether the orchestrator's own context-window occupancy
+  (``context_current_tokens`` vs ``context_budget_threshold`` and its
+  overrun/margin/acknowledgment siblings) is over budget and unacknowledged.
+  When it is, ``pause-context`` is emitted instead of ``spawn-builder``
+  (scalar = the next story ID, model=null); one operator acknowledgment
+  clears both this seam and the hook gate, because both consult the same
+  ``context_budget_acknowledged_at`` / ``context_budget_acknowledged_user_turn_seq``
+  state keys through the same ``should_block`` predicate (Requires 3).
+
+  IMPORTANT (INFRA-321 F6 -- forward constraint honoured, not violated): this
+  seam consults the ORCHESTRATOR track only. It never imports, invokes, or
+  reads any output of ``context_budget_check.py``, whose sum is the
+  story-spend track (a phase-wide ``effort.db`` cost total) and is
+  explicitly forbidden as the source of a pause decision by INFRA-321 F6 --
+  wiring that sum in here would reintroduce the mis-attribution-2 pattern
+  INFRA-321 removed, just relabeled as a new feature. The story text's own
+  Context/Requires-1/Instructions-1 prose (drafted before INFRA-321 landed)
+  describes the older, superseded ``context_budget_check`` design; F6
+  explicitly supersedes it for this seam, and this implementation follows
+  F6. The emitted ``reason`` therefore carries ``tokens=<current>
+  threshold=<threshold> ceiling=<ceiling>`` (orchestrator-track quantities)
+  rather than the ``sum=... threshold=...`` phrasing the original story text
+  anticipated -- there is no effort.db sum in this data path to report.
+
+  Only the Row-8 seam is guarded (Instructions 2): Row 2 (first attempt of a
+  freshly-claimed phase) and attempt retries (Rows 5/6/7, same story) are
+  unaffected -- a mid-story pause would strand a half-built story (Requires
+  2/Ensures 3). Fail-open (Ensures 5): a missing/unreadable
+  ``state.json``, an absent ``context_current_tokens``, or any exception
+  raised while deriving the verdict all resolve to ``spawn-builder`` --
+  genuine errors additionally carry a warning in ``meta.warnings[]``; the
+  ordinary "no state.json yet" case does not warn, so an unconfigured
+  project's Row-8 output stays byte-identical to pre-INFRA-316 behaviour
+  (Ensures 1).
+
+INFRA-318 (Phase 116 -- spec-time model review, Cora item A#7/AG-6):
+  ``infer_position`` §4 (builder model selection) now reads the next story's
+  optional ``model:`` frontmatter field (validated against
+  ``schema_validator.VALID_MODEL_TIERS``) and applies it via
+  ``model_selector.apply_declared_model_floor`` to the already-auto-selected
+  ``(builder_model, builder_model_reason)`` pair: an outright override at
+  attempt 1 (reason becomes ``"story-declared"``), a floor -- never a
+  downgrade -- on retry (attempt >= 2). A story without ``model:`` gets
+  byte-identical output to pre-INFRA-318 behaviour (Ensures 2/5). This also
+  means Row 3's ``prompted-upgrade`` operator prompt never fires for a
+  declaring story at attempt 1, because its reason is already
+  ``"story-declared"`` by the time Row 3 checks it -- the spec-writer's
+  asymmetric raise/lower prompt (Requires 3, spec-writer/procedure.md)
+  already recorded operator approval for a raise at spec time, so dispatch
+  does not re-prompt.
+
+  ``reviewer_model:`` (the analogous floor for ``spawn-reviewer``) is
+  resolved entirely on the ``flex_build.py select-reviewer-model`` CLI path
+  (which the orchestrator calls directly before the manual reviewer spawn,
+  per ``CLAUDE.build.md`` § Build loop) using the same
+  ``apply_declared_model_floor`` helper -- it is NOT threaded through this
+  module's Position/action grammar, because ``resolve_next_action`` never
+  emits ``spawn-reviewer`` in the first place (CER-074, see the
+  ``SPAWN_REVIEWER`` constant's declaration comment below): there is no
+  resolver-legible action object for a reviewer-model field to ride on. The
+  null-rule relaxation Requires 2 asks for was already satisfied before this
+  story -- ``spawn-reviewer`` has been a member of ``_SPAWN_ACTIONS`` (and so
+  already permitted a non-null ``model``) since HARNESS003-main; this story
+  changes no code at ``validate_action``'s model-constraint check, only the
+  comment there, to say so explicitly.
+
+  Pure-read, grammar-unchanged: no new action type, no ``_REQUIRED_KEYS`` or
+  ``ACTIONS``/``_SPAWN_ACTIONS`` change, no ``SCHEMA_VERSION`` bump (still 5)
+  -- only Position's ``builder_model``/``builder_model_reason`` values can
+  differ, and only for a story that declares ``model:``.
+
+INFRA-333 (CER-139, AG-13 -- model-selection completeness for the three
+  remaining agent roles):
+  ``infer_position`` now exposes ``position["story_class"]`` (the same value
+  already used internally to compute ``builder_model``) so Row 2's
+  ``spawn-spec-writer`` branch can pass it to the new
+  ``model_selector.select_spec_writer_model``. Three call sites are wired:
+
+  - Row 2 (``spawn-spec-writer``): replaces the hardcoded ``model="opus"``
+    literal with ``select_spec_writer_model(story_class)`` -- resolves to
+    ``"opus"`` unconditionally today (Ensures 3), so no behavior change for
+    the one production case that exists.
+  - Row 9's ``checkpoint-docs`` step: replaces the unconditional
+    ``model=None`` with ``select_docs_reviewer_model(phase_class)`` (read
+    from the active phase manifest's frontmatter via the new
+    ``_phase_class_for`` helper) -- ``checkpoint-docs`` is a
+    ``_SPAWN_ACTIONS`` member, so a non-null model here is grammar-legal and
+    was already anticipated by the pre-INFRA-333 comment ("the harness sets
+    model at spawn time via model_selector").
+  - Row 4b (``spawn-gate-worker``): calls the new
+    ``select_gate_worker_model(phase_class)`` and surfaces the result as
+    advisory ``meta["gate_worker_model"]``/``meta["gate_worker_model_reason"]``
+    keys -- NOT the action's ``model`` field, which stays ``None``.
+    ``spawn-gate-worker`` is deliberately not a ``_SPAWN_ACTIONS`` member
+    (``validate_action`` requires ``model=null`` for it, locked in by
+    ``test_spawn_gate_worker_with_model_fails_validate``); promoting it
+    would be an action-grammar redesign out of this story's narrow
+    "wire the missing selectors" scope, so the "spawn-gate-worker carries no
+    builder model" comment on the ``SPAWN_GATE_WORKER`` constant below
+    remains accurate for the ``model`` field after this story.
+
+  Grammar-unchanged: no new action type, no ``ACTIONS``/``_SPAWN_ACTIONS``
+  membership change, no ``SCHEMA_VERSION`` bump (still 5) -- only
+  Position gains one new read-only key (``story_class``) and two actions'
+  resolved ``model``/``meta`` values can differ from before this story.
 """
 
 from __future__ import annotations
@@ -161,11 +296,22 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from table_utils import split_table_row  # noqa: E402
 
+# INFRA-316: the Row-8 context-etiquette check reuses context_budget's pure
+# should_block/effective_ceiling functions directly -- the same predicate
+# hooks/pre_tool_use.py's PreToolUse gate uses on the ORCHESTRATOR track
+# (INFRA-321 F6). This module deliberately does NOT import
+# context_budget_check (the story-spend/effort.db track); see the INFRA-316
+# module-docstring note above.
+try:
+    from skills.pairmode.scripts import context_budget  # noqa: E402
+except ImportError:  # flat import via hook/CLI sys.path
+    import context_budget  # type: ignore[no-redef]  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Schema version
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION: int = 4
+SCHEMA_VERSION: int = 5
 
 # ---------------------------------------------------------------------------
 # Action vocabulary (closed set for Era 003; designed to be extended later)
@@ -198,6 +344,13 @@ CHECKPOINT_DOCS: str = "checkpoint-docs"
 CHECKPOINT_TAG: str = "checkpoint-tag"  # inline action — NOT in _SPAWN_ACTIONS
 AWAIT_USER: str = "await-user"
 DONE: str = "done"
+# INFRA-316: between-story context-etiquette handoff, emitted at the Row-8
+# seam in place of spawn-builder when the ORCHESTRATOR track (INFRA-321 F6)
+# is over threshold and unacknowledged. An await-user-class action: model is
+# always null (NOT in _SPAWN_ACTIONS below). Consumers (the orchestrator
+# build loop) treat it as: record state, summarize, end session, resume
+# fresh — see CLAUDE.build.md.j2's one-line handoff instruction.
+PAUSE_CONTEXT: str = "pause-context"
 
 ACTIONS: frozenset[str] = frozenset(
     {
@@ -214,21 +367,42 @@ ACTIONS: frozenset[str] = frozenset(
         CHECKPOINT_TAG,
         AWAIT_USER,
         DONE,
+        PAUSE_CONTEXT,
     }
 )
 
 # Actions for which model may be non-null (auto-resolved spawn actions only).
 # spawn-gate-worker carries no builder model (the gate worker tier is not a
 # builder-model decision), so it is NOT in _SPAWN_ACTIONS — model must be None.
+# INFRA-333: model_selector.select_gate_worker_model(phase_class) now exists,
+# but its result still cannot ride this action's `model` field (that would be
+# an action-grammar redesign, out of this story's scope) — Row 4b surfaces it
+# instead as advisory `meta["gate_worker_model"]`/`meta["gate_worker_model_reason"]`
+# keys. This comment therefore remains accurate for the `model` field itself.
 # spawn-reviewer, spawn-security-auditor, and spawn-intent-reviewer carry a
 # model override (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS.
 # (spawn-reviewer membership is for orchestrator dispatch only — the resolver
 # never emits it; see the CER-074 note at its declaration above.)
+# INFRA-318: this is also the null-rule relaxation a story-declared
+# `reviewer_model:` floor depends on — spawn-reviewer already permits a
+# non-null model (has since HARNESS003-main, well before INFRA-318), so no
+# code change was needed here for reviewer_model dispatch to reach a real
+# spawn-reviewer action object; only this comment is new. The actual
+# reviewer_model floor is applied by the orchestrator's
+# `flex_build.py select-reviewer-model` CLI call (see CLAUDE.build.md §
+# Build loop), not by anything in this module — see the INFRA-318 module
+# docstring entry above for why (resolve_next_action never emits
+# spawn-reviewer, so there is no action object here for the field to ride).
 # checkpoint-security, checkpoint-intent, checkpoint-docs carry a model override
-# (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS.
+# (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS. INFRA-333:
+# Row 9 now actually resolves checkpoint-docs's model via
+# select_docs_reviewer_model(phase_class) (checkpoint-security/intent are
+# unchanged, out of this story's scope).
 # checkpoint-tag is an inline action and is NOT in _SPAWN_ACTIONS.
-# spawn-spec-writer carries a model override (opus, for spec elaboration) and
-# IS in _SPAWN_ACTIONS.
+# spawn-spec-writer carries a model override and IS in _SPAWN_ACTIONS.
+# INFRA-333: the model is now resolved via select_spec_writer_model(story_class)
+# instead of a hardcoded "opus" literal — still resolves to opus for the one
+# production case that exists today.
 _SPAWN_ACTIONS: frozenset[str] = frozenset(
     {
         SPAWN_BUILDER,
@@ -363,6 +537,31 @@ def validate_action(obj: object) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _phase_class_for(phase_path: "Path | None") -> str:
+    """Read ``phase_class`` from *phase_path*'s frontmatter (INFRA-333).
+
+    Returns ``model_selector.DEFAULT_PHASE_CLASS`` ("production") when
+    *phase_path* is ``None``, the file is absent/unreadable, or the file
+    carries no ``phase_class`` field — the same fail-safe default
+    ``model_selector.select_intent_reviewer_model``/
+    ``select_security_auditor_model`` already apply for an absent field.
+    Used by Row 4b (``select_gate_worker_model``) and Row 9's
+    ``checkpoint-docs`` step (``select_docs_reviewer_model``).
+    """
+    from model_selector import DEFAULT_PHASE_CLASS  # type: ignore[import]
+
+    if phase_path is None:
+        return DEFAULT_PHASE_CLASS
+    try:
+        from schema_validator import _parse_frontmatter  # type: ignore[import]
+
+        text = Path(phase_path).read_text(encoding="utf-8")
+        fm = _parse_frontmatter(text) or {}
+        return str(fm.get("phase_class") or DEFAULT_PHASE_CLASS)
+    except Exception:  # noqa: BLE001
+        return DEFAULT_PHASE_CLASS
+
+
 def _check_phase_completion(active_phase_file: "Path | None") -> bool:
     """Return True if every story row in the phase manifest is complete or deferred.
 
@@ -428,8 +627,16 @@ def _check_cer_do_now(project_dir: "Path") -> bool:
     this exemption's source of truth. Without it, every freshly
     bootstrapped project fails its first checkpoint on this guard alone.
     Returns True when the file is absent or unreadable (fail-open).
+
+    The scan itself (header tracking, separator/header-row/placeholder-row
+    skipping, the resolution-marker test) is hoisted into
+    ``cer.find_open_do_now_rows`` (INFRA-313, Requires 1) — this function is
+    now a thin file-read wrapper around it, so ``gate``/``checkpoint-tag``
+    (``cer.py``'s consumers of the same predicate) cannot silently drift
+    from the resolver's behaviour by each carrying their own copy of the
+    scan.
     """
-    from cer import is_placeholder_row, is_resolution_marked  # type: ignore[import]
+    from cer import find_open_do_now_rows  # type: ignore[import]
 
     cer_path = Path(project_dir) / "docs" / "cer" / "backlog.md"
     if not cer_path.exists():
@@ -439,30 +646,7 @@ def _check_cer_do_now(project_dir: "Path") -> bool:
     except OSError:
         return True  # fail open
 
-    in_do_now = False
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("## Do Now"):
-            in_do_now = True
-            continue
-        if in_do_now and stripped.startswith("## "):
-            break  # left the Do Now section
-        if in_do_now and stripped.startswith("|"):
-            if "---" in stripped:
-                continue  # separator row
-            # split rationale: `table_utils.split_table_row`. The `if c.strip()`
-            # filter is kept verbatim: it drops empty cells and shifts indices,
-            # and both the `cols[0]` header test below and
-            # `cer.is_placeholder_row` (INFRA-294) depend on the shifted shape.
-            cols = [c.strip() for c in split_table_row(stripped) if c.strip()]
-            if not cols or cols[0].lower() in ("id", "finding"):
-                continue  # header row
-            if is_placeholder_row(cols):
-                continue  # scaffolded empty-state row, not a finding
-            if not is_resolution_marked(stripped):
-                return False  # unresolved Do Now item
-
-    return True
+    return len(find_open_do_now_rows(text)) == 0
 
 
 def _run_build_gate_subprocess(project_dir: "Path") -> bool:
@@ -683,6 +867,94 @@ def _resolve_active_phase(project_path: "Path") -> "Path | None":
 
 
 # ---------------------------------------------------------------------------
+# Pre-build intent review (INFRA-315)
+#
+# Build standards opt-in: ``**Build standards**`` in ``CLAUDE.build.md`` is a
+# one-line ``key=`value`` | key=`value` | ...`` block (INFRA-240 pattern,
+# rendered from ``CLAUDE.build.md.j2:50``). ``intent_review`` joins that
+# block; the only recognised value that turns this behaviour on is the
+# literal string ``pre-build``. Any other value (or the key's absence, or
+# the file's absence) leaves today's resolver output byte-identical —
+# ``_intent_review_opt_in`` fails closed (returns False) on every read
+# error, so a malformed/missing CLAUDE.build.md never silently opts a
+# project in.
+# ---------------------------------------------------------------------------
+
+_BUILD_STANDARDS_KV_RE = re.compile(r"(\w+)=`([^`]*)`")
+
+
+def _read_build_standards(project_dir: "Path") -> dict[str, str]:
+    """Parse the ``**Build standards**`` key=value line from CLAUDE.build.md.
+
+    Returns ``{}`` when the file is absent, unreadable, or carries no
+    ``**Build standards**`` line. Pure read: no I/O other than the one
+    ``read_text`` call.
+    """
+    claude_build_path = Path(project_dir) / "CLAUDE.build.md"
+    try:
+        text = claude_build_path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+
+    for line in text.splitlines():
+        if line.strip().startswith("**Build standards**"):
+            return dict(_BUILD_STANDARDS_KV_RE.findall(line))
+    return {}
+
+
+def _intent_review_opt_in(project_dir: "Path") -> bool:
+    """Return True when ``intent_review=`pre-build`` is set in Build standards."""
+    values = _read_build_standards(project_dir)
+    return values.get("intent_review", "").strip() == "pre-build"
+
+
+#: Story-table statuses that count as "not yet started" for freshness purposes.
+_FRESH_STORY_STATUSES: frozenset[str] = frozenset({"", "draft", "planned"})
+
+
+def _phase_is_fresh(active_phase_file: "Path", project_dir: "Path") -> bool:
+    """Return True when no story in *active_phase_file* has started.
+
+    "Started" means either: (a) the Stories table status is anything other
+    than ``draft``/``planned``/blank, or (b) the git log carries build
+    evidence for the story (INFRA-297's ``_has_story_commit``, reused here
+    rather than forked — Requires 4). An empty Stories table is not fresh
+    (vacuously false, mirroring the fail-closed posture of the opt-in
+    check above): there is nothing to pre-build-review. Returns False (not
+    fresh) on any read error — fail-closed, since this gate only ever
+    *adds* a spawn, never removes one; failing open here would risk an
+    infinite fresh-phase loop on a corrupt phase file.
+    """
+    from next_story import (  # type: ignore[import]
+        _git_log_oneline,
+        _has_story_commit,
+        _parse_stories_table_statuses,
+    )
+    from story_resolver import _parse_stories_table  # type: ignore[import]
+
+    try:
+        text = Path(active_phase_file).read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    story_ids = _parse_stories_table(text)
+    if not story_ids:
+        return False
+
+    statuses = _parse_stories_table_statuses(text)
+    for story_id in story_ids:
+        if statuses.get(story_id, "") not in _FRESH_STORY_STATUSES:
+            return False
+
+    git_log = _git_log_oneline(Path(project_dir))
+    for story_id in story_ids:
+        if _has_story_commit(story_id, git_log):
+            return False
+
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Position read-model (RESOLVER-002)
 # ---------------------------------------------------------------------------
 
@@ -713,9 +985,14 @@ def infer_position(project_dir: "str | Path") -> dict:
         Persisted attempt count for the next story (0 when no attempts yet).
     builder_model : str | None
         Selected builder model name (e.g. "sonnet", "opus", "haiku"), or None
-        when no next story is known.
+        when no next story is known. INFRA-318: when the next story declares
+        a `model:` frontmatter field, this already reflects the declared
+        floor — an outright override at attempt 1, a floor (never a
+        downgrade) on retry — via
+        `model_selector.apply_declared_model_floor`.
     builder_model_reason : str | None
-        Selection reason (e.g. "auto-baseline", "prompted-upgrade"), or None.
+        Selection reason (e.g. "auto-baseline", "prompted-upgrade", or
+        "story-declared" when a `model:` floor applied at attempt 1), or None.
     gate_stub : dict
         ``{"ok": bool, "blocked_reason": str}`` for the stub check.
     gate_schema : dict
@@ -745,6 +1022,16 @@ def infer_position(project_dir: "str | Path") -> dict:
         True when a claim-filtered pass over the active phase found no
         story, but an unfiltered pass over the same phase did — i.e. every
         remaining story is claimed, not that the phase is complete.
+    intent_review_opt_in : bool
+        True when ``CLAUDE.build.md``'s Build standards line carries
+        ``intent_review=`pre-build``` (INFRA-315).
+    phase_is_fresh : bool
+        True when no story in the active phase's Stories table has started
+        (INFRA-315) — see ``_phase_is_fresh``.
+    pre_build_intent_verdict : str | None
+        The recorded pre-build intent-review verdict for the active phase's
+        key (``state.json["pre_build_intent_review"][phase_key]``), or None
+        when no review has been recorded yet (INFRA-315).
     """
     from next_story import find_next_story  # type: ignore[import]
     from model_selector import select_builder_model  # type: ignore[import]
@@ -755,7 +1042,7 @@ def infer_position(project_dir: "str | Path") -> dict:
         check_auth_gate_result,
         claimed_story_ids,
     )
-    from schema_validator import _parse_frontmatter  # type: ignore[import]
+    from schema_validator import _parse_frontmatter, VALID_MODEL_TIERS  # type: ignore[import]
 
     project_path = Path(project_dir).resolve()
 
@@ -784,6 +1071,12 @@ def infer_position(project_dir: "str | Path") -> dict:
     story_class: str = "code"
     primary_files: "list[str]" = []
     needs_spec: bool = False  # RESOLVER-009: set below when story file is read
+    # INFRA-318: story-declared `model:` floor, read alongside story_class /
+    # primary_files below. None when absent or not a valid model tier — an
+    # invalid value here means the story failed schema validation upstream,
+    # so this resolver treats it fail-safe as "undeclared" rather than
+    # guessing.
+    declared_model: "str | None" = None
 
     if active_phase_file is not None:
         try:
@@ -834,6 +1127,12 @@ def infer_position(project_dir: "str | Path") -> dict:
                     primary_files = fm.get("primary_files") or []
                     ensures_count = _count_ensures_nonblank_lines(story_text)
                     needs_spec = ensures_count is None or ensures_count < 5
+                    _raw_declared_model = fm.get("model")
+                    if (
+                        isinstance(_raw_declared_model, str)
+                        and _raw_declared_model in VALID_MODEL_TIERS
+                    ):
+                        declared_model = _raw_declared_model
                 except OSError:
                     needs_spec = True  # fail-safe: unreadable file → treat as stub
 
@@ -916,6 +1215,18 @@ def infer_position(project_dir: "str | Path") -> dict:
                 list(primary_files),
                 protected_files,
                 attempt_number=effective_attempt,
+            )
+            # INFRA-318: a story-declared `model:` floor overrides attempt 1
+            # outright and floors (never lowers) attempt >= 2's retry tier.
+            # No-op when declared_model is None — undeclared stories keep
+            # byte-identical output (Ensures 2/5).
+            from model_selector import apply_declared_model_floor  # type: ignore[import]
+
+            builder_model, builder_model_reason = apply_declared_model_floor(
+                builder_model,
+                builder_model_reason,
+                declared_model,
+                effective_attempt,
             )
         except Exception:  # noqa: BLE001
             pass
@@ -1011,11 +1322,51 @@ def infer_position(project_dir: "str | Path") -> dict:
     except Exception:  # noqa: BLE001
         pass
 
+    # ------------------------------------------------------------------
+    # 7. Pre-build intent review (INFRA-315)
+    #
+    # ``intent_review_opt_in`` and ``phase_is_fresh`` are pure-read
+    # derivations (Build standards text + Stories table + git log).
+    # ``pre_build_intent_verdict`` is the durable "already reviewed"
+    # evidence: ``state.json["pre_build_intent_review"]`` is a
+    # ``dict[phase_key, verdict_str]`` (mirrors the ``checkpoint_steps``
+    # phase-keyed shape above, INFRA-283 pattern) written by
+    # ``flex_build.py record-intent-review`` once the checkpoint-time
+    # ``intent-reviewer`` spawn returns. Absent entry → None (not yet
+    # reviewed). Pure read: this module never writes this key.
+    # ------------------------------------------------------------------
+    intent_review_opt_in: bool = _intent_review_opt_in(project_path)
+    phase_is_fresh: bool = False
+    if active_phase_file is not None:
+        try:
+            phase_is_fresh = _phase_is_fresh(Path(active_phase_file), project_path)
+        except Exception:  # noqa: BLE001
+            phase_is_fresh = False
+
+    pre_build_intent_verdict: "str | None" = None
+    if active_phase_file is not None:
+        _review_phase_key = Path(active_phase_file).stem
+        if _review_phase_key.startswith("phase-"):
+            _review_phase_key = _review_phase_key[len("phase-") :]
+        try:
+            state_path2 = project_path / ".companion" / "state.json"
+            if state_path2.exists():
+                raw_state2 = json.loads(state_path2.read_text(encoding="utf-8"))
+                if isinstance(raw_state2, dict):
+                    reviews = raw_state2.get("pre_build_intent_review")
+                    if isinstance(reviews, dict):
+                        candidate_verdict = reviews.get(_review_phase_key)
+                        if isinstance(candidate_verdict, str):
+                            pre_build_intent_verdict = candidate_verdict
+        except Exception:  # noqa: BLE001
+            pass
+
     return {
         "active_phase_file": active_phase_file,
         "next_story_id": next_story_id,
         "next_story_file": next_story_file,
         "attempt_count": attempt_count,
+        "story_class": story_class,
         "builder_model": builder_model,
         "builder_model_reason": builder_model_reason,
         "gate_stub": gate_stub,
@@ -1027,6 +1378,9 @@ def infer_position(project_dir: "str | Path") -> dict:
         "claimed_stories": claimed_stories,
         "claimed_skipped": claimed_skipped,
         "all_stories_claimed": all_stories_claimed,
+        "intent_review_opt_in": intent_review_opt_in,
+        "phase_is_fresh": phase_is_fresh,
+        "pre_build_intent_verdict": pre_build_intent_verdict,
     }
 
 
@@ -1040,6 +1394,122 @@ def infer_position(project_dir: "str | Path") -> dict:
 #: Advisory signals that appear in meta.warnings[] but never change the action.
 _ADVISORY_GUARDRAIL: str = "guardrail-fired"
 _ADVISORY_CONTEXT: str = "context-budget-exceeded"
+
+
+def _read_state_for_context_pause(project_dir: "Path | None") -> dict:
+    """Read ``.companion/state.json`` for the Row-8 context-etiquette check.
+
+    Returns ``{}`` on any error (absent file, malformed JSON, non-dict root,
+    or ``project_dir`` being ``None``) -- fail-open (INFRA-316 Ensures 5).
+    Local reader, mirroring the same pattern ``context_health.py``'s
+    ``_read_state_for_headroom`` and ``context_budget.py``'s ``_read_state``
+    already use for this exact file.
+    """
+    if project_dir is None:
+        return {}
+    try:
+        state_path = Path(project_dir) / ".companion" / "state.json"
+        if not state_path.exists():
+            return {}
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _check_context_pause(project_dir: "Path | None") -> "tuple[str | None, str | None]":
+    """INFRA-316 Row-8 seam: between-story context etiquette.
+
+    Returns ``(pause_reason, warning)``:
+
+    - ``pause_reason`` is a non-empty string (embeds ``tokens=... threshold=...
+      ceiling=...``) when the resolver must emit ``pause-context`` instead of
+      ``spawn-builder``; ``None`` when the resolver should proceed normally.
+    - ``warning`` is a fail-open advisory string (for ``meta.warnings[]``)
+      when a genuine error prevented deriving a verdict; ``None`` for the
+      ordinary "nothing configured yet" case, so an unconfigured project's
+      Row-8 output stays byte-identical to pre-INFRA-316 behaviour.
+
+    Consults the ORCHESTRATOR track ONLY (INFRA-321 F6): reads
+    ``context_current_tokens`` / ``context_budget_threshold`` /
+    ``context_budget_overrun_pct`` / ``context_budget_reprompt_margin`` /
+    the acknowledgment pair from ``.companion/state.json`` and delegates the
+    over-threshold-and-not-acknowledged decision to
+    ``context_budget.should_block`` -- the same pure predicate
+    ``hooks/pre_tool_use.py``'s PreToolUse gate uses, so one operator
+    acknowledgment clears both surfaces (Requires 3). This function never
+    imports or calls ``context_budget_check`` (the story-spend/effort.db
+    track) -- that is the exact data source INFRA-321 F6 forbids here.
+
+    Never raises: any exception while reading state or deriving the verdict
+    is caught and reported as a fail-open warning (Ensures 5).
+    """
+    try:
+        state = _read_state_for_context_pause(project_dir)
+        if not state:
+            # No state.json (or unreadable) yet — nothing configured to pause
+            # on. This is the ordinary case for a project that has not yet
+            # recorded any orchestrator-track measurement; fail open, no
+            # warning (Ensures 1: byte-identical under-threshold output).
+            return None, None
+
+        current_tokens: "int | None" = None
+        raw = state.get("context_current_tokens")
+        if raw is not None:
+            try:
+                v = int(raw)
+                if v > 0:
+                    current_tokens = v
+            except (TypeError, ValueError):
+                current_tokens = None
+        if current_tokens is None:
+            # No measurement recorded yet — same "nothing to pause on" case.
+            return None, None
+
+        threshold = int(state.get("context_budget_threshold", 130000) or 130000)
+        overrun_pct = float(state.get("context_budget_overrun_pct", 0.10) or 0.10)
+        expected_next, _provenance = context_budget.derive_expected_step_tokens(state)
+        reprompt_margin = int(state.get("context_budget_reprompt_margin", 10000) or 10000)
+
+        acknowledged_at_raw = state.get("context_budget_acknowledged_at")
+        acknowledged_at: "int | None"
+        if acknowledged_at_raw is None:
+            acknowledged_at = None
+        else:
+            try:
+                acknowledged_at = int(acknowledged_at_raw)
+            except (TypeError, ValueError):
+                acknowledged_at = None
+
+        user_turn_seq = int(state.get("context_budget_user_turn_seq", 0) or 0)
+        ack_turn_seq_raw = state.get("context_budget_acknowledged_user_turn_seq")
+        acknowledged_user_turn_seq = (
+            int(ack_turn_seq_raw) if ack_turn_seq_raw is not None else None
+        )
+
+        # Shared predicate (Requires 3 / Instructions 3) — identical call
+        # shape to hooks/pre_tool_use.py's decide() -> should_block() path.
+        over = context_budget.should_block(
+            current_tokens=current_tokens,
+            expected_next=expected_next,
+            threshold=threshold,
+            overrun_pct=overrun_pct,
+            acknowledged_at=acknowledged_at,
+            reprompt_margin=reprompt_margin,
+            user_turn_seq=user_turn_seq,
+            acknowledged_user_turn_seq=acknowledged_user_turn_seq,
+        )
+        if not over:
+            return None, None
+
+        ceiling = context_budget.effective_ceiling(threshold, overrun_pct, 1.0)
+        return (
+            f"pause-context: tokens={current_tokens} threshold={threshold} "
+            f"ceiling={ceiling}",
+            None,
+        )
+    except Exception as exc:  # fail-open (Ensures 5) — never brick the loop.
+        return None, f"context-pause-check-failed:{exc}"
 
 
 def resolve_next_action(
@@ -1081,7 +1551,20 @@ def resolve_next_action(
                guard fail → await-user (checkpoint-guard-failed:<which>)
                guards pass → next uncompleted checkpoint step
                all steps done → done
-    Row 8  — story committed (PASS), more stories remain   → spawn-builder (next story, attempt 1)
+    Row PBI (INFRA-315) — opted-in (Build standards intent_review=`pre-build`)
+               + phase_is_fresh + attempt_count == 0:
+               no recorded verdict yet             → spawn-intent-reviewer
+                                                       (scalar=phase key, model=null)
+               recorded verdict PASS/ALIGNED        → falls through (Row 8/2, once only)
+               recorded verdict anything else       → await-user
+                                                       (pre-build-intent-review-flagged)
+               Absent the opt-in (or any other value), this row never fires and
+               resolver output is byte-identical to pre-INFRA-315 behaviour.
+    Row 8  — story committed (PASS), more stories remain:
+               ORCHESTRATOR track over threshold, unacknowledged (INFRA-316,
+               INFRA-321 F6)                                → pause-context
+                                                                (scalar=next story ID)
+               else                                          → spawn-builder (next story, attempt 1)
     Row 4  — any pre-flight gate blocked                   → await-user (gate-blocked:<which>)
     Row 3  — model reason == prompted-upgrade, counter 0   → await-user (model-upgrade)
     Row 2  — counter 0, auto model (RESOLVER-009 branch):
@@ -1184,12 +1667,23 @@ def resolve_next_action(
 
         _next_step = _remaining[0]
         # checkpoint-tag is NOT in _SPAWN_ACTIONS → model must be None.
-        # checkpoint-security/intent/docs ARE in _SPAWN_ACTIONS; model=None
-        # here — the harness sets model at spawn time via model_selector.
+        # checkpoint-security/intent carry no model yet (out of INFRA-333
+        # scope — the harness still sets their model at spawn time via
+        # model_selector, unchanged by this story). checkpoint-docs now
+        # resolves a real model via select_docs_reviewer_model (INFRA-333
+        # Ensures 2), replacing the previous unconditional model=None the
+        # docs-reviewer.md.j2 comment used to describe.
+        _checkpoint_model: "str | None" = None
+        if _next_step == CHECKPOINT_DOCS:
+            from model_selector import select_docs_reviewer_model  # type: ignore[import]
+
+            _docs_phase_class = _phase_class_for(_phase_path)
+            _checkpoint_model, _ = select_docs_reviewer_model(_docs_phase_class)
+
         return make_action(
             _next_step,
             scalar="",
-            model=None,
+            model=_checkpoint_model,
             reason="",
             meta=meta_base,
         )
@@ -1210,12 +1704,94 @@ def resolve_next_action(
         return meta_dict
 
     # ------------------------------------------------------------------
+    # Row PBI — pre-build intent review (INFRA-315).
+    #
+    # Evaluated before Row 8/Row 2 (Instructions 1: "add the new row above
+    # the spawn-builder rows"). Guarded by three independent conditions, ALL
+    # of which must hold for this row to fire at all:
+    #   - opted in (Build standards intent_review=`pre-build`)
+    #   - phase_is_fresh (no story in the phase has started — Ensures 3)
+    #   - attempt_count == 0 (belt-and-suspenders: a fresh phase's first
+    #     story can only ever be at attempt 0 by definition, but this keeps
+    #     the guard self-contained rather than relying solely on
+    #     phase_is_fresh's git-log scan)
+    #
+    # Without the opt-in (or any value other than the literal "pre-build"),
+    # this whole block is skipped and resolution falls straight through to
+    # Row 8/Row 4/Row 3/Row 2 exactly as before this story (Ensures 1).
+    # ------------------------------------------------------------------
+    intent_review_opt_in: bool = bool(position.get("intent_review_opt_in"))
+    phase_is_fresh: bool = bool(position.get("phase_is_fresh"))
+    pre_build_intent_verdict: "str | None" = position.get("pre_build_intent_verdict")
+
+    if intent_review_opt_in and phase_is_fresh and attempt_count == 0:
+        _phase_key = Path(active_phase_file).stem
+        if _phase_key.startswith("phase-"):
+            _phase_key = _phase_key[len("phase-") :]
+
+        if pre_build_intent_verdict is None:
+            # No review recorded yet for this phase — spawn it once, before
+            # any builder. model=null (Requires 1: the model-null rule for
+            # non-builder spawns) — unlike checkpoint-time's
+            # checkpoint-intent, this emission carries no model override.
+            return make_action(
+                SPAWN_INTENT_REVIEWER,
+                scalar=_phase_key,
+                model=None,
+                reason="pre-build-intent-review",
+                meta=meta_base,
+            )
+
+        # A verdict is recorded (Requires 3 evidence). Ensures 4: mirrors
+        # the PASS/ALIGNED-clean vs FAIL/flag-block shape of the
+        # checkpoint-time intent-review verdict handling (worker_result's
+        # REVIEW-RESULT enum — PASS, FAIL, ALIGNED) rather than forking a
+        # new vocabulary. PASS/ALIGNED falls through to normal resolution
+        # below (Row 8/Row 2) — this is what makes the emission fire only
+        # once per phase (Ensures 2). Anything else (FAIL, or an
+        # unrecognised string) is spec drift — an operator decision, not an
+        # auto-fix — and blocks with await-user (Ensures 4).
+        if pre_build_intent_verdict not in ("PASS", "ALIGNED"):
+            meta = dict(meta_base)
+            meta["pre_build_intent_verdict"] = pre_build_intent_verdict
+            return make_action(
+                AWAIT_USER,
+                scalar="",
+                model=None,
+                reason="pre-build-intent-review-flagged",
+                meta=meta,
+            )
+        # else: PASS/ALIGNED — fall through to Row 8 / Row 4 / Row 3 / Row 2.
+
+    # ------------------------------------------------------------------
     # Row 8 — story just committed (PASS) but more stories remain.
     # The orchestrator hasn't cleared the counter yet, so we check outcome.
     # Attempt number for the next story resets to 1.
+    #
+    # INFRA-316: before handing out the next story, consult the
+    # ORCHESTRATOR-track context check (Requires 2 — only this seam; mid-story
+    # retries below are unguarded). INFRA-321 F6: this reads
+    # .companion/state.json directly and never touches context_budget_check
+    # (story-spend track).
     # ------------------------------------------------------------------
     if last_attempt_outcome == OUTCOME_PASS:
+        _phase_path = Path(active_phase_file) if active_phase_file is not None else None
+        _project_dir = _phase_path.parent.parent.parent if _phase_path is not None else None
+        _pause_reason, _pause_warning = _check_context_pause(_project_dir)
+
+        if _pause_reason is not None:
+            meta = dict(meta_base)
+            return make_action(
+                PAUSE_CONTEXT,
+                scalar=next_story_id,
+                model=None,
+                reason=_pause_reason,
+                meta=_with_claimed_skipped(meta),
+            )
+
         meta: dict = dict(meta_base)
+        if _pause_warning is not None:
+            meta["warnings"] = list(meta.get("warnings") or []) + [_pause_warning]
         meta["attempt"] = 1
         return make_action(
             SPAWN_BUILDER,
@@ -1259,6 +1835,22 @@ def resolve_next_action(
             name: (gate_schema if name == "schema" else gate_auth).get("blocked_reason", "")
             for name in judged_tripped
         }
+        # INFRA-333: select_gate_worker_model's result cannot ride this
+        # action's `model` field (validate_action requires model=null for
+        # any action outside `_SPAWN_ACTIONS`, and spawn-gate-worker is
+        # deliberately not a member — see the SPAWN_GATE_WORKER comment
+        # above and test_spawn_gate_worker_with_model_fails_validate). It is
+        # surfaced as an advisory meta value only; `model=None` is unchanged.
+        from model_selector import select_gate_worker_model  # type: ignore[import]
+
+        _gate_worker_phase_class = _phase_class_for(
+            Path(active_phase_file) if active_phase_file is not None else None
+        )
+        _gate_worker_model, _gate_worker_model_reason = select_gate_worker_model(
+            _gate_worker_phase_class
+        )
+        meta["gate_worker_model"] = _gate_worker_model
+        meta["gate_worker_model_reason"] = _gate_worker_model_reason
         return make_action(
             SPAWN_GATE_WORKER,
             scalar=next_story_id,
@@ -1289,14 +1881,23 @@ def resolve_next_action(
     #
     # Row-2 branch (RESOLVER-009): story is a spec stub → spawn-spec-writer.
     # The spec-writer elaborates the story before a builder is spawned.
+    # INFRA-333: the model is now resolved via select_spec_writer_model
+    # instead of the hardcoded model="opus" literal this branch used to
+    # carry — the current single known case (attempt 1, any story_class)
+    # still resolves to "opus" (Ensures 3), so this is a refactor of the
+    # call site onto the shared mechanism, not a behavior change.
     # ------------------------------------------------------------------
     if attempt_count == 0:
         needs_spec: bool = bool(position.get("needs_spec", False))
         if needs_spec:
+            from model_selector import select_spec_writer_model  # type: ignore[import]
+
+            _spec_story_class = str(position.get("story_class") or "code")
+            _spec_writer_model, _ = select_spec_writer_model(_spec_story_class)
             return make_action(
                 SPAWN_SPEC_WRITER,
                 scalar=next_story_id,
-                model="opus",
+                model=_spec_writer_model,
                 reason="needs-spec",
                 meta=_with_claimed_skipped(meta_base),
             )

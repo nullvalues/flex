@@ -2,7 +2,7 @@
 id: INFRA-313
 rail: INFRA
 title: CER backlog gate and groom — cer.py gate wired into checkpoint, cer.py groom, gate conditions in rows
-status: draft
+status: complete
 phase: "116"
 story_class: code
 auth_gated: false

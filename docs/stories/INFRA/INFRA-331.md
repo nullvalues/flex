@@ -2,7 +2,7 @@
 id: INFRA-331
 rail: INFRA
 title: Agent registration completeness — spec-writer template; register spec-writer/docs-reviewer/gate-worker in dispatch
-status: draft
+status: complete
 phase: "116"
 story_class: code
 auth_gated: false

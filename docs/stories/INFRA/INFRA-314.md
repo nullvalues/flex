@@ -2,7 +2,7 @@
 id: INFRA-314
 rail: INFRA
 title: Deferral/disposition gates at both boundaries — checkpoint-tag refusal, era-transition check, phase_new --parent-phase/--proposed, forbidden-proxy stub
-status: draft
+status: complete
 phase: "116"
 story_class: code
 auth_gated: false
@@ -13,6 +13,7 @@ primary_files:
   - skills/pairmode/scripts/phase_new.py
 touches:
   - skills/pairmode/scripts/index_integrity.py
+  - tests/pairmode/test_index_integrity.py
   - docs/phases/index.md
   - skills/pairmode/templates/docs/phases/phase.md.j2
   - skills/pairmode/scripts/story_new.py

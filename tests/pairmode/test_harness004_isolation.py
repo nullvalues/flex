@@ -108,12 +108,12 @@ def _make_position(
 
 
 class TestSchemaVersion:
-    """SCHEMA_VERSION must equal 4 after the RESOLVER-009 bump."""
+    """SCHEMA_VERSION must equal 5 after the INFRA-316 bump."""
 
     def test_schema_version_is_4(self) -> None:
-        """next_action.SCHEMA_VERSION must be 4 (RESOLVER-009 spawn-spec-writer + needs_spec bump)."""
-        assert SCHEMA_VERSION == 4, (
-            f"Expected SCHEMA_VERSION == 4; got {SCHEMA_VERSION!r}"
+        """next_action.SCHEMA_VERSION must be 5 (INFRA-316 pause-context bump)."""
+        assert SCHEMA_VERSION == 5, (
+            f"Expected SCHEMA_VERSION == 5; got {SCHEMA_VERSION!r}"
         )
 
     def test_make_action_embeds_schema_version(self) -> None:
@@ -342,19 +342,24 @@ class TestPreCheckpointGuards:
 # ===========================================================================
 
 
-_STEP_SEQUENCE_CASES: list[tuple[list[str], str]] = [
+_STEP_SEQUENCE_CASES: list[tuple[list[str], str, "str | None"]] = [
     # State 1: no steps done → first step is checkpoint-security
-    ([], CHECKPOINT_SECURITY),
+    ([], CHECKPOINT_SECURITY, None),
     # State 2: security done → checkpoint-intent
-    ([CHECKPOINT_SECURITY], CHECKPOINT_INTENT),
-    # State 3: security + intent done → checkpoint-docs
-    ([CHECKPOINT_SECURITY, CHECKPOINT_INTENT], CHECKPOINT_DOCS),
+    ([CHECKPOINT_SECURITY], CHECKPOINT_INTENT, None),
+    # State 3: security + intent done → checkpoint-docs. INFRA-333:
+    # checkpoint-docs now resolves a real model via
+    # select_docs_reviewer_model; the fixture phase file carries no
+    # phase_class, which defaults to "production" → sonnet
+    # (non-production-class).
+    ([CHECKPOINT_SECURITY, CHECKPOINT_INTENT], CHECKPOINT_DOCS, "sonnet"),
     # State 4: security + intent + docs done → checkpoint-tag
-    ([CHECKPOINT_SECURITY, CHECKPOINT_INTENT, CHECKPOINT_DOCS], CHECKPOINT_TAG),
+    ([CHECKPOINT_SECURITY, CHECKPOINT_INTENT, CHECKPOINT_DOCS], CHECKPOINT_TAG, None),
     # State 5: all four steps done → done (phase complete / advance to next phase)
     (
         [CHECKPOINT_SECURITY, CHECKPOINT_INTENT, CHECKPOINT_DOCS, CHECKPOINT_TAG],
         DONE,
+        None,
     ),
 ]
 
@@ -373,7 +378,7 @@ class TestCheckpointStepSequencing:
     """
 
     @pytest.mark.parametrize(
-        "completed_steps,expected_action",
+        "completed_steps,expected_action,expected_model",
         _STEP_SEQUENCE_CASES,
         ids=[
             "no-steps-checkpoint-security",
@@ -388,6 +393,7 @@ class TestCheckpointStepSequencing:
         tmp_path: Path,
         completed_steps: "list[str]",
         expected_action: str,
+        expected_model: "str | None",
     ) -> None:
         """Guards pass + controlled checkpoint_step → correct next checkpoint action."""
         project = make_resolver_project(tmp_path, {
@@ -407,9 +413,9 @@ class TestCheckpointStepSequencing:
             f"expected action={expected_action!r}, got {action['action']!r}. "
             f"Full action: {action}"
         )
-        assert action["model"] is None, (
+        assert action["model"] == expected_model, (
             f"completed_steps={completed_steps!r}: "
-            f"all checkpoint actions must have model=None; got {action['model']!r}"
+            f"expected model={expected_model!r}; got {action['model']!r}"
         )
         violations = validate_action(action)
         assert violations == [], (

@@ -244,3 +244,124 @@ def test_transition_new_era_already_exists_exits_1(tmp_path: Path, monkeypatch: 
     )
     assert result.exit_code == 1
     assert "already exists" in result.output
+
+
+# ---------------------------------------------------------------------------
+# INFRA-314 — --era-id explicit targeting and the phase-ledger disposition gate
+# ---------------------------------------------------------------------------
+
+
+def _add_phase_row(era_path: Path, phase_ref: str, status: str) -> None:
+    """Append a ## Phases ledger row to an era file (creating the section)."""
+    existing = era_path.read_text(encoding="utf-8")
+    if "## Phases" not in existing:
+        existing += (
+            "\n## Phases\n\n"
+            "| Phase | Title | Status |\n"
+            "|-------|-------|--------|\n"
+        )
+    existing += f"| {phase_ref} | A phase | {status} |\n"
+    era_path.write_text(existing, encoding="utf-8")
+
+
+class TestEraIdExplicitTargeting:
+    """Ensures 2 (INFRA-314): two eras can be active simultaneously; the
+    target must be named by ID, never implicitly the sole/last active one."""
+
+    def test_two_active_eras_requires_era_id(self, tmp_path: Path) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        _make_era(eras_dir, "001", "Era one", "active")
+        _make_era(eras_dir, "002", "Era two", "active")
+
+        rc = era_transition_cli(
+            project_dir=str(tmp_path), name="Next", intent="", yes=True
+        )
+        assert rc == 1
+
+    def test_two_active_eras_era_id_selects_named_era(self, tmp_path: Path) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        _make_era(eras_dir, "001", "Era one", "active")
+        _make_era(eras_dir, "002", "Era two", "active")
+
+        rc = era_transition_cli(
+            project_dir=str(tmp_path),
+            name="Next",
+            intent="",
+            yes=True,
+            era_id="002",
+        )
+        assert rc == 0
+
+        # Era 002 is now closed; era 001 is untouched (still active) — the
+        # implicit active[-1] path (which would have picked 002 anyway by
+        # sort order here) is gone: an era-id typo must be caught, not
+        # silently coerced to "the last one".
+        era_one = (eras_dir / "001-era-one.md").read_text(encoding="utf-8")
+        era_two = (eras_dir / "002-era-two.md").read_text(encoding="utf-8")
+        assert "status: active" in era_one
+        assert "status: complete" in era_two
+
+    def test_two_active_eras_unknown_era_id_exits_1_no_write(self, tmp_path: Path) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        _make_era(eras_dir, "001", "Era one", "active")
+        _make_era(eras_dir, "002", "Era two", "active")
+        before_one = (eras_dir / "001-era-one.md").read_bytes()
+        before_two = (eras_dir / "002-era-two.md").read_bytes()
+
+        rc = era_transition_cli(
+            project_dir=str(tmp_path),
+            name="Next",
+            intent="",
+            yes=True,
+            era_id="999",
+        )
+        assert rc == 1
+        assert (eras_dir / "001-era-one.md").read_bytes() == before_one
+        assert (eras_dir / "002-era-two.md").read_bytes() == before_two
+
+    def test_single_active_era_era_id_still_optional(self, tmp_path: Path) -> None:
+        """Existing single-active-era invocation shape (RELEASE-072-era
+        tests) keeps working unchanged when --era-id is omitted."""
+        project_dir = _project_with_one_active_era(tmp_path)
+
+        rc = era_transition_cli(
+            project_dir=str(project_dir), name="Next era", intent="", yes=True
+        )
+        assert rc == 0
+
+
+class TestEraClosePhaseLedgerGate:
+    """Ensures 2 (INFRA-314): era close refuses on undispositioned phases in
+    the target era's ## Phases ledger, and writes nothing."""
+
+    def test_undispositioned_phase_refuses_close_no_write(self, tmp_path: Path) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        era_path = _make_era(eras_dir, "001", "Era one", "active")
+        _add_phase_row(era_path, "97", "planned")
+        before = era_path.read_bytes()
+
+        rc = era_transition_cli(
+            project_dir=str(tmp_path), name="Next", intent="", yes=True
+        )
+        assert rc == 1
+        assert era_path.read_bytes() == before
+
+    def test_deferred_phase_allows_close(self, tmp_path: Path) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        era_path = _make_era(eras_dir, "001", "Era one", "active")
+        _add_phase_row(era_path, "107", "deferred")
+
+        rc = era_transition_cli(
+            project_dir=str(tmp_path), name="Next", intent="", yes=True
+        )
+        assert rc == 0
+
+    def test_complete_phase_allows_close(self, tmp_path: Path) -> None:
+        eras_dir = tmp_path / "docs" / "eras"
+        era_path = _make_era(eras_dir, "001", "Era one", "active")
+        _add_phase_row(era_path, "96", "complete")
+
+        rc = era_transition_cli(
+            project_dir=str(tmp_path), name="Next", intent="", yes=True
+        )
+        assert rc == 0

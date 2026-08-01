@@ -52,6 +52,7 @@ def _write_story(
     story_class: str = "code",
     primary_files: list[str] | None = None,
     phase: str = "47",
+    reviewer_model: str | None = None,
 ) -> Path:
     """Write a minimal story spec under ``docs/stories/<RAIL>/<STORY_ID>.md``."""
     rail = story_id.split("-", 1)[0]
@@ -67,6 +68,10 @@ def _write_story(
     else:
         pf_block = "primary_files: []\n"
 
+    reviewer_model_line = (
+        f"reviewer_model: {reviewer_model}\n" if reviewer_model else ""
+    )
+
     frontmatter = (
         "---\n"
         f"id: {story_id}\n"
@@ -76,7 +81,8 @@ def _write_story(
         "status: planned\n"
         + pf_block
         + "touches: []\n"
-        "---\n\n"
+        + reviewer_model_line
+        + "---\n\n"
         "## Acceptance criterion\n\n_(fill in)_\n"
     )
     story_path.write_text(frontmatter, encoding="utf-8")
@@ -215,6 +221,58 @@ def test_select_reviewer_model_attempt_two_is_opus(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     lines = result.stdout.strip().splitlines()
     assert lines[0] == "opus"
+
+
+def test_select_reviewer_model_declared_override_attempt_one(tmp_path: Path) -> None:
+    """INFRA-318 Ensures 3: reviewer_model: overrides the auto-selected
+    model outright at attempt 1, through the real select-reviewer-model
+    CLI seam (not just the underlying helper in isolation)."""
+    _write_story(
+        tmp_path, "INFRA-318a", primary_files=["a.py"], reviewer_model="opus"
+    )
+    result = _run(
+        "select-reviewer-model",
+        "--story-id", "INFRA-318a",
+        "--attempt", "1",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "opus"
+    assert "story-declared" in lines[1]
+
+
+def test_select_reviewer_model_declared_floor_never_downgrades(tmp_path: Path) -> None:
+    """A declared reviewer_model: below attempt 2's auto-escalated opus is a
+    floor, not a ceiling — attempt 2 stays at opus, not the declared sonnet."""
+    _write_story(
+        tmp_path, "INFRA-318b", primary_files=["a.py"], reviewer_model="sonnet"
+    )
+    result = _run(
+        "select-reviewer-model",
+        "--story-id", "INFRA-318b",
+        "--attempt", "2",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "opus"
+
+
+def test_select_reviewer_model_undeclared_byte_identical(tmp_path: Path) -> None:
+    """A story with no reviewer_model: field gets the pre-INFRA-318 baseline
+    output, unaffected by the new declared-floor code path (Ensures 5)."""
+    _write_story(tmp_path, "INFRA-318c", primary_files=["a.py"])
+    result = _run(
+        "select-reviewer-model",
+        "--story-id", "INFRA-318c",
+        "--attempt", "1",
+        "--project-dir", str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "sonnet"
+    assert "story-declared" not in lines[1]
 
 
 # ---------------------------------------------------------------------------
@@ -2580,3 +2638,302 @@ def test_next_action_advisory_path_reads_no_effort_db() -> None:
     # definition — no other line references it.
     references = [line for line in src.splitlines() if "_ADVISORY_CONTEXT" in line]
     assert len(references) == 1
+
+
+# ---------------------------------------------------------------------------
+# INFRA-313 — checkpoint-tag refuses to record over an open CER Do Now row
+# ---------------------------------------------------------------------------
+
+
+def _write_open_do_now_backlog(project_dir: Path, *, resolved: bool = False) -> Path:
+    """Write docs/cer/backlog.md with one Do Now row, open or resolved."""
+    cer_dir = project_dir / "docs" / "cer"
+    cer_dir.mkdir(parents=True, exist_ok=True)
+    backlog_path = cer_dir / "backlog.md"
+    finding = (
+        "A still-open finding blocking the tag."
+        if not resolved
+        else "A still-open finding blocking the tag. **RESOLVED Phase 116 — closed**"
+    )
+    backlog_path.write_text(
+        "# Project — CER Backlog\n\n"
+        "## Do Now\n\n"
+        "| ID | Finding | Source | Date | Phase |\n"
+        "|----|---------|--------|------|-------|\n"
+        f"| CER-900 | {finding} | cold-eyes | 2026-07-29 | 116 |\n\n"
+        "## Do Later\n\n"
+        "| ID | Finding | Source | Date | Phase |\n"
+        "|----|---------|--------|------|-------|\n"
+        "| — | *(none)* | — | — | — |\n",
+        encoding="utf-8",
+    )
+    return backlog_path
+
+
+class TestCheckpointTagCerDoNowGate:
+    """Ensures 3 (INFRA-313): the checkpoint-tag step of
+    record-checkpoint-step refuses to record when docs/cer/backlog.md holds
+    an open Do Now row, and succeeds once the row is annotated
+    RESOLVED/SUPERSEDED."""
+
+    def _setup(self, tmp_path: Path) -> Path:
+        project_dir = tmp_path / "sub" / "project"
+        companion = project_dir / ".companion"
+        companion.mkdir(parents=True)
+        (companion / "state.json").write_text(
+            json.dumps(
+                {
+                    "checkpoint_step": [
+                        "checkpoint-security",
+                        "checkpoint-intent",
+                        "checkpoint-docs",
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        return project_dir
+
+    def test_open_do_now_row_refuses_checkpoint_tag(self, tmp_path: Path) -> None:
+        project_dir = self._setup(tmp_path)
+        _write_open_do_now_backlog(project_dir, resolved=False)
+        state_path = project_dir / ".companion" / "state.json"
+        state_before = state_path.read_bytes()
+
+        result = _run(
+            "record-checkpoint-step",
+            "checkpoint-tag",
+            "--project-dir",
+            str(project_dir),
+        )
+
+        assert result.returncode != 0, result.stdout
+        assert "CER-900" in result.stderr
+        assert "checkpoint-tag" in result.stderr
+        # No write occurred — the refusal happens before any state mutation.
+        assert state_path.read_bytes() == state_before
+        # checkpoint_step must still hold the three completed gate steps —
+        # the step was NOT recorded.
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "checkpoint-tag" not in state["checkpoint_step"]
+
+    def test_resolved_do_now_row_allows_checkpoint_tag(self, tmp_path: Path) -> None:
+        project_dir = self._setup(tmp_path)
+        _write_open_do_now_backlog(project_dir, resolved=True)
+
+        result = _run(
+            "record-checkpoint-step",
+            "checkpoint-tag",
+            "--project-dir",
+            str(project_dir),
+        )
+
+        assert result.returncode == 0, result.stderr
+        state = json.loads(
+            (project_dir / ".companion" / "state.json").read_text(encoding="utf-8")
+        )
+        assert state["checkpoint_step"] == []
+
+    def test_missing_backlog_is_fail_open(self, tmp_path: Path) -> None:
+        """No docs/cer/backlog.md at all — the gate must not block a
+        project that has never run cer.py (fail-open, matching
+        next_action._check_cer_do_now)."""
+        project_dir = self._setup(tmp_path)
+
+        result = _run(
+            "record-checkpoint-step",
+            "checkpoint-tag",
+            "--project-dir",
+            str(project_dir),
+        )
+
+        assert result.returncode == 0, result.stderr
+
+
+# ---------------------------------------------------------------------------
+# INFRA-314 — checkpoint-tag refuses on undispositioned stories (Ensures 1, 7)
+# ---------------------------------------------------------------------------
+
+
+def _write_gate_story(
+    project_dir: Path, story_id: str, *, status: str, phase_ref: str = "1"
+) -> Path:
+    rail = story_id.split("-", 1)[0]
+    story_dir = project_dir / "docs" / "stories" / rail
+    story_dir.mkdir(parents=True, exist_ok=True)
+    path = story_dir / f"{story_id}.md"
+    path.write_text(
+        "---\n"
+        f"id: {story_id}\n"
+        f"rail: {rail}\n"
+        f"status: {status}\n"
+        f'phase: "{phase_ref}"\n'
+        "primary_files: []\n"
+        "---\n\n"
+        "## Ensures\n\n- It works.\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _write_gate_phase(
+    project_dir: Path, phase_ref: str, *, deferred_section_for: "str | None" = None
+) -> Path:
+    phases_dir = project_dir / "docs" / "phases"
+    phases_dir.mkdir(parents=True, exist_ok=True)
+    path = phases_dir / f"phase-{phase_ref}.md"
+    body = f"# Phase {phase_ref}\n\n## Stories\n\n| ID | Title | Status |\n|----|-------|--------|\n"
+    if deferred_section_for:
+        body += f"\n## Deferred stories\n\n{deferred_section_for} was deferred.\n"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+class TestCheckpointTagDeferralGate:
+    """Ensures 1 (INFRA-314): checkpoint-tag refuses when the resolved phase
+    holds a story that is neither 'complete' nor formally deferred."""
+
+    def _setup(self, tmp_path: Path) -> Path:
+        project_dir = tmp_path / "sub" / "project"
+        companion = project_dir / ".companion"
+        companion.mkdir(parents=True)
+        (companion / "state.json").write_text(
+            json.dumps(
+                {
+                    "checkpoint_step": [
+                        "checkpoint-security",
+                        "checkpoint-intent",
+                        "checkpoint-docs",
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return project_dir
+
+    def test_planned_story_refuses_checkpoint_tag(self, tmp_path: Path) -> None:
+        project_dir = self._setup(tmp_path)
+        _write_gate_phase(project_dir, "1")
+        _write_gate_story(project_dir, "TEST-001", status="planned")
+        state_path = project_dir / ".companion" / "state.json"
+        state_before = state_path.read_bytes()
+
+        result = _run(
+            "record-checkpoint-step",
+            "checkpoint-tag",
+            "--project-dir",
+            str(project_dir),
+            "--phase-key",
+            "1",
+        )
+
+        assert result.returncode != 0, result.stdout
+        assert "TEST-001" in result.stderr
+        assert "checkpoint-tag" in result.stderr
+        # No write occurred — the refusal happens before any state mutation.
+        assert state_path.read_bytes() == state_before
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "checkpoint-tag" not in state["checkpoint_step"]
+        # And the phase index (if present) must not have been touched either —
+        # no docs/phases/index.md in this fixture, so nothing to assert there
+        # beyond the state.json byte-identity above.
+
+    def test_complete_story_allows_checkpoint_tag(self, tmp_path: Path) -> None:
+        project_dir = self._setup(tmp_path)
+        _write_gate_phase(project_dir, "1")
+        _write_gate_story(project_dir, "TEST-001", status="complete")
+
+        result = _run(
+            "record-checkpoint-step",
+            "checkpoint-tag",
+            "--project-dir",
+            str(project_dir),
+            "--phase-key",
+            "1",
+        )
+
+        assert result.returncode == 0, result.stderr
+
+    def test_deferred_with_section_allows_checkpoint_tag(self, tmp_path: Path) -> None:
+        project_dir = self._setup(tmp_path)
+        _write_gate_phase(project_dir, "1", deferred_section_for="TEST-001")
+        _write_gate_story(project_dir, "TEST-001", status="deferred")
+
+        result = _run(
+            "record-checkpoint-step",
+            "checkpoint-tag",
+            "--project-dir",
+            str(project_dir),
+            "--phase-key",
+            "1",
+        )
+
+        assert result.returncode == 0, result.stderr
+
+    def test_deferred_without_section_refuses_checkpoint_tag(self, tmp_path: Path) -> None:
+        project_dir = self._setup(tmp_path)
+        _write_gate_phase(project_dir, "1")  # no ## Deferred stories section
+        _write_gate_story(project_dir, "TEST-001", status="deferred")
+        state_path = project_dir / ".companion" / "state.json"
+        state_before = state_path.read_bytes()
+
+        result = _run(
+            "record-checkpoint-step",
+            "checkpoint-tag",
+            "--project-dir",
+            str(project_dir),
+            "--phase-key",
+            "1",
+        )
+
+        assert result.returncode != 0, result.stdout
+        assert "TEST-001" in result.stderr
+        assert state_path.read_bytes() == state_before
+
+    def test_no_phase_doc_is_fail_open(self, tmp_path: Path) -> None:
+        """No docs/phases/phase-<key>.md at all — the gate must not block a
+        project whose phase doc doesn't exist under this key."""
+        project_dir = self._setup(tmp_path)
+
+        result = _run(
+            "record-checkpoint-step",
+            "checkpoint-tag",
+            "--project-dir",
+            str(project_dir),
+            "--phase-key",
+            "1",
+        )
+
+        assert result.returncode == 0, result.stderr
+
+    def test_infra310_composition_fixture_passes_both_gates(self, tmp_path: Path) -> None:
+        """Ensures 7: the phase-107-shaped fixture INFRA-310 must leave behind
+        (phase deferred, stories backlog/deferred with a Superseded note) is
+        exactly the state this gate must accept as clean."""
+        project_dir = self._setup(tmp_path)
+        phases_dir = project_dir / "docs" / "phases"
+        phases_dir.mkdir(parents=True, exist_ok=True)
+        (phases_dir / "phase-107.md").write_text(
+            "# Phase 107\n\n"
+            "## Stories\n\n"
+            "| ID | Title | Status |\n"
+            "|----|-------|--------|\n"
+            "| CER-078 | A backlog item | backlog |\n\n"
+            "## Superseded\n\n"
+            "Superseded by phases 113-116 / INFRA-310.\n\n"
+            "## Deferred stories\n\n"
+            "CER-078 was deferred (superseded).\n",
+            encoding="utf-8",
+        )
+        _write_gate_story(project_dir, "CER-078", status="deferred", phase_ref="107")
+
+        result = _run(
+            "record-checkpoint-step",
+            "checkpoint-tag",
+            "--project-dir",
+            str(project_dir),
+            "--phase-key",
+            "107",
+        )
+
+        assert result.returncode == 0, result.stderr

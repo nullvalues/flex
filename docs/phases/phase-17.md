@@ -29,6 +29,18 @@ Prerequisites: Phase 16 complete and tagged cp16-build-loop-integration.
 | INFRA-008 | Fix validate_story_file draft exemption; fix era_new.py quoted id | planned |
 | INFRA-009 | Fix depth guards in cer.py and phase_new.py; fix CER-008 _read_json non-dict | planned |
 | INFRA-010 | Fix score.py StrictUndefined inconsistency; fix cer.py ID collision on malformed markdown | planned |
+| INFRA-002 | Add len(parts) depth guard to cer.py and phase_new.py | complete |
+| INFRA-004 | Guard _read_json against non-dict JSON in permission_scope.py | complete |
+
+**INFRA-002/INFRA-004 note (INFRA-310, check-index orphan-story fix,
+2026-08-01):** these two story files already carried valid `phase: "17"`
+frontmatter but were never referenced in this table — an archival gap, not a
+status question; both are `status: complete` and their fixes (`cer.py`/
+`phase_new.py` depth guards, `permission_scope.py`'s dict guard) are the same
+correctness class INFRA-009 above was scoped to cover. Added here as the
+record of what actually built the fix; INFRA-009 itself is left `planned` and
+untouched — reconciling whether INFRA-009 duplicates or was superseded by
+these two is out of this story's scope.
 
 ---
 

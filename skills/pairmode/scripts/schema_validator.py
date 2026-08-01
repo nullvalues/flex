@@ -230,6 +230,15 @@ DEFAULT_STORY_CLASS = "code"
 VALID_PHASE_CLASSES = {"production", "docs-only", "pre-pr"}
 DEFAULT_PHASE_CLASS = "production"
 VALID_TEST_GATES = {"story", "phase_checkpoint", "none"}
+# INFRA-318: the shared model-tier vocabulary for the optional `model:` /
+# `reviewer_model:` story frontmatter fields. Canonical names come from the
+# live selection logic (model_selector.py's MODEL_HAIKU/MODEL_SONNET/
+# MODEL_OPUS) — this is the ordinary three-rung builder/reviewer ladder only.
+# `fable` (model_selector.MODEL_FABLE) is deliberately excluded: it is an
+# escalation tier reserved for the loop-breaker rung
+# (select_loop_breaker_model), never a spec-time declarable choice. One
+# constant, shared by both fields, so neither is ever free-text (Requires 1).
+VALID_MODEL_TIERS = {"haiku", "sonnet", "opus"}
 
 REQUIRED_STORY_FIELDS = ("id", "rail", "title", "status", "phase", "primary_files")
 REQUIRED_ERA_FIELDS = ("id", "name", "status")
@@ -281,6 +290,21 @@ def validate_story_file(path: Path) -> list[str]:
         errors.append(
             f"Invalid test_gate '{fm['test_gate']}'; must be one of "
             f"{sorted(VALID_TEST_GATES)} when present"
+        )
+
+    # INFRA-318: `model:` / `reviewer_model:` are optional per-story overrides.
+    # Same optional-field pattern as `test_gate` above — enum-checked only
+    # when present; a story without either field validates exactly as today.
+    if "model" in fm and fm["model"] not in VALID_MODEL_TIERS:
+        errors.append(
+            f"Invalid model '{fm['model']}'; must be one of "
+            f"{sorted(VALID_MODEL_TIERS)} when present"
+        )
+
+    if "reviewer_model" in fm and fm["reviewer_model"] not in VALID_MODEL_TIERS:
+        errors.append(
+            f"Invalid reviewer_model '{fm['reviewer_model']}'; must be one of "
+            f"{sorted(VALID_MODEL_TIERS)} when present"
         )
 
     status = fm.get("status", "")

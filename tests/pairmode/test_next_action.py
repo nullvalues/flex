@@ -104,8 +104,13 @@ def _write_story(
     auth_gated: bool = False,
     schema_introduces: bool = False,
     stub: bool = False,
+    model: str | None = None,
 ) -> Path:
-    """Write a minimal story spec."""
+    """Write a minimal story spec.
+
+    ``model`` (INFRA-318): optional declared ``model:`` frontmatter value —
+    omitted entirely when None, so existing callers get byte-identical output.
+    """
     rail = story_id.split("-", 1)[0]
     story_dir = project_dir / "docs" / "stories" / rail
     story_dir.mkdir(parents=True, exist_ok=True)
@@ -128,6 +133,7 @@ def _write_story(
             "- Tests pass.\n"
             "- No regressions introduced.\n"
         )
+    model_yaml = f"model: {model}\n" if model is not None else ""
     content = (
         f"---\n"
         f"id: {story_id}\n"
@@ -138,6 +144,7 @@ def _write_story(
         f"{pf_yaml}"
         f"auth_gated: {'true' if auth_gated else 'false'}\n"
         f"schema_introduces: {'true' if schema_introduces else 'false'}\n"
+        f"{model_yaml}"
         f"---\n\n"
         f"{body}"
     )
@@ -481,6 +488,126 @@ class TestInferPositionFailOutcome:
         assert pos["builder_model_reason"] == expected_reason == "auto-baseline"
 
 
+class TestInferPositionDeclaredModelFloor:
+    """INFRA-318: a story-declared `model:` frontmatter field reaches
+    infer_position's builder_model/builder_model_reason end-to-end — proving
+    the floor via a real story file on disk, not just at the
+    `select_builder_model`/`apply_declared_model_floor` function layer."""
+
+    def test_attempt_1_declared_model_is_override(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A story declaring `model: opus` carries opus at attempt 1, even
+        though the default selection for a low-complexity code story would
+        be sonnet (Ensures 2)."""
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001", model="opus")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        assert pos["attempt_count"] == 0
+        assert pos["last_attempt_outcome"] == OUTCOME_NONE
+        assert pos["builder_model"] == "opus"
+        assert pos["builder_model_reason"] == "story-declared"
+
+    def test_attempt_1_declared_model_lower_is_also_override(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Lowering is equally an outright override at attempt 1 (asymmetric
+        *approval flow* happens at spec-write time, not at dispatch time)."""
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001", model="haiku")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        assert pos["builder_model"] == "haiku"
+        assert pos["builder_model_reason"] == "story-declared"
+
+    def test_undeclared_story_is_byte_identical(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """No `model:` field → output unchanged from pre-INFRA-318 behaviour
+        (Ensures 2/5)."""
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        assert pos["builder_model"] == "sonnet"
+        assert pos["builder_model_reason"] == "auto-baseline"
+
+    def test_retry_never_downgrades_below_declared_floor(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A story declaring `model: opus` and failing attempt 1 stays at
+        opus on attempt 2 — retry-upgrade already meets/exceeds the floor,
+        never downgrades below it (Ensures 2, Do-not clause)."""
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001", model="opus")
+        _write_attempt_counter(tmp_path, "TEST-001", 1)
+        _patch_git_log(monkeypatch, "")  # no commit → FAIL
+
+        pos = infer_position(tmp_path)
+        assert pos["last_attempt_outcome"] == OUTCOME_FAIL
+        assert pos["builder_model"] == "opus"
+
+    def test_resolve_next_action_spawn_builder_carries_declared_floor(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """End-to-end: infer_position → resolve_next_action's emitted
+        spawn-builder action.model actually carries the declared floor, not
+        just Position's internal builder_model field."""
+        from next_action import resolve_next_action, SPAWN_BUILDER  # type: ignore[import]
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001", model="opus")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["model"] == "opus"
+        assert action["reason"] == "story-declared"
+
+    def test_resolve_next_action_undeclared_story_unaffected(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Same end-to-end path for an undeclared story — proves the floor
+        machinery is a true no-op absent the field (Ensures 5)."""
+        from next_action import resolve_next_action, SPAWN_BUILDER  # type: ignore[import]
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["model"] == "sonnet"
+        assert action["reason"] == "auto-baseline"
+
+    def test_invalid_declared_model_value_is_treated_as_undeclared(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A story with an invalid model: value (should have failed schema
+        validation upstream) is treated fail-safe as undeclared, never
+        guessed at or crashed on."""
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "planned")])
+        _write_story(tmp_path, "TEST-001", model="claude-4-opus-20260101")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        assert pos["builder_model"] == "sonnet"
+        assert pos["builder_model_reason"] == "auto-baseline"
+
+
 class TestInferPositionPerKeyEscalation:
     """INFRA-282 (CER-095.3), assertion 12: with attempt_counter.json holding
     entries for two stories, each story's Position escalates on its own
@@ -607,6 +734,215 @@ class TestInferPositionExtractionsConsistency:
         assert pos["gate_auth"]["ok"] == standalone_auth["ok"]
 
 
+def _write_claude_build_md(project_dir: Path, *, intent_review: "str | None" = None) -> Path:
+    """Write a minimal CLAUDE.build.md with a Build standards line (INFRA-315)."""
+    lines = ["# CLAUDE.build.md\n\n", "## Checkpoint\n\n"]
+    if intent_review is not None:
+        lines.append(
+            f"**Build standards** test_command=`pytest` | test_dir=`tests/` | "
+            f"protected_paths=`(none)` | domain_isolation_rule=`(none)` | "
+            f"intent_review=`{intent_review}`\n"
+        )
+    else:
+        lines.append(
+            "**Build standards** test_command=`pytest` | test_dir=`tests/` | "
+            "protected_paths=`(none)` | domain_isolation_rule=`(none)`\n"
+        )
+    path = project_dir / "CLAUDE.build.md"
+    path.write_text("".join(lines), encoding="utf-8")
+    return path
+
+
+class TestInferPositionPreBuildIntentReview:
+    """infer_position-level fixtures for INFRA-315 (Instructions 3):
+    opted-in fresh, opted-out fresh, opted-in mid-phase."""
+
+    def test_opted_in_fresh_phase(self, tmp_path: Path, monkeypatch: Any) -> None:
+        _write_claude_build_md(tmp_path, intent_review="pre-build")
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(
+            tmp_path, "1", [("TEST-001", "draft"), ("TEST-002", "planned")]
+        )
+        _write_story(tmp_path, "TEST-001")
+        _write_story(tmp_path, "TEST-002")
+        _patch_git_log(monkeypatch, "")  # no commits at all
+
+        pos = infer_position(tmp_path)
+        assert pos["intent_review_opt_in"] is True
+        assert pos["phase_is_fresh"] is True
+        assert pos["pre_build_intent_verdict"] is None
+
+    def test_opted_out_fresh_phase(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """Absent the opt-in key, phase_is_fresh may still be True but
+        opt-in is False — Row PBI in resolve_next_action never fires."""
+        _write_claude_build_md(tmp_path, intent_review=None)
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "draft")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        assert pos["intent_review_opt_in"] is False
+
+    def test_opted_in_but_other_value_stays_opted_out(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Any value other than the literal 'pre-build' leaves opt-in False."""
+        _write_claude_build_md(tmp_path, intent_review="checkpoint-only")
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "draft")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        pos = infer_position(tmp_path)
+        assert pos["intent_review_opt_in"] is False
+
+    def test_opted_in_mid_phase_not_fresh(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Ensures 3: a phase with >=1 complete/in-progress story is never
+        fresh, opted-in or not."""
+        _write_claude_build_md(tmp_path, intent_review="pre-build")
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(
+            tmp_path, "1", [("TEST-001", "complete"), ("TEST-002", "planned")]
+        )
+        _write_story(tmp_path, "TEST-001")
+        _write_story(tmp_path, "TEST-002")
+        _patch_git_log(monkeypatch, "abc123 story(TEST-001): done\n")
+
+        pos = infer_position(tmp_path)
+        assert pos["intent_review_opt_in"] is True
+        assert pos["phase_is_fresh"] is False
+
+    def test_opted_in_mid_phase_via_commit_evidence_not_fresh(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A story with commit evidence but a table status still 'planned'
+        is still not fresh (INFRA-297 helpers reused, Requires 4)."""
+        _write_claude_build_md(tmp_path, intent_review="pre-build")
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(
+            tmp_path, "1", [("TEST-001", "planned"), ("TEST-002", "planned")]
+        )
+        _write_story(tmp_path, "TEST-001")
+        _write_story(tmp_path, "TEST-002")
+        _patch_git_log(monkeypatch, "abc123 story(TEST-001): done\n")
+
+        pos = infer_position(tmp_path)
+        assert pos["phase_is_fresh"] is False
+
+    def test_pre_build_intent_verdict_read_from_state_json(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Requires 3: durable evidence lives in state.json, phase-keyed."""
+        _write_claude_build_md(tmp_path, intent_review="pre-build")
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "draft")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        (companion / "state.json").write_text(
+            json.dumps({"pre_build_intent_review": {"1": "ALIGNED"}}),
+            encoding="utf-8",
+        )
+
+        pos = infer_position(tmp_path)
+        assert pos["pre_build_intent_verdict"] == "ALIGNED"
+
+    def test_pre_build_intent_verdict_is_phase_scoped(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A later fresh phase (different key) re-fires — its own key holds
+        no evidence even though a sibling phase's key does."""
+        _write_claude_build_md(tmp_path, intent_review="pre-build")
+        _write_index(tmp_path, [("2", "Phase 2", "active")])
+        _write_phase(tmp_path, "2", [("TEST-010", "draft")])
+        _write_story(tmp_path, "TEST-010")
+        _patch_git_log(monkeypatch, "")
+
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        (companion / "state.json").write_text(
+            json.dumps({"pre_build_intent_review": {"1": "ALIGNED"}}),
+            encoding="utf-8",
+        )
+
+        pos = infer_position(tmp_path)
+        assert pos["pre_build_intent_verdict"] is None
+        assert pos["phase_is_fresh"] is True
+
+
+class TestPreBuildIntentReviewOnceOnlyRoundTrip:
+    """Instructions 3: the once-only round-trip, end to end through
+    infer_position + resolve_next_action + the record-intent-review CLI
+    write (Requires 3: the resolver is stateless per invocation — a fresh
+    process re-reads the same durable evidence and resolves consistently)."""
+
+    def test_stateless_rerun_after_recording_verdict(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from next_action import resolve_next_action  # type: ignore[import]
+        from flex_build import cmd_record_intent_review  # type: ignore[import]
+        from click.testing import CliRunner
+
+        _write_claude_build_md(tmp_path, intent_review="pre-build")
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "draft")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        # First resolution: no verdict recorded yet → spawn-intent-reviewer.
+        pos_before = infer_position(tmp_path)
+        action_before = resolve_next_action(pos_before)
+        assert action_before["action"] == SPAWN_INTENT_REVIEWER
+        assert action_before["scalar"] == "1"
+
+        # Record the verdict via the CLI (mirrors the orchestrator's call).
+        runner = CliRunner()
+        result = runner.invoke(
+            cmd_record_intent_review,
+            ["--phase-key", "1", "--verdict", "ALIGNED", "--project-dir", str(tmp_path)],
+        )
+        assert result.exit_code == 0, result.output
+
+        # A brand-new call to infer_position (simulating a fresh process /
+        # a /clear boundary) must read the durable evidence and never
+        # re-emit spawn-intent-reviewer for this phase.
+        pos_after = infer_position(tmp_path)
+        assert pos_after["pre_build_intent_verdict"] == "ALIGNED"
+        action_after = resolve_next_action(pos_after)
+        assert action_after["action"] == SPAWN_BUILDER
+        assert action_after["scalar"] == "TEST-001"
+
+    def test_recorded_fail_verdict_blocks_via_await_user(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from next_action import resolve_next_action  # type: ignore[import]
+        from flex_build import cmd_record_intent_review  # type: ignore[import]
+        from click.testing import CliRunner
+
+        _write_claude_build_md(tmp_path, intent_review="pre-build")
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-001", "draft")])
+        _write_story(tmp_path, "TEST-001")
+        _patch_git_log(monkeypatch, "")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cmd_record_intent_review,
+            ["--phase-key", "1", "--verdict", "FAIL", "--project-dir", str(tmp_path)],
+        )
+        assert result.exit_code == 0, result.output
+
+        pos = infer_position(tmp_path)
+        action = resolve_next_action(pos)
+        assert action["action"] == AWAIT_USER
+        assert action["reason"] == "pre-build-intent-review-flagged"
+
+
 class TestInferPositionReadOnly:
     """infer_position must not write any files."""
 
@@ -643,10 +979,12 @@ from next_action import (  # noqa: E402
     SPAWN_LOOP_BREAKER,
     SPAWN_GATE_WORKER,
     SPAWN_REVIEWER,
+    SPAWN_INTENT_REVIEWER,
     CHECKPOINT,
     CHECKPOINT_SECURITY,
     CHECKPOINT_TAG,
     AWAIT_USER,
+    PAUSE_CONTEXT,
     route_gate_verdict,
 )
 
@@ -667,6 +1005,9 @@ def _make_position(
     gate_schema: "dict | None" = None,
     gate_auth: "dict | None" = None,
     last_attempt_outcome: str = OUTCOME_NONE,
+    intent_review_opt_in: bool = False,
+    phase_is_fresh: bool = False,
+    pre_build_intent_verdict: "str | None" = None,
 ) -> dict:
     """Build a synthetic Position dict for state-machine tests."""
     _ok_gate = {"ok": True, "blocked_reason": ""}
@@ -681,6 +1022,10 @@ def _make_position(
         "gate_schema": gate_schema if gate_schema is not None else dict(_ok_gate),
         "gate_auth": gate_auth if gate_auth is not None else dict(_ok_gate),
         "last_attempt_outcome": last_attempt_outcome,
+        # INFRA-315
+        "intent_review_opt_in": intent_review_opt_in,
+        "phase_is_fresh": phase_is_fresh,
+        "pre_build_intent_verdict": pre_build_intent_verdict,
     }
 
 
@@ -1215,6 +1560,363 @@ class TestResolveNextActionSpawnBuilder:
         assert action["action"] == SPAWN_BUILDER
         assert action["scalar"] == "TEST-003"
         assert action["meta"]["attempt"] == 1
+        assert validate_action(action) == []
+
+
+class TestResolveNextActionRow8ContextPause:
+    """INFRA-316: Row-8 between-story context etiquette.
+
+    Consults the ORCHESTRATOR track only (INFRA-321 F6) via
+    ``.companion/state.json`` -- never ``context_budget_check`` (story-spend).
+    Fixtures: over/under/acknowledged/retry/fail-open (Instructions 4).
+    """
+
+    def _phase_file(self, tmp_path: Path) -> Path:
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True, exist_ok=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        return phase_file
+
+    def _write_state(self, tmp_path: Path, state: dict) -> None:
+        companion_dir = tmp_path / ".companion"
+        companion_dir.mkdir(parents=True, exist_ok=True)
+        (companion_dir / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    def _pos(self, phase_file: Path, **overrides) -> dict:
+        base = dict(
+            active_phase_file=phase_file,
+            next_story_id="TEST-010",
+            attempt_count=1,
+            builder_model="sonnet",
+            builder_model_reason="auto-baseline",
+            last_attempt_outcome=OUTCOME_PASS,
+        )
+        base.update(overrides)
+        return _make_position(**base)
+
+    def test_over_threshold_no_ack_emits_pause_context(self, tmp_path: Path) -> None:
+        """Ensures 1: over threshold, no acknowledgment → pause-context, not
+        spawn-builder; reason carries tokens/threshold."""
+        # threshold=120_000, default overrun_pct=0.10 -> ceiling=132_000
+        # (context_budget.effective_ceiling; the 0-is-falsy `or` fallback in
+        # should_block/decide()'s own overrun_pct read means an *explicit*
+        # 0.0 here would silently become the 0.10 default too -- omitted
+        # deliberately, matching the shared predicate's existing behaviour).
+        phase_file = self._phase_file(tmp_path)
+        self._write_state(
+            tmp_path,
+            {
+                "context_current_tokens": 140_000,
+                "context_budget_threshold": 120_000,
+            },
+        )
+        pos = self._pos(phase_file)
+        action = resolve_next_action(pos)
+        assert action["action"] == PAUSE_CONTEXT
+        assert action["action"] != SPAWN_BUILDER
+        assert action["scalar"] == "TEST-010"
+        assert action["model"] is None
+        assert "tokens=140000" in action["reason"]
+        assert "threshold=120000" in action["reason"]
+        assert "ceiling=132000" in action["reason"]
+        assert validate_action(action) == []
+
+    def test_under_threshold_byte_identical_spawn_builder(self, tmp_path: Path) -> None:
+        """Ensures 1: under threshold → spawn-builder, byte-identical to the
+        pre-INFRA-316 Row-8 output (no warnings key, same attempt/model/reason)."""
+        phase_file = self._phase_file(tmp_path)
+        self._write_state(
+            tmp_path,
+            {
+                "context_current_tokens": 1_000,
+                "context_budget_threshold": 120_000,
+                "context_budget_overrun_pct": 0.10,
+            },
+        )
+        pos = self._pos(phase_file)
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["scalar"] == "TEST-010"
+        assert action["meta"]["attempt"] == 1
+        assert "warnings" not in action["meta"]
+        assert validate_action(action) == []
+
+    def test_no_state_json_byte_identical_spawn_builder(self, tmp_path: Path) -> None:
+        """No .companion/state.json at all (project has never recorded an
+        orchestrator-track measurement) → spawn-builder, no warning."""
+        phase_file = self._phase_file(tmp_path)
+        pos = self._pos(phase_file)
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert "warnings" not in action["meta"]
+
+    def test_acknowledgment_clears_over_threshold_once(self, tmp_path: Path) -> None:
+        """Ensures 2: a valid acknowledgment (genuine turn since the block,
+        no further token growth past the margin) clears the pause and
+        resolves to spawn-builder -- sharing the exact predicate the hook
+        gate uses (context_budget.should_block)."""
+        phase_file = self._phase_file(tmp_path)
+        self._write_state(
+            tmp_path,
+            {
+                "context_current_tokens": 140_000,
+                "context_budget_threshold": 120_000,
+                "context_budget_reprompt_margin": 10_000,
+                "context_budget_acknowledged_at": 140_000,
+                "context_budget_user_turn_seq": 2,
+                "context_budget_acknowledged_user_turn_seq": 1,
+            },
+        )
+        pos = self._pos(phase_file)
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["scalar"] == "TEST-010"
+
+    def test_acknowledgment_does_not_persist_across_new_crossing(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensures 2: the same acknowledgment does not clear a *new*
+        over-threshold crossing -- tokens have genuinely advanced past the
+        reprompt margin since the ack (mirrors the hook gate's rule)."""
+        phase_file = self._phase_file(tmp_path)
+        self._write_state(
+            tmp_path,
+            {
+                "context_current_tokens": 155_000,
+                "context_budget_threshold": 120_000,
+                "context_budget_reprompt_margin": 10_000,
+                "context_budget_acknowledged_at": 140_000,
+                "context_budget_user_turn_seq": 2,
+                "context_budget_acknowledged_user_turn_seq": 1,
+            },
+        )
+        pos = self._pos(phase_file)
+        action = resolve_next_action(pos)
+        assert action["action"] == PAUSE_CONTEXT
+
+    def test_mid_story_retry_unaffected_by_over_threshold(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensures 3: a FAIL-verdict retry on the same story (Row 5, not Row
+        8) resolves to spawn-builder attempt N+1 regardless of the
+        orchestrator track's threshold state."""
+        phase_file = self._phase_file(tmp_path)
+        self._write_state(
+            tmp_path,
+            {
+                "context_current_tokens": 999_000,
+                "context_budget_threshold": 120_000,
+            },
+        )
+        pos = self._pos(
+            phase_file,
+            attempt_count=1,
+            builder_model="opus",
+            builder_model_reason="retry-upgrade",
+            last_attempt_outcome=OUTCOME_FAIL,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["meta"]["attempt"] == 2
+
+    def test_malformed_state_json_fails_open_with_warning(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensures 5: malformed state.json fails open to spawn-builder; the
+        etiquette check must never brick the build loop."""
+        phase_file = self._phase_file(tmp_path)
+        companion_dir = tmp_path / ".companion"
+        companion_dir.mkdir(parents=True, exist_ok=True)
+        (companion_dir / "state.json").write_text("{not valid json", encoding="utf-8")
+        pos = self._pos(phase_file)
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["scalar"] == "TEST-010"
+
+    def test_context_budget_exception_fails_open_with_warning(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Ensures 5: an exception raised while deriving the verdict (e.g. a
+        context_budget internal crash) fails open to spawn-builder with a
+        warning attached -- never a bricked build loop."""
+        phase_file = self._phase_file(tmp_path)
+        self._write_state(
+            tmp_path,
+            {
+                "context_current_tokens": 125_000,
+                "context_budget_threshold": 120_000,
+            },
+        )
+        import next_action as _next_action_mod
+
+        def _boom(state):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(
+            _next_action_mod.context_budget, "derive_expected_step_tokens", _boom
+        )
+        pos = self._pos(phase_file)
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert any(
+            "context-pause-check-failed" in w
+            for w in action["meta"].get("warnings", [])
+        )
+
+    def test_never_calls_context_budget_check(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """INFRA-321 F6: this seam must never import or invoke
+        context_budget_check (the story-spend/effort.db track)."""
+        phase_file = self._phase_file(tmp_path)
+        self._write_state(
+            tmp_path,
+            {
+                "context_current_tokens": 140_000,
+                "context_budget_threshold": 120_000,
+            },
+        )
+        # Direct grammar check: next_action.py never imports
+        # context_budget_check as a module attribute.
+        import next_action as _next_action_mod
+        assert not hasattr(_next_action_mod, "context_budget_check")
+
+        pos = self._pos(phase_file)
+        action = resolve_next_action(pos)
+        assert action["action"] == PAUSE_CONTEXT
+
+
+class TestResolveNextActionPreBuildIntentReview:
+    """Row PBI (INFRA-315): pre-build intent review, resolver-emitted, opt-in.
+
+    Story fixtures (Instructions 3): opted-in fresh, opted-out fresh, opted-in
+    mid-phase, plus the once-only round-trip.
+    """
+
+    def _phase_file(self, tmp_path: Path, name: str = "1") -> Path:
+        phase_file = tmp_path / "docs" / "phases" / f"phase-{name}.md"
+        phase_file.parent.mkdir(parents=True, exist_ok=True)
+        phase_file.write_text("# Phase\n", encoding="utf-8")
+        return phase_file
+
+    def test_opted_in_fresh_no_verdict_spawns_intent_reviewer(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensures 1: opted-in + fresh + no attempts → spawn-intent-reviewer,
+        scalar=phase key, model=null, reason names pre-build intent review."""
+        phase_file = self._phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-001",
+            attempt_count=0,
+            builder_model="sonnet",
+            builder_model_reason="auto-baseline",
+            last_attempt_outcome=OUTCOME_NONE,
+            intent_review_opt_in=True,
+            phase_is_fresh=True,
+            pre_build_intent_verdict=None,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_INTENT_REVIEWER
+        assert action["scalar"] == "1"
+        assert action["model"] is None
+        assert "pre-build" in action["reason"]
+        assert validate_action(action) == []
+
+    def test_opted_out_fresh_byte_identical_to_baseline(self, tmp_path: Path) -> None:
+        """Ensures 1: without the opt-in, output is byte-identical to the
+        pre-INFRA-315 Row 2 resolution for the same fixture."""
+        phase_file = self._phase_file(tmp_path)
+        base_kwargs = dict(
+            active_phase_file=phase_file,
+            next_story_id="TEST-001",
+            attempt_count=0,
+            builder_model="sonnet",
+            builder_model_reason="auto-baseline",
+            last_attempt_outcome=OUTCOME_NONE,
+        )
+        pos_opted_out = _make_position(
+            **base_kwargs,
+            intent_review_opt_in=False,
+            phase_is_fresh=True,
+            pre_build_intent_verdict=None,
+        )
+        pos_no_flags = _make_position(**base_kwargs)
+        action_opted_out = resolve_next_action(pos_opted_out)
+        action_no_flags = resolve_next_action(pos_no_flags)
+        assert action_opted_out == action_no_flags
+        assert action_opted_out["action"] == SPAWN_BUILDER
+
+    def test_opted_in_but_not_fresh_never_fires(self, tmp_path: Path) -> None:
+        """Ensures 3: never mid-phase — phase_is_fresh False means the row
+        never fires even when opted in, regardless of verdict state."""
+        phase_file = self._phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-002",
+            attempt_count=0,
+            builder_model="sonnet",
+            builder_model_reason="auto-baseline",
+            last_attempt_outcome=OUTCOME_NONE,
+            intent_review_opt_in=True,
+            phase_is_fresh=False,
+            pre_build_intent_verdict=None,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+
+    def test_recorded_aligned_verdict_falls_through_to_spawn_builder(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensures 2: after the review outcome (ALIGNED) is recorded, the same
+        fixture resolves to spawn-builder — the emission fires once."""
+        phase_file = self._phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-001",
+            attempt_count=0,
+            builder_model="sonnet",
+            builder_model_reason="auto-baseline",
+            last_attempt_outcome=OUTCOME_NONE,
+            intent_review_opt_in=True,
+            phase_is_fresh=True,
+            pre_build_intent_verdict="ALIGNED",
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["scalar"] == "TEST-001"
+
+    def test_recorded_pass_verdict_also_falls_through(self, tmp_path: Path) -> None:
+        phase_file = self._phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-001",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+            intent_review_opt_in=True,
+            phase_is_fresh=True,
+            pre_build_intent_verdict="PASS",
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+
+    def test_recorded_fail_verdict_routes_to_await_user(self, tmp_path: Path) -> None:
+        """Ensures 4: verdict routing is advisory-block, not silent — a FAIL/
+        flag verdict routes to await-user (spec drift is an operator decision)."""
+        phase_file = self._phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="TEST-001",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+            intent_review_opt_in=True,
+            phase_is_fresh=True,
+            pre_build_intent_verdict="FAIL",
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == AWAIT_USER
+        assert action["reason"] == "pre-build-intent-review-flagged"
+        assert action["meta"]["pre_build_intent_verdict"] == "FAIL"
         assert validate_action(action) == []
 
 
@@ -1759,6 +2461,11 @@ class TestResolveNextActionRow4Split:
         assert action["model"] is None
         assert validate_action(action) == []
         assert "schema" in action["meta"]["gates_tripped"]
+        # INFRA-333: select_gate_worker_model's result is surfaced as an
+        # advisory meta value only — the top-level model field stays None
+        # (spawn-gate-worker is not a _SPAWN_ACTIONS member).
+        assert action["meta"]["gate_worker_model"] == "opus"
+        assert action["meta"]["gate_worker_model_reason"] == "production-class"
 
     def test_auth_tripped_emits_spawn_gate_worker(self, tmp_path: "Any") -> None:
         """auth blocked (stub clean, schema ok) → spawn-gate-worker."""
@@ -1827,6 +2534,106 @@ class TestResolveNextActionRow4Split:
         violations = validate_action(action)
         assert len(violations) > 0
         assert any("model" in v for v in violations)
+
+    def test_gate_worker_model_varies_with_phase_class(self, tmp_path: "Any") -> None:
+        """INFRA-333: gate_worker_model meta reflects the phase's phase_class."""
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True, exist_ok=True)
+        phase_file.write_text(
+            "---\nphase_class: docs-only\n---\n# Phase 1\n", encoding="utf-8"
+        )
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="RESOLVER-005A",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+            gate_stub={"ok": True, "blocked_reason": ""},
+            gate_schema={"ok": False, "blocked_reason": "no management surface"},
+            gate_auth={"ok": True, "blocked_reason": ""},
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_GATE_WORKER
+        assert action["model"] is None
+        assert action["meta"]["gate_worker_model"] == "sonnet"
+        assert action["meta"]["gate_worker_model_reason"] == "non-production-class"
+        assert validate_action(action) == []
+
+
+# ---------------------------------------------------------------------------
+# Tests — INFRA-333: Row 9 checkpoint-docs model wiring
+# ---------------------------------------------------------------------------
+
+
+class TestCheckpointDocsModelWiring:
+    def test_checkpoint_docs_step_carries_selected_model(self, tmp_path: "Any") -> None:
+        """When checkpoint-docs is the next uncompleted step, its model is
+        resolved via select_docs_reviewer_model instead of staying None."""
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True, exist_ok=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(active_phase_file=phase_file, next_story_id=None)
+        pos["checkpoint_step"] = ["checkpoint-security", "checkpoint-intent"]
+        action = resolve_next_action(pos, gate_fn=lambda: True)
+        assert action["action"] == "checkpoint-docs"
+        # default phase_class ("production") → sonnet, non-production-class
+        assert action["model"] == "sonnet"
+        assert action["reason"] == ""
+        assert validate_action(action) == []
+
+    def test_checkpoint_docs_model_varies_with_pre_pr_phase_class(
+        self, tmp_path: "Any"
+    ) -> None:
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True, exist_ok=True)
+        phase_file.write_text(
+            "---\nphase_class: pre-pr\n---\n# Phase 1\n", encoding="utf-8"
+        )
+        pos = _make_position(active_phase_file=phase_file, next_story_id=None)
+        pos["checkpoint_step"] = ["checkpoint-security", "checkpoint-intent"]
+        action = resolve_next_action(pos, gate_fn=lambda: True)
+        assert action["action"] == "checkpoint-docs"
+        assert action["model"] == "opus"
+        assert validate_action(action) == []
+
+    def test_checkpoint_security_step_still_carries_no_model(
+        self, tmp_path: "Any"
+    ) -> None:
+        """checkpoint-security/intent are out of INFRA-333 scope — unchanged."""
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True, exist_ok=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(active_phase_file=phase_file, next_story_id=None)
+        action = resolve_next_action(pos, gate_fn=lambda: True)
+        assert action["action"] == CHECKPOINT_SECURITY
+        assert action["model"] is None
+        assert validate_action(action) == []
+
+
+# ---------------------------------------------------------------------------
+# Tests — INFRA-333: Row 2 spawn-spec-writer model wiring
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnSpecWriterModelWiring:
+    def test_needs_spec_resolves_opus_via_selector(self, tmp_path: "Any") -> None:
+        """Row 2's spawn-spec-writer now calls select_spec_writer_model instead
+        of hardcoding model="opus" — the resolved value is unchanged (opus)."""
+        from next_action import SPAWN_SPEC_WRITER  # type: ignore[import]
+
+        phase_file = _make_phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="RESOLVER-009",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+        )
+        pos["needs_spec"] = True
+        pos["story_class"] = "doc"
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_SPEC_WRITER
+        assert action["model"] == "opus"
+        assert action["reason"] == "needs-spec"
+        assert validate_action(action) == []
 
 
 # ---------------------------------------------------------------------------

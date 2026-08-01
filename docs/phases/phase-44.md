@@ -35,6 +35,8 @@ got the equivalent.
    a rendering failure. "No changes to apply." must only appear when all files
    rendered cleanly and produced no diffs.
 
+## Stories
+
 **Two stories:**
 
 | ID | Title | Status |

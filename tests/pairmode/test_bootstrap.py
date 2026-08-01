@@ -116,6 +116,10 @@ EXPECTED_DEST_PATHS = [
     # procedure skill (checkpoint-docs, WORKER-011) existed but was never
     # scaffolded or wired into orchestrator dispatch.
     ".claude/agents/docs-reviewer.md",
+    # spec-writer.md (INFRA-331, CER-137/AG-13): ninth thin shell, added after
+    # the role's procedure skill (spec-writer, WORKER-013) and a live
+    # spawn-spec-writer dispatch action existed but no scaffolded shell did.
+    ".claude/agents/spec-writer.md",
     "docs/architecture.md",
     "docs/checkpoints.md",
     "docs/phases/index.md",
@@ -280,6 +284,35 @@ class TestGateWorkerDispatch:
         run_bootstrap(tmp_path)
         content = (tmp_path / ".claude/agents/gate-worker.md").read_text()
         assert "gate_worker" in content or "gate-worker" in content
+
+
+# ---------------------------------------------------------------------------
+# Spec-writer dispatch tests (INFRA-331, CER-137/AG-13)
+# ---------------------------------------------------------------------------
+
+class TestSpecWriterDispatch:
+    """Bootstrap deploys spec-writer so the orchestrator can dispatch
+    spawn-spec-writer -- the action was already live in next_action.py's
+    ACTIONS/_SPAWN_ACTIONS (HARNESS005-main) but had no scaffolded shell."""
+
+    def test_spec_writer_agent_shell_created(self, tmp_path):
+        """Bootstrap must create .claude/agents/spec-writer.md."""
+        run_bootstrap(tmp_path)
+        assert (tmp_path / ".claude/agents/spec-writer.md").exists(), (
+            "spec-writer.md missing; orchestrator has no dispatch path for spawn-spec-writer"
+        )
+
+    def test_spec_writer_contains_project_name(self, tmp_path):
+        """Spec-writer shell must be rendered with project_name substituted."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / ".claude/agents/spec-writer.md").read_text()
+        assert "testproject" in content
+
+    def test_spec_writer_references_procedure_skill(self, tmp_path):
+        """Spec-writer shell must reference the spec-writer procedure skill path."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / ".claude/agents/spec-writer.md").read_text()
+        assert "skills/pairmode/skills/spec-writer/procedure.md" in content
 
 
 # ---------------------------------------------------------------------------

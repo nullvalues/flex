@@ -36,4 +36,4 @@ phase 116 as the era's last act.
 | 113 | Shared blockers: frontmatter, resolver evidence, recording determinism | complete |
 | 114 | Build-loop closeout: worktrees, scaffolding, migration tooling, doc currency | complete |
 | 115 | Observability closeout: API hardening, payload guards, rollup hygiene, functional validation | complete |
-| 116 | Cora upstream: methodology gates, resolver cadence, spec-time controls; backlog truth pass and 0.3.1 | planned |
+| 116 | Cora upstream: methodology gates, resolver cadence, spec-time controls; backlog truth pass and 0.3.1 | complete |

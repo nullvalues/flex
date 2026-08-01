@@ -89,6 +89,13 @@ SCAFFOLD_FILES: list[tuple[str, str]] = [
 # story the role was fully specced (procedure skill + architecture.md/README.md
 # references) but never scaffolded — this list must stay mirrored with
 # CANONICAL_FILES in audit.py.
+#
+# spec-writer.md.j2 (INFRA-331, CER-137/AG-13): a ninth thin shell, over
+# skills/pairmode/skills/spec-writer/procedure.md (WORKER-013). Before this
+# story next_action.py's Row-2 already emitted spawn-spec-writer (model=opus,
+# reason="needs-spec") for any stub story and the procedure skill was fully
+# specced, but no template existed to scaffold the role — this list must
+# stay mirrored with CANONICAL_FILES in audit.py.
 AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/reconstruction-agent.md", "agents/reconstruction-agent.md.j2"),
     (".claude/agents/gate-worker.md", "agents/gate-worker.md.j2"),
@@ -98,6 +105,7 @@ AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/security-auditor.md", "agents/security-auditor.md.j2"),
     (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
     (".claude/agents/docs-reviewer.md", "agents/docs-reviewer.md.j2"),
+    (".claude/agents/spec-writer.md", "agents/spec-writer.md.j2"),
 ]
 
 # Default deny list written into .claude/settings.json.
@@ -1481,6 +1489,7 @@ def bootstrap(
         "domain_model": "",
         "checklist_items": derived_checklist,  # spec-derived only; universal items are hardcoded in templates
         "protected_paths": [],
+        "covered_contracts": [],  # INFRA-317: doc-section::source-file pairs; empty-and-harmless default
         "non_negotiables": [],
         # architecture.md.j2 needs these; provide empty defaults
         "module_structure": [],
@@ -1609,6 +1618,7 @@ def bootstrap(
         "domain_isolation_rule": context["domain_isolation_rule"],
         "checklist_items": context["checklist_items"],
         "protected_paths": context["protected_paths"],
+        "covered_contracts": context["covered_contracts"],
         "non_negotiables": context["non_negotiables"],
         "module_structure": context["module_structure"],
         "layer_rules": context["layer_rules"],

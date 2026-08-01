@@ -2445,6 +2445,45 @@ class TestClaudeBuildMdBuildStandardsLine:
         assert "no raw SQL" in output
 
 
+# ---------------------------------------------------------------------------
+# Story INFRA-317 — covered_contracts Build standards key
+# ---------------------------------------------------------------------------
+
+class TestClaudeBuildMdCoveredContractsKey:
+    """Story INFRA-317: CLAUDE.build.md.j2's Build standards line gains a
+    covered_contracts key -- a list of doc-section::source-file pairs the
+    builder procedure's pre-build gate intersects against a story's
+    primary_files/touches. Unset must render (none) and be byte-identical
+    to pre-INFRA-317 output for a no-pairs project."""
+
+    def test_covered_contracts_rendered_when_present(self):
+        ctx = {
+            **CLAUDE_BUILD_MD_CONTEXT,
+            "covered_contracts": [
+                "## Pairmode build loop::skills/pairmode/scripts/cer.py",
+                "## Module structure::skills/pairmode/scripts/next_action.py",
+            ],
+        }
+        output = render("CLAUDE.build.md.j2", ctx)
+        assert "covered_contracts=`" in output
+        assert "## Pairmode build loop::skills/pairmode/scripts/cer.py" in output
+        assert "## Module structure::skills/pairmode/scripts/next_action.py" in output
+
+    def test_covered_contracts_absent_renders_none_placeholder(self):
+        output = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
+        assert "covered_contracts=`(none)`" in output
+
+    def test_unset_covered_contracts_output_matches_no_pairs_baseline(self):
+        """A no-pairs project's rendered output is otherwise byte-identical
+        to a project that never declares covered_contracts at all -- adding
+        the key must not perturb any other Build standards segment."""
+        baseline = render("CLAUDE.build.md.j2", CLAUDE_BUILD_MD_CONTEXT)
+        with_empty_list = render(
+            "CLAUDE.build.md.j2", {**CLAUDE_BUILD_MD_CONTEXT, "covered_contracts": []}
+        )
+        assert baseline == with_empty_list
+
+
 class TestPhaseMdJ2DataFlowChecklist:
     """INFRA-290 (C2): the CP-NN cold-eyes checklist section must render four
     stable, greppable data-flow checkbox items above the developer fill-in

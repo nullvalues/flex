@@ -37,6 +37,8 @@ resets to zero and counts fresh tokens only.
 commentary instead of surfacing the blocking prompt verbatim. The template must
 explicitly prohibit editorial additions.
 
+## Stories
+
 **Two stories:**
 
 | ID | Title | Status |

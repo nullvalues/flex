@@ -1,7 +1,12 @@
 """RELEASE-007 fold-preparation invariants.
 
 Asserts deterministically:
-  (a) _version.py == "0.3.0" (version finalized)
+  (a) _version.py's PAIRMODE_VERSION is finalized: a bare `MAJOR.MINOR.PATCH`
+      string with no pre-release suffix, and >= (0, 3, 0) — the fold floor
+      (INFRA-310: re-anchored from a `== "0.3.0"` equality pin, which would
+      have re-broken at every subsequent patch bump; the invariant this test
+      protects is "the dev-line suffix was dropped and never came back", not
+      a specific patch version)
   (b) Signal-1 detection works on a synthetic scripts-bound project tree
   (c) runbook contains the Signal-1 verification step (CER-059b)
   (d) RELEASE-002 reconciliation AC present; status-flip guard xfail pre-fold
@@ -25,10 +30,27 @@ _RELEASE_002 = _REPO_ROOT / "docs" / "stories" / "RELEASE" / "RELEASE-002.md"
 # ---------------------------------------------------------------------------
 
 class TestVersionFinalize:
-    def test_pairmode_version_is_0_3_0(self) -> None:
+    def test_pairmode_version_is_finalized(self) -> None:
+        """A hard `== "0.3.0"` equality pin re-breaks at every future patch
+        bump (INFRA-310). The actual invariant this test protects — the
+        dev-line `-dev` suffix was dropped at the fold and never came back —
+        survives future bumps as two checks instead: (a) the version string
+        is a bare `MAJOR.MINOR.PATCH` with no pre-release/dev suffix of any
+        kind, and (b) it is not older than the fold floor, `(0, 3, 0)`.
+        """
+        import re
+
         from skills.pairmode.scripts._version import PAIRMODE_VERSION
-        assert PAIRMODE_VERSION == "0.3.0", (
-            f"PAIRMODE_VERSION is {PAIRMODE_VERSION!r} — should be '0.3.0' after fold preparation"
+
+        assert re.fullmatch(r"\d+\.\d+\.\d+", PAIRMODE_VERSION), (
+            f"PAIRMODE_VERSION is {PAIRMODE_VERSION!r} — expected a bare "
+            "MAJOR.MINOR.PATCH string with no -dev/-beta/other suffix"
+        )
+        version_tuple = tuple(int(part) for part in PAIRMODE_VERSION.split("."))
+        assert version_tuple >= (0, 3, 0), (
+            f"PAIRMODE_VERSION is {PAIRMODE_VERSION!r} — should be >= 0.3.0 "
+            "(the fold floor); a version older than the fold means the "
+            "dev-line suffix drop did not hold"
         )
 
 

@@ -12,7 +12,8 @@ Covers all six acceptance assertions from the story spec:
   3. checkpoint_step: ["checkpoint-security"]
      → checkpoint-intent
   4. checkpoint_step: ["checkpoint-security", "checkpoint-intent"]
-     → checkpoint-docs
+     → checkpoint-docs (model resolved via select_docs_reviewer_model,
+       INFRA-333 — "sonnet" for the fixtures' default phase_class="production")
   5. checkpoint_step: ["checkpoint-security", "checkpoint-intent", "checkpoint-docs"]
      → checkpoint-tag  (model=None enforced)
   6. All four steps done
@@ -146,11 +147,14 @@ def test_pre_guard_phase_incomplete(tmp_path: Path) -> None:
             CHECKPOINT_INTENT,
             None,
         ),
-        # 4: first two done → checkpoint-docs
+        # 4: first two done → checkpoint-docs. INFRA-333: checkpoint-docs now
+        # resolves a real model via select_docs_reviewer_model; the fixture
+        # phase file carries no phase_class, which defaults to "production"
+        # → sonnet (non-production-class).
         (
             [CHECKPOINT_SECURITY, CHECKPOINT_INTENT],
             CHECKPOINT_DOCS,
-            None,
+            "sonnet",
         ),
         # 5: first three done → checkpoint-tag (model must be None)
         (

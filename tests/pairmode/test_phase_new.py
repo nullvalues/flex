@@ -1202,3 +1202,161 @@ class TestEraLedgerHeadingMatch:
         before = era_path.read_bytes()
         _update_era_phases_table(tmp_path, "999", "109", "T")
         assert era_path.read_bytes() == before
+
+
+# ---------------------------------------------------------------------------
+# INFRA-314 — --parent-phase (Ensures 4)
+# ---------------------------------------------------------------------------
+
+
+class TestParentPhase:
+    def test_parent_phase_line_emitted(self, tmp_path: pathlib.Path) -> None:
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "115",
+                "--title", "Prior phase",
+                "--goal", "g",
+            ]
+        )
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "116",
+                "--parent-phase", "115",
+                "--title", "Fork phase",
+                "--goal", "g",
+            ]
+        )
+        assert result.exit_code == 0
+        content = (tmp_path / "docs" / "phases" / "phase-116.md").read_text(encoding="utf-8")
+        assert "**Parent phase:** Phase 115 — Prior phase" in content
+        # It appears directly under the H1.
+        lines = [ln for ln in content.splitlines() if ln.strip()]
+        h1_idx = next(i for i, ln in enumerate(lines) if ln.startswith("# "))
+        assert lines[h1_idx + 1].startswith("**Parent phase:**")
+
+    def test_omitted_parent_phase_byte_identical(self, tmp_path: pathlib.Path) -> None:
+        """Omitting --parent-phase produces unchanged output (byte-level) for
+        an existing invocation shape."""
+        (tmp_path / "a").mkdir()
+        (tmp_path / "b").mkdir()
+        invoke(
+            [
+                "--project-dir", str(tmp_path / "a"),
+                "--phase-id", "1",
+                "--title", "T",
+                "--goal", "g",
+            ]
+        )
+        invoke(
+            [
+                "--project-dir", str(tmp_path / "b"),
+                "--phase-id", "1",
+                "--title", "T",
+                "--goal", "g",
+            ]
+        )
+        content_a = (tmp_path / "a" / "docs" / "phases" / "phase-1.md").read_bytes()
+        content_b = (tmp_path / "b" / "docs" / "phases" / "phase-1.md").read_bytes()
+        assert content_a == content_b
+        assert b"Parent phase" not in content_a
+
+
+# ---------------------------------------------------------------------------
+# INFRA-314 — --proposed (Ensures 5)
+# ---------------------------------------------------------------------------
+
+
+class TestProposedPhase:
+    def test_proposed_writes_expected_filename(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--proposed", "Some Feature Idea",
+                "--title", "Idea",
+                "--goal", "later",
+            ]
+        )
+        assert result.exit_code == 0
+        phases_dir = tmp_path / "docs" / "phases"
+        matches = list(phases_dir.glob("phase-proposed-some-feature-idea-*-001.md"))
+        assert len(matches) == 1, list(phases_dir.iterdir())
+
+    def test_proposed_does_not_touch_index(self, tmp_path: pathlib.Path) -> None:
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--phase-id", "1",
+                "--title", "T",
+                "--goal", "g",
+            ]
+        )
+        index_before = (tmp_path / "docs" / "phases" / "index.md").read_bytes()
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--proposed", "Some Feature Idea",
+                "--title", "Idea",
+                "--goal", "later",
+            ]
+        )
+        index_after = (tmp_path / "docs" / "phases" / "index.md").read_bytes()
+        assert index_before == index_after
+
+    def test_proposed_carries_no_sequential_phase_number(self, tmp_path: pathlib.Path) -> None:
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--proposed", "Some Feature Idea",
+                "--title", "Idea",
+                "--goal", "later",
+            ]
+        )
+        phases_dir = tmp_path / "docs" / "phases"
+        matches = list(phases_dir.glob("phase-proposed-*.md"))
+        assert len(matches) == 1
+        content = matches[0].read_text(encoding="utf-8")
+        # Heading carries the proposed slug, not a bare integer phase number.
+        assert "Phase proposed-" in content
+
+    def test_proposed_seq_monotonic_across_slugs_same_date(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--proposed", "Idea One",
+                "--title", "One",
+                "--goal", "g",
+            ]
+        )
+        invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--proposed", "Idea Two",
+                "--title", "Two",
+                "--goal", "g",
+            ]
+        )
+        phases_dir = tmp_path / "docs" / "phases"
+        matches = sorted(p.name for p in phases_dir.glob("phase-proposed-*.md"))
+        assert len(matches) == 2
+        assert matches[0].endswith("-001.md")
+        assert matches[1].endswith("-002.md")
+
+    def test_proposed_and_phase_id_mutually_exclusive(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(
+            [
+                "--project-dir", str(tmp_path),
+                "--proposed", "X",
+                "--phase-id", "1",
+                "--title", "T",
+                "--goal", "g",
+            ]
+        )
+        assert result.exit_code != 0
+
+    def test_neither_proposed_nor_phase_id_errors(self, tmp_path: pathlib.Path) -> None:
+        result = invoke(["--project-dir", str(tmp_path), "--title", "T", "--goal", "g"])
+        assert result.exit_code != 0

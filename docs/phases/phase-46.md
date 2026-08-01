@@ -30,6 +30,8 @@ is added as an additive new path via `FLEX_MODEL_BACKEND=ollama`.
   `_call_anthropic` path regardless of `FLEX_MODEL_BACKEND`.
 - Tests must not require Ollama to be running.
 
+## Stories
+
 **Four stories:**
 
 | ID | Title | Status |

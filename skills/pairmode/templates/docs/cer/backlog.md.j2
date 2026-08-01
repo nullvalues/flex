@@ -15,6 +15,13 @@ INFRA-322/CER-130): a keyword appearing mid-clause, such as `UNRESOLVED` or
 `should be resolved`, is never read as a marker, so a genuinely open finding
 cannot be waved through a checkpoint by accident.
 
+<!-- A Do Later / Do Much Later row may carry an inline `gate: <condition text>`
+     token inside its Finding cell — free text running to the next `**` bold
+     opener or the cell's end, NOT a sixth table column. `cer.py groom`
+     re-reads both quadrants for these rows and surfaces the condition text
+     for operator triage; it never edits this file and never promotes a row
+     automatically (INFRA-313). -->
+
 ---
 
 ## Do Now

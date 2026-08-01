@@ -2,7 +2,7 @@
 id: INFRA-333
 rail: INFRA
 title: Model-selection completeness — select_gate_worker_model, select_spec_writer_model, select_docs_reviewer_model
-status: draft
+status: complete
 phase: "116"
 story_class: code
 auth_gated: false
@@ -11,11 +11,14 @@ primary_files:
   - skills/pairmode/scripts/model_selector.py
 touches:
   - skills/pairmode/scripts/next_action.py
+  - tests/pairmode/test_model_selector.py
   - skills/pairmode/templates/agents/gate-worker.md.j2
   - skills/pairmode/templates/agents/spec-writer.md.j2
   - skills/pairmode/templates/agents/docs-reviewer.md.j2
   - tests/pairmode/test_next_action.py
   - docs/architecture.md
+  - tests/pairmode/test_checkpoint_routing.py
+  - tests/pairmode/test_harness004_isolation.py
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
@@ -69,6 +72,14 @@ takes `phase_class`, not `story_class`), a structurally separate axis.
    new `select_spec_writer_model` instead of hardcoding.
 4. Baseline suite count.
 
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| tests/pairmode/test_checkpoint_routing.py | update baseline expectation: checkpoint-docs now carries a real model per Ensures 2, breaking model=None assertion | 2026-08-01T03:15:20Z |
+
+| tests/pairmode/test_harness004_isolation.py | update baseline expectation: checkpoint-docs now carries a real model per Ensures 2, breaking model=None assertion | 2026-08-01T03:15:30Z |
 ## Ensures
 
 1. **`select_gate_worker_model` exists**, follows the established docstring-table
@@ -137,3 +148,84 @@ longer appears in the `spawn-spec-writer` branch.
 - The work→agent-type classification doc (INFRA-335).
 - `select_builder_model`/`select_reviewer_model`'s existing `code` ladder —
   unchanged.
+
+## Evidence
+
+**Covered-contracts gate (INFRA-317).** `next_action.py` is in this story's
+`touches:` list and is the `source-file` half of the
+`## Module structure::skills/pairmode/scripts/next_action.py` covered-contract
+pair (`CLAUDE.build.md`'s `covered_contracts`). Both halves were read in full
+before any edit. The relied-upon contract line (`docs/architecture.md` §
+Module structure) is the `next_action.py` module-structure entry itself:
+
+> `next_action.py            ← next-action resolver: action grammar
+> (make_action, validate_action, ACTIONS), position read-model
+> (infer_position), 9-state DP2 machine (resolve_next_action); ...`
+
+No divergence found between the doc section and the source file for the
+surfaces this story touches (Position dict, `_SPAWN_ACTIONS`/`validate_action`
+model-null constraint, Row 2/4b/9 branches) — the doc's description of
+`next_action.py` as the action-grammar/read-model/state-machine module was
+accurate going in, and this story does not change that description (no new
+action type, no `ACTIONS`/`_SPAWN_ACTIONS` membership change, no
+`SCHEMA_VERSION` bump — see the new INFRA-333 module-docstring paragraph in
+`next_action.py`).
+
+**Requires 1 — gate-worker / docs-reviewer signature decision.** Read
+`next_action.py`'s `spawn-gate-worker` emission (Row 4b, schema/auth judged
+gates) and `checkpoint-docs` emission (Row 9, checkpoint step sequencing) in
+full. Both are checkpoint/gate-shaped roles, not per-story roles keyed by a
+single story's `story_class` — `spawn-gate-worker` fires once per tripped
+story but judges the same schema/auth conformance question regardless of
+which story is in front of it, and `checkpoint-docs` fires once per phase.
+Both selectors are therefore keyed by `phase_class`, matching
+`select_intent_reviewer_model`/`select_security_auditor_model`'s existing
+pattern, not `select_builder_model`'s `story_class` pattern.
+
+`select_gate_worker_model` reuses `select_security_auditor_model`'s tier
+assignment (opus for production/pre-pr, sonnet for docs-only) — a missed
+schema/auth violation is a correctness defect. `select_docs_reviewer_model`
+reuses `select_intent_reviewer_model`'s tier assignment (sonnet for
+production/docs-only, opus for pre-pr) — documentation-currency review is a
+lower-stakes, advisory judgment.
+
+**Ensures 1 — is the "spawn-gate-worker carries no builder model" comment
+stale?** No. `validate_action` (next_action.py) requires `model=null` for
+any action outside `_SPAWN_ACTIONS`, and `spawn-gate-worker` is deliberately
+not a member of that set — this is locked in by the pre-existing test
+`test_spawn_gate_worker_with_model_fails_validate`
+(`tests/pairmode/test_next_action.py`). Promoting `spawn-gate-worker` into
+`_SPAWN_ACTIONS` to let it carry a real model would be an action-grammar
+redesign, out of this story's narrow "wire the missing selectors" scope (see
+Context: "does not redesign ... a structurally separate axis"). The comment
+therefore remains accurate for the action's `model` field after this story.
+`select_gate_worker_model` is not left unused, though: Row 4b calls it
+directly and surfaces the result as advisory
+`meta["gate_worker_model"]`/`meta["gate_worker_model_reason"]` keys on the
+emitted action — a real, tested call site (see
+`test_gate_worker_model_varies_with_phase_class` and the updated
+`test_schema_tripped_emits_spawn_gate_worker` in
+`tests/pairmode/test_next_action.py`) — without changing the grammar.
+`gate-worker.md.j2`'s frontmatter `model:` is therefore still the
+authoritative default for this role, not merely a fallback (documented
+explicitly in the template's updated comment).
+
+**Requires 2 — spec-writer attempt-number decision.** Read
+`next_action.py`'s Row 2 in full (`resolve_next_action`'s
+`attempt_count == 0` / `needs_spec` branch). `resolve_next_action` only ever
+emits `spawn-spec-writer` once, at Row 2 — there is no attempt ladder for
+spec-writer anywhere in this module; a revised spec-writer pass is routed by
+`SPEC-RESULT{revised}` handling in `CLAUDE.build.md` orchestrator prose, not
+by a second `resolve_next_action` emission at a higher attempt number.
+Decision: `select_spec_writer_model(story_class)` takes no attempt-number
+parameter (unlike `select_builder_model`/`select_reviewer_model`), and is
+unconditional opus across all `story_class` values — `story_class` on a
+stub is frequently still the schema default rather than a considered
+classification, and a bad elaboration corrupts every downstream attempt at
+whatever class is eventually assigned, so there is no behavior-change
+justification (per Requires 2's prompt) to downgrade any class. This is
+purely a refactor of the `next_action.py:1299`-era hardcoded `model="opus"`
+literal onto the shared mechanism (Ensures 3) — verified by
+`grep -n 'model="opus"' skills/pairmode/scripts/next_action.py` returning
+only documentary/comment occurrences, none inside the `spawn-spec-writer`
+branch's executable code.

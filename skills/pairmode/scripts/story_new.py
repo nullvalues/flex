@@ -89,7 +89,10 @@ def _story_body() -> str:
         "## Ensures\n"
         "<!-- Binary assertions the reviewer checks independently. One per line.\n"
         "     Each must be verifiable without interpretation: file exists, command output\n"
-        "     contains X, function Y returns Z. -->\n\n"
+        "     contains X, function Y returns Z. -->\n"
+        "<!-- State the correct signal AND the forbidden proxy (INFRA-314): e.g. \"the\n"
+        "     write is absent after refusal; forbidden proxy: a warning line while the\n"
+        "     write happens anyway.\" -->\n\n"
         "## Instructions\n\n"
         "## Tests\n"
     )
