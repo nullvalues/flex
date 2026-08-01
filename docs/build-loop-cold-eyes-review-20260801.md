@@ -80,7 +80,10 @@ Both reviewers found this at the identical file/line (`next_action.py`, INFRA-33
 selector result is computed and stored in advisory `meta`, but `CLAUDE.build.md`'s dispatch line
 reads only `a.model` (contractually `None` for this action) — no code path anywhere consumes the
 advisory field. Same orphaned-producer shape as F2/F3 and as this session's twice-rejected
-INFRA-318 attempts.
+INFRA-318 attempts. Opus's own framing of this finding: "the honest conclusion is that the
+selector shouldn't have been called at all, not that its result should be parked in advisory
+meta" — the review takes no position between removing the call and giving it a real consumer;
+either is a legitimate fix direction, and the choice is left to whichever story addresses it.
 
 **F5 — `CLAUDE.build.md` and its `.j2` template have drifted in both directions.**
 Both reviewers found: the live file has three `ACTION_SUBAGENT_TYPE` dispatch entries

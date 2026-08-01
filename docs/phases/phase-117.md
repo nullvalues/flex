@@ -49,10 +49,13 @@ then the other, to avoid a worktree conflict. INFRA-341 (gate-worker verdict wir
 coordinate with INFRA-340 if the fix requires the action grammar to carry a real `model` for
 `spawn-gate-worker` — check INFRA-340's landed shape before starting INFRA-341's Instructions.
 
-INFRA-342 (CLAUDE.build.md/.j2 reconciliation) should build **last** among INFRA-339/340/341/342,
-since it needs to capture whichever final shape those three land in, not a mid-phase snapshot.
+INFRA-342 (CLAUDE.build.md/.j2 reconciliation) should build **last** among
+INFRA-339/340/341/342/**344**, since it needs to capture whichever final shape those land in, not a
+mid-phase snapshot — INFRA-344's fix (committing spec-writer output) also edits `CLAUDE.build.md`'s
+dispatch prose, so it belongs in this same "build before 342" group even though it has no other
+code dependency on 339/340/341.
 
-INFRA-343 (build-gate timeout), INFRA-344 (spec-writer commit), and INFRA-345 (duplicate
+INFRA-343 (build-gate timeout) and INFRA-345 (duplicate
 attempt-writers) are each independent and can build in any order relative to the rest.
 
 INFRA-346 (unify phase-completion definitions) should build after INFRA-339/340 land, since it
