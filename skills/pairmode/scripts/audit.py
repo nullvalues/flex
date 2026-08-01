@@ -40,6 +40,10 @@ TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 # template changes. docs-reviewer.md (INFRA-325) is an eighth thin shell, added after
 # the role's procedure skill (checkpoint-docs, WORKER-011) and architecture.md/README.md
 # references existed but no scaffolded shell or ACTION_SUBAGENT_TYPE dispatch entry did.
+# spec-writer.md (INFRA-331, CER-137/AG-13) is a ninth thin shell, added after the
+# role's procedure skill (spec-writer, WORKER-013) and a live spawn-spec-writer
+# dispatch action existed but no scaffolded shell did — this list must stay mirrored
+# with AGENT_FILES in bootstrap.py.
 CANONICAL_FILES: list[tuple[str, str]] = [
     ("CLAUDE.md", "CLAUDE.md.j2"),
     ("CLAUDE.build.md", "CLAUDE.build.md.j2"),
@@ -51,6 +55,7 @@ CANONICAL_FILES: list[tuple[str, str]] = [
     (".claude/agents/security-auditor.md", "agents/security-auditor.md.j2"),
     (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
     (".claude/agents/docs-reviewer.md", "agents/docs-reviewer.md.j2"),
+    (".claude/agents/spec-writer.md", "agents/spec-writer.md.j2"),
 ]
 
 # Scaffold files: Phase 7 docs that receive full section-level comparison.

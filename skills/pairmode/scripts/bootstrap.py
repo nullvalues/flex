@@ -89,6 +89,13 @@ SCAFFOLD_FILES: list[tuple[str, str]] = [
 # story the role was fully specced (procedure skill + architecture.md/README.md
 # references) but never scaffolded — this list must stay mirrored with
 # CANONICAL_FILES in audit.py.
+#
+# spec-writer.md.j2 (INFRA-331, CER-137/AG-13): a ninth thin shell, over
+# skills/pairmode/skills/spec-writer/procedure.md (WORKER-013). Before this
+# story next_action.py's Row-2 already emitted spawn-spec-writer (model=opus,
+# reason="needs-spec") for any stub story and the procedure skill was fully
+# specced, but no template existed to scaffold the role — this list must
+# stay mirrored with CANONICAL_FILES in audit.py.
 AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/reconstruction-agent.md", "agents/reconstruction-agent.md.j2"),
     (".claude/agents/gate-worker.md", "agents/gate-worker.md.j2"),
@@ -98,6 +105,7 @@ AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/security-auditor.md", "agents/security-auditor.md.j2"),
     (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
     (".claude/agents/docs-reviewer.md", "agents/docs-reviewer.md.j2"),
+    (".claude/agents/spec-writer.md", "agents/spec-writer.md.j2"),
 ]
 
 # Default deny list written into .claude/settings.json.

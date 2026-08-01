@@ -221,17 +221,20 @@ def test_example_verdict_validates(verdict_map: dict):
 # ---------------------------------------------------------------------------
 
 
-def test_claude_build_md_does_not_reference_gate_worker():
+def test_claude_build_md_dispatches_gate_worker():
     """
-    The gate worker is advisory-only (wiring is HARNESS006).
-    CLAUDE.build.md must not reference gate-worker or spawn-gate-worker.
+    The gate worker was advisory-only at WORKER-002 time (wiring deferred to
+    HARNESS006). The flip has since landed (docs/architecture.md marks the
+    gate-worker shell "live since the flip (HARNESS006)"), and INFRA-331
+    (CER-137/AG-13) closes the remaining dispatch-map gap: CLAUDE.build.md's
+    ACTION_SUBAGENT_TYPE must now carry a real spawn-gate-worker -> gate-worker
+    entry so the orchestrator has a dispatch path for the action
+    next_action.py has emitted since HARNESS002-main.
     """
     if not CLAUDE_BUILD_MD.exists():
         pytest.skip("CLAUDE.build.md not present in this checkout")
     text = CLAUDE_BUILD_MD.read_text()
-    assert "gate-worker" not in text, (
-        "CLAUDE.build.md references 'gate-worker' — the flip is HARNESS006, not this story."
-    )
-    assert "spawn-gate-worker" not in text, (
-        "CLAUDE.build.md references 'spawn-gate-worker' — the flip is HARNESS006."
+    assert "spawn-gate-worker: gate-worker" in text, (
+        "CLAUDE.build.md's ACTION_SUBAGENT_TYPE map is missing "
+        "'spawn-gate-worker: gate-worker' (INFRA-331)."
     )

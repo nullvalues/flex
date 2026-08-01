@@ -264,6 +264,7 @@ class TestAgentShellProcedurePointerIsAbsolute:
         ("agents/loop-breaker.md.j2", "skills/pairmode/skills/loop-breaker/procedure.md"),
         ("agents/security-auditor.md.j2", "skills/pairmode/skills/security-auditor/procedure.md"),
         ("agents/gate-worker.md.j2", "skills/pairmode/gate_worker/SKILL.md"),
+        ("agents/spec-writer.md.j2", "skills/pairmode/skills/spec-writer/procedure.md"),
     ]
 
     @pytest.mark.parametrize("template_name,pointer_suffix", _TEMPLATES)
