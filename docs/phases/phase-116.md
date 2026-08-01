@@ -32,7 +32,7 @@ Upstream the six methodology extensions field-proven on cora's 0.1.0→0.3.0 han
 | INFRA-333 | Model-selection completeness: `select_gate_worker_model`, `select_spec_writer_model`, `select_docs_reviewer_model` in `model_selector.py`; dispatch call sites route through them instead of hardcoded literals | complete |
 | INFRA-334 | Escalation ladder redesign: every `story_class` gets a real retry-upgrade path (`doc`/`lesson` haiku→sonnet, `methodology` sonnet→opus unconditional) instead of dead-ending or conditional escalation | complete |
 | INFRA-335 | Work→agent-type classification doc and new-agent-type definition-of-done, to prevent this class of drift recurring | complete |
-| INFRA-310 | Backlog truth pass, phase-107 supersession, era-003 closure, zero-open audit, and the 0.3.1 version record | draft |
+| INFRA-310 | Backlog truth pass, phase-107 supersession, era-003 closure, zero-open audit, and the 0.3.1 version record | complete |
 
 ## Ordering
 
