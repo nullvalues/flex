@@ -245,6 +245,41 @@ INFRA-318 (Phase 116 -- spec-time model review, Cora item A#7/AG-6):
   ``ACTIONS``/``_SPAWN_ACTIONS`` change, no ``SCHEMA_VERSION`` bump (still 5)
   -- only Position's ``builder_model``/``builder_model_reason`` values can
   differ, and only for a story that declares ``model:``.
+
+INFRA-333 (CER-139, AG-13 -- model-selection completeness for the three
+  remaining agent roles):
+  ``infer_position`` now exposes ``position["story_class"]`` (the same value
+  already used internally to compute ``builder_model``) so Row 2's
+  ``spawn-spec-writer`` branch can pass it to the new
+  ``model_selector.select_spec_writer_model``. Three call sites are wired:
+
+  - Row 2 (``spawn-spec-writer``): replaces the hardcoded ``model="opus"``
+    literal with ``select_spec_writer_model(story_class)`` -- resolves to
+    ``"opus"`` unconditionally today (Ensures 3), so no behavior change for
+    the one production case that exists.
+  - Row 9's ``checkpoint-docs`` step: replaces the unconditional
+    ``model=None`` with ``select_docs_reviewer_model(phase_class)`` (read
+    from the active phase manifest's frontmatter via the new
+    ``_phase_class_for`` helper) -- ``checkpoint-docs`` is a
+    ``_SPAWN_ACTIONS`` member, so a non-null model here is grammar-legal and
+    was already anticipated by the pre-INFRA-333 comment ("the harness sets
+    model at spawn time via model_selector").
+  - Row 4b (``spawn-gate-worker``): calls the new
+    ``select_gate_worker_model(phase_class)`` and surfaces the result as
+    advisory ``meta["gate_worker_model"]``/``meta["gate_worker_model_reason"]``
+    keys -- NOT the action's ``model`` field, which stays ``None``.
+    ``spawn-gate-worker`` is deliberately not a ``_SPAWN_ACTIONS`` member
+    (``validate_action`` requires ``model=null`` for it, locked in by
+    ``test_spawn_gate_worker_with_model_fails_validate``); promoting it
+    would be an action-grammar redesign out of this story's narrow
+    "wire the missing selectors" scope, so the "spawn-gate-worker carries no
+    builder model" comment on the ``SPAWN_GATE_WORKER`` constant below
+    remains accurate for the ``model`` field after this story.
+
+  Grammar-unchanged: no new action type, no ``ACTIONS``/``_SPAWN_ACTIONS``
+  membership change, no ``SCHEMA_VERSION`` bump (still 5) -- only
+  Position gains one new read-only key (``story_class``) and two actions'
+  resolved ``model``/``meta`` values can differ from before this story.
 """
 
 from __future__ import annotations
@@ -339,6 +374,11 @@ ACTIONS: frozenset[str] = frozenset(
 # Actions for which model may be non-null (auto-resolved spawn actions only).
 # spawn-gate-worker carries no builder model (the gate worker tier is not a
 # builder-model decision), so it is NOT in _SPAWN_ACTIONS — model must be None.
+# INFRA-333: model_selector.select_gate_worker_model(phase_class) now exists,
+# but its result still cannot ride this action's `model` field (that would be
+# an action-grammar redesign, out of this story's scope) — Row 4b surfaces it
+# instead as advisory `meta["gate_worker_model"]`/`meta["gate_worker_model_reason"]`
+# keys. This comment therefore remains accurate for the `model` field itself.
 # spawn-reviewer, spawn-security-auditor, and spawn-intent-reviewer carry a
 # model override (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS.
 # (spawn-reviewer membership is for orchestrator dispatch only — the resolver
@@ -354,10 +394,15 @@ ACTIONS: frozenset[str] = frozenset(
 # docstring entry above for why (resolve_next_action never emits
 # spawn-reviewer, so there is no action object here for the field to ride).
 # checkpoint-security, checkpoint-intent, checkpoint-docs carry a model override
-# (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS.
+# (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS. INFRA-333:
+# Row 9 now actually resolves checkpoint-docs's model via
+# select_docs_reviewer_model(phase_class) (checkpoint-security/intent are
+# unchanged, out of this story's scope).
 # checkpoint-tag is an inline action and is NOT in _SPAWN_ACTIONS.
-# spawn-spec-writer carries a model override (opus, for spec elaboration) and
-# IS in _SPAWN_ACTIONS.
+# spawn-spec-writer carries a model override and IS in _SPAWN_ACTIONS.
+# INFRA-333: the model is now resolved via select_spec_writer_model(story_class)
+# instead of a hardcoded "opus" literal — still resolves to opus for the one
+# production case that exists today.
 _SPAWN_ACTIONS: frozenset[str] = frozenset(
     {
         SPAWN_BUILDER,
@@ -490,6 +535,31 @@ def validate_action(obj: object) -> list[str]:
 # function so tests can exercise them directly.  The build-gate guard is
 # injectable via ``gate_fn`` to avoid spawning a subprocess in unit tests.
 # ---------------------------------------------------------------------------
+
+
+def _phase_class_for(phase_path: "Path | None") -> str:
+    """Read ``phase_class`` from *phase_path*'s frontmatter (INFRA-333).
+
+    Returns ``model_selector.DEFAULT_PHASE_CLASS`` ("production") when
+    *phase_path* is ``None``, the file is absent/unreadable, or the file
+    carries no ``phase_class`` field — the same fail-safe default
+    ``model_selector.select_intent_reviewer_model``/
+    ``select_security_auditor_model`` already apply for an absent field.
+    Used by Row 4b (``select_gate_worker_model``) and Row 9's
+    ``checkpoint-docs`` step (``select_docs_reviewer_model``).
+    """
+    from model_selector import DEFAULT_PHASE_CLASS  # type: ignore[import]
+
+    if phase_path is None:
+        return DEFAULT_PHASE_CLASS
+    try:
+        from schema_validator import _parse_frontmatter  # type: ignore[import]
+
+        text = Path(phase_path).read_text(encoding="utf-8")
+        fm = _parse_frontmatter(text) or {}
+        return str(fm.get("phase_class") or DEFAULT_PHASE_CLASS)
+    except Exception:  # noqa: BLE001
+        return DEFAULT_PHASE_CLASS
 
 
 def _check_phase_completion(active_phase_file: "Path | None") -> bool:
@@ -1296,6 +1366,7 @@ def infer_position(project_dir: "str | Path") -> dict:
         "next_story_id": next_story_id,
         "next_story_file": next_story_file,
         "attempt_count": attempt_count,
+        "story_class": story_class,
         "builder_model": builder_model,
         "builder_model_reason": builder_model_reason,
         "gate_stub": gate_stub,
@@ -1596,12 +1667,23 @@ def resolve_next_action(
 
         _next_step = _remaining[0]
         # checkpoint-tag is NOT in _SPAWN_ACTIONS → model must be None.
-        # checkpoint-security/intent/docs ARE in _SPAWN_ACTIONS; model=None
-        # here — the harness sets model at spawn time via model_selector.
+        # checkpoint-security/intent carry no model yet (out of INFRA-333
+        # scope — the harness still sets their model at spawn time via
+        # model_selector, unchanged by this story). checkpoint-docs now
+        # resolves a real model via select_docs_reviewer_model (INFRA-333
+        # Ensures 2), replacing the previous unconditional model=None the
+        # docs-reviewer.md.j2 comment used to describe.
+        _checkpoint_model: "str | None" = None
+        if _next_step == CHECKPOINT_DOCS:
+            from model_selector import select_docs_reviewer_model  # type: ignore[import]
+
+            _docs_phase_class = _phase_class_for(_phase_path)
+            _checkpoint_model, _ = select_docs_reviewer_model(_docs_phase_class)
+
         return make_action(
             _next_step,
             scalar="",
-            model=None,
+            model=_checkpoint_model,
             reason="",
             meta=meta_base,
         )
@@ -1753,6 +1835,22 @@ def resolve_next_action(
             name: (gate_schema if name == "schema" else gate_auth).get("blocked_reason", "")
             for name in judged_tripped
         }
+        # INFRA-333: select_gate_worker_model's result cannot ride this
+        # action's `model` field (validate_action requires model=null for
+        # any action outside `_SPAWN_ACTIONS`, and spawn-gate-worker is
+        # deliberately not a member — see the SPAWN_GATE_WORKER comment
+        # above and test_spawn_gate_worker_with_model_fails_validate). It is
+        # surfaced as an advisory meta value only; `model=None` is unchanged.
+        from model_selector import select_gate_worker_model  # type: ignore[import]
+
+        _gate_worker_phase_class = _phase_class_for(
+            Path(active_phase_file) if active_phase_file is not None else None
+        )
+        _gate_worker_model, _gate_worker_model_reason = select_gate_worker_model(
+            _gate_worker_phase_class
+        )
+        meta["gate_worker_model"] = _gate_worker_model
+        meta["gate_worker_model_reason"] = _gate_worker_model_reason
         return make_action(
             SPAWN_GATE_WORKER,
             scalar=next_story_id,
@@ -1783,14 +1881,23 @@ def resolve_next_action(
     #
     # Row-2 branch (RESOLVER-009): story is a spec stub → spawn-spec-writer.
     # The spec-writer elaborates the story before a builder is spawned.
+    # INFRA-333: the model is now resolved via select_spec_writer_model
+    # instead of the hardcoded model="opus" literal this branch used to
+    # carry — the current single known case (attempt 1, any story_class)
+    # still resolves to "opus" (Ensures 3), so this is a refactor of the
+    # call site onto the shared mechanism, not a behavior change.
     # ------------------------------------------------------------------
     if attempt_count == 0:
         needs_spec: bool = bool(position.get("needs_spec", False))
         if needs_spec:
+            from model_selector import select_spec_writer_model  # type: ignore[import]
+
+            _spec_story_class = str(position.get("story_class") or "code")
+            _spec_writer_model, _ = select_spec_writer_model(_spec_story_class)
             return make_action(
                 SPAWN_SPEC_WRITER,
                 scalar=next_story_id,
-                model="opus",
+                model=_spec_writer_model,
                 reason="needs-spec",
                 meta=_with_claimed_skipped(meta_base),
             )

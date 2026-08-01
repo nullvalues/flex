@@ -96,6 +96,112 @@ Public API:
     is only reached at the double-fail point (next_action.py Row 6), after the
     ordinary top tier (opus) has already failed twice.
 
+  select_gate_worker_model(phase_class) -> tuple[str, str]
+
+    Returns a (model, reason) tuple for the gate-worker judged-gate agent
+    (WORKER-002 — schema/auth verdict evaluation) given the phase's class.
+    Checkpoint/gate-shaped, keyed by ``phase_class`` like
+    ``select_intent_reviewer_model``/``select_security_auditor_model``, not
+    ``story_class`` (INFRA-333 Requires 1) — gate-worker judges a single
+    story's schema/auth conformance, but that judgment carries the same
+    correctness weight regardless of which story is in front of it, so this
+    table reuses ``select_security_auditor_model``'s tier assignment rather
+    than the lighter-weight ``select_intent_reviewer_model`` one: a missed
+    schema/auth violation is a correctness defect, not a documentation-
+    currency miss.
+
+    Selection table:
+
+      phase_class   model   reason
+      -----------   -----   ------
+      production    opus    production-class
+      docs-only     sonnet  non-production-class
+      pre-pr        opus    production-class
+
+    Unknown/absent phase_class values default to "production" (opus,
+    production-class).
+
+    Wiring note (INFRA-333 Ensures 1): the resolved value cannot ride
+    ``next_action.py``'s ``spawn-gate-worker`` action's ``model`` field —
+    ``validate_action`` requires ``model=null`` for any action outside
+    ``_SPAWN_ACTIONS``, and ``spawn-gate-worker`` is deliberately not a
+    member of that set (locked in by
+    ``test_spawn_gate_worker_with_model_fails_validate`` in
+    ``tests/pairmode/test_next_action.py``; promoting it would be an
+    action-grammar redesign, out of this story's narrow "wire the missing
+    selectors" scope). The "spawn-gate-worker carries no builder model"
+    comment at ``next_action.py``'s ``SPAWN_GATE_WORKER`` declaration
+    therefore remains accurate for the action's ``model`` field after this
+    story. ``next_action.py``'s Row 4b instead calls this selector directly
+    and surfaces its result as an advisory ``meta["gate_worker_model"]`` /
+    ``meta["gate_worker_model_reason"]`` pair on the emitted action — a real
+    call site, not an unused function, without changing the grammar.
+
+  select_docs_reviewer_model(phase_class) -> tuple[str, str]
+
+    Returns a (model, reason) tuple for the docs-reviewer checkpoint agent
+    (WORKER-011 — documentation currency checklist) given the phase's class.
+    Checkpoint/gate-shaped, keyed by ``phase_class``. docs-reviewer is an
+    advisory, bounded-input checklist role much closer in weight to the
+    intent-reviewer's phase-alignment judgment than to the security-
+    auditor's correctness judgment, so this table reuses
+    ``select_intent_reviewer_model``'s tier assignment.
+
+    Selection table:
+
+      phase_class   model   reason
+      -----------   -----   ------
+      production    sonnet  non-production-class
+      docs-only     sonnet  non-production-class
+      pre-pr        opus    production-class
+
+    Unknown/absent phase_class values default to "production" (sonnet,
+    non-production-class).
+
+    Wiring note (INFRA-333 Ensures 2): unlike ``select_gate_worker_model``,
+    ``checkpoint-docs`` already carries a non-null model in the action
+    grammar (``CHECKPOINT_DOCS`` is a member of ``_SPAWN_ACTIONS``) —
+    ``next_action.py`` Row 9 calls this selector directly and sets the
+    result on the emitted action's ``model`` field whenever ``checkpoint-
+    docs`` is the next uncompleted step, replacing the unconditional
+    ``model=None`` the ``docs-reviewer.md.j2`` comment used to describe.
+
+  select_spec_writer_model(story_class) -> tuple[str, str]
+
+    Returns a (model, reason) tuple for the spec-writer agent given the
+    stub story's declared class. spec-writer elaborates a bare story stub
+    into a full spec (Ensures/Instructions/Tests) before any builder-model
+    or story-class decision can be trusted — ``story_class`` on a stub is
+    frequently still the schema default rather than a considered
+    classification, since the story hasn't been fully written yet. Unlike
+    ``select_builder_model``, this selector does not downgrade
+    ``doc``/``lesson`` stories to haiku: the elaboration step carries the
+    same judgment weight regardless of the class the finished story will
+    end up in, because a bad elaboration corrupts every downstream attempt
+    at whatever class is eventually assigned (INFRA-333 Requires 2
+    evidence).
+
+    Selection table:
+
+      story_class   model   reason
+      -----------   -----   ------
+      code          opus    spec-elaboration-baseline
+      doc           opus    spec-elaboration-baseline
+      lesson        opus    spec-elaboration-baseline
+      methodology   opus    spec-elaboration-baseline
+
+    Unconditional opus regardless of ``story_class`` — a deliberate decision,
+    not a placeholder: this refactors ``next_action.py``'s Row-2
+    ``spawn-spec-writer`` emission (formerly a hardcoded ``model="opus"``
+    literal) onto the shared ``model_selector`` mechanism without changing
+    the one known production case's effective behavior (INFRA-333 Ensures
+    3). No attempt-number parameter: ``resolve_next_action`` only ever
+    emits ``spawn-spec-writer`` once, at Row 2 (``attempt_count == 0``); a
+    retried/revised spec-writer pass is routed by ``SPEC-RESULT{revised}``
+    handling in ``CLAUDE.build.md`` orchestrator prose, not by a second
+    ``resolve_next_action`` emission at a higher attempt number, so there is
+    no attempt ladder for this selector to encode.
+
   Model ladder note:
 
     The ordinary builder/reviewer attempt tables use the strict three-rung
@@ -392,6 +498,65 @@ def select_loop_breaker_model() -> tuple[str, str]:
         The tuple ``("fable", "escalation-upgrade")``.
     """
     return MODEL_FABLE, REASON_ESCALATION_UPGRADE
+
+
+# ---------------------------------------------------------------------------
+# Gate-worker / docs-reviewer / spec-writer model selection (INFRA-333)
+# ---------------------------------------------------------------------------
+
+
+def select_gate_worker_model(phase_class: str) -> tuple[str, str]:
+    """Return (model, reason) for the gate-worker judged-gate agent.
+
+    See the module docstring's ``select_gate_worker_model`` entry for the
+    full selection table and the wiring-note explaining why this result
+    cannot ride ``next_action.py``'s ``spawn-gate-worker`` action's ``model``
+    field.
+
+    Unknown/absent phase_class values default to "production" (opus,
+    production-class).
+    """
+    if not phase_class or phase_class not in _VALID_PHASE_CLASSES:
+        phase_class = DEFAULT_PHASE_CLASS
+
+    if phase_class == "docs-only":
+        return MODEL_SONNET, "non-production-class"
+    # production and pre-pr both use opus (mirrors select_security_auditor_model)
+    return MODEL_OPUS, "production-class"
+
+
+def select_docs_reviewer_model(phase_class: str) -> tuple[str, str]:
+    """Return (model, reason) for the docs-reviewer checkpoint agent.
+
+    See the module docstring's ``select_docs_reviewer_model`` entry for the
+    full selection table.
+
+    Unknown/absent phase_class values default to "production" (sonnet,
+    non-production-class).
+    """
+    if not phase_class or phase_class not in _VALID_PHASE_CLASSES:
+        phase_class = DEFAULT_PHASE_CLASS
+
+    if phase_class == "pre-pr":
+        return MODEL_OPUS, "production-class"
+    # production and docs-only both use sonnet (mirrors select_intent_reviewer_model)
+    return MODEL_SONNET, "non-production-class"
+
+
+def select_spec_writer_model(story_class: str) -> tuple[str, str]:
+    """Return (model, reason) for the spec-writer agent.
+
+    See the module docstring's ``select_spec_writer_model`` entry for the
+    full selection table and the reasoning for its unconditional-opus,
+    no-attempt-ladder shape.
+
+    Unknown story_class values default to "code" (still opus — this
+    selector's table has no per-class variation).
+    """
+    if not story_class or story_class not in {"code", "doc", "lesson", "methodology"}:
+        story_class = DEFAULT_STORY_CLASS
+
+    return MODEL_OPUS, "spec-elaboration-baseline"
 
 
 # ---------------------------------------------------------------------------

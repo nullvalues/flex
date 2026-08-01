@@ -3,11 +3,13 @@ name: spec-writer
 description: Spec-elaboration worker for {{ project_name }}. Loads the spec-writer procedure skill and elaborates a stub story into a complete story spec.
 tools: [Read, Write, Edit, Bash, Grep, Glob]
 model: opus
-# spawn-spec-writer resolves with model="opus" (reason="needs-spec") in
-# next_action.py's Row-2 resolution — this frontmatter value mirrors that
-# default whenever the orchestrator does not pass an explicit override
-# (no select_spec_writer_model tier exists yet — INFRA-333 is separate
-# follow-on scope, this story wires the shell/dispatch entry only).
+# model_selector.select_spec_writer_model(story_class) now exists
+# (INFRA-333) and next_action.py's Row-2 spawn-spec-writer emission calls
+# it instead of hardcoding model="opus" — the selector is unconditional
+# opus across all story_class values for the one production case that
+# exists today (see select_spec_writer_model's docstring entry), so this
+# frontmatter value is the fallback-only default and matches the
+# selector's baseline byte-for-byte.
 ---
 
 You are the spec-writer for the {{ project_name }} project. You elaborate one

@@ -2461,6 +2461,11 @@ class TestResolveNextActionRow4Split:
         assert action["model"] is None
         assert validate_action(action) == []
         assert "schema" in action["meta"]["gates_tripped"]
+        # INFRA-333: select_gate_worker_model's result is surfaced as an
+        # advisory meta value only — the top-level model field stays None
+        # (spawn-gate-worker is not a _SPAWN_ACTIONS member).
+        assert action["meta"]["gate_worker_model"] == "opus"
+        assert action["meta"]["gate_worker_model_reason"] == "production-class"
 
     def test_auth_tripped_emits_spawn_gate_worker(self, tmp_path: "Any") -> None:
         """auth blocked (stub clean, schema ok) → spawn-gate-worker."""
@@ -2529,6 +2534,106 @@ class TestResolveNextActionRow4Split:
         violations = validate_action(action)
         assert len(violations) > 0
         assert any("model" in v for v in violations)
+
+    def test_gate_worker_model_varies_with_phase_class(self, tmp_path: "Any") -> None:
+        """INFRA-333: gate_worker_model meta reflects the phase's phase_class."""
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True, exist_ok=True)
+        phase_file.write_text(
+            "---\nphase_class: docs-only\n---\n# Phase 1\n", encoding="utf-8"
+        )
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="RESOLVER-005A",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+            gate_stub={"ok": True, "blocked_reason": ""},
+            gate_schema={"ok": False, "blocked_reason": "no management surface"},
+            gate_auth={"ok": True, "blocked_reason": ""},
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_GATE_WORKER
+        assert action["model"] is None
+        assert action["meta"]["gate_worker_model"] == "sonnet"
+        assert action["meta"]["gate_worker_model_reason"] == "non-production-class"
+        assert validate_action(action) == []
+
+
+# ---------------------------------------------------------------------------
+# Tests — INFRA-333: Row 9 checkpoint-docs model wiring
+# ---------------------------------------------------------------------------
+
+
+class TestCheckpointDocsModelWiring:
+    def test_checkpoint_docs_step_carries_selected_model(self, tmp_path: "Any") -> None:
+        """When checkpoint-docs is the next uncompleted step, its model is
+        resolved via select_docs_reviewer_model instead of staying None."""
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True, exist_ok=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(active_phase_file=phase_file, next_story_id=None)
+        pos["checkpoint_step"] = ["checkpoint-security", "checkpoint-intent"]
+        action = resolve_next_action(pos, gate_fn=lambda: True)
+        assert action["action"] == "checkpoint-docs"
+        # default phase_class ("production") → sonnet, non-production-class
+        assert action["model"] == "sonnet"
+        assert action["reason"] == ""
+        assert validate_action(action) == []
+
+    def test_checkpoint_docs_model_varies_with_pre_pr_phase_class(
+        self, tmp_path: "Any"
+    ) -> None:
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True, exist_ok=True)
+        phase_file.write_text(
+            "---\nphase_class: pre-pr\n---\n# Phase 1\n", encoding="utf-8"
+        )
+        pos = _make_position(active_phase_file=phase_file, next_story_id=None)
+        pos["checkpoint_step"] = ["checkpoint-security", "checkpoint-intent"]
+        action = resolve_next_action(pos, gate_fn=lambda: True)
+        assert action["action"] == "checkpoint-docs"
+        assert action["model"] == "opus"
+        assert validate_action(action) == []
+
+    def test_checkpoint_security_step_still_carries_no_model(
+        self, tmp_path: "Any"
+    ) -> None:
+        """checkpoint-security/intent are out of INFRA-333 scope — unchanged."""
+        phase_file = tmp_path / "docs" / "phases" / "phase-1.md"
+        phase_file.parent.mkdir(parents=True, exist_ok=True)
+        phase_file.write_text("# Phase 1\n", encoding="utf-8")
+        pos = _make_position(active_phase_file=phase_file, next_story_id=None)
+        action = resolve_next_action(pos, gate_fn=lambda: True)
+        assert action["action"] == CHECKPOINT_SECURITY
+        assert action["model"] is None
+        assert validate_action(action) == []
+
+
+# ---------------------------------------------------------------------------
+# Tests — INFRA-333: Row 2 spawn-spec-writer model wiring
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnSpecWriterModelWiring:
+    def test_needs_spec_resolves_opus_via_selector(self, tmp_path: "Any") -> None:
+        """Row 2's spawn-spec-writer now calls select_spec_writer_model instead
+        of hardcoding model="opus" — the resolved value is unchanged (opus)."""
+        from next_action import SPAWN_SPEC_WRITER  # type: ignore[import]
+
+        phase_file = _make_phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="RESOLVER-009",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+        )
+        pos["needs_spec"] = True
+        pos["story_class"] = "doc"
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_SPEC_WRITER
+        assert action["model"] == "opus"
+        assert action["reason"] == "needs-spec"
+        assert validate_action(action) == []
 
 
 # ---------------------------------------------------------------------------

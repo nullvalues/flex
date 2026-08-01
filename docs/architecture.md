@@ -1852,6 +1852,88 @@ helpers. The orchestrator reads `phase_class` from the phase manifest frontmatte
 before spawning each checkpoint agent and passes the result as the Agent tool's
 `model` parameter (same override mechanism as the reviewer model selection).
 
+**Gate-worker / docs-reviewer / spec-writer model selection (INFRA-333, CER-139,
+AG-13).** Three roles previously had no `select_*_model` function at all —
+`gate-worker` and `docs-reviewer` hardcoded `model: sonnet` in template
+frontmatter with no attempt/phase-based variation, and `spec-writer`'s model
+was a literal `model="opus"` inline at the `next_action.py` Row-2 call site
+rather than resolved through `model_selector.py`. This story adds the three
+missing selectors and wires each to its real call site.
+
+`select_gate_worker_model(phase_class) -> tuple[str, str]` — returns `(model,
+reason)` for the gate-worker judged-gate agent (WORKER-002, schema/auth
+verdict evaluation). Checkpoint/gate-shaped, keyed by `phase_class` like the
+two selectors above rather than `story_class`. Reuses
+`select_security_auditor_model`'s tier assignment (a missed schema/auth
+violation is a correctness defect, not a documentation-currency miss):
+
+| `phase_class` | model |
+|---|---|
+| `production` | opus |
+| `docs-only` | sonnet |
+| `pre-pr` | opus |
+
+Wiring: the resolved value cannot ride `next_action.py`'s `spawn-gate-worker`
+action's `model` field — `validate_action` requires `model=null` for any
+action outside `_SPAWN_ACTIONS`, and `spawn-gate-worker` is deliberately not
+a member of that set (locked in by
+`test_spawn_gate_worker_with_model_fails_validate`); promoting it to
+`_SPAWN_ACTIONS` would be an action-grammar redesign, out of this story's
+narrow "wire the missing selectors" scope. `next_action.py`'s Row 4b instead
+calls this selector directly and surfaces the result as advisory
+`meta["gate_worker_model"]` / `meta["gate_worker_model_reason"]` keys on the
+emitted action — a real call site, not an unused function, without changing
+the grammar. `gate-worker.md.j2`'s frontmatter `model: sonnet` therefore
+remains the authoritative default (not merely a fallback) for this role.
+
+`select_docs_reviewer_model(phase_class) -> tuple[str, str]` — returns
+`(model, reason)` for the docs-reviewer checkpoint agent (WORKER-011,
+documentation-currency checklist). Reuses `select_intent_reviewer_model`'s
+tier assignment (an advisory, bounded-input checklist role, lighter weight
+than the security-auditor's correctness judgment):
+
+| `phase_class` | model |
+|---|---|
+| `production` | sonnet |
+| `docs-only` | sonnet |
+| `pre-pr` | opus |
+
+Wiring: unlike `select_gate_worker_model`, `checkpoint-docs` already carries
+a non-null model in the action grammar (`CHECKPOINT_DOCS` is a member of
+`_SPAWN_ACTIONS`) — `next_action.py` Row 9 calls this selector directly and
+sets the result on the emitted action's `model` field whenever
+`checkpoint-docs` is the next uncompleted checkpoint step, replacing the
+unconditional `model=None` the `docs-reviewer.md.j2` comment used to
+describe.
+
+`select_spec_writer_model(story_class) -> tuple[str, str]` — returns
+`(model, reason)` for the spec-writer agent. Keyed by `story_class` (the
+closest analogue to `select_builder_model`'s pattern), but unlike
+`select_builder_model` it does not downgrade `doc`/`lesson` stories to
+haiku: elaborating a bare stub into a full spec carries the same judgment
+weight regardless of the class the finished story will end up in, and
+`story_class` on a stub is frequently still the schema default rather than
+a considered classification. Unconditional `opus` for every `story_class`:
+
+| `story_class` | model | reason |
+|---|---|---|
+| `code` | opus | `spec-elaboration-baseline` |
+| `doc` | opus | `spec-elaboration-baseline` |
+| `lesson` | opus | `spec-elaboration-baseline` |
+| `methodology` | opus | `spec-elaboration-baseline` |
+
+No attempt-number parameter: `resolve_next_action` only ever emits
+`spawn-spec-writer` once, at Row 2 (`attempt_count == 0`) — a
+retried/revised spec-writer pass is routed by `SPEC-RESULT{revised}`
+handling in `CLAUDE.build.md` orchestrator prose, not by a second
+`resolve_next_action` emission at a higher attempt number, so there is no
+attempt ladder for this selector to encode. Wiring: `next_action.py`'s
+Row-2 `spawn-spec-writer` emission now calls this selector instead of the
+hardcoded `model="opus"` literal that previously lived at the call site —
+the current single known production case (attempt 1, any `story_class`)
+still resolves to `"opus"`, so this is a refactor onto the shared mechanism,
+not a behavior change.
+
 ### Spawn contract: subagent_type resolution (INFRA-241)
 
 **The gap.** `hooks/pre_tool_use.py`'s context-budget gate (INFRA-199) only

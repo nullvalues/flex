@@ -4,12 +4,12 @@ description: Docs-review worker for {{ project_name }}. Loads the checkpoint-doc
 tools: [Read, Bash, Grep, Glob]
 model: sonnet
 # fallback: haiku  (never below)
-# checkpoint-docs currently resolves with model=None from next_action.py (no
-# select_docs_reviewer_model exists yet, unlike its checkpoint-security/
-# checkpoint-intent siblings — INFRA-325 wires the shell/dispatch entry only;
-# adding a dedicated model-selection tier is separate follow-on scope), so
-# this frontmatter value is the effective default whenever the orchestrator
-# does not pass an explicit override.
+# model_selector.select_docs_reviewer_model(phase_class) now exists
+# (INFRA-333) and next_action.py's Row 9 sets a real model on the
+# checkpoint-docs action whenever this step is the next uncompleted
+# checkpoint step — this frontmatter value is the fallback-only default,
+# used only if the orchestrator ever spawns docs-reviewer without passing
+# an explicit override.
 ---
 
 You are the docs-reviewer for the {{ project_name }} project. You run once
