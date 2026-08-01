@@ -10,10 +10,12 @@ schema_introduces: false
 primary_files:
   - skills/pairmode/scripts/subagent_transcript.py
   - skills/pairmode/scripts/flex_build.py
+  - skills/pairmode/scripts/story_context.py
 touches:
   - tests/pairmode/test_subagent_transcript.py
   - tests/pairmode/test_flex_build_attempt_counter.py
   - tests/pairmode/test_stage_integration.py
+  - tests/pairmode/test_story_context.py
   - docs/architecture.md
 ---
 
