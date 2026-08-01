@@ -1,6 +1,6 @@
 ---
 name: security-auditor
-description: Security audit worker for flex-harness. Loads the security-auditor procedure skill and runs the phase-level security checklist.
+description: Security audit worker for flex. Loads the security-auditor procedure skill and runs the phase-level security checklist.
 tools: [Read, Bash, Grep, Glob]
 model: sonnet
 # fallback: haiku  (never below)

@@ -1,6 +1,6 @@
 ---
 name: intent-reviewer
-description: Intent-review worker for flex-harness. Loads the intent-reviewer procedure skill and compares what a phase actually built against what was planned.
+description: Intent-review worker for flex. Loads the intent-reviewer procedure skill and compares what a phase actually built against what was planned.
 tools: [Read, Bash, Grep, Glob]
 model: sonnet
 # fallback: haiku  (never below)

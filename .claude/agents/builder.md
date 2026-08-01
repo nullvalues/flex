@@ -1,6 +1,6 @@
 ---
 name: builder
-description: Builder implementation worker for flex-harness. Loads the builder procedure skill and implements exactly one story, completely and correctly, then stops.
+description: Builder implementation worker for flex. Loads the builder procedure skill and implements exactly one story, completely and correctly, then stops.
 tools: [Read, Write, Edit, Bash, Glob, Grep]
 model: sonnet
 # fallback: haiku  (never below)

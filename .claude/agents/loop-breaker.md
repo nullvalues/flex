@@ -1,6 +1,6 @@
 ---
 name: loop-breaker
-description: Cold-eyes analysis worker for flex-harness. Loads the loop-breaker procedure skill and proposes one alternative approach after a builder has failed twice on the same error.
+description: Cold-eyes analysis worker for flex. Loads the loop-breaker procedure skill and proposes one alternative approach after a builder has failed twice on the same error.
 tools: [Read, Bash, Grep, Glob]
 model: fable
 # INFRA-241: loop-breaker always escalates to the fable tier unconditionally
