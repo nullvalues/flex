@@ -20,10 +20,13 @@ from skills.pairmode.scripts.model_selector import (
     _phase_has_code_story,
     apply_declared_model_floor,
     select_builder_model,
+    select_docs_reviewer_model,
+    select_gate_worker_model,
     select_intent_reviewer_model,
     select_loop_breaker_model,
     select_reviewer_model,
     select_security_auditor_model,
+    select_spec_writer_model,
 )
 
 # ---------------------------------------------------------------------------
@@ -411,6 +414,95 @@ class TestSelectLoopBreakerModel:
         model, reason = select_loop_breaker_model()
         assert model == MODEL_FABLE
         assert reason == REASON_ESCALATION_UPGRADE
+
+
+# ---------------------------------------------------------------------------
+# select_gate_worker_model (INFRA-333)
+# ---------------------------------------------------------------------------
+
+
+class TestSelectGateWorkerModel:
+    def test_production_returns_opus(self) -> None:
+        model, reason = select_gate_worker_model("production")
+        assert model == MODEL_OPUS
+        assert reason == "production-class"
+
+    def test_docs_only_returns_sonnet(self) -> None:
+        model, reason = select_gate_worker_model("docs-only")
+        assert model == MODEL_SONNET
+        assert reason == "non-production-class"
+
+    def test_pre_pr_returns_opus(self) -> None:
+        model, reason = select_gate_worker_model("pre-pr")
+        assert model == MODEL_OPUS
+        assert reason == "production-class"
+
+    def test_unknown_defaults_to_production_opus(self) -> None:
+        model, reason = select_gate_worker_model("unknown")
+        assert model == MODEL_OPUS
+        assert reason == "production-class"
+
+    def test_empty_string_defaults_to_production_opus(self) -> None:
+        model, reason = select_gate_worker_model("")
+        assert model == MODEL_OPUS
+        assert reason == "production-class"
+
+
+# ---------------------------------------------------------------------------
+# select_docs_reviewer_model (INFRA-333)
+# ---------------------------------------------------------------------------
+
+
+class TestSelectDocsReviewerModel:
+    def test_production_returns_sonnet(self) -> None:
+        model, reason = select_docs_reviewer_model("production")
+        assert model == MODEL_SONNET
+        assert reason == "non-production-class"
+
+    def test_docs_only_returns_sonnet(self) -> None:
+        model, reason = select_docs_reviewer_model("docs-only")
+        assert model == MODEL_SONNET
+        assert reason == "non-production-class"
+
+    def test_pre_pr_returns_opus(self) -> None:
+        model, reason = select_docs_reviewer_model("pre-pr")
+        assert model == MODEL_OPUS
+        assert reason == "production-class"
+
+    def test_unknown_defaults_to_production_sonnet(self) -> None:
+        model, reason = select_docs_reviewer_model("unknown")
+        assert model == MODEL_SONNET
+        assert reason == "non-production-class"
+
+    def test_empty_string_defaults_to_production_sonnet(self) -> None:
+        model, reason = select_docs_reviewer_model("")
+        assert model == MODEL_SONNET
+        assert reason == "non-production-class"
+
+
+# ---------------------------------------------------------------------------
+# select_spec_writer_model (INFRA-333)
+# ---------------------------------------------------------------------------
+
+
+class TestSelectSpecWriterModel:
+    @pytest.mark.parametrize(
+        "story_class", ["code", "doc", "lesson", "methodology"]
+    )
+    def test_every_known_class_returns_opus(self, story_class: str) -> None:
+        model, reason = select_spec_writer_model(story_class)
+        assert model == MODEL_OPUS
+        assert reason == "spec-elaboration-baseline"
+
+    def test_unknown_defaults_to_code_still_opus(self) -> None:
+        model, reason = select_spec_writer_model("unknown")
+        assert model == MODEL_OPUS
+        assert reason == "spec-elaboration-baseline"
+
+    def test_empty_string_defaults_to_code_still_opus(self) -> None:
+        model, reason = select_spec_writer_model("")
+        assert model == MODEL_OPUS
+        assert reason == "spec-elaboration-baseline"
 
 
 # ---------------------------------------------------------------------------

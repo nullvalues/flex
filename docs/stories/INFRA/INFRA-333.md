@@ -11,6 +11,7 @@ primary_files:
   - skills/pairmode/scripts/model_selector.py
 touches:
   - skills/pairmode/scripts/next_action.py
+  - tests/pairmode/test_model_selector.py
   - skills/pairmode/templates/agents/gate-worker.md.j2
   - skills/pairmode/templates/agents/spec-writer.md.j2
   - skills/pairmode/templates/agents/docs-reviewer.md.j2
