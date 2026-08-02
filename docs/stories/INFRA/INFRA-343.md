@@ -13,6 +13,7 @@ touches:
   - skills/pairmode/scripts/next_action.py
   - tests/pairmode/test_next_action.py
   - tests/pairmode/test_checkpoint_routing.py
+  - docs/architecture.md
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
@@ -118,6 +119,14 @@ existing `AWAIT_USER`/`checkpoint-guard-failed:build-gate` surface**, over both
    fail-closed on `TimeoutExpired`, fail-open (advisory) on other exceptions.
    `check_checkpoint_guards`'s docstring is updated in the same spirit if it makes the
    old blanket claim about guard 3.
+5a. `docs/architecture.md:2631`'s claim "the subprocess invocation is advisory-only and
+    fails open on timeout or error" (in the Era 003 additive contract, DP4 point 2) is
+    updated to state the new split behavior: the subprocess invocation now fails
+    **closed** on a genuine `TimeoutExpired` (per this story), and remains advisory
+    fail-open only for other, non-timeout execution errors — matching Ensures 2-3.
+    Forbidden proxy: the stale "fails open on timeout or error" claim (or any
+    equivalent unqualified fail-open-on-timeout statement) remaining anywhere in that
+    doc section after the edit.
 6. `tests/pairmode/test_next_action.py`'s `TestRunBuildGateSubprocess` gains a test that
    mocks `subprocess.run` to raise `subprocess.TimeoutExpired` and asserts
    `_run_build_gate_subprocess(tmp_path) is False`.
@@ -183,6 +192,15 @@ existing `AWAIT_USER`/`checkpoint-guard-failed:build-gate` surface**, over both
 9. Do not add a stored-baseline-duration mechanism, a new meta/report field, or any new
    consumer of the guard's result beyond the existing `AWAIT_USER` reason string — see
    `## Out of scope`.
+10. Update `docs/architecture.md:2631` (Era 003 additive contract, DP4 point 2, the
+    sentence beginning "the subprocess invocation is advisory-only and fails open on
+    timeout or error") to accurately describe the new behavior implemented above: the
+    subprocess invocation now fails **closed** (returns `False`, blocking the gate) on
+    a genuine `subprocess.TimeoutExpired`, and remains advisory fail-open only for
+    other, non-timeout execution errors (per CER-072/INFRA-230 bootstrap-tolerance
+    rationale, Ensures 3-4/5a). Keep the edit scoped to that sentence and its immediate
+    surrounding context — do not otherwise rewrite the Era 003 additive contract
+    section.
 
 ## Tests
 
