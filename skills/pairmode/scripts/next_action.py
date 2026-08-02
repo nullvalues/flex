@@ -255,9 +255,9 @@ INFRA-333 (CER-139, AG-13 -- model-selection completeness for the three
     ``_SPAWN_ACTIONS`` member, so a non-null model here is grammar-legal and
     was already anticipated by the pre-INFRA-333 comment ("the harness sets
     model at spawn time via model_selector").
-  - Row 4b (``spawn-gate-worker``): calls the new
-    ``select_gate_worker_model(phase_class)`` and surfaces the result as
-    advisory ``meta["gate_worker_model"]``/``meta["gate_worker_model_reason"]``
+  - Row 4b (``spawn-gate-worker``): calls the new phase_class-keyed
+    gate-worker selector added to ``model_selector.py`` this story (see that
+    module's docstring) and surfaces the result as two advisory ``meta``
     keys -- NOT the action's ``model`` field, which stays ``None``.
     ``spawn-gate-worker`` is deliberately not a ``_SPAWN_ACTIONS`` member
     (``validate_action`` requires ``model=null`` for it, locked in by
@@ -265,12 +265,40 @@ INFRA-333 (CER-139, AG-13 -- model-selection completeness for the three
     would be an action-grammar redesign out of this story's narrow
     "wire the missing selectors" scope, so the "spawn-gate-worker carries no
     builder model" comment on the ``SPAWN_GATE_WORKER`` constant below
-    remains accurate for the ``model`` field after this story.
+    remains accurate for the ``model`` field after this story. (INFRA-340
+    later removes this Row 4b call entirely -- see the INFRA-340 entry
+    below.)
 
   Grammar-unchanged: no new action type, no ``ACTIONS``/``_SPAWN_ACTIONS``
   membership change, no ``SCHEMA_VERSION`` bump (still 5) -- only
   Position gains one new read-only key (``story_class``) and two actions'
   resolved ``model``/``meta`` values can differ from before this story.
+
+INFRA-340 (Phase 117 -- close the F3/F4 cold-eyes gaps left by INFRA-333):
+  (a) Row 9 now resolves ``checkpoint-security``'s and ``checkpoint-intent``'s
+  models via ``model_selector.select_security_auditor_model(phase_class)``/
+  ``select_intent_reviewer_model(phase_class)`` respectively, mirroring the
+  ``checkpoint-docs`` wiring INFRA-333 already added -- closes F3 (both
+  checkpoint roles previously carried a hardcoded ``model=None``, contrary to
+  the model-override contract documented on ``.claude/agents/
+  security-auditor.md``/``intent-reviewer.md``). ``phase_class`` is now
+  resolved once (via ``_phase_class_for``) above the Row 9 ``if``/``elif``
+  chain and shared by all three checkpoint branches.
+  (b) Row 4b no longer calls the phase_class-keyed gate-worker selector added
+  to ``model_selector.py`` by INFRA-333 -- that call computed a
+  ``(model, reason)`` pair and parked it in two advisory ``meta`` keys that
+  nothing ever consumed. Per the Phase-117 cold-eyes review's own conclusion
+  (F4), a computed-and-discarded value is worse than not calling the selector
+  at all, so this story removes the Row 4b call site rather than promoting
+  ``spawn-gate-worker`` into ``_SPAWN_ACTIONS`` (that remains explicitly out
+  of scope -- see ``docs/stories/INFRA/INFRA-340.md`` § Context § Decision).
+  The selector function itself is retained, unused, in ``model_selector.py``
+  for a future real consumer (possibly INFRA-341); see that module's
+  docstring for its full name and selection table.
+  Grammar-unchanged: no new action type, no ``ACTIONS``/``_SPAWN_ACTIONS``
+  membership change, no ``SCHEMA_VERSION`` bump (still 6) -- only two
+  actions' resolved ``model`` values differ, and ``spawn-gate-worker``'s
+  ``meta`` dict loses two advisory keys it never should have kept.
 """
 
 from __future__ import annotations
@@ -363,11 +391,12 @@ ACTIONS: frozenset[str] = frozenset(
 # Actions for which model may be non-null (auto-resolved spawn actions only).
 # spawn-gate-worker carries no builder model (the gate worker tier is not a
 # builder-model decision), so it is NOT in _SPAWN_ACTIONS — model must be None.
-# INFRA-333: model_selector.select_gate_worker_model(phase_class) now exists,
-# but its result still cannot ride this action's `model` field (that would be
-# an action-grammar redesign, out of this story's scope) — Row 4b surfaces it
-# instead as advisory `meta["gate_worker_model"]`/`meta["gate_worker_model_reason"]`
-# keys. This comment therefore remains accurate for the `model` field itself.
+# INFRA-333 added a phase_class-keyed selector for this role in
+# model_selector.py, but promoting spawn-gate-worker into _SPAWN_ACTIONS to
+# carry its result would be an action-grammar redesign, out of scope.
+# INFRA-333 instead surfaced the result as two advisory `meta` keys;
+# INFRA-340 removed that call site entirely (nothing consumed the advisory
+# meta) — Row 4b calls no selector today, and `model` stays None.
 # spawn-reviewer, spawn-security-auditor, and spawn-intent-reviewer carry a
 # model override (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS.
 # (spawn-reviewer membership is for orchestrator dispatch only — the resolver
@@ -383,10 +412,12 @@ ACTIONS: frozenset[str] = frozenset(
 # docstring entry above for why (resolve_next_action never emits
 # spawn-reviewer, so there is no action object here for the field to ride).
 # checkpoint-security, checkpoint-intent, checkpoint-docs carry a model override
-# (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS. INFRA-333:
-# Row 9 now actually resolves checkpoint-docs's model via
-# select_docs_reviewer_model(phase_class) (checkpoint-security/intent are
-# unchanged, out of this story's scope).
+# (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS. INFRA-333
+# wired checkpoint-docs's model via select_docs_reviewer_model(phase_class);
+# INFRA-340 closes the remaining gap (F3) by wiring checkpoint-security via
+# select_security_auditor_model(phase_class) and checkpoint-intent via
+# select_intent_reviewer_model(phase_class) — all three checkpoint roles now
+# resolve a real model instead of two of them hardcoding model=None.
 # checkpoint-tag is an inline action and is NOT in _SPAWN_ACTIONS.
 # spawn-spec-writer carries a model override and IS in _SPAWN_ACTIONS.
 # INFRA-333: the model is now resolved via select_spec_writer_model(story_class)
@@ -534,8 +565,11 @@ def _phase_class_for(phase_path: "Path | None") -> str:
     carries no ``phase_class`` field — the same fail-safe default
     ``model_selector.select_intent_reviewer_model``/
     ``select_security_auditor_model`` already apply for an absent field.
-    Used by Row 4b (``select_gate_worker_model``) and Row 9's
-    ``checkpoint-docs`` step (``select_docs_reviewer_model``).
+    Used by Row 9's ``checkpoint-security``/``checkpoint-intent``/
+    ``checkpoint-docs`` steps (``select_security_auditor_model``/
+    ``select_intent_reviewer_model``/``select_docs_reviewer_model``).
+    (Row 4b used this for its own gate-worker model selector through
+    INFRA-333; INFRA-340 removed that call site — see the Row 4b comment.)
     """
     from model_selector import DEFAULT_PHASE_CLASS  # type: ignore[import]
 
@@ -1537,18 +1571,26 @@ def resolve_next_action(
 
         _next_step = _remaining[0]
         # checkpoint-tag is NOT in _SPAWN_ACTIONS → model must be None.
-        # checkpoint-security/intent carry no model yet (out of INFRA-333
-        # scope — the harness still sets their model at spawn time via
-        # model_selector, unchanged by this story). checkpoint-docs now
-        # resolves a real model via select_docs_reviewer_model (INFRA-333
-        # Ensures 2), replacing the previous unconditional model=None the
-        # docs-reviewer.md.j2 comment used to describe.
+        # checkpoint-security, checkpoint-intent, and checkpoint-docs each
+        # resolve a real model via their respective model_selector functions
+        # (INFRA-333 Ensures 2 for checkpoint-docs; INFRA-340 closes F3 for
+        # checkpoint-security/checkpoint-intent, which previously carried
+        # model=None unconditionally). phase_class is resolved once via
+        # _phase_class_for, shared across all three branches.
         _checkpoint_model: "str | None" = None
+        _checkpoint_phase_class = _phase_class_for(_phase_path)
         if _next_step == CHECKPOINT_DOCS:
             from model_selector import select_docs_reviewer_model  # type: ignore[import]
 
-            _docs_phase_class = _phase_class_for(_phase_path)
-            _checkpoint_model, _ = select_docs_reviewer_model(_docs_phase_class)
+            _checkpoint_model, _ = select_docs_reviewer_model(_checkpoint_phase_class)
+        elif _next_step == CHECKPOINT_SECURITY:
+            from model_selector import select_security_auditor_model  # type: ignore[import]
+
+            _checkpoint_model, _ = select_security_auditor_model(_checkpoint_phase_class)
+        elif _next_step == CHECKPOINT_INTENT:
+            from model_selector import select_intent_reviewer_model  # type: ignore[import]
+
+            _checkpoint_model, _ = select_intent_reviewer_model(_checkpoint_phase_class)
 
         return make_action(
             _next_step,
@@ -1688,22 +1730,19 @@ def resolve_next_action(
             name: (gate_schema if name == "schema" else gate_auth).get("blocked_reason", "")
             for name in judged_tripped
         }
-        # INFRA-333: select_gate_worker_model's result cannot ride this
-        # action's `model` field (validate_action requires model=null for
-        # any action outside `_SPAWN_ACTIONS`, and spawn-gate-worker is
-        # deliberately not a member — see the SPAWN_GATE_WORKER comment
-        # above and test_spawn_gate_worker_with_model_fails_validate). It is
-        # surfaced as an advisory meta value only; `model=None` is unchanged.
-        from model_selector import select_gate_worker_model  # type: ignore[import]
-
-        _gate_worker_phase_class = _phase_class_for(
-            Path(active_phase_file) if active_phase_file is not None else None
-        )
-        _gate_worker_model, _gate_worker_model_reason = select_gate_worker_model(
-            _gate_worker_phase_class
-        )
-        meta["gate_worker_model"] = _gate_worker_model
-        meta["gate_worker_model_reason"] = _gate_worker_model_reason
+        # INFRA-340: no model_selector call is made here. INFRA-333 had
+        # called this role's phase_class-keyed selector in model_selector.py
+        # and surfaced its result as two advisory `meta` keys, but nothing
+        # consumed them (the action's `model` field stays None —
+        # validate_action requires model=null for any action outside
+        # `_SPAWN_ACTIONS`, and spawn-gate-worker is deliberately not a
+        # member — see the SPAWN_GATE_WORKER comment above and
+        # test_spawn_gate_worker_with_model_fails_validate). Per the
+        # Phase-117 cold-eyes review (F4), a computed-and-discarded value is
+        # worse than not calling the selector at all, so this story removed
+        # the call site. The selector function itself remains defined in
+        # model_selector.py for a future real consumer (see
+        # docs/stories/INFRA/INFRA-340.md).
         return make_action(
             SPAWN_GATE_WORKER,
             scalar=next_story_id,

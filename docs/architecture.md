@@ -1909,9 +1909,15 @@ security-auditor checkpoint agent. The `reason` string is emitted on the second 
 | `pre-pr` | opus |
 
 Unknown or absent `phase_class` values default to `"production"` for both
-helpers. The orchestrator reads `phase_class` from the phase manifest frontmatter
-before spawning each checkpoint agent and passes the result as the Agent tool's
-`model` parameter (same override mechanism as the reviewer model selection).
+helpers. `next_action.py`'s Row 9 reads `phase_class` from the phase manifest
+frontmatter (via `_phase_class_for`) once per resolver call and calls
+`select_security_auditor_model`/`select_intent_reviewer_model` directly
+whenever `checkpoint-security`/`checkpoint-intent` is the next uncompleted
+checkpoint step — the same wiring shape as `select_docs_reviewer_model`'s
+`checkpoint-docs` call, below (INFRA-340; both checkpoint roles previously
+carried a hardcoded `model=None` in `resolve_next_action`, contrary to the
+model-override contract `.claude/agents/security-auditor.md`/
+`intent-reviewer.md` document).
 
 **Gate-worker / docs-reviewer / spec-writer model selection (INFRA-333, CER-139,
 AG-13).** Three roles previously had no `select_*_model` function at all —
@@ -1939,13 +1945,21 @@ action's `model` field — `validate_action` requires `model=null` for any
 action outside `_SPAWN_ACTIONS`, and `spawn-gate-worker` is deliberately not
 a member of that set (locked in by
 `test_spawn_gate_worker_with_model_fails_validate`); promoting it to
-`_SPAWN_ACTIONS` would be an action-grammar redesign, out of this story's
-narrow "wire the missing selectors" scope. `next_action.py`'s Row 4b instead
-calls this selector directly and surfaces the result as advisory
-`meta["gate_worker_model"]` / `meta["gate_worker_model_reason"]` keys on the
-emitted action — a real call site, not an unused function, without changing
-the grammar. `gate-worker.md.j2`'s frontmatter `model: sonnet` therefore
-remains the authoritative default (not merely a fallback) for this role.
+`_SPAWN_ACTIONS` would be an action-grammar redesign, which remains out of
+scope. INFRA-333 had `next_action.py`'s Row 4b call this selector directly
+and surface the result as advisory `meta["gate_worker_model"]` /
+`meta["gate_worker_model_reason"]` keys on the emitted action, but nothing
+in the orchestrator or harness ever consumed those keys. INFRA-340 removed
+that Row 4b call site (the Phase-117 cold-eyes review's own conclusion: a
+computed-and-discarded value is worse than not calling the selector at all)
+— Row 4b calls no model selector today, and the emitted action's `meta`
+dict no longer carries either key. `select_gate_worker_model` itself
+remains defined in `model_selector.py`, unchanged, for a future real
+consumer (possibly INFRA-341, if that story's gate-worker verdict-consumer
+wiring independently requires promoting `spawn-gate-worker` into
+`_SPAWN_ACTIONS`). `gate-worker.md.j2`'s frontmatter `model: sonnet` is
+once again the sole determinant of the gate-worker's model — the
+orchestrator never passes a computed override for this role.
 
 `select_docs_reviewer_model(phase_class) -> tuple[str, str]` — returns
 `(model, reason)` for the docs-reviewer checkpoint agent (WORKER-011,

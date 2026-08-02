@@ -135,17 +135,22 @@ def test_pre_guard_phase_incomplete(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "checkpoint_step,expected_action,expected_model",
     [
-        # 2: no steps done → checkpoint-security
+        # 2: no steps done → checkpoint-security. INFRA-340: checkpoint-security
+        # now resolves a real model via select_security_auditor_model; the
+        # fixture phase file carries no phase_class, which defaults to
+        # "production" → opus (production-class).
         (
             [],
             CHECKPOINT_SECURITY,
-            None,
+            "opus",
         ),
-        # 3: first step done → checkpoint-intent
+        # 3: first step done → checkpoint-intent. INFRA-340: checkpoint-intent
+        # now resolves a real model via select_intent_reviewer_model; default
+        # phase_class "production" → sonnet (non-production-class).
         (
             [CHECKPOINT_SECURITY],
             CHECKPOINT_INTENT,
-            None,
+            "sonnet",
         ),
         # 4: first two done → checkpoint-docs. INFRA-333: checkpoint-docs now
         # resolves a real model via select_docs_reviewer_model; the fixture

@@ -4,17 +4,18 @@ description: Gate judgment worker for {{ project_name }}. Loads the gate procedu
 tools: [Read, Bash]
 model: sonnet
 # fallback: haiku  (never below)
-# model_selector.select_gate_worker_model(phase_class) exists (INFRA-333),
-# but its result cannot ride the spawn-gate-worker action's `model` field —
-# next_action.py's validate_action requires model=null for any action
-# outside `_SPAWN_ACTIONS`, and spawn-gate-worker is deliberately not a
-# member (see next_action.py's SPAWN_GATE_WORKER comment and
-# test_spawn_gate_worker_with_model_fails_validate). The selector's result
-# is surfaced only as an advisory meta["gate_worker_model"] value on the
-# emitted action, so this frontmatter value remains the authoritative
-# default whenever the orchestrator does not pass an explicit override —
-# unlike docs-reviewer/spec-writer, this is not a stopgap pending future
-# wiring.
+# No model-selector call currently reaches this role's dispatch. INFRA-333
+# added a phase_class-keyed gate-worker model selector to model_selector.py
+# and wired a next_action.py Row 4b call site that surfaced its result as
+# an advisory meta["gate_worker_model"] value, but nothing ever consumed
+# that value. INFRA-340 removed the Row 4b call site (a computed-and-
+# discarded value is worse than not calling the selector at all); the
+# selector function itself is retained, unused, in model_selector.py —
+# see its docstring for why the underlying selection table still exists.
+# This frontmatter `model:` value is therefore the sole determinant of the
+# gate-worker's model — no computed override is in play, and none is
+# expected unless a future story (possibly INFRA-341) wires a real
+# consumer.
 ---
 
 You are the gate worker for the {{ project_name }} project.

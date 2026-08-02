@@ -343,10 +343,15 @@ class TestPreCheckpointGuards:
 
 
 _STEP_SEQUENCE_CASES: list[tuple[list[str], str, "str | None"]] = [
-    # State 1: no steps done → first step is checkpoint-security
-    ([], CHECKPOINT_SECURITY, None),
-    # State 2: security done → checkpoint-intent
-    ([CHECKPOINT_SECURITY], CHECKPOINT_INTENT, None),
+    # State 1: no steps done → first step is checkpoint-security. INFRA-340:
+    # checkpoint-security now resolves a real model via
+    # select_security_auditor_model; default phase_class "production" →
+    # opus (production-class).
+    ([], CHECKPOINT_SECURITY, "opus"),
+    # State 2: security done → checkpoint-intent. INFRA-340: checkpoint-intent
+    # now resolves a real model via select_intent_reviewer_model; default
+    # phase_class "production" → sonnet (non-production-class).
+    ([CHECKPOINT_SECURITY], CHECKPOINT_INTENT, "sonnet"),
     # State 3: security + intent done → checkpoint-docs. INFRA-333:
     # checkpoint-docs now resolves a real model via
     # select_docs_reviewer_model; the fixture phase file carries no
