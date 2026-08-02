@@ -12,7 +12,9 @@ primary_files:
   - skills/pairmode/scripts/story_update.py
 touches:
   - tests/pairmode/test_flex_build.py
+  - tests/pairmode/test_index_integrity.py
   - docs/cer/backlog.md
+  - docs/architecture.md
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
@@ -128,6 +130,15 @@ follow-up work before phase 117 can checkpoint, not left unaddressed.
   build — this story's Instructions and Tests never write to any of those 12 files. (The retroactive
   correction they need is named as required follow-up work in `## Out of scope`, not performed
   here.)
+- `docs/architecture.md:2675` (the story-status frontmatter data-flow row) no longer states that
+  updating a story's `status:` frontmatter is "manual/advisory" with "no build-loop step call[ing]
+  it automatically" — it instead accurately states that `cmd_merge_story_worktree` calls
+  `story_update.update_story_status`/`update_phase_story_status` automatically on every reviewer-PASS
+  merge, as of this story. Forbidden proxy: softening the sentence (e.g. "may be called
+  automatically") without naming the actual caller and trigger condition.
+- `tests/pairmode/test_index_integrity.py`'s modifications made necessary by this story's fix (any
+  fixture/assertion that previously encoded the pre-fix "status never auto-flips" behavior) are
+  committed alongside the rest of the story's declared scope — not left uncommitted in the worktree.
 
 ## Instructions
 
