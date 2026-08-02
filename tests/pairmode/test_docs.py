@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -99,3 +100,61 @@ def test_skill_count_prose_matches_skill_dirs() -> None:
             assert skill_dir in text, (
                 f"{doc_path} must mention skill directory {skill_dir!r} at least once"
             )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-349 — Docstring currency guard tests (CER-156)
+#
+# Prevents recurrence of misdescribed wiring claims in harness docstrings
+# and comments. The guard tests assert the absence of specific stale phrases
+# that were corrected, so a future re-introduction is caught immediately.
+# ---------------------------------------------------------------------------
+
+_STALE_WIRING_PHRASES: dict[str, tuple[str, ...]] = {
+    "skills/pairmode/scripts/flex_build.py": (
+        "Advisory only",
+        "not wired into the live",
+        "_is_fresh_phase",
+    ),
+    ".claude/agents/spec-writer.md": ("select_spec_writer_model tier exists yet",),
+    ".claude/agents/docs-reviewer.md": (
+        "select_docs_reviewer_model exists yet",
+        "checkpoint-docs currently resolves with model=None",
+    ),
+}
+
+
+def test_harness_docstrings_have_no_stale_wiring_claims() -> None:
+    for rel_path, phrases in _STALE_WIRING_PHRASES.items():
+        text = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+        for phrase in phrases:
+            assert phrase not in text, (
+                f"{rel_path} contains stale wiring claim {phrase!r} (CER-156, INFRA-349) — "
+                "the comment describes a prior or aspirational state, not the shipped one"
+            )
+
+
+def test_model_selector_functions_named_in_agent_shells_exist() -> None:
+    # Extract select_*_model identifiers from agent shell files
+    agent_files = [
+        REPO_ROOT / ".claude/agents/spec-writer.md",
+        REPO_ROOT / ".claude/agents/docs-reviewer.md",
+    ]
+
+    extracted_selectors = set()
+    for agent_file in agent_files:
+        text = agent_file.read_text(encoding="utf-8")
+        matches = re.findall(r"select_\w+_model", text)
+        extracted_selectors.update(matches)
+
+    # Verify each extracted selector exists in model_selector.py
+    model_selector_path = REPO_ROOT / "skills/pairmode/scripts/model_selector.py"
+    model_selector_text = model_selector_path.read_text(encoding="utf-8")
+
+    for selector_name in extracted_selectors:
+        def_pattern = f"def {selector_name}("
+        assert def_pattern in model_selector_text, (
+            f"Agent shell files reference {selector_name!r} but it is not defined in "
+            f"skills/pairmode/scripts/model_selector.py — update the agent shell comment "
+            f"or wire the missing function"
+        )

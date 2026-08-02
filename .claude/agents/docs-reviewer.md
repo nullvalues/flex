@@ -4,12 +4,10 @@ description: Docs-review worker for flex. Loads the checkpoint-docs procedure sk
 tools: [Read, Bash, Grep, Glob]
 model: sonnet
 # fallback: haiku  (never below)
-# checkpoint-docs currently resolves with model=None from next_action.py (no
-# select_docs_reviewer_model exists yet, unlike its checkpoint-security/
-# checkpoint-intent siblings — INFRA-325 wires the shell/dispatch entry only;
-# adding a dedicated model-selection tier is separate follow-on scope), so
-# this frontmatter value is the effective default whenever the orchestrator
-# does not pass an explicit override.
+# checkpoint-docs resolves its model via select_docs_reviewer_model(phase_class)
+# in next_action.py's Row-9 checkpoint-step resolution (wired by INFRA-333) — this
+# frontmatter value is the effective default whenever the orchestrator does not
+# pass an explicit override.
 ---
 
 You are the docs-reviewer for the flex project. You run once

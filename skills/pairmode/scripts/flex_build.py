@@ -3548,8 +3548,8 @@ def cmd_transition_era(
 def cmd_next_action(project_dir: str, as_json: bool, warnings: tuple) -> None:
     """Resolve the next build-loop action from durable state.
 
-    Pure-read: no file is written.  Advisory only — not wired into the live
-    CLAUDE.build.md loop (DP7).
+    Pure-read: no file is written. This is the decision engine the
+    CLAUDE.build.md build loop invokes each iteration to obtain the next action (DP7).
 
     Prints a human-readable summary by default; use --json to emit the
     canonical action object that round-trips through validate_action.
@@ -4516,8 +4516,7 @@ def cmd_record_intent_review(phase_key: str, verdict: str, project_dir: str) -> 
     Writes ``state.json["pre_build_intent_review"][phase_key] = verdict``,
     atomically (temp file + ``os.replace``, mirroring every other
     ``state.json`` writer in this module). This is the durable "already
-    reviewed" evidence ``next_action._is_fresh_phase``/
-    ``resolve_next_action``'s Row PBI reads to fire the
+    reviewed" evidence ``resolve_next_action``'s Row PBI reads to fire the
     ``spawn-intent-reviewer`` pre-build emission exactly once per phase
     (Ensures 2) and to route a non-PASS/ALIGNED verdict to ``await-user``
     instead of silently proceeding (Ensures 4).

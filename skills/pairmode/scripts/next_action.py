@@ -1762,8 +1762,9 @@ def resolve_next_action(
         if pre_build_intent_verdict is None:
             # No review recorded yet for this phase — spawn it once, before
             # any builder. model=null (Requires 1: the model-null rule for
-            # non-builder spawns) — unlike checkpoint-time's
-            # checkpoint-intent, this emission carries no model override.
+            # non-builder spawns) — unlike checkpoint-time's checkpoint-intent
+            # (which resolves a model via select_intent_reviewer_model, INFRA-340),
+            # this emission carries no model override.
             return make_action(
                 SPAWN_INTENT_REVIEWER,
                 scalar=_phase_key,
