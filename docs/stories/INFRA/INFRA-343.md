@@ -234,3 +234,33 @@ than being masked by an early stop.
   `check_checkpoint_guards` — this story touches only guard 3 (the build gate).
 - Any change to the `test_command`/`pairmode_context.json` config-driven selection
   logic itself, or to the PATH-augmentation block in `_run_build_gate_subprocess`.
+
+## Evidence
+
+Covered-contracts gate (INFRA-317): `primary_files`/`touches` includes
+`skills/pairmode/scripts/next_action.py`, which intersects the
+`## Module structure::skills/pairmode/scripts/next_action.py` covered-contract
+pair. Both halves were read in full before editing.
+
+- `docs/architecture.md:2628-2631` (§ Era 003 additive contract, DP4 point 2)
+  documented the resolver's `check_checkpoint_guards`/`_run_build_gate_subprocess`
+  relationship and stated: "the subprocess invocation is advisory-only and fails
+  open on timeout or error." This was the stale claim this story's Ensures 5a
+  targets — it diverged from the fix direction chosen in `## Context` above
+  (fail closed on `TimeoutExpired`). Per the covered-contracts gate's divergence
+  rule, the doc's *intent* (this story's own spec, not the pre-existing doc text)
+  wins here since the spec explicitly directs the fix; the doc text itself was
+  corrected to match the new code behavior (Ensures 5a, Instructions 10) rather
+  than the code being reverted to match the stale doc.
+- `skills/pairmode/scripts/next_action.py:675-737` (`_run_build_gate_subprocess`)
+  and `:740-793` (`check_checkpoint_guards` guard 3) were read in full before
+  editing, confirming the two `subprocess.run(..., timeout=60, ...)` call sites
+  (config-driven and hardcoded-fallback) and the single blanket
+  `except Exception: return True` clause described in `## Context`, and the
+  guard-3 `try: gate_ok = bool(gate_fn()) except Exception: gate_ok = True`
+  block in `check_checkpoint_guards`.
+
+Resolution: `docs/architecture.md:2625-2631` updated to state the split
+behavior (fail closed on genuine `TimeoutExpired`, advisory fail-open only for
+other execution errors), matching the code changes made in
+`_run_build_gate_subprocess` and `check_checkpoint_guards`.

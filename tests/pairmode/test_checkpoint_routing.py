@@ -25,6 +25,7 @@ never run.  The CER backlog file is absent in all fixtures (passes vacuously).
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -353,6 +354,41 @@ def test_check_guards_absent_cer_file_passes(tmp_path: Path) -> None:
     phase_file = _make_phase_file(tmp_path, [("T-001", "complete")])
     # No docs/cer/backlog.md created.
     result = check_checkpoint_guards(tmp_path, phase_file, gate_fn=lambda: True)
+    assert result == {"ok": True}
+
+
+def _raise_timeout_expired() -> bool:
+    raise subprocess.TimeoutExpired(cmd="pytest", timeout=600)
+
+
+def _raise_non_timeout_error() -> bool:
+    raise OSError("uv not found")
+
+
+def test_check_guards_build_gate_timeout_fails_closed(tmp_path: Path) -> None:
+    """Build gate guard fails closed when gate_fn raises TimeoutExpired (INFRA-343).
+
+    Proves guard 3's AWAIT_USER surfacing path (Row 9,
+    next_action.py:1584-1597) is reachable from a timeout, not just from a
+    real non-zero exit code.
+    """
+    phase_file = _make_phase_file(tmp_path, [("T-001", "complete")])
+    result = check_checkpoint_guards(
+        tmp_path, phase_file, gate_fn=_raise_timeout_expired
+    )
+    assert result == {"ok": False, "failed_guard": "build-gate"}
+
+
+def test_check_guards_build_gate_non_timeout_error_fails_open(tmp_path: Path) -> None:
+    """Build gate guard stays advisory fail-open on a non-timeout gate_fn error.
+
+    Proves Ensures 4's fail-open carve-out (CER-072/INFRA-230 bootstrap
+    tolerance) holds at the check_checkpoint_guards level too.
+    """
+    phase_file = _make_phase_file(tmp_path, [("T-001", "complete")])
+    result = check_checkpoint_guards(
+        tmp_path, phase_file, gate_fn=_raise_non_timeout_error
+    )
     assert result == {"ok": True}
 
 

@@ -689,7 +689,16 @@ def _run_build_gate_subprocess(project_dir: "Path") -> bool:
       unaffected).
 
     Returns True (gate green) when the chosen command's exit code is 0.
-    Returns True (advisory pass) on timeout or any execution error.
+
+    A genuine ``subprocess.TimeoutExpired`` (the command was still running
+    when the deadline arrived) now returns **False** (gate red, fail closed)
+    per INFRA-343 — this guard exists specifically to catch what the
+    human-run reviewer suite might miss between review and checkpoint, and a
+    suite that never finishes cannot honestly report green. Any other
+    execution error (e.g. a missing ``uv``/``pytest`` binary, a bad ``cwd``)
+    still returns True (advisory pass, CER-072/INFRA-230 bootstrap
+    tolerance) — those indicate the tooling isn't runnable in this
+    environment, not that the suite ran and something was wrong with it.
     """
     import os
     import subprocess
@@ -721,7 +730,7 @@ def _run_build_gate_subprocess(project_dir: "Path") -> bool:
                 shell=True,
                 cwd=str(project_dir),
                 capture_output=True,
-                timeout=60,
+                timeout=600,
                 env=env,
             )
         else:
@@ -729,12 +738,21 @@ def _run_build_gate_subprocess(project_dir: "Path") -> bool:
                 ["uv", "run", "pytest", "tests/pairmode/", "-q", "--tb=no"],
                 cwd=str(project_dir),
                 capture_output=True,
-                timeout=60,
+                timeout=600,
                 env=env,
             )
         return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        # Fail closed: the suite was still running at the 600s deadline.
+        # This guard's entire purpose is to catch what the human-run
+        # reviewer suite might miss between review and checkpoint — a run
+        # that never completes is itself a signal worth stopping on, not
+        # something to wave through as green (INFRA-343).
+        return False
     except Exception:  # noqa: BLE001
-        return True  # advisory: fail open on error or timeout
+        # advisory: fail open — tooling/environment error, not a suite
+        # result (CER-072/INFRA-230 bootstrap tolerance preserved)
+        return True
 
 
 def check_checkpoint_guards(
@@ -775,10 +793,17 @@ def check_checkpoint_guards(
     if project_path is not None and not _check_cer_do_now(project_path):
         return {"ok": False, "failed_guard": "cer-do-now"}
 
-    # Guard 3: build gate (injectable; advisory-only on error/timeout).
+    # Guard 3: build gate (injectable). A genuine ``subprocess.TimeoutExpired``
+    # fails closed (INFRA-343) — the guard exists to catch what the
+    # human-run reviewer suite might miss; any other exception remains
+    # advisory fail-open (CER-072/INFRA-230 bootstrap tolerance).
     if gate_fn is not None:
+        import subprocess
+
         try:
             gate_ok = bool(gate_fn())
+        except subprocess.TimeoutExpired:
+            gate_ok = False  # fail closed: the run never completed
         except Exception:  # noqa: BLE001
             gate_ok = True  # advisory: fail open
     elif project_path is not None:

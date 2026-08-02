@@ -17,6 +17,7 @@ the test injects a fake git log via monkeypatching.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -2977,6 +2978,26 @@ class TestRunBuildGateSubprocess:
         with mock.patch("subprocess.run", side_effect=_fake_run):
             assert _run_build_gate_subprocess(tmp_path) is True
         assert captured["cmd"][0] == "uv" and captured["shell"] is False
+
+    def test_timeout_expired_fails_closed(self, tmp_path: Path) -> None:
+        """(e) a genuine ``subprocess.TimeoutExpired`` now fails the gate
+        closed (INFRA-343) — the suite ran out of time, not something to
+        wave through as green."""
+        with mock.patch(
+            "subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="pytest", timeout=600),
+        ):
+            assert _run_build_gate_subprocess(tmp_path) is False
+
+    def test_non_timeout_exception_still_fails_open(self, tmp_path: Path) -> None:
+        """(f) a non-timeout execution error (e.g. missing test runner)
+        still advisory-passes (CER-072/INFRA-230 bootstrap tolerance
+        unchanged by INFRA-343)."""
+        with mock.patch(
+            "subprocess.run",
+            side_effect=FileNotFoundError("uv not found"),
+        ):
+            assert _run_build_gate_subprocess(tmp_path) is True
 
 
 # ---------------------------------------------------------------------------

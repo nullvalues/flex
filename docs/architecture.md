@@ -2627,8 +2627,14 @@ Scoped to the window `HARNESS001-main … HARNESS005-main`:
    disposable and never read back by the orchestrator). The orchestrator remains the sole writer
    of all shared state during the additive window. Note: `check_checkpoint_guards` (introduced in
    RESOLVER-008) calls `_run_build_gate_subprocess` when `gate_fn` is not injected — this is a
-   subprocess call, not a state write. The pure-read constraint refers to `state.json`; the
-   subprocess invocation is advisory-only and fails open on timeout or error.
+   subprocess call, not a state write. The pure-read constraint refers to `state.json`;
+   the subprocess invocation now fails **closed** (returns `False`, blocking the gate)
+   on a genuine `subprocess.TimeoutExpired` — the guard exists specifically to catch
+   what the human-run reviewer suite might miss between review and checkpoint, and a
+   suite that never finishes inside the timeout cannot honestly report green
+   (INFRA-343) — and remains advisory fail-open only for other, non-timeout execution
+   errors (a missing test runner, a bad `cwd`, etc.), preserving the CER-072/INFRA-230
+   bootstrap-tolerance rationale for those cases.
 
 3. **Fleet-facing surface frozen on `main`.** Consumer-facing templates (`CLAUDE.build.md.j2`,
    `agents/*.md.j2`), global hooks, and agent files do not change on `main` until the flip — a
