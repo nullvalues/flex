@@ -169,6 +169,34 @@ def test_status_drift_complete_status_not_flagged(tmp_path: Path) -> None:
     assert drift == [], f"Unexpected drift for complete story: {drift}"
 
 
+def test_status_drift_no_violation_after_merge_story_worktree_flip(
+    tmp_path: Path,
+) -> None:
+    """INFRA-347 (CER-136): a story merged via `merge-story-worktree` after
+    the status-flip fix lands has both a `feat(story-<ID>)` commit and
+    `status: complete` frontmatter — the exact post-fix state. This confirms
+    the fixed status surfaces are exactly what the existing status-drift
+    check expects: zero violations, not just "not the old flagged case"."""
+    project = make_resolver_project(
+        tmp_path,
+        {
+            "phase_status": "active",
+            "stories": [("TEST-001", "planned", "code", [])],
+            "git_commits": ["feat(story-TEST-001): implement"],
+            "phase_ref": "1",
+        },
+    )
+    # Simulate the post-merge state that cmd_merge_story_worktree now
+    # produces: the story's own frontmatter status: flipped to complete.
+    _write_story(project, "TEST-001", status="complete", phase_ref="1")
+    violations = check_index(project)
+    drift = [v for v in violations if v.kind == "status-drift"]
+    assert drift == [], (
+        f"Expected zero status-drift violations for a freshly-merged "
+        f"story with status: complete, got: {drift}"
+    )
+
+
 def test_status_drift_deferred_status_not_flagged(tmp_path: Path) -> None:
     """Story with commit and status 'deferred' is NOT flagged as drift."""
     project = make_resolver_project(

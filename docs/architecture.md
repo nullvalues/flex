@@ -1730,15 +1730,24 @@ departure from "fail loudly": the story file itself is the durable artifact and 
 correctly; the manifest row is derived state an operator or `check-index` can reconcile.
 Failing the command would strand a correctly-written story behind a non-zero exit and push
 callers toward ignoring the exit code entirely.
-**Current status (corrected — the current `CLAUDE.build.md` is a ~52-line thin loop with no
-numbered "Step 3" and never calls `story_update.py`; neither does
-`skills/pairmode/skills/reviewer/procedure.md`):** frontmatter/phase-table story status is not
-written automatically by any orchestrator step today. It is git-commit-verified after the fact —
+**Current status (corrected — as of INFRA-347 (CER-136), `cmd_merge_story_worktree` in
+`flex_build.py` is the automatic caller; the `CLAUDE.build.md` thin loop and
+`skills/pairmode/skills/reviewer/procedure.md` still never call `story_update.py`
+themselves, but they don't need to):** frontmatter/phase-table story status **is**
+written automatically, at the point a story's worktree is merged —
+`cmd_merge_story_worktree` calls `story_update.update_story_status` and
+`story_update.update_phase_story_status` inside the same merge-lock critical section,
+after the merge has landed and the other per-story stamps are cleared, and before the
+command reports success. It remains git-commit-verified after the fact as a second
+line of defence —
 `flex_build.py check-index`'s status-drift check (RESOLVER-010) reads git log for a
 `feat(story-<ID>)` commit and flags any story whose file still shows `planned`/`draft` as drift —
-rather than orchestrator-prose-driven at commit time. `story_update.py` remains the canonical CLI
-for making the correction (manual or checkpoint-docs-driven), it is just not wired into the build
-loop as an automatic post-commit step.
+so a story merged before this fix landed, or one whose story file did not exist at
+merge time (a fail-open no-op — see the state-ownership table below), is still caught.
+`story_update.py` remains the canonical CLI for making the correction by hand when
+needed (e.g. reconciling a pre-INFRA-347 merge), but as of this fix it is no longer
+the *only* way the status gets set — it is wired into the build loop as an automatic
+post-merge step.
 Valid statuses: `draft`, `planned`, `in-progress`, `complete`, `backlog`.
 
 **Note (Phase 55 / Phase 81):** Phase 55 replaced the allow-rule-only cycle with
@@ -2672,7 +2681,7 @@ is **read-only** on every row.
 | `effort.db` | `hooks/post_tool_use.py` → `subagent_transcript.py` / `effort_recorder.py` (INFRA-236); `record_attempt.py` CLI for non-hook callers — since INFRA-345, `record_attempt.py` refuses (non-zero exit, no row written) to insert a second row for a `(story_id, agent_role, attempt_number)` triple that already has one, unless `--allow-duplicate` is passed, so a manual reconciliation call can no longer silently collide with a hook-written row for the same spawn | read-only |
 | `attempt_counter.json` (attempt counters) | `hooks/post_tool_use.py` → `subagent_transcript.record_attempt_from_transcript` → `flex_build.bump_attempt_count` on builder/reviewer FAIL (INFRA-237), **ungated** — the story was just spawned for, so it is active by construction, and gating it would risk dropping a real first FAIL; `subagent_transcript.reconcile_pending_attempts` → `flex_build.bump_attempt_count` as a *second, later* bump site for an async spawn's FAIL outcome that was only knowable after PostToolUse time (INFRA-258 — same function, same semantics, just a later call), **gated** since CER-091 defect 4 by `subagent_transcript._story_accepts_late_bump` — skipped when the story's own frontmatter `status` is `complete`/`merged`/`deferred`/`backlog`, or when the story is neither already counter-recorded nor `state.json`'s `current_story` (a reconciliation arriving arbitrarily later — possibly post-merge, possibly post-`/clear` — must not resurrect a counter file for a story nobody is building); `flex_build.py merge-story-worktree` → `flex_build.clear_attempt_count` on a successful land; the standalone `write-attempt-count` / `clear-attempt-count` CLI subcommands share the same underlying functions for direct/manual use but are no longer invoked from `CLAUDE.build.md.j2`'s loop | read-only |
 | `.companion/effort_recording.log` (diagnostic trace, CER-091) | `subagent_transcript.log_recording_event` — sole writer, called once per `record_attempt_from_transcript` invocation on every return path (including its outer `except`), and once by `hooks/post_tool_use.py`'s `SendMessage` branch (`decision="observed:non-spawn-tool"`); append-only, size-capped at `RECORDING_LOG_MAX_BYTES` (262 144 bytes, truncate-and-restart with a `log-truncated` marker line); not gated on `effort_tracking` — the log's purpose is explaining why recording did or did not happen, including when tracking itself is off | read-only (`pairmode_effort.py` and manual `tail` only; no resolver reads it) |
-| story `status` frontmatter | manual/advisory — `story_update.py` is the canonical CLI but no build-loop step calls it automatically; drift is caught after the fact by `flex_build.py check-index`'s git-commit status-drift check (RESOLVER-010), not prevented at write time | read-only |
+| story `status` frontmatter | `flex_build.py merge-story-worktree` (INFRA-347, CER-136) — `cmd_merge_story_worktree` calls `story_update.update_story_status`/`update_phase_story_status` automatically on every successful merge, inside the same merge-lock critical section, flipping both the story file's frontmatter and its phase-doc Status cell to `complete`; fail-open (a warning, not a command failure) when the story has no `docs/stories/<RAIL>/<ID>.md` file to flip. `story_update.py`'s standalone CLI remains available for manual/direct use (e.g. reconciling a pre-INFRA-347 merge); drift is still caught after the fact as a second line of defence by `flex_build.py check-index`'s git-commit status-drift check (RESOLVER-010) | read-only |
 | permission files (`docs/phases/permissions/<story_id>.json`) | orchestrator (`flex_build.py permissions-create`); `flex_build.py permissions-gc` (INFRA-290) as a second, operator-invoked writer — deletes only artifacts with no in-flight claim (no worktree dir, no `current_stories`/`current_story` stamp, story-ID-parseable filename); anything not positively classifiable is retained | read-only |
 | era/phase/story index (`docs/phases/index.md`) | orchestrator | read-only |
 | commits + tags | reviewer / orchestrator (via `git`) | read-only |

@@ -89,6 +89,7 @@ from scope_guard import (  # noqa: E402
     standing_paths_for,
 )
 from table_utils import split_table_row  # noqa: E402
+from story_update import update_story_status, update_phase_story_status  # noqa: E402
 
 
 def _stamp_active_story(project_path: Path, story_id: str) -> None:
@@ -4980,6 +4981,28 @@ def cmd_merge_story_worktree(story_id: str, project_dir: str) -> None:
         # stamps so a future re-attempt of this story_id never inherits a
         # verdict from a build that already completed.
         _clear_gate_verdict(project_path, story_id)
+        # INFRA-347 (CER-136): the merge already landed — flip the two status
+        # surfaces CER-136 found perpetually stale: the story's own frontmatter
+        # status: and its phase-doc Stories-table Status cell. Mirrors
+        # mark-phase-complete's phase-index flip (_mark_phase_complete_in_index)
+        # at the story level. Fail-open: a synthetic worktree with no real
+        # docs/stories/docs/phases tree (the pre-existing merge tests use bare
+        # story IDs like WT-004 with no story doc at all) must not turn an
+        # already-landed merge into a command failure.
+        try:
+            update_story_status(story_id, project_path, "complete")
+        except (FileNotFoundError, ValueError) as exc:
+            click.echo(
+                f"warning: merge-story-worktree: could not flip status for "
+                f"{story_id}: {exc}",
+                err=True,
+            )
+        else:
+            # update_phase_story_status never raises for a missing phases dir or
+            # an absent/unmatched Stories-table row (returns [] instead) — only
+            # gated on update_story_status having succeeded so the two writes
+            # stay ordered and a genuine story-id/story-file problem skips both.
+            update_phase_story_status(story_id, project_path, "complete")
         click.echo(f"merged {branch} into {main_branch}")
 
         if residue:
