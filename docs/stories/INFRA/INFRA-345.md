@@ -13,6 +13,7 @@ primary_files:
 touches:
   - tests/pairmode/test_record_attempt.py
   - docs/architecture.md
+  - tests/pairmode/test_flex_build.py
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
@@ -156,6 +157,12 @@ prior manual call) already recorded.
     whatever its current class/method name is — locate it, do not assume) still passes unmodified,
     confirming `record_attempt.py`'s `story_class`/`model_selection_reason` write path is
     unaffected by this story.
+12. `tests/pairmode/test_flex_build.py::test_reviewer_procedure_passes_notes_on_reviewer_fail` (the
+    existing test pinning the reviewer-procedure prose fixed by Ensures 1–3) is updated to assert
+    against the corrected wording rather than the stale `--outcome FAIL` / `--notes` phrasing it
+    pinned before this story. Forbidden proxy: leaving this test unmodified and merely accepting
+    that it now fails — the full `tests/pairmode/` suite must be green after this story's commit,
+    with this test passing against the new procedure.md prose, not skipped or deleted.
 
 ## Instructions
 
@@ -206,6 +213,13 @@ prior manual call) already recorded.
    story's fix is scoped to the reviewer-procedure prose and the CLI guard only.
 7. Do not attempt to reconcile or delete any of the 12 existing live duplicate rows in flex's own
    `.companion/effort.db` — see `## Out of scope`.
+8. **Update `tests/pairmode/test_flex_build.py`.** The Instructions-1 prose fix changes
+   `skills/pairmode/skills/reviewer/procedure.md` in a way that breaks
+   `test_reviewer_procedure_passes_notes_on_reviewer_fail`'s existing assertions (it pins the old
+   `--outcome FAIL` / `--notes` phrasing verbatim). Update this test to assert against the corrected
+   wording (e.g. assert the file documents `notes=` being passed to `effort_recorder.record_effort`
+   near a `FAIL`-related section, and assert the stale `--notes` \` to \` record_attempt.py\`` phrasing
+   is absent) rather than leaving it broken or deleting it.
 
 ## Tests
 
