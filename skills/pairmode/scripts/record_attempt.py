@@ -131,6 +131,17 @@ def _read_state(state_path: Path) -> dict:
     type=click.Path(dir_okay=False),
     help="Override the effort DB path. Otherwise resolved from state.json.",
 )
+@click.option(
+    "--allow-duplicate",
+    is_flag=True,
+    default=False,
+    help=(
+        "Override the default collision-refusal for a deliberate manual "
+        "reconciliation (INFRA-345). Without this flag, a call whose "
+        "(story_id, agent_role, attempt_number) triple already has an "
+        "existing row in the effort database is refused."
+    ),
+)
 def record_attempt(
     story_file: str | None,
     story_id: str | None,
@@ -154,6 +165,7 @@ def record_attempt(
     ts: str | None,
     project_dir: str,
     db_path: str | None,
+    allow_duplicate: bool,
 ) -> None:
     """Append one attempt row.  No-op when effort tracking is disabled."""
 
@@ -290,6 +302,27 @@ def record_attempt(
 
     # Ensure schema exists (idempotent).
     _effort_db.init_db(resolved_db)
+
+    # Duplicate guard (INFRA-345): refuse to write a second row for a triple
+    # that already has one, unless --allow-duplicate was passed. Queries the
+    # effort database itself so a collision against a hook-written row is
+    # caught, not just against other CLI-written rows.
+    if not allow_duplicate:
+        existing_rows = _effort_db.query_by_story(resolved_db, story_id)
+        colliding = [
+            row
+            for row in existing_rows
+            if row.get("agent_role") == agent_role and row.get("attempt_number") == attempt_number
+        ]
+        if colliding:
+            existing_id = colliding[0].get("id")
+            click.echo(
+                f"error: attempt row already exists for {story_id}/{agent_role}/attempt "
+                f"{attempt_number} (row id {existing_id}) — pass --allow-duplicate to "
+                "insert anyway",
+                err=True,
+            )
+            sys.exit(1)
 
     _effort_db.insert_attempt(
         resolved_db,

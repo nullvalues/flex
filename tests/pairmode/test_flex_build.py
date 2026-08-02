@@ -966,24 +966,42 @@ def test_reviewer_procedure_contains_fail_cause_instruction() -> None:
 
 
 def test_reviewer_procedure_passes_notes_on_reviewer_fail() -> None:
-    """The reviewer procedure must document --notes near --outcome FAIL."""
+    """The reviewer procedure must document notes= being passed directly to
+    effort_recorder.record_effort near a FAIL-related section (INFRA-345)
+    — not the stale claim that it is passed as --notes to record_attempt.py."""
     text = _REVIEWER_PROCEDURE.read_text(encoding="utf-8")
     lines = text.splitlines()
 
-    fail_lines = [i for i, ln in enumerate(lines) if "--outcome FAIL" in ln]
-    assert fail_lines, "No '--outcome FAIL' found in reviewer procedure.md"
+    fail_lines = [
+        i for i, ln in enumerate(lines) if "FAIL" in ln and "fail_cause" in text.lower()
+    ]
+    assert fail_lines, "No FAIL-related line found in reviewer procedure.md"
+
+    fail_cause_lines = [i for i, ln in enumerate(lines) if "fail_cause" in ln]
+    assert fail_cause_lines, "No 'fail_cause' found in reviewer procedure.md"
 
     found_notes_near_fail = False
-    for fail_idx in fail_lines:
+    for fail_idx in fail_cause_lines:
         window_start = max(0, fail_idx - 30)
         window_end = min(len(lines), fail_idx + 30)
         window = "\n".join(lines[window_start:window_end])
-        if "--notes" in window:
+        if "notes=" in window and "record_effort" in window:
             found_notes_near_fail = True
             break
 
     assert found_notes_near_fail, (
-        "--notes not found within 30 lines of '--outcome FAIL' in reviewer procedure.md"
+        "notes= passed to effort_recorder.record_effort not found within 30 lines "
+        "of 'fail_cause' in reviewer procedure.md"
+    )
+
+    # The stale, factually-wrong phrasing this story removes must be absent.
+    assert "--notes` to `record_attempt.py`" not in text, (
+        "stale '--notes` to `record_attempt.py`' phrasing still present in "
+        "reviewer procedure.md"
+    )
+    assert "populate `record_attempt.py`'s `--notes`" not in text, (
+        "stale 'populate record_attempt.py's --notes' phrasing still present in "
+        "reviewer procedure.md"
     )
 
 

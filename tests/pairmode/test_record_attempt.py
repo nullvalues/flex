@@ -688,3 +688,141 @@ class TestUsageBlock:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# --allow-duplicate guard (INFRA-345)
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateGuard:
+    def test_colliding_triple_refused_by_default(self, tmp_path: Path) -> None:
+        """A second call with the same (story_id, agent_role, attempt_number)
+        triple exits non-zero and leaves the row count at 1."""
+        _enable_tracking(tmp_path)
+        runner = CliRunner()
+        first = runner.invoke(
+            record_attempt,
+            _required_args(tmp_path),
+            catch_exceptions=False,
+        )
+        assert first.exit_code == 0, first.output
+
+        second = runner.invoke(
+            record_attempt,
+            _required_args(tmp_path),
+        )
+        assert second.exit_code != 0
+        assert "already exists" in second.output
+
+        db_path = tmp_path / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert len(rows) == 1
+
+    def test_colliding_triple_allowed_with_flag(self, tmp_path: Path) -> None:
+        """--allow-duplicate lets a colliding call succeed and insert a
+        second row."""
+        _enable_tracking(tmp_path)
+        runner = CliRunner()
+        first = runner.invoke(
+            record_attempt,
+            _required_args(tmp_path),
+            catch_exceptions=False,
+        )
+        assert first.exit_code == 0, first.output
+
+        second = runner.invoke(
+            record_attempt,
+            _required_args(tmp_path) + ["--allow-duplicate"],
+            catch_exceptions=False,
+        )
+        assert second.exit_code == 0, second.output
+
+        db_path = tmp_path / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert len(rows) == 2
+
+    def test_different_attempt_number_unaffected(self, tmp_path: Path) -> None:
+        """A different attempt_number for the same story_id/agent_role is
+        unaffected by an existing row and inserts normally."""
+        _enable_tracking(tmp_path)
+        runner = CliRunner()
+        first = runner.invoke(
+            record_attempt,
+            _required_args(tmp_path),
+            catch_exceptions=False,
+        )
+        assert first.exit_code == 0, first.output
+
+        second = runner.invoke(
+            record_attempt,
+            [
+                "--project-dir", str(tmp_path),
+                "--story-id", "INFRA-028",
+                "--agent-role", "builder",
+                "--attempt-number", "2",
+            ],
+            catch_exceptions=False,
+        )
+        assert second.exit_code == 0, second.output
+
+        db_path = tmp_path / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert len(rows) == 2
+
+    def test_different_agent_role_unaffected(self, tmp_path: Path) -> None:
+        """A different agent_role for the same story_id/attempt_number is
+        unaffected by an existing row and inserts normally."""
+        _enable_tracking(tmp_path)
+        runner = CliRunner()
+        first = runner.invoke(
+            record_attempt,
+            _required_args(tmp_path),
+            catch_exceptions=False,
+        )
+        assert first.exit_code == 0, first.output
+
+        second = runner.invoke(
+            record_attempt,
+            [
+                "--project-dir", str(tmp_path),
+                "--story-id", "INFRA-028",
+                "--agent-role", "reviewer",
+                "--attempt-number", "1",
+            ],
+            catch_exceptions=False,
+        )
+        assert second.exit_code == 0, second.output
+
+        db_path = tmp_path / ".companion" / "effort.db"
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert len(rows) == 2
+
+    def test_collision_against_hook_written_row_is_caught(self, tmp_path: Path) -> None:
+        """A collision against a row inserted directly via effort_db.insert_attempt
+        (simulating a hook-written row, not a prior CLI call) is still caught —
+        proves the check reads the DB itself, not CLI-only bookkeeping."""
+        _enable_tracking(tmp_path)
+        db_path = tmp_path / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-028",
+            phase="22",
+            rail="INFRA",
+            agent_role="builder",
+            attempt_number=1,
+            outcome="PASS",
+            ts="2026-05-01T00:00:00+00:00",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            record_attempt,
+            _required_args(tmp_path),
+        )
+        assert result.exit_code != 0
+        assert "already exists" in result.output
+
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert len(rows) == 1
