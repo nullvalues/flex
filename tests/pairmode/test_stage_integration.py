@@ -198,6 +198,16 @@ def _scaffold_project(project_dir: Path, story_id: str, *, phase: str = "1") -> 
     _write_phase(project_dir, phase, [(story_id, "planned")])
     _write_story(project_dir, story_id, phase=phase)
     _enable_effort_tracking(project_dir)
+    # INFRA-344: create-story-worktree now refuses on an uncommitted change
+    # to the target story's own spec file, so every scaffolded project must
+    # commit `docs/` before its first create-story-worktree call.
+    # `.companion/` is gitignored and need not be added.
+    subprocess.run(["git", "add", "docs/"], cwd=str(project_dir), check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", f"spec({story_id}): scaffold stub story"],
+        cwd=str(project_dir),
+        check=True,
+    )
 
 
 def _invoke(*args: str):
@@ -356,6 +366,15 @@ class TestRow8ContextPauseRemoved:
         _write_story(project_dir, story_a, phase=phase)
         _write_story(project_dir, story_b, phase=phase)
         _enable_effort_tracking(project_dir)
+        # INFRA-344: create-story-worktree now refuses on an uncommitted
+        # change to the target story's own spec file — commit docs/ before
+        # the first create-story-worktree call below.
+        subprocess.run(["git", "add", "docs/"], cwd=str(project_dir), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", f"spec({story_a}): scaffold stub story"],
+            cwd=str(project_dir),
+            check=True,
+        )
 
         first = _next_action_json(project_dir)
         assert first["action"] == "spawn-builder"
@@ -435,3 +454,97 @@ class TestEscalationLadderAdvancesAfterDiscardMarker:
         state = read_state(project_dir / ".companion")
         marker = state.get(RECENTLY_DISCARDED_STORIES_KEY, {})
         assert story_id not in marker
+
+
+# ---------------------------------------------------------------------------
+# INFRA-344 (Phase 117, F10): spec-writer elaboration must be committed
+# before create-story-worktree branches off HEAD, or the worktree gets the
+# pre-elaboration stub instead of the elaborated spec.
+# ---------------------------------------------------------------------------
+
+
+_ELABORATED_MARKER = "the elaborated marker string proving this is not the stub"
+
+
+def _elaborate_story(project_dir: Path, story_id: str) -> Path:
+    """Overwrite the scaffolded story spec with content distinguishable
+    from the stub — simulating the spec-writer's Step 6 write."""
+    rail = story_id.split("-", 1)[0]
+    story_path = project_dir / "docs" / "stories" / rail / f"{story_id}.md"
+    story_path.write_text(
+        "---\n"
+        f"id: {story_id}\n"
+        f"rail: {rail}\n"
+        "status: draft\n"
+        "phase: '1'\n"
+        "story_class: code\n"
+        "primary_files:\n"
+        "  - src/app.py\n"
+        "auth_gated: false\n"
+        "schema_introduces: false\n"
+        "---\n\n"
+        "## Ensures\n\n"
+        f"1. {_ELABORATED_MARKER}\n"
+        "2. All inputs are validated.\n"
+        "3. The output format is correct.\n"
+        "4. Tests pass.\n"
+        "5. No regressions introduced.\n",
+        encoding="utf-8",
+    )
+    return story_path
+
+
+class TestSpecWriterCommitBeforeWorktree:
+    """Ensures 10: the exact dispatch-flow sequence this story's Context
+    describes (spec-writer write -> commit -> create-story-worktree) is
+    driven end to end, plus the negative proving Ensures 4 fires when the
+    commit is skipped."""
+
+    def test_committed_elaboration_reaches_the_worktree(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        story_id = "INFRA-950"
+        _scaffold_project(project_dir, story_id)
+
+        # Simulate the spec-writer's Step 6 write, then the CLAUDE.build.md
+        # spawn-spec-writer branch's commit (Ensures 1), scoped to the one
+        # story path — before the next `next-action` poll / builder spawn.
+        story_path = _elaborate_story(project_dir, story_id)
+        rel_path = story_path.relative_to(project_dir)
+        subprocess.run(["git", "add", str(rel_path)], cwd=str(project_dir), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", f"spec({story_id}): elaborate stub story"],
+            cwd=str(project_dir),
+            check=True,
+        )
+
+        create_result = _invoke(
+            "create-story-worktree", "--story-id", story_id, "--project-dir", str(project_dir)
+        )
+        assert create_result.exit_code == 0, create_result.output
+        wt_path = Path(create_result.output.strip())
+
+        checked_out = (
+            wt_path / "docs" / "stories" / story_id.split("-", 1)[0] / f"{story_id}.md"
+        ).read_text(encoding="utf-8")
+        assert _ELABORATED_MARKER in checked_out
+
+    def test_uncommitted_elaboration_is_refused_not_silently_stale(
+        self, tmp_path: Path
+    ) -> None:
+        """The negative half of Ensures 10: the same write, with the
+        [missing commit] step skipped, must not silently hand the worktree
+        a pre-elaboration checkout — Ensures 4 refuses outright."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        story_id = "INFRA-951"
+        _scaffold_project(project_dir, story_id)
+
+        # Same write as above — deliberately no follow-up commit.
+        _elaborate_story(project_dir, story_id)
+
+        create_result = _invoke(
+            "create-story-worktree", "--story-id", story_id, "--project-dir", str(project_dir)
+        )
+        assert create_result.exit_code != 0
+        assert not (project_dir / ".pairmode-worktrees" / story_id).exists()

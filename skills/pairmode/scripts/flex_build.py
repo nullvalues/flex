@@ -4692,10 +4692,40 @@ def cmd_create_story_worktree(story_id: str, project_dir: str) -> None:
     returning the worktree path — both must be in place before the builder
     spawns so ``scope_guard.py`` can resolve the active story and its
     allowed paths regardless of the spawn's cwd (INFRA-238, Ensures 1).
+
+    INFRA-344: refuses (exit 1, no worktree/branch created) when the target
+    story's own spec file (``docs/stories/<RAIL>/<story_id>.md``) has an
+    uncommitted change against ``HEAD`` — staged, unstaged, or untracked.
+    This closes the gap where the worktree branches from a ``HEAD`` that
+    predates a spec-writer's in-progress elaboration (F10,
+    docs/build-loop-cold-eyes-review-20260801.md). The check is scoped to
+    exactly that one file; an uncommitted change elsewhere in the working
+    tree does not block worktree creation.
     """
     _validate_story_id_or_exit(story_id)
     project_path = Path(project_dir).resolve()
     wt_rel, wt_abs, branch = _worktree_paths(story_id, project_path)
+
+    # INFRA-344: refuse before creating anything if the story's own spec
+    # file has an uncommitted change against HEAD (`git status --porcelain`
+    # scoped to exactly that one path — staged, unstaged, or untracked all
+    # produce non-empty output here). If the git command itself fails (e.g.
+    # not a git repo), don't block on it here — let the subsequent `git
+    # worktree add` call surface that failure with its own clearer error;
+    # this check's job is narrowly the uncommitted-spec case.
+    story_spec_path = _story_path(story_id, project_path)
+    story_spec_rel = story_spec_path.relative_to(project_path)
+    status_check = _run_git(
+        ["status", "--porcelain", "--", str(story_spec_rel)],
+        project_path,
+    )
+    if status_check.returncode == 0 and status_check.stdout.strip():
+        click.echo(
+            f"error: uncommitted change to story spec: {story_spec_path}\n"
+            f"Commit it before retrying (e.g. `spec({story_id}): ...`).",
+            err=True,
+        )
+        sys.exit(1)
 
     if wt_abs.exists():
         click.echo(f"error: worktree already exists: {wt_abs}", err=True)

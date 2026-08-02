@@ -218,6 +218,30 @@ checkpoint-stage workers (`checkpoint-security`, `checkpoint-intent`, `checkpoin
 are read-mostly, never commit, and stay on the main worktree unwrapped. `.pairmode-worktrees/`
 is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
 
+**2026-08-01 INFRA-344 (F10): worktree creation refuses an uncommitted spec elaboration.**
+`create-story-worktree` branches `pairmode/<ID>` from the current branch's `HEAD` — so a
+worktree created while the target story's own spec file (`docs/stories/<RAIL>/<ID>.md`)
+has an uncommitted change (staged, unstaged, or untracked) against `HEAD` hands the
+builder a checkout that predates that change. This was a live gap: the spec-writer's
+procedure never commits ("the orchestrator does that" —
+`skills/pairmode/skills/spec-writer/procedure.md`), and until this story
+`CLAUDE.build.md`'s dispatch loop never implemented that promise either — the generic
+`else` branch spawned `spawn-spec-writer` and re-polled `next-action` without ever
+committing the elaborated spec, so `needs_spec` (which reads the working-tree file
+directly) looked satisfied while the file itself sat uncommitted. Two closed layers, per
+INFRA-344's Context decision to fix both rather than either/or: (1) `CLAUDE.build.md`'s
+`while true` loop gained an explicit `spawn-spec-writer` branch that commits
+`docs/stories/<RAIL>/<scalar>.md` (scoped to that one path, never `git add -A`) with a
+`spec(<scalar>): ...` message immediately after the leaf worker returns — regardless of
+the returned `SPEC-RESULT` `status` — and before the loop's next `next-action` poll; (2)
+`create-story-worktree` itself now refuses (exit 1, no worktree, no branch, nothing on
+stdout) before creating anything, when `git status --porcelain -- <story-spec-path>` is
+non-empty for exactly that one path — mirroring the existing INFRA-296/CER-115
+fail-loud, all-or-nothing shape for a missing permissions artifact. The check is scoped
+to the target story's own spec file only; an uncommitted change elsewhere in the working
+tree never blocks worktree creation. `create-story-worktree` never auto-commits on the
+operator's behalf — refuse-and-instruct, not silent commit-on-their-behalf.
+
 **Worktree build-environment provisioning (CER-075, INFRA-302).** A git worktree contains
 exactly what git tracks, so a project's deliberately gitignored build inputs (`node_modules`,
 `.env.local`, etc.) are absent from every fresh story worktree. An optional `worktree_provision`
