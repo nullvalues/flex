@@ -1000,34 +1000,55 @@ so a claim never overrides commit evidence (CER-095.1).
    construction. This constrains **INFRA-316** (Phase 116, between-story context
    etiquette), which is not itself edited by this story.
 
-   **INFRA-316 landed this constraint (Phase 116).** `next_action.py`'s Row 8
-   ("story committed (PASS), more stories remain") now runs a between-story
-   context-etiquette check *before* emitting the next `spawn-builder`. The
-   check (`next_action._check_context_pause`) reads `.companion/state.json`
-   directly and delegates to `context_budget.should_block` — the identical
+   **INFRA-316 landed this constraint (Phase 116), and INFRA-339 removed it
+   (Phase 117).** `next_action.py`'s Row 8 ("story committed (PASS), more
+   stories remain") briefly ran a between-story context-etiquette check
+   *before* emitting the next `spawn-builder`. The check
+   (`next_action._check_context_pause`) read `.companion/state.json`
+   directly and delegated to `context_budget.should_block` — the identical
    pure predicate `hooks/pre_tool_use.py`'s PreToolUse gate already uses on
    the ORCHESTRATOR track (`context_current_tokens` vs
    `context_budget_threshold` and its overrun/margin/acknowledgment
-   siblings) — so one operator acknowledgment clears both surfaces. When the
-   check reports over-threshold-and-unacknowledged, the resolver emits a new
-   action, `pause-context` (`scalar`=the next story ID, `model=null`,
-   `reason` embeds `tokens=… threshold=… ceiling=…`), instead of
-   `spawn-builder`; `CLAUDE.build.md.j2`'s dispatch loop treats it as: record
-   state, summarize, end the session, resume fresh. This module never
-   imports or calls `context_budget_check.py` — doing so would have compared
-   the orchestrator-track threshold against a story-spend sum, exactly the
-   mis-attribution this section already forbade. `_ADVISORY_CONTEXT`
-   (`context-budget-exceeded`) remains unwired reserved vocabulary; it was
-   not reused for this seam because `pause-context` is a distinct
-   await-user-class action in its own right (`SCHEMA_VERSION` 4 → 5), not an
-   advisory attached to a still-emitted `spawn-builder` (a warned dispatch is
-   still a dispatch — the forbidden proxy this story's spec explicitly
-   named). Only the Row-8 seam is guarded: Row 2 (first attempt of a
-   freshly-claimed phase) and attempt retries (Rows 5/6/7, same story) are
-   unaffected, and the check fails open (missing/unreadable `state.json`, no
-   recorded `context_current_tokens`, or any exception while deriving the
-   verdict) to `spawn-builder`, with a warning in `meta.warnings[]` only for
-   the genuine-error case.
+   siblings). When it reported over-threshold-and-unacknowledged, the
+   resolver emitted an action, `pause-context` (`scalar`=the next story ID,
+   `model=null`, `reason` embeds `tokens=… threshold=… ceiling=…`), instead
+   of `spawn-builder`.
+
+   The Phase-117 cold-eyes review (`docs/build-loop-cold-eyes-review-
+   20260801.md`, findings F2 and F12) found this shipped structurally
+   unreachable and with a session-scoping bug. F2: `next_story_id` comes from
+   `next_story.find_next_story`, which already excludes any story for which
+   `_has_story_commit` returns true; `infer_position` then re-derives the
+   identical git log and calls the same `_has_story_commit` against the same
+   `next_story_id` microseconds later, so the two calls can never disagree —
+   `last_attempt_outcome == OUTCOME_PASS` was provably unreachable from a
+   live resolver call, so the Row-8 check only ever fired in
+   hand-constructed test fixtures. F12: even setting reachability aside, the
+   check hand-assembled its verdict from the flat top-level `state.json`
+   mirror rather than the session-scoped values the equivalent PreToolUse
+   hook check uses (`context_budget.decide(..., session_id=...)`,
+   `state.json["context_sessions"][<id>]`) — under a concurrent second
+   session it could read that session's window instead of the calling
+   orchestrator's, the exact CER-097 under-blocking shape INFRA-285 fixed
+   for the hook.
+
+   INFRA-339 removed the feature rather than repair it (see
+   `docs/stories/INFRA/INFRA-339.md` § Requires 2 for the recorded design
+   decision and reasoning): `pause-context` is no longer a live action
+   (`SCHEMA_VERSION` 5 → 6), `_check_context_pause` and
+   `_read_state_for_context_pause` are deleted from `next_action.py`, and
+   Row 8 is unconditional again — every "story committed (PASS), more
+   stories remain" poll now emits `spawn-builder` directly, exactly as it
+   did before INFRA-316. The orchestrator-track budget gate that remains
+   live is the PreToolUse hook (`hooks/pre_tool_use.py` +
+   `context_budget.decide`) only — it was already session-scoped and
+   field-proven (INFRA-193/INFRA-285 lineage) and needed no change. A new
+   stage-integration test (`tests/pairmode/test_stage_integration.py`)
+   drives the real CLI across a builder → worktree → commit → merge →
+   next-action sequence with an over-threshold state.json and asserts the
+   second `next-action` call still emits `spawn-builder`, proving Row 2/Row
+   8 was always the reachable path and that removing the second, broken
+   gate changes nothing observable in the live sequence.
 
 10. **Checkpoint** — at phase end, the checkpoint sequence runs:
     `checkpoint-security` (security-auditor, WORKER-008) → `checkpoint-intent` (intent-reviewer,

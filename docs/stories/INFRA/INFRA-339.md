@@ -293,3 +293,24 @@ vacuously.
   `complete`) — that is INFRA-347, not this story; Requires 1 notes the
   symptom only to explain why INFRA-336's git-log evidence is trusted over
   its stale frontmatter.
+
+## Evidence
+
+Covered-contracts gate (INFRA-317): `primary_files:` names
+`skills/pairmode/scripts/next_action.py`, which intersects the
+`covered_contracts` pair `## Module structure::skills/pairmode/scripts/next_action.py`.
+Read both `docs/architecture.md` § Module structure (the `next_action.py`
+module-structure bullet, describing `next_action.py` as "the live sequencing
+core since the flip ... pure-read") and the source file in full before
+editing either.
+
+No divergence found between the doc section and the source file as they
+stood pre-story — both described the INFRA-316 `pause-context` mechanism
+consistently (the § Module structure bullet does not itself narrate
+`pause-context`'s internals; the separate, more detailed "INFRA-316 landed
+this constraint" paragraph elsewhere in `docs/architecture.md` does, and is
+the one this story rewrites per Ensures 5). No CER filed; this story's own
+edits keep both the module-structure bullet and the detailed paragraph
+consistent with the code after the removal (`SCHEMA_VERSION` 6,
+`PAUSE_CONTEXT` retained for import compatibility only, `_check_context_pause`/
+`_read_state_for_context_pause` deleted).

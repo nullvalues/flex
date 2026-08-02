@@ -315,6 +315,102 @@ class TestEscalationLadderAdvancesAfterDiscard:
         assert second["scalar"] == story_id
         assert second["meta"]["attempt"] == 2
 
+
+# ---------------------------------------------------------------------------
+# INFRA-339 (Phase 117, F2/F12): Row 8's context-etiquette check is removed
+# ---------------------------------------------------------------------------
+
+
+class TestRow8ContextPauseRemoved:
+    """The INFRA-316 Row-8 seam ("story committed (PASS), more stories
+    remain") used to consult an orchestrator-track context check before
+    handing out the next story, emitting ``pause-context`` instead of
+    ``spawn-builder`` when over threshold. INFRA-339 removed it because it
+    was provably unreachable from a live ``infer_position`` call (F2) and,
+    separately, session-scoping-unsafe (F12) -- see the story's Context/
+    Requires 2. This drives the real sequence the story stub asked for:
+    next-action (spawn-builder) -> create-story-worktree -> a commit whose
+    subject satisfies ``_has_story_commit`` -> merge-story-worktree ->
+    next-action again, with a deliberately over-threshold state.json set
+    before the second poll -- the exact fixture shape the now-deleted unit
+    test (``TestResolveNextActionRow8ContextPause
+    .test_over_threshold_no_ack_emits_pause_context``) used to assert
+    *paused* on. Proves the second poll still emits ``spawn-builder`` (never
+    ``pause-context``, which is no longer even a member of ``ACTIONS``) --
+    Row 2/Row 8 in the live loop was always the reachable path, exactly as
+    F2 found, and removing the second, broken gate changes nothing
+    observable in the live sequence."""
+
+    def test_second_poll_emits_spawn_builder_even_over_context_threshold(
+        self, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        story_a = "INFRA-910"
+        story_b = "INFRA-911"
+        phase = "1"
+
+        _init_git_repo(project_dir)
+        _write_index(project_dir, [(phase, "Phase " + phase, "active")])
+        _write_phase(project_dir, phase, [(story_a, "planned"), (story_b, "planned")])
+        _write_story(project_dir, story_a, phase=phase)
+        _write_story(project_dir, story_b, phase=phase)
+        _enable_effort_tracking(project_dir)
+
+        first = _next_action_json(project_dir)
+        assert first["action"] == "spawn-builder"
+        assert first["scalar"] == story_a
+        assert first["meta"]["attempt"] == 1
+
+        create_result = _invoke(
+            "create-story-worktree", "--story-id", story_a, "--project-dir", str(project_dir)
+        )
+        assert create_result.exit_code == 0, create_result.output
+        wt_path = Path(create_result.output.strip())
+
+        # A commit whose subject satisfies _has_story_commit (CER-116 scope
+        # rule: a conventional-commit scope naming the story ID is itself
+        # the build evidence).
+        (wt_path / "CHANGES.md").write_text("done\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=str(wt_path), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", f"story({story_a}): implement the thing"],
+            cwd=str(wt_path),
+            check=True,
+        )
+
+        merge_result = _invoke(
+            "merge-story-worktree", "--story-id", story_a, "--project-dir", str(project_dir)
+        )
+        assert merge_result.exit_code == 0, merge_result.output
+
+        # Deliberately over-threshold, unacknowledged orchestrator-track
+        # state before the second poll (mirrors the deleted unit test's
+        # fixture values: tokens=140000, threshold=120000).
+        state_path = project_dir / ".companion" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["context_current_tokens"] = 140_000
+        state["context_budget_threshold"] = 120_000
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        second = _next_action_json(project_dir)
+        assert second["action"] == "spawn-builder"
+        assert second["action"] != "pause-context"
+        assert second["scalar"] == story_b
+        assert second["meta"]["attempt"] == 1
+        # SCHEMA_VERSION 6 (Ensures 3) is the one observable signal in this
+        # sequence that actually distinguishes pre-story from post-story
+        # code: the `action` assertion above passes even against pre-story
+        # code with PAUSE_CONTEXT still wired, because F2's reachability bug
+        # (last_attempt_outcome == OUTCOME_PASS is unreachable from a live
+        # infer_position call) means Row 8's context check never fired
+        # either way — that unreachability is the whole story. This
+        # assertion is what actually goes red against pre-story code
+        # (schema_version 5, not yet bumped).
+        assert second["meta"]["schema_version"] == 6
+
+
+class TestEscalationLadderAdvancesAfterDiscardMarker:
     def test_marker_gone_after_the_sequence_completes(self, tmp_path: Path) -> None:
         """Ensures 3: after the above sequence runs, the discard-side
         marker for this story_id is consumed, not lingering."""
