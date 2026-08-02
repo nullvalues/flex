@@ -1250,6 +1250,9 @@ def _init_git_repo(project: Path) -> None:
     subprocess.run(
         ["git", "config", "user.name", "Test"], cwd=str(project), check=True
     )
+    subprocess.run(
+        ["git", "config", "commit.gpgsign", "false"], cwd=str(project), check=True
+    )
     (project / "README.md").write_text("init\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=str(project), check=True)
     subprocess.run(
