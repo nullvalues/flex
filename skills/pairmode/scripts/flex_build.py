@@ -1730,11 +1730,25 @@ def cmd_next_phase(after_phase: str, project_dir: str) -> None:
 
 def _mark_phase_complete_in_index(phase_key: str, project_dir: Path) -> bool:
     """Set the status cell of *phase_key*'s row in docs/phases/index.md to
-    'complete'.
+    'complete', and (CER-155) backfill its Tag cell when the ``cp-<phase_key>``
+    git tag is already real.
 
-    Idempotent no-op (returns ``False``) when the index file is absent, the
-    phase row is not found, or the row is already ``complete``. Returns
-    ``True`` when a write happened.
+    Idempotent no-op (returns ``False``) when the index file is absent or the
+    phase row is not found. Otherwise the status write and the Tag write are
+    independent — a call may write status only, Tag only, both, or neither
+    (fully idempotent when neither is needed). Returns ``True`` when
+    **either** write happened.
+
+    The Tag-cell check runs ``git tag --list cp-<phase_key>`` via
+    ``_run_git`` (never raising — any non-zero exit code, exception, or empty
+    stdout is treated as "tag not found"). This is the ordinary, expected
+    case at the moment ``record-checkpoint-step checkpoint-tag`` runs
+    (``CLAUDE.build.md``'s mandated order calls it *before* ``git tag``), so
+    this function does not claim to verify a tag that provably cannot exist
+    yet at call time — it backfills the cell opportunistically on any call
+    (first or retry) where the tag already exists. Only an existing 4+-column
+    row's Tag cell (``cells[3]``) is ever written; a 3-column row is never
+    grown to 4 columns.
 
     Extracted from ``cmd_mark_phase_complete`` so that both the standalone
     ``mark-phase-complete`` CLI command and the ``checkpoint-tag`` step of
@@ -1754,12 +1768,22 @@ def _mark_phase_complete_in_index(phase_key: str, project_dir: Path) -> bool:
     if not found:
         return False
 
-    # Check for idempotency: if already complete, no write.
-    for ref, status in rows:
-        if ref == phase_key and status == "complete":
-            return False
+    # CER-155: determine, once, whether the cp-<phase_key> git tag already
+    # exists — never raising out of this function (matches this file's
+    # established advisory-degradation style, e.g.
+    # _run_build_gate_subprocess's non-timeout except-Exception branch).
+    tag_name = f"cp-{phase_key}"
+    tag_exists = False
+    try:
+        tag_result = _run_git(["tag", "--list", tag_name], cwd=project_dir)
+        tag_exists = tag_result.returncode == 0 and bool(tag_result.stdout.strip())
+    except Exception:  # noqa: BLE001
+        tag_exists = False
 
-    # Rewrite the matching row in-place, line by line.
+    # Rewrite the matching row in-place, line by line. Both "does status
+    # need updating" and "does Tag need updating" are computed before
+    # deciding whether to write at all — the early-return-on-already-complete
+    # no longer short-circuits before the Tag-cell check runs.
     new_lines: list[str] = []
     replaced = False
     for line in text.splitlines(keepends=True):
@@ -1772,9 +1796,18 @@ def _mark_phase_complete_in_index(phase_key: str, project_dir: Path) -> bool:
             # its `\|` cells intact.
             cells = [p.strip() for p in split_table_row(stripped)[1:-1]]
             # cells[0]=phase, cells[1]=title, cells[2]=status, cells[3:]=rest
-            if len(cells) >= 3:
-                if cells[0] == phase_key and cells[2] != "complete":
-                    cells[2] = "complete"
+            if len(cells) >= 3 and cells[0] == phase_key:
+                needs_status = cells[2] != "complete"
+                needs_tag = (
+                    tag_exists
+                    and len(cells) >= 4
+                    and tag_name not in cells[3]
+                )
+                if needs_status or needs_tag:
+                    if needs_status:
+                        cells[2] = "complete"
+                    if needs_tag:
+                        cells[3] = f"{cells[3]} · {tag_name}"
                     new_row = "| " + " | ".join(cells) + " |\n"
                     new_lines.append(new_row)
                     replaced = True
@@ -1953,6 +1986,7 @@ def _mark_phase_complete_in_era_ledger(phase_key: str, project_dir: Path) -> boo
         )
 
     matches: list[tuple[Path, str, str | None]] = []
+    not_found_docs: list[Path] = []
     for era_path in active:
         try:
             text = era_path.read_text(encoding="utf-8")
@@ -1961,8 +1995,26 @@ def _mark_phase_complete_in_era_ledger(phase_key: str, project_dir: Path) -> boo
         new_text, status = _flip_era_ledger_row(text, phase_key)
         if status != "not_found":
             matches.append((era_path, status, new_text))
+        else:
+            not_found_docs.append(era_path)
 
     if not matches:
+        # CER-154: distinguish "active era docs exist but none of their
+        # ## Phases ledgers contain this phase's row" from "no active era
+        # docs at all" (the latter returns False above, before this loop,
+        # with no warning). The row may belong to an already-closed era
+        # doc's ledger — this function's search is deliberately scoped to
+        # active docs only (see docstring); widening it is out of scope for
+        # this warning.
+        if not_found_docs:
+            names = ", ".join(p.name for p in not_found_docs)
+            click.echo(
+                "warning: record-checkpoint-step: phase "
+                f"{phase_key!r} not found in any active era doc's ## Phases "
+                f"ledger (searched: {names}) — it may belong to an "
+                "already-closed era's ledger (CER-154).",
+                err=True,
+            )
         return False
 
     wrote_any = False
@@ -3993,12 +4045,9 @@ def _record_checkpoint_step(
 
       1. ``phase_key`` when given (validated against the index first);
       2. otherwise ``state.json["checkpoint_phase"]`` when non-empty;
-      3. otherwise the sole candidate from ``_active_phase_candidates`` — for
-         the terminal step, more than one candidate is a loud error (no
-         guessing which phase is being closed); for a non-terminal step it is
-         only a warning (nothing irreversible happens yet, and the terminal
-         step will demand the key anyway), and the stamp is left ``""`` (the
-         documented INFRA-260 backward-compatible value).
+      3. otherwise the sole candidate from ``_active_phase_candidates`` — more
+         than one candidate is a loud error regardless of step (CER-077,
+         CER-158): no guessing which phase is being worked, terminal or not.
 
     Note (INFRA-283 instruction 16 — accepted limitation): the read-write
     window between the state read above and the atomic ``os.replace`` below
@@ -4115,17 +4164,17 @@ def _record_checkpoint_step(
             keys = ", ".join(ref for ref, _status in candidates)
             message = (
                 "record-checkpoint-step: ambiguous active phase — "
-                f"candidate rows {keys} (CER-077). Re-run with "
+                f"candidate rows {keys} (CER-077, CER-158). Re-run with "
                 "--phase-key <key>."
             )
-            if is_terminal:
-                click.echo(message, err=True)
-                return 2
-            # Non-terminal step: nothing irreversible happens here, and the
-            # terminal step will demand the key anyway (A8) — degrade to a
-            # warning and stamp the documented INFRA-260 fallback value.
-            click.echo(f"warning: {message}", err=True)
-            effective_key = ""
+            # CER-158: every call (terminal or not) with an ambiguous index
+            # now hard-refuses — no state.json write, no stamping under the
+            # empty-string key the phase-keyed resolver read can never
+            # match. A non-terminal step used to degrade this to a warning
+            # and stamp effective_key = "" (INFRA-260); that silent no-op
+            # key is what this closes.
+            click.echo(message, err=True)
+            return 2
 
     # --- INFRA-314 (Ensures 1): the terminal step (checkpoint-tag) refuses
     # to record when the resolved phase holds a story that is neither

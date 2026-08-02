@@ -392,11 +392,38 @@ def test_check_guards_build_gate_non_timeout_error_fails_open(tmp_path: Path) ->
     assert result == {"ok": True}
 
 
-def test_check_guards_deferred_stories_pass(tmp_path: Path) -> None:
-    """'deferred' story status is treated as complete for the phase guard."""
+def test_check_guards_bare_deferred_status_without_frontmatter_fails(tmp_path: Path) -> None:
+    """A bare 'deferred' table status with no corroborating story file now
+    fails the guard (INFRA-346, F13) — a table cell alone is no longer
+    trusted; it must be corroborated against the story's own frontmatter,
+    the same way `flex_build._deferral_gate_message` already requires at
+    checkpoint-tag."""
     phase_file = _make_phase_file(
         tmp_path,
         [("T-001", "complete"), ("T-002", "deferred")],
     )
+    result = check_checkpoint_guards(tmp_path, phase_file, gate_fn=lambda: True)
+    assert result == {"ok": False, "failed_guard": "phase-incomplete"}
+
+
+def test_check_guards_formally_deferred_story_passes(tmp_path: Path) -> None:
+    """A 'deferred' table status IS trusted once corroborated: a real story
+    file under docs/stories/ names the same phase key, carries
+    status: deferred in its own frontmatter, and is named inside the phase
+    doc's own ## Deferred stories section (INFRA-346, F13)."""
+    phase_file = _make_phase_file(
+        tmp_path,
+        [("T-001", "complete"), ("T-002", "deferred")],
+    )
+    with phase_file.open("a", encoding="utf-8") as f:
+        f.write("\n## Deferred stories\n\n- T-002 — deferred for this test.\n")
+
+    stories_dir = tmp_path / "docs" / "stories" / "T"
+    stories_dir.mkdir(parents=True, exist_ok=True)
+    (stories_dir / "T-002.md").write_text(
+        "---\nid: T-002\nphase: \"1\"\nstatus: deferred\n---\n\n## Ensures\n",
+        encoding="utf-8",
+    )
+
     result = check_checkpoint_guards(tmp_path, phase_file, gate_fn=lambda: True)
     assert result == {"ok": True}

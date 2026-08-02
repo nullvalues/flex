@@ -2872,6 +2872,81 @@ class TestCheckPhaseCompletionEscapedPipe:
 
 
 # ---------------------------------------------------------------------------
+# _check_phase_completion — project_dir cross-check against story frontmatter
+# (INFRA-346, F13): unify with index_integrity.is_formally_deferred.
+# ---------------------------------------------------------------------------
+
+
+class TestCheckPhaseCompletionFrontmatterCrossCheck:
+    def _make_phase(self, tmp_path: Any, deferred_section: str = "") -> Path:
+        phases_dir = tmp_path / "docs" / "phases"
+        phases_dir.mkdir(parents=True, exist_ok=True)
+        phase_file = phases_dir / "phase-1.md"
+        phase_file.write_text(
+            "# Phase 1\n\n"
+            "## Stories\n\n"
+            "| ID | Title | Status |\n"
+            "|----|-------|--------|\n"
+            "| T-001 | A story | complete |\n"
+            "| T-002 | A deferred story | deferred |\n"
+            + deferred_section,
+            encoding="utf-8",
+        )
+        return phase_file
+
+    def _write_story(self, tmp_path: Any, story_id: str, phase: str, status: str) -> None:
+        stories_dir = tmp_path / "docs" / "stories" / "T"
+        stories_dir.mkdir(parents=True, exist_ok=True)
+        (stories_dir / f"{story_id}.md").write_text(
+            f'---\nid: {story_id}\nphase: "{phase}"\nstatus: {status}\n---\n\n## Ensures\n',
+            encoding="utf-8",
+        )
+
+    def test_check_phase_completion_formally_deferred_frontmatter_agrees_passes(
+        self, tmp_path: Any
+    ) -> None:
+        phase_file = self._make_phase(
+            tmp_path, deferred_section="\n## Deferred stories\n\n- T-002 — reason.\n"
+        )
+        self._write_story(tmp_path, "T-002", "1", "deferred")
+        assert _check_phase_completion(phase_file, tmp_path) is True
+
+    def test_check_phase_completion_deferred_frontmatter_status_mismatch_fails(
+        self, tmp_path: Any
+    ) -> None:
+        phase_file = self._make_phase(
+            tmp_path, deferred_section="\n## Deferred stories\n\n- T-002 — reason.\n"
+        )
+        self._write_story(tmp_path, "T-002", "1", "draft")
+        assert _check_phase_completion(phase_file, tmp_path) is False
+
+    def test_check_phase_completion_deferred_not_named_in_deferred_section_fails(
+        self, tmp_path: Any
+    ) -> None:
+        phase_file = self._make_phase(tmp_path, deferred_section="")
+        self._write_story(tmp_path, "T-002", "1", "deferred")
+        assert _check_phase_completion(phase_file, tmp_path) is False
+
+    def test_check_phase_completion_deferred_no_matching_story_file_fails_closed(
+        self, tmp_path: Any
+    ) -> None:
+        phase_file = self._make_phase(
+            tmp_path, deferred_section="\n## Deferred stories\n\n- T-002 — reason.\n"
+        )
+        # No story file written at all — T-002 is absent from docs/stories/.
+        assert _check_phase_completion(phase_file, tmp_path) is False
+
+    def test_check_phase_completion_project_dir_none_preserves_legacy_behaviour(
+        self, tmp_path: Any
+    ) -> None:
+        """No corroborating story file, and no ## Deferred stories section —
+        but project_dir=None (the default) means back-compat: a bare
+        'deferred' cell still counts as complete-for-guard-purposes."""
+        phase_file = self._make_phase(tmp_path, deferred_section="")
+        assert _check_phase_completion(phase_file) is True
+
+
+# ---------------------------------------------------------------------------
 # _run_build_gate_subprocess — config-driven test_command (INFRA-230 / CER-072)
 # ---------------------------------------------------------------------------
 

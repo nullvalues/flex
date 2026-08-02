@@ -20,6 +20,13 @@ import click
 
 from era_new import _era_content, _next_era_id, _slugify  # noqa: E402
 
+# CER-154: detects the era doc's machine-maintained ledger heading. Deliberately
+# duplicated from flex_build._is_era_ledger_heading rather than imported —
+# importing flex_build into era_transition would add a whole module
+# dependency for two tokens (matches this module's existing duplication
+# precedent, see _phase_ledger_gate_message below).
+_ERA_LEDGER_HEADING_RE = re.compile(r"^##\s+Phases\b", re.MULTILINE)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -122,6 +129,21 @@ def _phase_ledger_gate_message(era_path: Path, era_text: str) -> "str | None":
         (phase_ref, status) for phase_ref, status in rows if not is_phase_inactive(status)
     ]
     if not undispositioned:
+        # CER-154: `_parse_era_phase_table` returns `[]` both for "no ##
+        # Phases heading at all" (legitimate — a legacy/first era with no
+        # ledger yet) and for "a ## Phases heading exists but no row could
+        # be parsed from its table" (malformed). The two are
+        # indistinguishable to the caller unless this gate tells them
+        # apart: a malformed ledger must refuse the close rather than
+        # silently proceed as if the era had no ledger at all.
+        if not rows and _ERA_LEDGER_HEADING_RE.search(era_text):
+            return (
+                "era-transition: refused — "
+                f"{era_path.name} has a ## Phases heading but no row could "
+                "be parsed from its table (CER-154). Fix the ledger table "
+                "before retrying; a heading with an unparseable table is "
+                "refused rather than treated as having no ledger."
+            )
         return None
 
     listed = "; ".join(f"{ref} (status: {status!r})" for ref, status in undispositioned)

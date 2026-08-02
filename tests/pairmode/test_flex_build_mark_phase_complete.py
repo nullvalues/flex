@@ -221,6 +221,66 @@ def test_title_and_tag_preserved(tmp_path: Path) -> None:
     assert "complete" in row, f"Status not updated in row: {row}"
 
 
+def _init_git_repo_with_tag(project_dir: Path, tag_name: str) -> None:
+    """Initialize a real git repo at *project_dir* and create *tag_name* on
+    an initial commit — the real-tag-exists fixture for the CER-155 tests."""
+    env = {**os.environ, "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@test",
+           "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "test@test"}
+    subprocess.run(["git", "init", "-q"], cwd=str(project_dir), check=True, env=env)
+    (project_dir / "README.md").write_text("seed\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=str(project_dir), check=True, env=env)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "seed"], cwd=str(project_dir), check=True, env=env
+    )
+    subprocess.run(["git", "tag", tag_name], cwd=str(project_dir), check=True, env=env)
+
+
+def test_mark_phase_complete_backfills_tag_cell_when_git_tag_exists(
+    tmp_path: Path,
+) -> None:
+    """CER-155 (D1): when the cp-<phase_key> git tag already exists, the Tag
+    cell is backfilled with '· cp-<phase_key>' appended to its existing
+    content."""
+    _init_git_repo_with_tag(tmp_path, "cp-70")
+    _write_phase_index(
+        tmp_path,
+        [("70", "Backfill target", "complete", "docs/phases/phase-70.md")],
+    )
+    result = _run(
+        "mark-phase-complete", "--phase", "70", "--project-dir", str(tmp_path)
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    content = _read_index(tmp_path)
+    lines = [ln for ln in content.splitlines() if "| 70 |" in ln]
+    assert lines, "Phase 70 row not found after update"
+    row = lines[0]
+    assert "docs/phases/phase-70.md" in row
+    assert "cp-70" in row
+
+
+def test_mark_phase_complete_leaves_tag_cell_when_git_tag_absent(
+    tmp_path: Path,
+) -> None:
+    """CER-155 (D3/D4): no .git directory at all → _run_git fails/returns
+    non-zero → treated as tag-not-found → the pre-existing Tag cell content
+    is left exactly as it was."""
+    _write_phase_index(
+        tmp_path,
+        [("71", "No tag yet", "planned", "docs/phases/phase-71.md")],
+    )
+    result = _run(
+        "mark-phase-complete", "--phase", "71", "--project-dir", str(tmp_path)
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    content = _read_index(tmp_path)
+    lines = [ln for ln in content.splitlines() if "| 71 |" in ln]
+    assert lines, "Phase 71 row not found after update"
+    row = lines[0]
+    assert row.count("docs/phases/phase-71.md") == 1
+    assert "cp-71" not in row
+    assert "complete" in row
+
+
 def test_suffixed_phase_key(tmp_path: Path) -> None:
     """A suffixed phase key like 'PM037-main' is accepted and marked complete."""
     _write_phase_index(
@@ -589,6 +649,24 @@ class TestMarkPhaseCompleteEraLedger:
         assert closed.read_bytes() == closed_before
         assert active.read_bytes() == active_before
         assert "| 104 | Phase 104 | complete |" in _read_index(tmp_path)
+
+    def test_mark_phase_complete_era_ledger_not_found_warns_on_stderr(
+        self, tmp_path: Path
+    ) -> None:
+        """CER-154 (B1): active era docs exist, but none of their ## Phases
+        ledgers contain this phase's row — a warning is echoed to stderr
+        naming the phase key and the searched active era doc(s), distinct
+        from the pre-existing multi-active-era warning."""
+        _write_phase_index(tmp_path, [("104", "Phase 104", "planned", "")])
+        active = _write_era_doc(tmp_path, "003", "active", [("96", "Phase 96", "complete")])
+        before = active.read_bytes()
+        result = _run("mark-phase-complete", "--phase", "104", "--project-dir", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+        assert active.read_bytes() == before
+        assert "warning" in result.stderr.lower()
+        assert "104" in result.stderr
+        assert active.name in result.stderr
+        assert "CER-154" in result.stderr
 
 
 # ---------------------------------------------------------------------------

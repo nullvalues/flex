@@ -585,12 +585,32 @@ def _phase_class_for(phase_path: "Path | None") -> str:
         return DEFAULT_PHASE_CLASS
 
 
-def _check_phase_completion(active_phase_file: "Path | None") -> bool:
+def _check_phase_completion(
+    active_phase_file: "Path | None", project_dir: "Path | None" = None
+) -> bool:
     """Return True if every story row in the phase manifest is complete or deferred.
 
     Reads the ``## Stories`` table of ``active_phase_file``.  Returns True
     when the file is absent or unreadable (fail-open) and when the Stories
     table is empty (vacuously complete).
+
+    ``project_dir`` (INFRA-346, F13): when ``None`` (the default), behaviour
+    is byte-identical to before this story — a bare ``"deferred"`` table
+    cell counts as complete-for-guard-purposes, with no corroboration
+    against any story file's own frontmatter. This preserves every existing
+    call site/unit test that constructs a bare phase file with no sibling
+    ``docs/stories/`` tree.
+
+    When ``project_dir`` is given, a ``"deferred"`` row is additionally
+    cross-checked against ``index_integrity.is_formally_deferred`` — the
+    same predicate ``flex_build._deferral_gate_message`` already uses at
+    ``checkpoint-tag`` — so this resolver-side guard can no longer diverge
+    from the stronger, terminal-step gate and pass a phase that
+    ``checkpoint-tag`` would refuse. A ``"deferred"`` row with no
+    corroborating story file, or whose story file's own frontmatter
+    disagrees, fails the guard (ideology § Accepted constraints, "Never
+    silently pass contradictions"). ``"complete"`` rows are not re-verified
+    against frontmatter — only ``"deferred"`` rows gain the cross-check.
     """
     if active_phase_file is None:
         return True
@@ -598,6 +618,35 @@ def _check_phase_completion(active_phase_file: "Path | None") -> bool:
         text = Path(active_phase_file).read_text(encoding="utf-8")
     except OSError:
         return True  # fail open
+
+    # INFRA-346 A2: when project_dir is given, build the {story_id: status}
+    # frontmatter map once per call, before the Stories-table loop, scoped
+    # to stories whose frontmatter `phase:` equals this phase's key — the
+    # same restriction shape `flex_build._deferral_gate_message` already
+    # applies.
+    frontmatter_status_by_id: "dict[str, str] | None" = None
+    if project_dir is not None:
+        from schema_validator import _parse_frontmatter  # noqa: PLC0415
+
+        phase_key = Path(active_phase_file).stem
+        if phase_key.startswith("phase-"):
+            phase_key = phase_key[len("phase-") :]
+
+        frontmatter_status_by_id = {}
+        stories_dir = Path(project_dir) / "docs" / "stories"
+        if stories_dir.exists():
+            for story_file in stories_dir.rglob("*.md"):
+                try:
+                    story_text = story_file.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                fm = _parse_frontmatter(story_text) or {}
+                story_phase = str(fm.get("phase") or "").strip()
+                if story_phase != phase_key:
+                    continue
+                story_id = (fm.get("id") or story_file.stem).strip()
+                status = (fm.get("status") or "").lower().strip()
+                frontmatter_status_by_id[story_id] = status
 
     in_stories = False
     for line in text.splitlines():
@@ -622,6 +671,15 @@ def _check_phase_completion(active_phase_file: "Path | None") -> bool:
             status = cols[2].lower()
             if status not in ("complete", "deferred"):
                 return False
+            if status == "deferred" and frontmatter_status_by_id is not None:
+                from index_integrity import is_formally_deferred  # noqa: PLC0415
+
+                story_id = cols[0]
+                fm_status = frontmatter_status_by_id.get(story_id)
+                if fm_status is None:
+                    return False  # uncorroborated deferred claim — fail closed
+                if not is_formally_deferred(fm_status, story_id, text):
+                    return False
 
     return True
 
@@ -786,7 +844,7 @@ def check_checkpoint_guards(
     phase_path = Path(active_phase_file) if active_phase_file is not None else None
 
     # Guard 1: all stories in phase are complete or deferred.
-    if not _check_phase_completion(phase_path):
+    if not _check_phase_completion(phase_path, project_path):
         return {"ok": False, "failed_guard": "phase-incomplete"}
 
     # Guard 2: no unresolved Do Now items in the CER backlog.

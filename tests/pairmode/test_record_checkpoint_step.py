@@ -507,12 +507,13 @@ class TestPhaseKeyPrecedence:
         assert state["checkpoint_step"] == []
         assert state["checkpoint_phase"] == ""
 
-    def test_a8_non_terminal_ambiguous_step_warns_and_continues(
+    def test_a8_non_terminal_ambiguous_step_now_hard_refuses(
         self, tmp_path: Path
     ) -> None:
-        """A non-terminal step with no --phase-key and an ambiguous index
-        exits 0, stamps checkpoint_phase == "", and warns on stderr — never
-        an error (A8)."""
+        """A non-terminal step with no --phase-key and an ambiguous index now
+        hard-refuses (CER-158, INFRA-346): exits 2, state.json is
+        byte-unchanged (no write), and the candidate rows are still named
+        in stderr output."""
         project_dir = _setup_project(tmp_path, {"checkpoint_step": []})
         _write_index(
             project_dir,
@@ -520,14 +521,13 @@ class TestPhaseKeyPrecedence:
         )
         _write_phase_file(project_dir, "1")
         _write_phase_file(project_dir, "2")
+        state_path = project_dir / ".companion" / "state.json"
+        state_before = state_path.read_bytes()
 
         result = _invoke_with_phase_key(project_dir, "checkpoint-security", None)
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 2, result.output
         assert "1" in result.output and "2" in result.output
-
-        state = _read_state(project_dir)
-        assert state["checkpoint_phase"] == ""
-        assert state["checkpoint_step"] == ["checkpoint-security"]
+        assert state_path.read_bytes() == state_before
 
     def test_a8_non_terminal_step_with_explicit_phase_key_stamps_it(
         self, tmp_path: Path

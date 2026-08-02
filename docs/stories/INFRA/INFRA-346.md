@@ -463,3 +463,30 @@ PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -q 2>&1 | tail -30
   story's D-group works within, not something it changes.
 - **Any of INFRA-336/337/338/341/342/343/345/347/348/349/350** — sibling Phase 117 stories; none of
   their findings are folded into this one.
+
+## Evidence
+
+Covered-contracts gate (INFRA-317): `primary_files:` includes `skills/pairmode/scripts/next_action.py`,
+which matches the `covered_contracts` pair `## Module structure::skills/pairmode/scripts/next_action.py`
+in `CLAUDE.build.md`'s Build standards line. Both the named doc section and the source file were
+read in full before editing either.
+
+- `docs/architecture.md`'s `## Module structure` entry for `next_action.py` (line 77) was read in
+  full; it documents the module's evolution through HARNESS002-main..INFRA-341 (action grammar,
+  DP2 machine, checkpoint sequencing, gate-verdict routing) but names no existing consumer of
+  `index_integrity.is_formally_deferred` from `next_action.py` — confirming this story's A-group
+  change (adding that consumption) is additive to the documented module contract, not a divergence
+  from it. No code/doc mismatch found; § F1 amends this doc section accordingly (a short addition,
+  not a correction).
+- `next_action.py:588-626` (pre-story `_check_phase_completion`) was read in full and matched the
+  Requires description exactly: one parameter, table-only scan via `split_table_row`, no frontmatter
+  or `index_integrity` awareness.
+- `next_action.py:758-817` (`check_checkpoint_guards`) was read in full; confirmed as the sole
+  caller of `_check_phase_completion`, already resolving `project_path` before the call site this
+  story threads it through.
+- `next_action.py`'s Row 9 block (`:1604-1661` at spec time, unchanged region after the A-group
+  edit) was read in full; confirmed as the sole caller of `check_checkpoint_guards`, already
+  computing `_project_dir` before calling it — no further Row 9 change needed (A5).
+- No divergence found between the doc section and the source file — the doc's module-structure
+  entry describes `next_action.py`'s existing surface accurately; this story's change is a pure
+  addition to both, applied consistently (code in A1-A5, doc in F1).

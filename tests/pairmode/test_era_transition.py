@@ -365,3 +365,44 @@ class TestEraClosePhaseLedgerGate:
             project_dir=str(tmp_path), name="Next", intent="", yes=True
         )
         assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# CER-154 (INFRA-346) — disposition gate fails closed on an unparseable ledger
+# ---------------------------------------------------------------------------
+
+
+class TestEraCloseUnparseableLedgerGate:
+    def test_unparseable_phases_heading_refuses_close_no_write(
+        self, tmp_path: Path
+    ) -> None:
+        """A ## Phases heading present but with no Status column (malformed
+        table) — _parse_era_phase_table returns [] — must refuse the close
+        rather than silently proceed as if there were no ledger at all."""
+        eras_dir = tmp_path / "docs" / "eras"
+        era_path = _make_era(eras_dir, "001", "Era one", "active")
+        existing = era_path.read_text(encoding="utf-8")
+        existing += (
+            "\n## Phases\n\n"
+            "| Phase | Title |\n"
+            "|-------|-------|\n"
+            "| 97 | A phase with no status column |\n"
+        )
+        era_path.write_text(existing, encoding="utf-8")
+        before = era_path.read_bytes()
+
+        rc = era_transition_cli(
+            project_dir=str(tmp_path), name="Next", intent="", yes=True
+        )
+        assert rc == 1
+        assert era_path.read_bytes() == before
+
+    def test_no_phases_heading_at_all_still_allows_close(self, tmp_path: Path) -> None:
+        """C2 legacy-behaviour pin: a legacy/first era genuinely without a
+        ## Phases ledger yet still closes without refusal."""
+        project_dir = _project_with_one_active_era(tmp_path)
+
+        rc = era_transition_cli(
+            project_dir=str(project_dir), name="Next era", intent="", yes=True
+        )
+        assert rc == 0
