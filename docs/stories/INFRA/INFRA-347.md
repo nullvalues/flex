@@ -139,6 +139,18 @@ follow-up work before phase 117 can checkpoint, not left unaddressed.
 - `tests/pairmode/test_index_integrity.py`'s modifications made necessary by this story's fix (any
   fixture/assertion that previously encoded the pre-fix "status never auto-flips" behavior) are
   committed alongside the rest of the story's declared scope — not left uncommitted in the worktree.
+- `docs/architecture.md`'s **second** description of this same fact, in the "Current status
+  (corrected — ...)" paragraph a few sections earlier than the line-2675 data-flow row (as of this
+  writing, ~lines 1733-1741, in the phase-manifest-registration-failure discussion), is also
+  updated in the same commit. That paragraph currently states "frontmatter/phase-table story
+  status is not written automatically by any orchestrator step today" and that `story_update.py`
+  "is just not wired into the build loop as an automatic post-commit step" — both sentences must be
+  corrected to name `cmd_merge_story_worktree` as the automatic caller, consistent with the
+  line-2675 fix. Search the whole file for every occurrence of "not written automatically" /
+  "not wired into the build loop" / "manual/advisory" describing story-status frontmatter before
+  considering this Ensures item satisfied — do not assume there are only two locations. Forbidden
+  proxy: fixing only one of the two (or more) locations, leaving the file internally
+  self-contradictory.
 
 ## Instructions
 
