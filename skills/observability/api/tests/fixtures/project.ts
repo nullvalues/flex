@@ -161,6 +161,19 @@ function seedEffortDb(dbPath: string): void {
       outcome: null,
       duration_ms: 3000,
     },
+    // INFRA-348 (Ensures 4): a phase-1 row with a NULL duration_ms, mixed in
+    // with the two already-populated phase-1 rows above — proves
+    // queryEffortSummary's median_duration_ms aggregation filters NULLs
+    // rather than coercing them to 0 or letting them poison the median.
+    {
+      created_at: '2026-01-01T03:00:00.000Z',
+      tokens_total: 5000,
+      story_id: 'DEMO-001',
+      phase: '1',
+      agent_role: 'builder',
+      outcome: 'PASS',
+      duration_ms: null,
+    },
   ];
   for (const row of rows) insert.run(row);
   db.close();

@@ -55,13 +55,25 @@ describe('GET /api/repos/:id/context', () => {
     expect(byName.context_budget_threshold).toMatchObject({ value: 120000, source: 'state.json' });
     expect(byName.flex_factor).toMatchObject({ value: 1.0, source: 'story-frontmatter' });
 
-    // effort.db rollup: 3 seeded rows, but 'seed-miner' is a NON_BUILD_ROLE
+    // effort.db rollup: 4 seeded rows, but 'seed-miner' is a NON_BUILD_ROLE
     // (INFRA-309) and must be excluded from total_attempts.
-    expect(body.effort_summary.total_attempts).toBe(2);
+    expect(body.effort_summary.total_attempts).toBe(3);
+
+    // INFRA-348 (Ensures 3/4): phase '1' has three builder rows, one of
+    // which (the newest, tokens_total=5000) carries a NULL duration_ms.
+    // queryEffortSummary's median_duration_ms must filter that NULL out of
+    // the aggregation rather than coercing it to 0 or emitting NaN — the
+    // median over the two populated values (12000, 45000) is a finite
+    // number, never null/NaN, with the fixture's row count.
+    const phase1 = body.effort_summary.by_phase.find((p) => p.phase === '1');
+    expect(phase1).toBeDefined();
+    expect(phase1?.attempts).toBe(3);
+    expect(phase1?.median_duration_ms).toBe(45000);
+    expect(Number.isFinite(phase1?.median_duration_ms as number)).toBe(true);
 
     // waypoints: 100 max, DESC by ts; the 130000-token row is well above the
     // 100000 story-spend threshold (over_spend_band + delta populated).
-    expect(body.waypoints.length).toBe(2);
+    expect(body.waypoints.length).toBe(3);
     const overBand = body.waypoints.find((w) => w.tokens === 130000);
     expect(overBand).toMatchObject({
       story_id: 'DEMO-001',

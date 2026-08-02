@@ -36,7 +36,6 @@ def _create_db(companion_dir: Path, rows: list[dict]) -> Path:
                 tokens_out INTEGER,
                 cache_read_tokens INTEGER,
                 cache_write_tokens INTEGER,
-                tool_uses INTEGER,
                 duration_ms INTEGER,
                 outcome TEXT,
                 notes TEXT,

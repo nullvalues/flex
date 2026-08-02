@@ -55,7 +55,6 @@ class TestHappyPath:
                 "--tokens-out", "2345",
                 "--cache-read-tokens", "500",
                 "--cache-write-tokens", "750",
-                "--tool-uses", "8",
                 "--duration-ms", "42000",
                 "--outcome", "PASS",
                 "--notes", "happy path",
@@ -77,7 +76,6 @@ class TestHappyPath:
         assert row["tokens_out"] == 2345
         assert row["cache_read_tokens"] == 500
         assert row["cache_write_tokens"] == 750
-        assert row["tool_uses"] == 8
         assert row["duration_ms"] == 42000
         assert row["outcome"] == "PASS"
         assert row["notes"] == "happy path"
@@ -619,7 +617,6 @@ _USAGE_BLOCK = """\
 <output_tokens>1000</output_tokens>
 <cache_read_tokens>200</cache_read_tokens>
 <cache_write_tokens>300</cache_write_tokens>
-<tool_uses>5</tool_uses>
 <duration_ms>12000</duration_ms>
 </usage>
 """
@@ -649,7 +646,6 @@ class TestUsageBlock:
         assert row["tokens_out"] == 1000
         assert row["cache_read_tokens"] == 200
         assert row["cache_write_tokens"] == 300
-        assert row["tool_uses"] == 5
         assert row["duration_ms"] == 12000
 
     def test_explicit_flag_overrides_usage_block(self, tmp_path: Path) -> None:

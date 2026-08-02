@@ -697,23 +697,18 @@ class TestAttemptNumberDerivation:
         rows = effort_db.query_by_story(db_path, "INFRA-257")
         assert [r["attempt_number"] for r in rows] == [1, 2]
 
-    def test_derivation_failure_degrades_to_one_row_still_written(self, tmp_path: Path) -> None:
-        """A derivation-path exception must not lose the row — it degrades
-        to attempt_number=1 and the write still happens."""
-        project_dir = tmp_path / "project"
-        project_dir.mkdir(parents=True, exist_ok=True)
-        _enable_tracking(project_dir)
-
-        with patch.object(
-            effort_db, "next_attempt_number", side_effect=RuntimeError("boom")
-        ):
-            row_id = _record_spawn(project_dir, "builder", "INFRA-257")
-
-        assert row_id is not None
-        db_path = project_dir / ".companion" / "effort.db"
-        rows = effort_db.query_by_story(db_path, "INFRA-257")
-        assert len(rows) == 1
-        assert rows[0]["attempt_number"] == 1
+    def test_next_attempt_number_removed(self) -> None:
+        """INFRA-348 (Ensures 2): next_attempt_number is deleted from
+        effort_db — this module's own attempt-number derivation has gone
+        through effort_db.insert_or_update_attempt's atomic write-side
+        derivation since INFRA-284, so there is nothing left in this module
+        to patch it against. The old
+        ``test_derivation_failure_degrades_to_one_row_still_written`` test
+        patched a function that was already unused by this write path
+        (confirmed by ``test_next_attempt_number_not_referenced_in_module``
+        below); it is replaced by this existence check now that the
+        function is gone entirely rather than merely unused."""
+        assert not hasattr(effort_db, "next_attempt_number")
 
 
 # ---------------------------------------------------------------------------
@@ -722,9 +717,13 @@ class TestAttemptNumberDerivation:
 
 
 def _sidechain_entry_with_id(
-    msg_id: str, tokens_in: int, tokens_out: int, model: str = "claude-sonnet-5"
+    msg_id: str,
+    tokens_in: int,
+    tokens_out: int,
+    model: str = "claude-sonnet-5",
+    timestamp: "str | None" = None,
 ) -> dict:
-    return {
+    entry: dict = {
         "type": "assistant",
         "isSidechain": True,
         "message": {
@@ -738,6 +737,9 @@ def _sidechain_entry_with_id(
             },
         },
     }
+    if timestamp is not None:
+        entry["timestamp"] = timestamp
+    return entry
 
 
 def _output_assistant_entry(
@@ -827,6 +829,56 @@ class TestSumDedupedUsage:
         )
         usage = st.extract_subagent_usage(transcript_path, "toolu_dedupe")
         assert usage["tokens_out"] == 263
+
+    def test_extract_subagent_usage_computes_duration_ms_from_sidechain_timestamps(
+        self, tmp_path: Path
+    ) -> None:
+        """INFRA-348 (Ensures 3): the primary synchronous path derives
+        duration_ms from the sidechain entries' own timestamps — a known
+        5-second synthetic interval must round-trip to exactly 5000ms."""
+        home = _write_transcript(
+            tmp_path,
+            "sess-duration",
+            [
+                _tool_use_entry("toolu_duration"),
+                _sidechain_entry_with_id(
+                    "msg_1", 10, 5, timestamp="2026-05-01T00:00:00.000Z"
+                ),
+                _sidechain_entry_with_id(
+                    "msg_2", 10, 20, timestamp="2026-05-01T00:00:05.000Z"
+                ),
+                _completion_entry(),
+            ],
+        )
+        cwd = tmp_path / "project"
+        transcript_path = (
+            home / ".claude" / "projects" / str(cwd.resolve()).replace("/", "-")
+            / "sess-duration.jsonl"
+        )
+        usage = st.extract_subagent_usage(transcript_path, "toolu_duration")
+        assert usage["duration_ms"] == 5000
+
+    def test_extract_subagent_usage_duration_none_without_timestamps(
+        self, tmp_path: Path
+    ) -> None:
+        """No timestamped sidechain entries -> duration_ms stays None, not a
+        placeholder like 0."""
+        home = _write_transcript(
+            tmp_path,
+            "sess-no-ts",
+            [
+                _tool_use_entry("toolu_no_ts"),
+                _sidechain_entry_with_id("msg_1", 10, 5),
+                _completion_entry(),
+            ],
+        )
+        cwd = tmp_path / "project"
+        transcript_path = (
+            home / ".claude" / "projects" / str(cwd.resolve()).replace("/", "-")
+            / "sess-no-ts.jsonl"
+        )
+        usage = st.extract_subagent_usage(transcript_path, "toolu_no_ts")
+        assert usage["duration_ms"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -4805,3 +4857,201 @@ class TestDuplicateFailInCycleGuard:
         st.reconcile_pending_attempts(project_dir=project_dir)
 
         assert read_attempt_count("INFRA-336", project_dir) == 2
+
+
+# ---------------------------------------------------------------------------
+# INFRA-348: duration_ms / story_class / model_selection_reason live wiring
+# ---------------------------------------------------------------------------
+
+
+class TestInfra348LiveWiring:
+    def _write_sync_transcript(
+        self, home: Path, project_dir: Path, session_id: str, entries: "list[dict]"
+    ) -> None:
+        cwd_key = str(project_dir.resolve()).replace("/", "-")
+        transcript_dir = home / ".claude" / "projects" / cwd_key
+        transcript_dir.mkdir(parents=True, exist_ok=True)
+        (transcript_dir / f"{session_id}.jsonl").write_text(
+            "\n".join(json.dumps(e) for e in entries) + "\n", encoding="utf-8",
+        )
+
+    def test_duration_ms_wired_on_primary_synchronous_path(self, tmp_path: Path) -> None:
+        """Ensures 3: the primary (synchronous, record_attempt_from_transcript)
+        live path carries a non-null duration_ms equal to a known synthetic
+        millisecond interval — not merely "non-null"."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+        home = tmp_path / "home"
+        self._write_sync_transcript(
+            home, project_dir, "sess-dur",
+            [
+                _tool_use_entry("toolu_dur", subagent_type="builder"),
+                _sidechain_entry_with_id(
+                    "m1", 100, 50, timestamp="2026-05-01T00:00:00.000Z"
+                ),
+                _sidechain_entry_with_id(
+                    "m2", 100, 50, timestamp="2026-05-01T00:00:07.000Z"
+                ),
+                _completion_entry(),
+            ],
+        )
+        row_id = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="sess-dur",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-236"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "PASS",
+                "story_id": "INFRA-236", "reason": "x",
+            }),
+            tool_use_id="toolu_dur",
+            home=home,
+        )
+        assert row_id is not None
+        rows = effort_db.query_by_story(project_dir / ".companion" / "effort.db", "INFRA-236")
+        assert len(rows) == 1
+        assert rows[0]["duration_ms"] == 7000
+
+    def test_story_class_read_from_story_file_frontmatter(self, tmp_path: Path) -> None:
+        """Ensures 5: story_class is sourced from the story file's own
+        frontmatter at record time, via the existing story/schema reader."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+        story_dir = project_dir / "docs" / "stories" / "INFRA"
+        story_dir.mkdir(parents=True, exist_ok=True)
+        (story_dir / "INFRA-236.md").write_text(
+            "---\nid: INFRA-236\nrail: INFRA\nstory_class: doc\n---\n\n## Context\n",
+            encoding="utf-8",
+        )
+
+        row_id = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-236"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "PASS",
+                "story_id": "INFRA-236", "reason": "x",
+            }),
+        )
+        assert row_id is not None
+        rows = effort_db.query_by_story(project_dir / ".companion" / "effort.db", "INFRA-236")
+        assert rows[0]["story_class"] == "doc"
+
+    def test_story_class_none_when_story_file_absent(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        row_id = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-236"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "PASS",
+                "story_id": "INFRA-236", "reason": "x",
+            }),
+        )
+        assert row_id is not None
+        rows = effort_db.query_by_story(project_dir / ".companion" / "effort.db", "INFRA-236")
+        assert rows[0]["story_class"] is None
+
+    def test_model_selection_reason_plumbed_from_dispatch_stamp(self, tmp_path: Path) -> None:
+        """Ensures 5: model_selection_reason is read from the per-story
+        dispatch-time stamp (create-story-worktree --model-selection-reason,
+        via story_context.set_current_story), never recomputed here."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(
+            project_dir,
+            current_stories={
+                "INFRA-236": {
+                    "id": "INFRA-236",
+                    "set_at": "2026-08-01T00:00:00+00:00",
+                    "model_selection_reason": "prompted-upgrade",
+                }
+            },
+        )
+
+        row_id = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-236"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "PASS",
+                "story_id": "INFRA-236", "reason": "x",
+            }),
+        )
+        assert row_id is not None
+        rows = effort_db.query_by_story(project_dir / ".companion" / "effort.db", "INFRA-236")
+        assert rows[0]["model_selection_reason"] == "prompted-upgrade"
+
+    def test_model_selection_reason_none_when_no_dispatch_stamp(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        row_id = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-236"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "PASS",
+                "story_id": "INFRA-236", "reason": "x",
+            }),
+        )
+        assert row_id is not None
+        rows = effort_db.query_by_story(project_dir / ".companion" / "effort.db", "INFRA-236")
+        assert rows[0]["model_selection_reason"] is None
+
+    def test_reconcile_one_payload_branch_computes_duration_ms(self, tmp_path: Path) -> None:
+        """Ensures 3: the SubagentStop payload branch (reconcile_one) — the
+        primary reconciliation branch for an async-launched spawn — is not
+        the branch that leaves duration_ms permanently unpopulated; it is
+        derived from the agent's own transcript file's first/last timestamps,
+        the same way the file-fallback branch already did."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir, pairmode_version="0.1.0")
+        db_path = project_dir / ".companion" / "effort.db"
+
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-336",
+            agent_role="builder",
+            attempt_number=1,
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(),
+        )
+        home = tmp_path / "home"
+        agent_transcript = (
+            home / ".claude" / "projects" / "slug" / "sess-1" / "subagents"
+            / "agent-336.jsonl"
+        )
+        _write_output_file(
+            agent_transcript,
+            [
+                _output_assistant_entry(
+                    "m1", 100, 50, timestamp="2026-05-01T00:00:00.000Z"
+                ),
+                _output_assistant_entry(
+                    "m2", 10, 5, timestamp="2026-05-01T00:00:09.000Z"
+                ),
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "agent-336", None)
+
+        decision = st.reconcile_one(
+            project_dir=project_dir,
+            agent_id="agent-336",
+            payload={
+                "last_assistant_message": json.dumps({
+                    "type": "BUILD-RESULT", "outcome": "PASS",
+                    "story_id": "INFRA-336", "reason": "done",
+                }),
+                "agent_transcript_path": str(agent_transcript),
+            },
+            home=home,
+        )
+        assert decision == "reconciled:payload"
+        rows = effort_db.query_by_story(db_path, "INFRA-336")
+        assert rows[0]["duration_ms"] == 9000

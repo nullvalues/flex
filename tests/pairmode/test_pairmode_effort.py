@@ -31,7 +31,6 @@ def _seed_attempt(db: Path, **overrides) -> None:
         "tokens_out": 200,
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
-        "tool_uses": 1,
         "duration_ms": 1000,
         "outcome": "PASS",
         "ts": "2026-05-01T00:00:00+00:00",

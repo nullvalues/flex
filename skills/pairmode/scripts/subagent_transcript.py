@@ -73,7 +73,12 @@ try:
     from skills.pairmode.scripts.context_budget import _derive_transcript_path
     from skills.pairmode.scripts import effort_db
     from skills.pairmode.scripts.effort_recorder import record_effort, record_effort_ex
-    from skills.pairmode.scripts.flex_build import bump_attempt_count, read_attempt_count
+    from skills.pairmode.scripts.flex_build import (
+        bump_attempt_count,
+        read_attempt_count,
+        _read_story_frontmatter,
+        _story_path,
+    )
     from skills.pairmode.scripts.story_context import (
         RECENTLY_DISCARDED_STORIES_KEY,
         consume_recently_discarded,
@@ -84,7 +89,12 @@ except ImportError:
     from context_budget import _derive_transcript_path  # type: ignore[no-redef]  # flat import via hook sys.path
     import effort_db  # type: ignore[no-redef]  # flat import via hook sys.path
     from effort_recorder import record_effort, record_effort_ex  # type: ignore[no-redef]  # flat import via hook sys.path
-    from flex_build import bump_attempt_count, read_attempt_count  # type: ignore[no-redef]  # flat import via hook sys.path
+    from flex_build import (  # type: ignore[no-redef]  # flat import via hook sys.path
+        bump_attempt_count,
+        read_attempt_count,
+        _read_story_frontmatter,
+        _story_path,
+    )
     from story_context import (  # type: ignore[no-redef]  # flat import via hook sys.path
         RECENTLY_DISCARDED_STORIES_KEY,
         consume_recently_discarded,
@@ -598,6 +608,27 @@ def parse_worker_outcome(
 # ---------------------------------------------------------------------------
 
 
+def _duration_ms_from_ts(first_ts: "str | None", last_ts: "str | None") -> "int | None":
+    """Return the millisecond interval between two ISO-8601 transcript
+    timestamps, or ``None`` on any missing/unparseable input (INFRA-348).
+
+    Shared by every duration-computing call site — :func:`read_completed_spawn`
+    (the file-fallback branch), :func:`extract_subagent_usage` (the primary
+    synchronous sidechain path), and :func:`reconcile_one`'s SubagentStop
+    payload branch — so all three agree on the same unit (milliseconds) and
+    the same interval definition (last entry's timestamp minus first entry's
+    timestamp). Never raises.
+    """
+    if not first_ts or not last_ts:
+        return None
+    try:
+        t0 = datetime.fromisoformat(str(first_ts).replace("Z", "+00:00"))
+        t1 = datetime.fromisoformat(str(last_ts).replace("Z", "+00:00"))
+        return int((t1 - t0).total_seconds() * 1000)
+    except Exception:
+        return None
+
+
 def _sum_deduped_usage(entries: "list[dict]") -> dict[str, Any]:
     """Dedupe assistant usage entries by ``message.id`` (last write wins),
     then sum the token/cache fields (INFRA-258).
@@ -689,6 +720,17 @@ def extract_subagent_usage(
     *transcript_path* is ``None``, *tool_use_id* is falsy, the file is
     unreadable, no matching ``tool_use`` entry is found, or no sidechain
     usage data follows it. Never raises.
+
+    ``duration_ms`` (INFRA-348) is derived from the matched sidechain
+    entries' own ``timestamp`` fields — the same first-entry-to-last-entry
+    definition, and the same millisecond unit, that
+    :func:`read_completed_spawn`'s file-fallback branch already uses (both
+    route through :func:`_duration_ms_from_ts`). This is the *primary* live
+    path: it is reached for every synchronous spawn whose sidechain turns
+    are already interleaved into the calling session's own transcript at
+    ``PostToolUse`` time, unlike the file-fallback branch which only fires
+    for an async-launched spawn reconciled later from its own output file.
+    ``None`` when fewer than one timestamped sidechain entry is found.
     """
     if transcript_path is None or not tool_use_id:
         return dict(_EMPTY_USAGE)
@@ -700,6 +742,8 @@ def extract_subagent_usage(
 
     matched_chain = False
     candidate_entries: list[dict] = []
+    first_ts: "str | None" = None
+    last_ts: "str | None" = None
 
     for raw in lines:
         raw = raw.strip()
@@ -728,6 +772,11 @@ def extract_subagent_usage(
 
         if entry.get("isSidechain") and entry.get("type") == "assistant":
             candidate_entries.append(entry)
+            ts = entry.get("timestamp")
+            if isinstance(ts, str) and ts:
+                if first_ts is None:
+                    first_ts = ts
+                last_ts = ts
         elif not entry.get("isSidechain"):
             # First non-sidechain entry after the match ends this spawn's
             # own turn window — the subagent has returned to the main thread.
@@ -736,7 +785,9 @@ def extract_subagent_usage(
     # INFRA-258: dedupe by message.id (last write wins) before summing — a
     # subagent's own turns can appear as multiple streaming-snapshot JSONL
     # lines sharing one message.id with monotonically growing output_tokens.
-    return _sum_deduped_usage(candidate_entries)
+    usage = _sum_deduped_usage(candidate_entries)
+    usage["duration_ms"] = _duration_ms_from_ts(first_ts, last_ts)
+    return usage
 
 
 # ---------------------------------------------------------------------------
@@ -880,6 +931,42 @@ def _derive_attribution(
     story_id = _derive_story_id(tool_input, state)
     rail = story_id.split("-", 1)[0] if story_id and "-" in story_id else None
     return story_id, None, rail
+
+
+def _read_story_class(
+    project_dir: "Path | str", story_id: "str | None", rail: "str | None"
+) -> "str | None":
+    """Best-effort ``story_class`` lookup from the story file's own
+    frontmatter (INFRA-348, Ensures 5).
+
+    Reuses ``flex_build._story_path`` (containment-checked path resolution)
+    and ``flex_build._read_story_frontmatter`` (the canonical
+    ``schema_validator._parse_frontmatter``-backed reader every other
+    story/schema-reading call site in this skill already uses) rather than a
+    second, parallel parser. story_class is static, story-authored data
+    (unlike ``model_selection_reason``, a runtime dispatch decision) —
+    re-reading it fresh at record time is correct and cannot "disagree with
+    what actually ran" the way recomputing a model-selection decision could.
+
+    Returns ``None`` for a synthetic story id (``phase:...``,
+    ``unattributed:...``), a missing *story_id*/*rail*, a story id whose path
+    would escape the stories root, a missing file, or any parse failure.
+    Never raises.
+    """
+    try:
+        if not story_id or not rail or ":" in story_id:
+            return None
+        project_path = (
+            project_dir if isinstance(project_dir, Path) else Path(project_dir)
+        )
+        story_path = _story_path(story_id, project_path)
+        if not story_path.is_file():
+            return None
+        fm = _read_story_frontmatter(story_path)
+        value = fm.get("story_class")
+        return str(value) if value else None
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1591,16 +1678,7 @@ def read_completed_spawn(
             # No usage data anywhere in the file — not reconcilable.
             return None
 
-        first_ts = data["first_ts"]
-        last_ts = data["last_ts"]
-        duration_ms: "int | None" = None
-        if first_ts and last_ts:
-            try:
-                t0 = datetime.fromisoformat(first_ts.replace("Z", "+00:00"))
-                t1 = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
-                duration_ms = int((t1 - t0).total_seconds() * 1000)
-            except Exception:
-                duration_ms = None
+        duration_ms = _duration_ms_from_ts(data["first_ts"], data["last_ts"])
 
         final_text = _flatten_tool_response(last_message)
         outcome, fail_cause = parse_worker_outcome(final_text, rejected=rejected)
@@ -2047,6 +2125,18 @@ def reconcile_one(
                     usage = candidate_usage
                     model = candidate_usage.get("model")
                     source = "payload"
+                    # INFRA-348 (Ensures 3): the payload branch is this
+                    # function's primary source (the file-fallback branch
+                    # below only fires when this one misses) — it must not
+                    # be the branch that leaves duration_ms permanently
+                    # unpopulated. data["first_ts"]/data["last_ts"] span the
+                    # whole agent transcript file (every entry, not just the
+                    # assistant ones _sum_deduped_usage summed), the same
+                    # source read_completed_spawn's fallback branch already
+                    # derives its own duration from.
+                    duration_ms = _duration_ms_from_ts(
+                        data["first_ts"], data["last_ts"]
+                    )
 
         if usage is None:
             # C4: file fallback — only reached when the payload path above
@@ -2473,7 +2563,11 @@ def reconcile_pending_attempts(
                 "tokens_out": usage.get("tokens_out"),
                 "cache_read_tokens": usage.get("cache_read_tokens"),
                 "cache_write_tokens": usage.get("cache_write_tokens"),
-                "duration_ms": None,
+                # INFRA-348: same helper/definition every other writer in
+                # this module uses — first-to-last transcript timestamp,
+                # milliseconds. Legitimately None when the file carries no
+                # parseable timestamps at all, not a hardcoded placeholder.
+                "duration_ms": _duration_ms_from_ts(data["first_ts"], data["last_ts"]),
                 # INFRA-299 (CER-113): "UNKNOWN" is written HERE, by the
                 # quiescent retirement sweep, as a deliberate retirement
                 # marker — it is not a worker verdict and never passes
@@ -2732,6 +2826,27 @@ def record_attempt_from_transcript(
 
         model = tool_input.get("model") or usage.get("model")
 
+        # INFRA-348 (Ensures 5): story_class is static, story-authored data —
+        # read fresh from the story file's own frontmatter at record time via
+        # the shared reader (never a re-parse). model_selection_reason is a
+        # runtime dispatch DECISION, not static data — it is looked up from
+        # the per-story stamp `create-story-worktree` wrote at dispatch time
+        # (state["current_stories"][effective_story_id]), never recomputed by
+        # calling model_selector a second time here (a second computation
+        # could disagree with the model that actually ran).
+        row_story_class = _read_story_class(target_path, story_id, rail)
+        current_stories = state.get("current_stories") if isinstance(state, dict) else None
+        story_dispatch_entry = (
+            current_stories.get(effective_story_id)
+            if isinstance(current_stories, dict)
+            else None
+        )
+        row_model_selection_reason = (
+            story_dispatch_entry.get("model_selection_reason")
+            if isinstance(story_dispatch_entry, dict)
+            else None
+        )
+
         # INFRA-288 (CER-104): extract the spawn ref BEFORE the write so the
         # row carries agent_id/output_file in the same statement that
         # creates it, and so agent_id can serve as the idempotency key when
@@ -2771,6 +2886,8 @@ def record_attempt_from_transcript(
             rail=rail,
             agent_id=spawn_agent_id,
             output_file=spawn_output_file,
+            story_class=row_story_class,
+            model_selection_reason=row_model_selection_reason,
         )
 
         # INFRA-258: persist the spawn ref so a later reconciliation pass

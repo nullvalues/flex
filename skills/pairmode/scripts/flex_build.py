@@ -92,19 +92,30 @@ from table_utils import split_table_row  # noqa: E402
 from story_update import update_story_status, update_phase_story_status  # noqa: E402
 
 
-def _stamp_active_story(project_path: Path, story_id: str) -> None:
+def _stamp_active_story(
+    project_path: Path, story_id: str, *, model_selection_reason: "str | None" = None
+) -> None:
     """Stamp *story_id* as ``current_story`` in the main checkout's
     ``.companion/state.json``, creating the directory if needed.
 
     Best-effort: any failure is swallowed by the caller (create-story-worktree
     surfaces it as a warning) — a stamping failure must never prevent the
     worktree itself from being created.
+
+    *model_selection_reason* (INFRA-348, optional) is forwarded to
+    ``set_current_story`` unchanged — see that function's docstring for why
+    this is dispatch-time plumbing, not a value derived here.
     """
     story_path = _story_path(story_id, project_path)
     fm = _read_story_frontmatter(story_path)
     companion_dir = project_path / ".companion"
     companion_dir.mkdir(parents=True, exist_ok=True)
-    set_current_story(companion_dir, story_id, title=fm.get("title"))
+    set_current_story(
+        companion_dir,
+        story_id,
+        title=fm.get("title"),
+        model_selection_reason=model_selection_reason,
+    )
     # INFRA-336: a re-stamp means any prior discard/duplicate-FAIL history
     # for this story_id is stale — a *new* attempt cycle is starting, so a
     # later FAIL must not be treated as still belonging to the discard that
@@ -4727,7 +4738,20 @@ def cmd_record_attempt(args: tuple[str, ...]) -> None:
     default=".",
     help="Project directory (main worktree). Defaults to CWD.",
 )
-def cmd_create_story_worktree(story_id: str, project_dir: str) -> None:
+@click.option(
+    "--model-selection-reason",
+    default=None,
+    help=(
+        "(INFRA-348) The model-selection reason next-action already computed "
+        "for this story's builder spawn (its `reason` field, e.g. "
+        "auto-baseline/auto-downgrade/prompted-upgrade/user-override). Stamped "
+        "into state.json so the hook-driven recording path can plumb the "
+        "actual dispatch-time value into effort.db without recomputing it."
+    ),
+)
+def cmd_create_story_worktree(
+    story_id: str, project_dir: str, model_selection_reason: "str | None" = None
+) -> None:
     """Create a disposable git worktree for a story's build/review cycle.
 
     Creates ``.pairmode-worktrees/<story-id>/`` on a new branch
@@ -4809,7 +4833,7 @@ def cmd_create_story_worktree(story_id: str, project_dir: str) -> None:
     # half-created, but it also must not silently mask the story-scope gap,
     # so it is surfaced on stderr rather than swallowed.
     try:
-        _stamp_active_story(project_path, story_id)
+        _stamp_active_story(project_path, story_id, model_selection_reason=model_selection_reason)
     except Exception as exc:  # noqa: BLE001
         click.echo(f"warning: failed to stamp current_story for {story_id}: {exc}", err=True)
 

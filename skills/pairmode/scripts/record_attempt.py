@@ -92,7 +92,6 @@ def _read_state(state_path: Path) -> dict:
 @click.option("--tokens-out", type=int, default=None)
 @click.option("--cache-read-tokens", type=int, default=None)
 @click.option("--cache-write-tokens", type=int, default=None)
-@click.option("--tool-uses", type=int, default=None)
 @click.option("--duration-ms", type=int, default=None)
 @click.option(
     "--outcome",
@@ -156,7 +155,6 @@ def record_attempt(
     tokens_out: int | None,
     cache_read_tokens: int | None,
     cache_write_tokens: int | None,
-    tool_uses: int | None,
     duration_ms: int | None,
     outcome: str | None,
     notes: str | None,
@@ -196,7 +194,6 @@ def record_attempt(
                     "output_tokens": "tokens_out",
                     "cache_read_tokens": "cache_read_tokens",
                     "cache_write_tokens": "cache_write_tokens",
-                    "tool_uses": "tool_uses",
                     "duration_ms": "duration_ms",
                 }
 
@@ -220,8 +217,6 @@ def record_attempt(
                     cache_read_tokens = parsed["cache_read_tokens"]
                 if cache_write_tokens is None and "cache_write_tokens" in parsed:
                     cache_write_tokens = parsed["cache_write_tokens"]
-                if tool_uses is None and "tool_uses" in parsed:
-                    tool_uses = parsed["tool_uses"]
                 if duration_ms is None and "duration_ms" in parsed:
                     duration_ms = parsed["duration_ms"]
 
@@ -337,7 +332,6 @@ def record_attempt(
         tokens_out=tokens_out,
         cache_read_tokens=cache_read_tokens,
         cache_write_tokens=cache_write_tokens,
-        tool_uses=tool_uses,
         duration_ms=duration_ms,
         outcome=outcome,
         notes=notes,

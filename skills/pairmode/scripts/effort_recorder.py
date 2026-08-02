@@ -138,6 +138,8 @@ def record_effort_ex(
     backend: str | None = None,
     agent_id: "str | None" = None,
     output_file: "str | None" = None,
+    story_class: "str | None" = None,
+    model_selection_reason: "str | None" = None,
     log_fn: Callable[[str], None] | None = None,
 ) -> "tuple[int | None, bool]":
     """Record one LLM-call attempt row and report whether the write was
@@ -160,6 +162,12 @@ def record_effort_ex(
     values in every case. Dedupe is opted into only when *attempt_number*
     is ``None`` **and** *agent_id* is a non-empty string; otherwise
     behaviour is exactly pre-INFRA-288.
+
+    ``story_class``/``model_selection_reason`` (INFRA-348) are likewise
+    passed through as ordinary column values in every case — this function
+    performs no lookup or derivation of either; the caller (the live
+    hook-driven recording path, or ``record_attempt.py``'s manual CLI) is
+    responsible for sourcing them.
     """
 
     project_path = Path(project_dir).resolve()
@@ -202,7 +210,6 @@ def record_effort_ex(
                     tokens_out=tokens["tokens_out"],
                     cache_read_tokens=tokens["cache_read_tokens"],
                     cache_write_tokens=tokens["cache_write_tokens"],
-                    tool_uses=None,
                     duration_ms=duration_ms,
                     outcome=outcome,
                     notes=notes,
@@ -210,6 +217,8 @@ def record_effort_ex(
                     backend=backend,
                     agent_id=agent_id,
                     output_file=output_file,
+                    story_class=story_class,
+                    model_selection_reason=model_selection_reason,
                 )
             )
             return _row_id, _deduped
@@ -226,7 +235,6 @@ def record_effort_ex(
             tokens_out=tokens["tokens_out"],
             cache_read_tokens=tokens["cache_read_tokens"],
             cache_write_tokens=tokens["cache_write_tokens"],
-            tool_uses=None,
             duration_ms=duration_ms,
             outcome=outcome,
             notes=notes,
@@ -234,6 +242,8 @@ def record_effort_ex(
             backend=backend,
             agent_id=agent_id,
             output_file=output_file,
+            story_class=story_class,
+            model_selection_reason=model_selection_reason,
         ), False
     except Exception as exc:  # noqa: BLE001 — best-effort observability
         if log_fn is not None:
@@ -260,6 +270,8 @@ def record_effort(
     backend: str | None = None,
     agent_id: "str | None" = None,
     output_file: "str | None" = None,
+    story_class: "str | None" = None,
+    model_selection_reason: "str | None" = None,
     log_fn: Callable[[str], None] | None = None,
 ) -> int | None:
     """Record one LLM-call attempt row, or silently no-op.
@@ -299,6 +311,8 @@ def record_effort(
         backend=backend,
         agent_id=agent_id,
         output_file=output_file,
+        story_class=story_class,
+        model_selection_reason=model_selection_reason,
         log_fn=log_fn,
     )
     return row_id

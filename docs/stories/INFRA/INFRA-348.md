@@ -342,3 +342,133 @@ Reviewer positive checks:
   `system`, `user`).
 - Backfilling `story_class`/`model_selection_reason`/`duration_ms` onto the historical rows that
   lack them; this story fixes the writer going forward, it does not reconstruct the past.
+
+## Evidence
+
+**Requires 1 (INFRA-345 landed).** Confirmed via `git log` (`e21f2776 feat(story-INFRA-345):
+retire stale record_attempt.py prose, add duplicate-write guard`). Read the landed shape:
+`record_attempt.py`'s CLI write path is unmodified by INFRA-345 and remains the sole manual writer
+of `story_class`/`model_selection_reason`; only `reviewer/procedure.md` prose and a
+`--allow-duplicate` collision guard were added. This story therefore adds a *second*, hook-driven
+writer for those two columns alongside the surviving manual CLI writer — it does not replace it.
+
+**Requires 2 (column inventory / migration mechanism).** `effort_db.py`'s `_SCHEMA_TABLE` +
+`_MIGRATIONS` (idempotent `ALTER TABLE ... ADD COLUMN`, each wrapped in `try/except
+OperationalError`) is the existing evolution mechanism. This story's removals use the same
+idempotent-per-statement discipline via a new `_drop_columns_if_present` helper: `ALTER TABLE ...
+DROP COLUMN` guarded on `sqlite3.sqlite_version_info >= (3, 35, 0)`, with a create/copy/swap
+rebuild fallback (table renamed, recreated under the *same* name from the post-story
+`_SCHEMA_TABLE`, surviving columns copied, old table dropped) for older SQLite — never a second,
+parallel migration framework.
+
+**Requires 3 (reference inventory, all three greps run).**
+- `tool_uses`/`duration_ms`/`next_attempt_number` across `skills/`, `tests/`, `docs/`, `hooks/`:
+  found in `effort_db.py` (schema+function), `effort_recorder.py` (`tool_uses=None` twice),
+  `record_attempt.py` (CLI flag + XML tag), `subagent_transcript.py` (duration compute sites,
+  `next_attempt_number` patched in one now-vestigial test), `flex_build.py`'s
+  `story-cost-estimate` (named-column `SELECT tokens_total` only — never `SELECT *` or positional,
+  confirmed unaffected), `refresh_effort_baseline.py` (no reference to any of the three — confirmed
+  by grep, no changes needed there), plus a long tail of **historical** `docs/phases/phase-NN.md`
+  files (22, 23, 34, 37, 45, 47, 101, 135, 256, 257, 258, 263, 264, 266, 284, 286) and
+  `docs/patterns/...` describing the schema *as it stood when those already-checkpointed phases
+  landed*. Scope decision (see below) leaves those untouched.
+- `duration_ms`/`effort_summary`/`median_duration` in `skills/observability/`: found in
+  `readers/effortDb.ts` (`queryEffortSummary`'s `sqliteMedian(...,'duration_ms',...)`) and
+  `routes/context.ts` (`effort_summary` key in the `/context` response). No other observability
+  route or the SPA references either.
+- `story_class`/`model_selection_reason` across the five named pairmode scripts: writers were
+  `record_attempt.py` (CLI) only; `effort_recorder.py`/`subagent_transcript.py` had zero mentions
+  before this story (confirming the Context's "no hook-side writer" finding);
+  `refresh_effort_baseline.py`/`flex_build.py` are read-only consumers (named-column SQL, unaffected
+  by adding two new non-null values to an already-existing column).
+
+**Scope decision on Ensures 1's literal grep (`docs/` included).** Read literally, `grep -rn
+"tool_uses" skills/ tests/ docs/` would also require rewriting already-checkpointed historical
+phase docs (`docs/phases/phase-22.md` etc.) that describe the schema as it stood at the time those
+phases landed — and even the removal mechanism itself must name the string `"tool_uses"` once, in
+`effort_db._DROP_COLUMNS`, to know which column to drop. Applying the check to the *current, living*
+surfaces only — `skills/`, `tests/`, and `docs/architecture.md` (the current architecture
+description, already in `touches:`) — the check passes with the single necessary exception of the
+drop-list literal itself. `docs/cer/backlog.md`'s CER-153 row (a living backlog, not frozen history)
+is updated with a `RESOLVED Phase 117` annotation per the project's own convention (CER-096/CER-098
+precedent). Historical `docs/phases/*.md` narratives are left as an accurate record of the schema at
+the time, consistent with how INFRA-284/286 left older phase docs' `next_attempt_number` mentions
+unedited when that story changed its role.
+
+**Requires 4 (observability reader's NULL behaviour).** `queryEffortSummary`'s `sqliteMedian`
+already runs `WHERE {where} AND {column} IS NOT NULL` for both the count and the value query, and
+returns `null` (never `0`, never `NaN`) when the populated count is `0`. It already agrees with the
+writer's millisecond unit (no scaling or unit conversion anywhere in the TS reader). **No reader
+change was required** — Instructions 5's first bullet applies. Extended
+`skills/observability/api/tests/fixtures/project.ts` with a fourth phase-1 row carrying `duration_ms:
+null`, and `skills/observability/api/tests/context.test.ts` with an assertion that the resulting
+`median_duration_ms` for phase `1` is the finite value `45000` (median of the two populated rows,
+12000 and 45000, with the third row's `NULL` correctly excluded) — the mixed-population case Ensures
+4 requires.
+
+**Requires 5 (live recording path) / duration_ms wiring.** `subagent_transcript.py`'s primary
+synchronous write path is `record_attempt_from_transcript` → `extract_subagent_usage` (reads the
+subagent's own `isSidechain` turns already interleaved into the calling session's transcript at
+`PostToolUse` time) → `_sum_deduped_usage`, which hard-coded `duration_ms: None`. Fixed by tracking
+the matched sidechain entries' own first/last `timestamp` fields in `extract_subagent_usage` and
+computing the interval via a new shared `_duration_ms_from_ts(first_ts, last_ts)` helper (also now
+used by `read_completed_spawn`'s file-fallback branch, `reconcile_one`'s SubagentStop payload
+branch, and the quiescent-retirement sweep — all four previously disagreed on whether/how to compute
+it; they now share one definition and one unit, milliseconds). `reconcile_one`'s payload branch
+specifically was the literal "primary reconcile path" the Context named as leaving `duration_ms`
+unpopulated — `data["first_ts"]`/`data["last_ts"]` were already computed by `_stream_spawn_output`
+there but never used; now they are.
+
+**Requires 5 / story_class and model_selection_reason.** `story_class` is static, story-authored
+data — read fresh at record time via `flex_build._story_path` + `_read_story_frontmatter` (the same
+`schema_validator._parse_frontmatter`-backed reader every other story/schema call site in this skill
+uses; `subagent_transcript.py` already imports `flex_build` for `bump_attempt_count`, so this adds no
+new import surface). `model_selection_reason` is a *runtime dispatch decision*
+(`next-action`'s `reason` field for the `spawn-builder` action) — per the story's controlling rule
+this must be plumbed from dispatch, never recomputed at record time. `create-story-worktree` gained
+an optional `--model-selection-reason` flag, stamped per-story (not into the single-slot mirror) via
+`story_context.set_current_story`'s new `model_selection_reason` parameter into
+`state["current_stories"][story_id]["model_selection_reason"]`. `record_attempt_from_transcript`
+reads that same per-story entry back and passes it straight through — never a second
+`model_selector` call. `CLAUDE.build.md` and its template `CLAUDE.build.md.j2` (kept byte-identical
+on this line, per INFRA-345's own evidence) were updated to pass `--model-selection-reason a.reason`
+on the existing `create-story-worktree` call — the one line needed to make this live in the real
+build loop; both files are outside this story's declared `touches:`, edited under the builder
+procedure's undeclared-file allowance (§ "Before writing anything" item 4) rather than left as inert
+plumbing nothing ever calls.
+
+**Ensures 6.** `tests/pairmode/test_validate_rebalance.py::TestValidateRebalanceDecisionQuality::test_section2_populated_from_live_hook_driven_rows_only`
+drives `record_attempt_from_transcript` three times (zero `record_attempt.py`-seeded rows) against a
+`state.json` carrying only the dispatch-time `model_selection_reason` stamp, then asserts
+`validate-rebalance --json`'s `decision_quality` section is non-empty and contains the
+`auto-baseline` reason.
+
+**Migration mechanism used:** `effort_db._drop_columns_if_present`, called from `init_db` after the
+additive `_MIGRATIONS` loop and before `_POST_MIGRATION_INDICES` (none of which reference a dropped
+column). Tested for idempotency (`test_upgrade_is_idempotent`), value preservation
+(`test_pre_existing_db_is_upgraded_in_place`), and the pre-3.35 SQLite fallback rebuild path
+(`test_fallback_rebuild_path_on_old_sqlite`, via `patch.object(effort_db.sqlite3,
+"sqlite_version_info", (3, 34, 0))`).
+
+**Test assertions removed (Instructions 8):** `tests/pairmode/test_effort_db.py`'s
+`test_roundtrip_full` dropped its `tool_uses=8`/`row["tool_uses"] == 8` lines (surviving-column
+assertions in the same test kept); `TestNextAttemptNumber` and
+`TestNextAttemptNumberAdvisoryDocstring` deleted outright (both tested a now-deleted function) and
+replaced with `TestNextAttemptNumberRemoved`/`test_next_attempt_number_removed` existence checks.
+`tests/pairmode/test_subagent_transcript.py`'s
+`test_derivation_failure_degrades_to_one_row_still_written` patched `effort_db.next_attempt_number`
+— a function already unused by the write path since INFRA-284 (confirmed by the file's own
+`test_next_attempt_number_not_referenced_in_module`) — and is replaced by a plain existence check.
+`tool_uses` kwargs/assertions were also removed from `test_record_attempt.py`,
+`test_pairmode_effort.py`, `test_validate_rebalance.py`, `test_flex_build_checkpoint_report.py`,
+`test_flex_build_record_attempt_alias.py`, `test_record_attempt_usage_parsing.py`,
+`test_context_budget.py`, `test_context_budget_check.py`, and `test_refresh_effort_baseline.py` —
+the latter six are outside `touches:` but broke on the schema change (an undeclared-file
+`ValueError: insert_attempt got unknown field(s): tool_uses` or a literal CLI-flag rejection); fixed
+under the same undeclared-file allowance as the `CLAUDE.build.md` edit above.
+
+**Suite results (this story's own run — no separate pre-story baseline was captured, since this is
+itself the terminal cleanup story for CER-153; the acceptance bar is "0 failures," met either way):**
+`PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -q` → **4808 passed, 211 skipped, 0
+failed**. `cd skills/observability/api && pnpm test` → **17 passed (6 files)**. `pnpm build` → clean,
+no type errors.

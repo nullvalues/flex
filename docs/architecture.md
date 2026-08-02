@@ -3157,8 +3157,11 @@ CLI subcommands remain available (and are exercised directly by
 Covered by the `.companion/` `.gitignore` rule — never committed.
 
 Cross-reference (INFRA-257): `effort.db`'s per-row `attempt_number` column is a
-*different* number, derived from a different source (`effort_db.next_attempt_number`
-counting persisted `attempts` rows) — see § Effort tracking for its definition. The
+*different* number, derived from a different source (`effort_db.insert_or_update_attempt`
+deriving `COALESCE(MAX(attempt_number), 0) + 1` atomically on the write side,
+inside the same transaction as the insert — CER-096 item C; INFRA-348 removed
+the earlier, now-callerless `next_attempt_number` read-only helper this
+cross-reference used to name) — see § Effort tracking for its definition. The
 two numbers are expected to diverge and neither is a "fix" for the other: this
 counter resets on merge and counts failures since the last land, while
 `attempt_number` never resets and counts lifetime spawns. A future reader should not
@@ -3167,9 +3170,13 @@ assume they must agree.
 Pairmode is considered active when `.claude/settings.deny-rationale.json` exists in the
 project root. The helper `skills/pairmode/scripts/story_context.py` provides:
 - `is_pairmode_active(project_dir)` — returns True when the deny-rationale file is present.
-- `set_current_story(companion_dir, story_id, title=None)` — writes the entry into
-  `current_stories[story_id]` and the `current_story` mirror (same entry, one atomic
-  write; INFRA-281) and returns the updated state dict.
+- `set_current_story(companion_dir, story_id, title=None, model_selection_reason=None)` —
+  writes the entry into `current_stories[story_id]` and the `current_story` mirror (same
+  entry, one atomic write; INFRA-281) and returns the updated state dict.
+  `model_selection_reason` (INFRA-348, optional) stamps the dispatch-time
+  model-selection reason `create-story-worktree --model-selection-reason` was
+  given, per story id, so `subagent_transcript.record_attempt_from_transcript`
+  can plumb it into the live `attempts` row without recomputing it.
 - `get_current_story(companion_dir)` — returns the `current_story` mirror dict or None.
 - `get_current_stories(companion_dir)` — returns the `current_stories` keyed dict
   (INFRA-281); derives a single-entry dict from the flat `current_story` when the state
@@ -3696,14 +3703,60 @@ without coupling that legibility to a specific pricing regime.
 one `attempts` table. Each row captures one agent spawn: `story_id`, `phase`,
 `rail`, `agent_role` (`builder` or `reviewer`), `model`, `attempt_number` —
 the **lifetime spawn ordinal for a `(story_id, agent_role)` pair**, derived
-at record time by `effort_db.next_attempt_number` from the count of existing
-rows already recorded for that pair (INFRA-257) — `tokens_total`,
-`tool_uses`, `duration_ms`, optional `outcome` (`PASS`/`FAIL`
+atomically on the write side by `effort_db.insert_or_update_attempt` inside
+the same transaction as the insert (CER-096, item C; see below) — `tokens_total`,
+`duration_ms`, optional `outcome` (`PASS`/`FAIL`
 for reviewer attempts), optional `backend` (`"anthropic"` or `"ollama"` —
 populated by sidebar cross-skill recording; NULL for pairmode loop rows from
 older builds), and a UTC timestamp. Pricing is intentionally absent
 from the schema: dollar projections are computed at read time from a
 user-maintained `pricing.json`, never persisted.
+
+**INFRA-348: `tool_uses` and `effort_db.next_attempt_number` are gone.**
+`tool_uses` had zero readers anywhere in the codebase and was hard-coded
+`None` by every writer; it was dropped from the schema (idempotently, via
+`effort_db._drop_columns_if_present` — `ALTER TABLE ... DROP COLUMN` on
+SQLite >= 3.35.0, a create/copy/swap rebuild otherwise, either way preserving
+every surviving row's other column values). `next_attempt_number` had zero
+callers left after INFRA-284 moved ordinal derivation onto the write-side
+atomic path above; the function itself is deleted (not merely deprecated).
+
+**`duration_ms` is wired on the primary live path (INFRA-348).** Every
+duration-computing call site in `subagent_transcript.py` — the synchronous
+sidechain path (`extract_subagent_usage`, the primary path for a spawn whose
+transcript is already interleaved into the calling session at
+`PostToolUse` time), the SubagentStop reconciliation payload branch
+(`reconcile_one`), the file-fallback branch (`read_completed_spawn`), and the
+quiescent-retirement sweep — derive it through the single shared
+`_duration_ms_from_ts(first_ts, last_ts)` helper: the millisecond delta
+between the first and last timestamped transcript entry belonging to that
+spawn. All four therefore agree on unit (milliseconds) and on what the
+interval measures. The observability API's `readers/effortDb.ts`
+`queryEffortSummary` already filtered `duration_ms IS NULL` out of its
+median aggregation before this story (a pre-existing correct contract, not a
+fix made here) — a database with pre-story (NULL) and post-story (populated)
+rows mixed together therefore returns a sane, finite `median_duration_ms` (or
+an explicit `null` when a phase has no populated rows yet), never `NaN`.
+
+**`story_class`/`model_selection_reason` are written by the live (hook-driven)
+path (INFRA-348).** `story_class` is read fresh, at record time, from the
+story file's own frontmatter (`flex_build._story_path` +
+`_read_story_frontmatter`, the same reader every other story/schema call
+site in this skill uses) — safe to re-read live because it is static,
+story-authored data. `model_selection_reason` is a runtime dispatch
+*decision*, not static data, so it is never recomputed at record time (a
+second `model_selector` call could disagree with the model that actually
+ran); instead, `create-story-worktree` accepts an optional
+`--model-selection-reason` flag (the orchestrator passes `next-action`'s own
+`reason` field for the `spawn-builder` action) and stamps it, per story id,
+into `state.json["current_stories"][story_id]["model_selection_reason"]`
+via `story_context.set_current_story`. `subagent_transcript.record_attempt_from_transcript`
+reads that per-story stamp back and passes it straight through to
+`effort_recorder.record_effort_ex`, which now accepts `story_class`/
+`model_selection_reason` as ordinary pass-through column values (previously
+these two columns had no hook-side writer at all — `record_attempt.py`'s CLI
+was their only writer; see INFRA-345). `record_attempt.py`'s manual CLI path
+is unaffected and keeps writing both columns exactly as before.
 
 **`attempts.phase` is checkpoint-only, by design (CER-105).** The `phase` column is
 populated **only** for spawns whose role is in `subagent_transcript.CHECKPOINT_ROLES`
@@ -4002,9 +4055,18 @@ the underlying race directly — `effort_db.insert_attempt_derived` now derives
 `attempt_number` as `COALESCE(MAX(attempt_number), 0) + 1` inside a single
 `BEGIN IMMEDIATE` transaction, so two genuinely concurrent spawns for the same
 `(story_id, agent_role)` pair can no longer read the same count and write the
-same `attempt_number`. `next_attempt_number` survives unchanged as an
+same `attempt_number`. `next_attempt_number` survived, at the time, as an
 advisory, read-only helper for callers that only need an estimate (e.g.
-display), not the derivation the recorder itself now uses.
+display), not the derivation the recorder itself used.
+
+**Amended Phase 117 — INFRA-348 (CER-153).** `next_attempt_number` is now
+deleted. The "survives as an advisory helper" justification above held only
+while at least one caller wanted the estimate it offered; by Phase 117 it had
+zero callers anywhere in the codebase (its own docstring's write-then-read
+race warning was, by then, an argument against ever adding one back, not a
+description of a live risk) — 43 lines of maintained dead code rather than a
+living convenience. `insert_or_update_attempt`'s atomic derivation (above)
+remains the only ordinal source; nothing replaces the deleted helper.
 
 **Async-spawn recording — deferred reconciliation (INFRA-258).** Agent
 spawns are asynchronous in current Claude Code sessions: at PostToolUse time

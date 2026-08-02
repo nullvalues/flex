@@ -91,6 +91,7 @@ def set_current_story(
     companion_dir: Path,
     story_id: str,
     title: str | None = None,
+    model_selection_reason: str | None = None,
 ) -> dict:
     """Write current_story into .companion/state.json.
 
@@ -112,6 +113,17 @@ def set_current_story(
         companion_dir: Path to the .companion directory.
         story_id: Story identifier, e.g. "2.3".
         title: Optional human-readable story title.
+        model_selection_reason: (INFRA-348) The dispatch-time model-selection
+            reason (``"auto-baseline"``, ``"auto-downgrade"``,
+            ``"prompted-upgrade"``, ``"user-override"``, ...) the orchestrator
+            already computed for this story's builder spawn (``next-action``'s
+            ``reason`` field). Stored per-story (keyed, like everything else
+            this function writes) so ``subagent_transcript.record_attempt_from_transcript``
+            can plumb the *actual* dispatch-time value into the ``attempts``
+            row's ``model_selection_reason`` column without recomputing it —
+            a second, independent call to ``model_selector`` at record time
+            could disagree with the model that actually ran. Omitted (``None``,
+            the default) when the caller has no reason to stamp.
 
     Returns:
         The updated state dict (also written to disk).
@@ -128,6 +140,8 @@ def set_current_story(
         }
         if title is not None:
             entry["title"] = title
+        if model_selection_reason is not None:
+            entry["model_selection_reason"] = model_selection_reason
         state.setdefault(CURRENT_STORIES_KEY, {})[story_id] = entry
         state["current_story"] = entry
         write_state(companion_dir, state)

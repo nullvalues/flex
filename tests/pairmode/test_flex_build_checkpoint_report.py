@@ -114,7 +114,6 @@ def _seed_effort_db(
             tokens_out=None,
             cache_read_tokens=None,
             cache_write_tokens=None,
-            tool_uses=None,
             duration_ms=None,
             outcome="PASS",
             notes=None,

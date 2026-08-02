@@ -64,7 +64,6 @@ _USAGE_BLOCK_FULL = """\
 <output_tokens>8000</output_tokens>
 <cache_read_tokens>1500</cache_read_tokens>
 <cache_write_tokens>2500</cache_write_tokens>
-<tool_uses>11</tool_uses>
 <duration_ms>187000</duration_ms>
 </usage>
 """
@@ -75,7 +74,6 @@ _USAGE_BLOCK_NO_CACHE = """\
 <total_tokens>20000</total_tokens>
 <input_tokens>16000</input_tokens>
 <output_tokens>4000</output_tokens>
-<tool_uses>7</tool_uses>
 <duration_ms>95000</duration_ms>
 </usage>
 """
@@ -88,7 +86,6 @@ _USAGE_BLOCK_TOTAL_100 = """\
 <output_tokens>20</output_tokens>
 <cache_read_tokens>5</cache_read_tokens>
 <cache_write_tokens>10</cache_write_tokens>
-<tool_uses>2</tool_uses>
 <duration_ms>3000</duration_ms>
 </usage>
 """
@@ -124,7 +121,6 @@ def test_usage_block_full_round_trip(tmp_path: Path) -> None:
     assert row["tokens_out"] == 8000, f"tokens_out={row['tokens_out']}"
     assert row["cache_read_tokens"] == 1500, f"cache_read_tokens={row['cache_read_tokens']}"
     assert row["cache_write_tokens"] == 2500, f"cache_write_tokens={row['cache_write_tokens']}"
-    assert row["tool_uses"] == 11, f"tool_uses={row['tool_uses']}"
     assert row["duration_ms"] == 187000, f"duration_ms={row['duration_ms']}"
 
 
@@ -150,7 +146,7 @@ def test_usage_block_missing_optional_cache_fields_writes_null(tmp_path: Path) -
         cur = conn.cursor()
         cur.execute(
             "SELECT tokens_total, tokens_in, tokens_out, "
-            "cache_read_tokens, cache_write_tokens, tool_uses, duration_ms "
+            "cache_read_tokens, cache_write_tokens, duration_ms "
             "FROM attempts WHERE story_id = 'INFRA-135'"
         )
         db_row = cur.fetchone()
@@ -158,14 +154,13 @@ def test_usage_block_missing_optional_cache_fields_writes_null(tmp_path: Path) -
         conn.close()
 
     assert db_row is not None
-    tokens_total, tokens_in, tokens_out, cache_read, cache_write, tool_uses, duration_ms = db_row
+    tokens_total, tokens_in, tokens_out, cache_read, cache_write, duration_ms = db_row
 
     assert tokens_total == 20000
     assert tokens_in == 16000
     assert tokens_out == 4000
     assert cache_read is None, f"Expected NULL for cache_read_tokens, got {cache_read}"
     assert cache_write is None, f"Expected NULL for cache_write_tokens, got {cache_write}"
-    assert tool_uses == 7
     assert duration_ms == 95000
 
 
@@ -199,5 +194,4 @@ def test_explicit_flag_overrides_usage_block(tmp_path: Path) -> None:
     assert row["tokens_out"] == 20
     assert row["cache_read_tokens"] == 5
     assert row["cache_write_tokens"] == 10
-    assert row["tool_uses"] == 2
     assert row["duration_ms"] == 3000
