@@ -1008,6 +1008,7 @@ def _make_position(
     intent_review_opt_in: bool = False,
     phase_is_fresh: bool = False,
     pre_build_intent_verdict: "str | None" = None,
+    gate_verdict: "dict[str, str] | None" = None,
 ) -> dict:
     """Build a synthetic Position dict for state-machine tests."""
     _ok_gate = {"ok": True, "blocked_reason": ""}
@@ -1026,6 +1027,8 @@ def _make_position(
         "intent_review_opt_in": intent_review_opt_in,
         "phase_is_fresh": phase_is_fresh,
         "pre_build_intent_verdict": pre_build_intent_verdict,
+        # INFRA-341
+        "gate_verdict": gate_verdict,
     }
 
 
@@ -2333,6 +2336,254 @@ class TestResolveNextActionRow4Split:
         assert "gate_worker_model" not in action["meta"]
         assert "gate_worker_model_reason" not in action["meta"]
         assert validate_action(action) == []
+
+
+# ---------------------------------------------------------------------------
+# Tests — INFRA-341: Row 4b consumes a recorded gate verdict (livelock fix)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveNextActionRow4bGateVerdict:
+    """Row 4b: once a gate verdict is recorded, route_gate_verdict's DP3.2
+    aggregation resolves the action instead of re-emitting
+    spawn-gate-worker (closes the INFRA-331 livelock, F8)."""
+
+    def test_no_verdict_recorded_still_spawns_gate_worker(
+        self, tmp_path: "Any"
+    ) -> None:
+        """Unchanged behavior: judged-tripped + gate_verdict None → spawn
+        the worker, exactly as before this story."""
+        phase_file = _make_phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="RESOLVER-010",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+            gate_stub={"ok": True, "blocked_reason": ""},
+            gate_schema={"ok": False, "blocked_reason": "no management surface"},
+            gate_auth={"ok": True, "blocked_reason": ""},
+            gate_verdict=None,
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_GATE_WORKER
+        assert action["scalar"] == "RESOLVER-010"
+        assert validate_action(action) == []
+
+    def test_recorded_block_verdict_routes_to_await_user(
+        self, tmp_path: "Any"
+    ) -> None:
+        phase_file = _make_phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="RESOLVER-011",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+            gate_stub={"ok": True, "blocked_reason": ""},
+            gate_schema={"ok": False, "blocked_reason": "no management surface"},
+            gate_auth={"ok": True, "blocked_reason": ""},
+            gate_verdict={
+                "schema": "block:no-management-surface",
+                "auth": "clean",
+                "stub": "clean",
+            },
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == AWAIT_USER
+        assert action["reason"].startswith("gate-blocked:")
+        assert "schema" in action["reason"]
+        assert validate_action(action) == []
+
+    def test_recorded_clean_verdict_routes_to_spawn_builder(
+        self, tmp_path: "Any"
+    ) -> None:
+        phase_file = _make_phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="RESOLVER-012",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+            gate_stub={"ok": True, "blocked_reason": ""},
+            gate_schema={"ok": False, "blocked_reason": "no management surface"},
+            gate_auth={"ok": True, "blocked_reason": ""},
+            gate_verdict={"schema": "clean", "auth": "clean", "stub": "clean"},
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert action["scalar"] == "RESOLVER-012"
+        assert validate_action(action) == []
+
+    def test_recorded_verdict_carries_gates_tripped_meta(
+        self, tmp_path: "Any"
+    ) -> None:
+        """route_gate_verdict is called with the same gates_tripped/
+        gate_reasons meta Row 4b already builds, not a bare dict."""
+        phase_file = _make_phase_file(tmp_path)
+        pos = _make_position(
+            active_phase_file=phase_file,
+            next_story_id="RESOLVER-013",
+            attempt_count=0,
+            last_attempt_outcome=OUTCOME_NONE,
+            gate_stub={"ok": True, "blocked_reason": ""},
+            gate_schema={"ok": False, "blocked_reason": "no management surface"},
+            gate_auth={"ok": False, "blocked_reason": "no classification"},
+            gate_verdict={"schema": "clean", "auth": "clean", "stub": "clean"},
+        )
+        action = resolve_next_action(pos)
+        assert action["action"] == SPAWN_BUILDER
+        assert sorted(action["meta"]["gates_tripped"]) == ["auth", "schema"]
+        assert "gate_reasons" in action["meta"]
+
+
+# ---------------------------------------------------------------------------
+# Tests — INFRA-341: record-gate-verdict CLI round-trip (livelock fix)
+# ---------------------------------------------------------------------------
+
+
+class TestGateVerdictOnceOnlyRoundTrip:
+    """The once-only round-trip, end to end through infer_position +
+    resolve_next_action + the record-gate-verdict CLI write (mirrors
+    TestPreBuildIntentReviewOnceOnlyRoundTrip's pattern for the pre-build
+    intent-review verdict). Reviewer negative check (e): proves the
+    livelock is closed via a real fresh-process re-read, not merely that
+    the helper functions are importable."""
+
+    def test_stateless_rerun_after_recording_block_verdict(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from next_action import resolve_next_action  # type: ignore[import]
+        from flex_build import cmd_record_gate_verdict  # type: ignore[import]
+        from click.testing import CliRunner
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-341A", "draft")])
+        _write_story(tmp_path, "TEST-341A", schema_introduces=True)
+        _patch_git_log(monkeypatch, "")
+
+        # First resolution: no verdict recorded yet → spawn-gate-worker.
+        pos_before = infer_position(tmp_path)
+        assert pos_before["gate_verdict"] is None
+        action_before = resolve_next_action(pos_before)
+        assert action_before["action"] == SPAWN_GATE_WORKER
+        assert action_before["scalar"] == "TEST-341A"
+
+        # Record the worker's (real, two-key) verdict via the CLI (mirrors
+        # the orchestrator piping the worker's stdout to the CLI's stdin).
+        runner = CliRunner()
+        result = runner.invoke(
+            cmd_record_gate_verdict,
+            ["--story-id", "TEST-341A", "--project-dir", str(tmp_path)],
+            input=json.dumps(
+                {"schema": "block:no-management-surface", "auth": "clean"}
+            ),
+        )
+        assert result.exit_code == 0, result.output
+
+        # A brand-new call to infer_position (simulating a fresh process / a
+        # /clear boundary) must read the durable evidence and resolve to
+        # await-user instead of re-emitting spawn-gate-worker again — this
+        # is the livelock fix itself, not just a helper-function unit test.
+        pos_after = infer_position(tmp_path)
+        assert pos_after["gate_verdict"] == {
+            "schema": "block:no-management-surface",
+            "auth": "clean",
+            "stub": "clean",
+        }
+        action_after = resolve_next_action(pos_after)
+        assert action_after["action"] == AWAIT_USER
+        assert action_after["reason"].startswith("gate-blocked:")
+
+    def test_stateless_rerun_after_recording_clean_verdict(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from next_action import resolve_next_action  # type: ignore[import]
+        from flex_build import cmd_record_gate_verdict  # type: ignore[import]
+        from click.testing import CliRunner
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-341B", "draft")])
+        _write_story(tmp_path, "TEST-341B", schema_introduces=True)
+        _patch_git_log(monkeypatch, "")
+
+        pos_before = infer_position(tmp_path)
+        action_before = resolve_next_action(pos_before)
+        assert action_before["action"] == SPAWN_GATE_WORKER
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cmd_record_gate_verdict,
+            ["--story-id", "TEST-341B", "--project-dir", str(tmp_path)],
+            input=json.dumps({"schema": "clean", "auth": "clean"}),
+        )
+        assert result.exit_code == 0, result.output
+
+        pos_after = infer_position(tmp_path)
+        action_after = resolve_next_action(pos_after)
+        assert action_after["action"] == SPAWN_BUILDER
+        assert action_after["scalar"] == "TEST-341B"
+
+
+class TestRecordGateVerdictStubInjection:
+    """record-gate-verdict's CLI-boundary stub-default-injection (Ensures 3):
+    a real gate-worker's raw two-key stdout must not fail-close via
+    parse_worker_verdict_json's 3-key requirement."""
+
+    def test_missing_stub_key_defaults_to_clean(self, tmp_path: Path) -> None:
+        from flex_build import cmd_record_gate_verdict  # type: ignore[import]
+        from click.testing import CliRunner
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cmd_record_gate_verdict,
+            ["--story-id", "TEST-341C", "--project-dir", str(tmp_path)],
+            input=json.dumps({"schema": "clean", "auth": "block:no-owner-check"}),
+        )
+        assert result.exit_code == 0, result.output
+        state = json.loads(
+            (tmp_path / ".companion" / "state.json").read_text(encoding="utf-8")
+        )
+        assert state["gate_verdict"]["TEST-341C"] == {
+            "schema": "clean",
+            "auth": "block:no-owner-check",
+            "stub": "clean",
+        }
+
+    def test_explicit_non_clean_stub_is_not_overridden(self, tmp_path: Path) -> None:
+        from flex_build import cmd_record_gate_verdict  # type: ignore[import]
+        from click.testing import CliRunner
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cmd_record_gate_verdict,
+            ["--story-id", "TEST-341D", "--project-dir", str(tmp_path)],
+            input=json.dumps(
+                {"schema": "clean", "auth": "clean", "stub": "block:stub-detected"}
+            ),
+        )
+        assert result.exit_code == 0, result.output
+        state = json.loads(
+            (tmp_path / ".companion" / "state.json").read_text(encoding="utf-8")
+        )
+        assert state["gate_verdict"]["TEST-341D"]["stub"] == "block:stub-detected"
+
+    def test_malformed_json_fail_closes_but_exits_zero(self, tmp_path: Path) -> None:
+        from flex_build import cmd_record_gate_verdict  # type: ignore[import]
+        from click.testing import CliRunner
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cmd_record_gate_verdict,
+            ["--story-id", "TEST-341E", "--project-dir", str(tmp_path)],
+            input="not json at all",
+        )
+        assert result.exit_code == 0, result.output
+        state = json.loads(
+            (tmp_path / ".companion" / "state.json").read_text(encoding="utf-8")
+        )
+        assert state["gate_verdict"]["TEST-341E"] == {
+            "schema": "block:malformed-verdict",
+            "auth": "block:malformed-verdict",
+            "stub": "block:malformed-verdict",
+        }
 
 
 # ---------------------------------------------------------------------------

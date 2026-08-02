@@ -114,6 +114,35 @@ def _stamp_active_story(project_path: Path, story_id: str) -> None:
         pass
 
 
+def _clear_gate_verdict(project_path: Path, story_id: str) -> None:
+    """Pop *story_id*'s entry from ``state.json["gate_verdict"]``, if present.
+
+    INFRA-341: mirrors ``clear_attempt_count``/``_clear_active_story``/
+    ``clear_permissions_artifact`` — a story that has landed or been
+    discarded must not leave a stale recorded gate verdict behind for a
+    future re-attempt of the same story_id to silently reuse. Writes back
+    via ``_atomic_write_json`` only when a key was actually removed, to
+    avoid a needless write/lock on the common case where no verdict was
+    ever recorded for this story. Silent no-op when ``.companion/state.json``
+    does not exist or is malformed.
+    """
+    state_path = project_path / ".companion" / "state.json"
+    if not state_path.exists():
+        return
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if not isinstance(state, dict):
+            return
+    except (json.JSONDecodeError, OSError):
+        return
+    verdicts = state.get("gate_verdict")
+    if not isinstance(verdicts, dict) or story_id not in verdicts:
+        return
+    verdicts.pop(story_id, None)
+    state["gate_verdict"] = verdicts
+    _atomic_write_json(state_path, state)
+
+
 def _clear_active_story(project_path: Path, story_id: str) -> None:
     """Clear *story_id*'s entry from ``current_stories`` in the main
     checkout's ``.companion/state.json`` — and only that entry.
@@ -4476,6 +4505,98 @@ def cmd_record_intent_review(phase_key: str, verdict: str, project_dir: str) -> 
     click.echo(f"pre-build intent review: recorded {verdict} for phase {phase_key}")
 
 
+@flex_build.command("record-gate-verdict")
+@click.option(
+    "--story-id",
+    "story_id",
+    required=True,
+    type=str,
+    help="Story ID (e.g. INFRA-224) the gate-worker's verdict is for.",
+)
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_record_gate_verdict(story_id: str, project_dir: str) -> None:
+    """Record a gate-worker verdict for *story_id* (INFRA-341).
+
+    Reads the gate worker's raw stdout text from stdin in full (not a CLI
+    argument — avoids shell-escaping a JSON payload) and writes
+    ``state.json["gate_verdict"][story_id] = verdict_map`` atomically (temp
+    file + ``os.replace``, mirroring every other ``state.json`` writer in
+    this module). This is the durable evidence
+    ``next_action.infer_position``/``resolve_next_action``'s Row 4b reads on
+    the next poll to route to ``await-user``/``spawn-builder`` via
+    ``route_gate_verdict`` instead of re-emitting ``spawn-gate-worker``
+    again — closing the INFRA-331 livelock (F8 of the phase-117 cold-eyes
+    review).
+
+    Investigation finding 2 (see ``docs/stories/INFRA/INFRA-341.md``): the
+    live gate worker (``skills/pairmode/gate_worker/SKILL.md``) only ever
+    emits two keys, ``schema`` and ``auth`` — ``stub`` is mechanical and
+    already resolved by Row 4a before ``spawn-gate-worker`` is ever emitted.
+    ``parse_worker_verdict_json`` requires all three keys and fail-closes
+    otherwise. So: if the parsed stdin is a JSON object without a ``"stub"``
+    key, this command injects ``"stub": "clean"`` before calling
+    ``parse_worker_verdict_json`` — reflecting true state, not loosening the
+    fail-closed contract. Stdin that is not valid JSON, or is a JSON object
+    that already carries an explicit non-clean ``"stub"`` value, is passed
+    through unmodified; the fail-closed malformed-JSON path is untouched.
+
+    Exits 0 unconditionally — on any well-formed or malformed stdin, the
+    fail-closed verdict from ``parse_worker_verdict_json`` is still a
+    *stored value*, never a CLI failure. A worker crash or garbage stdout
+    must still leave durable evidence the resolver can act on, not silently
+    vanish.
+    """
+    from next_action import parse_worker_verdict_json  # type: ignore[import]
+
+    raw_text = sys.stdin.read()
+
+    try:
+        parsed = json.loads(raw_text)
+    except json.JSONDecodeError:
+        parsed = None
+
+    if isinstance(parsed, dict) and "stub" not in parsed:
+        injected = dict(parsed)
+        injected["stub"] = "clean"
+        verdict_source = json.dumps(injected)
+    else:
+        verdict_source = raw_text
+
+    verdict_map = parse_worker_verdict_json(verdict_source)
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    companion = project_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    state_path = companion / "state.json"
+
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            if not isinstance(state, dict):
+                state = {}
+        except (json.JSONDecodeError, OSError):
+            state = {}
+    else:
+        state = {}
+
+    verdicts = state.get("gate_verdict")
+    if not isinstance(verdicts, dict):
+        verdicts = {}
+    verdicts[story_id] = verdict_map
+    state["gate_verdict"] = verdicts
+
+    _atomic_write_json(state_path, state)
+
+    summary = ", ".join(f"{gate}={value}" for gate, value in sorted(verdict_map.items()))
+    click.echo(f"gate verdict: recorded for story {story_id}: {summary}")
+
+
 @flex_build.command("check-index")
 @click.option(
     "--project-dir",
@@ -4775,6 +4896,11 @@ def cmd_merge_story_worktree(story_id: str, project_dir: str) -> None:
         # worktree.
         _clear_active_story(project_path, story_id)
         clear_permissions_artifact(story_id, project_path)
+        # INFRA-341: a landed story's recorded gate verdict is stale evidence
+        # once the story is done — clear it alongside the other per-story
+        # stamps so a future re-attempt of this story_id never inherits a
+        # verdict from a build that already completed.
+        _clear_gate_verdict(project_path, story_id)
         click.echo(f"merged {branch} into {main_branch}")
 
         if residue:
@@ -4838,6 +4964,11 @@ def cmd_discard_story_worktree(story_id: str, project_dir: str) -> None:
         # still running in its own worktree.
         _clear_active_story(project_path, story_id)
         clear_permissions_artifact(story_id, project_path)
+        # INFRA-341: a discarded story must not silently reuse a stale
+        # recorded gate verdict on its next attempt if its frontmatter
+        # changes during a spec revision — clear it alongside the other
+        # per-story stamps above.
+        _clear_gate_verdict(project_path, story_id)
         # INFRA-336: record that story_id was *just* discarded, at the same
         # point the current_stories stamp is cleared above — this is what
         # lets subagent_transcript._story_accepts_late_bump's reconciliation-

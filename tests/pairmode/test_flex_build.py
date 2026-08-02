@@ -1369,6 +1369,40 @@ class TestStoryWorktreeLifecycle:
         assert result.returncode == 0, result.stderr
         assert not counter_path.exists()
 
+    def test_merge_story_worktree_clears_gate_verdict(self, tmp_path: Path) -> None:
+        """INFRA-341: a landed story's recorded gate verdict is stale
+        evidence once the story is done — clear it alongside the attempt
+        counter/active-story/permissions stamps."""
+        _init_git_repo(tmp_path)
+        record = subprocess.run(
+            [
+                sys.executable, str(_SCRIPT),
+                "record-gate-verdict",
+                "--story-id", "WT-101",
+                "--project-dir", str(tmp_path),
+            ],
+            input=json.dumps({"schema": "clean", "auth": "clean"}),
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(_REPO_ROOT)},
+        )
+        assert record.returncode == 0, record.stderr
+        state_path = tmp_path / ".companion" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "WT-101" in state["gate_verdict"]
+
+        _create_worktree(tmp_path, "WT-101")
+        wt = tmp_path / ".pairmode-worktrees" / "WT-101"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-101",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        state_after = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "WT-101" not in state_after.get("gate_verdict", {})
+
     def test_merge_story_worktree_rebases_past_intervening_main_commits(
         self, tmp_path: Path
     ) -> None:
@@ -1477,6 +1511,38 @@ class TestStoryWorktreeLifecycle:
         assert branch.returncode != 0
         # The main worktree's own untracked content is untouched.
         assert (main_untracked / "keep.md").read_text() == "precious\n"
+
+    def test_discard_story_worktree_clears_gate_verdict(self, tmp_path: Path) -> None:
+        """INFRA-341: a discarded story must not silently reuse a stale
+        recorded gate verdict on its next attempt if its frontmatter
+        changes during a spec revision."""
+        _init_git_repo(tmp_path)
+        record = subprocess.run(
+            [
+                sys.executable, str(_SCRIPT),
+                "record-gate-verdict",
+                "--story-id", "WT-008",
+                "--project-dir", str(tmp_path),
+            ],
+            input=json.dumps({"schema": "block:no-owner-check", "auth": "clean"}),
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(_REPO_ROOT)},
+        )
+        assert record.returncode == 0, record.stderr
+        state_path = tmp_path / ".companion" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "WT-008" in state["gate_verdict"]
+
+        _create_worktree(tmp_path, "WT-008")
+        result = _run(
+            "discard-story-worktree",
+            "--story-id", "WT-008",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        state_after = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "WT-008" not in state_after.get("gate_verdict", {})
 
 
 def _write_pairmode_context(project: Path, data) -> Path:

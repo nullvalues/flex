@@ -1055,6 +1055,12 @@ def infer_position(project_dir: "str | Path") -> dict:
         The recorded pre-build intent-review verdict for the active phase's
         key (``state.json["pre_build_intent_review"][phase_key]``), or None
         when no review has been recorded yet (INFRA-315).
+    gate_verdict : dict[str, str] | None
+        The recorded gate-worker verdict map for ``next_story_id``
+        (``state.json["gate_verdict"][next_story_id]``), or None when
+        ``next_story_id`` is None or no verdict has been recorded yet for it
+        (INFRA-341). Fail-open: any missing file, missing key, non-dict
+        value, or parse error also yields None.
     """
     from next_story import find_next_story  # type: ignore[import]
     from model_selector import select_builder_model  # type: ignore[import]
@@ -1384,6 +1390,34 @@ def infer_position(project_dir: "str | Path") -> dict:
         except Exception:  # noqa: BLE001
             pass
 
+    # ------------------------------------------------------------------
+    # 8. Gate-worker verdict (INFRA-341)
+    #
+    # ``gate_verdict`` is the durable evidence a real gate-worker verdict
+    # was recorded for ``next_story_id`` — ``state.json["gate_verdict"]`` is
+    # a ``dict[story_id, verdict_map]`` written by
+    # ``flex_build.py record-gate-verdict`` once the judged-gate-tripped
+    # ``spawn-gate-worker`` spawn returns. Absent entry -> None (not yet
+    # recorded). Mirrors ``pre_build_intent_verdict`` exactly (same
+    # try/except Exception: pass shape, same isinstance guards on both the
+    # outer dict and the per-story value). Pure read: this module never
+    # writes this key.
+    # ------------------------------------------------------------------
+    gate_verdict: "dict[str, str] | None" = None
+    if next_story_id is not None:
+        try:
+            state_path3 = project_path / ".companion" / "state.json"
+            if state_path3.exists():
+                raw_state3 = json.loads(state_path3.read_text(encoding="utf-8"))
+                if isinstance(raw_state3, dict):
+                    verdicts = raw_state3.get("gate_verdict")
+                    if isinstance(verdicts, dict):
+                        candidate_verdict_map = verdicts.get(next_story_id)
+                        if isinstance(candidate_verdict_map, dict):
+                            gate_verdict = candidate_verdict_map
+        except Exception:  # noqa: BLE001
+            pass
+
     return {
         "active_phase_file": active_phase_file,
         "next_story_id": next_story_id,
@@ -1404,6 +1438,7 @@ def infer_position(project_dir: "str | Path") -> dict:
         "intent_review_opt_in": intent_review_opt_in,
         "phase_is_fresh": phase_is_fresh,
         "pre_build_intent_verdict": pre_build_intent_verdict,
+        "gate_verdict": gate_verdict,
     }
 
 
@@ -1743,6 +1778,23 @@ def resolve_next_action(
         # the call site. The selector function itself remains defined in
         # model_selector.py for a future real consumer (see
         # docs/stories/INFRA/INFRA-340.md).
+        #
+        # INFRA-341: this is the livelock fix (F8 of the phase-117 cold-eyes
+        # review). Once a real gate-worker verdict has been recorded for
+        # this story (``position["gate_verdict"]`` is not None), apply the
+        # existing DP3.2 aggregation (``route_gate_verdict``) to it instead
+        # of re-emitting spawn-gate-worker again — routing to await-user on
+        # any block, or spawn-builder on flag/clean. The first poll after a
+        # judged gate trips still spawns the gate worker (no verdict
+        # recorded yet -> falls through below, unchanged); every poll after
+        # the orchestrator records that worker's verdict resolves instead of
+        # looping.
+        if position.get("gate_verdict") is not None:
+            return route_gate_verdict(
+                position["gate_verdict"],
+                next_story_id,
+                meta_base=_with_claimed_skipped(meta),
+            )
         return make_action(
             SPAWN_GATE_WORKER,
             scalar=next_story_id,

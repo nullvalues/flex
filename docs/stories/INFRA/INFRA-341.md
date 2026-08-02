@@ -348,3 +348,16 @@ Spec-preflight note (INFRA-190/191, INFRA-320 § C): the scan flags
 intentional — the file is read for context (its live 2-key verdict-map contract is why Ensures 3's
 CLI-side default exists) but is explicitly listed in "Do not" as unmodified by this story (its
 judgment logic and return-format examples are already correct and are not touched).
+
+Builder-time evidence (INFRA-317, quoted per `builder/procedure.md`'s covered-contracts gate):
+`docs/architecture.md` § Module structure's `next_action.py` bullet, as read fresh before editing
+either file, ended with: `"...spawn-loop-breaker with reason=\"\")"` — the tail of the
+HARNESS009-main-through-INFRA-328 addendum chain the gate confirmed both halves cover. Also read:
+the file's *own* line, "HARNESS002-main adds spawn-gate-worker to ACTIONS, ... parse_worker_verdict_text
+(worker text return -> per-gate verdict map), route_gate_verdict (DP3.2 aggregation...)" — the stale
+`parse_worker_verdict_text` name Ensures 11 called out as needing correction (removed from the
+source file by RESOLVER-016, but the docstring reference in this doc bullet was never updated,
+confirming the divergence named above). Both corrected in this build: `parse_worker_verdict_text` ->
+`parse_worker_verdict_json` in place, and a dated 2026-08-01 INFRA-341 addendum appended (following
+the file's own append-only convention for this bullet) recording the `gate_verdict`/Row 4b/
+`record-gate-verdict` additions per Ensures 11.
