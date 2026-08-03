@@ -2,7 +2,7 @@
 id: INFRA-359
 rail: INFRA
 title: Wire shadow-reviewer dispatch into CLAUDE.build.md and next_action.py
-status: draft
+status: complete
 phase: "118"
 story_class: code
 auth_gated: false
