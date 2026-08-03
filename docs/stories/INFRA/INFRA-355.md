@@ -2,7 +2,7 @@
 id: INFRA-355
 rail: INFRA
 title: Add Narrative of Record as spec-writer's sixth bounded input (DP1.3)
-status: draft
+status: complete
 phase: "118"
 story_class: code
 auth_gated: false
