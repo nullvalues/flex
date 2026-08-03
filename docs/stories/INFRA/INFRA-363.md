@@ -13,6 +13,8 @@ touches:
   - docs/stories/INFRA/INFRA-357.md
   - docs/architecture.md
   - docs/narratives/SPEC-WRITER/SPEC-WRITER-000-ideology.md
+  - docs/narratives/BUILDER/BUILDER-000-ideology.md
+  - docs/exemplars/EXEMPLAR-000.md
 narrative_roles: [SPEC-WRITER]
 ---
 
@@ -85,6 +87,17 @@ alongside INFRA-357, in any order the operator chooses.
    Step-2-item-4 exemplar-range citation ("roughly 14-36 lines") to reflect that a frozen exemplar
    (Ensures 1) replaces a range-based selection entirely, so the now-unreachable range language is
    removed rather than left stale alongside the new frozen-file mechanism.
+6. Every other description of the exemplar-selection mechanism in the same narrative file, and in
+   sibling narrative files, is updated to match — not just the two spots Ensures 5 names. At
+   minimum: `SPEC-WRITER-000-ideology.md`'s `## Narrative` opening line ("one of its five inputs is
+   a recent complete story used as a format exemplar") and its `## Always true` bullet ("one
+   exemplar complete story") both still describe the pre-this-story rotating mechanism and must be
+   corrected to describe the frozen-file mechanism; and `docs/narratives/BUILDER/BUILDER-000-ideology.md`
+   references the same rotating-exemplar mechanism ("one recent complete story as format template")
+   and must be updated too. Search both files for every mention of "recent" + "exemplar"/"format
+   template" before considering this Ensures satisfied — a self-contradictory narrative (one section
+   describing the new mechanism, another still describing the old one) is a documentation-currency
+   failure, not a partial pass.
 
 **Forbidden proxy:** a brevity or proportionality instruction (INFRA-357's fix) without a frozen
 exemplar (this story's fix) is not sufficient on its own — the exemplar-selection mechanism is a
