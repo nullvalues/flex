@@ -12,6 +12,7 @@ primary_files:
 touches:
   - docs/stories/INFRA/INFRA-357.md
   - docs/architecture.md
+narrative_roles: [SPEC-WRITER]
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->

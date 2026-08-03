@@ -71,6 +71,15 @@ this phase, record the management surface before the phase is checkpointed.
 |---|---|---|
 | | | |
 
+## Dogfood note
+
+INFRA-362 (this phase's closing story) exercised the narrative-citation mechanism for real against
+`docs/stories/INFRA/INFRA-363.md`. See its `## Evidence` section for the full record: a real
+spec-writer run, a real intent-reviewer narrative-alignment check (FAIL — a genuine, uncontrived
+finding), one inline fix (CER-161's phase-118-caused portion: a procedure/narrative contract gap
+this phase itself introduced), and three CER filings (CER-160, CER-161, CER-162) for what needs a
+separate story or coordination with another phase.
+
 ---
 
 ### CP-118 Cold-eyes checklist

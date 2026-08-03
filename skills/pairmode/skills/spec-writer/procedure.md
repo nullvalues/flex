@@ -154,7 +154,10 @@ complete set of sections for this story.
   `status`, `phase`, `primary_files`, `touches`, `story_class`, or any other field —
   **except** the optional `model:` / `reviewer_model:` fields, which Step 4b below
   may add (never edited if already present; a pre-existing declared value is a
-  human decision this procedure never overrides).
+  human decision this procedure never overrides); and **except** `narrative_roles:`,
+  which this procedure may set (from empty/absent) when the stub's own scope
+  genuinely warrants citing a role narrative — a judgment call the spec-writer
+  makes, never auto-inferred from title/rail alone (INFRA-355/INFRA-362).
 - Preserve any existing body sections that are already complete — only add or expand
   what is missing.
 
