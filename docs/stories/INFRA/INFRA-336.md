@@ -2,7 +2,7 @@
 id: INFRA-336
 rail: INFRA
 title: Fix FAIL-escalation ladder: attempt-counter bump reliably fires after discard, plus a stage-to-stage integration test harness
-status: draft
+status: complete
 phase: "117"
 story_class: code
 auth_gated: false

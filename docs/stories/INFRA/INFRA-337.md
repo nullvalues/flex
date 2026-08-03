@@ -2,7 +2,7 @@
 id: INFRA-337
 rail: INFRA
 title: Fix JSON-verdict parser: parse_worker_outcome must handle braces inside BUILD-RESULT/REVIEW-RESULT string fields
-status: draft
+status: complete
 phase: "117"
 story_class: code
 auth_gated: false

@@ -2,7 +2,7 @@
 id: INFRA-347
 rail: INFRA
 title: merge-story-worktree must flip a landed story's status to complete (CER-136)
-status: draft
+status: complete
 phase: "117"
 story_class: code
 auth_gated: false

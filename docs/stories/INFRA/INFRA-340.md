@@ -2,7 +2,7 @@
 id: INFRA-340
 rail: INFRA
 title: Complete INFRA-333 model-selector wiring: checkpoint-security/checkpoint-intent model dispatch, gate_worker_model consumer-or-removal
-status: draft
+status: complete
 phase: "117"
 story_class: code
 auth_gated: false

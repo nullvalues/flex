@@ -2,7 +2,7 @@
 id: INFRA-339
 rail: INFRA
 title: Fix or remove INFRA-316 pause-context: OUTCOME_PASS is unreachable from infer_position; also fix session-scoping mismatch
-status: draft
+status: complete
 phase: "117"
 story_class: code
 auth_gated: false

@@ -2,7 +2,7 @@
 id: INFRA-346
 rail: INFRA
 title: Unify the two phase-completion definitions so the resolver's own gate is at least as strict as checkpoint-tag's deferral gate
-status: draft
+status: complete
 phase: "117"
 story_class: code
 auth_gated: false

@@ -21,21 +21,21 @@ Close every open finding from the two-model cold-eyes review of the build-loop h
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-336 | Fix FAIL-escalation ladder: attempt-counter bump reliably fires after discard, plus a stage-to-stage integration test harness | draft |
-| INFRA-337 | Fix JSON-verdict parser: parse_worker_outcome must handle braces inside BUILD-RESULT/REVIEW-RESULT string fields | draft |
-| INFRA-338 | Fix cer.py backlog-append corruption: unify the row parser between reader and writer | draft |
-| INFRA-339 | Fix or remove INFRA-316 pause-context: OUTCOME_PASS is unreachable from infer_position; also fix session-scoping mismatch | draft |
-| INFRA-340 | Complete INFRA-333 model-selector wiring: checkpoint-security/checkpoint-intent model dispatch, gate_worker_model consumer-or-removal | draft |
-| INFRA-341 | Wire spawn-gate-worker's verdict to a real consumer, closing the INFRA-331 livelock | draft |
-| INFRA-342 | Reconcile CLAUDE.build.md and its .j2 template; add an automated dispatch-parity drift check | draft |
-| INFRA-343 | Fix checkpoint build gate: 60s timeout silently passes on a 175s+ suite | draft |
-| INFRA-344 | Commit spec-writer output before create-story-worktree branches off HEAD | draft |
-| INFRA-345 | De-duplicate attempt-recording writers: retire or reconcile the legacy record_attempt.py CLI path | draft |
-| INFRA-346 | Unify the two phase-completion definitions so the resolver's own gate is at least as strict as checkpoint-tag's deferral gate | draft |
-| INFRA-347 | merge-story-worktree must flip a landed story's status to complete (CER-136) | draft |
-| INFRA-348 | Wire or remove dead effort.db columns: tool_uses, duration_ms, story_class/model_selection_reason | draft |
-| INFRA-349 | Docstring-currency sweep: fix harness docstrings/comments that misdescribe live wiring | draft |
-| INFRA-350 | De-couple pairmode tests from operator gpg-signing config | draft |
+| INFRA-336 | Fix FAIL-escalation ladder: attempt-counter bump reliably fires after discard, plus a stage-to-stage integration test harness | complete |
+| INFRA-337 | Fix JSON-verdict parser: parse_worker_outcome must handle braces inside BUILD-RESULT/REVIEW-RESULT string fields | complete |
+| INFRA-338 | Fix cer.py backlog-append corruption: unify the row parser between reader and writer | complete |
+| INFRA-339 | Fix or remove INFRA-316 pause-context: OUTCOME_PASS is unreachable from infer_position; also fix session-scoping mismatch | complete |
+| INFRA-340 | Complete INFRA-333 model-selector wiring: checkpoint-security/checkpoint-intent model dispatch, gate_worker_model consumer-or-removal | complete |
+| INFRA-341 | Wire spawn-gate-worker's verdict to a real consumer, closing the INFRA-331 livelock | complete |
+| INFRA-342 | Reconcile CLAUDE.build.md and its .j2 template; add an automated dispatch-parity drift check | complete |
+| INFRA-343 | Fix checkpoint build gate: 60s timeout silently passes on a 175s+ suite | complete |
+| INFRA-344 | Commit spec-writer output before create-story-worktree branches off HEAD | complete |
+| INFRA-345 | De-duplicate attempt-recording writers: retire or reconcile the legacy record_attempt.py CLI path | complete |
+| INFRA-346 | Unify the two phase-completion definitions so the resolver's own gate is at least as strict as checkpoint-tag's deferral gate | complete |
+| INFRA-347 | merge-story-worktree must flip a landed story's status to complete (CER-136) | complete |
+| INFRA-348 | Wire or remove dead effort.db columns: tool_uses, duration_ms, story_class/model_selection_reason | complete |
+| INFRA-349 | Docstring-currency sweep: fix harness docstrings/comments that misdescribe live wiring | complete |
+| INFRA-350 | De-couple pairmode tests from operator gpg-signing config | complete |
 
 ## Ordering
 

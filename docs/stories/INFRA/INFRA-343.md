@@ -2,7 +2,7 @@
 id: INFRA-343
 rail: INFRA
 title: Fix checkpoint build gate: 60s timeout silently passes on a 175s+ suite
-status: draft
+status: complete
 phase: "117"
 story_class: code
 auth_gated: false

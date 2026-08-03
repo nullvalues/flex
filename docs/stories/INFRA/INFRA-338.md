@@ -2,7 +2,7 @@
 id: INFRA-338
 rail: INFRA
 title: Fix cer.py backlog-append corruption: unify the row parser between reader and writer
-status: draft
+status: complete
 phase: "117"
 story_class: code
 auth_gated: false

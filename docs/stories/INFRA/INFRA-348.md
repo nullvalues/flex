@@ -2,7 +2,7 @@
 id: INFRA-348
 rail: INFRA
 title: Wire or remove dead effort.db columns: tool_uses, duration_ms, story_class/model_selection_reason
-status: draft
+status: complete
 phase: "117"
 story_class: code
 auth_gated: false

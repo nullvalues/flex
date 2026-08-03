@@ -2,7 +2,7 @@
 id: INFRA-350
 rail: INFRA
 title: De-couple pairmode tests from operator gpg-signing config
-status: draft
+status: complete
 phase: "117"
 story_class: code
 auth_gated: false

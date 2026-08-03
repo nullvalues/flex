@@ -2,7 +2,7 @@
 id: INFRA-349
 rail: INFRA
 title: Docstring-currency sweep: fix harness docstrings/comments that misdescribe live wiring
-status: draft
+status: complete
 phase: "117"
 story_class: doc
 auth_gated: false

@@ -2,7 +2,7 @@
 id: INFRA-345
 rail: INFRA
 title: De-duplicate attempt-recording writers: retire or reconcile the legacy record_attempt.py CLI path
-status: draft
+status: complete
 phase: "117"
 story_class: code
 auth_gated: false

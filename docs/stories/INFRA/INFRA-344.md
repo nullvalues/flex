@@ -2,7 +2,7 @@
 id: INFRA-344
 rail: INFRA
 title: Commit spec-writer output before create-story-worktree branches off HEAD
-status: draft
+status: complete
 phase: "117"
 story_class: code
 auth_gated: false

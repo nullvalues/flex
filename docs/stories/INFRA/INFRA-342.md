@@ -2,7 +2,7 @@
 id: INFRA-342
 rail: INFRA
 title: Reconcile CLAUDE.build.md and its .j2 template; add an automated dispatch-parity drift check
-status: draft
+status: complete
 phase: "117"
 story_class: code
 auth_gated: false

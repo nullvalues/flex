@@ -2,7 +2,7 @@
 id: INFRA-341
 rail: INFRA
 title: Wire spawn-gate-worker's verdict to a real consumer, closing the INFRA-331 livelock
-status: draft
+status: complete
 phase: "117"
 story_class: code
 auth_gated: false
