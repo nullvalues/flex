@@ -2,7 +2,7 @@
 id: INFRA-369
 rail: INFRA
 title: Decouple a migrate test from the literal checkout directory name flex-harness (CER-146)
-status: draft
+status: complete
 phase: "119"
 story_class: code
 auth_gated: false

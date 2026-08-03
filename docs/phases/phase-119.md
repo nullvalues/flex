@@ -40,7 +40,7 @@ unresolved operational findings.
 | INFRA-364 | Trim dead/duplicated content from ideology.md, architecture.md, and pairmode SKILL.md | complete |
 | INFRA-367 | Add non-interactive rail-creation flags to story_new.py (CER-117) | complete |
 | INFRA-368 | Fix resolverState.ts getFlexBuildPath() resolving one directory too high (CER-142) | complete |
-| INFRA-369 | Decouple a migrate test from the literal checkout directory name flex-harness (CER-146) | draft |
+| INFRA-369 | Decouple a migrate test from the literal checkout directory name flex-harness (CER-146) | complete |
 | INFRA-370 | Auto-derive model_selector.py's test file into touches: when the module is touched (CER-145) | draft |
 | INFRA-371 | Close four residual doc/scoping seams left by INFRA-311 canon-retirement (CER-133) | draft |
 | INFRA-372 | Track .pairmode-overrides in CANONICAL_FILES/SCAFFOLD_FILES audit surfaces (CER-132) | draft |
