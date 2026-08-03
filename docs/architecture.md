@@ -2139,11 +2139,24 @@ scaffolded file uses, rather than hand-authored per project.
 OPERATOR's narrative is deliberately excluded from `NARRATIVE_FILES` — it uses
 a seed-then-extend mechanism instead of scaffold-verbatim (INFRA-353), since an
 operator's own narrative is inherently project-specific content a template
-cannot supply. `pairmode_sync.py`'s `sync-narratives` subcommand (INFRA-352,
-below) brings already-bootstrapped projects' narratives in line with
-`NARRATIVE_FILES` for a project bootstrapped before it existed; backfilling
-flex's own `docs/narratives/` from these new templates is a separate story
-(INFRA-354).
+cannot supply. Concretely: `bootstrap.py`'s `OPERATOR_SEED_FILE: tuple[str,
+str]` (the same `(dest_rel, template_name)` shape as one `NARRATIVE_FILES`
+entry, just not a member of that list) scaffolds a generic, project-agnostic
+`OPERATOR-000-ideology.md` seed via the same `_render_template`/`_write_file`
+pipeline, so it appears at fresh bootstrap exactly like the other nine from
+the operator's point of view. Bootstrap's interactive prompt flow gains one
+more free-text, blank-to-skip question in the same style as "What does this
+project produce?"/"Why does this project exist?" (`--operator-note`, prompted
+if omitted): a non-blank answer is written to a separate
+`docs/narratives/OPERATOR/OPERATOR-010-project.md` extension file (the
+steps-of-10 numbering convention, § Structure in `docs/narratives/README.md`);
+a blank answer writes no extension file at all. The seed is never edited by
+this prompt — only the numbered extension file diverges per project.
+`pairmode_sync.py`'s `sync-narratives` subcommand (INFRA-352, below) brings
+already-bootstrapped projects' narratives in line with `NARRATIVE_FILES` for a
+project bootstrapped before it existed; `OPERATOR_SEED_FILE` is out of that
+subcommand's scope (unchanged by this story), and backfilling flex's own
+`docs/narratives/` from these new templates is a separate story (INFRA-354).
 
 **Observability.** `tests/pairmode/test_bootstrap.py`'s
 `TestNarrativeFilesParity` asserts all nine `NARRATIVE_FILES` entries are

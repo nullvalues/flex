@@ -131,6 +131,21 @@ NARRATIVE_FILES: list[tuple[str, str]] = [
     ("docs/narratives/ORCHESTRATOR/ORCHESTRATOR-000-ideology.md", "narratives/ORCHESTRATOR/ORCHESTRATOR-000-ideology.md.j2"),
 ]
 
+# INFRA-353: OPERATOR's seed narrative is scaffolded through the same
+# _render_template/_write_file pipeline as NARRATIVE_FILES (so it appears at
+# fresh bootstrap "like the other nine" from the operator's point of view),
+# but is deliberately kept out of that shared list (docs/architecture.md §
+# Harness-role narratives: NARRATIVE_FILES) — unlike the nine harness-role
+# narratives, OPERATOR's seed is generic ("a" typical operator, not "the"
+# harness's own role) and is meant to be extended per-project via a separate,
+# numbered `OPERATOR-010`-and-onward extension file. The seed itself is never
+# hand-edited; only the extension file (written below, from the operator's
+# free-text prompt answer) diverges per project.
+OPERATOR_SEED_FILE: tuple[str, str] = (
+    "docs/narratives/OPERATOR/OPERATOR-000-ideology.md",
+    "narratives/OPERATOR/OPERATOR-000-ideology.md.j2",
+)
+
 # Default deny list written into .claude/settings.json.
 # Kept minimal — scope_guard.py (Phase 55) enforces per-story file scope at
 # the hook level. Only the permissions files directory is hard-denied here to
@@ -1225,6 +1240,13 @@ def _initialize_rails(
 @click.option("--what", default=None, help="What the project produces (prompted if omitted; blank allowed).")
 @click.option("--why", default=None, help="Why the project exists (prompted if omitted; blank allowed).")
 @click.option(
+    "--operator-note",
+    default=None,
+    help="How the operator wants to work with this build loop — priorities, review habits, "
+    "risk tolerance (prompted if omitted; blank allowed). A non-blank answer is written to "
+    "docs/narratives/OPERATOR/OPERATOR-010-project.md; blank writes no extension file.",
+)
+@click.option(
     "--build-command",
     default=None,
     help="Build/test command (inferred from project files if omitted, else prompted).",
@@ -1292,6 +1314,7 @@ def bootstrap(
     stack: str | None,
     what: str | None,
     why: str | None,
+    operator_note: str | None,
     build_command: str | None,
     test_dir: str | None,
     phase_title: str | None,
@@ -1349,6 +1372,22 @@ def bootstrap(
             "warning: non-interactive mode — docs/brief.md what/why left blank.\n"
             "         Pass --what and --why flags to populate, or edit docs/brief.md after bootstrap.",
             err=True,
+        )
+
+    # INFRA-353: operator seed-then-extend — one more free-text, blank-to-skip
+    # prompt in the same style as what/why, above. A non-blank answer becomes
+    # docs/narratives/OPERATOR/OPERATOR-010-project.md (written in step 4c,
+    # below); a blank answer writes nothing — the OPERATOR-000 seed itself is
+    # never touched by this prompt either way.
+    if operator_note is None:
+        operator_note = (
+            click.prompt(
+                "Anything specific about how you want to work with this build loop — "
+                "priorities, review habits, risk tolerance? (blank to skip)",
+                default="",
+            )
+            if sys.stdin.isatty() and not yes
+            else ""
         )
 
     if build_command is None:
@@ -1633,6 +1672,48 @@ def bootstrap(
             click.echo(f"  ERROR rendering {template_name}: {exc}", err=True)
             sys.exit(1)
         _write_file(dest, content, dry_run=dry_run, yes=yes)
+
+    # ------------------------------------------------------------------
+    # 4c. Write the OPERATOR seed-then-extend narrative (INFRA-353)
+    # ------------------------------------------------------------------
+    # The seed always scaffolds, identically, regardless of the operator-note
+    # prompt answer — the same render/write pipeline as NARRATIVE_FILES, just
+    # kept out of that shared list (see OPERATOR_SEED_FILE above).
+    operator_seed_dest_rel, operator_seed_template = OPERATOR_SEED_FILE
+    operator_seed_dest = project_path / operator_seed_dest_rel
+    try:
+        operator_seed_content = _render_template(operator_seed_template, context)
+    except jinja2.TemplateError as exc:
+        click.echo(f"  ERROR rendering {operator_seed_template}: {exc}", err=True)
+        sys.exit(1)
+    _write_file(operator_seed_dest, operator_seed_content, dry_run=dry_run, yes=yes)
+
+    # A non-blank operator-note answer becomes a separate, numbered extension
+    # file — the seed above is never edited by this prompt (the story's
+    # forbidden proxy). A blank answer writes no extension file at all.
+    if operator_note:
+        operator_extension_dest = (
+            project_path / "docs" / "narratives" / "OPERATOR" / "OPERATOR-010-project.md"
+        )
+        operator_extension_content = (
+            "---\n"
+            "id: OPERATOR-010\n"
+            "role: OPERATOR\n"
+            "title: Project-specific operator extension\n"
+            "status: draft\n"
+            "stories: []\n"
+            "---\n"
+            "\n"
+            "## Narrative\n"
+            "\n"
+            f"{operator_note}\n"
+        )
+        if dry_run:
+            click.echo(f"  [dry-run] would write: {operator_extension_dest}")
+        else:
+            operator_extension_dest.parent.mkdir(parents=True, exist_ok=True)
+            operator_extension_dest.write_text(operator_extension_content, encoding="utf-8")
+            click.echo(f"  wrote: {operator_extension_dest}")
 
     # ------------------------------------------------------------------
     # 4.5. Save template context for audit/sync rendering

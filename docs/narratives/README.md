@@ -35,6 +35,22 @@ docs/narratives/<ROLE>/<ROLE>-NNN-<kebab-slug>.md
   **Never** (explicit anti-behaviors) · **Open gaps** (running list, the
   comparison against the actual harness that motivated this exercise).
 
+### OPERATOR's seed-then-extend path (INFRA-353)
+
+The other nine roles are plain template-and-sync: `OPERATOR-000` is instead a
+**templated seed, not a finished narrative** — bootstrap scaffolds a generic
+"typical operator" `OPERATOR-000-ideology.md` from
+`skills/pairmode/templates/narratives/OPERATOR/OPERATOR-000-ideology.md.j2`
+(project-agnostic, no reference to any one project's own findings), and
+bootstrap's interactive flow asks one more free-text, blank-to-skip question
+alongside "What does this project produce?"/"Why does this project exist?":
+how this project's operator actually wants to work with the loop. A non-blank
+answer becomes `OPERATOR-010-project.md` — a separate numbered extension file,
+never a rewrite of the seed. A blank answer writes nothing; the seed alone is
+still a complete, generic narrative. Further extension beyond bootstrap time
+(`OPERATOR-020-*.md` and onward) is always available by hand-authoring a file
+in the same directory — no tooling is required for that.
+
 ## Roles
 
 | Role | Era | One line |
