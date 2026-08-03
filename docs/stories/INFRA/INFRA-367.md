@@ -2,7 +2,7 @@
 id: INFRA-367
 rail: INFRA
 title: Add non-interactive rail-creation flags to story_new.py (CER-117)
-status: draft
+status: complete
 phase: "119"
 story_class: code
 auth_gated: false
