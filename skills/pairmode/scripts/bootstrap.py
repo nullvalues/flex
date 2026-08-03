@@ -108,6 +108,29 @@ AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/spec-writer.md", "agents/spec-writer.md.j2"),
 ]
 
+# INFRA-351: the nine harness-role narratives (the build-loop roles themselves —
+# BUILDER, REVIEWER, LOOP-BREAKER, SECURITY-AUDITOR, INTENT-REVIEWER,
+# DOCS-REVIEWER, GATE-WORKER, SPEC-WRITER, ORCHESTRATOR) describe the harness,
+# not any one project, and so are harness-owned, templated, and scaffolded like
+# every other file in this module rather than hand-authored per project — the
+# same "harness-owned, templated, never hand-diverged" contract AGENT_FILES
+# already establishes for `.claude/agents/*.md`. OPERATOR's narrative is
+# handled separately (a seed-then-extend mechanism, INFRA-353) and is
+# deliberately not in this list. A `sync-narratives` command for
+# already-bootstrapped projects is out of scope here (INFRA-352), as is
+# backfilling flex's own `docs/narratives/` from these templates (INFRA-354).
+NARRATIVE_FILES: list[tuple[str, str]] = [
+    ("docs/narratives/BUILDER/BUILDER-000-ideology.md", "narratives/BUILDER/BUILDER-000-ideology.md.j2"),
+    ("docs/narratives/REVIEWER/REVIEWER-000-ideology.md", "narratives/REVIEWER/REVIEWER-000-ideology.md.j2"),
+    ("docs/narratives/LOOP-BREAKER/LOOP-BREAKER-000-ideology.md", "narratives/LOOP-BREAKER/LOOP-BREAKER-000-ideology.md.j2"),
+    ("docs/narratives/SECURITY-AUDITOR/SECURITY-AUDITOR-000-ideology.md", "narratives/SECURITY-AUDITOR/SECURITY-AUDITOR-000-ideology.md.j2"),
+    ("docs/narratives/INTENT-REVIEWER/INTENT-REVIEWER-000-ideology.md", "narratives/INTENT-REVIEWER/INTENT-REVIEWER-000-ideology.md.j2"),
+    ("docs/narratives/DOCS-REVIEWER/DOCS-REVIEWER-000-ideology.md", "narratives/DOCS-REVIEWER/DOCS-REVIEWER-000-ideology.md.j2"),
+    ("docs/narratives/GATE-WORKER/GATE-WORKER-000-ideology.md", "narratives/GATE-WORKER/GATE-WORKER-000-ideology.md.j2"),
+    ("docs/narratives/SPEC-WRITER/SPEC-WRITER-000-ideology.md", "narratives/SPEC-WRITER/SPEC-WRITER-000-ideology.md.j2"),
+    ("docs/narratives/ORCHESTRATOR/ORCHESTRATOR-000-ideology.md", "narratives/ORCHESTRATOR/ORCHESTRATOR-000-ideology.md.j2"),
+]
+
 # Default deny list written into .claude/settings.json.
 # Kept minimal — scope_guard.py (Phase 55) enforces per-story file scope at
 # the hook level. Only the permissions files directory is hard-denied here to
@@ -1598,6 +1621,18 @@ def bootstrap(
             wrote = _write_file(dest, content, dry_run=dry_run, yes=yes)
             if wrote and not dry_run:
                 written_agent_shells.append(dest_rel)
+
+    # ------------------------------------------------------------------
+    # 4b. Write the nine harness-role narrative files (INFRA-351)
+    # ------------------------------------------------------------------
+    for dest_rel, template_name in NARRATIVE_FILES:
+        dest = project_path / dest_rel
+        try:
+            content = _render_template(template_name, context)
+        except jinja2.TemplateError as exc:
+            click.echo(f"  ERROR rendering {template_name}: {exc}", err=True)
+            sys.exit(1)
+        _write_file(dest, content, dry_run=dry_run, yes=yes)
 
     # ------------------------------------------------------------------
     # 4.5. Save template context for audit/sync rendering

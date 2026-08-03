@@ -12,6 +12,8 @@ from click.testing import CliRunner
 from skills.pairmode.scripts.bootstrap import (
     bootstrap,
     AGENT_FILES,
+    NARRATIVE_FILES,
+    TEMPLATES_DIR,
     DEFAULT_DENY,
     PAIRMODE_ALLOW,
     PAIRMODE_DEFAULT_RAILS,
@@ -125,6 +127,17 @@ EXPECTED_DEST_PATHS = [
     "docs/phases/index.md",
     "docs/phases/phase-1.md",
     "docs/cer/backlog.md",
+    # INFRA-351: the nine harness-role narratives, scaffolded like every other
+    # harness-owned file via NARRATIVE_FILES.
+    "docs/narratives/BUILDER/BUILDER-000-ideology.md",
+    "docs/narratives/REVIEWER/REVIEWER-000-ideology.md",
+    "docs/narratives/LOOP-BREAKER/LOOP-BREAKER-000-ideology.md",
+    "docs/narratives/SECURITY-AUDITOR/SECURITY-AUDITOR-000-ideology.md",
+    "docs/narratives/INTENT-REVIEWER/INTENT-REVIEWER-000-ideology.md",
+    "docs/narratives/DOCS-REVIEWER/DOCS-REVIEWER-000-ideology.md",
+    "docs/narratives/GATE-WORKER/GATE-WORKER-000-ideology.md",
+    "docs/narratives/SPEC-WRITER/SPEC-WRITER-000-ideology.md",
+    "docs/narratives/ORCHESTRATOR/ORCHESTRATOR-000-ideology.md",
 ]
 
 
@@ -4875,3 +4888,71 @@ class TestPortableHookRegistration:
         _r_pretooluse(settings_path, plugin_root)
 
         assert settings_path.read_text(encoding="utf-8") == committed_before
+
+
+# ---------------------------------------------------------------------------
+# NARRATIVE_FILES parity (INFRA-351)
+# ---------------------------------------------------------------------------
+
+NARRATIVE_ROLES = [
+    "BUILDER",
+    "REVIEWER",
+    "LOOP-BREAKER",
+    "SECURITY-AUDITOR",
+    "INTENT-REVIEWER",
+    "DOCS-REVIEWER",
+    "GATE-WORKER",
+    "SPEC-WRITER",
+    "ORCHESTRATOR",
+]
+
+
+class TestNarrativeFilesParity:
+    """NARRATIVE_FILES must list all nine harness-role narratives, each with a
+    real template source on disk and a well-formed
+    docs/narratives/<ROLE>/<ROLE>-000-ideology.md destination — mirroring the
+    existing AGENT_FILES-style guard (INFRA-351 Ensures 4)."""
+
+    def test_all_nine_roles_present(self):
+        dest_paths = {dest_rel for dest_rel, _ in NARRATIVE_FILES}
+        for role in NARRATIVE_ROLES:
+            expected = f"docs/narratives/{role}/{role}-000-ideology.md"
+            assert expected in dest_paths, (
+                f"NARRATIVE_FILES missing entry for {role}: {expected}"
+            )
+        assert len(NARRATIVE_FILES) == len(NARRATIVE_ROLES) == len(dest_paths)
+
+    def test_no_operator_entry(self):
+        """OPERATOR's narrative is a seed-then-extend mechanism (INFRA-353),
+        deliberately not part of this story's scaffold-verbatim list."""
+        dest_paths = {dest_rel for dest_rel, _ in NARRATIVE_FILES}
+        assert not any("OPERATOR" in d for d in dest_paths)
+
+    def test_destination_paths_well_formed(self):
+        for dest_rel, _template_name in NARRATIVE_FILES:
+            role = dest_rel.split("/")[2]
+            assert dest_rel == f"docs/narratives/{role}/{role}-000-ideology.md", (
+                f"Malformed NARRATIVE_FILES destination: {dest_rel}"
+            )
+
+    def test_template_sources_exist_on_disk(self):
+        for _dest_rel, template_name in NARRATIVE_FILES:
+            template_path = TEMPLATES_DIR / template_name
+            assert template_path.is_file(), (
+                f"NARRATIVE_FILES template source missing: {template_path}"
+            )
+
+    def test_fresh_bootstrap_scaffolds_all_nine_rendered(self, tmp_path):
+        """Ensures 3: a live bootstrap run actually writes all nine files,
+        rendered (not raw Jinja2), not just that the list is populated
+        (the story's own 'forbidden proxy')."""
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        for role in NARRATIVE_ROLES:
+            dest = tmp_path / f"docs/narratives/{role}/{role}-000-ideology.md"
+            assert dest.exists(), f"Expected {dest} to be scaffolded, but it was not."
+            content = dest.read_text(encoding="utf-8")
+            assert content.strip(), f"{dest} is empty"
+            assert "{{" not in content and "{%" not in content, (
+                f"{dest} contains unrendered Jinja2 syntax: {content[:200]}"
+            )

@@ -2121,6 +2121,38 @@ runs and blocks for each;
 project-name-rendered, references its procedure skill, and its frontmatter
 `name:` matches the literal string `BUILD_CYCLE_SUBAGENTS` matches on.
 
+### Harness-role narratives: `NARRATIVE_FILES` (INFRA-351)
+
+`bootstrap.py`'s `NARRATIVE_FILES: list[tuple[str, str]]` (declared immediately
+after `AGENT_FILES`, same `(dest_rel, template_name)` tuple shape) is the same
+"harness-owned, templated, never hand-diverged" contract `AGENT_FILES` already
+establishes for `.claude/agents/*.md`, applied to the nine build-loop-role
+narrative documents (BUILDER, REVIEWER, LOOP-BREAKER, SECURITY-AUDITOR,
+INTENT-REVIEWER, DOCS-REVIEWER, GATE-WORKER, SPEC-WRITER, ORCHESTRATOR). Each
+narrative describes the harness role itself — identical across every pairmode
+project, never per-project content — so it is scaffolded from
+`skills/pairmode/templates/narratives/<ROLE>/<ROLE>-000-ideology.md.j2` into a
+fresh project's `docs/narratives/<ROLE>/<ROLE>-000-ideology.md` at bootstrap
+time, rendered through the same `_render_template` context every other
+scaffolded file uses, rather than hand-authored per project.
+
+OPERATOR's narrative is deliberately excluded from `NARRATIVE_FILES` — it uses
+a seed-then-extend mechanism instead of scaffold-verbatim (INFRA-353), since an
+operator's own narrative is inherently project-specific content a template
+cannot supply. A `sync-narratives` command bringing already-bootstrapped
+projects' narratives in line with template updates is a separate, later story
+(INFRA-352); backfilling flex's own `docs/narratives/` from these new
+templates is likewise separate (INFRA-354) — this story only relocates the
+content to template source and adds the fresh-bootstrap scaffold path.
+
+**Observability.** `tests/pairmode/test_bootstrap.py`'s
+`TestNarrativeFilesParity` asserts all nine `NARRATIVE_FILES` entries are
+present with well-formed destination paths, that every template source exists
+on disk, and that a live (fixture-driven) bootstrap run actually writes all
+nine `docs/narratives/<ROLE>/<ROLE>-000-ideology.md` files with rendered (not
+raw Jinja2) content — the forbidden-proxy check confirming the list isn't
+merely declared but is actually wired into the scaffold-time render loop.
+
 ### Work→agent-type classification and agent-type completeness checklist (INFRA-335)
 
 **Work→agent-type dispatch table.** The eight agent types in the pairmode build loop, the kind of work each is the correct dispatch target for, and the `next_action.py` action(s) that route to each:
