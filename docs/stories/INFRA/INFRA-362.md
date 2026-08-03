@@ -2,7 +2,7 @@
 id: INFRA-362
 rail: INFRA
 title: Dogfood narrative citation on flex's own story specs going forward
-status: draft
+status: complete
 phase: "118"
 story_class: methodology
 auth_gated: false
