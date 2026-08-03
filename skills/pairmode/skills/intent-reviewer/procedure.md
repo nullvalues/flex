@@ -55,6 +55,14 @@ You read **only**:
 3. The story specs referenced by the phase: `docs/stories/<RAIL>/<ID>.md`.
 4. `docs/architecture.md` and `docs/ideology.md` (project conventions and
    convictions, for drift detection).
+5. Any narrative file(s) cited by a phase story's `narrative_roles:` frontmatter
+   (INFRA-355) — `docs/narratives/<ROLE>/<ROLE>-000-ideology.md` and any numbered
+   descendants that exist for that role. Collect the union across every story in
+   the phase, dedup by role (a role cited by more than one story is read once),
+   and read nothing under `docs/narratives/` beyond what a story actually cites.
+   A phase where every story's `narrative_roles:` is empty/absent has zero files
+   in this category — that is not an error, it is simply no narrative-alignment
+   obligation for this phase.
 
 You **must not** request or rely on accumulated orchestrator state, prior-attempt
 transcripts, the effort database, `state.json` contents, or any context outside
@@ -76,6 +84,15 @@ You are given a phase ID (e.g. `HARNESS003-main`). Before taking any other actio
 6. Read `docs/ideology.md` in full. Note core convictions, value hierarchy, and
    accepted constraints. If the file does not exist, note its absence and skip the
    ideology drift check.
+7. Collect the `narrative_roles:` frontmatter of every story in the phase, dedup
+   the cited role set, and read each cited `<ROLE>-000-ideology.md` (and any
+   numbered descendants) exactly once — see § Input contract item 5. A story with
+   an empty or absent `narrative_roles:` contributes nothing to this set and is
+   never checked against any narrative (no false positive from a story that never
+   claimed to concern a role narrative). Skip this step entirely (no narrative
+   files read, `NARRATIVE ALIGNMENT` section states "No stories in this phase cite
+   a narrative role.") when no story in the phase carries a non-empty
+   `narrative_roles:`.
 
 ---
 
@@ -104,6 +121,19 @@ enough that building against it as written would waste an attempt. `STORY ALIGNM
 in the Output format below has no built stories to enumerate yet in this mode; state
 that explicitly (`No stories built yet — pre-build review.`) rather than omitting the
 section.
+
+**Narrative alignment in pre-build mode.** Collect the same dedup'd `narrative_roles:`
+set as the post-build case (§ Input contract item 5), but compare each cited
+narrative's `Always true`/`Never` sections against the *planned* Ensures/Instructions
+of each citing story — there is no diff yet, so there is nothing built to compare
+against. Ask the same question the narrative README's own stated rule asks of a
+finished diff ("treat a divergence like this with the same weight
+`docs/build-loop-cold-eyes-review-20260801.md` gives a CRITICAL/HIGH finding"), but of
+the plan itself: does the story's stated Ensures/Instructions honor the cited
+narrative's invariants, or does the plan already read as a narrative violation before
+a single line of code exists? A phase with no cited narrative roles states that
+explicitly in `NARRATIVE ALIGNMENT` (`No stories in this phase cite a narrative
+role.`) the same as the post-build case.
 
 ---
 
@@ -140,6 +170,36 @@ Look for:
 
 ---
 
+## Narrative-alignment checking (INFRA-356)
+
+For each story in the phase whose `narrative_roles:` frontmatter is non-empty,
+compare the actual diff (post-build mode) or the planned Ensures/Instructions
+(pre-build mode) against each cited narrative's `Always true` and `Never` sections
+(read once per role, § Input contract item 5). This is a distinct check from
+ideology drift — ideology drift is phase-wide conviction erosion against
+`docs/ideology.md`; narrative alignment is a per-role, per-narrative-file
+invariant check against `docs/narratives/<ROLE>/`.
+
+A divergence here carries the same weight `docs/build-loop-cold-eyes-review-20260801.md`
+gives a CRITICAL/HIGH finding — per the narrative README's own "Cross-cutting
+commitments" section — not a stylistic note. Report it in `NARRATIVE ALIGNMENT`
+(Output format below), tagged distinctly from an ideology-drift or design-pivot
+finding so a downstream consumer (including this project's own CER backlog) can
+tell "narrative gap" from "ideology gap" from "design pivot" apart — the same
+three-way `Gap type: technical/narrative/both` distinction the narrative README
+names as a wanted-but-never-implemented mechanism elsewhere in the fleet.
+
+A story with an empty or absent `narrative_roles:` is never checked against any
+narrative — it made no citation, so there is nothing to hold it to.
+
+**Out of scope:** this check never runs mid-build or concurrently with an
+in-progress story — it is bounded to the same two invocation points
+(post-build-at-checkpoint, pre-build-at-spawn) every other intent-review check
+already uses. A live, mid-build narrative check is a distinct role (the
+shadow-reviewer mechanism, INFRA-358/359/360), not an extension of this one.
+
+---
+
 ## Output format
 
 ```
@@ -154,6 +214,7 @@ STORY ALIGNMENT
 PIVOTS AND CONCERNS
   [area]: [description]
   Risk: HIGH / MEDIUM / LOW
+  Gap type: technical / narrative / both
 
 DOWNSTREAM RISKS
   Phase [M], Story [M.X]: [what will break if not addressed]
@@ -169,6 +230,20 @@ IDEOLOGY DRIFT
 
   [If docs/ideology.md absent:]
   docs/ideology.md not found — ideology drift check skipped.
+
+NARRATIVE ALIGNMENT
+  [For each cited role with a divergence:]
+  Role: [ROLE], Narrative: [docs/narratives/<ROLE>/<ROLE>-NNN-slug.md]
+    Story [RAIL-NNN]: [how the built (or planned) work diverges from
+      this narrative's Always true / Never section]
+    Severity: HIGH / MEDIUM / LOW (per docs/build-loop-cold-eyes-review-20260801.md
+      CRITICAL/HIGH weighting)
+
+  [If cited roles found and no divergence:]
+  No narrative divergence detected. All cited narrative roles are honored.
+
+  [If no story in the phase cites a narrative role:]
+  No stories in this phase cite a narrative role.
 
 RECOMMENDED DOC EDITS
   architecture.md:
@@ -250,10 +325,35 @@ On blocking drift:
 }
 ```
 
+A narrative-alignment finding (INFRA-356) is tagged distinctly from an
+ideology-drift or design-pivot finding, so a downstream consumer (or this
+project's own CER backlog) can tell the three apart — the same distinction
+the narrative README names as `Gap type: technical/narrative/both`. Prefix
+each finding string with its gap type:
+
+```json
+{
+  "type": "REVIEW-RESULT",
+  "verdict": "FAIL",
+  "findings": [
+    "NARRATIVE: HIGH — BUILDER-000 Never section violated by INFRA-999's diff (see NARRATIVE ALIGNMENT)",
+    "IDEOLOGY: MEDIUM — phase trends away from conviction \"...\"",
+    "PIVOT: MEDIUM — cross-rail file touch in WORKER-007 not declared in touches"
+  ],
+  "reason": "One sentence describing the blocking drift."
+}
+```
+
 Fields:
 - `type` — always `"REVIEW-RESULT"`
 - `verdict` — `"ALIGNED"` when the phase built as designed; `"FAIL"` on blocking drift
-- `findings` — list of finding/edit strings (empty when fully aligned with no edits)
+- `findings` — list of finding/edit strings (empty when fully aligned with no edits).
+  Each finding is prefixed with its gap type — `NARRATIVE:`, `IDEOLOGY:`, or
+  `PIVOT:` (technical design-pivot/API/schema/layer drift) — followed by severity
+  and description, so the three gap categories the narrative README names
+  (`Gap type: technical/narrative/both`) are distinguishable without re-parsing
+  prose. A finding spanning both a narrative and a technical dimension uses
+  `BOTH:`.
 - `reason` — one sentence summarising the intent assessment
 
 Return only the JSON object. No preamble, no commentary, no usage block.
