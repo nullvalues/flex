@@ -2869,38 +2869,24 @@ story.
 This section records the binding methodology agreements for the `HARNESS001-ante1 … HARNESS005-main`
 additive window, extended through HARNESS009-main. Authority: `docs/agreements/HARNESS001-ante1.md`, DP4 and DP7.
 
-### (a) Four-point additive contract (DP4)
+### (a) Resolver pure-read invariant
 
-Scoped to the window `HARNESS001-main … HARNESS005-main`:
+**Resolver is pure-read.** `next-action` reads `state.json`, `effort.db`, the era/phase/story
+index, story status, and attempt counters; it writes nothing authoritative (any cache is
+disposable and never read back by the orchestrator). The orchestrator remains the sole writer
+of all shared state. Note: `check_checkpoint_guards` (introduced in RESOLVER-008) calls
+`_run_build_gate_subprocess` when `gate_fn` is not injected — this is a subprocess call, not a
+state write. The pure-read constraint refers to `state.json`; the subprocess invocation now
+fails **closed** (returns `False`, blocking the gate) on a genuine `subprocess.TimeoutExpired`
+— the guard exists specifically to catch what the human-run reviewer suite might miss between
+review and checkpoint, and a suite that never finishes inside the timeout cannot honestly report
+green (INFRA-343) — and remains advisory fail-open only for other, non-timeout execution errors
+(a missing test runner, a bad `cwd`, etc.), preserving the CER-072/INFRA-230 bootstrap-tolerance
+rationale for those cases.
 
-1. **Existing CLI surface frozen.** No rename / removal / flag-change to existing `flex_build.py`
-   subcommands or their output contracts. Additions (notably `next-action`) are allowed.
-   Consolidation / removal of old CLIs (`select-builder-model`, `next_story`, `check-*-gate`,
-   `read-attempt-count`, …) happens only at or after the flip (HARNESS006).
-
-2. **Resolver is pure-read.** `next-action` reads `state.json`, `effort.db`, the era/phase/story
-   index, story status, and attempt counters; it writes nothing authoritative (any cache is
-   disposable and never read back by the orchestrator). The orchestrator remains the sole writer
-   of all shared state during the additive window. Note: `check_checkpoint_guards` (introduced in
-   RESOLVER-008) calls `_run_build_gate_subprocess` when `gate_fn` is not injected — this is a
-   subprocess call, not a state write. The pure-read constraint refers to `state.json`;
-   the subprocess invocation now fails **closed** (returns `False`, blocking the gate)
-   on a genuine `subprocess.TimeoutExpired` — the guard exists specifically to catch
-   what the human-run reviewer suite might miss between review and checkpoint, and a
-   suite that never finishes inside the timeout cannot honestly report green
-   (INFRA-343) — and remains advisory fail-open only for other, non-timeout execution
-   errors (a missing test runner, a bad `cwd`, etc.), preserving the CER-072/INFRA-230
-   bootstrap-tolerance rationale for those cases.
-
-3. **Fleet-facing surface frozen on `main`.** Consumer-facing templates (`CLAUDE.build.md.j2`,
-   `agents/*.md.j2`), global hooks, and agent files do not change on `main` until the flip — a
-   mid-era `sync` on `main` yields the unchanged 0.2.x loop, never half-built harness code.
-   These evolve freely on `harness` (which the fleet never executes per DP1).
-
-4. **Guard test.** A `tests/pairmode/` test snapshots the 0.2.x `flex_build.py` command/flag
-   surface and asserts it stays a superset of that snapshot through HARNESS005 (additions are
-   OK; removals and renames fail). Cross-reference RELEASE-003. The snapshot is rebaselined at
-   the flip.
+The preceding section previously included three other points (CLI freeze, fleet-facing surface
+freeze, and a guard test) that were scoped to the `HARNESS001-main … HARNESS005-main` migration
+window; that window has closed and those points have been removed.
 
 ### (b) State-ownership table (DP7)
 
@@ -3056,28 +3042,8 @@ writers actually stamp it:**
 
 ### Codified comingling — FLAGGED FOR REMOVAL AT HARNESS006 (RESOLVED, INFRA-321)
 
-`CLAUDE.build.md:320-326` used to compare `threshold − N` (remaining window) against the
-`story-cost-estimate` effort.db median and advise `/clear` — exactly the wrong cross-feed of
-the effort.db ≠ context-control invariant. **That advisory is gone: `CLAUDE.build.md` is now
-52 lines and contains no such comparison.**
-
-The original note treated that single advisory as the only comingled site and expected its
-removal (HARNESS006) to close the finding. It did not: **three other live consumers survived
-the comingling independently of `CLAUDE.build.md`**, none of which the original note
-anticipated —
-
-1. `context_health.py`'s `/clear` recommendation (subagent retry-burden vs. a rolling median,
-   with no reference to `context_current_tokens`),
-2. `context_budget_check.py`'s shared `context_budget_threshold` key (phase spend compared
-   against the same key the orchestrator gate uses), and
-3. the `/context` waypoints/misses queries (`effortDb.ts`) applying the orchestrator ceiling
-   formula to subagent cost and labelling the result "Near-miss blocks".
-
-INFRA-321 (Phase 114) is where each of the three was re-based onto the story-spend track
-without changing its underlying measurement — see § The two-track model above for the full
-per-consumer account. **No gate was weakened and no new gate was added**;
-`context_budget.decide()`'s decision logic is untouched by this story (only the § A4 ceiling-
-formula extraction touched it, and that extraction is arithmetic-preserving).
+See § The two-track model above for the current, live account of effort.db / context-control
+separation and the three consumer subsystems that were re-based on that distinction in INFRA-321.
 
 **Rejected direction (recorded, not silently declined):** deriving orchestrator headroom (or
 a `/clear` recommendation) from `effort.db` totals was considered and rejected — it is

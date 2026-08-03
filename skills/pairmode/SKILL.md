@@ -619,33 +619,8 @@ Optional flags:
 - `--reviewer TEXT` — reviewer name or identifier
 - `--phase TEXT` — phase reference (e.g. "Phase 3")
 
-**Template comment format written by `apply_template_change`:**
-```
-{# LESSON L001: <change_text> #}
-```
-This marks the location for the developer to implement the change manually. The comment
-is appended to the end of the template file.
-
-> **Note:** "Applying" a lesson writes a Jinja2 comment block that marks the change location. The developer must open the annotated template to implement the actual change. Lesson `status` is set to `applied` once the annotation is written — not once the template change is implemented. Always review annotated templates after running this command.
-
-**CLI invocation (for direct use / automation):**
-```bash
-PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/lesson_review.py" \
-  --approve L001 \
-  --approve L002 \
-  --reject L003
-```
-- `--approve LESSON_ID` (repeatable): apply_template_change is called with the lesson's
-  own description as change_text, then status is set to `applied`.
-- `--reject LESSON_ID` (repeatable): status is set to `reviewed`.
-- After processing all flags, `regenerate_lessons_md()` is called automatically.
-
-**Outputs:**
-- Jinja2 comment blocks appended to affected template files in `skills/pairmode/templates/`.
-- Updated `status` fields in `flex/lessons/lessons.json` (via `lesson_utils.save_lessons()`,
-  which enforces the append-only invariant).
-- `lessons/LESSONS.md` regenerated from the updated lessons store.
-- A review summary printed to stdout.
+> **Note:** Documentation on lesson application (`apply_template_change`, Jinja2 comment blocks,
+> and the `lesson_review.py` CLI) appears in the `/flex:pairmode review` command section above.
 
 ---
 

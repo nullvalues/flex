@@ -19,22 +19,6 @@
 > because Z." These are not rules — they are the values from which rules derive.
 > A conviction should be strong enough to resolve a tradeoff when two good options conflict.
 
-<!--
-Examples:
-- "We prefer explicit configuration over inferred defaults, because configuration that can be
-  read is configuration that can be understood by the next agent."
-- "We prefer correctness over performance at this stage, because an incorrect fast system
-  cannot be trusted to optimize."
-- "We prefer small composable functions over large orchestrators, because the unit of
-  replaceability matters more than the unit of convenience."
-
-Add one conviction per bullet. State the preference and the reason. Three to seven convictions
-is the right range — fewer suggests the ideology is underdeveloped; more suggests it is not
-actually a set of convictions but a list of preferences.
--->
-
-
-
 - We prefer codifying policy over implicit convention, because persistent memory of decisions, specs, and constraints is the only thing that survives agent drift and developer forgetfulness across sessions.
 
 - We prefer rationale-bearing decisions over bare rules, because a constraint without a reason will be violated by the first agent that encounters a situation the rule author did not anticipate.
@@ -51,21 +35,6 @@ actually a set of convictions but a list of preferences.
 > This section is most useful when populated from real conflict — a moment when two
 > good values pointed in opposite directions and a decision was made.
 
-<!--
-Format each entry as:
-  [Higher value] over [lower value] — [the situation where this matters] — [why]
-
-Examples:
-- "Auditability over convenience — when logging a decision requires extra code, write
-  the extra code. A system that cannot explain itself cannot be trusted."
-- "Backward compatibility over refactoring clarity — at this stage, existing integrations
-  must not break. Clean-up is for a future phase when the API surface is stable."
-- "Reversibility over speed — prefer designs where bad decisions can be undone. Move fast
-  in a direction that can be walked back."
--->
-
-
-
 - Decision fidelity over convenience — when recording a decision requires extra structure, write the structure. A system that silently drops context cannot be trusted.
 
 - Validation against prior decisions over speed — new actions must be checked against the canonical spec before proceeding. A fast but drifting agent is worse than a slow but coherent one.
@@ -81,23 +50,6 @@ Examples:
 > Non-negotiables with their rationale. Not just the rule — the reason the rule exists
 > and what it protects. A constraint without a rationale will be violated by the first
 > agent that encounters a situation the rule author did not anticipate.
-
-<!--
-Format each entry as:
-
-### [Constraint name]
-
-**Rule:** [What must never happen, or what must always be true]
-
-**Protects:** [What breaks, degrades, or becomes untrustworthy if this constraint is violated]
-
-**Rationale:** [Why this protection is worth the cost it imposes]
-
-**Override path:** [Under what conditions, if any, can this constraint be deliberately overridden?
-  If never: say "no override permitted." If conditional: describe the gate.]
--->
-
-
 
 ### Never silently pass contradictions
 
@@ -153,25 +105,6 @@ Format each entry as:
 >
 > If this document was written before any prototype: leave this section blank and fill it
 > in during or after the first implementation.
-
-<!--
-The goal is to distinguish "this is how we believe the system should work" from "this is
-how I happen to build things." A reconstruction agent that inherits only the fingerprints
-without knowing they are fingerprints will treat them as constraints. Name them explicitly
-so they can be questioned.
-
-Format:
-
-### [Pattern name]
-
-**Observed in prototype:** [Where in the codebase this pattern appears]
-
-**Why it exists:** [Developer preference? Convenience? Legacy? Genuine conviction?]
-
-**Free to change?** Yes / Conditional / No — [reason]
--->
-
-
 
 ### Python everywhere
 
@@ -259,16 +192,6 @@ Format:
 > When two implementations are compared against this ideology, these are the dimensions that
 > matter. Used by the comparison rubric to evaluate which implementation is better aligned
 > with intent.
-
-<!--
-List three to five dimensions. Each should be a quality that can be assessed from reading
-the code — not a feature checklist. Examples:
-- "Constraint traceability: can a reader determine why a given protection exists?"
-- "Intent legibility: does the code explain what it is protecting and why?"
-- "Lesson integration: does the system make it easy to learn from failures?"
--->
-
-
 
 - **Decision fidelity:** Does the implementation reliably capture and surface contradictions with prior decisions? A system that misses conflicts fails its core contract.
 
