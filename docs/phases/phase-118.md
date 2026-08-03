@@ -33,7 +33,7 @@ Establish Narrative of Record as a templated, propagated doc-of-record layer for
 | INFRA-360 | Extend INFRA-336's integration-test harness to cover concurrent shadow-reviewer dispatch | complete |
 | INFRA-361 | Establish Narrative of Record in docs/architecture.md; propose CLAUDE.md cold-start quad | complete |
 | INFRA-362 | Dogfood narrative citation on flex's own story specs going forward | complete |
-| INFRA-365 | Fix shadow-reviewer suggestions-file scope_guard block (checkpoint-security finding) | draft |
+| INFRA-365 | Fix shadow-reviewer suggestions-file scope_guard block (checkpoint-security finding) | complete |
 | INFRA-366 | Guard bootstrap's OPERATOR-010 extension write against silent overwrite (checkpoint-security finding) | draft |
 
 ## Ordering

@@ -2,7 +2,7 @@
 id: INFRA-365
 rail: INFRA
 title: Fix shadow-reviewer suggestions-file scope_guard block (checkpoint-security finding)
-status: draft
+status: complete
 phase: "118"
 story_class: code
 auth_gated: false
