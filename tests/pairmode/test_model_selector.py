@@ -25,6 +25,7 @@ from skills.pairmode.scripts.model_selector import (
     select_loop_breaker_model,
     select_reviewer_model,
     select_security_auditor_model,
+    select_shadow_reviewer_model,
     select_spec_writer_model,
 )
 
@@ -449,6 +450,33 @@ class TestSelectSpecWriterModel:
         model, reason = select_spec_writer_model("")
         assert model == MODEL_OPUS
         assert reason == "spec-elaboration-baseline"
+
+
+# ---------------------------------------------------------------------------
+# select_shadow_reviewer_model (INFRA-358/359)
+# ---------------------------------------------------------------------------
+
+
+class TestSelectShadowReviewerModel:
+    @pytest.mark.parametrize(
+        "story_class", ["code", "doc", "lesson", "methodology"]
+    )
+    def test_every_known_class_returns_sonnet_auto_baseline(
+        self, story_class: str
+    ) -> None:
+        model, reason = select_shadow_reviewer_model(story_class)
+        assert model == MODEL_SONNET
+        assert reason == "auto-baseline"
+
+    def test_unknown_defaults_to_code_still_sonnet(self) -> None:
+        model, reason = select_shadow_reviewer_model("unknown")
+        assert model == MODEL_SONNET
+        assert reason == "auto-baseline"
+
+    def test_empty_string_defaults_to_code_still_sonnet(self) -> None:
+        model, reason = select_shadow_reviewer_model("")
+        assert model == MODEL_SONNET
+        assert reason == "auto-baseline"
 
 
 # ---------------------------------------------------------------------------

@@ -653,6 +653,11 @@ def _build_template_context(project_dir: Path) -> dict:
         # INFRA-317: covered-contracts pairs (doc-section::source-file), same
         # empty-and-harmless default pattern as protected_paths.
         "covered_contracts": pctx.get("covered_contracts") or state.get("covered_contracts") or [],
+        # INFRA-359: concurrent shadow-reviewer dispatch opt-in. Absent →
+        # template's own "(unset)" default → CLAUDE.build.md's Build-loop
+        # prose reads anything other than the literal "concurrent" as opted
+        # out, the same absent-means-opted-out pattern as intent_review.
+        "shadow_review": pctx.get("shadow_review") or state.get("shadow_review") or "",
     }
 
 

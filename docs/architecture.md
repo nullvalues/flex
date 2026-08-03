@@ -2217,7 +2217,7 @@ checking. This story only wires the spec-writer's *input* side.
 
 ### Work→agent-type classification and agent-type completeness checklist (INFRA-335)
 
-**Work→agent-type dispatch table.** The eight agent types in the pairmode build loop, the kind of work each is the correct dispatch target for, and the `next_action.py` action(s) that route to each:
+**Work→agent-type dispatch table.** The nine agent types in the pairmode build loop, the kind of work each is the correct dispatch target for, and the `next_action.py` action(s) that route to each:
 
 | Agent role | Work scope | Dispatch action(s) |
 |---|---|---|
@@ -2229,33 +2229,46 @@ checking. This story only wires the spec-writer's *input* side.
 | **docs-reviewer** | Checkpoint gate (documentation-currency checklist): runs the bundled cold-eyes documentation-currency checklist and reports items needing attention. Advisory role using the "advisory" tier model selection. | `checkpoint-docs` |
 | **gate-worker** | Judged gate (schema/auth conformance verdict): evaluates a story against declared schema and access-control requirements. Unlike `checkpoint-security` (which is a checkpoint-sequence gate), gate-worker is a planned-action gate — the story declares upfront whether it needs schema/auth vetting. Uses the "correctness" tier model selection (same as security-auditor). | `spawn-gate-worker` |
 | **spec-writer** | Elaborates a bare story stub into a full specification: expands Ensures/Instructions/Tests from a scaffold or outline into production-ready acceptance criteria. Unconditional opus regardless of `story_class` (spec elaboration carries the same judgment weight regardless of the class the finished story will end up in). | `spawn-spec-writer` |
+| **shadow-reviewer** | Concurrent, largely passive advisory role: polls the worktree's git state at its own pace and appends timestamped suggestions to a shared `.pairmode-suggestions.md` file, which the builder is never required to act on. Story_class-keyed model selection with no attempt ladder (`select_shadow_reviewer_model`). | (none — dispatched from orchestrator prose in `CLAUDE.build.md`'s `spawn-builder` branch when the `shadow_review=`concurrent`` Build-standards key is set, not a `next-action` resolver action; INFRA-359) |
 
 (Reconstruction-agent is noted separately as belonging to a different skill's documentation, not the story build loop.)
 
-**Shadow-reviewer (INFRA-358, partially wired).** A ninth agent type, not yet
-in the dispatch table above because it has no dispatch action. The
-shadow-reviewer is dispatched concurrently with the builder into the *same*
-story worktree and is largely passive: it polls the worktree's git state at
-its own pace (event-driven — after N new commits or file changes, never a
-wall-clock sleep) and appends timestamped, advisory suggestions to a shared
-`<worktree>/.pairmode-suggestions.md` file, which the builder polls in turn
-at natural checkpoints (after each `## Ensures` item). The builder is never
-required to act on a suggestion. This is ordinary file I/O, not real-time
-transcript-watching — no mechanism exists for one agent to observe another's
-live session. The suggestions file is gitignored and never part of a story's
-diff or the reviewer's own artifact review. It augments, never replaces, the
-reviewer's later independent check. Procedure: `skills/pairmode/skills/shadow-reviewer/procedure.md`;
-shell: `skills/pairmode/templates/agents/shadow-reviewer.md.j2`. INFRA-358
-covers only checklist items 1-2 below (template, materialized/scaffolded
-file); items 3-5 (dispatch action, model selector, escalation table) are
-INFRA-359's job — until that story lands, the shadow-reviewer shell exists
-on disk but the orchestrator never spawns it.
+**Shadow-reviewer (INFRA-358/359, fully wired).** The ninth agent type in the
+table above. The shadow-reviewer is dispatched concurrently with the builder
+into the *same* story worktree and is largely passive: it polls the
+worktree's git state at its own pace (event-driven — after N new commits or
+file changes, never a wall-clock sleep) and appends timestamped, advisory
+suggestions to a shared `<worktree>/.pairmode-suggestions.md` file, which the
+builder polls in turn at natural checkpoints (after each `## Ensures` item).
+The builder is never required to act on a suggestion. This is ordinary file
+I/O, not real-time transcript-watching — no mechanism exists for one agent to
+observe another's live session. The suggestions file is gitignored and never
+part of a story's diff or the reviewer's own artifact review. It augments,
+never replaces, the reviewer's later independent check. Procedure:
+`skills/pairmode/skills/shadow-reviewer/procedure.md`; shell:
+`skills/pairmode/templates/agents/shadow-reviewer.md.j2`. INFRA-358 covered
+checklist items 1-2 below (template, materialized/scaffolded file); INFRA-359
+covers items 4-5 (model selector, escalation table) exactly per the checklist,
+and covers item 3's *intent* — a live dispatch call site actually reading the
+opt-in flag — but deliberately not its literal shape: INFRA-359 does not add
+a `next-action` resolver action or an `ACTION_SUBAGENT_TYPE` row, because
+concurrent shadow-reviewer dispatch is conditioned on a Build-standards
+opt-in key (`shadow_review=`concurrent``, the same pattern `intent_review=`
+and `covered_contracts:` already established) rather than a new action in the
+JSON grammar — this avoids a producer/consumer pair that a future story could
+leave orphaned (the exact failure class this era's cold-eyes review found
+three times). The `spawn-builder` branch in `CLAUDE.build.md` (and its `.j2`
+template) now issues the shadow-reviewer's `Task`/`Agent` spawn concurrently
+with the builder and reviewer spawns whenever `shadow_review=`concurrent``,
+and the orchestrator waits for the shadow-reviewer (if dispatched) to
+complete, alongside the builder, before the worktree is merged or discarded —
+a worktree teardown must never race a still-running shadow-reviewer session.
 
 **New-agent-type definition-of-done checklist.** Before a new agent type is considered fully wired up and integrated into the pairmode build loop, it must have all five of the following:
 
 1. **Template.** A `skills/pairmode/templates/agents/<role>.md.j2` jinja2 template whose body contains the agent's procedure skill's "Shell instruction" section.
 2. **Materialized files.** A `.claude/agents/<role>.md` file in every bootstrapped project (`bootstrap.py`'s `AGENT_FILES` list), with re-sync coverage for already-bootstrapped projects via `pairmode_sync.py sync-agents`'s add-missing-file path (INFRA-332).
-3. **Dispatch action.** An entry in `next_action.py`'s `ACTIONS` and/or `_SPAWN_ACTIONS` set(s), and a corresponding row in `CLAUDE.build.md`'s `ACTION_SUBAGENT_TYPE` map naming the exact `subagent_type` to emit when that action is dispatched.
+3. **Dispatch action.** An entry in `next_action.py`'s `ACTIONS` and/or `_SPAWN_ACTIONS` set(s), and a corresponding row in `CLAUDE.build.md`'s `ACTION_SUBAGENT_TYPE` map naming the exact `subagent_type` to emit when that action is dispatched — **or**, for a role whose dispatch is conditioned on an opt-in Build-standards key rather than a new grammar action (shadow-reviewer, INFRA-359), a named orchestrator-prose call site in `CLAUDE.build.md` that reads the flag and issues the spawn directly, with no dead flag left unconsumed.
 4. **Model selector function.** A `select_<role>_model(...)` function in `skills/pairmode/scripts/model_selector.py`, called from its real dispatch site (not hardcoded literals), that returns `(model, reason)` per the role's deterministic selection table.
 5. **Explicit escalation behavior.** An entry in the role's model-selection table for all cases where escalation may occur (or a deliberate "never escalates" row if that is the correct answer for the role). No missing rows — if a case is possible at the call site, the table must name the model and reason explicitly (as per INFRA-334's `story_class` table redesign; `code`/`doc`/`lesson`/`methodology` now all have real retry-upgrade paths instead of dead-ending or conditional escalation).
 
@@ -2289,6 +2302,8 @@ on disk but the orchestrator never spawns it.
 - **gate-worker** (schema/auth verdict, not checkpoint-sequenced): uses the same table as security-auditor (production=opus, pre-pr=opus, docs-only=sonnet)
 
 **Spec-writer model selection.** The spec-writer unconditionally selects **opus** regardless of the stub's `story_class`, because elaborating a bare story stub into a full spec carries the same judgment weight regardless of what class the story will eventually be assigned (a bad elaboration corrupts every downstream builder/reviewer attempt at that class). No attempt ladder: the spec-writer is only ever emitted once (at Row 2, before any builder attempt); a revised spec is re-routed through `SPEC-RESULT{revised}` handling in `CLAUDE.build.md` orchestrator prose.
+
+**Shadow-reviewer model selection (INFRA-359).** The shadow-reviewer unconditionally selects **sonnet** regardless of `story_class` — deliberate "never escalates" behavior (checklist item 5), not a missing row: the role is advisory/passive and is dispatched exactly once, concurrently with the builder, so there is no retry attempt of its own to escalate on (a story's retry ladder governs the builder/reviewer, not the shadow-reviewer riding alongside it).
 
 ### Pairmode tooling
 
