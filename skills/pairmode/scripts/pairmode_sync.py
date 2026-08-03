@@ -14,11 +14,23 @@ in the target file while preserving the body.
 canonical ``CLAUDE.build.md.j2`` template rendered with the project's
 ``state.json``.  With ``--apply``, it writes the rendered template.
 
-``sync-all`` runs all three sync operations in fixed order: sync.py (methodology
-files) → sync-agents (agent frontmatter) → sync-build (CLAUDE.build.md).
+``sync-narratives`` (INFRA-352) enumerates ``bootstrap.NARRATIVE_FILES``
+against ``docs/narratives/<ROLE>/`` in the target project and adds any entry
+missing from disk entirely — the same add-missing-file mechanism
+``sync-agents`` uses for ``AGENT_FILES`` (INFRA-332), generalized to a shared
+helper both commands call rather than duplicated. It never rewrites the
+content of an already-present narrative file (that's out of scope — see
+``docs/stories/INFRA/INFRA-352.md``).
+
+``sync-all`` runs all four sync operations in fixed order: sync.py (methodology
+files) → sync-agents (agent frontmatter) → sync-narratives (harness narrative
+backfill) → sync-build (CLAUDE.build.md).
 
 Usage:
     uv run python skills/pairmode/scripts/pairmode_sync.py sync-agents \\
+        [--project-dir DIR] [--dry-run] [--yes]
+
+    uv run python skills/pairmode/scripts/pairmode_sync.py sync-narratives \\
         [--project-dir DIR] [--dry-run] [--yes]
 
     uv run python skills/pairmode/scripts/pairmode_sync.py sync-build \\
@@ -52,7 +64,10 @@ import jinja2
 # INFRA-332: also reuses bootstrap's AGENT_FILES list as the canonical source
 # of "which templates should exist as agent files" for the sync-agents
 # add-missing-file path, rather than hand-maintaining a second list.
-from bootstrap import AGENT_FILES, _prune_stale_hook_entries  # noqa: E402
+# INFRA-352: NARRATIVE_FILES is the same "harness-owned, templated" list for
+# the nine harness-role narratives (bootstrap.py's own scaffold-time list) —
+# sync-narratives reuses it the same way sync-agents reuses AGENT_FILES.
+from bootstrap import AGENT_FILES, NARRATIVE_FILES, _prune_stale_hook_entries  # noqa: E402
 
 # Signal-1 pattern for reading an already-declared pairmode_scripts_dir out
 # of a project's own CLAUDE.build.md (INFRA-332). Reused, not duplicated,
@@ -778,31 +793,37 @@ def _collect_changes(
     return changes, render_errors
 
 
-def _collect_missing_agent_files(
+def _collect_missing_files(
     project_path: Path,
+    file_list: list[tuple[str, str]],
     templates_root: Path,
     context: dict,
 ) -> tuple[list[tuple[Path, str, str]], list[tuple[str, str]]]:
-    """Return (additions, render_errors) for ``AGENT_FILES`` entries not yet on disk.
+    """Return (additions, render_errors) for *file_list* entries not yet on disk.
 
-    INFRA-332 Ensures #1: ``sync-agents``' existing enumeration
-    (``_collect_changes``) only ever walks files that already exist under
-    ``.claude/agents/`` — it has no path to *add* a file that exists only as
-    a template but was never scaffolded. This is the inverse enumeration:
-    for every ``(target_path, template_name)`` pair in ``bootstrap.AGENT_FILES``
-    whose ``target_path`` is missing, render it and report it as an addition.
+    INFRA-332 Ensures #1 (generalized by INFRA-352): ``sync-agents``' original
+    enumeration (``_collect_changes``) only ever walks files that already
+    exist under ``.claude/agents/`` — it has no path to *add* a file that
+    exists only as a template but was never scaffolded. This is the inverse
+    enumeration, applicable to any ``(target_path, template_name)`` list
+    shaped like ``bootstrap.AGENT_FILES``/``bootstrap.NARRATIVE_FILES``: for
+    every entry in *file_list* whose ``target_path`` is missing under
+    *project_path*, render it and report it as an addition. ``sync-agents``
+    calls this with ``AGENT_FILES``; ``sync-narratives`` (INFRA-352) calls it
+    with ``NARRATIVE_FILES`` — one enumeration/render/write code path shared
+    by both, not two independently-maintained copies.
 
-    *templates_root* is the directory ``AGENT_FILES``'s ``"agents/<name>.j2"``
+    *templates_root* is the directory *file_list*'s ``"<subdir>/<name>.j2"``
     entries are relative to (mirrors ``bootstrap.TEMPLATES_DIR``; callers pass
     ``TEMPLATES_DIR.parent`` so a test's ``unittest.mock.patch`` of the module's
     ``TEMPLATES_DIR`` — already the established pattern in this test suite —
     transparently governs the add-path too, instead of it silently falling
-    back to this checkout's real production templates). An ``AGENT_FILES``
-    entry whose template does not exist under *templates_root* is not an
-    error — it means this template set does not define that optional agent
-    role here — and is skipped rather than added or reported as a failure.
+    back to this checkout's real production templates). A *file_list* entry
+    whose template does not exist under *templates_root* is not an error — it
+    means this template set does not define that optional role here — and is
+    skipped rather than added or reported as a failure.
 
-    Return shape mirrors ``_collect_changes`` — ``(agent_file, old_content,
+    Return shape mirrors ``_collect_changes`` — ``(dest_file, old_content,
     new_content)`` with ``old_content=""`` so ``_print_diff`` renders a clean
     addition — so callers (diff printing, the write loop, the restart-notice
     list) can treat additions and rewrites uniformly.
@@ -816,7 +837,7 @@ def _collect_missing_agent_files(
     additions: list[tuple[Path, str, str]] = []
     render_errors: list[tuple[str, str]] = []
 
-    for dest_rel, template_name in AGENT_FILES:
+    for dest_rel, template_name in file_list:
         dest = project_path / dest_rel
         if dest.exists():
             continue
@@ -899,8 +920,8 @@ def sync_agents(project_dir: str, dry_run: bool, yes: bool) -> None:
     # the agents/ subdirectory, so its parent is that root. Deriving from the
     # (possibly test-patched) TEMPLATES_DIR keeps the add-path governed by the
     # same mock this test suite already uses for the update path.
-    additions, add_render_errors = _collect_missing_agent_files(
-        project_path, TEMPLATES_DIR.parent, context
+    additions, add_render_errors = _collect_missing_files(
+        project_path, AGENT_FILES, TEMPLATES_DIR.parent, context
     )
     render_errors = render_errors + add_render_errors
 
@@ -957,6 +978,101 @@ def sync_agents(project_dir: str, dry_run: bool, yes: bool) -> None:
             for agent_file, _old, _new in (changes + additions)
         ],
         "sync-agents",
+    )
+
+
+@click.command("sync-narratives")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(exists=True, file_okay=False),
+    help="Project root (defaults to current directory).",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Print diffs without writing any files.",
+)
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    default=False,
+    help="Write files without prompting for confirmation.",
+)
+def sync_narratives(project_dir: str, dry_run: bool, yes: bool) -> None:
+    """Add any ``bootstrap.NARRATIVE_FILES`` entry missing from a project's
+    ``docs/narratives/<ROLE>/`` entirely.
+
+    INFRA-352: bootstrap only scaffolds the nine harness-role narratives
+    (``NARRATIVE_FILES``, INFRA-351) at fresh-install time — a project
+    bootstrapped before ``NARRATIVE_FILES`` existed has no path to backfill
+    them. This reuses ``_collect_missing_files`` — the exact add-missing-file
+    mechanism ``sync-agents`` uses for ``AGENT_FILES`` (INFRA-332) — rather
+    than a parallel implementation.
+
+    Updating an already-present narrative file's content is explicitly out of
+    scope: this command only ever adds a file that does not exist yet, never
+    rewrites one that does (see ``docs/stories/INFRA/INFRA-352.md`` § Out of
+    scope).
+
+    With --dry-run, prints diffs without writing. With --yes, writes without
+    prompting. Otherwise, prompts once before writing all additions.
+    """
+    project_path = Path(project_dir).resolve()
+    _depth_guard_sync_build(project_path)
+
+    context = _build_template_context(project_path)
+
+    # NARRATIVE_FILES entries are "narratives/<ROLE>/<name>.j2" relative to
+    # the templates *root* (mirrors bootstrap.TEMPLATES_DIR's parent, the same
+    # root AGENT_FILES's "agents/<name>.j2" entries are relative to) — so the
+    # same TEMPLATES_DIR.parent this test suite already patches for
+    # sync-agents transparently governs this add-path too.
+    additions, render_errors = _collect_missing_files(
+        project_path, NARRATIVE_FILES, TEMPLATES_DIR.parent, context
+    )
+
+    for filename, reason in render_errors:
+        click.echo(f"error: failed to render {filename}: {reason}", err=True)
+
+    if not additions:
+        if render_errors:
+            click.echo(
+                f"sync-narratives: {len(render_errors)} file(s) failed to render — "
+                "run with --dry-run to debug",
+                err=True,
+            )
+            sys.exit(1)
+        click.echo("No changes to apply.")
+        return
+
+    for narrative_file, old_content, new_content in additions:
+        click.echo(f"  new file: {narrative_file.name}")
+        _print_diff(narrative_file, old_content, new_content)
+
+    if dry_run:
+        return
+
+    if not yes:
+        confirmed = click.confirm("Apply these changes? [y/N]", default=False, prompt_suffix="")
+        if not confirmed:
+            click.echo("Aborted.")
+            return
+
+    for narrative_file, _old, new_content in additions:
+        narrative_file.parent.mkdir(parents=True, exist_ok=True)
+        narrative_file.write_text(new_content, encoding="utf-8")
+        click.echo(f"  added: {narrative_file.name}")
+
+    # INFRA-323 § D18, reused verbatim from sync-agents: at least one file
+    # was written above — stamp and emit the restart notice via the same
+    # single-notice-mechanism call site (no second notice mechanism).
+    _emit_restart_notice(
+        project_path,
+        [str(narrative_file.relative_to(project_path)) for narrative_file, _old, _new in additions],
+        "sync-narratives",
     )
 
 
@@ -1169,14 +1285,18 @@ def sync_build(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
     help="Suppress confirmation prompts; propagated to each downstream command.",
 )
 def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
-    """Run all three sync operations in fixed order.
+    """Run all four sync operations in fixed order.
 
     Invocation order: sync.py (methodology files) → sync-agents (agent
-    frontmatter) → sync-build (CLAUDE.build.md).
+    frontmatter) → sync-narratives (harness narrative backfill) → sync-build
+    (CLAUDE.build.md). sync-narratives sits immediately after sync-agents
+    (INFRA-352) — both are add-missing-file backfills against the same
+    ``bootstrap.py``-owned template contract, run before sync-build's
+    content-rewrite step.
 
-    Safe by default — without --apply, only sync-agents and sync-build are
-    run in dry-run mode (sync.py is skipped because it has no --dry-run flag).
-    Pass --apply to run all three and write changes to disk.
+    Safe by default — without --apply, sync-agents, sync-narratives, and
+    sync-build are all run in dry-run mode (sync.py is skipped because it has
+    no --dry-run flag). Pass --apply to run all four and write changes to disk.
 
     Fail-fast: if any downstream command exits non-zero, the wrapper halts and
     exits with the same status code. Remaining commands are not invoked.
@@ -1211,6 +1331,17 @@ def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
     if yes:
         agents_argv.append("--yes")
 
+    # --- sync-narratives ---
+    narratives_argv = [
+        sys.executable, str(_this_script),
+        "sync-narratives",
+        "--project-dir", str(project_path),
+    ]
+    if not effective_apply:
+        narratives_argv.append("--dry-run")
+    if yes:
+        narratives_argv.append("--yes")
+
     # --- sync-build ---
     build_argv = [
         sys.executable, str(_this_script),
@@ -1227,6 +1358,7 @@ def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
     invocations: list[tuple[str, list[str], bool]] = [
         ("sync (methodology files)", sync_argv, True),
         ("sync-agents (agent frontmatter)", agents_argv, False),
+        ("sync-narratives (harness narrative backfill)", narratives_argv, False),
         ("sync-build (CLAUDE.build.md)", build_argv, False),
     ]
 
@@ -1541,6 +1673,7 @@ def pairmode_cli() -> None:
 
 
 pairmode_cli.add_command(sync_agents)
+pairmode_cli.add_command(sync_narratives)
 pairmode_cli.add_command(sync_build)
 pairmode_cli.add_command(sync_all)
 pairmode_cli.add_command(audit_hooks)

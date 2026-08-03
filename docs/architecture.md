@@ -75,7 +75,7 @@ flex/
         gate_verdict.py           ← WORKER-001 gate verdict grammar: VERBS (clean/block/flag), JUDGED_GATES (schema/auth; stub excluded), parse_verdict (string → (verb, reason)), validate_verdict_map (dict → violation list); stdlib-only, no I/O; the WORKER-rail contract analogue of next_action.py's action grammar
         worker_result.py          ← generalized worker return contract (WORKER-004, HARNESS003-main): four result types (BUILD-RESULT, REVIEW-RESULT, ADVICE, SPEC-RESULT), parse_worker_result (text → dict, validated), validate_worker_result (dict → violation list); stdlib-only, no I/O; parallel to gate_verdict.py for all non-gate workers
         next_action.py            ← next-action resolver: action grammar (make_action, validate_action, ACTIONS), position read-model (infer_position), 9-state DP2 machine (resolve_next_action); HARNESS002-main adds spawn-gate-worker to ACTIONS, Row-4 DP2 split (stub→await-user directly; schema/auth→spawn-gate-worker), parse_worker_verdict_json (worker text return → per-gate verdict map), route_gate_verdict (DP3.2 aggregation: block→await-user, flag→proceed+warnings, clean→proceed); the live sequencing core since the flip (HARNESS006), pure-read; HARNESS003-main adds spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer to ACTIONS and _SPAWN_ACTIONS; SCHEMA_VERSION bumped to 2; HARNESS004-main adds checkpoint-security, checkpoint-intent, checkpoint-docs, checkpoint-tag to ACTIONS; removes monolithic checkpoint from ACTIONS (constant retained for import compat); adds check_checkpoint_guards (pre-checkpoint guards: phase-completion, CER Do Now, build-gate via injectable gate_fn); checkpoint step sequencing via _CHECKPOINT_SEQUENCE; SCHEMA_VERSION bumped to 3; HARNESS005-main adds spawn-spec-writer to ACTIONS and _SPAWN_ACTIONS; adds needs_spec bool to infer_position Position (True when ## Ensures absent or &lt; 5 non-blank lines — stub heuristic; fail-safe: unreadable story file → True); Row-2 split: needs_spec True → spawn-spec-writer (model=opus, reason=needs-spec), needs_spec False → spawn-builder as before; _count_ensures_nonblank_lines private helper (pure, no I/O); SPEC-RESULT{revised} routing lives in CLAUDE.build.md orchestrator prose (not in resolve_next_action); canonical reason string: spec-revised-awaiting-review; SCHEMA_VERSION bumped to 4; spawn-reviewer is in ACTIONS/_SPAWN_ACTIONS for orchestrator dispatch but is never emitted by resolve_next_action (CER-074); INFRA-328 Row 6 (double-fail → spawn-loop-breaker) now queries `effort_db.query_by_story` for the story's most recent `outcome == "FAIL"` attempt and surfaces its `notes` (fail_cause) column as the action's `reason` — replacing the prior bare `reason=""` — so CLAUDE.build.md's orchestrator loop can construct the `LOOP-BREAKER: [error] | FILE: [file:line] | TRIED: [what failed]` prompt CLAUDE.md's loop-breaker mode requires; fails open unchanged (any lookup error, missing effort.db, no FAIL rows, or a FAIL row with no notes still returns spawn-loop-breaker with reason=""); 2026-08-01 INFRA-341: closes the F8 livelock (`spawn-gate-worker` re-emitting identically on every poll since nothing consumed its verdict) — `infer_position` gains `gate_verdict` (`dict[str, str] | None`, read from `state.json["gate_verdict"][next_story_id]`, mirrors `pre_build_intent_verdict`'s fail-open read shape exactly); Row 4b now calls `route_gate_verdict(position["gate_verdict"], next_story_id, meta_base=meta)` — the existing DP3.2 aggregation, called from a real production path for the first time — whenever a verdict has been recorded, falling back to (re-)emitting `spawn-gate-worker` (unchanged) only when none has; `flex_build.py record-gate-verdict` is the new CLI writer (reads the worker's raw stdout from stdin, injects `"stub": "clean"` when absent to reconcile the live worker's two-key contract with `parse_worker_verdict_json`'s three-key requirement, then persists to `state.json["gate_verdict"][story_id]` via `_atomic_write_json`); `merge-story-worktree`/`discard-story-worktree` both clear the recorded verdict for their story_id, mirroring the existing attempt-counter/active-story/permissions clears; grammar-unchanged (no new action type, no `ACTIONS`/`_SPAWN_ACTIONS` membership change, no `SCHEMA_VERSION` bump)
-        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all three sync operations in fixed order (sync-all subcommand); also registers register/unregister/list-projects in the top-level CLI group
+        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); add missing harness-role narrative files (sync-narratives subcommand, INFRA-352); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all four sync operations in fixed order (sync-all subcommand); also registers register/unregister/list-projects in the top-level CLI group
         pairmode_register.py      ← manage registered_projects in .companion/state.json (register/unregister/list-projects subcommands)
         pairmode_migrate.py       ← one-shot migration of an anchor-bootstrapped sibling project to flex naming (migrate-from-anchor subcommand)
         global_session_check.py   ← global SessionStart hook; detects pairmode, prints status block or bootstrap prompt; stdlib-only (runs as bare python3)
@@ -2139,11 +2139,11 @@ scaffolded file uses, rather than hand-authored per project.
 OPERATOR's narrative is deliberately excluded from `NARRATIVE_FILES` — it uses
 a seed-then-extend mechanism instead of scaffold-verbatim (INFRA-353), since an
 operator's own narrative is inherently project-specific content a template
-cannot supply. A `sync-narratives` command bringing already-bootstrapped
-projects' narratives in line with template updates is a separate, later story
-(INFRA-352); backfilling flex's own `docs/narratives/` from these new
-templates is likewise separate (INFRA-354) — this story only relocates the
-content to template source and adds the fresh-bootstrap scaffold path.
+cannot supply. `pairmode_sync.py`'s `sync-narratives` subcommand (INFRA-352,
+below) brings already-bootstrapped projects' narratives in line with
+`NARRATIVE_FILES` for a project bootstrapped before it existed; backfilling
+flex's own `docs/narratives/` from these new templates is a separate story
+(INFRA-354).
 
 **Observability.** `tests/pairmode/test_bootstrap.py`'s
 `TestNarrativeFilesParity` asserts all nine `NARRATIVE_FILES` entries are
@@ -2286,6 +2286,48 @@ the confirmation prompt for both rewrites and additions together. A run that add
 one file fires the same `RESTART REQUIRED` notice (INFRA-323, below) as a run that rewrites at
 least one file's frontmatter.
 
+The add-missing-file logic itself lives in `_collect_missing_files(project_path, file_list,
+templates_root, context)` (generalized by INFRA-352 from the story's own
+`_collect_missing_agent_files`) — `file_list` is any `(target_path, template_name)` list shaped
+like `bootstrap.AGENT_FILES`/`bootstrap.NARRATIVE_FILES`. `sync-agents` calls it with
+`AGENT_FILES`; `sync-narratives` (below) calls it with `NARRATIVE_FILES`. One
+enumeration/render/write code path shared by both commands, not two independently-maintained
+copies (this phase's own cold-eyes-review precedent on reader/writer drift, F7, is a direct
+warning against duplicating this a second time).
+
+**`pairmode_sync.py` — `sync-narratives` subcommand (INFRA-352).**
+The identical add-missing-file gap `sync-agents` (INFRA-332) closes for `AGENT_FILES`, applied
+to `bootstrap.NARRATIVE_FILES` (INFRA-351): bootstrap only scaffolds the nine harness-role
+narratives at fresh-install time, so a project bootstrapped before `NARRATIVE_FILES` existed has
+no path to backfill them without this command.
+
+CLI:
+```bash
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+  sync-narratives [--project-dir DIR] [--dry-run] [--yes]
+```
+
+Behaviour:
+- For every `(target_path, template_name)` pair in `bootstrap.NARRATIVE_FILES` whose
+  `target_path` does not already exist under `<project_dir>/docs/narratives/`, calls the same
+  `_collect_missing_files` helper `sync-agents` calls (with `NARRATIVE_FILES` in place of
+  `AGENT_FILES`) and adds the file — byte-for-byte identical to what a fresh `bootstrap --apply`
+  would have produced for that entry.
+- Unlike `sync-agents`, `sync-narratives` has no update/rewrite half at all: there is no
+  `_collect_changes`-equivalent walk of already-present narrative files, because updating an
+  already-present narrative file's content is explicitly out of scope for this command (a
+  content-authoring decision, not a missing-file backfill — a pre-existing narrative file is
+  left untouched no matter how far it has drifted from the template).
+- Reports each addition as a `new file:` line plus a unified diff (pure-addition diff against an
+  empty old-content string), governed by the same `--dry-run`/`--yes`/confirm-prompt convention
+  `sync-agents`'s add-missing-file path uses.
+- If no `NARRATIVE_FILES` entries are missing: prints "No changes to apply." and exits 0. A
+  render failure for one or more entries prints `"error: failed to render {filename}: {reason}"`
+  to stderr and exits 1 only when no other entry produced a clean addition (mirrors
+  `sync-agents`'s partial-success behavior).
+- A run that adds at least one file fires the same `RESTART REQUIRED` notice (INFRA-323, below)
+  via the same `_emit_restart_notice` call site `sync-agents` uses — no second notice mechanism.
+
 **`pairmode_scripts_dir` binding on re-sync (INFRA-332).** `_build_template_context()` does
 not unconditionally set `pairmode_scripts_dir` to `Path(__file__).parent` (wherever *this*
 sync invocation happens to be running from) on every call. It first reads the target
@@ -2389,12 +2431,15 @@ Behaviour:
 - Applies a depth guard on `--project-dir` (fewer than 3 path components are rejected).
 
 **`pairmode_sync.py` — `sync-all` subcommand.**
-Sequences all three sync operations in a single CLI call: `sync.py` (methodology files)
-→ `sync-agents` (agent frontmatter) → `sync-build` (CLAUDE.build.md). Safe by default:
-without `--apply`, `sync.py` is skipped (it has no `--dry-run` flag) and the remaining
-two commands run in dry-run mode. With `--apply`, all three are invoked. Fail-fast: if
-any downstream command exits non-zero, the wrapper emits an error and exits with the same
-status code; remaining commands are not invoked.
+Sequences all four sync operations in a single CLI call: `sync.py` (methodology files)
+→ `sync-agents` (agent frontmatter) → `sync-narratives` (harness narrative backfill,
+INFRA-352) → `sync-build` (CLAUDE.build.md). `sync-narratives` sits immediately after
+`sync-agents` — both are add-missing-file backfills against a `bootstrap.py`-owned template
+contract, run before `sync-build`'s content-rewrite step. Safe by default: without `--apply`,
+`sync.py` is skipped (it has no `--dry-run` flag) and the remaining three commands run in
+dry-run mode. With `--apply`, all four are invoked. Fail-fast: if any downstream command exits
+non-zero, the wrapper emits an error and exits with the same status code; remaining commands
+are not invoked.
 
 CLI:
 ```bash
@@ -2403,8 +2448,10 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 ```
 
 Behaviour:
-- `--dry-run` (default True): skips `sync.py`; runs `sync-agents` and `sync-build` in dry-run mode.
-- `--apply`: runs all three; `sync-agents` without `--dry-run`; `sync-build` with `--apply`.
+- `--dry-run` (default True): skips `sync.py`; runs `sync-agents`, `sync-narratives`, and
+  `sync-build` in dry-run mode.
+- `--apply`: runs all four; `sync-agents` and `sync-narratives` without `--dry-run`;
+  `sync-build` with `--apply`.
 - `--yes` / `-y`: propagated to every downstream invocation.
 - Depth guard (`_depth_guard_sync_build`) runs against `--project-dir` before any subprocess call.
 - Per-command output is preceded by a `=== <label> ===` separator line.
