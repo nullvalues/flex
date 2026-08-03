@@ -2,7 +2,7 @@
 id: INFRA-366
 rail: INFRA
 title: Guard bootstrap's OPERATOR-010 extension write against silent overwrite (checkpoint-security finding)
-status: draft
+status: complete
 phase: "118"
 story_class: code
 auth_gated: false
