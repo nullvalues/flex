@@ -244,6 +244,26 @@ REQUIRED_STORY_FIELDS = ("id", "rail", "title", "status", "phase", "primary_file
 REQUIRED_ERA_FIELDS = ("id", "name", "status")
 
 
+def _valid_narrative_roles() -> frozenset[str]:
+    """Return the ten known narrative role names (INFRA-355).
+
+    Imports ``bootstrap.NARRATIVE_ROLES`` lazily (deferred to call time,
+    not module load time) because ``bootstrap.py`` itself imports this
+    module (`from schema_validator import _parse_frontmatter`) — a
+    module-level `import bootstrap` here would race bootstrap.py's own
+    top-to-bottom execution whenever bootstrap.py is the first of the pair
+    to be imported (schema_validator would be only partially loaded at the
+    point bootstrap.py reaches its `from schema_validator import ...` line,
+    and NARRATIVE_ROLES would not yet exist on bootstrap if the import ran
+    the other way at bootstrap's own module-load time). Deferring to call
+    time sidesteps the race entirely: by the time any validator function
+    actually runs, both modules have finished executing.
+    """
+    from bootstrap import NARRATIVE_ROLES
+
+    return NARRATIVE_ROLES
+
+
 def validate_story_file(path: Path) -> list[str]:
     """Return list of validation errors, empty if valid."""
     errors: list[str] = []
@@ -306,6 +326,24 @@ def validate_story_file(path: Path) -> list[str]:
             f"Invalid reviewer_model '{fm['reviewer_model']}'; must be one of "
             f"{sorted(VALID_MODEL_TIERS)} when present"
         )
+
+    # INFRA-355: `narrative_roles:` is an optional list of role names naming
+    # which harness-role (or OPERATOR) narrative(s) the spec-writer reads as
+    # its sixth bounded input. Absent or empty is valid (not every story is
+    # narratively role-facing) — only a non-empty list with an unknown role
+    # name is an error.
+    if "narrative_roles" in fm and fm["narrative_roles"] not in (None, []):
+        value = fm["narrative_roles"]
+        if not isinstance(value, list):
+            errors.append("Field 'narrative_roles' must be a list")
+        else:
+            valid_roles = _valid_narrative_roles()
+            for role in value:
+                if role not in valid_roles:
+                    errors.append(
+                        f"Invalid narrative_roles entry '{role}'; must be one of "
+                        f"{sorted(valid_roles)}"
+                    )
 
     status = fm.get("status", "")
     # The 'primary_files must be a list' check below is textually identical in

@@ -30,14 +30,17 @@ Where `{scalar}` is the stub story ID passed to you by the orchestrator (e.g.
 
 You are the spec-writer for one stub story. You elaborate the stub into a complete
 story spec, write the result to the story file in place, and return `SPEC-RESULT`.
-You do not build. You do not commit. You do not touch any file except the single
-story file identified by `{scalar}`.
+You do not build. You do not commit. You write to exactly two kinds of file: the
+single story file identified by `{scalar}` (§ Step 6, the primary write target),
+and — only when that story's `narrative_roles:` frontmatter is non-empty — the
+`stories:` frontmatter backfill on each cited narrative file (§ Step 4c, a
+second, narrower write target). You touch no other file.
 
 ---
 
 ## Input contract (DP1.3 — input-bound property)
 
-You read **exactly five** bounded inputs. No other files, no accumulated orchestrator
+You read **exactly six** bounded inputs. No other files, no accumulated orchestrator
 state, no prior-attempt transcripts, no effort database records.
 
 1. **The stub story file** — `docs/stories/<RAIL>/<scalar>.md`
@@ -54,11 +57,21 @@ state, no prior-attempt transcripts, no effort database records.
    constraints, and prototype fingerprints. Read in full. If the file does not
    exist, skip the ideology-alignment step (§ Step 4a below) and note the skip —
    mirroring 0.2's skip behaviour — rather than failing the spec-writer run.
+6. **Any narrative file(s) named in the stub's `narrative_roles:` frontmatter
+   field, if present and non-empty** (INFRA-355) — read exactly the cited
+   `<ROLE>-000-ideology.md` file(s) (and any numbered descendants that exist
+   for that role), nothing else under `docs/narratives/`. When
+   `narrative_roles:` is empty or absent, this input category contributes zero
+   files and the run behaves byte-identically to a five-input run (Ensures 6).
 
-Do **not** read any file outside these five categories. If you cannot locate any one
-of the five inputs (`docs/ideology.md`'s absence is an explicit skip, not a
-missing-input failure), report it in `reason` and return `status: "revised"` so a
-human can resolve the gap.
+Do **not** read any file outside these six categories. In particular, never read
+`docs/narratives/README.md` or scan the whole `docs/narratives/` tree "just to be
+safe" — that defeats the bounded-input property the same way an unbounded sixth
+category would (the forbidden proxy, INFRA-355). If you cannot locate any one of
+the required inputs (`docs/ideology.md`'s absence is an explicit skip, not a
+missing-input failure; an empty/absent `narrative_roles:` means input 6
+contributes nothing, also not a missing-input failure), report it in `reason` and
+return `status: "revised"` so a human can resolve the gap.
 
 ---
 
@@ -70,7 +83,7 @@ From the scalar (e.g. `BUILD-012`):
 - Rail = characters before the first `-` (e.g. `BUILD`)
 - Story file path = `docs/stories/<RAIL>/<scalar>.md`
 
-### Step 2 — Read the five bounded inputs
+### Step 2 — Read the six bounded inputs
 
 1. Read the stub story file at `docs/stories/<RAIL>/<scalar>.md` in full.
    Extract the `phase:` frontmatter field to locate the phase doc.
@@ -80,6 +93,11 @@ From the scalar (e.g. `BUILD-012`):
    that rail) and read it as a format exemplar.
 5. Read `docs/ideology.md` in full. If it does not exist, note the absence and skip
    Step 4a below.
+6. Read the stub's `narrative_roles:` frontmatter field. If empty or absent, this
+   input contributes nothing — proceed exactly as before (Ensures 6). If
+   non-empty, for each cited role read exactly
+   `docs/narratives/<ROLE>/<ROLE>-000-ideology.md` (and any numbered descendant
+   files that exist for that role) — no other file under `docs/narratives/`.
 
 ### Step 3 — Identify what the stub is missing
 
@@ -192,6 +210,30 @@ A story with a pre-existing `model:`/`reviewer_model:` value already in the
 stub's frontmatter is left untouched — a value already present means a human
 already decided; this step never edits or removes it.
 
+### Step 4c — Narrative backfill: the `stories:` two-way trace (INFRA-355)
+
+If the stub's `narrative_roles:` frontmatter is empty or absent, skip this step
+entirely — no second write happens, and the run stays a single-write-target run
+(Ensures 6).
+
+Otherwise, once the story draft (Step 4) is complete, for each role cited in
+`narrative_roles:`, open the same `docs/narratives/<ROLE>/<ROLE>-000-ideology.md`
+file read as input 6 (§ Input contract) and append this story's own `id` (from
+the stub's frontmatter) to that file's `stories:` frontmatter list — creating the
+`stories:` list if the narrative file does not yet have one. This mirrors
+coherra's own two-way trace convention: the narrative records which stories cite
+it, the same way Step 4b's model-proposal write-back records a decision back
+into frontmatter.
+
+**Idempotent:** before appending, check whether the story's `id` is already
+present in that narrative file's `stories:` list; if it is, make no write at all
+for that narrative file. Re-running the spec-writer on an already-cited story
+must never duplicate the entry.
+
+This is the procedure's only other write target besides the story file itself
+(§ Role, § Step 6's write rules) — it writes only the `stories:` frontmatter
+field of the cited narrative file(s), touching no other field and no other file.
+
 ### Step 5 — Check for human-review signals
 
 Return `status: "revised"` (rather than `"done"`) if any of the following apply:
@@ -214,11 +256,16 @@ Otherwise return `status: "done"`.
 
 Write the complete story spec to `docs/stories/<RAIL>/<scalar>.md`.
 
-**Write rules (single write target):**
-- Write ONLY to `docs/stories/<RAIL>/<scalar>.md`. No other file is touched.
+**Write rules (primary write target):**
+- Write to `docs/stories/<RAIL>/<scalar>.md`. This is the primary write target,
+  and — when `narrative_roles:` is empty or absent — the only file touched.
 - The output file must begin with the original YAML frontmatter block (unchanged),
   followed by the complete body sections.
-- Do not write to the phase doc, architecture.md, or any other file.
+- Do not write to the phase doc, architecture.md, or any other file. The one
+  narrow exception is Step 4c's narrative `stories:` backfill (INFRA-355),
+  which only ever fires when `narrative_roles:` is non-empty and only ever
+  touches the `stories:` field of the cited narrative file(s) — never a third
+  file, never any other field.
 
 ### Step 7 — Self-check with spec-preflight (INFRA-190/191)
 
@@ -286,12 +333,20 @@ Return only the JSON object. No preamble, no commentary, no usage block.
 
 ## Non-negotiables
 
-- Read only the five declared bounded inputs (DP1.3). No other files.
-- Write only to `docs/stories/<RAIL>/<scalar>.md`. No other files.
-- Never touch the phase doc, architecture.md, or any file outside `docs/stories/`.
-  Phase authoring is a separate tool's job (`phase_new.py`, not spec-writer;
+- Read only the six declared bounded inputs (DP1.3). No other files.
+- Write only to `docs/stories/<RAIL>/<scalar>.md` and, when `narrative_roles:`
+  is non-empty, the `stories:` frontmatter field of each cited narrative file
+  (Step 4c, INFRA-355). No other files, and no other field of the narrative
+  file.
+- Never touch the phase doc, architecture.md, or any file outside
+  `docs/stories/` and the Step 4c narrative-backfill exception above. Phase
+  authoring is a separate tool's job (`phase_new.py`, not spec-writer;
   see architecture.md's phase-authoring convention, INFRA-243) — spec-writer
-  only elaborates an existing stub story into `## Ensures`/`## Instructions`.
+  only elaborates an existing stub story into `## Ensures`/`## Instructions`
+  (plus the narrow narrative-trace backfill).
+- Never scan the whole `docs/narratives/` tree or read
+  `docs/narratives/README.md` as a substitute for reading exactly the cited
+  role file(s) — the forbidden proxy (INFRA-355).
 - Never commit — the orchestrator does that.
 - Return value must be valid `SPEC-RESULT` JSON (parseable by `worker_result.py`).
 - Never call APIs, spawn subprocesses, or make network requests.

@@ -2166,6 +2166,55 @@ nine `docs/narratives/<ROLE>/<ROLE>-000-ideology.md` files with rendered (not
 raw Jinja2) content — the forbidden-proxy check confirming the list isn't
 merely declared but is actually wired into the scaffold-time render loop.
 
+### Narrative-of-record as spec-writer's sixth bounded input (INFRA-355)
+
+The spec-writer's input contract (DP1.3, `spec-writer/procedure.md` § Input contract)
+grows from five to exactly six bounded input categories. The sixth: a story's
+frontmatter gains an optional `narrative_roles: []` field (empty is valid — not
+every story is narratively role-facing). When non-empty, the spec-writer reads
+exactly the cited `docs/narratives/<ROLE>/<ROLE>-000-ideology.md` file(s) (and any
+numbered descendants that exist for that role) — no other file under
+`docs/narratives/`, and never `docs/narratives/README.md` or a whole-tree scan
+"just to be safe" (the forbidden proxy this story names explicitly, the same way
+an unbounded sixth category would defeat the bounded-input property DP1.3
+protects).
+
+`schema_validator.py` validates `narrative_roles:` against the ten known role
+names — the nine harness roles (`bootstrap.NARRATIVE_FILES`'s role set,
+INFRA-351) plus `OPERATOR` — via `bootstrap.NARRATIVE_ROLES`, a frozenset
+derived from `NARRATIVE_FILES`'s destination paths so the role vocabulary has
+exactly one source of truth. `schema_validator.py` imports this constant with a
+deferred (call-time, not module-load-time) `import bootstrap` inside
+`_valid_narrative_roles()` — `bootstrap.py` already imports `schema_validator`
+(`from schema_validator import _parse_frontmatter`) at its own module scope, so
+a symmetric module-level import back into `schema_validator.py` would be a
+circular import that races whichever module's own top-to-bottom execution
+hasn't finished yet; deferring to call time sidesteps this because both modules
+have always finished loading by the time any validator function actually runs.
+`story_new.py`'s stub scaffold gains `narrative_roles: []` to the frontmatter
+template — empty by default, never auto-inferred from title or rail.
+
+**The `stories:` two-way trace (Step 4c).** Mirroring coherra's own two-way
+trace convention (a narrative file's `stories:` frontmatter lists which
+stories cite it), the spec-writer backfills its own story's `id` into each
+cited narrative's `stories:` list once the draft is complete — a new Step 4c,
+analogous to how Step 4b's model-proposal write-back records a decision back
+into frontmatter. This makes the narrative `stories:` backfill the
+spec-writer's *second* write target, alongside the primary story file
+(`docs/stories/<RAIL>/<scalar>.md`) — the procedure's `## Role`, `## Non-negotiables`,
+and Step 6 write-rules sections all name both targets explicitly rather than
+claiming a single-write-target absolute that the Step 4c addition would then
+contradict. The backfill is idempotent: re-running the spec-writer on an
+already-cited story makes no write at all for narrative files that already
+list that story's `id`.
+
+A story whose `narrative_roles:` is empty or absent behaves byte-identically
+to the pre-INFRA-355 spec-writer: input 6 contributes zero files, Step 4c is a
+no-op, and the run stays a single-write-target run.
+
+**Out of scope (deferred to INFRA-356):** intent-reviewer narrative-alignment
+checking. This story only wires the spec-writer's *input* side.
+
 ### Work→agent-type classification and agent-type completeness checklist (INFRA-335)
 
 **Work→agent-type dispatch table.** The eight agent types in the pairmode build loop, the kind of work each is the correct dispatch target for, and the `next_action.py` action(s) that route to each:

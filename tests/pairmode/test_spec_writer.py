@@ -38,11 +38,14 @@ def _read(path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_spec_writer_declares_five_bounded_inputs() -> None:
+def test_spec_writer_declares_six_bounded_inputs() -> None:
     text = _read(_SPEC_WRITER_PROCEDURE)
-    assert "exactly five" in text, (
-        "spec-writer procedure must declare five bounded inputs after gaining "
-        "docs/ideology.md (INFRA-242)"
+    assert "exactly six" in text, (
+        "spec-writer procedure must declare six bounded inputs after gaining "
+        "narrative_roles:-cited narrative files as a sixth input (INFRA-355)"
+    )
+    assert "exactly five" not in text, (
+        "spec-writer procedure still references the old five-input contract"
     )
     assert "exactly four" not in text, (
         "spec-writer procedure still references the old four-input contract"
@@ -143,6 +146,82 @@ def test_spec_writer_step5_routes_unresolved_raise_to_revised() -> None:
         "Step 5's human-review signals must reference Step 4b's unresolved-raise "
         "case so a pending model raise routes to status: revised"
     )
+
+
+# ---------------------------------------------------------------------------
+# spec-writer: narrative-of-record as sixth bounded input (INFRA-355)
+# ---------------------------------------------------------------------------
+
+
+def test_spec_writer_declares_narrative_roles_as_sixth_input() -> None:
+    text = _read(_SPEC_WRITER_PROCEDURE)
+    input_contract = text.split("## Input contract", 1)[1].split("## Procedure", 1)[0]
+    assert "narrative_roles" in input_contract
+    assert "docs/narratives" in input_contract
+
+
+def test_spec_writer_forbidden_proxy_narrative_scan_documented() -> None:
+    """The whole-tree scan / README.md proxy must be explicitly forbidden,
+    the same way an unbounded sixth category would be (INFRA-355)."""
+    text = _read(_SPEC_WRITER_PROCEDURE)
+    input_contract = text.split("## Input contract", 1)[1].split("## Procedure", 1)[0]
+    assert "README.md" in input_contract
+    assert "forbidden proxy" in input_contract.lower()
+
+
+def test_spec_writer_step_2_reads_narrative_roles() -> None:
+    text = _read(_SPEC_WRITER_PROCEDURE)
+    step2 = text.split("### Step 2", 1)[1].split("### Step 3", 1)[0]
+    assert "narrative_roles" in step2
+
+
+def test_spec_writer_step_4c_backfill_present() -> None:
+    text = _read(_SPEC_WRITER_PROCEDURE)
+    assert "Step 4c" in text, (
+        "spec-writer procedure must add a Step 4c narrative-backfill step (INFRA-355)"
+    )
+    step = text.split("### Step 4c", 1)[1].split("### Step 5", 1)[0]
+    assert "stories:" in step
+    assert "idempotent" in step.lower()
+    assert "narrative_roles" in step
+
+
+def test_spec_writer_step_4c_skips_when_narrative_roles_absent() -> None:
+    text = _read(_SPEC_WRITER_PROCEDURE)
+    step = text.split("### Step 4c", 1)[1].split("### Step 5", 1)[0]
+    assert "skip" in step.lower()
+
+
+def test_spec_writer_role_section_acknowledges_second_write_target() -> None:
+    """The Role section's single-write-target claim must not contradict Step
+    4c / Step 6's second write target (narrative stories: backfill) — the
+    exact internal-consistency bug this story fixes (INFRA-355 retry)."""
+    text = _read(_SPEC_WRITER_PROCEDURE)
+    role_section = text.split("## Role", 1)[1].split("## Input contract", 1)[0]
+    assert "narrative" in role_section.lower(), (
+        "Role section must acknowledge the narrative-backfill write target "
+        "introduced alongside the primary story file"
+    )
+    # The old, now-contradictory absolute claim must not survive verbatim.
+    assert (
+        "You do not touch any file except the single\nstory file identified by `{scalar}`."
+        not in text
+    )
+
+
+def test_spec_writer_write_rules_reference_step_4c_exception() -> None:
+    """Step 6's write-rules section must name the Step 4c exception rather
+    than claim a single write target unconditionally."""
+    text = _read(_SPEC_WRITER_PROCEDURE)
+    step6 = text.split("### Step 6", 1)[1].split("### Step 7", 1)[0]
+    assert "4c" in step6
+
+
+def test_spec_writer_non_negotiables_reference_narrative_backfill() -> None:
+    text = _read(_SPEC_WRITER_PROCEDURE)
+    non_negotiables = text.split("## Non-negotiables", 1)[1]
+    assert "narrative" in non_negotiables.lower()
+    assert "six" in non_negotiables.lower()
 
 
 def test_spec_writer_frontmatter_preserve_rule_exempts_model_fields() -> None:

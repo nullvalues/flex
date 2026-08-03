@@ -146,6 +146,19 @@ OPERATOR_SEED_FILE: tuple[str, str] = (
     "narratives/OPERATOR/OPERATOR-000-ideology.md.j2",
 )
 
+# INFRA-355: the ten known narrative role names — the nine harness roles
+# (derived from NARRATIVE_FILES's destination paths, "docs/narratives/<ROLE>/...")
+# plus OPERATOR (handled separately via OPERATOR_SEED_FILE, but still a valid
+# role name a story's `narrative_roles:` frontmatter may cite). This is the
+# single source of truth for the role-name vocabulary; do not hand-duplicate
+# this list elsewhere (schema_validator.py's narrative_roles validation
+# imports this constant, deferred to call time to avoid the circular import
+# this module already has with schema_validator.py — see
+# schema_validator._valid_narrative_roles's docstring).
+NARRATIVE_ROLES: frozenset[str] = frozenset(
+    {dest.split("/")[2] for dest, _ in NARRATIVE_FILES} | {"OPERATOR"}
+)
+
 # Default deny list written into .claude/settings.json.
 # Kept minimal — scope_guard.py (Phase 55) enforces per-story file scope at
 # the hook level. Only the permissions files directory is hard-denied here to

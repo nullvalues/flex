@@ -79,6 +79,15 @@ class TestCreateStoryFile:
         fm_block = content.split("---")[1]
         assert "primary_files: []" not in fm_block
 
+    def test_narrative_roles_empty_list_in_stub_template(self, tmp_path: pathlib.Path) -> None:
+        """narrative_roles: [] must be present, empty by default (INFRA-355) —
+        a human or spec-writer decides which roles apply, never auto-inferred."""
+        invoke(["--rail", "BUILD", "--title", "Build story", "--project-dir", str(tmp_path)])
+        story_file = tmp_path / "docs" / "stories" / "BUILD" / "BUILD-001.md"
+        content = story_file.read_text()
+        fm_block = content.split("---")[1]
+        assert "narrative_roles: []" in fm_block
+
 
 class TestSequenceIncrement:
     """Sequence number increments for subsequent stories on the same rail."""
