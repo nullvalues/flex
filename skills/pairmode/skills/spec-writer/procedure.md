@@ -160,10 +160,15 @@ complete set of sections for this story.
   `status`, `phase`, `primary_files`, `touches`, `story_class`, or any other field —
   **except** the optional `model:` / `reviewer_model:` fields, which Step 4b below
   may add (never edited if already present; a pre-existing declared value is a
-  human decision this procedure never overrides); and **except** `narrative_roles:`,
+  human decision this procedure never overrides); **except** `narrative_roles:`,
   which this procedure may set (from empty/absent) when the stub's own scope
   genuinely warrants citing a role narrative — a judgment call the spec-writer
-  makes, never auto-inferred from title/rail alone (INFRA-355/INFRA-362).
+  makes, never auto-inferred from title/rail alone (INFRA-355/INFRA-362); and
+  **except** `touches:`, which must gain the conventional unit-test path
+  (`tests/pairmode/test_<stem>.py`) for each `primary_files:` entry that has one
+  on disk (CER-145/INFRA-370) — this is the same widening latitude as the
+  `scope:`-finding exception in Step 7, applied here to keep a story's own
+  test file from being silently omitted from its declared scope.
 - Preserve any existing body sections that are already complete — only add or expand
   what is missing.
 

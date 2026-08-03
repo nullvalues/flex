@@ -23,6 +23,31 @@ import click
 # ---------------------------------------------------------------------------
 
 
+def derive_test_paths(primary_files: list[str], project_dir: Path | str) -> list[str]:
+    """Derive conventional unit-test paths for *primary_files* (INFRA-370).
+
+    For each `.py` entry in *primary_files*, maps `<any>/<stem>.py` to the flat
+    convention `tests/pairmode/test_<stem>.py`.  A candidate is included only when
+    it exists on disk under *project_dir* (filesystem-read-only, no writes).  A
+    non-`.py` primary file contributes nothing.  Result is deduped, preserving
+    input order.
+    """
+    project_dir = Path(project_dir)
+    result: list[str] = []
+    seen: set[str] = set()
+    for pf in primary_files:
+        p = Path(pf)
+        if p.suffix != ".py":
+            continue
+        candidate = f"tests/pairmode/test_{p.stem}.py"
+        if candidate in seen:
+            continue
+        if (project_dir / candidate).exists():
+            result.append(candidate)
+            seen.add(candidate)
+    return result
+
+
 def _next_sequence(rail_dir: Path, rail: str) -> int:
     """Return the next sequence number for stories in *rail_dir*."""
     pattern = str(rail_dir / f"{rail}-*.md")
@@ -43,8 +68,18 @@ def _story_frontmatter(
     story_class: str | None = None,
     source: str | None = None,
     test_gate: str | None = None,
+    primary_files: list[str] | None = None,
+    project_dir: Path | str | None = None,
 ) -> str:
-    """Return YAML frontmatter block for a new story file."""
+    """Return YAML frontmatter block for a new story file.
+
+    *primary_files*/*project_dir* (INFRA-370): when *primary_files* is supplied,
+    the frontmatter carries them under `primary_files:` and the conventional
+    test file for each (per `derive_test_paths`) is merged into `touches:`,
+    deduped against `primary_files:` and any already-declared `touches:` entry.
+    Omitting *primary_files* reproduces the pre-INFRA-370 output exactly
+    (Ensures 4).
+    """
     phase_val = phase if phase is not None else "backlog"
     # CER-092: quote the title when it contains a whitespace-preceded '#',
     # so the schema_validator scalar comment-stripping does not truncate an
@@ -68,12 +103,38 @@ def _story_frontmatter(
         lines.append(f"source: {source}")
     if test_gate is not None:
         lines.append(f"test_gate: {test_gate}")
-    # primary_files is deliberately omitted for new (draft) stories (CER-006);
-    # the INFRA-186 architecture prompt is carried by _story_body() instead
-    # (CER-092 — a trailing comment on the touches: line made it parse as a
-    # non-empty string, not a block sequence).
+    # primary_files is deliberately omitted for new (draft) stories with no
+    # --primary-file supplied (CER-006); the INFRA-186 architecture prompt is
+    # carried by _story_body() instead (CER-092 — a trailing comment on the
+    # touches: line made it parse as a non-empty string, not a block sequence).
+    primary_files_list = list(primary_files) if primary_files else []
+    if primary_files_list:
+        lines.append("primary_files:")
+        for pf in primary_files_list:
+            lines.append(f"  - {pf}")
+
+    # INFRA-370: derive each primary file's conventional test path and merge
+    # into touches:, deduped against primary_files: and touches: itself.
+    derived_touches: list[str] = []
+    if primary_files_list and project_dir is not None:
+        derived_touches = derive_test_paths(primary_files_list, project_dir)
+
+    touches_entries: list[str] = []
+    seen_touches = set(primary_files_list)
+    for t in derived_touches:
+        if t in seen_touches:
+            continue
+        touches_entries.append(t)
+        seen_touches.add(t)
+
+    if touches_entries:
+        lines.append("touches:")
+        for t in touches_entries:
+            lines.append(f"  - {t}")
+    else:
+        lines.append("touches: []")
+
     lines += [
-        "touches: []",
         # INFRA-355: empty by default — a human or spec-writer decides which
         # narrative role(s) apply to this story; never auto-inferred from
         # title/rail.
@@ -225,6 +286,7 @@ def create_story(
     story_class: str | None = None,
     source: str | None = None,
     test_gate: str | None = None,
+    primary_files: list[str] | None = None,
 ) -> Path:
     """Create a new story file programmatically without interactive prompts.
 
@@ -266,7 +328,17 @@ def create_story(
 
     story_path = rail_dir / f"{story_id}.md"
     content = (
-        _story_frontmatter(story_id, rail, title, phase, story_class, source, test_gate)
+        _story_frontmatter(
+            story_id,
+            rail,
+            title,
+            phase,
+            story_class,
+            source,
+            test_gate,
+            primary_files=primary_files,
+            project_dir=resolved,
+        )
         + _story_body()
     )
     story_path.write_text(content, encoding="utf-8")
@@ -328,7 +400,18 @@ def create_story(
     default=False,
     help="Auto-confirm all prompts. Use for non-interactive/CI invocations.",
 )
-def story_new(rail: str, title: str, phase: str | None, story_class: str | None, source: str | None, test_gate: str | None, project_dir: str, create_rail: bool | None, yes: bool) -> None:
+@click.option(
+    "--primary-file",
+    "primary_files",
+    multiple=True,
+    help=(
+        "Repo-relative primary file path (repeatable, INFRA-370). Written to the "
+        "scaffolded story's primary_files:; each .py entry's conventional test "
+        "file (tests/pairmode/test_<stem>.py), when it exists, is merged into "
+        "touches:."
+    ),
+)
+def story_new(rail: str, title: str, phase: str | None, story_class: str | None, source: str | None, test_gate: str | None, project_dir: str, create_rail: bool | None, yes: bool, primary_files: tuple[str, ...]) -> None:
     """Create a new story file on the specified rail."""
 
     resolved = Path(project_dir).resolve()
@@ -430,7 +513,20 @@ def story_new(rail: str, title: str, phase: str | None, story_class: str | None,
 
     # Write story file
     story_path = rail_dir / f"{story_id}.md"
-    content = _story_frontmatter(story_id, rail, title, phase, story_class, source, test_gate) + _story_body()
+    content = (
+        _story_frontmatter(
+            story_id,
+            rail,
+            title,
+            phase,
+            story_class,
+            source,
+            test_gate,
+            primary_files=list(primary_files),
+            project_dir=resolved,
+        )
+        + _story_body()
+    )
     story_path.write_text(content, encoding="utf-8")
 
     click.echo(f"  Created {story_id}: {title}")

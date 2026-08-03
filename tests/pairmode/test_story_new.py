@@ -7,7 +7,13 @@ import pathlib
 import pytest
 from click.testing import CliRunner
 
-from skills.pairmode.scripts.story_new import story_new, _story_frontmatter, _story_body, create_story
+from skills.pairmode.scripts.story_new import (
+    story_new,
+    _story_frontmatter,
+    _story_body,
+    create_story,
+    derive_test_paths,
+)
 from skills.pairmode.scripts.flex_build import _read_story_frontmatter
 
 
@@ -1002,3 +1008,184 @@ class TestTitleHashQuoting:
         output = _story_frontmatter("INFRA-001", "INFRA", "Plain title", None)
         assert "title: Plain title" in output
         assert 'title: "Plain title"' not in output
+
+
+class TestDeriveTestPaths:
+    """INFRA-370 Ensures 1, 3 — derive_test_paths() unit coverage."""
+
+    def test_existing_test_file_is_derived(self, tmp_path: pathlib.Path) -> None:
+        test_dir = tmp_path / "tests" / "pairmode"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_widget.py").write_text("", encoding="utf-8")
+        result = derive_test_paths(["skills/pairmode/scripts/widget.py"], tmp_path)
+        assert result == ["tests/pairmode/test_widget.py"]
+
+    def test_missing_test_file_contributes_nothing(self, tmp_path: pathlib.Path) -> None:
+        result = derive_test_paths(["skills/pairmode/scripts/ghost.py"], tmp_path)
+        assert result == []
+
+    def test_non_py_primary_file_contributes_nothing(self, tmp_path: pathlib.Path) -> None:
+        test_dir = tmp_path / "tests" / "pairmode"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_procedure.py").write_text("", encoding="utf-8")
+        result = derive_test_paths(["skills/pairmode/skills/spec-writer/procedure.md"], tmp_path)
+        assert result == []
+
+    def test_dedupe_preserves_input_order(self, tmp_path: pathlib.Path) -> None:
+        test_dir = tmp_path / "tests" / "pairmode"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_widget.py").write_text("", encoding="utf-8")
+        (test_dir / "test_gadget.py").write_text("", encoding="utf-8")
+        result = derive_test_paths(
+            [
+                "skills/pairmode/scripts/widget.py",
+                "skills/pairmode/scripts/gadget.py",
+                "other/dir/widget.py",  # same stem — must dedupe, not duplicate
+            ],
+            tmp_path,
+        )
+        assert result == [
+            "tests/pairmode/test_widget.py",
+            "tests/pairmode/test_gadget.py",
+        ]
+
+    def test_empty_primary_files_returns_empty(self, tmp_path: pathlib.Path) -> None:
+        assert derive_test_paths([], tmp_path) == []
+
+
+class TestPrimaryFileFlag:
+    """INFRA-370 Ensures 2, 3, 4 — --primary-file CLI wiring."""
+
+    def test_primary_file_written_and_test_path_merged_into_touches(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        test_dir = tmp_path / "tests" / "pairmode"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_widget.py").write_text("", encoding="utf-8")
+
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "Widget story",
+                "--primary-file", "skills/pairmode/scripts/widget.py",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        parts = content.split("---")
+        fm_block = parts[1]
+        assert "primary_files:" in fm_block
+        assert "- skills/pairmode/scripts/widget.py" in fm_block
+        assert "touches:" in fm_block
+        assert "- tests/pairmode/test_widget.py" in fm_block
+        # Forbidden proxy: must not merely be present in stdout while absent
+        # from the written frontmatter bytes.
+        touches_block = fm_block[fm_block.index("touches:"):]
+        assert "tests/pairmode/test_widget.py" in touches_block
+
+    def test_primary_file_without_test_file_omits_touches_entry(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "No test story",
+                "--primary-file", "skills/pairmode/scripts/ghost.py",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        fm_block = content.split("---")[1]
+        assert "primary_files:" in fm_block
+        assert "- skills/pairmode/scripts/ghost.py" in fm_block
+        assert "touches: []" in fm_block
+
+    def test_multiple_primary_files_all_written(self, tmp_path: pathlib.Path) -> None:
+        test_dir = tmp_path / "tests" / "pairmode"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_alpha.py").write_text("", encoding="utf-8")
+        (test_dir / "test_beta.py").write_text("", encoding="utf-8")
+
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "Two files story",
+                "--primary-file", "skills/pairmode/scripts/alpha.py",
+                "--primary-file", "skills/pairmode/scripts/beta.py",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        fm_block = content.split("---")[1]
+        assert "- skills/pairmode/scripts/alpha.py" in fm_block
+        assert "- skills/pairmode/scripts/beta.py" in fm_block
+        assert "- tests/pairmode/test_alpha.py" in fm_block
+        assert "- tests/pairmode/test_beta.py" in fm_block
+
+    def test_dedupe_when_test_path_already_declared_as_primary_file(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """A conventional test path that is itself passed as a --primary-file
+        must appear exactly once in the generated frontmatter (Ensures 3)."""
+        test_dir = tmp_path / "tests" / "pairmode"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_widget.py").write_text("", encoding="utf-8")
+
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "Self-test story",
+                "--primary-file", "skills/pairmode/scripts/widget.py",
+                "--primary-file", "tests/pairmode/test_widget.py",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        fm_block = content.split("---")[1]
+        assert fm_block.count("tests/pairmode/test_widget.py") == 1
+        assert "touches: []" in fm_block
+
+    def test_no_primary_file_flag_behaves_exactly_as_before(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """Ensures 4 — no --primary-file produces byte-identical frontmatter keys
+        to pre-INFRA-370 scaffolding: no primary_files: key, bare touches: []."""
+        result = invoke(
+            ["--rail", "INFRA", "--title", "Unaffected story", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        fm_block = content.split("---")[1]
+        assert "primary_files:" not in fm_block
+        assert "touches: []" in fm_block
+
+    def test_create_story_programmatic_api_accepts_primary_files(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """create_story() (the programmatic API used by drift promotion) also
+        threads primary_files through to derive_test_paths."""
+        test_dir = tmp_path / "tests" / "pairmode"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_widget.py").write_text("", encoding="utf-8")
+        rail_dir = tmp_path / "docs" / "stories" / "INFRA"
+        rail_dir.mkdir(parents=True)
+
+        story_path = create_story(
+            rail="INFRA",
+            title="Programmatic story",
+            project_dir=tmp_path,
+            primary_files=["skills/pairmode/scripts/widget.py"],
+        )
+        content = story_path.read_text()
+        fm_block = content.split("---")[1]
+        assert "- skills/pairmode/scripts/widget.py" in fm_block
+        assert "- tests/pairmode/test_widget.py" in fm_block
