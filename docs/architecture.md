@@ -2232,6 +2232,25 @@ checking. This story only wires the spec-writer's *input* side.
 
 (Reconstruction-agent is noted separately as belonging to a different skill's documentation, not the story build loop.)
 
+**Shadow-reviewer (INFRA-358, partially wired).** A ninth agent type, not yet
+in the dispatch table above because it has no dispatch action. The
+shadow-reviewer is dispatched concurrently with the builder into the *same*
+story worktree and is largely passive: it polls the worktree's git state at
+its own pace (event-driven — after N new commits or file changes, never a
+wall-clock sleep) and appends timestamped, advisory suggestions to a shared
+`<worktree>/.pairmode-suggestions.md` file, which the builder polls in turn
+at natural checkpoints (after each `## Ensures` item). The builder is never
+required to act on a suggestion. This is ordinary file I/O, not real-time
+transcript-watching — no mechanism exists for one agent to observe another's
+live session. The suggestions file is gitignored and never part of a story's
+diff or the reviewer's own artifact review. It augments, never replaces, the
+reviewer's later independent check. Procedure: `skills/pairmode/skills/shadow-reviewer/procedure.md`;
+shell: `skills/pairmode/templates/agents/shadow-reviewer.md.j2`. INFRA-358
+covers only checklist items 1-2 below (template, materialized/scaffolded
+file); items 3-5 (dispatch action, model selector, escalation table) are
+INFRA-359's job — until that story lands, the shadow-reviewer shell exists
+on disk but the orchestrator never spawns it.
+
 **New-agent-type definition-of-done checklist.** Before a new agent type is considered fully wired up and integrated into the pairmode build loop, it must have all five of the following:
 
 1. **Template.** A `skills/pairmode/templates/agents/<role>.md.j2` jinja2 template whose body contains the agent's procedure skill's "Shell instruction" section.

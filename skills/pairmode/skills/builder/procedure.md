@@ -142,6 +142,20 @@ You are given a story ID (e.g. `BUILD-012`). Before taking any other action:
 
 ---
 
+## Shadow-reviewer suggestions (INFRA-358)
+
+If a `.pairmode-suggestions.md` file exists at the worktree root, check it for
+content added since you last checked at each natural checkpoint — after
+completing each `## Ensures` item is the right granularity, not after every
+tool call. Track a simple high-water-mark (e.g. the byte length previously
+seen) so you only read what's new. Consider what you find; you are never
+required to act on a suggestion, and this file's contents have no bearing on
+your own `BUILD-RESULT`. Never write to this file yourself — it is the
+shadow-reviewer's output channel, not yours — and never commit it (it is
+gitignored).
+
+---
+
 ## DEVELOPER ACTION gates
 
 If the story text contains a DEVELOPER ACTION section (marked with the gear emoji),

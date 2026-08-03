@@ -106,6 +106,11 @@ AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
     (".claude/agents/docs-reviewer.md", "agents/docs-reviewer.md.j2"),
     (".claude/agents/spec-writer.md", "agents/spec-writer.md.j2"),
+    # shadow-reviewer.md (INFRA-358): tenth thin shell, added alongside the
+    # role's procedure skill and template — the dispatch action, model
+    # selector, and escalation wiring (checklist items 3-5) are INFRA-359's
+    # job; this scaffold-only entry covers items 1-2.
+    (".claude/agents/shadow-reviewer.md", "agents/shadow-reviewer.md.j2"),
 ]
 
 # INFRA-351: the nine harness-role narratives (the build-loop roles themselves —

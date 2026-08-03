@@ -123,6 +123,10 @@ EXPECTED_DEST_PATHS = [
     # the role's procedure skill (spec-writer, WORKER-013) and a live
     # spawn-spec-writer dispatch action existed but no scaffolded shell did.
     ".claude/agents/spec-writer.md",
+    # shadow-reviewer.md (INFRA-358): tenth thin shell, over the
+    # shadow-reviewer procedure skill. Dispatch/model-selection wiring is
+    # INFRA-359's job — this entry is scaffold-only.
+    ".claude/agents/shadow-reviewer.md",
     "docs/architecture.md",
     "docs/checkpoints.md",
     "docs/phases/index.md",
@@ -331,6 +335,35 @@ class TestSpecWriterDispatch:
         run_bootstrap(tmp_path)
         content = (tmp_path / ".claude/agents/spec-writer.md").read_text()
         assert "skills/pairmode/skills/spec-writer/procedure.md" in content
+
+
+# ---------------------------------------------------------------------------
+# Shadow-reviewer dispatch tests (INFRA-358)
+# ---------------------------------------------------------------------------
+
+class TestShadowReviewerDispatch:
+    """Bootstrap deploys shadow-reviewer as a scaffold-only thin shell over
+    the shadow-reviewer procedure skill. No dispatch action or model
+    selector reaches this role yet -- that wiring is INFRA-359's job."""
+
+    def test_shadow_reviewer_agent_shell_created(self, tmp_path):
+        """Bootstrap must create .claude/agents/shadow-reviewer.md."""
+        run_bootstrap(tmp_path)
+        assert (tmp_path / ".claude/agents/shadow-reviewer.md").exists(), (
+            "shadow-reviewer.md missing; static artifact not scaffolded"
+        )
+
+    def test_shadow_reviewer_contains_project_name(self, tmp_path):
+        """Shadow-reviewer shell must be rendered with project_name substituted."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / ".claude/agents/shadow-reviewer.md").read_text()
+        assert "testproject" in content
+
+    def test_shadow_reviewer_references_procedure_skill(self, tmp_path):
+        """Shadow-reviewer shell must reference the shadow-reviewer procedure skill path."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / ".claude/agents/shadow-reviewer.md").read_text()
+        assert "skills/pairmode/skills/shadow-reviewer/procedure.md" in content
 
 
 # ---------------------------------------------------------------------------
