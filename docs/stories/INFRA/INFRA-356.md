@@ -2,7 +2,7 @@
 id: INFRA-356
 rail: INFRA
 title: Add narrative-alignment checking to intent-reviewer (post-build and pre-build modes)
-status: draft
+status: complete
 phase: "118"
 story_class: code
 auth_gated: false

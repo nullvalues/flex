@@ -26,7 +26,7 @@ Establish Narrative of Record as a templated, propagated doc-of-record layer for
 | INFRA-353 | OPERATOR seed-then-extend: templated typical-operator baseline plus bootstrap-led project extension | complete |
 | INFRA-354 | Backfill flex's own docs/narratives/ from the new template source (real dogfood backfill) | complete |
 | INFRA-355 | Add Narrative of Record as spec-writer's sixth bounded input (DP1.3) | complete |
-| INFRA-356 | Add narrative-alignment checking to intent-reviewer (post-build and pre-build modes) | draft |
+| INFRA-356 | Add narrative-alignment checking to intent-reviewer (post-build and pre-build modes) | complete |
 | INFRA-357 | Reduce spec-writer over-specification: cap exemplar imitation, add brevity counter-instruction | draft |
 | INFRA-358 | Build the shared-suggestions-file mid-build steering mechanism (concurrent shadow-reviewer) | draft |
 | INFRA-359 | Wire shadow-reviewer dispatch into CLAUDE.build.md and next_action.py | draft |
