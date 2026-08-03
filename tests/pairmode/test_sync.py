@@ -1845,12 +1845,22 @@ class TestRetiredSectionsRegistry:
     def test_registry_seeded_with_infra_241_reductions(self) -> None:
         """The INFRA-241 fat-reviewer-checklist keys are the seed content."""
         for key in (
-            "## review checklist",
-            "**1. protected files**",
-            "**3. build gate**",
-            "## final output to orchestrator",
+            (_REVIEWER_DEST, "## review checklist"),
+            (_REVIEWER_DEST, "**1. protected files**"),
+            (_REVIEWER_DEST, "**3. build gate**"),
+            (_REVIEWER_DEST, "## final output to orchestrator"),
         ):
             assert RETIRED_SECTIONS.get(key) == "INFRA-241", key
+
+    def test_registry_keys_are_file_scoped(self) -> None:
+        """INFRA-371: every key is a (canonical file, section key) tuple, not a
+        bare section key — file-scoping is what prevents a same-named genuine
+        extension in a different canonical file from false-positive-matching."""
+        for key in RETIRED_SECTIONS:
+            assert isinstance(key, tuple) and len(key) == 2, key
+            file_, section = key
+            assert isinstance(file_, str) and file_, key
+            assert isinstance(section, str) and section, key
 
     def test_registry_values_are_story_ids(self) -> None:
         import re
@@ -1927,7 +1937,9 @@ class TestSyncPrunesRetiredSections:
 
         reviewer_path = _make_stale_fleet_fixture(tmp_path)
         reduced = {
-            k: v for k, v in RETIRED_SECTIONS.items() if k != "## review checklist"
+            k: v
+            for k, v in RETIRED_SECTIONS.items()
+            if k != (_REVIEWER_DEST, "## review checklist")
         }
         monkeypatch.setattr(_sync_mod, "RETIRED_SECTIONS", reduced)
 
@@ -1936,6 +1948,44 @@ class TestSyncPrunesRetiredSections:
         written = reviewer_path.read_text(encoding="utf-8")
         assert "## Review checklist" in written
         assert not any("## review checklist" in entry for entry in result.retired)
+
+
+class TestRetiredSectionsAreFileScoped:
+    """Ensures 3 (INFRA-371) — a section key matching a retirement entry but
+    living in a *different* canonical file than the one it was retired from
+    must be left intact: file-scoping, not a flat key-only registry."""
+
+    def test_same_key_in_different_canonical_file_survives_prune(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import skills.pairmode.scripts.sync as _sync_mod
+
+        _copy_canonical_files(tmp_path)
+        _write_ideology_md(tmp_path)
+
+        # Retirement is only recorded against the reviewer.md destination.
+        scoped = {(_REVIEWER_DEST, "## review checklist"): "INFRA-241"}
+        monkeypatch.setattr(_sync_mod, "RETIRED_SECTIONS", scoped)
+
+        # A different canonical file — builder.md — carries a genuine
+        # extension section with the exact same section key.
+        builder_dest = ".claude/agents/builder.md"
+        builder_path = tmp_path / builder_dest
+        builder_path.write_text(
+            builder_path.read_text(encoding="utf-8")
+            + "\n## Review checklist\n\nGenuine builder-side extension, not canon-retired here.\n",
+            encoding="utf-8",
+        )
+
+        result = sync_project(tmp_path, yes=True)
+
+        written = builder_path.read_text(encoding="utf-8")
+        assert "## Review checklist" in written, (
+            "same-named section in a non-matching canonical file must survive"
+        )
+        assert not any(
+            entry.startswith(f"{builder_dest}:") for entry in result.retired
+        ), result.retired
 
 
 class TestSyncPreservesGenuineExtensions:

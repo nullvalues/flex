@@ -364,6 +364,41 @@ class TestFormatAuditOutput:
         assert "RECOMMENDATION" in output
         assert "sync" in output
 
+    def test_recommendation_names_pending_retirement_prune(self) -> None:
+        """INFRA-371 (CER-133 item 6): when a registry-matched retired section is
+        present downstream, RECOMMENDATION must name the pending prune, not report
+        a generic apply-changes message that could be mistaken for up-to-date."""
+        result = self._make_result(
+            extra=[
+                AuditItem(
+                    file=".claude/agents/reviewer.md",
+                    section="## review checklist",
+                    description="EXTRA section",
+                )
+            ]
+        )
+        output = format_audit_output(result)
+        assert "RECOMMENDATION" in output
+        assert "Pending retirement prune" in output
+        assert ".claude/agents/reviewer.md" in output.split("RECOMMENDATION")[1]
+        assert "## review checklist" in output.split("RECOMMENDATION")[1]
+        assert "INFRA-241" in output.split("RECOMMENDATION")[1]
+
+    def test_recommendation_generic_when_no_pending_prune(self) -> None:
+        """A non-retired EXTRA (WARN, not ERROR) must not trigger the pending-prune
+        RECOMMENDATION wording."""
+        result = self._make_result(
+            extra=[
+                AuditItem(
+                    file=".claude/agents/builder.md",
+                    section="custom",
+                    description="Custom section",
+                )
+            ]
+        )
+        output = format_audit_output(result)
+        assert "Pending retirement prune" not in output
+
     def test_empty_sections_omitted(self) -> None:
         result = self._make_result()  # no items anywhere
         output = format_audit_output(result)

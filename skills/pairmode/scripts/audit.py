@@ -698,8 +698,12 @@ def _enrich_scaffold_context(context: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _retired_sections() -> dict[str, str]:
+def _retired_sections() -> dict[tuple[str, str], str]:
     """Return sync.py's RETIRED_SECTIONS registry (single source of truth).
+
+    Keyed by ``(canonical file, section key)`` tuples since INFRA-371 (file
+    scoping) — a section key retired from one canonical file no longer
+    matches a same-named genuine extension in a different canonical file.
 
     Imported lazily: sync.py imports audit.py at module load, so a top-level
     import here would be circular. The sibling-import pattern (lesson_utils,
@@ -747,7 +751,7 @@ def classify_extra(
         if item.file not in canonical_dests:
             records.append((item, "KEEP", None))
             continue
-        retired_by = retired.get(item.section)
+        retired_by = retired.get((item.file, item.section))
         overridden = (item.file, item.section) in overrides
         if retired_by is not None:
             severity = "OVERRIDE-KEPT" if overridden else "ERROR"
@@ -827,12 +831,19 @@ def format_audit_output(result: AuditResult) -> str:
             lines.append(f"  ~ {item.file}: {item.description}")
         lines.append("")
 
+    pending_prunes: list[tuple[str, str, str]] = []  # (file, section, retired_by)
+
     if result.extra:
         # INFRA-311 (CER-120): EXTRA inside CANONICAL_FILES is a finding, not
         # a blessing. Scaffold files keep the keep-as-is rendering unchanged.
         records = classify_extra(result)
         canonical_records = [r for r in records if r[1] != "KEEP"]
         scaffold_records = [r for r in records if r[1] == "KEEP"]
+        pending_prunes = [
+            (item.file, item.section, retired_by)
+            for item, severity, retired_by in canonical_records
+            if severity == "ERROR" and retired_by is not None
+        ]
 
         if canonical_records:
             lines.append("EXTRA (canonical file \u2014 findings)")
@@ -866,9 +877,27 @@ def format_audit_output(result: AuditResult) -> str:
             lines.append("")
 
     lines.append("RECOMMENDATION")
-    lines.append(
-        "  Run /flex:pairmode sync to apply missing/inconsistent items"
-    )
+    if pending_prunes:
+        # INFRA-371 (CER-133 item 6): a registry-matched retired section
+        # downstream must never be silently folded into a generic
+        # up-to-date/apply-changes message — name the pending prune(s)
+        # explicitly so an operator cannot be told the project is current
+        # while stale canon sits unpruned.
+        lines.append(
+            "  Pending retirement prune(s) — canon-retired content is still present:"
+        )
+        for file_, section, retired_by in pending_prunes:
+            lines.append(
+                f"    ✗ {file_}: section '{section}' (retired by {retired_by})"
+            )
+        lines.append(
+            "  Run /flex:pairmode sync to prune the above and apply any other missing/"
+            "inconsistent items"
+        )
+    else:
+        lines.append(
+            "  Run /flex:pairmode sync to apply missing/inconsistent items"
+        )
     lines.append("  Project-specific items will be preserved")
 
     return "\n".join(lines)

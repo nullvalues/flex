@@ -247,7 +247,10 @@ Note: `pairmode_context.json` (created by `/flex:pairmode bootstrap`) must exist
 **What it does:**
 1. Run audit to get current delta: `PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/audit.py" --project-dir "$(pwd)"`
 2. Display the audit result
-3. If no MISSING or INCONSISTENT items: report "Already up to date" and stop
+3. If no MISSING or INCONSISTENT items and no `ERROR` (canon-retired, pending-prune) EXTRA
+   findings in the audit report: report "Already up to date" and stop. If the only outstanding
+   findings are `ERROR` retirement prunes, do not report up to date — name the pending prune(s)
+   (section key and retiring story ID) and proceed to confirm/apply as usual
 4. Otherwise, confirm with user before applying changes
 5. Run: `PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/sync.py" --project-dir "$(pwd)"`
 6. Display sync output
@@ -266,7 +269,10 @@ State updated: .companion/state.json
 ```
 
 **What it never does:**
-- Never overwrites project-specific content (EXTRA items)
+- Never overwrites project-specific content (EXTRA items), with one exception: a registry-matched
+  canon-retirement prune (`RETIRED_SECTIONS`) removes a downstream `EXTRA` section that canon has
+  explicitly retired — a project `.pairmode-overrides` entry naming that section wins over the
+  prune
 - Never modifies hooks/ or spec files
 - Never runs without showing audit output first
 
@@ -927,8 +933,9 @@ to remember their individual flags or invocation sequences.
 Runs the four sync operations in a fixed, deterministic order:
 
 1. `sync.py` — applies the audit delta to methodology files (`CLAUDE.md`, `docs/*`, scaffold
-   templates). This step only runs in `--apply` mode because `sync.py` has no `--dry-run` flag.
-   In dry-run mode the wrapper emits a `skipped:` notice and continues with the remaining steps.
+   templates). Always invoked; runs with its own `--dry-run` flag when `sync-all` is not in
+   `--apply` mode (INFRA-371 — `sync.py` has always had a working `--dry-run` flag; the wrapper
+   previously never reached it in dry-run mode).
 2. `sync-agents` — re-renders the frontmatter of `.claude/agents/*.md` files from canonical
    Jinja2 templates. Always invoked; runs in `--dry-run` mode by default.
 3. `sync-narratives` (INFRA-352) — adds any `bootstrap.NARRATIVE_FILES` entry missing from
@@ -936,8 +943,9 @@ Runs the four sync operations in a fixed, deterministic order:
 4. `sync-build` — diffs (and with `--apply`, rewrites) `CLAUDE.build.md` from the canonical
    `CLAUDE.build.md.j2` template. Always invoked; runs in `--dry-run` mode by default.
 
-**Dry-run (default):** Safe by default. Without `--apply`, only `sync-agents`, `sync-narratives`,
-and `sync-build` are invoked, all in dry-run mode. `sync.py` is skipped with an explanatory message.
+**Dry-run (default):** Safe by default. Without `--apply`, all four commands — including
+`sync.py`, via its own `--dry-run` flag — are invoked in dry-run/preview mode; nothing is
+written.
 
 **Confirmation:** The wrapper does not open its own confirmation prompt. Each downstream command
 handles its own confirmation. Passing `--yes` propagates to every downstream invocation,
@@ -970,10 +978,10 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 **Flags:**
 - `--project-dir PATH` — target project root (default: current directory). Validated with a depth
   guard (paths with fewer than 3 components are rejected).
-- `--dry-run` — preview mode (default `True`). In dry-run mode, `sync.py` is skipped and the
-  remaining two commands run with `--dry-run`.
-- `--apply` — write changes to disk. Overrides `--dry-run`; runs all three commands including
-  `sync.py`.
+- `--dry-run` — preview mode (default `True`). In dry-run mode, all four commands — `sync.py`
+  included — run with `--dry-run` and write nothing.
+- `--apply` — write changes to disk. Overrides `--dry-run`; runs all four commands, `sync.py`
+  included, without `--dry-run`.
 - `--yes` / `-y` — suppress confirmation prompts in every downstream command.
 
 ---

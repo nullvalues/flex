@@ -42,7 +42,9 @@ All additions are new files. No existing flex files were deleted.
 - `SKILL.md` — skill manifest and CLI reference
 - `scripts/bootstrap.py` — generate pairmode scaffold from spec or reconstruction brief
 - `scripts/audit.py` — diff project against canonical templates; detect structural drift
-- `scripts/sync.py` — apply audit delta non-destructively; prompts before overwriting
+- `scripts/sync.py` — apply audit delta; prompts before overwriting or pruning; registry-matched
+  canon-retired sections (`RETIRED_SECTIONS`) are pruned from downstream files (INFRA-311),
+  everything else is preserved unless a project override says otherwise
 - `scripts/lesson.py` — capture a lesson learned into `lessons/lessons.json`
 - `scripts/lesson_review.py` — surface lessons, propose template updates
 - `scripts/story_context.py` — read/write current story in `.companion/state.json`; pairmode detection
@@ -162,7 +164,8 @@ that avoids touching `state.json` entirely if the upstream maintainer prefers it
   deny list is generated at bootstrap time from the spec's `non_negotiables`; if
   `non_negotiables` change after bootstrap, the deny list does not auto-update. Running
   `/flex:pairmode audit` and then `/flex:pairmode sync` surfaces the drift and applies
-  the delta non-destructively.
+  the delta, preserving project-specific content except for registry-matched canon-retired
+  sections, which sync prunes (INFRA-311).
 
 ---
 

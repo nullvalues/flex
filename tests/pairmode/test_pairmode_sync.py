@@ -1032,25 +1032,30 @@ def _capturing_run(return_codes=None):
     return _run, calls
 
 
-def test_sync_all_dry_run_default_skips_sync_py_and_passes_dry_run_to_others(
+def test_sync_all_dry_run_default_invokes_sync_py_with_dry_run_flag(
     tmp_path: pathlib.Path,
 ) -> None:
-    """In default dry-run mode: sync.py is skipped; sync-agents, sync-narratives, and
-    sync-build get --dry-run."""
+    """In default dry-run mode (INFRA-371): sync.py is invoked with its own --dry-run
+    flag rather than skipped; sync-agents, sync-narratives, and sync-build also get
+    --dry-run."""
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, calls = _capturing_run([0, 0, 0])
+    mock_run, calls = _capturing_run([0, 0, 0, 0])
 
     result = _run_sync_all(["--project-dir", str(project_dir)], mock_run)
 
     assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
-    # sync.py not invoked — only three subprocess calls
-    assert len(calls) == 3, f"Expected 3 subprocess calls, got {len(calls)}: {calls}"
+    # sync.py is now invoked too — four subprocess calls
+    assert len(calls) == 4, f"Expected 4 subprocess calls, got {len(calls)}: {calls}"
+    # sync.py must contain --dry-run and must not be skipped
+    sync_argv = calls[0]
+    assert "--dry-run" in sync_argv, f"sync.py argv missing --dry-run: {sync_argv}"
+    assert any("sync.py" in a for a in sync_argv), f"Expected sync.py call, got: {sync_argv}"
     # sync-agents must contain --dry-run
-    agents_argv = calls[0]
+    agents_argv = calls[1]
     assert "--dry-run" in agents_argv, f"sync-agents argv missing --dry-run: {agents_argv}"
     assert "sync-agents" in agents_argv, f"Expected sync-agents call, got: {agents_argv}"
     # sync-narratives must contain --dry-run
-    narratives_argv = calls[1]
+    narratives_argv = calls[2]
     assert "--dry-run" in narratives_argv, (
         f"sync-narratives argv missing --dry-run: {narratives_argv}"
     )
@@ -1058,15 +1063,15 @@ def test_sync_all_dry_run_default_skips_sync_py_and_passes_dry_run_to_others(
         f"Expected sync-narratives call, got: {narratives_argv}"
     )
     # sync-build must contain --dry-run
-    build_argv = calls[2]
+    build_argv = calls[3]
     assert "--dry-run" in build_argv, f"sync-build argv missing --dry-run: {build_argv}"
     assert "sync-build" in build_argv, f"Expected sync-build call, got: {build_argv}"
-    # stdout should contain all four section headers and the skipped notice
+    # stdout should contain all four section headers; no skipped notice anymore
     assert "=== sync (methodology files) ===" in result.output
     assert "=== sync-agents (agent frontmatter) ===" in result.output
     assert "=== sync-narratives (harness narrative backfill) ===" in result.output
     assert "=== sync-build (CLAUDE.build.md) ===" in result.output
-    assert "skipped:" in result.output
+    assert "skipped:" not in result.output
 
 
 def test_sync_all_apply_invokes_all_four_in_order(tmp_path: pathlib.Path) -> None:
@@ -1109,22 +1114,22 @@ def test_sync_all_yes_propagates_to_all_in_apply_mode(tmp_path: pathlib.Path) ->
         assert "--yes" in argv, f"--yes missing from argv: {argv}"
 
 
-def test_sync_all_yes_in_dry_run_propagates_to_sync_agents_narratives_and_build(
+def test_sync_all_yes_in_dry_run_propagates_to_all_four(
     tmp_path: pathlib.Path,
 ) -> None:
-    """--yes in dry-run mode: sync.py skipped; sync-agents, sync-narratives, and sync-build
-    each get --yes and --dry-run."""
+    """--yes in dry-run mode (INFRA-371): all four commands, sync.py included, each get
+    --yes and --dry-run."""
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, calls = _capturing_run([0, 0, 0])
+    mock_run, calls = _capturing_run([0, 0, 0, 0])
 
     result = _run_sync_all(["--project-dir", str(project_dir), "--yes"], mock_run)
 
     assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
-    assert len(calls) == 3, f"Expected 3 calls (sync.py skipped), got {len(calls)}: {calls}"
+    assert len(calls) == 4, f"Expected 4 calls, got {len(calls)}: {calls}"
     for argv in calls:
         assert "--yes" in argv, f"--yes missing from argv: {argv}"
         assert "--dry-run" in argv, f"--dry-run missing from argv: {argv}"
-    assert "skipped:" in result.output
+    assert "skipped:" not in result.output
 
 
 def test_sync_all_halts_on_sync_py_failure(tmp_path: pathlib.Path) -> None:
@@ -1206,7 +1211,7 @@ def test_sync_all_project_dir_defaults_to_cwd(tmp_path: pathlib.Path) -> None:
 
     # Use a sufficiently deep real directory as CWD
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, calls = _capturing_run([0, 0, 0])
+    mock_run, calls = _capturing_run([0, 0, 0, 0])
 
     runner = CliRunner()
     # Change working directory to project_dir so the default "." resolves there

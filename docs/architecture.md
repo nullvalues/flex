@@ -2595,10 +2595,11 @@ Sequences all four sync operations in a single CLI call: `sync.py` (methodology 
 INFRA-352) → `sync-build` (CLAUDE.build.md). `sync-narratives` sits immediately after
 `sync-agents` — both are add-missing-file backfills against a `bootstrap.py`-owned template
 contract, run before `sync-build`'s content-rewrite step. Safe by default: without `--apply`,
-`sync.py` is skipped (it has no `--dry-run` flag) and the remaining three commands run in
-dry-run mode. With `--apply`, all four are invoked. Fail-fast: if any downstream command exits
-non-zero, the wrapper emits an error and exits with the same status code; remaining commands
-are not invoked.
+all four commands are invoked, `sync.py` included — `sync.py` runs with its own `--dry-run`
+flag (INFRA-371; it has always had a working `--dry-run` flag, the wrapper previously never
+reached it in dry-run mode) and the remaining three run in dry-run mode. With `--apply`, all
+four are invoked without `--dry-run`. Fail-fast: if any downstream command exits non-zero, the
+wrapper emits an error and exits with the same status code; remaining commands are not invoked.
 
 CLI:
 ```bash
@@ -2607,10 +2608,11 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 ```
 
 Behaviour:
-- `--dry-run` (default True): skips `sync.py`; runs `sync-agents`, `sync-narratives`, and
-  `sync-build` in dry-run mode.
-- `--apply`: runs all four; `sync-agents` and `sync-narratives` without `--dry-run`;
-  `sync-build` with `--apply`.
+- `--dry-run` (default True): runs all four commands, `sync.py` included, with `sync.py`
+  and `sync-agents`/`sync-narratives` passed `--dry-run` and `sync-build` also run without
+  `--apply` (its own dry-run default).
+- `--apply`: runs all four; `sync.py`, `sync-agents`, and `sync-narratives` without
+  `--dry-run`; `sync-build` with `--apply`.
 - `--yes` / `-y`: propagated to every downstream invocation.
 - Depth guard (`_depth_guard_sync_build`) runs against `--project-dir` before any subprocess call.
 - Per-command output is preceded by a `=== <label> ===` separator line.

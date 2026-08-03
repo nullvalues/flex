@@ -67,62 +67,101 @@ from skills.pairmode.scripts.story_new import _add_rail_to_era, _find_era  # noq
 # `.pairmode-overrides` entry naming a retired key is a legitimate
 # "keep it anyway" signal and wins over this registry.
 #
-# Keys are the normalised section keys produced by audit._normalise on the
-# section boundary line (``##`` headers, ``###`` headers, and bold numbered
-# checklist markers — the same _SECTION_RE granularity audit uses).
+# Keys are ``(canonical file, section key)`` tuples (INFRA-371): the
+# canonical file is the CANONICAL_FILES destination path (e.g.
+# ".claude/agents/reviewer.md"), and the section key is the normalised
+# section key produced by audit._normalise on the section boundary line
+# (``##`` headers, ``###`` headers, and bold numbered checklist markers —
+# the same _SECTION_RE granularity audit uses). File-scoping prevents a
+# generic section key (e.g. a numbered checklist marker) from
+# false-positive-matching a genuine same-named extension a project added to
+# a *different* canonical file than the one the retirement was recorded
+# against — this matters at fleet scale, before a fleet-wide sync-all
+# campaign (CER-133).
 #
 # Seed content: the INFRA-241 thin-agent reduction. These 46 keys were present
 # in the pre-INFRA-241 fat agent templates (git 9acb9145^,
 # skills/pairmode/templates/agents/*.md.j2) and are absent from the thin
-# shells that replaced them.
-RETIRED_SECTIONS: dict[str, str] = {
+# shells that replaced them. A handful of section keys were retired from more
+# than one file — each such key has one registry entry per file it was
+# retired from.
+RETIRED_SECTIONS: dict[tuple[str, str], str] = {
     # --- builder.md.j2 (retired by INFRA-241 thin-agent reduction) ---
-    "## starting a story": "INFRA-241",
-    "## before writing anything": "INFRA-241",
-    "## implementation rules": "INFRA-241",
-    "## ⚙️ developer action gates": "INFRA-241",
-    "## when you are done": "INFRA-241",
-    "## if you cannot complete the story": "INFRA-241",
-    "## final output to orchestrator": "INFRA-241",  # also reviewer.md.j2
+    (".claude/agents/builder.md", "## starting a story"): "INFRA-241",
+    (".claude/agents/builder.md", "## before writing anything"): "INFRA-241",
+    (".claude/agents/builder.md", "## implementation rules"): "INFRA-241",
+    (".claude/agents/builder.md", "## ⚙️ developer action gates"): "INFRA-241",
+    (".claude/agents/builder.md", "## when you are done"): "INFRA-241",
+    (".claude/agents/builder.md", "## if you cannot complete the story"): "INFRA-241",
+    (".claude/agents/builder.md", "## final output to orchestrator"): "INFRA-241",
     # --- reviewer.md.j2 (retired by INFRA-241) ---
-    "## starting a review": "INFRA-241",
-    "## before reviewing": "INFRA-241",  # also intent-reviewer.md.j2
-    "## contract check": "INFRA-241",
-    "## review checklist": "INFRA-241",
-    "**1. protected files**": "INFRA-241",
-    "**2. story scope**": "INFRA-241",
-    "**2.5 story spec**": "INFRA-241",
-    "**3. build gate**": "INFRA-241",
-    "**4. documentation currency**": "INFRA-241",
-    "**5. ideology alignment**": "INFRA-241",
-    "**5a. conviction consistency**": "INFRA-241",
-    "**5b. constraint rationale preservation**": "INFRA-241",
-    "**5c. fingerprint awareness**": "INFRA-241",
-    "**6. rail scope (new stories only — skip if story has no story file)**": "INFRA-241",
-    "## test run": "INFRA-241",
-    "## decision": "INFRA-241",
-    "### pass conditions": "INFRA-241",
-    "### fail conditions": "INFRA-241",
-    "## what you must not do": "INFRA-241",  # also loop-breaker.md.j2
+    (".claude/agents/reviewer.md", "## starting a review"): "INFRA-241",
+    (".claude/agents/reviewer.md", "## before reviewing"): "INFRA-241",
+    (".claude/agents/reviewer.md", "## contract check"): "INFRA-241",
+    (".claude/agents/reviewer.md", "## review checklist"): "INFRA-241",
+    (".claude/agents/reviewer.md", "**1. protected files**"): "INFRA-241",
+    (".claude/agents/reviewer.md", "**2. story scope**"): "INFRA-241",
+    (".claude/agents/reviewer.md", "**2.5 story spec**"): "INFRA-241",
+    (".claude/agents/reviewer.md", "**3. build gate**"): "INFRA-241",
+    (".claude/agents/reviewer.md", "**4. documentation currency**"): "INFRA-241",
+    (".claude/agents/reviewer.md", "**5. ideology alignment**"): "INFRA-241",
+    (".claude/agents/reviewer.md", "**5a. conviction consistency**"): "INFRA-241",
+    (".claude/agents/reviewer.md", "**5b. constraint rationale preservation**"): "INFRA-241",
+    (".claude/agents/reviewer.md", "**5c. fingerprint awareness**"): "INFRA-241",
+    (
+        ".claude/agents/reviewer.md",
+        "**6. rail scope (new stories only — skip if story has no story file)**",
+    ): "INFRA-241",
+    (".claude/agents/reviewer.md", "## test run"): "INFRA-241",
+    (".claude/agents/reviewer.md", "## decision"): "INFRA-241",
+    (".claude/agents/reviewer.md", "### pass conditions"): "INFRA-241",
+    (".claude/agents/reviewer.md", "### fail conditions"): "INFRA-241",
+    (".claude/agents/reviewer.md", "## what you must not do"): "INFRA-241",
+    # --- final output to orchestrator: also retired from reviewer.md.j2 ---
+    (".claude/agents/reviewer.md", "## final output to orchestrator"): "INFRA-241",
+    # --- before reviewing: also retired from intent-reviewer.md.j2 ---
+    (".claude/agents/intent-reviewer.md", "## before reviewing"): "INFRA-241",
     # --- loop-breaker.md.j2 (retired by INFRA-241) ---
-    "## input format": "INFRA-241",
-    "## your process": "INFRA-241",
-    "## output format": "INFRA-241",  # also intent-reviewer.md.j2
+    (".claude/agents/loop-breaker.md", "## input format"): "INFRA-241",
+    (".claude/agents/loop-breaker.md", "## your process"): "INFRA-241",
+    (".claude/agents/loop-breaker.md", "## output format"): "INFRA-241",
+    # --- what you must not do: also retired from loop-breaker.md.j2 ---
+    (".claude/agents/loop-breaker.md", "## what you must not do"): "INFRA-241",
+    # --- output format: also retired from intent-reviewer.md.j2 ---
+    (".claude/agents/intent-reviewer.md", "## output format"): "INFRA-241",
     # --- security-auditor.md.j2 (retired by INFRA-241) ---
-    "## before auditing": "INFRA-241",
-    "## audit priorities": "INFRA-241",
-    "### 1. hook integrity (critical if violated)": "INFRA-241",
-    "### 2. credential exposure (critical if violated)": "INFRA-241",
-    "### 3. path traversal (high if violated)": "INFRA-241",
-    "### 4. domain isolation violation (high if violated)": "INFRA-241",
-    "### 5. layer violation (high if violated)": "INFRA-241",
-    "### 6. spec file protection (medium if violated)": "INFRA-241",
-    "## report format": "INFRA-241",
+    (".claude/agents/security-auditor.md", "## before auditing"): "INFRA-241",
+    (".claude/agents/security-auditor.md", "## audit priorities"): "INFRA-241",
+    (
+        ".claude/agents/security-auditor.md",
+        "### 1. hook integrity (critical if violated)",
+    ): "INFRA-241",
+    (
+        ".claude/agents/security-auditor.md",
+        "### 2. credential exposure (critical if violated)",
+    ): "INFRA-241",
+    (
+        ".claude/agents/security-auditor.md",
+        "### 3. path traversal (high if violated)",
+    ): "INFRA-241",
+    (
+        ".claude/agents/security-auditor.md",
+        "### 4. domain isolation violation (high if violated)",
+    ): "INFRA-241",
+    (
+        ".claude/agents/security-auditor.md",
+        "### 5. layer violation (high if violated)",
+    ): "INFRA-241",
+    (
+        ".claude/agents/security-auditor.md",
+        "### 6. spec file protection (medium if violated)",
+    ): "INFRA-241",
+    (".claude/agents/security-auditor.md", "## report format"): "INFRA-241",
     # --- intent-reviewer.md.j2 (retired by INFRA-241) ---
-    "## inputs you will receive": "INFRA-241",
-    "## story alignment": "INFRA-241",
-    "## design pivot detection": "INFRA-241",
-    "## calibration": "INFRA-241",
+    (".claude/agents/intent-reviewer.md", "## inputs you will receive"): "INFRA-241",
+    (".claude/agents/intent-reviewer.md", "## story alignment"): "INFRA-241",
+    (".claude/agents/intent-reviewer.md", "## design pivot detection"): "INFRA-241",
+    (".claude/agents/intent-reviewer.md", "## calibration"): "INFRA-241",
 }
 
 
@@ -516,15 +555,19 @@ def sync_project(
     scaffold_dests = {d for d, _t in SCAFFOLD_FILES}
     canonical_dests = {d for d, _t in CANONICAL_FILES}
 
-    # Classify EXTRA items (INFRA-311): an EXTRA section in a CANONICAL_FILES
-    # file whose key is in RETIRED_SECTIONS is RETIRED (once-canonical, since
-    # removed by canon) — everything else is a genuine project extension and
-    # keeps the preservation contract. Classification happens here, before
-    # any prompt/apply branch, so dry-run and apply consume the same records.
+    # Classify EXTRA items (INFRA-311; file-scoped since INFRA-371): an EXTRA
+    # section in a CANONICAL_FILES file whose (file, key) pair is in
+    # RETIRED_SECTIONS is RETIRED (once-canonical, since removed by canon) —
+    # everything else is a genuine project extension and keeps the
+    # preservation contract. File-scoping means a section key retired from
+    # one canonical file does not false-positive-match a same-named genuine
+    # extension in a different canonical file. Classification happens here,
+    # before any prompt/apply branch, so dry-run and apply consume the same
+    # records.
     retired_by_file: dict[str, list[tuple[AuditItem, str]]] = {}
     genuine_extra: list[AuditItem] = []
     for item in audit.extra:
-        retiring_story = RETIRED_SECTIONS.get(item.section)
+        retiring_story = RETIRED_SECTIONS.get((item.file, item.section))
         if retiring_story is not None and item.file in canonical_dests:
             retired_by_file.setdefault(item.file, []).append((item, retiring_story))
         else:
