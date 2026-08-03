@@ -1692,7 +1692,7 @@ phase; INFRA-243's Out of scope explicitly rules that out):**
   Goal section documents the audit lineage (fable Plan-mode comparison, adversarial second-opinion
   review, follow-up operator questions) an agent would otherwise be missing.
 
-### Narrative of Record and the cold-start quad (INFRA-351 through INFRA-356)
+### Narrative of Record and the cold-start quad (Phase 118, INFRA-351 through INFRA-366)
 
 The cold-start triad — `docs/brief.md` (project goals/why), `docs/architecture.md` (system
 design/how), and the current phase doc (active stories/what) — enables a fresh agent or human
