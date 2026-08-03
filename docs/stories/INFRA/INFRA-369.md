@@ -7,6 +7,8 @@ phase: "119"
 story_class: code
 auth_gated: false
 schema_introduces: false
+primary_files:
+  - tests/pairmode/test_pairmode_migrate.py
 touches: []
 narrative_roles: []
 ---
@@ -32,16 +34,70 @@ Picked up now as part of era 004's Phase 119 goal of draining the CER backlog to
 operational findings.
 
 ## Requires
-<!-- Prior stories, system state, or file conditions that must hold before building. -->
+
+- No prior story in this phase. `tests/pairmode/test_pairmode_migrate.py` and
+  `skills/pairmode/scripts/pairmode_migrate.py` exist at HEAD and the migrate suite is otherwise
+  green when run from a checkout whose directory name is not `flex-harness`.
 
 ## Ensures
-<!-- Binary assertions the reviewer checks independently. One per line.
-     Each must be verifiable without interpretation: file exists, command output
-     contains X, function Y returns Z. -->
-<!-- State the correct signal AND the forbidden proxy (INFRA-314): e.g. "the
-     write is absent after refusal; forbidden proxy: a warning line while the
-     write happens anyway." -->
+
+1. `test_to030_relocates_stale_flex_harness_hook_command` no longer asserts on the ambient literal
+   `"flex-harness"`. Its pass/fail outcome is determined only by fixture state the test itself
+   creates — a synthetic stale marker it writes into the fixture project's hook command — not by
+   the name of the directory the suite is running from.
+   **Forbidden proxy:** skipping, xfailing, or early-returning the test when the checkout is named
+   `flex-harness`. The test must still exercise the relocation and still fail if relocation breaks.
+2. The test passes when the migrate module's own resolved location sits under a path segment
+   literally named `flex-harness`, and passes when it does not. A test exercising the
+   harness-named ambient case exists (e.g. by running the migration against a fixture project
+   rooted under a tmp directory containing a `flex-harness` segment) and asserts relocation
+   succeeded.
+3. The test still fails if the relocation behaviour in `pairmode_migrate.py` regresses — verified by
+   temporarily reverting/neutering the relocation branch locally and observing a red test, then
+   restoring. State the observed failure in the build notes.
+4. `skills/pairmode/scripts/pairmode_migrate.py` is unchanged by this story (this is a
+   test-environment coupling bug, not a migration defect).
+5. `uv run pytest tests/pairmode/ -q` is green.
 
 ## Instructions
 
+1. Read `test_to030_relocates_stale_flex_harness_hook_command` in
+   `tests/pairmode/test_pairmode_migrate.py` and identify exactly where the ambient checkout name
+   leaks in: either the fixture's pre-migration hook command is derived from the running module's
+   path, or the post-migration assertion is a bare `"flex-harness" not in command` substring check.
+2. Fix by making the fixture self-describing: seed the fixture project's stale hook command with a
+   synthetic stale path the test constructs itself (a unique marker token, not `flex-harness`), and
+   assert post-migration that the marker token is gone and that the command equals/contains the
+   expected relocated target. Do not weaken the assertion to "contains something plausible".
+3. Add the harness-named ambient case (Ensures 2) as a second test or a parametrization, rather
+   than only fixing the existing one — the whole point is that the outcome must be invariant to the
+   ambient directory name.
+4. Do not touch `pairmode_migrate.py`. If the investigation shows the migration code genuinely does
+   emit the running module's directory name into the migrated command in a way that is wrong for
+   real users, stop and file a CER rather than widening this story.
+
+Ideology note: the fix keeps a single source of truth for the test's expectation (the fixture the
+test writes) rather than an implicit dependency on the environment — the same "explicit over
+inferred" reasoning as the project's core convictions, and it preserves the constraint that a test
+must never silently pass when the behaviour it guards has regressed.
+
 ## Tests
+
+```bash
+PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/test_pairmode_migrate.py -q
+PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -q
+```
+
+Acceptance: both green (run the full suite without `-x` so no later failure is masked), including
+the new harness-named ambient-path test.
+
+## Out of scope
+
+- Auditing the rest of `tests/pairmode/` for other ambient-path couplings. Any further instance
+  found while working here is a CER, not an inline fix in this story.
+- Any change to `pairmode_migrate.py`'s relocation logic or to the `to030` migration's behaviour.
+  (Spec-preflight reports `pairmode_migrate.py` as a declared-scope gap; that is intentional — the
+  file is named only as read context and as the subject of Ensures 4's "unchanged" assertion, so it
+  is deliberately absent from `primary_files`/`touches`.)
+- Making the whole suite runnable from arbitrary checkout names as a general guarantee — this story
+  fixes the one test named in CER-146.
