@@ -12,6 +12,9 @@ from click.testing import CliRunner
 from skills.pairmode.scripts.bootstrap import (
     bootstrap,
     AGENT_FILES,
+    NARRATIVE_FILES,
+    OPERATOR_SEED_FILE,
+    TEMPLATES_DIR,
     DEFAULT_DENY,
     PAIRMODE_ALLOW,
     PAIRMODE_DEFAULT_RAILS,
@@ -120,11 +123,30 @@ EXPECTED_DEST_PATHS = [
     # the role's procedure skill (spec-writer, WORKER-013) and a live
     # spawn-spec-writer dispatch action existed but no scaffolded shell did.
     ".claude/agents/spec-writer.md",
+    # shadow-reviewer.md (INFRA-358): tenth thin shell, over the
+    # shadow-reviewer procedure skill. Dispatch/model-selection wiring is
+    # INFRA-359's job — this entry is scaffold-only.
+    ".claude/agents/shadow-reviewer.md",
     "docs/architecture.md",
     "docs/checkpoints.md",
     "docs/phases/index.md",
     "docs/phases/phase-1.md",
     "docs/cer/backlog.md",
+    # INFRA-351: the nine harness-role narratives, scaffolded like every other
+    # harness-owned file via NARRATIVE_FILES.
+    "docs/narratives/BUILDER/BUILDER-000-ideology.md",
+    "docs/narratives/REVIEWER/REVIEWER-000-ideology.md",
+    "docs/narratives/LOOP-BREAKER/LOOP-BREAKER-000-ideology.md",
+    "docs/narratives/SECURITY-AUDITOR/SECURITY-AUDITOR-000-ideology.md",
+    "docs/narratives/INTENT-REVIEWER/INTENT-REVIEWER-000-ideology.md",
+    "docs/narratives/DOCS-REVIEWER/DOCS-REVIEWER-000-ideology.md",
+    "docs/narratives/GATE-WORKER/GATE-WORKER-000-ideology.md",
+    "docs/narratives/SPEC-WRITER/SPEC-WRITER-000-ideology.md",
+    "docs/narratives/ORCHESTRATOR/ORCHESTRATOR-000-ideology.md",
+    # INFRA-353: OPERATOR's seed narrative scaffolds at fresh bootstrap like
+    # the other nine, regardless of the operator-note prompt answer — via its
+    # own OPERATOR_SEED_FILE pipeline, not NARRATIVE_FILES membership.
+    "docs/narratives/OPERATOR/OPERATOR-000-ideology.md",
 ]
 
 
@@ -313,6 +335,35 @@ class TestSpecWriterDispatch:
         run_bootstrap(tmp_path)
         content = (tmp_path / ".claude/agents/spec-writer.md").read_text()
         assert "skills/pairmode/skills/spec-writer/procedure.md" in content
+
+
+# ---------------------------------------------------------------------------
+# Shadow-reviewer dispatch tests (INFRA-358)
+# ---------------------------------------------------------------------------
+
+class TestShadowReviewerDispatch:
+    """Bootstrap deploys shadow-reviewer as a scaffold-only thin shell over
+    the shadow-reviewer procedure skill. No dispatch action or model
+    selector reaches this role yet -- that wiring is INFRA-359's job."""
+
+    def test_shadow_reviewer_agent_shell_created(self, tmp_path):
+        """Bootstrap must create .claude/agents/shadow-reviewer.md."""
+        run_bootstrap(tmp_path)
+        assert (tmp_path / ".claude/agents/shadow-reviewer.md").exists(), (
+            "shadow-reviewer.md missing; static artifact not scaffolded"
+        )
+
+    def test_shadow_reviewer_contains_project_name(self, tmp_path):
+        """Shadow-reviewer shell must be rendered with project_name substituted."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / ".claude/agents/shadow-reviewer.md").read_text()
+        assert "testproject" in content
+
+    def test_shadow_reviewer_references_procedure_skill(self, tmp_path):
+        """Shadow-reviewer shell must reference the shadow-reviewer procedure skill path."""
+        run_bootstrap(tmp_path)
+        content = (tmp_path / ".claude/agents/shadow-reviewer.md").read_text()
+        assert "skills/pairmode/skills/shadow-reviewer/procedure.md" in content
 
 
 # ---------------------------------------------------------------------------
@@ -588,7 +639,7 @@ class TestExistingFileProtection:
                 "--stack", "Python / pytest",
                 "--build-command", "uv run pytest",
             ],
-            input="n\n" * 20,  # decline all overwrite prompts
+            input="n\n" * 25,  # decline all overwrite prompts
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -610,7 +661,7 @@ class TestExistingFileProtection:
                 "--stack", "Python / pytest",
                 "--build-command", "uv run pytest",
             ],
-            input="y\n" * 20,  # confirm all overwrites
+            input="y\n" * 25,  # confirm all overwrites
             catch_exceptions=False,
         )
         # CLAUDE.md should now have the rendered template content again
@@ -1008,7 +1059,7 @@ class TestAgentFileSkipByDefault:
             "--build-command", "uv run pytest",
         ]
         args = base_args + (extra_args or [])
-        return runner.invoke(bootstrap, args, input="n\n" * 20, catch_exceptions=False)
+        return runner.invoke(bootstrap, args, input="n\n" * 25, catch_exceptions=False)
 
     def test_agent_files_skipped_when_already_exist(self, tmp_path):
         """Second bootstrap without --force-agents must not overwrite existing agent files."""
@@ -1082,7 +1133,7 @@ class TestAgentFileSkipByDefault:
                 "--stack", "Python / pytest",
                 "--build-command", "uv run pytest",
             ],
-            input="y\n" * 20,
+            input="y\n" * 25,
             catch_exceptions=False,
         )
         assert result.exit_code == 0, result.output
@@ -1342,7 +1393,7 @@ class TestIdeologyMdBootstrap:
                 "--stack", "Python / pytest",
                 "--build-command", "uv run pytest",
             ],
-            input="n\n" * 20,
+            input="n\n" * 25,
             catch_exceptions=False,
         )
         assert result.exit_code == 0, result.output
@@ -1796,7 +1847,7 @@ class TestReconstructionMdBootstrap:
                 "--stack", "Python / pytest",
                 "--build-command", "uv run pytest",
             ],
-            input="n\n" * 20,
+            input="n\n" * 25,
             catch_exceptions=False,
         )
         assert result.exit_code == 0, result.output
@@ -2088,7 +2139,7 @@ class TestReconstructionAgentBootstrap:
                 "--stack", "Python / pytest",
                 "--build-command", "uv run pytest",
             ],
-            input="n\n" * 20,
+            input="n\n" * 25,
             catch_exceptions=False,
         )
         assert result.exit_code == 0, result.output
@@ -2117,7 +2168,7 @@ class TestReconstructionAgentBootstrap:
                 "--build-command", "uv run pytest",
                 "--force-agents",
             ],
-            input="n\n" * 20,
+            input="n\n" * 25,
             catch_exceptions=False,
         )
         assert result.exit_code == 0, result.output
@@ -2243,7 +2294,7 @@ class TestBootstrapCreatesRailDirectories:
                 "--build-command", "uv run pytest",
                 "--ideology-skip",
             ],
-            input="n\n" * 20,
+            input="n\n" * 25,
             catch_exceptions=False,
         )
         assert result2.exit_code == 0, result2.output
@@ -2267,7 +2318,7 @@ class TestBootstrapCreatesRailDirectories:
                 "--build-command", "uv run pytest",
                 "--ideology-skip",
             ],
-            input="n\n" * 20,
+            input="n\n" * 25,
             catch_exceptions=False,
         )
         assert result.exit_code == 0, result.output
@@ -2328,7 +2379,7 @@ class TestBootstrapCreatesEra001:
                 "--build-command", "uv run pytest",
                 "--ideology-skip",
             ],
-            input="n\n" * 20,
+            input="n\n" * 25,
             catch_exceptions=False,
         )
         assert result.exit_code == 0, result.output
@@ -2690,7 +2741,7 @@ class TestYesFlag:
                 "--stack", "Python / pytest",
                 "--build-command", "uv run pytest",
             ],
-            input="n\n" * 20,
+            input="n\n" * 25,
             catch_exceptions=False,
         )
         assert result.exit_code == 0
@@ -4468,6 +4519,7 @@ class TestEraStrategicIntent:
                     stack="Python / pytest",
                     what="x",
                     why="y",
+                    operator_note=None,
                     build_command="uv run pytest",
                     test_dir=None,
                     phase_title="",
@@ -4875,3 +4927,252 @@ class TestPortableHookRegistration:
         _r_pretooluse(settings_path, plugin_root)
 
         assert settings_path.read_text(encoding="utf-8") == committed_before
+
+
+# ---------------------------------------------------------------------------
+# NARRATIVE_FILES parity (INFRA-351)
+# ---------------------------------------------------------------------------
+
+NARRATIVE_ROLES = [
+    "BUILDER",
+    "REVIEWER",
+    "LOOP-BREAKER",
+    "SECURITY-AUDITOR",
+    "INTENT-REVIEWER",
+    "DOCS-REVIEWER",
+    "GATE-WORKER",
+    "SPEC-WRITER",
+    "ORCHESTRATOR",
+]
+
+
+class TestNarrativeFilesParity:
+    """NARRATIVE_FILES must list all nine harness-role narratives, each with a
+    real template source on disk and a well-formed
+    docs/narratives/<ROLE>/<ROLE>-000-ideology.md destination — mirroring the
+    existing AGENT_FILES-style guard (INFRA-351 Ensures 4)."""
+
+    def test_all_nine_roles_present(self):
+        dest_paths = {dest_rel for dest_rel, _ in NARRATIVE_FILES}
+        for role in NARRATIVE_ROLES:
+            expected = f"docs/narratives/{role}/{role}-000-ideology.md"
+            assert expected in dest_paths, (
+                f"NARRATIVE_FILES missing entry for {role}: {expected}"
+            )
+        assert len(NARRATIVE_FILES) == len(NARRATIVE_ROLES) == len(dest_paths)
+
+    def test_no_operator_entry(self):
+        """OPERATOR's narrative is a seed-then-extend mechanism (INFRA-353),
+        deliberately not part of this story's scaffold-verbatim list."""
+        dest_paths = {dest_rel for dest_rel, _ in NARRATIVE_FILES}
+        assert not any("OPERATOR" in d for d in dest_paths)
+
+    def test_destination_paths_well_formed(self):
+        for dest_rel, _template_name in NARRATIVE_FILES:
+            role = dest_rel.split("/")[2]
+            assert dest_rel == f"docs/narratives/{role}/{role}-000-ideology.md", (
+                f"Malformed NARRATIVE_FILES destination: {dest_rel}"
+            )
+
+    def test_template_sources_exist_on_disk(self):
+        for _dest_rel, template_name in NARRATIVE_FILES:
+            template_path = TEMPLATES_DIR / template_name
+            assert template_path.is_file(), (
+                f"NARRATIVE_FILES template source missing: {template_path}"
+            )
+
+    def test_fresh_bootstrap_scaffolds_all_nine_rendered(self, tmp_path):
+        """Ensures 3: a live bootstrap run actually writes all nine files,
+        rendered (not raw Jinja2), not just that the list is populated
+        (the story's own 'forbidden proxy')."""
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        for role in NARRATIVE_ROLES:
+            dest = tmp_path / f"docs/narratives/{role}/{role}-000-ideology.md"
+            assert dest.exists(), f"Expected {dest} to be scaffolded, but it was not."
+            content = dest.read_text(encoding="utf-8")
+            assert content.strip(), f"{dest} is empty"
+            assert "{{" not in content and "{%" not in content, (
+                f"{dest} contains unrendered Jinja2 syntax: {content[:200]}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# OPERATOR seed-then-extend (INFRA-353)
+# ---------------------------------------------------------------------------
+
+class TestOperatorSeedThenExtend:
+    """OPERATOR-000 is a templated, generic seed scaffolded at fresh bootstrap
+    like the other nine harness-role narratives, but via its own
+    OPERATOR_SEED_FILE pipeline (deliberately kept out of NARRATIVE_FILES,
+    docs/architecture.md § Harness-role narratives). Bootstrap's interactive
+    flow gains one more free-text, blank-to-skip prompt whose non-blank answer
+    becomes a separate OPERATOR-010-project.md extension file — the seed
+    itself is never touched by the prompt."""
+
+    OPERATOR_SEED_PATH = "docs/narratives/OPERATOR/OPERATOR-000-ideology.md"
+    OPERATOR_EXTENSION_PATH = "docs/narratives/OPERATOR/OPERATOR-010-project.md"
+
+    def test_operator_seed_file_well_formed(self):
+        dest_rel, template_name = OPERATOR_SEED_FILE
+        assert dest_rel == self.OPERATOR_SEED_PATH
+        template_path = TEMPLATES_DIR / template_name
+        assert template_path.is_file(), (
+            f"OPERATOR_SEED_FILE template source missing: {template_path}"
+        )
+
+    def test_seed_scaffolds_with_blank_operator_note(self, tmp_path):
+        """(a) OPERATOR-000 scaffolds regardless of the prompt answer — here,
+        a blank answer (the default in non-interactive test invocation)."""
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        dest = tmp_path / self.OPERATOR_SEED_PATH
+        assert dest.exists()
+        content = dest.read_text(encoding="utf-8")
+        assert content.strip()
+        assert "{{" not in content and "{%" not in content
+
+    def test_seed_scaffolds_identically_with_nonblank_operator_note(self, tmp_path):
+        """(a) OPERATOR-000 scaffolds identically regardless of the prompt
+        answer — here, a non-blank answer."""
+        blank_dir = tmp_path / "blank"
+        noted_dir = tmp_path / "noted"
+        blank_dir.mkdir()
+        noted_dir.mkdir()
+
+        result_blank = run_bootstrap(blank_dir)
+        result_noted = run_bootstrap(
+            noted_dir, extra_args=["--operator-note", "Ship small, review everything."]
+        )
+        assert result_blank.exit_code == 0, result_blank.output
+        assert result_noted.exit_code == 0, result_noted.output
+
+        seed_blank = (blank_dir / self.OPERATOR_SEED_PATH).read_text(encoding="utf-8")
+        seed_noted = (noted_dir / self.OPERATOR_SEED_PATH).read_text(encoding="utf-8")
+        assert seed_blank == seed_noted
+
+    def test_nonblank_answer_writes_extension_file(self, tmp_path):
+        """(b) a non-blank prompt answer produces OPERATOR-010-project.md
+        with that content."""
+        note = "Ship small, review everything, low tolerance for silent scope creep."
+        result = run_bootstrap(tmp_path, extra_args=["--operator-note", note])
+        assert result.exit_code == 0, result.output
+        dest = tmp_path / self.OPERATOR_EXTENSION_PATH
+        assert dest.exists(), "expected OPERATOR-010-project.md to be written"
+        content = dest.read_text(encoding="utf-8")
+        assert note in content
+
+    def test_blank_answer_writes_no_extension_file(self, tmp_path):
+        """(c) a blank answer produces no -010 file at all."""
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        dest = tmp_path / self.OPERATOR_EXTENSION_PATH
+        assert not dest.exists(), "expected no OPERATOR-010-project.md for a blank answer"
+
+    def test_seed_never_edited_by_extension_prompt(self, tmp_path):
+        """Forbidden proxy: the operator's free-text answer must never land in
+        OPERATOR-000 itself."""
+        note = "A very specific project-only preference that must not leak into the seed."
+        result = run_bootstrap(tmp_path, extra_args=["--operator-note", note])
+        assert result.exit_code == 0, result.output
+        seed_content = (tmp_path / self.OPERATOR_SEED_PATH).read_text(encoding="utf-8")
+        assert note not in seed_content
+
+    def test_operator_not_in_narrative_files(self):
+        """Re-asserts the NARRATIVE_FILES/OPERATOR_SEED_FILE split this story
+        implements — OPERATOR uses its own dedicated pipeline."""
+        dest_paths = {dest_rel for dest_rel, _ in NARRATIVE_FILES}
+        assert self.OPERATOR_SEED_PATH not in dest_paths
+        assert OPERATOR_SEED_FILE[0] == self.OPERATOR_SEED_PATH
+
+
+# ---------------------------------------------------------------------------
+# OPERATOR-010 extension write overwrite guard (INFRA-366)
+# ---------------------------------------------------------------------------
+
+class TestOperatorExtensionOverwriteGuard:
+    """The OPERATOR-010-project.md extension write must go through the same
+    _write_file prompt-before-clobber path as its sibling writes in the same
+    function (checkpoint-security HIGH finding)."""
+
+    OPERATOR_EXTENSION_PATH = "docs/narratives/OPERATOR/OPERATOR-010-project.md"
+
+    def test_existing_extension_file_declined_leaves_contents_unchanged(self, tmp_path):
+        first_note = "First-run note that must survive a declined overwrite."
+        run_bootstrap(tmp_path, extra_args=["--operator-note", first_note])
+        dest = tmp_path / self.OPERATOR_EXTENSION_PATH
+        original_content = dest.read_text(encoding="utf-8")
+        assert first_note in original_content
+
+        second_note = "Second-run note that must NOT land if the user declines."
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--operator-note", second_note,
+            ],
+            input="n\n" * 30,  # decline every overwrite prompt, including this one
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert dest.read_text(encoding="utf-8") == original_content, (
+            "declined overwrite must leave the file byte-identical to before the run"
+        )
+
+    def test_existing_extension_file_confirmed_is_replaced(self, tmp_path):
+        first_note = "First-run note that should be replaced on confirm."
+        run_bootstrap(tmp_path, extra_args=["--operator-note", first_note])
+        dest = tmp_path / self.OPERATOR_EXTENSION_PATH
+
+        second_note = "Second-run note that should land after confirming overwrite."
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--operator-note", second_note,
+            ],
+            input="y\n" * 30,  # confirm every overwrite prompt, including this one
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        new_content = dest.read_text(encoding="utf-8")
+        assert second_note in new_content
+        assert first_note not in new_content
+
+    def test_no_pre_existing_extension_file_writes_without_prompt(self, tmp_path):
+        note = "Fresh-project note, no pre-existing extension file."
+        result = run_bootstrap(tmp_path, extra_args=["--operator-note", note])
+        assert result.exit_code == 0, result.output
+        dest = tmp_path / self.OPERATOR_EXTENSION_PATH
+        assert dest.exists()
+        assert note in dest.read_text(encoding="utf-8")
+
+    def test_dry_run_performs_no_write_when_file_does_not_pre_exist(self, tmp_path):
+        note = "Dry-run note on a fresh project."
+        result = run_bootstrap(
+            tmp_path, extra_args=["--operator-note", note, "--dry-run"]
+        )
+        assert result.exit_code == 0, result.output
+        dest = tmp_path / self.OPERATOR_EXTENSION_PATH
+        assert not dest.exists()
+
+    def test_dry_run_performs_no_write_when_file_pre_exists(self, tmp_path):
+        first_note = "Pre-existing note before the dry-run."
+        run_bootstrap(tmp_path, extra_args=["--operator-note", first_note])
+        dest = tmp_path / self.OPERATOR_EXTENSION_PATH
+        original_content = dest.read_text(encoding="utf-8")
+
+        second_note = "Dry-run note that must not be written."
+        result = run_bootstrap(
+            tmp_path, extra_args=["--operator-note", second_note, "--dry-run"]
+        )
+        assert result.exit_code == 0, result.output
+        assert dest.read_text(encoding="utf-8") == original_content

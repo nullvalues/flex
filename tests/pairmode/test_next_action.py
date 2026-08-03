@@ -3599,3 +3599,475 @@ def test_live_backlog_do_now_classification_parity() -> None:
             )
             checked_any = True
     assert checked_any, "expected at least one non-placeholder Do Now row"
+
+
+# ---------------------------------------------------------------------------
+# INFRA-360: concurrent shadow-reviewer dispatch — extends INFRA-336's
+# stage-to-stage integration-test harness (test_stage_integration.py) with
+# the one new stage shape Phase 118 introduces: builder + shadow-reviewer
+# operating in the *same* worktree concurrently.
+#
+# Per the story's Instructions 2: a real concurrent Agent/Task spawn cannot
+# be driven inside a pytest test process. Every test below simulates the
+# *file-level protocol* both sides implement (INFRA-358/359's actual shipped
+# mechanism — the shadow-reviewer procedure at
+# skills/pairmode/skills/shadow-reviewer/procedure.md, the builder's
+# suggestions-file checkpoint instruction in
+# skills/pairmode/skills/builder/procedure.md, and the CLAUDE.build.md
+# dispatch/teardown-ordering wiring) against a real git worktree fixture —
+# it does not spawn real Task/Agent processes.
+# ---------------------------------------------------------------------------
+
+_TESTS_PAIRMODE_DIR = Path(__file__).parent
+if str(_TESTS_PAIRMODE_DIR) not in sys.path:
+    sys.path.insert(0, str(_TESTS_PAIRMODE_DIR))
+
+from test_stage_integration import (  # noqa: E402
+    _invoke as _stage_invoke,
+    _scaffold_project,
+)
+
+
+def _append_suggestion(worktree: Path, text: str, *, ts: str) -> None:
+    """Append one timestamped entry to ``.pairmode-suggestions.md``, in the
+    exact shape ``skills/pairmode/skills/shadow-reviewer/procedure.md``'s
+    "The suggestions file" section documents: a top-of-file banner comment
+    on first write, then append-only ``## [ts] observation`` sections.
+
+    INFRA-365 Ensures 5: this is a direct ``Path.write_text``/``open(...)``
+    simulation of the shadow-reviewer's file-level protocol — it
+    deliberately bypasses the ``pre_tool_use`` hook and `scope_guard`
+    enforcement entirely. It does not exercise the real hook boundary; that
+    coverage is `tests/pairmode/test_pre_tool_use_scope_guard.py`'s
+    `test_hook_allows_write_to_suggestions_file_in_active_story_worktree`
+    (INFRA-365 Ensures 3).
+    """
+    suggestions_path = worktree / ".pairmode-suggestions.md"
+    if not suggestions_path.exists():
+        suggestions_path.write_text(
+            "<!-- Shadow-reviewer suggestions. Advisory only — the builder "
+            "is never required to act on these. Never commit this file. "
+            "-->\n\n",
+            encoding="utf-8",
+        )
+    with suggestions_path.open("a", encoding="utf-8") as fh:
+        fh.write(f"## [{ts}] observation\n{text}\n\n")
+
+
+class TestShadowReviewerSuggestionsFileAppendOnly:
+    """Ensures 1: the shared suggestions file accumulates entries
+    append-only under interleaved builder/shadow-reviewer writes to the same
+    worktree, regardless of interleaving order — no entry is ever
+    overwritten or lost.
+
+    Simulates the file-level protocol both sides implement; does not spawn
+    real Task/Agent processes.
+    """
+
+    def test_interleaved_writes_accumulate_without_loss(
+        self, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        story_id = "INFRA-960"
+        _scaffold_project(project_dir, story_id)
+
+        create_result = _stage_invoke(
+            "create-story-worktree",
+            "--story-id",
+            story_id,
+            "--project-dir",
+            str(project_dir),
+        )
+        assert create_result.exit_code == 0, create_result.output
+        wt_path = Path(create_result.output.strip())
+
+        # Interleave shadow-reviewer appends with builder file writes/commits
+        # — deliberately not a strict alternation.
+        _append_suggestion(wt_path, "first observation", ts="2026-08-02T14:00:00Z")
+        (wt_path / "CHANGES.md").write_text("wip\n", encoding="utf-8")
+        _append_suggestion(wt_path, "second observation", ts="2026-08-02T14:01:00Z")
+        _append_suggestion(wt_path, "third observation", ts="2026-08-02T14:02:00Z")
+        subprocess.run(["git", "add", "."], cwd=str(wt_path), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", f"story({story_id}): wip"],
+            cwd=str(wt_path),
+            check=True,
+        )
+        _append_suggestion(wt_path, "fourth observation", ts="2026-08-02T14:03:00Z")
+
+        content = (wt_path / ".pairmode-suggestions.md").read_text(encoding="utf-8")
+        entries = (
+            "first observation",
+            "second observation",
+            "third observation",
+            "fourth observation",
+        )
+        for entry in entries:
+            assert entry in content
+        # Append-only ordering: each entry's byte offset strictly increases
+        # in write order — proves nothing was overwritten or reordered.
+        offsets = [content.index(entry) for entry in entries]
+        assert offsets == sorted(offsets)
+
+
+def _new_since(previous_len: int, content: str) -> str:
+    """The exact byte-length high-water-mark diffing scheme
+    ``builder/procedure.md``'s "Shadow-reviewer suggestions" section
+    documents: "track a simple high-water-mark (e.g. the byte length
+    previously seen) so you only read what's new."."""
+    encoded = content.encode("utf-8")
+    return encoded[previous_len:].decode("utf-8", errors="ignore")
+
+
+class TestBuilderHighWaterMarkTracking:
+    """Ensures 2: the builder-side high-water-mark logic (INFRA-358 Ensures
+    4 / ``builder/procedure.md``'s Shadow-reviewer suggestions section)
+    correctly identifies content added since the last checkpoint across
+    multiple check points, and never re-surfaces an already-seen
+    suggestion."""
+
+    def test_multiple_checkpoints_never_resurface_seen_content(
+        self, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        story_id = "INFRA-961"
+        _scaffold_project(project_dir, story_id)
+        create_result = _stage_invoke(
+            "create-story-worktree",
+            "--story-id",
+            story_id,
+            "--project-dir",
+            str(project_dir),
+        )
+        assert create_result.exit_code == 0, create_result.output
+        wt_path = Path(create_result.output.strip())
+        # INFRA-365 Ensures 5: reads/writes here go through `_append_suggestion`
+        # and direct `.read_text()` calls — a file-level protocol simulation
+        # that deliberately bypasses the hook (see that helper's docstring);
+        # the hook-boundary allow/deny coverage lives in
+        # test_pre_tool_use_scope_guard.py (INFRA-365 Ensures 3/4).
+        suggestions_path = wt_path / ".pairmode-suggestions.md"
+
+        # Checkpoint 0: file does not exist yet.
+        high_water_mark = 0
+        assert not suggestions_path.exists()
+
+        _append_suggestion(wt_path, "alpha", ts="2026-08-02T14:00:00Z")
+        content = suggestions_path.read_text(encoding="utf-8")
+        new_text = _new_since(high_water_mark, content)
+        assert "alpha" in new_text
+        high_water_mark = len(content.encode("utf-8"))
+
+        # Checkpoint 1: nothing new written since — must not resurface alpha.
+        content = suggestions_path.read_text(encoding="utf-8")
+        assert _new_since(high_water_mark, content) == ""
+
+        _append_suggestion(wt_path, "beta", ts="2026-08-02T14:05:00Z")
+        content = suggestions_path.read_text(encoding="utf-8")
+        new_text = _new_since(high_water_mark, content)
+        assert "beta" in new_text
+        assert "alpha" not in new_text
+        high_water_mark = len(content.encode("utf-8"))
+
+        # Checkpoint 2: only the latest entry is "new".
+        _append_suggestion(wt_path, "gamma", ts="2026-08-02T14:10:00Z")
+        content = suggestions_path.read_text(encoding="utf-8")
+        new_text = _new_since(high_water_mark, content)
+        assert "gamma" in new_text
+        assert "alpha" not in new_text
+        assert "beta" not in new_text
+
+
+class TestShadowReviewerStopCondition:
+    """Ensures 3: the shadow-reviewer's documented stop condition
+    (``skills/pairmode/skills/shadow-reviewer/procedure.md``'s "Stop
+    condition" section) — stop once a ``story-<ID>`` commit appears in the
+    worktree's git log, or after a bounded maximum poll-cycle count (20),
+    whichever comes first. Exercises the real shipped commit-authority
+    helper (``next_story._has_story_commit``, the same function
+    ``next_action.py``/``flex_build.py`` use, and the function the
+    shadow-reviewer procedure's Stop condition section itself points at)
+    against a real git log — not a re-description of the mechanism."""
+
+    _MAX_POLL_CYCLES = 20
+
+    def test_story_commit_appearing_mid_simulation_triggers_stop(
+        self, tmp_path: Path
+    ) -> None:
+        from next_story import _git_log_oneline, _has_story_commit
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        story_id = "INFRA-962"
+        _scaffold_project(project_dir, story_id)
+        create_result = _stage_invoke(
+            "create-story-worktree",
+            "--story-id",
+            story_id,
+            "--project-dir",
+            str(project_dir),
+        )
+        assert create_result.exit_code == 0, create_result.output
+        wt_path = Path(create_result.output.strip())
+
+        stop_reason = None
+        cycle = 0
+        for cycle in range(1, self._MAX_POLL_CYCLES + 1):
+            git_log = _git_log_oneline(wt_path)
+            if _has_story_commit(story_id, git_log):
+                stop_reason = "story-commit-observed"
+                break
+            if cycle == 3:
+                # The builder's own story commit lands mid-simulation.
+                (wt_path / "CHANGES.md").write_text("done\n", encoding="utf-8")
+                subprocess.run(["git", "add", "."], cwd=str(wt_path), check=True)
+                subprocess.run(
+                    [
+                        "git",
+                        "commit",
+                        "-q",
+                        "-m",
+                        f"story({story_id}): implement the thing",
+                    ],
+                    cwd=str(wt_path),
+                    check=True,
+                )
+            if cycle == self._MAX_POLL_CYCLES:
+                stop_reason = "max-poll-cycles-reached"
+
+        assert stop_reason == "story-commit-observed"
+        assert cycle == 4
+
+    def test_no_commit_ever_falls_back_to_max_poll_cycles(
+        self, tmp_path: Path
+    ) -> None:
+        from next_story import _git_log_oneline, _has_story_commit
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        story_id = "INFRA-963"
+        _scaffold_project(project_dir, story_id)
+        create_result = _stage_invoke(
+            "create-story-worktree",
+            "--story-id",
+            story_id,
+            "--project-dir",
+            str(project_dir),
+        )
+        assert create_result.exit_code == 0, create_result.output
+        wt_path = Path(create_result.output.strip())
+
+        stop_reason = None
+        cycle = 0
+        for cycle in range(1, self._MAX_POLL_CYCLES + 1):
+            git_log = _git_log_oneline(wt_path)
+            if _has_story_commit(story_id, git_log):
+                stop_reason = "story-commit-observed"
+                break
+            if cycle == self._MAX_POLL_CYCLES:
+                stop_reason = "max-poll-cycles-reached"
+
+        assert stop_reason == "max-poll-cycles-reached"
+        assert cycle == self._MAX_POLL_CYCLES
+
+
+class TestSuggestionsFileExcludedFromGitStatus:
+    """Ensures 4: ``.pairmode-suggestions.md``'s ``.gitignore`` entry
+    (INFRA-358 Ensures 3) actually takes effect against a real git worktree
+    — not merely asserted by inspection of the ``.gitignore`` file's text."""
+
+    def test_suggestions_file_invisible_to_git_status_and_diff(
+        self, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        story_id = "INFRA-964"
+        _scaffold_project(project_dir, story_id)
+
+        # Add the real .gitignore entry (line-for-line what this repo's own
+        # .gitignore carries) before the worktree branches, so it's present
+        # at the worktree's own branch point.
+        gitignore_path = project_dir / ".gitignore"
+        gitignore_path.write_text(".pairmode-suggestions.md\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".gitignore"], cwd=str(project_dir), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "chore: add suggestions-file gitignore entry"],
+            cwd=str(project_dir),
+            check=True,
+        )
+
+        create_result = _stage_invoke(
+            "create-story-worktree",
+            "--story-id",
+            story_id,
+            "--project-dir",
+            str(project_dir),
+        )
+        assert create_result.exit_code == 0, create_result.output
+        wt_path = Path(create_result.output.strip())
+
+        _append_suggestion(wt_path, "an observation", ts="2026-08-02T14:00:00Z")
+
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(wt_path),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert ".pairmode-suggestions.md" not in status.stdout
+
+        # Confirm it's actually ignored (not merely absent because
+        # untouched) — `git check-ignore` exits 0 only for ignored paths.
+        check_ignore = subprocess.run(
+            ["git", "check-ignore", ".pairmode-suggestions.md"],
+            cwd=str(wt_path),
+            capture_output=True,
+            text=True,
+        )
+        assert check_ignore.returncode == 0
+
+        # Even the broadest possible stage can't pick it up.
+        subprocess.run(["git", "add", "-A"], cwd=str(wt_path), check=True)
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--name-only"],
+            cwd=str(wt_path),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert ".pairmode-suggestions.md" not in diff.stdout.splitlines()
+
+
+class TestSuggestionsFileExcludedFromStoryScopeReport:
+    """INFRA-365 Ensures 6: `.pairmode-suggestions.md` remains excluded from
+    story artifacts — the real `check-story-scope` report (the CLI surface
+    named in that command's own Ensures 7 elsewhere) does not begin listing
+    it as an in-scope story file once the file exists in the worktree and
+    the guard change (INFRA-365) has allowed the shadow-reviewer to write
+    it. Asserted against the real CLI, not assumed from `.gitignore`
+    inspection alone."""
+
+    def test_check_story_scope_report_never_mentions_suggestions_file(
+        self, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        story_id = "INFRA-965"
+        _scaffold_project(project_dir, story_id)
+
+        create_result = _stage_invoke(
+            "create-story-worktree",
+            "--story-id",
+            story_id,
+            "--project-dir",
+            str(project_dir),
+        )
+        assert create_result.exit_code == 0, create_result.output
+        wt_path = Path(create_result.output.strip())
+
+        # The shadow-reviewer's standing-surface write (real file present in
+        # the worktree, still never declared in primary_files/touches).
+        _append_suggestion(wt_path, "an observation", ts="2026-08-02T14:00:00Z")
+
+        scope_result = _stage_invoke(
+            "check-story-scope",
+            story_id,
+            "--project-dir",
+            str(wt_path),
+        )
+        assert scope_result.exit_code == 0, scope_result.output
+        assert ".pairmode-suggestions.md" not in scope_result.output
+
+
+class TestTeardownOrderingRuleIsDocumented:
+    """Ensures 5: the orchestrator-level teardown-ordering rule (INFRA-359
+    Ensures 3) — the loop must not tear down a story worktree
+    (``merge-story-worktree``/``discard-story-worktree``) until *both* the
+    builder and a dispatched shadow-reviewer have completed.
+
+    **What kind of assertion this is.** The orchestrator's own wait-for-both
+    behavior lives in ``CLAUDE.build.md``'s loop prose, executed by an LLM
+    orchestrator session — there is no ``wait_for_shadow_reviewer()``
+    function this test suite can call or monkeypatch. This class is
+    therefore a **documentation/contract-level check**: it proves the
+    ordering rule's text is present and byte-identical between
+    ``CLAUDE.build.md`` and its ``.j2`` template (INFRA-359 Ensures 5's own
+    no-drift requirement), and separately illustrates the rule's
+    *consequence* against a file-level fixture. Neither test proves a live
+    orchestrator actually honors the rule at runtime — no stronger guarantee
+    exists for this mechanism today, and this docstring says so rather than
+    implying one.
+    """
+
+    def test_ordering_rule_present_and_identical_in_both_loop_documents(
+        self,
+    ) -> None:
+        repo_root = Path(__file__).parent.parent.parent
+        claude_build = (repo_root / "CLAUDE.build.md").read_text(encoding="utf-8")
+        template = (
+            repo_root / "skills" / "pairmode" / "templates" / "CLAUDE.build.md.j2"
+        ).read_text(encoding="utf-8")
+
+        marker = (
+            "wait for builder AND (shadow-reviewer, if dispatched) to both "
+            "complete"
+        )
+        assert marker in claude_build
+        assert marker in template
+
+        def _line_with(text: str, needle: str) -> str:
+            for line in text.splitlines():
+                if needle in line:
+                    return line
+            raise AssertionError(f"{needle!r} not found")
+
+        assert _line_with(claude_build, marker) == _line_with(template, marker)
+
+    def test_shadow_reviewer_in_flight_means_teardown_is_not_yet_correct(
+        self, tmp_path: Path
+    ) -> None:
+        """Illustrates the ordering rule's consequence (not an enforcement
+        test — see class docstring): a builder commit landing while the
+        shadow-reviewer has not yet returned is exactly the state the
+        documented rule says must not be handed to merge/discard. There is
+        no runtime flag the orchestrator reads for shadow-reviewer
+        completion — it is a blocking Task/Agent return value, never a
+        file — so "in flight" is modeled here as "no terminal SHADOW-RESULT
+        observed yet", the only observable a file-level protocol test can
+        construct for it."""
+        from next_story import _git_log_oneline, _has_story_commit
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        story_id = "INFRA-965"
+        _scaffold_project(project_dir, story_id)
+        create_result = _stage_invoke(
+            "create-story-worktree",
+            "--story-id",
+            story_id,
+            "--project-dir",
+            str(project_dir),
+        )
+        assert create_result.exit_code == 0, create_result.output
+        wt_path = Path(create_result.output.strip())
+
+        # Builder completes (its story commit lands)...
+        (wt_path / "CHANGES.md").write_text("done\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=str(wt_path), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", f"story({story_id}): implement the thing"],
+            cwd=str(wt_path),
+            check=True,
+        )
+        builder_done = _has_story_commit(story_id, _git_log_oneline(wt_path))
+        assert builder_done is True
+
+        # ...but the shadow-reviewer has not yet returned a terminal
+        # SHADOW-RESULT.
+        shadow_reviewer_returned = False
+
+        both_complete = builder_done and shadow_reviewer_returned
+        assert both_complete is False  # merge/discard is not yet correct

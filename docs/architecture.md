@@ -65,7 +65,7 @@ flex/
         era_transition.py         ← formally close the current active era and open the next; CLI: uv run era_transition.py --project-dir DIR [--name NAME] [--intent INTENT] [--yes]; also registered as flex_build.py transition-era
         schema_validator.py       ← validate story/era/phase manifest frontmatter
         permission_scope.py       ← story-scoped allow rules lifecycle for .claude/settings.local.json (legacy; Phase 55 replaces runtime use with scope_guard.py + permissions-create for new projects)
-        scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json; fails open on non-protected paths when no active story, but fails closed (blocks) on PROTECTED_GLOBS paths even without an active story (INFRA-196), on protected paths in the active-story missing/malformed/empty-artifact branches (INFRA-253), and on any path that resolves outside the project root — all inputs resolved+contained before glob/permission checks (INFRA-255); INFRA-271 (CER-080/CER-087) adds two more layers: (1) the state.json fallback (`_resolve_story_from_state`) ages a `current_stories`/`current_story` entry out at `STATE_STORY_MAX_AGE_HOURS` (24h) via the public `entry_is_fresh()` predicate — a stamp missing/unparseable `set_at` or older than the cutoff resolves to the `"stale"` source (fail-open for ordinary paths, naming the cutoff and the `clear-stale-stories` remedy; still fail-closed for `PROTECTED_GLOBS`), while a worktree claim (`worktree-cwd`/`worktree-path`) never ages out; (2) `harness_owned_prefixes()` derives a narrow allow-list of out-of-root paths the harness itself owns (the session's `~/.claude/projects/<key>/memory/` notes directory and `<tmp>/claude-<uid>/<key>/` scratchpad root, plus `~/.claude/plans`), and `_out_of_root_decision()` consults it — on the *resolved* path, never a string prefix — before either `"path escapes project root"` deny site returns; `_normalise`'s containment itself is unchanged; INFRA-320 (CER-128) § A adds a third layer — a **standing shared surfaces** allowance sitting inside the `status == "ok"` branch, after the protected check: `STANDING_SURFACES` (a stdlib-only, immutable `tuple[str, ...]` — currently `docs/cer/backlog.md` and `docs/architecture.md`) names exact documentation/record paths every story may write without declaring them, admissible only when (i) documentation/record, never code, (ii) not matched by `PROTECTED_GLOBS`, and (iii) legitimately touched by a majority of stories — adding a code path to it is a CRITICAL review finding; `standing_paths_for(story_id, story_phase)` is the pure, I/O-free helper that unions `STANDING_SURFACES` with the two per-story derived paths (the story's own spec, and its one phase doc when a phase key is supplied) and is total (never raises, degrading a malformed ID or absent phase to the static set alone); `check_path` resolves the effective standing set as the permissions artifact's own `standing_paths` key (when present and well-formed) **union** a live call to `standing_paths_for()` — the live half is what lets a pre-INFRA-320 artifact (generated before this story, carrying no `standing_paths` key) still grant the standing surfaces with no migration step, and a malformed `standing_paths` value degrades to the live union rather than raising. A standing-surface allow returns the reason string `"allowed (standing shared surface)"`, distinguishable in a hook transcript from a plain declared-file `"allowed"`. The protected check always runs first and its result is final — a path matched by `PROTECTED_GLOBS` is denied even were it (invalidly) listed in `STANDING_SURFACES`; no standing or widening mechanism (see `permissions-widen` below) ever reaches a protected path
+        scope_guard.py            ← story file-scope enforcement for pre_tool_use hook; reads docs/phases/permissions/<story_id>.json; fails open on non-protected paths when no active story, but fails closed (blocks) on PROTECTED_GLOBS paths even without an active story (INFRA-196), on protected paths in the active-story missing/malformed/empty-artifact branches (INFRA-253), and on any path that resolves outside the project root — all inputs resolved+contained before glob/permission checks (INFRA-255); INFRA-271 (CER-080/CER-087) adds two more layers: (1) the state.json fallback (`_resolve_story_from_state`) ages a `current_stories`/`current_story` entry out at `STATE_STORY_MAX_AGE_HOURS` (24h) via the public `entry_is_fresh()` predicate — a stamp missing/unparseable `set_at` or older than the cutoff resolves to the `"stale"` source (fail-open for ordinary paths, naming the cutoff and the `clear-stale-stories` remedy; still fail-closed for `PROTECTED_GLOBS`), while a worktree claim (`worktree-cwd`/`worktree-path`) never ages out; (2) `harness_owned_prefixes()` derives a narrow allow-list of out-of-root paths the harness itself owns (the session's `~/.claude/projects/<key>/memory/` notes directory and `<tmp>/claude-<uid>/<key>/` scratchpad root, plus `~/.claude/plans`), and `_out_of_root_decision()` consults it — on the *resolved* path, never a string prefix — before either `"path escapes project root"` deny site returns; `_normalise`'s containment itself is unchanged; INFRA-320 (CER-128) § A adds a third layer — a **standing shared surfaces** allowance sitting inside the `status == "ok"` branch, after the protected check: `STANDING_SURFACES` (a stdlib-only, immutable `tuple[str, ...]` — currently `docs/cer/backlog.md`, `docs/architecture.md`, and `.pairmode-suggestions.md` (INFRA-365: the shadow-reviewer's sole output channel, gitignored and deliberately never declared in any story's primary_files/touches, INFRA-358)) names exact documentation/record paths every story may write without declaring them, admissible only when (i) documentation/record, never code, (ii) not matched by `PROTECTED_GLOBS`, and (iii) legitimately touched by a majority of stories — adding a code path to it is a CRITICAL review finding; `standing_paths_for(story_id, story_phase)` is the pure, I/O-free helper that unions `STANDING_SURFACES` with the two per-story derived paths (the story's own spec, and its one phase doc when a phase key is supplied) and is total (never raises, degrading a malformed ID or absent phase to the static set alone); `check_path` resolves the effective standing set as the permissions artifact's own `standing_paths` key (when present and well-formed) **union** a live call to `standing_paths_for()` — the live half is what lets a pre-INFRA-320 artifact (generated before this story, carrying no `standing_paths` key) still grant the standing surfaces with no migration step, and a malformed `standing_paths` value degrades to the live union rather than raising. A standing-surface allow returns the reason string `"allowed (standing shared surface)"`, distinguishable in a hook transcript from a plain declared-file `"allowed"`. The protected check always runs first and its result is final — a path matched by `PROTECTED_GLOBS` is denied even were it (invalidly) listed in `STANDING_SURFACES`; no standing or widening mechanism (see `permissions-widen` below) ever reaches a protected path
         state_utils.py            ← shared helper for atomic state.json writes (`_atomic_write_json`); adopted by all remaining state.json writers as of HARNESS015-main (INFRA-202) — hooks/post_tool_use.py, story_context.py, bootstrap.py, skills/companion/scripts/sidebar.py (pairmode_sync.py/pairmode_register.py already had their own inline atomic implementation)
         session_reset.py          ← pure decision logic for SessionStart counter reset; no I/O (mirrors context_budget.py D11 boundary); CER-047 / Phase 68 INFRA-175
         spec_preflight.py         ← INFRA-190/191 — scans story body sections for unverifiable route and constant references; informational only, exits 0 for a clean/warned scan (including a well-formed-but-missing story file), exits 2 only when --story-id itself is malformed or resolves outside the stories tree — a scan that cannot locate its subject must not report as clean (CER-064, INFRA-304)
@@ -75,7 +75,7 @@ flex/
         gate_verdict.py           ← WORKER-001 gate verdict grammar: VERBS (clean/block/flag), JUDGED_GATES (schema/auth; stub excluded), parse_verdict (string → (verb, reason)), validate_verdict_map (dict → violation list); stdlib-only, no I/O; the WORKER-rail contract analogue of next_action.py's action grammar
         worker_result.py          ← generalized worker return contract (WORKER-004, HARNESS003-main): four result types (BUILD-RESULT, REVIEW-RESULT, ADVICE, SPEC-RESULT), parse_worker_result (text → dict, validated), validate_worker_result (dict → violation list); stdlib-only, no I/O; parallel to gate_verdict.py for all non-gate workers
         next_action.py            ← next-action resolver: action grammar (make_action, validate_action, ACTIONS), position read-model (infer_position), 9-state DP2 machine (resolve_next_action); HARNESS002-main adds spawn-gate-worker to ACTIONS, Row-4 DP2 split (stub→await-user directly; schema/auth→spawn-gate-worker), parse_worker_verdict_json (worker text return → per-gate verdict map), route_gate_verdict (DP3.2 aggregation: block→await-user, flag→proceed+warnings, clean→proceed); the live sequencing core since the flip (HARNESS006), pure-read; HARNESS003-main adds spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer to ACTIONS and _SPAWN_ACTIONS; SCHEMA_VERSION bumped to 2; HARNESS004-main adds checkpoint-security, checkpoint-intent, checkpoint-docs, checkpoint-tag to ACTIONS; removes monolithic checkpoint from ACTIONS (constant retained for import compat); adds check_checkpoint_guards (pre-checkpoint guards: phase-completion, CER Do Now, build-gate via injectable gate_fn); checkpoint step sequencing via _CHECKPOINT_SEQUENCE; SCHEMA_VERSION bumped to 3; HARNESS005-main adds spawn-spec-writer to ACTIONS and _SPAWN_ACTIONS; adds needs_spec bool to infer_position Position (True when ## Ensures absent or &lt; 5 non-blank lines — stub heuristic; fail-safe: unreadable story file → True); Row-2 split: needs_spec True → spawn-spec-writer (model=opus, reason=needs-spec), needs_spec False → spawn-builder as before; _count_ensures_nonblank_lines private helper (pure, no I/O); SPEC-RESULT{revised} routing lives in CLAUDE.build.md orchestrator prose (not in resolve_next_action); canonical reason string: spec-revised-awaiting-review; SCHEMA_VERSION bumped to 4; spawn-reviewer is in ACTIONS/_SPAWN_ACTIONS for orchestrator dispatch but is never emitted by resolve_next_action (CER-074); INFRA-328 Row 6 (double-fail → spawn-loop-breaker) now queries `effort_db.query_by_story` for the story's most recent `outcome == "FAIL"` attempt and surfaces its `notes` (fail_cause) column as the action's `reason` — replacing the prior bare `reason=""` — so CLAUDE.build.md's orchestrator loop can construct the `LOOP-BREAKER: [error] | FILE: [file:line] | TRIED: [what failed]` prompt CLAUDE.md's loop-breaker mode requires; fails open unchanged (any lookup error, missing effort.db, no FAIL rows, or a FAIL row with no notes still returns spawn-loop-breaker with reason=""); 2026-08-01 INFRA-341: closes the F8 livelock (`spawn-gate-worker` re-emitting identically on every poll since nothing consumed its verdict) — `infer_position` gains `gate_verdict` (`dict[str, str] | None`, read from `state.json["gate_verdict"][next_story_id]`, mirrors `pre_build_intent_verdict`'s fail-open read shape exactly); Row 4b now calls `route_gate_verdict(position["gate_verdict"], next_story_id, meta_base=meta)` — the existing DP3.2 aggregation, called from a real production path for the first time — whenever a verdict has been recorded, falling back to (re-)emitting `spawn-gate-worker` (unchanged) only when none has; `flex_build.py record-gate-verdict` is the new CLI writer (reads the worker's raw stdout from stdin, injects `"stub": "clean"` when absent to reconcile the live worker's two-key contract with `parse_worker_verdict_json`'s three-key requirement, then persists to `state.json["gate_verdict"][story_id]` via `_atomic_write_json`); `merge-story-worktree`/`discard-story-worktree` both clear the recorded verdict for their story_id, mirroring the existing attempt-counter/active-story/permissions clears; grammar-unchanged (no new action type, no `ACTIONS`/`_SPAWN_ACTIONS` membership change, no `SCHEMA_VERSION` bump)
-        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all three sync operations in fixed order (sync-all subcommand); also registers register/unregister/list-projects in the top-level CLI group
+        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); add missing harness-role narrative files (sync-narratives subcommand, INFRA-352); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all four sync operations in fixed order (sync-all subcommand); also registers register/unregister/list-projects in the top-level CLI group
         pairmode_register.py      ← manage registered_projects in .companion/state.json (register/unregister/list-projects subcommands)
         pairmode_migrate.py       ← one-shot migration of an anchor-bootstrapped sibling project to flex naming (migrate-from-anchor subcommand)
         global_session_check.py   ← global SessionStart hook; detects pairmode, prints status block or bootstrap prompt; stdlib-only (runs as bare python3)
@@ -1692,6 +1692,56 @@ phase; INFRA-243's Out of scope explicitly rules that out):**
   Goal section documents the audit lineage (fable Plan-mode comparison, adversarial second-opinion
   review, follow-up operator questions) an agent would otherwise be missing.
 
+### Narrative of Record and the cold-start quad (Phase 118, INFRA-351 through INFRA-366)
+
+The cold-start triad — `docs/brief.md` (project goals/why), `docs/architecture.md` (system
+design/how), and the current phase doc (active stories/what) — enables a fresh agent or human
+reader to understand and continue work with no access to prior conversation. Narrative of Record
+extends this principle to the *roles* inside the build loop itself: **`docs/narratives/` holds
+role-level narratives describing what each role (builder, reviewer, intent-reviewer, etc.) must
+be able to do, expect, and avoid**, grounded in project ideology and architecture, not
+implementation details. A narrative describes "what this role needs to experience" end-to-end,
+not "here's the code that implements this role."
+
+**Where it lives:** `docs/narratives/` organized by role (`BUILDER/`, `REVIEWER/`, `OPERATOR/`,
+etc.), with numbered files per role (`ROLE-000-ideology.md`, `ROLE-010-*.md`, etc.) following
+the same disk-sort reading order as phase docs. No narrative indices or manifests required —
+the file system is the index.
+
+**How it propagates:** INFRA-351 (`sync.py`'s `NARRATIVE_FILES` constant) declares the ten
+canonical roles (nine harness-internal, plus OPERATOR). INFRA-352 (`sync-narratives` command,
+run at bootstrap and at era boundaries) templates each role's seed files from
+`skills/pairmode/templates/narratives/` and ensures no drift. INFRA-353 establishes the
+exception: OPERATOR narratives are not templated directly but are seeded as a blank scaffold
+and extended by the operator's own free-text input at bootstrap time (`OPERATOR-000-ideology.md`
+seed + `OPERATOR-010-project.md` extension), allowing projects to document their own
+operator-role expectations without requiring a one-size-fits-all template.
+
+**How it's consumed:** INFRA-355 wires Narrative of Record as the spec-writer's sixth bounded
+input — when a story's frontmatter lists `narrative_roles: [ROLE1, ROLE2, ...]`, the spec-writer
+reads exactly those `<ROLE>-000-ideology.md` files (and any numbered descendants) to ensure the
+drafted spec honors what each cited role needs to be able to do. INFRA-356 adds the matching
+check on the reviewer side: the intent-reviewer reads cited narratives post-build and compares
+the diff against narrative `Always true`/`Never` sections, treating narrative violations with the
+same weight as ideology drift (CRITICAL/HIGH findings that block checkpoint). The same check runs
+pre-build mode (INFRA-315) against the *planned* Ensures, verifying that architecture aligns
+with narrative before any code is written.
+
+**Relationship to the cold-start quad:** The triad asks "can I understand the system and the
+current work?" Narrative of Record completes that to "can I understand what each role needs to
+experience?" — a fourth dimension making the build loop itself reproducible and auditable, not
+just the software it produces. When a phase doc is read cold with no access to conversation, the
+referenced narratives let a reader verify that story Ensures and role expectations align, and
+catch gaps the diff alone wouldn't surface (a story that passes review but violates an
+intent-reviewer's alignment check is a signal, not a passing grade). This is the same reasoning
+that led to narrative-first design in other fleet projects (coherra, stackabid); flex is the
+first to wire narrative-checking into live procedures rather than stating it as intent.
+
+**`story_new.py` scaffold** adds `narrative_roles: []` to new story stubs. The decision of which
+roles a story concerns is left to the human or spec-writer (not auto-inferred from title or rail)
+and is recorded in frontmatter as a backreferable decision, mirroring how `OPERATOR-000` seed
+plus `OPERATOR-010-project.md` extension lets the operator record their own role-level intent.
+
 **`story_update.py` is the canonical tool for updating story status.**
 `update_story_status(story_id, project_dir, status)` updates a story file's frontmatter
 `status` field. `update_phase_story_status(story_id, project_dir, status)` updates the status
@@ -2121,9 +2171,103 @@ runs and blocks for each;
 project-name-rendered, references its procedure skill, and its frontmatter
 `name:` matches the literal string `BUILD_CYCLE_SUBAGENTS` matches on.
 
+### Harness-role narratives: `NARRATIVE_FILES` (INFRA-351)
+
+`bootstrap.py`'s `NARRATIVE_FILES: list[tuple[str, str]]` (declared immediately
+after `AGENT_FILES`, same `(dest_rel, template_name)` tuple shape) is the same
+"harness-owned, templated, never hand-diverged" contract `AGENT_FILES` already
+establishes for `.claude/agents/*.md`, applied to the nine build-loop-role
+narrative documents (BUILDER, REVIEWER, LOOP-BREAKER, SECURITY-AUDITOR,
+INTENT-REVIEWER, DOCS-REVIEWER, GATE-WORKER, SPEC-WRITER, ORCHESTRATOR). Each
+narrative describes the harness role itself — identical across every pairmode
+project, never per-project content — so it is scaffolded from
+`skills/pairmode/templates/narratives/<ROLE>/<ROLE>-000-ideology.md.j2` into a
+fresh project's `docs/narratives/<ROLE>/<ROLE>-000-ideology.md` at bootstrap
+time, rendered through the same `_render_template` context every other
+scaffolded file uses, rather than hand-authored per project.
+
+OPERATOR's narrative is deliberately excluded from `NARRATIVE_FILES` — it uses
+a seed-then-extend mechanism instead of scaffold-verbatim (INFRA-353), since an
+operator's own narrative is inherently project-specific content a template
+cannot supply. Concretely: `bootstrap.py`'s `OPERATOR_SEED_FILE: tuple[str,
+str]` (the same `(dest_rel, template_name)` shape as one `NARRATIVE_FILES`
+entry, just not a member of that list) scaffolds a generic, project-agnostic
+`OPERATOR-000-ideology.md` seed via the same `_render_template`/`_write_file`
+pipeline, so it appears at fresh bootstrap exactly like the other nine from
+the operator's point of view. Bootstrap's interactive prompt flow gains one
+more free-text, blank-to-skip question in the same style as "What does this
+project produce?"/"Why does this project exist?" (`--operator-note`, prompted
+if omitted): a non-blank answer is written to a separate
+`docs/narratives/OPERATOR/OPERATOR-010-project.md` extension file (the
+steps-of-10 numbering convention, § Structure in `docs/narratives/README.md`);
+a blank answer writes no extension file at all. The seed is never edited by
+this prompt — only the numbered extension file diverges per project.
+`pairmode_sync.py`'s `sync-narratives` subcommand (INFRA-352, below) brings
+already-bootstrapped projects' narratives in line with `NARRATIVE_FILES` for a
+project bootstrapped before it existed; `OPERATOR_SEED_FILE` is out of that
+subcommand's scope (unchanged by this story), and backfilling flex's own
+`docs/narratives/` from these new templates is a separate story (INFRA-354).
+
+**Observability.** `tests/pairmode/test_bootstrap.py`'s
+`TestNarrativeFilesParity` asserts all nine `NARRATIVE_FILES` entries are
+present with well-formed destination paths, that every template source exists
+on disk, and that a live (fixture-driven) bootstrap run actually writes all
+nine `docs/narratives/<ROLE>/<ROLE>-000-ideology.md` files with rendered (not
+raw Jinja2) content — the forbidden-proxy check confirming the list isn't
+merely declared but is actually wired into the scaffold-time render loop.
+
+### Narrative-of-record as spec-writer's sixth bounded input (INFRA-355)
+
+The spec-writer's input contract (DP1.3, `spec-writer/procedure.md` § Input contract)
+grows from five to exactly six bounded input categories. The sixth: a story's
+frontmatter gains an optional `narrative_roles: []` field (empty is valid — not
+every story is narratively role-facing). When non-empty, the spec-writer reads
+exactly the cited `docs/narratives/<ROLE>/<ROLE>-000-ideology.md` file(s) (and any
+numbered descendants that exist for that role) — no other file under
+`docs/narratives/`, and never `docs/narratives/README.md` or a whole-tree scan
+"just to be safe" (the forbidden proxy this story names explicitly, the same way
+an unbounded sixth category would defeat the bounded-input property DP1.3
+protects).
+
+`schema_validator.py` validates `narrative_roles:` against the ten known role
+names — the nine harness roles (`bootstrap.NARRATIVE_FILES`'s role set,
+INFRA-351) plus `OPERATOR` — via `bootstrap.NARRATIVE_ROLES`, a frozenset
+derived from `NARRATIVE_FILES`'s destination paths so the role vocabulary has
+exactly one source of truth. `schema_validator.py` imports this constant with a
+deferred (call-time, not module-load-time) `import bootstrap` inside
+`_valid_narrative_roles()` — `bootstrap.py` already imports `schema_validator`
+(`from schema_validator import _parse_frontmatter`) at its own module scope, so
+a symmetric module-level import back into `schema_validator.py` would be a
+circular import that races whichever module's own top-to-bottom execution
+hasn't finished yet; deferring to call time sidesteps this because both modules
+have always finished loading by the time any validator function actually runs.
+`story_new.py`'s stub scaffold gains `narrative_roles: []` to the frontmatter
+template — empty by default, never auto-inferred from title or rail.
+
+**The `stories:` two-way trace (Step 4c).** Mirroring coherra's own two-way
+trace convention (a narrative file's `stories:` frontmatter lists which
+stories cite it), the spec-writer backfills its own story's `id` into each
+cited narrative's `stories:` list once the draft is complete — a new Step 4c,
+analogous to how Step 4b's model-proposal write-back records a decision back
+into frontmatter. This makes the narrative `stories:` backfill the
+spec-writer's *second* write target, alongside the primary story file
+(`docs/stories/<RAIL>/<scalar>.md`) — the procedure's `## Role`, `## Non-negotiables`,
+and Step 6 write-rules sections all name both targets explicitly rather than
+claiming a single-write-target absolute that the Step 4c addition would then
+contradict. The backfill is idempotent: re-running the spec-writer on an
+already-cited story makes no write at all for narrative files that already
+list that story's `id`.
+
+A story whose `narrative_roles:` is empty or absent behaves byte-identically
+to the pre-INFRA-355 spec-writer: input 6 contributes zero files, Step 4c is a
+no-op, and the run stays a single-write-target run.
+
+**Out of scope (deferred to INFRA-356):** intent-reviewer narrative-alignment
+checking. This story only wires the spec-writer's *input* side.
+
 ### Work→agent-type classification and agent-type completeness checklist (INFRA-335)
 
-**Work→agent-type dispatch table.** The eight agent types in the pairmode build loop, the kind of work each is the correct dispatch target for, and the `next_action.py` action(s) that route to each:
+**Work→agent-type dispatch table.** The nine agent types in the pairmode build loop, the kind of work each is the correct dispatch target for, and the `next_action.py` action(s) that route to each:
 
 | Agent role | Work scope | Dispatch action(s) |
 |---|---|---|
@@ -2135,14 +2279,46 @@ project-name-rendered, references its procedure skill, and its frontmatter
 | **docs-reviewer** | Checkpoint gate (documentation-currency checklist): runs the bundled cold-eyes documentation-currency checklist and reports items needing attention. Advisory role using the "advisory" tier model selection. | `checkpoint-docs` |
 | **gate-worker** | Judged gate (schema/auth conformance verdict): evaluates a story against declared schema and access-control requirements. Unlike `checkpoint-security` (which is a checkpoint-sequence gate), gate-worker is a planned-action gate — the story declares upfront whether it needs schema/auth vetting. Uses the "correctness" tier model selection (same as security-auditor). | `spawn-gate-worker` |
 | **spec-writer** | Elaborates a bare story stub into a full specification: expands Ensures/Instructions/Tests from a scaffold or outline into production-ready acceptance criteria. Unconditional opus regardless of `story_class` (spec elaboration carries the same judgment weight regardless of the class the finished story will end up in). | `spawn-spec-writer` |
+| **shadow-reviewer** | Concurrent, largely passive advisory role: polls the worktree's git state at its own pace and appends timestamped suggestions to a shared `.pairmode-suggestions.md` file, which the builder is never required to act on. Story_class-keyed model selection with no attempt ladder (`select_shadow_reviewer_model`). | (none — dispatched from orchestrator prose in `CLAUDE.build.md`'s `spawn-builder` branch when the `shadow_review=`concurrent`` Build-standards key is set, not a `next-action` resolver action; INFRA-359) |
 
 (Reconstruction-agent is noted separately as belonging to a different skill's documentation, not the story build loop.)
+
+**Shadow-reviewer (INFRA-358/359, fully wired).** The ninth agent type in the
+table above. The shadow-reviewer is dispatched concurrently with the builder
+into the *same* story worktree and is largely passive: it polls the
+worktree's git state at its own pace (event-driven — after N new commits or
+file changes, never a wall-clock sleep) and appends timestamped, advisory
+suggestions to a shared `<worktree>/.pairmode-suggestions.md` file, which the
+builder polls in turn at natural checkpoints (after each `## Ensures` item).
+The builder is never required to act on a suggestion. This is ordinary file
+I/O, not real-time transcript-watching — no mechanism exists for one agent to
+observe another's live session. The suggestions file is gitignored and never
+part of a story's diff or the reviewer's own artifact review. It augments,
+never replaces, the reviewer's later independent check. Procedure:
+`skills/pairmode/skills/shadow-reviewer/procedure.md`; shell:
+`skills/pairmode/templates/agents/shadow-reviewer.md.j2`. INFRA-358 covered
+checklist items 1-2 below (template, materialized/scaffolded file); INFRA-359
+covers items 4-5 (model selector, escalation table) exactly per the checklist,
+and covers item 3's *intent* — a live dispatch call site actually reading the
+opt-in flag — but deliberately not its literal shape: INFRA-359 does not add
+a `next-action` resolver action or an `ACTION_SUBAGENT_TYPE` row, because
+concurrent shadow-reviewer dispatch is conditioned on a Build-standards
+opt-in key (`shadow_review=`concurrent``, the same pattern `intent_review=`
+and `covered_contracts:` already established) rather than a new action in the
+JSON grammar — this avoids a producer/consumer pair that a future story could
+leave orphaned (the exact failure class this era's cold-eyes review found
+three times). The `spawn-builder` branch in `CLAUDE.build.md` (and its `.j2`
+template) now issues the shadow-reviewer's `Task`/`Agent` spawn concurrently
+with the builder and reviewer spawns whenever `shadow_review=`concurrent``,
+and the orchestrator waits for the shadow-reviewer (if dispatched) to
+complete, alongside the builder, before the worktree is merged or discarded —
+a worktree teardown must never race a still-running shadow-reviewer session.
 
 **New-agent-type definition-of-done checklist.** Before a new agent type is considered fully wired up and integrated into the pairmode build loop, it must have all five of the following:
 
 1. **Template.** A `skills/pairmode/templates/agents/<role>.md.j2` jinja2 template whose body contains the agent's procedure skill's "Shell instruction" section.
 2. **Materialized files.** A `.claude/agents/<role>.md` file in every bootstrapped project (`bootstrap.py`'s `AGENT_FILES` list), with re-sync coverage for already-bootstrapped projects via `pairmode_sync.py sync-agents`'s add-missing-file path (INFRA-332).
-3. **Dispatch action.** An entry in `next_action.py`'s `ACTIONS` and/or `_SPAWN_ACTIONS` set(s), and a corresponding row in `CLAUDE.build.md`'s `ACTION_SUBAGENT_TYPE` map naming the exact `subagent_type` to emit when that action is dispatched.
+3. **Dispatch action.** An entry in `next_action.py`'s `ACTIONS` and/or `_SPAWN_ACTIONS` set(s), and a corresponding row in `CLAUDE.build.md`'s `ACTION_SUBAGENT_TYPE` map naming the exact `subagent_type` to emit when that action is dispatched — **or**, for a role whose dispatch is conditioned on an opt-in Build-standards key rather than a new grammar action (shadow-reviewer, INFRA-359), a named orchestrator-prose call site in `CLAUDE.build.md` that reads the flag and issues the spawn directly, with no dead flag left unconsumed.
 4. **Model selector function.** A `select_<role>_model(...)` function in `skills/pairmode/scripts/model_selector.py`, called from its real dispatch site (not hardcoded literals), that returns `(model, reason)` per the role's deterministic selection table.
 5. **Explicit escalation behavior.** An entry in the role's model-selection table for all cases where escalation may occur (or a deliberate "never escalates" row if that is the correct answer for the role). No missing rows — if a case is possible at the call site, the table must name the model and reason explicitly (as per INFRA-334's `story_class` table redesign; `code`/`doc`/`lesson`/`methodology` now all have real retry-upgrade paths instead of dead-ending or conditional escalation).
 
@@ -2176,6 +2352,8 @@ project-name-rendered, references its procedure skill, and its frontmatter
 - **gate-worker** (schema/auth verdict, not checkpoint-sequenced): uses the same table as security-auditor (production=opus, pre-pr=opus, docs-only=sonnet)
 
 **Spec-writer model selection.** The spec-writer unconditionally selects **opus** regardless of the stub's `story_class`, because elaborating a bare story stub into a full spec carries the same judgment weight regardless of what class the story will eventually be assigned (a bad elaboration corrupts every downstream builder/reviewer attempt at that class). No attempt ladder: the spec-writer is only ever emitted once (at Row 2, before any builder attempt); a revised spec is re-routed through `SPEC-RESULT{revised}` handling in `CLAUDE.build.md` orchestrator prose.
+
+**Shadow-reviewer model selection (INFRA-359).** The shadow-reviewer unconditionally selects **sonnet** regardless of `story_class` — deliberate "never escalates" behavior (checklist item 5), not a missing row: the role is advisory/passive and is dispatched exactly once, concurrently with the builder, so there is no retry attempt of its own to escalate on (a story's retry ladder governs the builder/reviewer, not the shadow-reviewer riding alongside it).
 
 ### Pairmode tooling
 
@@ -2253,6 +2431,48 @@ path — without `--apply`/`--dry-run` behavior, they are reported, not written;
 the confirmation prompt for both rewrites and additions together. A run that adds at least
 one file fires the same `RESTART REQUIRED` notice (INFRA-323, below) as a run that rewrites at
 least one file's frontmatter.
+
+The add-missing-file logic itself lives in `_collect_missing_files(project_path, file_list,
+templates_root, context)` (generalized by INFRA-352 from the story's own
+`_collect_missing_agent_files`) — `file_list` is any `(target_path, template_name)` list shaped
+like `bootstrap.AGENT_FILES`/`bootstrap.NARRATIVE_FILES`. `sync-agents` calls it with
+`AGENT_FILES`; `sync-narratives` (below) calls it with `NARRATIVE_FILES`. One
+enumeration/render/write code path shared by both commands, not two independently-maintained
+copies (this phase's own cold-eyes-review precedent on reader/writer drift, F7, is a direct
+warning against duplicating this a second time).
+
+**`pairmode_sync.py` — `sync-narratives` subcommand (INFRA-352).**
+The identical add-missing-file gap `sync-agents` (INFRA-332) closes for `AGENT_FILES`, applied
+to `bootstrap.NARRATIVE_FILES` (INFRA-351): bootstrap only scaffolds the nine harness-role
+narratives at fresh-install time, so a project bootstrapped before `NARRATIVE_FILES` existed has
+no path to backfill them without this command.
+
+CLI:
+```bash
+PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+  sync-narratives [--project-dir DIR] [--dry-run] [--yes]
+```
+
+Behaviour:
+- For every `(target_path, template_name)` pair in `bootstrap.NARRATIVE_FILES` whose
+  `target_path` does not already exist under `<project_dir>/docs/narratives/`, calls the same
+  `_collect_missing_files` helper `sync-agents` calls (with `NARRATIVE_FILES` in place of
+  `AGENT_FILES`) and adds the file — byte-for-byte identical to what a fresh `bootstrap --apply`
+  would have produced for that entry.
+- Unlike `sync-agents`, `sync-narratives` has no update/rewrite half at all: there is no
+  `_collect_changes`-equivalent walk of already-present narrative files, because updating an
+  already-present narrative file's content is explicitly out of scope for this command (a
+  content-authoring decision, not a missing-file backfill — a pre-existing narrative file is
+  left untouched no matter how far it has drifted from the template).
+- Reports each addition as a `new file:` line plus a unified diff (pure-addition diff against an
+  empty old-content string), governed by the same `--dry-run`/`--yes`/confirm-prompt convention
+  `sync-agents`'s add-missing-file path uses.
+- If no `NARRATIVE_FILES` entries are missing: prints "No changes to apply." and exits 0. A
+  render failure for one or more entries prints `"error: failed to render {filename}: {reason}"`
+  to stderr and exits 1 only when no other entry produced a clean addition (mirrors
+  `sync-agents`'s partial-success behavior).
+- A run that adds at least one file fires the same `RESTART REQUIRED` notice (INFRA-323, below)
+  via the same `_emit_restart_notice` call site `sync-agents` uses — no second notice mechanism.
 
 **`pairmode_scripts_dir` binding on re-sync (INFRA-332).** `_build_template_context()` does
 not unconditionally set `pairmode_scripts_dir` to `Path(__file__).parent` (wherever *this*
@@ -2357,12 +2577,15 @@ Behaviour:
 - Applies a depth guard on `--project-dir` (fewer than 3 path components are rejected).
 
 **`pairmode_sync.py` — `sync-all` subcommand.**
-Sequences all three sync operations in a single CLI call: `sync.py` (methodology files)
-→ `sync-agents` (agent frontmatter) → `sync-build` (CLAUDE.build.md). Safe by default:
-without `--apply`, `sync.py` is skipped (it has no `--dry-run` flag) and the remaining
-two commands run in dry-run mode. With `--apply`, all three are invoked. Fail-fast: if
-any downstream command exits non-zero, the wrapper emits an error and exits with the same
-status code; remaining commands are not invoked.
+Sequences all four sync operations in a single CLI call: `sync.py` (methodology files)
+→ `sync-agents` (agent frontmatter) → `sync-narratives` (harness narrative backfill,
+INFRA-352) → `sync-build` (CLAUDE.build.md). `sync-narratives` sits immediately after
+`sync-agents` — both are add-missing-file backfills against a `bootstrap.py`-owned template
+contract, run before `sync-build`'s content-rewrite step. Safe by default: without `--apply`,
+`sync.py` is skipped (it has no `--dry-run` flag) and the remaining three commands run in
+dry-run mode. With `--apply`, all four are invoked. Fail-fast: if any downstream command exits
+non-zero, the wrapper emits an error and exits with the same status code; remaining commands
+are not invoked.
 
 CLI:
 ```bash
@@ -2371,8 +2594,10 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 ```
 
 Behaviour:
-- `--dry-run` (default True): skips `sync.py`; runs `sync-agents` and `sync-build` in dry-run mode.
-- `--apply`: runs all three; `sync-agents` without `--dry-run`; `sync-build` with `--apply`.
+- `--dry-run` (default True): skips `sync.py`; runs `sync-agents`, `sync-narratives`, and
+  `sync-build` in dry-run mode.
+- `--apply`: runs all four; `sync-agents` and `sync-narratives` without `--dry-run`;
+  `sync-build` with `--apply`.
 - `--yes` / `-y`: propagated to every downstream invocation.
 - Depth guard (`_depth_guard_sync_build`) runs against `--project-dir` before any subprocess call.
 - Per-command output is preceded by a `=== <label> ===` separator line.

@@ -2,7 +2,7 @@
 id: INFRA-360
 rail: INFRA
 title: Extend INFRA-336's integration-test harness to cover concurrent shadow-reviewer dispatch
-status: draft
+status: complete
 phase: "118"
 story_class: code
 auth_gated: false

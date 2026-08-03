@@ -106,7 +106,63 @@ AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
     (".claude/agents/docs-reviewer.md", "agents/docs-reviewer.md.j2"),
     (".claude/agents/spec-writer.md", "agents/spec-writer.md.j2"),
+    # shadow-reviewer.md (INFRA-358): tenth thin shell, added alongside the
+    # role's procedure skill and template — the dispatch action, model
+    # selector, and escalation wiring (checklist items 3-5) are INFRA-359's
+    # job; this scaffold-only entry covers items 1-2.
+    (".claude/agents/shadow-reviewer.md", "agents/shadow-reviewer.md.j2"),
 ]
+
+# INFRA-351: the nine harness-role narratives (the build-loop roles themselves —
+# BUILDER, REVIEWER, LOOP-BREAKER, SECURITY-AUDITOR, INTENT-REVIEWER,
+# DOCS-REVIEWER, GATE-WORKER, SPEC-WRITER, ORCHESTRATOR) describe the harness,
+# not any one project, and so are harness-owned, templated, and scaffolded like
+# every other file in this module rather than hand-authored per project — the
+# same "harness-owned, templated, never hand-diverged" contract AGENT_FILES
+# already establishes for `.claude/agents/*.md`. OPERATOR's narrative is
+# handled separately (a seed-then-extend mechanism, INFRA-353) and is
+# deliberately not in this list. A `sync-narratives` command for
+# already-bootstrapped projects is out of scope here (INFRA-352), as is
+# backfilling flex's own `docs/narratives/` from these templates (INFRA-354).
+NARRATIVE_FILES: list[tuple[str, str]] = [
+    ("docs/narratives/BUILDER/BUILDER-000-ideology.md", "narratives/BUILDER/BUILDER-000-ideology.md.j2"),
+    ("docs/narratives/REVIEWER/REVIEWER-000-ideology.md", "narratives/REVIEWER/REVIEWER-000-ideology.md.j2"),
+    ("docs/narratives/LOOP-BREAKER/LOOP-BREAKER-000-ideology.md", "narratives/LOOP-BREAKER/LOOP-BREAKER-000-ideology.md.j2"),
+    ("docs/narratives/SECURITY-AUDITOR/SECURITY-AUDITOR-000-ideology.md", "narratives/SECURITY-AUDITOR/SECURITY-AUDITOR-000-ideology.md.j2"),
+    ("docs/narratives/INTENT-REVIEWER/INTENT-REVIEWER-000-ideology.md", "narratives/INTENT-REVIEWER/INTENT-REVIEWER-000-ideology.md.j2"),
+    ("docs/narratives/DOCS-REVIEWER/DOCS-REVIEWER-000-ideology.md", "narratives/DOCS-REVIEWER/DOCS-REVIEWER-000-ideology.md.j2"),
+    ("docs/narratives/GATE-WORKER/GATE-WORKER-000-ideology.md", "narratives/GATE-WORKER/GATE-WORKER-000-ideology.md.j2"),
+    ("docs/narratives/SPEC-WRITER/SPEC-WRITER-000-ideology.md", "narratives/SPEC-WRITER/SPEC-WRITER-000-ideology.md.j2"),
+    ("docs/narratives/ORCHESTRATOR/ORCHESTRATOR-000-ideology.md", "narratives/ORCHESTRATOR/ORCHESTRATOR-000-ideology.md.j2"),
+]
+
+# INFRA-353: OPERATOR's seed narrative is scaffolded through the same
+# _render_template/_write_file pipeline as NARRATIVE_FILES (so it appears at
+# fresh bootstrap "like the other nine" from the operator's point of view),
+# but is deliberately kept out of that shared list (docs/architecture.md §
+# Harness-role narratives: NARRATIVE_FILES) — unlike the nine harness-role
+# narratives, OPERATOR's seed is generic ("a" typical operator, not "the"
+# harness's own role) and is meant to be extended per-project via a separate,
+# numbered `OPERATOR-010`-and-onward extension file. The seed itself is never
+# hand-edited; only the extension file (written below, from the operator's
+# free-text prompt answer) diverges per project.
+OPERATOR_SEED_FILE: tuple[str, str] = (
+    "docs/narratives/OPERATOR/OPERATOR-000-ideology.md",
+    "narratives/OPERATOR/OPERATOR-000-ideology.md.j2",
+)
+
+# INFRA-355: the ten known narrative role names — the nine harness roles
+# (derived from NARRATIVE_FILES's destination paths, "docs/narratives/<ROLE>/...")
+# plus OPERATOR (handled separately via OPERATOR_SEED_FILE, but still a valid
+# role name a story's `narrative_roles:` frontmatter may cite). This is the
+# single source of truth for the role-name vocabulary; do not hand-duplicate
+# this list elsewhere (schema_validator.py's narrative_roles validation
+# imports this constant, deferred to call time to avoid the circular import
+# this module already has with schema_validator.py — see
+# schema_validator._valid_narrative_roles's docstring).
+NARRATIVE_ROLES: frozenset[str] = frozenset(
+    {dest.split("/")[2] for dest, _ in NARRATIVE_FILES} | {"OPERATOR"}
+)
 
 # Default deny list written into .claude/settings.json.
 # Kept minimal — scope_guard.py (Phase 55) enforces per-story file scope at
@@ -1202,6 +1258,13 @@ def _initialize_rails(
 @click.option("--what", default=None, help="What the project produces (prompted if omitted; blank allowed).")
 @click.option("--why", default=None, help="Why the project exists (prompted if omitted; blank allowed).")
 @click.option(
+    "--operator-note",
+    default=None,
+    help="How the operator wants to work with this build loop — priorities, review habits, "
+    "risk tolerance (prompted if omitted; blank allowed). A non-blank answer is written to "
+    "docs/narratives/OPERATOR/OPERATOR-010-project.md; blank writes no extension file.",
+)
+@click.option(
     "--build-command",
     default=None,
     help="Build/test command (inferred from project files if omitted, else prompted).",
@@ -1269,6 +1332,7 @@ def bootstrap(
     stack: str | None,
     what: str | None,
     why: str | None,
+    operator_note: str | None,
     build_command: str | None,
     test_dir: str | None,
     phase_title: str | None,
@@ -1326,6 +1390,22 @@ def bootstrap(
             "warning: non-interactive mode — docs/brief.md what/why left blank.\n"
             "         Pass --what and --why flags to populate, or edit docs/brief.md after bootstrap.",
             err=True,
+        )
+
+    # INFRA-353: operator seed-then-extend — one more free-text, blank-to-skip
+    # prompt in the same style as what/why, above. A non-blank answer becomes
+    # docs/narratives/OPERATOR/OPERATOR-010-project.md (written in step 4c,
+    # below); a blank answer writes nothing — the OPERATOR-000 seed itself is
+    # never touched by this prompt either way.
+    if operator_note is None:
+        operator_note = (
+            click.prompt(
+                "Anything specific about how you want to work with this build loop — "
+                "priorities, review habits, risk tolerance? (blank to skip)",
+                default="",
+            )
+            if sys.stdin.isatty() and not yes
+            else ""
         )
 
     if build_command is None:
@@ -1598,6 +1678,60 @@ def bootstrap(
             wrote = _write_file(dest, content, dry_run=dry_run, yes=yes)
             if wrote and not dry_run:
                 written_agent_shells.append(dest_rel)
+
+    # ------------------------------------------------------------------
+    # 4b. Write the nine harness-role narrative files (INFRA-351)
+    # ------------------------------------------------------------------
+    for dest_rel, template_name in NARRATIVE_FILES:
+        dest = project_path / dest_rel
+        try:
+            content = _render_template(template_name, context)
+        except jinja2.TemplateError as exc:
+            click.echo(f"  ERROR rendering {template_name}: {exc}", err=True)
+            sys.exit(1)
+        _write_file(dest, content, dry_run=dry_run, yes=yes)
+
+    # ------------------------------------------------------------------
+    # 4c. Write the OPERATOR seed-then-extend narrative (INFRA-353)
+    # ------------------------------------------------------------------
+    # The seed always scaffolds, identically, regardless of the operator-note
+    # prompt answer — the same render/write pipeline as NARRATIVE_FILES, just
+    # kept out of that shared list (see OPERATOR_SEED_FILE above).
+    operator_seed_dest_rel, operator_seed_template = OPERATOR_SEED_FILE
+    operator_seed_dest = project_path / operator_seed_dest_rel
+    try:
+        operator_seed_content = _render_template(operator_seed_template, context)
+    except jinja2.TemplateError as exc:
+        click.echo(f"  ERROR rendering {operator_seed_template}: {exc}", err=True)
+        sys.exit(1)
+    _write_file(operator_seed_dest, operator_seed_content, dry_run=dry_run, yes=yes)
+
+    # A non-blank operator-note answer becomes a separate, numbered extension
+    # file — the seed above is never edited by this prompt (the story's
+    # forbidden proxy). A blank answer writes no extension file at all.
+    if operator_note:
+        operator_extension_dest = (
+            project_path / "docs" / "narratives" / "OPERATOR" / "OPERATOR-010-project.md"
+        )
+        operator_extension_content = (
+            "---\n"
+            "id: OPERATOR-010\n"
+            "role: OPERATOR\n"
+            "title: Project-specific operator extension\n"
+            "status: draft\n"
+            "stories: []\n"
+            "---\n"
+            "\n"
+            "## Narrative\n"
+            "\n"
+            f"{operator_note}\n"
+        )
+        _write_file(
+            operator_extension_dest,
+            operator_extension_content,
+            dry_run=dry_run,
+            yes=yes,
+        )
 
     # ------------------------------------------------------------------
     # 4.5. Save template context for audit/sync rendering

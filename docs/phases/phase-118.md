@@ -21,18 +21,20 @@ Establish Narrative of Record as a templated, propagated doc-of-record layer for
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-351 | Split harness-role narratives into pairmode template source; scaffold via bootstrap NARRATIVE_FILES | draft |
-| INFRA-352 | Add sync-narratives to pairmode_sync.py, reusing INFRA-332's add-missing-file path | draft |
-| INFRA-353 | OPERATOR seed-then-extend: templated typical-operator baseline plus bootstrap-led project extension | draft |
-| INFRA-354 | Backfill flex's own docs/narratives/ from the new template source (real dogfood backfill) | draft |
-| INFRA-355 | Add Narrative of Record as spec-writer's sixth bounded input (DP1.3) | draft |
-| INFRA-356 | Add narrative-alignment checking to intent-reviewer (post-build and pre-build modes) | draft |
-| INFRA-357 | Reduce spec-writer over-specification: cap exemplar imitation, add brevity counter-instruction | draft |
-| INFRA-358 | Build the shared-suggestions-file mid-build steering mechanism (concurrent shadow-reviewer) | draft |
-| INFRA-359 | Wire shadow-reviewer dispatch into CLAUDE.build.md and next_action.py | draft |
-| INFRA-360 | Extend INFRA-336's integration-test harness to cover concurrent shadow-reviewer dispatch | draft |
-| INFRA-361 | Establish Narrative of Record in docs/architecture.md; propose CLAUDE.md cold-start quad | draft |
-| INFRA-362 | Dogfood narrative citation on flex's own story specs going forward | draft |
+| INFRA-351 | Split harness-role narratives into pairmode template source; scaffold via bootstrap NARRATIVE_FILES | complete |
+| INFRA-352 | Add sync-narratives to pairmode_sync.py, reusing INFRA-332's add-missing-file path | complete |
+| INFRA-353 | OPERATOR seed-then-extend: templated typical-operator baseline plus bootstrap-led project extension | complete |
+| INFRA-354 | Backfill flex's own docs/narratives/ from the new template source (real dogfood backfill) | complete |
+| INFRA-355 | Add Narrative of Record as spec-writer's sixth bounded input (DP1.3) | complete |
+| INFRA-356 | Add narrative-alignment checking to intent-reviewer (post-build and pre-build modes) | complete |
+| INFRA-357 | Reduce spec-writer over-specification: cap exemplar imitation, add brevity counter-instruction | complete |
+| INFRA-358 | Build the shared-suggestions-file mid-build steering mechanism (concurrent shadow-reviewer) | complete |
+| INFRA-359 | Wire shadow-reviewer dispatch into CLAUDE.build.md and next_action.py | complete |
+| INFRA-360 | Extend INFRA-336's integration-test harness to cover concurrent shadow-reviewer dispatch | complete |
+| INFRA-361 | Establish Narrative of Record in docs/architecture.md; propose CLAUDE.md cold-start quad | complete |
+| INFRA-362 | Dogfood narrative citation on flex's own story specs going forward | complete |
+| INFRA-365 | Fix shadow-reviewer suggestions-file scope_guard block (checkpoint-security finding) | complete |
+| INFRA-366 | Guard bootstrap's OPERATOR-010 extension write against silent overwrite (checkpoint-security finding) | complete |
 
 ## Ordering
 
@@ -70,6 +72,15 @@ this phase, record the management surface before the phase is checkpointed.
 | Object | Management surface | Exception |
 |---|---|---|
 | | | |
+
+## Dogfood note
+
+INFRA-362 (this phase's closing story) exercised the narrative-citation mechanism for real against
+`docs/stories/INFRA/INFRA-363.md`. See its `## Evidence` section for the full record: a real
+spec-writer run, a real intent-reviewer narrative-alignment check (FAIL — a genuine, uncontrived
+finding), one inline fix (CER-161's phase-118-caused portion: a procedure/narrative contract gap
+this phase itself introduced), and three CER filings (CER-160, CER-161, CER-162) for what needs a
+separate story or coordination with another phase.
 
 ---
 

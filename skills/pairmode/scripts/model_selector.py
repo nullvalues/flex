@@ -215,6 +215,39 @@ Public API:
     ``resolve_next_action`` emission at a higher attempt number, so there is
     no attempt ladder for this selector to encode.
 
+  select_shadow_reviewer_model(story_class) -> tuple[str, str]
+
+    Returns a (model, reason) tuple for the shadow-reviewer agent (INFRA-358
+    role; INFRA-359 wires this selector into its live dispatch call site)
+    given the story's declared class.
+
+    The shadow-reviewer is dispatched once, concurrently with the builder,
+    into the same worktree, and is deliberately passive/advisory — it never
+    blocks the build, never commits, and is bounded by its own cycle cap
+    (INFRA-358). Because its output is take-it-or-leave-it advice rather than
+    a pass/fail verdict the build depends on, it carries no attempt-based
+    retry ladder the way the builder/reviewer roles do: there is no "attempt
+    2" for a role that is never itself the reason a story fails, so there is
+    nothing to escalate on retry. This is a deliberate "never escalates" row
+    (architecture.md's agent-type completeness checklist item 5), not a gap.
+
+    Selection table:
+
+      story_class   model    reason
+      -----------   -----    ------
+      code          sonnet   auto-baseline
+      doc           sonnet   auto-baseline
+      lesson        sonnet   auto-baseline
+      methodology   sonnet   auto-baseline
+
+    Unconditional sonnet regardless of story_class — matches the
+    `shadow-reviewer.md.j2` frontmatter default this selector now supersedes
+    at the live dispatch site, so wiring this in changes no project's
+    observed behavior for the shadow-reviewer role by itself (only the
+    concurrent-dispatch call site added in the same story makes the role
+    reachable at all). Unknown story_class values default to "code" (still
+    sonnet — this selector's table has no per-class variation).
+
   Model ladder note:
 
     The ordinary builder/reviewer attempt tables use the strict three-rung
@@ -581,6 +614,24 @@ def select_spec_writer_model(story_class: str) -> tuple[str, str]:
     return MODEL_OPUS, "spec-elaboration-baseline"
 
 
+def select_shadow_reviewer_model(story_class: str) -> tuple[str, str]:
+    """Return (model, reason) for the shadow-reviewer agent (INFRA-358/359).
+
+    See the module docstring's ``select_shadow_reviewer_model`` entry for the
+    full selection table and the reasoning for its unconditional-sonnet,
+    no-attempt-ladder shape (the shadow-reviewer is advisory/passive and
+    never itself the reason a story fails, so there is no retry to escalate
+    on).
+
+    Unknown story_class values default to "code" (still sonnet — this
+    selector's table has no per-class variation).
+    """
+    if not story_class or story_class not in {"code", "doc", "lesson", "methodology"}:
+        story_class = DEFAULT_STORY_CLASS
+
+    return MODEL_SONNET, "auto-baseline"
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -698,7 +749,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--role",
         default="builder",
-        choices=["builder", "reviewer", "intent-reviewer", "security-auditor"],
+        choices=[
+            "builder",
+            "reviewer",
+            "intent-reviewer",
+            "security-auditor",
+            "shadow-reviewer",
+        ],
         help="Agent role.  Default: builder.",
     )
     parser.add_argument(
@@ -777,6 +834,13 @@ if __name__ == "__main__":
     elif role == "security-auditor":
         phase_class = _read_phase_class(phase_id, project_dir) if phase_id else "production"
         model, reason = select_security_auditor_model(phase_class)
+
+    elif role == "shadow-reviewer":
+        # INFRA-359: shadow-reviewer is story_class-keyed like builder/reviewer
+        # (it is dispatched per-story, not per-phase), but takes no attempt
+        # number — it has no retry ladder (see select_shadow_reviewer_model's
+        # docstring).
+        model, reason = select_shadow_reviewer_model(story_class)
 
     else:
         # Should never reach here due to argparse choices constraint.

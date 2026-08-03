@@ -2,7 +2,7 @@
 id: INFRA-355
 rail: INFRA
 title: Add Narrative of Record as spec-writer's sixth bounded input (DP1.3)
-status: draft
+status: complete
 phase: "118"
 story_class: code
 auth_gated: false
@@ -16,6 +16,7 @@ touches:
   - tests/pairmode/test_schema_validator.py
   - tests/pairmode/test_story_new.py
   - docs/architecture.md
+  - skills/pairmode/scripts/bootstrap.py
 ---
 
 <!-- If this story changes any documented architecture, add docs/architecture.md to the touches: list above. -->
@@ -40,6 +41,13 @@ drafted.
 
 - INFRA-351/352/353/354 (this phase) must land first — the nine harness-role narratives plus
   OPERATOR must exist as real, synced files before spec-writer can be pointed at them.
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| skills/pairmode/scripts/bootstrap.py | narrative_roles validation needs bootstrap.NARRATIVE_FILES as the single source of the ten known role names (INFRA-355 Instructions #2) | 2026-08-03T14:22:42Z |
 
 ## Ensures
 

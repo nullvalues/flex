@@ -2,7 +2,7 @@
 id: INFRA-351
 rail: INFRA
 title: Split harness-role narratives into pairmode template source; scaffold via bootstrap NARRATIVE_FILES
-status: draft
+status: complete
 phase: "118"
 story_class: code
 auth_gated: false
@@ -105,3 +105,28 @@ content.
 - OPERATOR's narrative (seed-then-extend mechanism) — INFRA-353.
 - Backfilling flex's own `docs/narratives/` from the new template — INFRA-354.
 - Any `sync-narratives` command for already-bootstrapped projects — INFRA-352.
+
+## Evidence
+
+- Authorial call (Instructions item 1): none of the nine harness-role
+  narratives contain the literal string "flex" — all references to specific
+  events (e.g. "this era's own cold-eyes review," "Phase 116," "Phase 117
+  (INFRA-340/341)," SPEC-WRITER's flex story-size measurements) already read as
+  generic first-person harness narration ("this era," "this project's own
+  story history") rather than flex-branded text. Per the story's own guidance
+  ("or be acknowledged as flex-specific illustrative examples the template
+  keeps as historical color, at your judgment"), these were moved verbatim
+  into the `.j2` templates as historical color/illustrative examples rather
+  than genericized — a downstream project inherits the same narrative text
+  flex itself authored this era, with flex's own concrete numbers (e.g.
+  SPEC-WRITER's "stories 0–119... 260–319... peaking at 1317") standing as a
+  real, if project-specific, illustration of the risk being described. No
+  `{{ project_name }}`-substitution was applied since no narrative referenced
+  "this project" in a way requiring per-project identity substitution to read
+  naturally.
+- Covered-contracts gate: `CLAUDE.build.md`'s `covered_contracts` pairs
+  (`## Pairmode build loop::skills/pairmode/scripts/cer.py`,
+  `## Module structure::skills/pairmode/scripts/next_action.py`) have no
+  intersection with this story's `primary_files`/`touches`
+  (`skills/pairmode/scripts/bootstrap.py` and the narrative
+  templates/tests/architecture.md) — gate does not apply.

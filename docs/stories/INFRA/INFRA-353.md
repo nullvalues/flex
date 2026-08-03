@@ -2,7 +2,7 @@
 id: INFRA-353
 rail: INFRA
 title: OPERATOR seed-then-extend: templated typical-operator baseline plus bootstrap-led project extension
-status: draft
+status: complete
 phase: "118"
 story_class: code
 auth_gated: false

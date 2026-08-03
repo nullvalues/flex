@@ -15,8 +15,8 @@ audit, sync, and lesson capture.
 ## Commands
 
 Available subcommands: `bootstrap`, `audit`, `sync`, `lesson`, `review`, `reconstruct`, `score`,
-`phase-new`, `cer`, `story`, `sync-agents`, `drift-report`, `sync-build`, `sync-all`, `register`,
-`unregister`, `list-projects`, `migrate-from-anchor`.
+`phase-new`, `cer`, `story`, `sync-agents`, `sync-narratives`, `drift-report`, `sync-build`,
+`sync-all`, `register`, `unregister`, `list-projects`, `migrate-from-anchor`.
 
 ### `/flex:pairmode bootstrap`
 
@@ -787,6 +787,57 @@ declined confirmation all print no notice.
 
 ---
 
+### `/flex:pairmode sync-narratives`
+
+> **Note:** `sync-narratives` is invoked directly via CLI, not through the pairmode skill dispatcher.
+> Correct invocation:
+> ```bash
+> PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scripts/pairmode_sync.py" \
+>   sync-narratives --project-dir "$(pwd)"
+> ```
+
+**When to use:** When a project was bootstrapped before `bootstrap.NARRATIVE_FILES` existed
+(INFRA-351) and is missing one or more of the nine harness-role narrative documents under
+`docs/narratives/<ROLE>/` — the same already-bootstrapped-project gap `sync-agents`'s
+add-missing-file path (INFRA-332) closes for `.claude/agents/`.
+
+**Inputs expected:**
+- `docs/narratives/<ROLE>/` directories in the target project (may not exist yet).
+- Matching `*-000-ideology.md.j2` templates in `skills/pairmode/templates/narratives/<ROLE>/`,
+  matched against `bootstrap.NARRATIVE_FILES`'s canonical `(target_path, template_name)` pairs.
+- `.companion/state.json` in the target project (optional — used to read `project_name`).
+
+**What it does:**
+1. For every `(target_path, template_name)` pair in `bootstrap.NARRATIVE_FILES` whose
+   `target_path` does not already exist under the project's `docs/narratives/`, renders the
+   template in full — the same `_collect_missing_files` helper `sync-agents` calls for
+   `AGENT_FILES` (generalized by INFRA-352, not a parallel implementation) — mirroring
+   `bootstrap --apply`'s own render call.
+2. Reports each addition as a `new file:` line plus a unified diff, before writing.
+3. If nothing would be added: prints "No changes to apply." and exits 0.
+4. If at least one file would be added and `--dry-run` is not set: prompts once
+   "Apply these changes? [y/N]" before writing (suppressed with `--yes`).
+
+**Out of scope:** Updating an already-present narrative file's content is not this command's
+job — it only ever adds a file that is entirely missing, never rewrites one that already
+exists (mirrors `sync-agents`'s own posture toward pre-existing agent-file drift).
+
+**Outputs:**
+- Newly-added `docs/narratives/<ROLE>/<ROLE>-000-ideology.md` files for any previously-missing
+  `bootstrap.NARRATIVE_FILES` entry.
+
+**Restart after sync-narratives (INFRA-323):** Fires the same `RESTART REQUIRED` notice
+`sync-agents` fires (the same `_emit_restart_notice` call site — no second notice mechanism)
+when at least one narrative file was added. "No changes to apply.", `--dry-run`, and a
+declined confirmation all print no notice.
+
+**Flags:**
+- `--project-dir PATH` — target project root (default: current directory)
+- `--dry-run` — print diffs without writing any files
+- `--yes` / `-y` — write files without prompting for confirmation
+
+---
+
 ### `/flex:pairmode drift-report`
 
 > **Note:** `drift-report` is invoked directly via CLI, not through the pairmode skill dispatcher.
@@ -893,23 +944,25 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 > ```
 
 **When to use:** When you want to bring a project fully up to date with the canonical pairmode
-methodology in one command — running all three sync operations in the correct order without having
+methodology in one command — running all four sync operations in the correct order without having
 to remember their individual flags or invocation sequences.
 
 **What it does:**
 
-Runs the three sync operations in a fixed, deterministic order:
+Runs the four sync operations in a fixed, deterministic order:
 
 1. `sync.py` — applies the audit delta to methodology files (`CLAUDE.md`, `docs/*`, scaffold
    templates). This step only runs in `--apply` mode because `sync.py` has no `--dry-run` flag.
    In dry-run mode the wrapper emits a `skipped:` notice and continues with the remaining steps.
 2. `sync-agents` — re-renders the frontmatter of `.claude/agents/*.md` files from canonical
    Jinja2 templates. Always invoked; runs in `--dry-run` mode by default.
-3. `sync-build` — diffs (and with `--apply`, rewrites) `CLAUDE.build.md` from the canonical
+3. `sync-narratives` (INFRA-352) — adds any `bootstrap.NARRATIVE_FILES` entry missing from
+   `docs/narratives/<ROLE>/`. Always invoked; runs in `--dry-run` mode by default.
+4. `sync-build` — diffs (and with `--apply`, rewrites) `CLAUDE.build.md` from the canonical
    `CLAUDE.build.md.j2` template. Always invoked; runs in `--dry-run` mode by default.
 
-**Dry-run (default):** Safe by default. Without `--apply`, only `sync-agents` and `sync-build`
-are invoked, both in dry-run mode. `sync.py` is skipped with an explanatory message.
+**Dry-run (default):** Safe by default. Without `--apply`, only `sync-agents`, `sync-narratives`,
+and `sync-build` are invoked, all in dry-run mode. `sync.py` is skipped with an explanatory message.
 
 **Confirmation:** The wrapper does not open its own confirmation prompt. Each downstream command
 handles its own confirmation. Passing `--yes` propagates to every downstream invocation,

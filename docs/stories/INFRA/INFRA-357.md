@@ -2,7 +2,7 @@
 id: INFRA-357
 rail: INFRA
 title: Reduce spec-writer over-specification: cap exemplar imitation, add brevity counter-instruction
-status: draft
+status: complete
 phase: "118"
 story_class: methodology
 auth_gated: false

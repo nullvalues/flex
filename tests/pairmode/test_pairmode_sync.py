@@ -24,6 +24,7 @@ from pairmode_sync import (  # noqa: E402
     _seed_context_gate_state,
     pairmode_cli,
     sync_agents,
+    sync_narratives,
 )
 
 _REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
@@ -1034,78 +1035,92 @@ def _capturing_run(return_codes=None):
 def test_sync_all_dry_run_default_skips_sync_py_and_passes_dry_run_to_others(
     tmp_path: pathlib.Path,
 ) -> None:
-    """In default dry-run mode: sync.py is skipped; sync-agents and sync-build get --dry-run."""
+    """In default dry-run mode: sync.py is skipped; sync-agents, sync-narratives, and
+    sync-build get --dry-run."""
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, calls = _capturing_run([0, 0])
+    mock_run, calls = _capturing_run([0, 0, 0])
 
     result = _run_sync_all(["--project-dir", str(project_dir)], mock_run)
 
     assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
-    # sync.py not invoked — only two subprocess calls
-    assert len(calls) == 2, f"Expected 2 subprocess calls, got {len(calls)}: {calls}"
+    # sync.py not invoked — only three subprocess calls
+    assert len(calls) == 3, f"Expected 3 subprocess calls, got {len(calls)}: {calls}"
     # sync-agents must contain --dry-run
     agents_argv = calls[0]
     assert "--dry-run" in agents_argv, f"sync-agents argv missing --dry-run: {agents_argv}"
     assert "sync-agents" in agents_argv, f"Expected sync-agents call, got: {agents_argv}"
+    # sync-narratives must contain --dry-run
+    narratives_argv = calls[1]
+    assert "--dry-run" in narratives_argv, (
+        f"sync-narratives argv missing --dry-run: {narratives_argv}"
+    )
+    assert "sync-narratives" in narratives_argv, (
+        f"Expected sync-narratives call, got: {narratives_argv}"
+    )
     # sync-build must contain --dry-run
-    build_argv = calls[1]
+    build_argv = calls[2]
     assert "--dry-run" in build_argv, f"sync-build argv missing --dry-run: {build_argv}"
     assert "sync-build" in build_argv, f"Expected sync-build call, got: {build_argv}"
-    # stdout should contain all three section headers and the skipped notice
+    # stdout should contain all four section headers and the skipped notice
     assert "=== sync (methodology files) ===" in result.output
     assert "=== sync-agents (agent frontmatter) ===" in result.output
+    assert "=== sync-narratives (harness narrative backfill) ===" in result.output
     assert "=== sync-build (CLAUDE.build.md) ===" in result.output
     assert "skipped:" in result.output
 
 
-def test_sync_all_apply_invokes_all_three_in_order(tmp_path: pathlib.Path) -> None:
-    """--apply: all three commands invoked in order; no --dry-run; sync-build gets --apply."""
+def test_sync_all_apply_invokes_all_four_in_order(tmp_path: pathlib.Path) -> None:
+    """--apply: all four commands invoked in order; no --dry-run; sync-build gets --apply."""
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, calls = _capturing_run([0, 0, 0])
+    mock_run, calls = _capturing_run([0, 0, 0, 0])
 
     result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
 
     assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
-    assert len(calls) == 3, f"Expected 3 subprocess calls, got {len(calls)}: {calls}"
-    # Order: sync.py, sync-agents, sync-build
+    assert len(calls) == 4, f"Expected 4 subprocess calls, got {len(calls)}: {calls}"
+    # Order: sync.py, sync-agents, sync-narratives, sync-build
     assert "sync.py" in calls[0][-2] or any("sync.py" in a for a in calls[0]), (
         f"First call should be sync.py, got: {calls[0]}"
     )
     assert "sync-agents" in calls[1], f"Second call should be sync-agents, got: {calls[1]}"
-    assert "sync-build" in calls[2], f"Third call should be sync-build, got: {calls[2]}"
+    assert "sync-narratives" in calls[2], (
+        f"Third call should be sync-narratives, got: {calls[2]}"
+    )
+    assert "sync-build" in calls[3], f"Fourth call should be sync-build, got: {calls[3]}"
     # No --dry-run in any argv
     for argv in calls:
         assert "--dry-run" not in argv, f"--dry-run found in argv: {argv}"
     # sync-build should contain --apply
-    assert "--apply" in calls[2], f"sync-build argv missing --apply: {calls[2]}"
+    assert "--apply" in calls[3], f"sync-build argv missing --apply: {calls[3]}"
 
 
 def test_sync_all_yes_propagates_to_all_in_apply_mode(tmp_path: pathlib.Path) -> None:
-    """--apply --yes: all three invocations receive --yes."""
+    """--apply --yes: all four invocations receive --yes."""
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, calls = _capturing_run([0, 0, 0])
+    mock_run, calls = _capturing_run([0, 0, 0, 0])
 
     result = _run_sync_all(
         ["--project-dir", str(project_dir), "--apply", "--yes"], mock_run
     )
 
     assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
-    assert len(calls) == 3
+    assert len(calls) == 4
     for argv in calls:
         assert "--yes" in argv, f"--yes missing from argv: {argv}"
 
 
-def test_sync_all_yes_in_dry_run_propagates_to_sync_agents_and_sync_build(
+def test_sync_all_yes_in_dry_run_propagates_to_sync_agents_narratives_and_build(
     tmp_path: pathlib.Path,
 ) -> None:
-    """--yes in dry-run mode: sync.py skipped; sync-agents and sync-build each get --yes and --dry-run."""
+    """--yes in dry-run mode: sync.py skipped; sync-agents, sync-narratives, and sync-build
+    each get --yes and --dry-run."""
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, calls = _capturing_run([0, 0])
+    mock_run, calls = _capturing_run([0, 0, 0])
 
     result = _run_sync_all(["--project-dir", str(project_dir), "--yes"], mock_run)
 
     assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
-    assert len(calls) == 2, f"Expected 2 calls (sync.py skipped), got {len(calls)}: {calls}"
+    assert len(calls) == 3, f"Expected 3 calls (sync.py skipped), got {len(calls)}: {calls}"
     for argv in calls:
         assert "--yes" in argv, f"--yes missing from argv: {argv}"
         assert "--dry-run" in argv, f"--dry-run missing from argv: {argv}"
@@ -1113,7 +1128,7 @@ def test_sync_all_yes_in_dry_run_propagates_to_sync_agents_and_sync_build(
 
 
 def test_sync_all_halts_on_sync_py_failure(tmp_path: pathlib.Path) -> None:
-    """If sync.py exits non-zero in --apply mode, sync-agents and sync-build are not invoked."""
+    """If sync.py exits non-zero in --apply mode, none of the downstream commands are invoked."""
     project_dir = _make_deep_project_dir(tmp_path)
     mock_run, calls = _capturing_run([2])  # sync.py fails with exit 2
 
@@ -1129,7 +1144,7 @@ def test_sync_all_halts_on_sync_py_failure(tmp_path: pathlib.Path) -> None:
 
 
 def test_sync_all_halts_on_sync_agents_failure(tmp_path: pathlib.Path) -> None:
-    """If sync-agents exits 1, sync-build is not invoked; wrapper exits 1."""
+    """If sync-agents exits 1, sync-narratives and sync-build are not invoked; wrapper exits 1."""
     project_dir = _make_deep_project_dir(tmp_path)
     # apply mode: sync.py (ok=0), sync-agents (fail=1)
     mock_run, calls = _capturing_run([0, 1])
@@ -1137,20 +1152,36 @@ def test_sync_all_halts_on_sync_agents_failure(tmp_path: pathlib.Path) -> None:
     result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
 
     assert result.exit_code == 1, f"Expected exit 1, got {result.exit_code}"
-    # sync.py and sync-agents were invoked; sync-build was not
+    # sync.py and sync-agents were invoked; sync-narratives and sync-build were not
     assert len(calls) == 2, f"Expected 2 calls, got {len(calls)}: {calls}"
     assert "sync-agents" in calls[1], f"Second call should be sync-agents, got: {calls[1]}"
 
 
-def test_sync_all_halts_on_sync_build_failure(tmp_path: pathlib.Path) -> None:
-    """If sync-build exits 3, wrapper exits 3; all three commands were invoked."""
+def test_sync_all_halts_on_sync_narratives_failure(tmp_path: pathlib.Path) -> None:
+    """If sync-narratives exits 1, sync-build is not invoked; wrapper exits 1."""
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, calls = _capturing_run([0, 0, 3])
+    # apply mode: sync.py (ok=0), sync-agents (ok=0), sync-narratives (fail=1)
+    mock_run, calls = _capturing_run([0, 0, 1])
+
+    result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
+
+    assert result.exit_code == 1, f"Expected exit 1, got {result.exit_code}"
+    # sync.py, sync-agents, sync-narratives were invoked; sync-build was not
+    assert len(calls) == 3, f"Expected 3 calls, got {len(calls)}: {calls}"
+    assert "sync-narratives" in calls[2], (
+        f"Third call should be sync-narratives, got: {calls[2]}"
+    )
+
+
+def test_sync_all_halts_on_sync_build_failure(tmp_path: pathlib.Path) -> None:
+    """If sync-build exits 3, wrapper exits 3; all four commands were invoked."""
+    project_dir = _make_deep_project_dir(tmp_path)
+    mock_run, calls = _capturing_run([0, 0, 0, 3])
 
     result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
 
     assert result.exit_code == 3, f"Expected exit 3, got {result.exit_code}"
-    assert len(calls) == 3, f"Expected 3 calls, got {len(calls)}: {calls}"
+    assert len(calls) == 4, f"Expected 4 calls, got {len(calls)}: {calls}"
 
 
 def test_sync_all_depth_guard_rejects_shallow_dir(tmp_path: pathlib.Path) -> None:
@@ -1175,7 +1206,7 @@ def test_sync_all_project_dir_defaults_to_cwd(tmp_path: pathlib.Path) -> None:
 
     # Use a sufficiently deep real directory as CWD
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, calls = _capturing_run([0, 0])
+    mock_run, calls = _capturing_run([0, 0, 0])
 
     runner = CliRunner()
     # Change working directory to project_dir so the default "." resolves there
@@ -1198,9 +1229,9 @@ def test_sync_all_project_dir_defaults_to_cwd(tmp_path: pathlib.Path) -> None:
 
 
 def test_sync_all_header_separators_present_in_order(tmp_path: pathlib.Path) -> None:
-    """--apply mode: all three === headers appear in the correct order in stdout."""
+    """--apply mode: all four === headers appear in the correct order in stdout."""
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, _ = _capturing_run([0, 0, 0])
+    mock_run, _ = _capturing_run([0, 0, 0, 0])
 
     result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
 
@@ -1208,6 +1239,7 @@ def test_sync_all_header_separators_present_in_order(tmp_path: pathlib.Path) -> 
     headers = [
         "=== sync (methodology files) ===",
         "=== sync-agents (agent frontmatter) ===",
+        "=== sync-narratives (harness narrative backfill) ===",
         "=== sync-build (CLAUDE.build.md) ===",
     ]
     positions = [result.output.find(h) for h in headers]
@@ -2482,7 +2514,7 @@ def test_sync_all_reads_stamp_rather_than_parsing_child_output(
     companion_dir.mkdir()
     (companion_dir / "state.json").write_text(json.dumps({}), encoding="utf-8")
 
-    mock_run, _calls = _capturing_run([0, 0, 0])
+    mock_run, _calls = _capturing_run([0, 0, 0, 0])
 
     result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
 
@@ -2569,3 +2601,147 @@ def test_audit_hooks_dry_run_prints_no_notice(tmp_path: pathlib.Path) -> None:
         catch_exceptions=False,
     )
     assert "RESTART REQUIRED" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# INFRA-352: sync-narratives add-missing-file path
+# ---------------------------------------------------------------------------
+
+
+def test_sync_narratives_registered_on_pairmode_cli() -> None:
+    """'sync-narratives' must be registered as a command on pairmode_cli."""
+    assert "sync-narratives" in pairmode_cli.commands, (
+        f"sync-narratives not found in pairmode_cli.commands: "
+        f"{list(pairmode_cli.commands.keys())}"
+    )
+
+
+def test_sync_narratives_add_missing_files_matches_fresh_bootstrap(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Ensures #1: sync-narratives --apply against a fixture project missing all
+    nine NARRATIVE_FILES entries results in all of them present afterward,
+    byte-for-byte matching what a fresh bootstrap --apply would have produced
+    for the same entries."""
+    from click.testing import CliRunner
+
+    import bootstrap
+    from pairmode_sync import NARRATIVE_FILES
+
+    project_dir = _fixture_project_with_companion(tmp_path)
+    ctx = _build_template_context(project_dir)
+
+    runner = CliRunner()
+    result = runner.invoke(sync_narratives, ["--project-dir", str(project_dir), "--yes"])
+    assert result.exit_code == 0, result.output
+
+    for dest_rel, template_name in NARRATIVE_FILES:
+        dest = project_dir / dest_rel
+        assert dest.exists(), f"{dest_rel} was not added"
+        expected = bootstrap._render_template(template_name, ctx)
+        assert dest.read_text(encoding="utf-8") == expected, (
+            f"{dest_rel} does not byte-for-byte match a fresh bootstrap --apply render"
+        )
+    assert "RESTART REQUIRED" in result.output
+
+
+def test_sync_narratives_add_missing_files_dry_run_reports_without_writing(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Forbidden proxy check: with --dry-run, sync-narratives must report what
+    would be added and must not write anything."""
+    from click.testing import CliRunner
+
+    from pairmode_sync import NARRATIVE_FILES
+
+    project_dir = _fixture_project_with_companion(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(sync_narratives, ["--project-dir", str(project_dir), "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "new file:" in result.output
+
+    for dest_rel, _template_name in NARRATIVE_FILES:
+        assert not (project_dir / dest_rel).exists(), (
+            f"{dest_rel} must not be written in --dry-run mode"
+        )
+    assert "RESTART REQUIRED" not in result.output
+
+
+def test_sync_narratives_add_missing_files_confirm_prompt_declined_writes_nothing(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Without --yes and a declined confirmation, additions are not written
+    (mirrors sync-agents's own add-missing-file convention, INFRA-332)."""
+    from click.testing import CliRunner
+
+    from pairmode_sync import NARRATIVE_FILES
+
+    project_dir = _fixture_project_with_companion(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        sync_narratives, ["--project-dir", str(project_dir)], input="n\n"
+    )
+    assert result.exit_code == 0, result.output
+    assert "Aborted." in result.output
+
+    for dest_rel, _template_name in NARRATIVE_FILES:
+        assert not (project_dir / dest_rel).exists()
+
+
+def test_sync_narratives_fires_restart_notice_and_stamps_state(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Ensures #3: a run that adds one or more new narrative files fires the
+    same RESTART REQUIRED notice sync-agents fires (INFRA-323's single
+    _emit_restart_notice call site — no second notice mechanism), and stamps
+    state.json's agent_surfaces keys exactly as sync-agents would."""
+    from click.testing import CliRunner
+
+    from pairmode_sync import NARRATIVE_FILES
+
+    project_dir = _fixture_project_with_companion(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(sync_narratives, ["--project-dir", str(project_dir), "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "RESTART REQUIRED" in result.output
+    assert any(
+        pathlib.Path(dest_rel).name in result.output for dest_rel, _ in NARRATIVE_FILES
+    )
+
+    state = json.loads(
+        (project_dir / ".companion" / "state.json").read_text(encoding="utf-8")
+    )
+    assert state.get("agent_surfaces_written_by") == "sync-narratives"
+    assert state.get("agent_surfaces_written_at")
+
+
+def test_sync_narratives_leaves_existing_narrative_files_untouched(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Out of scope (INFRA-352 spec § Out of scope): updating an existing
+    narrative file's content is not this command's job — a pre-existing
+    NARRATIVE_FILES entry with hand-edited content is left exactly as-is."""
+    from click.testing import CliRunner
+
+    from pairmode_sync import NARRATIVE_FILES
+
+    project_dir = _fixture_project_with_companion(tmp_path)
+
+    pre_existing_rel, _ = NARRATIVE_FILES[0]
+    pre_existing = project_dir / pre_existing_rel
+    pre_existing.parent.mkdir(parents=True, exist_ok=True)
+    pre_existing.write_text("hand-edited narrative content\n", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(sync_narratives, ["--project-dir", str(project_dir), "--yes"])
+    assert result.exit_code == 0, result.output
+
+    assert pre_existing.read_text(encoding="utf-8") == "hand-edited narrative content\n", (
+        "sync-narratives must not rewrite a narrative file that already exists"
+    )
+    # The other eight NARRATIVE_FILES entries should have been added.
+    for dest_rel, _template_name in NARRATIVE_FILES[1:]:
+        assert (project_dir / dest_rel).exists(), f"{dest_rel} was not added"

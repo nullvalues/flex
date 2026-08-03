@@ -74,5 +74,9 @@ Report findings with file and line reference. Do not fix unless asked.
 1. `docs/brief.md` — what and why (operator intent)
 2. `docs/architecture.md` — how and architectural decisions
 3. Current phase file from `docs/phases/` (see current phase for active stories); or `docs/phase-prompts.md` for legacy projects that have not migrated
+4. `docs/narratives/` — role expectations and how the build loop works (what each role must be able to do, expect, and avoid)
 
-These three documents should be sufficient for any model or toolchain to cold-start this project and reproduce a valid variant without prior session context.
+These four documents should be sufficient for any model or toolchain to cold-start this project
+and reproduce a valid variant without prior session context. The triad (items 1–3) documents
+the software; Narrative of Record (item 4) documents the loop that builds it — together they
+make the system reproducible end-to-end.

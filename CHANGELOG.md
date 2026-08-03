@@ -10,6 +10,9 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 - Build-loop correctness fixes (INFRA-336..347): FAIL-escalation ladder + stage-integration harness; JSON-verdict parser now brace-safe; CER backlog append corruption fixed; dead INFRA-316 pause-context removed (`SCHEMA_VERSION` bumped); model-selector wiring for checkpoint-security/intent and gate-worker verdict consumption completed; `CLAUDE.build.md`/`.j2` reconciled with a drift check; checkpoint build-gate timeout fixed; spec-writer output now committed before worktree branch; legacy `record_attempt.py` writer de-duplicated; resolver/checkpoint-tag phase-completion gates unified; `merge-story-worktree` now flips landed stories to `complete` (CER-136).
 - Dead `effort.db` columns wired or removed (INFRA-348): `tool_uses`/`next_attempt_number` removed; `duration_ms`/`story_class`/`model_selection_reason` wired to real writers, including the `duration_ms` consumer in `skills/observability/api`. Docstring-currency sweep (INFRA-349, CER-156) and pairmode tests de-coupled from operator gpg-signing config (INFRA-350, CER-157).
 
+### Added [pairmode] — Phase 118 (Narrative of Record: propagation, spec-writer/intent-reviewer integration, mid-build steering)
+- Narrative of Record: templated role-narrative layer (INFRA-351..354) wired into the build loop as spec-writer's sixth input (INFRA-355), intent-reviewer alignment checks (INFRA-356), exemplar-brevity discipline (INFRA-357), and a shadow-reviewer agent (INFRA-358..360); cold-start quad added to `CLAUDE.md` (INFRA-361, operator-approved); closing dogfood run (INFRA-362) found and fixed a shipped contract gap, filed CER-160..163; two security findings closed before tag (INFRA-365/366).
+
 ## [0.3.1] — 2026-08-01
 
 *The Phase 95/96/98 entries below predate the `v0.3.0` fold tag (2026-07-24)
@@ -172,24 +175,14 @@ exists, not because they are 0.3.1 work.*
 ## [pairmode v0.0.x] — Phases 1-16 (flex era2 branch)
 
 ### Added [pairmode]
-- Phase 1-7: core scaffold, spec-derived deny-list generation, lessons store,
-  `audit` and `sync` commands, companion enhancements, audit noise reduction,
-  template coherence pass.
-- Phase 8-9: sync confirmation prompt, tooling fixes, dead-code cleanup,
-  formal pipe contract definition.
-- Phase 10: ideology capture — guided prompt flow, non-interactive mode,
-  reconstruction-brief seeding.
-- Phase 11-12: reconstruction workflow, blank-slate seeding,
-  `RECONSTRUCTION.md.j2` scoring template.
-- Phase 13: CER (Critical Engineering Review) cleanup, end-to-end
-  reconstruction verification.
-- Phase 14: reconstruction agent tooling, `score.py` for filling the
-  `RECONSTRUCTION.md` template.
-- Phase 15: rails, eras, discrete story files under `docs/stories/<RAIL>/`,
-  `schema_validator.py`, `story_new.py`, `era_new.py`.
-- Phase 16: `permission_scope.py` (story-scoped allow rules),
-  `story_resolver.py`, manifest-aware `CLAUDE.build.md`, rail-violation
-  detection in the reviewer checklist, sync rail-gap detection.
+- Phase 1-7: core scaffold, spec-derived deny-list generation, lessons store, `audit`/`sync` commands, companion enhancements, audit noise reduction, template coherence pass.
+- Phase 8-9: sync confirmation prompt, tooling fixes, dead-code cleanup, formal pipe contract definition.
+- Phase 10: ideology capture — guided prompt flow, non-interactive mode, reconstruction-brief seeding.
+- Phase 11-12: reconstruction workflow, blank-slate seeding, `RECONSTRUCTION.md.j2` scoring template.
+- Phase 13: CER (Critical Engineering Review) cleanup, end-to-end reconstruction verification.
+- Phase 14: reconstruction agent tooling, `score.py` for filling the `RECONSTRUCTION.md` template.
+- Phase 15: rails, eras, discrete story files under `docs/stories/<RAIL>/`, `schema_validator.py`, `story_new.py`, `era_new.py`.
+- Phase 16: `permission_scope.py` (story-scoped allow rules), `story_resolver.py`, manifest-aware `CLAUDE.build.md`, rail-violation detection in the reviewer checklist, sync rail-gap detection.
 
 ### Notes
 - All changes through Phase 16 are additive to flex core. Hook files were

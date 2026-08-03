@@ -26,6 +26,11 @@ Thumbs.db
 .companion/
 .claude/story_scope.json
 .pairmode-worktrees/
+# Shadow-reviewer shared suggestions file (INFRA-358) — advisory mid-build
+# steering channel, written inside a story worktree by the concurrent
+# shadow-reviewer and polled by the builder. Never committed, never part of
+# any story's diff, never treated by the reviewer as story artifact.
+.pairmode-suggestions.md
 
 # Ephemeral notes and screenshots (not record-keeping)
 flex_eph/

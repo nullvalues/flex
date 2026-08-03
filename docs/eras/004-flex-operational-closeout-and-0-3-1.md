@@ -38,4 +38,4 @@ phase 116 as the era's last act.
 | 115 | Observability closeout: API hardening, payload guards, rollup hygiene, functional validation | complete |
 | 116 | Cora upstream: methodology gates, resolver cadence, spec-time controls; backlog truth pass and 0.3.1 | complete |
 | 117 | Build-loop integrity remediation: escalation ladder, dead handoffs, CER-append corruption | complete |
-| 118 | Narrative of Record: propagation, spec-writer/intent-reviewer integration, and mid-build steering | planned |
+| 118 | Narrative of Record: propagation, spec-writer/intent-reviewer integration, and mid-build steering | complete |

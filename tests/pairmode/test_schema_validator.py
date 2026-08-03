@@ -19,6 +19,7 @@ from schema_validator import (
     VALID_MODEL_TIERS,
     _parse_frontmatter,
     _parse_flow_sequence,
+    _valid_narrative_roles,
     FrontmatterError,
 )
 
@@ -1106,3 +1107,87 @@ def test_flow_parser_ignores_quoted_numeric_scalar():
 def test_parse_flow_sequence_returns_none_for_non_flow_value():
     """A1: the helper returns None (not [], not a raise) for a plain scalar."""
     assert _parse_flow_sequence("just a scalar") is None
+
+
+# ---------------------------------------------------------------------------
+# narrative_roles: field (INFRA-355)
+# ---------------------------------------------------------------------------
+
+_VALID_STORY_WITH_NARRATIVE_ROLES = """\
+    ---
+    id: FEAT-001
+    rail: FEAT
+    title: Narrative roles story
+    status: planned
+    phase: "001"
+    primary_files:
+      - src/main.py
+    {narrative_roles_block}
+    ---
+
+    ## Acceptance criterion
+
+    It works.
+"""
+
+
+def _narrative_roles_story(roles: list[str] | None = None) -> str:
+    if roles is None:
+        block = ""
+    elif roles == []:
+        block = "narrative_roles: []"
+    else:
+        lines = ["narrative_roles:"] + [f"  - {r}" for r in roles]
+        block = "\n    ".join(lines)
+    return _VALID_STORY_WITH_NARRATIVE_ROLES.format(narrative_roles_block=block)
+
+
+class TestNarrativeRolesField:
+    """narrative_roles: frontmatter field validation (INFRA-355)."""
+
+    def test_ten_known_roles_defined(self):
+        roles = _valid_narrative_roles()
+        assert len(roles) == 10
+        assert "OPERATOR" in roles
+        assert "BUILDER" in roles
+        assert "REVIEWER" in roles
+        assert "SPEC-WRITER" in roles
+
+    def test_absent_is_valid(self, tmp_path):
+        """Absent narrative_roles: is valid — not every story is role-facing."""
+        content = _narrative_roles_story(roles=None)
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors, got: {errors}"
+
+    def test_empty_list_is_valid(self, tmp_path):
+        content = _narrative_roles_story(roles=[])
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors, got: {errors}"
+
+    def test_single_valid_role_is_valid(self, tmp_path):
+        content = _narrative_roles_story(roles=["BUILDER"])
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors, got: {errors}"
+
+    def test_multiple_valid_roles_is_valid(self, tmp_path):
+        content = _narrative_roles_story(roles=["BUILDER", "REVIEWER", "OPERATOR"])
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert errors == [], f"Expected no errors, got: {errors}"
+
+    def test_unknown_role_is_error(self, tmp_path):
+        content = _narrative_roles_story(roles=["NOT-A-REAL-ROLE"])
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert any("Invalid narrative_roles" in e for e in errors), (
+            f"Expected 'Invalid narrative_roles' error, got: {errors}"
+        )
+
+    def test_unknown_role_among_valid_ones_is_error(self, tmp_path):
+        content = _narrative_roles_story(roles=["BUILDER", "NOT-A-REAL-ROLE"])
+        p = _write(tmp_path, "FEAT-001.md", content)
+        errors = validate_story_file(p)
+        assert any("Invalid narrative_roles" in e for e in errors)

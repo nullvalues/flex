@@ -2,7 +2,7 @@
 id: INFRA-352
 rail: INFRA
 title: Add sync-narratives to pairmode_sync.py, reusing INFRA-332's add-missing-file path
-status: draft
+status: complete
 phase: "118"
 story_class: code
 auth_gated: false

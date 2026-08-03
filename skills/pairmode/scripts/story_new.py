@@ -74,6 +74,10 @@ def _story_frontmatter(
     # non-empty string, not a block sequence).
     lines += [
         "touches: []",
+        # INFRA-355: empty by default — a human or spec-writer decides which
+        # narrative role(s) apply to this story; never auto-inferred from
+        # title/rail.
+        "narrative_roles: []",
         "---",
     ]
     return "\n".join(lines) + "\n"

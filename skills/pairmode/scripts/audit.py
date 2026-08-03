@@ -44,6 +44,11 @@ TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 # role's procedure skill (spec-writer, WORKER-013) and a live spawn-spec-writer
 # dispatch action existed but no scaffolded shell did — this list must stay mirrored
 # with AGENT_FILES in bootstrap.py.
+# shadow-reviewer.md (INFRA-358) is a tenth thin shell, added alongside the
+# role's procedure skill and template — no dispatch action or model selector
+# reaches it yet (that wiring is INFRA-359's job), but the scaffolded shell
+# itself must stay mirrored with AGENT_FILES in bootstrap.py the same as
+# every other canonical agent shell.
 CANONICAL_FILES: list[tuple[str, str]] = [
     ("CLAUDE.md", "CLAUDE.md.j2"),
     ("CLAUDE.build.md", "CLAUDE.build.md.j2"),
@@ -56,6 +61,7 @@ CANONICAL_FILES: list[tuple[str, str]] = [
     (".claude/agents/intent-reviewer.md", "agents/intent-reviewer.md.j2"),
     (".claude/agents/docs-reviewer.md", "agents/docs-reviewer.md.j2"),
     (".claude/agents/spec-writer.md", "agents/spec-writer.md.j2"),
+    (".claude/agents/shadow-reviewer.md", "agents/shadow-reviewer.md.j2"),
 ]
 
 # Scaffold files: Phase 7 docs that receive full section-level comparison.
