@@ -52,12 +52,14 @@ export interface ResolverStateDoc {
 // Path to the Python flex_build CLI (relative to this file in dist/)
 // ---------------------------------------------------------------------------
 
-function getFlexBuildPath(): string {
+export function getFlexBuildPath(): string {
   // This file sits at skills/observability/api/dist/readers/resolverState.js
+  // (or skills/observability/api/src/readers/resolverState.ts under vitest,
+  // which is the same depth relative to `skills/`).
   // flex_build.py is at skills/pairmode/scripts/flex_build.py
   const thisFile = fileURLToPath(import.meta.url);
-  const obsApiDir = path.resolve(path.dirname(thisFile), '..', '..', '..', '..');
-  return path.join(obsApiDir, '..', 'pairmode', 'scripts', 'flex_build.py');
+  const skillsDir = path.resolve(path.dirname(thisFile), '..', '..', '..', '..');
+  return path.join(skillsDir, 'pairmode', 'scripts', 'flex_build.py');
 }
 
 // ---------------------------------------------------------------------------
