@@ -30,7 +30,7 @@ Establish Narrative of Record as a templated, propagated doc-of-record layer for
 | INFRA-357 | Reduce spec-writer over-specification: cap exemplar imitation, add brevity counter-instruction | complete |
 | INFRA-358 | Build the shared-suggestions-file mid-build steering mechanism (concurrent shadow-reviewer) | complete |
 | INFRA-359 | Wire shadow-reviewer dispatch into CLAUDE.build.md and next_action.py | complete |
-| INFRA-360 | Extend INFRA-336's integration-test harness to cover concurrent shadow-reviewer dispatch | draft |
+| INFRA-360 | Extend INFRA-336's integration-test harness to cover concurrent shadow-reviewer dispatch | complete |
 | INFRA-361 | Establish Narrative of Record in docs/architecture.md; propose CLAUDE.md cold-start quad | draft |
 | INFRA-362 | Dogfood narrative citation on flex's own story specs going forward | draft |
 
