@@ -102,3 +102,44 @@ Acceptance: both green, including the new flag-bypasses-prompt and non-TTY-witho
 - `primary_files:` is absent from this story's frontmatter (the stub was scaffolded without it).
   Per the spec-writer procedure this is a human-review signal, so this spec returns `revised`:
   confirm `skills/pairmode/scripts/story_new.py` as the primary file before building.
+
+## Evidence
+
+- CER-117 was already resolved by `feat(story-INFRA-301): non-interactive scaffolding flags +
+  phase-registration warning surfacing` (commit `e27232d6`, 2026-07-30), one day after the CER
+  was surfaced (2026-07-29) and before this stub (INFRA-367, phase 119) was drafted. This is a
+  stale/duplicate backlog re-filing, not a live gap.
+- Verified `skills/pairmode/scripts/story_new.py` at build time against every Ensures item with
+  zero production-code changes required:
+  - Ensures 1: `--create-rail`/`--no-create-rail` (tri-state, `default=None`) and `--yes`/`-y`
+    are both present (lines 314–330); `yes or create_rail is True` gates rail creation at one
+    call site (line 388).
+  - Ensures 2: the `create_rail is True or yes` branch (lines 388–394) creates the rail
+    directory and continues with no call to `click.prompt`/`input()` anywhere on that path —
+    confirmed by `test_create_rail_flag_creates_no_prompt` / `test_yes_flag_creates_no_prompt`
+    invoked with `input=None`.
+  - Ensures 3: the no-flag branch (lines 395–415) catches `click.Abort`/`EOFError` from
+    `click.prompt` on a closed/EOF stdin and exits 1 with a message naming `--create-rail`,
+    without creating the rail dir — confirmed by
+    `test_missing_rail_no_flags_eof_stdin_exits_1_with_actionable_message`. (Documented design
+    choice, `docs/architecture.md` § story_new.py non-interactive scaffolding contract: EOF/Abort
+    detection is used instead of a pre-emptive `sys.stdin.isatty()` gate, because Click's
+    `CliRunner` — and every legitimate piped-stdin caller — presents a non-TTY stdin even when
+    real interactive input follows, so an `isatty()` gate would reject working callers.)
+  - Ensures 4: the TTY/interactive path (lines 402–418) is untouched — same prompt text, `Y`
+    default, abort-on-`n` behaviour as before INFRA-301/this story.
+  - Ensures 5: the flag checks live entirely inside `if not rail_dir.is_dir():` (line 380), so
+    when the rail already exists the flags are structurally inert. Added
+    `test_create_rail_flag_is_noop_when_rail_already_exists` and
+    `test_yes_flag_is_noop_when_rail_already_exists` to `tests/pairmode/test_story_new.py` to
+    close the gap between this Ensures item and the existing test file (the prior no-prompt test
+    for an existing rail didn't pass either flag).
+  - Ensures 6: `tests/pairmode/test_story_new.py::TestNonInteractiveRailCreation` covers Ensures
+    2, 3, and 5 (the last two tests added by this story).
+  - Ensures 7: full `tests/pairmode/` suite green — 4872 passed, 211 skipped.
+- `skills/pairmode/SKILL.md` (lines ~644–668) and `docs/architecture.md` (§ story_new.py
+  non-interactive scaffolding contract, ~line 1771) already document the CER-117 fix; no
+  documentation change was needed.
+- Net change for this story: two new no-op regression tests in
+  `tests/pairmode/test_story_new.py`. No change to `skills/pairmode/scripts/story_new.py`,
+  `skills/pairmode/SKILL.md`, or `docs/architecture.md`.

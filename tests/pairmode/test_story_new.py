@@ -207,6 +207,32 @@ class TestNonInteractiveRailCreation:
         rail_dir = tmp_path / "docs" / "stories" / "NEWRAIL"
         assert not rail_dir.exists()
 
+    def test_create_rail_flag_is_noop_when_rail_already_exists(self, tmp_path: pathlib.Path) -> None:
+        """Ensures 5 — --create-rail behaves identically to no flags when the rail
+        directory already exists: no prompt, no re-creation, same exit code."""
+        rail_dir = tmp_path / "docs" / "stories" / "EXISTING"
+        rail_dir.mkdir(parents=True)
+        result = invoke(
+            ["--rail", "EXISTING", "--title", "Story", "--create-rail", "--project-dir", str(tmp_path)],
+            input=None,
+        )
+        assert result.exit_code == 0, result.output
+        story_file = rail_dir / "EXISTING-001.md"
+        assert story_file.exists()
+
+    def test_yes_flag_is_noop_when_rail_already_exists(self, tmp_path: pathlib.Path) -> None:
+        """Ensures 5 — --yes behaves identically to no flags when the rail directory
+        already exists: no prompt, no re-creation, same exit code."""
+        rail_dir = tmp_path / "docs" / "stories" / "EXISTING"
+        rail_dir.mkdir(parents=True)
+        result = invoke(
+            ["--rail", "EXISTING", "--title", "Story", "--yes", "--project-dir", str(tmp_path)],
+            input=None,
+        )
+        assert result.exit_code == 0, result.output
+        story_file = rail_dir / "EXISTING-001.md"
+        assert story_file.exists()
+
     def test_existing_prompt_tests_unmodified_decline(self, tmp_path: pathlib.Path) -> None:
         """TestNewRailPrompt decline case still exits 0 with create_rail unspecified."""
         result = invoke(
