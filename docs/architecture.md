@@ -1673,6 +1673,19 @@ carries at *completion* time, but applied at phase *authoring* time instead:
 CLI echo, not new gating or validation logic — the operator remains the sole judge of whether the
 new phase satisfies it).
 
+**Story-level right-sizing (carried forward from this project's own early-preamble lineage,
+INFRA-363):** a `docs/phases/preamble.md`-lineage doc predating this project's current phase-doc
+convention stated the same idea one level down, at the story instead of the phase: *a story is
+right-sized when its acceptance criterion fits in one sentence.* That rule had been lost — stated
+nowhere in `skills/pairmode/skills/spec-writer/procedure.md` or in this section — until INFRA-363
+carried it forward here. It applies alongside the phase-authoring checklist above: where the
+checklist's second bullet asks whether a *phase's* scope is comparable to recent phases, the same
+question at the story level is whether a story's `## Ensures` could be restated as one sentence
+without losing anything a builder genuinely needs. When it cannot, the size may be warranted, but
+say so explicitly rather than treating length as evidence of rigor (INFRA-357's brevity
+counter-instruction) or leaning on a moving format exemplar to justify it (INFRA-363's frozen
+`docs/exemplars/EXEMPLAR-000.md`, which demonstrates the rule directly).
+
 **Worked example (retroactive, per Instructions item 4 — not a request to split or resize either
 phase; INFRA-243's Out of scope explicitly rules that out):**
 

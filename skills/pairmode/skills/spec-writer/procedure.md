@@ -49,10 +49,16 @@ state, no prior-attempt transcripts, no effort database records.
    (where `<phase_key>` comes from the `phase:` frontmatter field of the stub story)
 3. **The active era doc** — the single file in `docs/eras/*.md` whose frontmatter
    contains `status: active`
-4. **One recent complete story as format exemplar** — one story file from
-   `docs/stories/` whose frontmatter `status` is `complete`, excluding length outliers
-   per Step 2 item 4 below (INFRA-357). Prefer the same rail as the stub; if none
-   exists in that rail, use any rail. Read exactly one file; do not scan all stories.
+4. **The frozen format exemplar** — `docs/exemplars/EXEMPLAR-000.md` (INFRA-363).
+   This single file, not a rotating "recent complete story," is bounded input 4.
+   It is frozen rather than rotating because a moving exemplar is self-reinforcing
+   regardless of what brevity/proportionality prose surrounds it (INFRA-357's
+   Forbidden-proxy finding: "prose alone did not stop the exemplar-imitation
+   spiral" — the same logic applies to an unfrozen exemplar-selection input, which
+   INFRA-357 did not fix). Changing which file serves as the exemplar is a
+   deliberate, reviewable edit to `docs/exemplars/EXEMPLAR-000.md` itself, never an
+   automatic consequence of what shipped most recently. Read exactly this one
+   file; do not scan `docs/stories/` to find a substitute.
 5. **`docs/ideology.md`** (INFRA-242) — the project's convictions, accepted
    constraints, and prototype fingerprints. Read in full. If the file does not
    exist, skip the ideology-alignment step (§ Step 4a below) and note the skip —
@@ -89,13 +95,13 @@ From the scalar (e.g. `BUILD-012`):
    Extract the `phase:` frontmatter field to locate the phase doc.
 2. Read `docs/phases/phase-<phase_key>.md` in full.
 3. Scan `docs/eras/` filenames; read the one whose frontmatter has `status: active`.
-4. Find one complete story in the same rail as the stub (or any rail if none exists in
-   that rail) and read it as a format exemplar — but skip any candidate whose length
-   is a clear outlier above this project's healthy range (roughly 14-36 lines, this
-   project's own stories 0-119 baseline measured pre-inflation; see
-   `docs/build-loop-cold-eyes-review-20260801.md`, INFRA-357) unless no shorter
-   complete story exists. Read exactly one file; do not scan the whole stories tree
-   to find it.
+4. Read `docs/exemplars/EXEMPLAR-000.md` (INFRA-363) as the format exemplar. This
+   file is frozen — it does not rotate with "recency" — precisely because a moving
+   exemplar reinforces its own inflation regardless of surrounding prose (the same
+   root cause INFRA-357's Forbidden-proxy note identifies). Read exactly this one
+   file; do not scan `docs/stories/` for a substitute, and do not fall back to a
+   recent complete story even if `EXEMPLAR-000.md` seems stale — a stale frozen
+   exemplar is a finding to file, not license to revert to rotation.
 5. Read `docs/ideology.md` in full. If it does not exist, note the absence and skip
    Step 4a below.
 6. Read the stub's `narrative_roles:` frontmatter field. If empty or absent, this

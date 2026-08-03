@@ -27,6 +27,18 @@ averaged 400-550+, peaking at 1317 (INFRA-310); builder attempt counts on the la
 roughly 50% higher than on the earliest ones (measured via `.companion/effort.db`, session
 2026-08-01).
 
+**Correction (INFRA-363, session 2026-08-03):** a second-opinion re-measurement of
+`.companion/effort.db` (n=90 stories, quartiles by spec line count) could not reproduce the
+"~50% higher attempt counts" figure above. Direct measurement: 1.32 attempts/story (shortest
+quartile) vs. 1.45 (longest quartile) — about 10%, not 50%. The actual cost channel is duration
+per attempt, not attempt count: shortest-quartile specs (avg 99 lines) took 4.0 min total build
+time touching 4.3 files; longest-quartile specs (avg 724 lines) took 29.5 min touching 9.9 files
+— 7.4x the time for 2.3x the file surface. This does not change this story's Ensures/Instructions
+(the brevity and proportionality fixes are still warranted by the duration effect), but the
+attempt-count framing above should not be relied on; the duration-per-attempt effect is the
+correct citation going forward. See `docs/stories/INFRA/INFRA-363.md` § Context for the full
+re-measurement.
+
 Root cause candidate, found directly in the spec-writer's own procedure
 (`skills/pairmode/skills/spec-writer/procedure.md` § Step 2/4): one of its five bounded inputs is
 "one recent complete story as a format exemplar," and its drafting rule says Instructions "must be
