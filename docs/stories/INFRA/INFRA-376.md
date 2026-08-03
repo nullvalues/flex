@@ -7,9 +7,10 @@ phase: "119"
 story_class: code
 auth_gated: false
 schema_introduces: false
+primary_files:
+  - skills/pairmode/scripts/bootstrap.py
 touches:
   - skills/pairmode/templates/agents/shadow-reviewer.md.j2
-  - skills/pairmode/scripts/bootstrap.py
   - .claude/agents/shadow-reviewer.md
   - tests/pairmode/test_bootstrap.py
 narrative_roles: []

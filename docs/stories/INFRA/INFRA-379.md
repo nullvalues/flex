@@ -7,8 +7,9 @@ phase: "119"
 story_class: code
 auth_gated: false
 schema_introduces: false
-touches:
+primary_files:
   - tests/pairmode/test_plugin_manifest.py
+touches: []
 narrative_roles: []
 ---
 

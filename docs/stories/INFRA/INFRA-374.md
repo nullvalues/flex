@@ -7,7 +7,10 @@ phase: "119"
 story_class: code
 auth_gated: false
 schema_introduces: false
-touches: []
+primary_files:
+  - hooks/post_tool_use.py
+touches:
+  - tests/pairmode/test_post_tool_use.py
 narrative_roles: []
 ---
 

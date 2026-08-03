@@ -7,6 +7,8 @@ phase: "119"
 story_class: code
 auth_gated: false
 schema_introduces: false
+primary_files:
+  - tests/pairmode/test_harness_path_audit.py
 touches:
   - skills/pairmode/templates/agents/builder.md.j2
   - skills/pairmode/templates/agents/reviewer.md.j2
@@ -18,7 +20,6 @@ touches:
   - skills/pairmode/templates/agents/security-auditor.md.j2
   - skills/pairmode/templates/agents/shadow-reviewer.md.j2
   - .claude/agents/
-  - tests/pairmode/test_harness_path_audit.py
   - docs/architecture.md
 narrative_roles: []
 ---

@@ -7,8 +7,11 @@ phase: "119"
 story_class: code
 auth_gated: false
 schema_introduces: false
+primary_files:
+  - skills/pairmode/scripts/story_new.py
 touches:
   - tests/pairmode/test_story_new.py
+  - skills/pairmode/SKILL.md
 narrative_roles: []
 ---
 

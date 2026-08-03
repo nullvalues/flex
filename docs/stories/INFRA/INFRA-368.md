@@ -7,7 +7,10 @@ phase: "119"
 story_class: code
 auth_gated: false
 schema_introduces: false
-touches: []
+primary_files:
+  - skills/observability/api/src/readers/resolverState.ts
+touches:
+  - skills/observability/api/tests
 narrative_roles: []
 ---
 

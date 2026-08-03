@@ -7,8 +7,9 @@ phase: "119"
 story_class: code
 auth_gated: false
 schema_introduces: false
-touches:
+primary_files:
   - skills/observability/api/src/server.ts
+touches:
   - skills/observability/api/tests/cors.test.ts
   - skills/observability/SKILL.md
 narrative_roles: []
