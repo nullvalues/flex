@@ -13,8 +13,11 @@ primary_files:
   - docs/pairmode/PAIRMODE.md
 touches:
   - skills/pairmode/scripts/audit.py
+  - skills/pairmode/scripts/sync.py
   - tests/pairmode/test_pairmode_sync.py
   - tests/pairmode/test_audit.py
+  - tests/pairmode/test_sync.py
+  - docs/architecture.md
 narrative_roles: []
 ---
 
@@ -67,7 +70,11 @@ title is left unedited so the ID/title pair stays stable against the phase manif
    that prevents `sync_all` from invoking `sync.py` outside `--apply` is removed, and a dry-run
    `sync_all` run invokes `sync.py` with `--dry-run` rather than skipping it. *Forbidden proxy:*
    correcting only the SKILL.md/comment wording about the gap while `sync.py` remains unreachable
-   from the wrapper in dry-run mode.
+   from the wrapper in dry-run mode. `docs/architecture.md`'s own description of `sync_all`'s
+   dry-run behavior (it currently states sync.py is skipped in dry-run because it has no
+   `--dry-run` flag) is updated to match this new behavior — a standing surface, so no
+   frontmatter declaration is needed to touch it, but it must not be left contradicting this
+   same Ensures item.
 3. **`RETIRED_SECTIONS` is file-scoped.** Retirement entries are keyed by `(canonical file,
    section key)`, not by section key alone, and the prune path only fires for the canonical file a
    retirement was recorded against. A test asserts that a section whose key matches a retirement
