@@ -2,7 +2,7 @@
 id: INFRA-354
 rail: INFRA
 title: Backfill flex's own docs/narratives/ from the new template source (real dogfood backfill)
-status: draft
+status: complete
 phase: "118"
 story_class: code
 auth_gated: false
