@@ -86,9 +86,22 @@ separate story or coordination with another phase.
 
 ### CP-118 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
+- [x] written-never-read — `narrative_roles:`/`stories:` (INFRA-355) and `shadow_review=concurrent`
+      (INFRA-359) both have matched writers and readers, verified by the checkpoint-security
+      re-audit and the INFRA-362 dogfood exercise. One real gap found and filed, not silent:
+      CER-163 item 1 — flex's own `.claude/agents/shadow-reviewer.md` was never synced, so the
+      shadow-reviewer role has no live reader/dispatch in this repo's own checkout yet.
+- [x] required-never-written — none found. `.pairmode-suggestions.md`'s only real producer
+      (shadow-reviewer) was structurally blocked by `scope_guard.py` until INFRA-365 closed it
+      (checkpoint-security HIGH finding, fixed before tag).
+- [x] duplicate state — none found. The SPEC-WRITER narrative's now-stale attempt-count statistic
+      (CER-162) is drift between two *descriptions* of the same fact, not two independent writers
+      of persistent state.
+- [x] half-implementation — two found and fixed before tag (checkpoint-security HIGH findings,
+      INFRA-365/366): shadow-reviewer's sole write path was unreachable via `scope_guard`; bootstrap's
+      `OPERATOR-010-project.md` write had no overwrite guard unlike every sibling write. One found
+      and deliberately deferred, not silent: CER-163 item 2 — the shadow-reviewer's `Bash` tool grant
+      lets a real dispatch bypass the `Edit`/`Write`-only enforcement INFRA-365 just closed.
 
-— developer fills in after phase completion —
+Filled by the orchestrator at checkpoint, from the security-auditor's two audit passes and
+INFRA-362's dogfood Evidence section — not a placeholder.
