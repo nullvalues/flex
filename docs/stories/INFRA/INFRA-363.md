@@ -2,7 +2,7 @@
 id: INFRA-363
 rail: INFRA
 title: Freeze the spec-writer's format exemplar; correct INFRA-357's attempt-count claim
-status: draft
+status: complete
 phase: "119"
 story_class: methodology
 auth_gated: false
