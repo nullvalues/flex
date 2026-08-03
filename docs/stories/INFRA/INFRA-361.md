@@ -89,6 +89,8 @@ This addition makes the quad explicit and documented, matching the principle tha
 the cold-start triad itself: that a future agent or operator with no access to prior conversation
 should be able to continue the work by reading only the committed artifacts.
 
+**Operator decision recorded 2026-08-03: approved.** Applied verbatim to `CLAUDE.md`.
+
 ## Out of scope
 
 - Deciding the CLAUDE.md change unilaterally — explicitly not this story's call to make alone.
