@@ -412,9 +412,9 @@ class TestInjectedResultRouting:
 
 class TestSchemaVersion:
     def test_schema_version_is_4(self):
-        """SCHEMA_VERSION must equal 5 (INFRA-316 bump: pause-context)."""
-        assert next_action.SCHEMA_VERSION == 5, (
-            f"Expected next_action.SCHEMA_VERSION == 5, got {next_action.SCHEMA_VERSION}"
+        """SCHEMA_VERSION must equal 6 (INFRA-339 bump: pause-context removal)."""
+        assert next_action.SCHEMA_VERSION == 6, (
+            f"Expected next_action.SCHEMA_VERSION == 6, got {next_action.SCHEMA_VERSION}"
         )
 
 

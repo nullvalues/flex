@@ -101,6 +101,154 @@ class TestInitDb:
 
 
 # ---------------------------------------------------------------------------
+# tool_uses column removal (INFRA-348, Ensures 1 & 8)
+# ---------------------------------------------------------------------------
+
+
+def _column_names(db_path: Path) -> set[str]:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(attempts)")
+        return {row[1] for row in cur.fetchall()}
+    finally:
+        conn.close()
+
+
+class TestToolUsesColumnRemoval:
+    def test_fresh_db_has_no_tool_uses_column(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        assert "tool_uses" not in _column_names(db_path)
+
+    def test_pre_existing_db_is_upgraded_in_place(self, db_path: Path) -> None:
+        """A pre-INFRA-348 database (tool_uses present, populated rows) is
+        upgraded by init_db — never recreated empty (Ensures 1 & 8)."""
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE attempts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    story_id TEXT NOT NULL,
+                    phase TEXT,
+                    rail TEXT,
+                    agent_role TEXT NOT NULL,
+                    model TEXT,
+                    attempt_number INTEGER NOT NULL,
+                    tokens_total INTEGER,
+                    tokens_in INTEGER,
+                    tokens_out INTEGER,
+                    cache_read_tokens INTEGER,
+                    cache_write_tokens INTEGER,
+                    tool_uses INTEGER,
+                    duration_ms INTEGER,
+                    outcome TEXT,
+                    notes TEXT,
+                    ts TEXT NOT NULL
+                );
+                """
+            )
+            conn.execute(
+                "INSERT INTO attempts (story_id, agent_role, attempt_number, "
+                "tokens_total, tool_uses, duration_ms, ts) VALUES "
+                "('INFRA-028', 'builder', 1, 1000, 7, 5000, "
+                "'2026-05-01T00:00:00+00:00')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        effort_db.init_db(db_path)
+
+        assert "tool_uses" not in _column_names(db_path)
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert len(rows) == 1
+        assert rows[0]["tokens_total"] == 1000
+        assert rows[0]["duration_ms"] == 5000
+
+    _FULL_PRE_STORY_SCHEMA = """
+        CREATE TABLE attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            story_id TEXT NOT NULL,
+            phase TEXT,
+            rail TEXT,
+            agent_role TEXT NOT NULL,
+            model TEXT,
+            attempt_number INTEGER NOT NULL,
+            tokens_total INTEGER,
+            tokens_in INTEGER,
+            tokens_out INTEGER,
+            cache_read_tokens INTEGER,
+            cache_write_tokens INTEGER,
+            tool_uses INTEGER,
+            duration_ms INTEGER,
+            outcome TEXT,
+            notes TEXT,
+            ts TEXT NOT NULL
+        );
+    """
+
+    def test_upgrade_is_idempotent(self, db_path: Path) -> None:
+        """Ensures 8: running the upgrade twice succeeds both times and
+        leaves surviving column values byte-identical."""
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.executescript(self._FULL_PRE_STORY_SCHEMA)
+            conn.execute(
+                "INSERT INTO attempts (story_id, agent_role, attempt_number, "
+                "tokens_total, tool_uses, ts) VALUES "
+                "('INFRA-028', 'builder', 1, 1000, 7, "
+                "'2026-05-01T00:00:00+00:00')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        effort_db.init_db(db_path)
+        rows_first = effort_db.query_by_story(db_path, "INFRA-028")
+
+        effort_db.init_db(db_path)
+        rows_second = effort_db.query_by_story(db_path, "INFRA-028")
+
+        assert len(rows_first) == len(rows_second) == 1
+        assert rows_first[0]["tokens_total"] == rows_second[0]["tokens_total"] == 1000
+        assert "tool_uses" not in _column_names(db_path)
+
+    def test_insert_attempt_rejects_tool_uses_kwarg(self, db_path: Path) -> None:
+        effort_db.init_db(db_path)
+        with pytest.raises(ValueError, match="unknown field"):
+            effort_db.insert_attempt(db_path, **_required_fields(tool_uses=1))
+
+    def test_fallback_rebuild_path_on_old_sqlite(self, db_path: Path) -> None:
+        """Instructions 4: on a SQLite runtime without DROP COLUMN support,
+        the create/copy/swap rebuild fallback is used instead — same
+        outcome (column gone, data preserved), same table name."""
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.executescript(self._FULL_PRE_STORY_SCHEMA)
+            conn.execute(
+                "INSERT INTO attempts (story_id, agent_role, attempt_number, "
+                "tokens_total, tool_uses, ts) VALUES "
+                "('INFRA-028', 'builder', 1, 1000, 7, "
+                "'2026-05-01T00:00:00+00:00')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        with patch.object(effort_db.sqlite3, "sqlite_version_info", (3, 34, 0)):
+            effort_db.init_db(db_path)
+
+        assert "tool_uses" not in _column_names(db_path)
+        rows = effort_db.query_by_story(db_path, "INFRA-028")
+        assert len(rows) == 1
+        assert rows[0]["tokens_total"] == 1000
+
+
+# ---------------------------------------------------------------------------
 # Insert / query roundtrip
 # ---------------------------------------------------------------------------
 
@@ -136,7 +284,6 @@ class TestInsertAttempt:
                 tokens_out=2345,
                 cache_read_tokens=500,
                 cache_write_tokens=750,
-                tool_uses=8,
                 duration_ms=42000,
                 outcome="PASS",
                 notes="happy path",
@@ -154,7 +301,6 @@ class TestInsertAttempt:
         assert row["tokens_out"] == 2345
         assert row["cache_read_tokens"] == 500
         assert row["cache_write_tokens"] == 750
-        assert row["tool_uses"] == 8
         assert row["duration_ms"] == 42000
         assert row["outcome"] == "PASS"
         assert row["notes"] == "happy path"
@@ -509,51 +655,6 @@ def _run_effort_db_cli(argv: list[str], mock_result: dict) -> tuple[int, str]:
         exit_code = effort_db._cli_main(argv)
 
     return exit_code, captured_stdout.getvalue()
-
-
-class TestNextAttemptNumber:
-    """Tests for effort_db.next_attempt_number (INFRA-257)."""
-
-    def test_empty_db_returns_one(self, db_path: Path) -> None:
-        effort_db.init_db(db_path)
-        assert effort_db.next_attempt_number(db_path, "INFRA-028", "builder") == 1
-
-    def test_absent_db_returns_one(self, db_path: Path) -> None:
-        assert not db_path.exists()
-        assert effort_db.next_attempt_number(db_path, "INFRA-028", "builder") == 1
-
-    def test_n_existing_rows_yields_n_plus_one(self, db_path: Path) -> None:
-        effort_db.init_db(db_path)
-        for i in range(3):
-            effort_db.insert_attempt(
-                db_path,
-                **_required_fields(attempt_number=i + 1, ts=f"2026-05-01T0{i}:00:00+00:00"),
-            )
-        assert effort_db.next_attempt_number(db_path, "INFRA-028", "builder") == 4
-
-    def test_different_agent_role_does_not_increment(self, db_path: Path) -> None:
-        effort_db.init_db(db_path)
-        effort_db.insert_attempt(db_path, **_required_fields(agent_role="builder"))
-        assert effort_db.next_attempt_number(db_path, "INFRA-028", "reviewer") == 1
-
-    def test_different_story_id_does_not_increment(self, db_path: Path) -> None:
-        effort_db.init_db(db_path)
-        effort_db.insert_attempt(db_path, **_required_fields(story_id="INFRA-028"))
-        assert effort_db.next_attempt_number(db_path, "INFRA-029", "builder") == 1
-
-    def test_corrupt_file_returns_one_no_exception(self, tmp_path: Path) -> None:
-        corrupt_path = tmp_path / ".companion" / "effort.db"
-        corrupt_path.parent.mkdir(parents=True, exist_ok=True)
-        corrupt_path.write_text("this is not a sqlite file", encoding="utf-8")
-        assert effort_db.next_attempt_number(corrupt_path, "INFRA-028", "builder") == 1
-
-    def test_empty_story_id_returns_one(self, db_path: Path) -> None:
-        effort_db.init_db(db_path)
-        assert effort_db.next_attempt_number(db_path, "", "builder") == 1
-
-    def test_empty_agent_role_returns_one(self, db_path: Path) -> None:
-        effort_db.init_db(db_path)
-        assert effort_db.next_attempt_number(db_path, "INFRA-028", "") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1444,13 +1545,13 @@ class TestInsertAttemptUnchanged:
             effort_db.insert_attempt(db_path, **fields)
 
 
-class TestNextAttemptNumberAdvisoryDocstring:
-    def test_docstring_mentions_advisory(self) -> None:
-        """C7: next_attempt_number's docstring gains an advisory/read-only
-        note pointing at insert_attempt_derived as the write path."""
-        doc = effort_db.next_attempt_number.__doc__ or ""
-        assert "advisory" in doc.lower()
-        assert "insert_attempt_derived" in doc
+class TestNextAttemptNumberRemoved:
+    def test_not_referenced_in_module(self) -> None:
+        """INFRA-348 (Ensures 2): next_attempt_number is fully deleted —
+        neither an attribute on the module nor a name in its source."""
+        assert not hasattr(effort_db, "next_attempt_number")
+        source = Path(effort_db.__file__).read_text(encoding="utf-8")
+        assert "next_attempt_number" not in source
 
 
 # ---------------------------------------------------------------------------

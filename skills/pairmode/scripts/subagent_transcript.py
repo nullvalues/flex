@@ -73,12 +73,34 @@ try:
     from skills.pairmode.scripts.context_budget import _derive_transcript_path
     from skills.pairmode.scripts import effort_db
     from skills.pairmode.scripts.effort_recorder import record_effort, record_effort_ex
-    from skills.pairmode.scripts.flex_build import bump_attempt_count, read_attempt_count
+    from skills.pairmode.scripts.flex_build import (
+        bump_attempt_count,
+        read_attempt_count,
+        _read_story_frontmatter,
+        _story_path,
+    )
+    from skills.pairmode.scripts.story_context import (
+        RECENTLY_DISCARDED_STORIES_KEY,
+        consume_recently_discarded,
+        cycle_already_bumped,
+        mark_cycle_bumped,
+    )
 except ImportError:
     from context_budget import _derive_transcript_path  # type: ignore[no-redef]  # flat import via hook sys.path
     import effort_db  # type: ignore[no-redef]  # flat import via hook sys.path
     from effort_recorder import record_effort, record_effort_ex  # type: ignore[no-redef]  # flat import via hook sys.path
-    from flex_build import bump_attempt_count, read_attempt_count  # type: ignore[no-redef]  # flat import via hook sys.path
+    from flex_build import (  # type: ignore[no-redef]  # flat import via hook sys.path
+        bump_attempt_count,
+        read_attempt_count,
+        _read_story_frontmatter,
+        _story_path,
+    )
+    from story_context import (  # type: ignore[no-redef]  # flat import via hook sys.path
+        RECENTLY_DISCARDED_STORIES_KEY,
+        consume_recently_discarded,
+        cycle_already_bumped,
+        mark_cycle_bumped,
+    )
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -236,6 +258,12 @@ RECORDING_DECISIONS: frozenset[str] = frozenset({
     # the fallback path) — _ATOMIC_RECONCILE_FIELDS forbids writing tokens
     # alone, so nothing is committed.
     "skip:no-usage",
+    # INFRA-336 (CER-148): the sweep loop's own decision when a FAIL row
+    # resolves to a story_id/cycle that has already had its bump counted —
+    # a second FAIL row for the same still-open attempt (e.g. builder
+    # self-report then reviewer, both eventually reconciled) traces here
+    # instead of silently double-bumping.
+    "skip:duplicate-fail-in-cycle",
     # CER-113 (INFRA-299): a worker returned a syntactically valid
     # BUILD-RESULT/REVIEW-RESULT JSON object whose verdict word is outside
     # the WORKER-004 enum (RECOGNISED_BUILD_OUTCOMES /
@@ -419,6 +447,50 @@ _LEGACY_BUILD_VERDICTS: dict[str, str] = {
 _REJECTED_OUTCOME_MAX_CHARS = 120
 
 
+def _iter_json_objects(text: str) -> "list[Any]":
+    """Yield each syntactically-parseable top-level JSON value found in
+    ``text``, in order (INFRA-337).
+
+    Replaces the prior non-nesting ``re.finditer(r"\\{[^{}]*\\}", ...)`` scan,
+    which truncated at the first inner ``}`` and so mis-parsed (or silently
+    dropped) any candidate object whose ``reason``/``findings``/``fail_cause``
+    string field itself quoted a literal ``{...}`` (routine reviewer prose in
+    this codebase, e.g. "the guard `if (x) { revert() }` is unreachable").
+
+    Uses ``json.JSONDecoder().raw_decode(text, idx)`` at each successive
+    ``{`` position rather than a hand-rolled brace/quote balancing scan —
+    this reuses the stdlib's own JSON string/escape handling instead of
+    reimplementing it, so a `{`/`}` pair embedded inside a quoted string
+    (with or without surrounding object nesting) is never mistaken for
+    structural JSON. On a decode failure at a given ``{`` (e.g. one that only
+    appears inside an already-consumed string, or an unterminated/malformed
+    object) the scan advances by one character and keeps looking — best
+    effort, never raises, mirrors the discipline the rest of this module
+    already follows. A ``{`` that falls inside the span already consumed by
+    a successful prior ``raw_decode`` call is skipped, so a brace embedded in
+    an already-parsed object's own string value is never re-offered as a
+    second top-level candidate.
+    """
+    decoder = json.JSONDecoder()
+    results: "list[Any]" = []
+    idx = 0
+    length = len(text)
+    while idx < length:
+        brace_idx = text.find("{", idx)
+        if brace_idx == -1:
+            break
+        try:
+            obj, end_idx = decoder.raw_decode(text, brace_idx)
+        except json.JSONDecodeError:
+            idx = brace_idx + 1
+            continue
+        results.append(obj)
+        # Advance past the consumed span (guard against a zero-length or
+        # non-advancing decode so the scan can never loop unboundedly).
+        idx = end_idx if end_idx > brace_idx else brace_idx + 1
+    return results
+
+
 def parse_worker_outcome(
     tool_response: Any,
     *,
@@ -480,11 +552,7 @@ def parse_worker_outcome(
     outcome: "str | None" = None
     fail_cause: "str | None" = None
 
-    for match in re.finditer(r"\{[^{}]*\}", text, re.DOTALL):
-        try:
-            obj = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            continue
+    for obj in _iter_json_objects(text):
         if not isinstance(obj, dict):
             continue
         rtype = obj.get("type")
@@ -538,6 +606,27 @@ def parse_worker_outcome(
 # ---------------------------------------------------------------------------
 # Transcript → per-spawn usage extraction
 # ---------------------------------------------------------------------------
+
+
+def _duration_ms_from_ts(first_ts: "str | None", last_ts: "str | None") -> "int | None":
+    """Return the millisecond interval between two ISO-8601 transcript
+    timestamps, or ``None`` on any missing/unparseable input (INFRA-348).
+
+    Shared by every duration-computing call site — :func:`read_completed_spawn`
+    (the file-fallback branch), :func:`extract_subagent_usage` (the primary
+    synchronous sidechain path), and :func:`reconcile_one`'s SubagentStop
+    payload branch — so all three agree on the same unit (milliseconds) and
+    the same interval definition (last entry's timestamp minus first entry's
+    timestamp). Never raises.
+    """
+    if not first_ts or not last_ts:
+        return None
+    try:
+        t0 = datetime.fromisoformat(str(first_ts).replace("Z", "+00:00"))
+        t1 = datetime.fromisoformat(str(last_ts).replace("Z", "+00:00"))
+        return int((t1 - t0).total_seconds() * 1000)
+    except Exception:
+        return None
 
 
 def _sum_deduped_usage(entries: "list[dict]") -> dict[str, Any]:
@@ -631,6 +720,17 @@ def extract_subagent_usage(
     *transcript_path* is ``None``, *tool_use_id* is falsy, the file is
     unreadable, no matching ``tool_use`` entry is found, or no sidechain
     usage data follows it. Never raises.
+
+    ``duration_ms`` (INFRA-348) is derived from the matched sidechain
+    entries' own ``timestamp`` fields — the same first-entry-to-last-entry
+    definition, and the same millisecond unit, that
+    :func:`read_completed_spawn`'s file-fallback branch already uses (both
+    route through :func:`_duration_ms_from_ts`). This is the *primary* live
+    path: it is reached for every synchronous spawn whose sidechain turns
+    are already interleaved into the calling session's own transcript at
+    ``PostToolUse`` time, unlike the file-fallback branch which only fires
+    for an async-launched spawn reconciled later from its own output file.
+    ``None`` when fewer than one timestamped sidechain entry is found.
     """
     if transcript_path is None or not tool_use_id:
         return dict(_EMPTY_USAGE)
@@ -642,6 +742,8 @@ def extract_subagent_usage(
 
     matched_chain = False
     candidate_entries: list[dict] = []
+    first_ts: "str | None" = None
+    last_ts: "str | None" = None
 
     for raw in lines:
         raw = raw.strip()
@@ -670,6 +772,11 @@ def extract_subagent_usage(
 
         if entry.get("isSidechain") and entry.get("type") == "assistant":
             candidate_entries.append(entry)
+            ts = entry.get("timestamp")
+            if isinstance(ts, str) and ts:
+                if first_ts is None:
+                    first_ts = ts
+                last_ts = ts
         elif not entry.get("isSidechain"):
             # First non-sidechain entry after the match ends this spawn's
             # own turn window — the subagent has returned to the main thread.
@@ -678,7 +785,9 @@ def extract_subagent_usage(
     # INFRA-258: dedupe by message.id (last write wins) before summing — a
     # subagent's own turns can appear as multiple streaming-snapshot JSONL
     # lines sharing one message.id with monotonically growing output_tokens.
-    return _sum_deduped_usage(candidate_entries)
+    usage = _sum_deduped_usage(candidate_entries)
+    usage["duration_ms"] = _duration_ms_from_ts(first_ts, last_ts)
+    return usage
 
 
 # ---------------------------------------------------------------------------
@@ -822,6 +931,42 @@ def _derive_attribution(
     story_id = _derive_story_id(tool_input, state)
     rail = story_id.split("-", 1)[0] if story_id and "-" in story_id else None
     return story_id, None, rail
+
+
+def _read_story_class(
+    project_dir: "Path | str", story_id: "str | None", rail: "str | None"
+) -> "str | None":
+    """Best-effort ``story_class`` lookup from the story file's own
+    frontmatter (INFRA-348, Ensures 5).
+
+    Reuses ``flex_build._story_path`` (containment-checked path resolution)
+    and ``flex_build._read_story_frontmatter`` (the canonical
+    ``schema_validator._parse_frontmatter``-backed reader every other
+    story/schema-reading call site in this skill already uses) rather than a
+    second, parallel parser. story_class is static, story-authored data
+    (unlike ``model_selection_reason``, a runtime dispatch decision) —
+    re-reading it fresh at record time is correct and cannot "disagree with
+    what actually ran" the way recomputing a model-selection decision could.
+
+    Returns ``None`` for a synthetic story id (``phase:...``,
+    ``unattributed:...``), a missing *story_id*/*rail*, a story id whose path
+    would escape the stories root, a missing file, or any parse failure.
+    Never raises.
+    """
+    try:
+        if not story_id or not rail or ":" in story_id:
+            return None
+        project_path = (
+            project_dir if isinstance(project_dir, Path) else Path(project_dir)
+        )
+        story_path = _story_path(story_id, project_path)
+        if not story_path.is_file():
+            return None
+        fm = _read_story_frontmatter(story_path)
+        value = fm.get("story_class")
+        return str(value) if value else None
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1533,16 +1678,7 @@ def read_completed_spawn(
             # No usage data anywhere in the file — not reconcilable.
             return None
 
-        first_ts = data["first_ts"]
-        last_ts = data["last_ts"]
-        duration_ms: "int | None" = None
-        if first_ts and last_ts:
-            try:
-                t0 = datetime.fromisoformat(first_ts.replace("Z", "+00:00"))
-                t1 = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
-                duration_ms = int((t1 - t0).total_seconds() * 1000)
-            except Exception:
-                duration_ms = None
+        duration_ms = _duration_ms_from_ts(data["first_ts"], data["last_ts"])
 
         final_text = _flatten_tool_response(last_message)
         outcome, fail_cause = parse_worker_outcome(final_text, rejected=rejected)
@@ -1610,6 +1746,50 @@ def _extract_spawn_ref(tool_response: Any) -> "tuple[str | None, str | None]":
     return agent_id, output_file
 
 
+def _attempt_cycle_key(project_dir: "Path | str", story_id: str) -> "str | None":
+    """Return an identifier for *story_id*'s currently-open build-attempt
+    cycle (INFRA-336, CER-148), or ``None`` when there is no live marker to
+    anchor one on.
+
+    Derived from whichever of the two markers ``_story_accepts_late_bump``
+    also reads is present — ``current_stories[story_id]["set_at"]`` (the
+    story is still actively being built) takes priority over
+    ``recently_discarded_stories[story_id]`` (it was just discarded but not
+    yet re-stamped), since a story cannot be both at once and the "current"
+    marker is the fresher signal when both somehow exist. The prefix
+    (``current:``/``discarded:``) keeps the two source timestamps from
+    colliding if a discard and a fresh restamp ever produced the same
+    literal instant.
+
+    A story with neither marker (e.g. ``_story_accepts_late_bump`` returned
+    ``True`` only via ``counter_recorded``, an already-attempted story with
+    no currently-open cycle this function can identify) returns ``None`` —
+    the caller must not attempt CER-148 dedup in that case, only fall back
+    to the pre-CER-148 unconditional-bump behaviour. Pure read; never
+    raises.
+    """
+    try:
+        project_path = (
+            project_dir if isinstance(project_dir, Path) else Path(project_dir)
+        )
+        state = _read_state(project_path)
+        if not isinstance(state, dict):
+            return None
+
+        current_stories = state.get("current_stories")
+        if isinstance(current_stories, dict):
+            entry = current_stories.get(story_id)
+            if isinstance(entry, dict) and entry.get("set_at"):
+                return f"current:{entry['set_at']}"
+
+        discarded = state.get(RECENTLY_DISCARDED_STORIES_KEY)
+        if isinstance(discarded, dict) and story_id in discarded:
+            return f"discarded:{discarded[story_id]}"
+    except Exception:
+        pass
+    return None
+
+
 def _story_accepts_late_bump(project_dir: "Path | str", story_id: str) -> bool:
     """Gate a *reconciliation-time* FAIL bump of the attempt counter
     (CER-091 defect 4).
@@ -1621,15 +1801,35 @@ def _story_accepts_late_bump(project_dir: "Path | str", story_id: str) -> bool:
        :data:`_LATE_BUMP_BLOCKED_STATUSES`; or
     2. ``.companion/attempt_counter.json`` does not already record this
        ``story_id`` **and** ``.companion/state.json`` does not show it as
-       currently being built — the build loop is not currently building it,
-       so a bump would *create* a counter file for a story nobody is working
-       on. Liveness is resolved against the story-keyed ``current_stories``
-       record (INFRA-281's authority) when present; the flat
-       ``current_story`` key is a fallback for pre-INFRA-281 state files
-       only. With two builders in flight the flat mirror names only one of
-       them, so keying the check on it would refuse the *other* story's
-       first late FAIL bump and stall its escalation ladder at attempt 1
-       (INFRA-282, CER-095.3).
+       currently being built **and** ``state.json`` does not show it as
+       *just* discarded — the build loop is not currently building it and
+       did not just stop building it, so a bump would *create* a counter
+       file for a story nobody is working on. Liveness is resolved against
+       the story-keyed ``current_stories`` record (INFRA-281's authority)
+       when present; the flat ``current_story`` key is a fallback for
+       pre-INFRA-281 state files only. With two builders in flight the flat
+       mirror names only one of them, so keying the check on it would
+       refuse the *other* story's first late FAIL bump and stall its
+       escalation ladder at attempt 1 (INFRA-282, CER-095.3).
+
+       INFRA-336 (CER-091 defect 4's real root cause): a story's *first*
+       FAIL is common not to be reconciled from ``effort.db`` until
+       *after* ``discard-story-worktree`` has already cleared its
+       ``current_stories`` stamp — the exact ordering
+       ``CLAUDE.build.md``'s build loop prescribes (spawn-reviewer FAIL ->
+       discard-story-worktree -> next poll of ``next-action``, which is
+       what triggers the reconcile sweep). Without this widening, rule 2
+       would refuse that FAIL forever: ``counter_recorded`` is ``False``
+       (it is the story's *first* FAIL, nothing has bumped yet) and
+       ``is_current`` is also ``False`` (the discard already cleared the
+       stamp). ``state["recently_discarded_stories"]`` — written by
+       ``discard-story-worktree`` at the same point it clears the stamp,
+       and consumed the moment this rule authorizes a bump from it or the
+       story is re-stamped by a later ``create-story-worktree`` (see
+       :func:`skills.pairmode.scripts.story_context.mark_recently_discarded`
+       / :func:`...consume_recently_discarded`) — closes exactly that gap
+       without reopening it for a stale or replayed ``effort.db`` row
+       belonging to a story nobody is building and nobody just discarded.
 
     Returns ``True`` otherwise. Pure read (no writes on any path); never
     raises — an unreadable story file or state file falls through to rule 2
@@ -1666,6 +1866,7 @@ def _story_accepts_late_bump(project_dir: "Path | str", story_id: str) -> bool:
             counter_recorded = False
 
         is_current = False
+        recently_discarded = False
         try:
             state = _read_state(project_path)
             if isinstance(state, dict):
@@ -1676,10 +1877,14 @@ def _story_accepts_late_bump(project_dir: "Path | str", story_id: str) -> bool:
                     current = state.get("current_story")
                     if isinstance(current, dict) and current.get("id") == story_id:
                         is_current = True
+
+                discarded = state.get(RECENTLY_DISCARDED_STORIES_KEY)
+                if isinstance(discarded, dict):
+                    recently_discarded = story_id in discarded
         except Exception:
             pass
 
-        if not counter_recorded and not is_current:
+        if not counter_recorded and not is_current and not recently_discarded:
             return False
 
         return True
@@ -1920,6 +2125,18 @@ def reconcile_one(
                     usage = candidate_usage
                     model = candidate_usage.get("model")
                     source = "payload"
+                    # INFRA-348 (Ensures 3): the payload branch is this
+                    # function's primary source (the file-fallback branch
+                    # below only fires when this one misses) — it must not
+                    # be the branch that leaves duration_ms permanently
+                    # unpopulated. data["first_ts"]/data["last_ts"] span the
+                    # whole agent transcript file (every entry, not just the
+                    # assistant ones _sum_deduped_usage summed), the same
+                    # source read_completed_spawn's fallback branch already
+                    # derives its own duration from.
+                    duration_ms = _duration_ms_from_ts(
+                        data["first_ts"], data["last_ts"]
+                    )
 
         if usage is None:
             # C4: file fallback — only reached when the payload path above
@@ -2212,15 +2429,61 @@ def reconcile_pending_attempts(
                         # never propagate and must never prevent the bump.
                         try:
                             if _story_accepts_late_bump(project_path, story_id):
-                                bump_attempt_count(story_id, project_path)
-                                try:
-                                    log_recording_event(
-                                        project_path, story_id=story_id,
-                                        row_id=row.get("id"),
-                                        decision="bump:late-fail",
-                                    )
-                                except Exception:
-                                    pass
+                                # CER-148 (INFRA-336): a second FAIL row for
+                                # the same still-open attempt (builder
+                                # self-report, then reviewer, both
+                                # eventually reconciled here) must not bump
+                                # twice for what is semantically one failed
+                                # cycle. cycle_key is None when there is no
+                                # live marker to anchor a cycle on — that
+                                # case always falls through to the
+                                # pre-CER-148 unconditional bump, matching
+                                # cycle_already_bumped's own contract.
+                                cycle_key = _attempt_cycle_key(project_path, story_id)
+                                companion_dir = project_path / ".companion"
+                                if cycle_key and cycle_already_bumped(
+                                    companion_dir, story_id, cycle_key
+                                ):
+                                    try:
+                                        log_recording_event(
+                                            project_path, story_id=story_id,
+                                            row_id=row.get("id"),
+                                            decision="skip:duplicate-fail-in-cycle",
+                                        )
+                                    except Exception:
+                                        pass
+                                else:
+                                    bump_attempt_count(story_id, project_path)
+                                    try:
+                                        mark_cycle_bumped(
+                                            companion_dir, story_id, cycle_key
+                                        )
+                                    except Exception:
+                                        pass
+                                    # The discard-side marker's job — keeping
+                                    # this bump reachable after
+                                    # discard-story-worktree cleared the
+                                    # current_stories stamp — is done the
+                                    # moment the bump it authorized actually
+                                    # fires (Ensures 3's bounded-lifetime
+                                    # contract). fail_cycle_bumped is
+                                    # deliberately NOT cleared here — it must
+                                    # survive to catch a second FAIL row for
+                                    # this same cycle.
+                                    try:
+                                        consume_recently_discarded(
+                                            companion_dir, story_id
+                                        )
+                                    except Exception:
+                                        pass
+                                    try:
+                                        log_recording_event(
+                                            project_path, story_id=story_id,
+                                            row_id=row.get("id"),
+                                            decision="bump:late-fail",
+                                        )
+                                    except Exception:
+                                        pass
                             else:
                                 try:
                                     log_recording_event(
@@ -2300,7 +2563,11 @@ def reconcile_pending_attempts(
                 "tokens_out": usage.get("tokens_out"),
                 "cache_read_tokens": usage.get("cache_read_tokens"),
                 "cache_write_tokens": usage.get("cache_write_tokens"),
-                "duration_ms": None,
+                # INFRA-348: same helper/definition every other writer in
+                # this module uses — first-to-last transcript timestamp,
+                # milliseconds. Legitimately None when the file carries no
+                # parseable timestamps at all, not a hardcoded placeholder.
+                "duration_ms": _duration_ms_from_ts(data["first_ts"], data["last_ts"]),
                 # INFRA-299 (CER-113): "UNKNOWN" is written HERE, by the
                 # quiescent retirement sweep, as a deliberate retirement
                 # marker — it is not a worker verdict and never passes
@@ -2559,6 +2826,27 @@ def record_attempt_from_transcript(
 
         model = tool_input.get("model") or usage.get("model")
 
+        # INFRA-348 (Ensures 5): story_class is static, story-authored data —
+        # read fresh from the story file's own frontmatter at record time via
+        # the shared reader (never a re-parse). model_selection_reason is a
+        # runtime dispatch DECISION, not static data — it is looked up from
+        # the per-story stamp `create-story-worktree` wrote at dispatch time
+        # (state["current_stories"][effective_story_id]), never recomputed by
+        # calling model_selector a second time here (a second computation
+        # could disagree with the model that actually ran).
+        row_story_class = _read_story_class(target_path, story_id, rail)
+        current_stories = state.get("current_stories") if isinstance(state, dict) else None
+        story_dispatch_entry = (
+            current_stories.get(effective_story_id)
+            if isinstance(current_stories, dict)
+            else None
+        )
+        row_model_selection_reason = (
+            story_dispatch_entry.get("model_selection_reason")
+            if isinstance(story_dispatch_entry, dict)
+            else None
+        )
+
         # INFRA-288 (CER-104): extract the spawn ref BEFORE the write so the
         # row carries agent_id/output_file in the same statement that
         # creates it, and so agent_id can serve as the idempotency key when
@@ -2598,6 +2886,8 @@ def record_attempt_from_transcript(
             rail=rail,
             agent_id=spawn_agent_id,
             output_file=spawn_output_file,
+            story_class=row_story_class,
+            model_selection_reason=row_model_selection_reason,
         )
 
         # INFRA-258: persist the spawn ref so a later reconciliation pass

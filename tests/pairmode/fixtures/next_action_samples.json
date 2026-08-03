@@ -5,7 +5,7 @@
     "model": "sonnet",
     "reason": "Next unbuilt story; attempt 1; sonnet baseline.",
     "meta": {
-      "schema_version": 5,
+      "schema_version": 6,
       "attempt": 1
     }
   },
@@ -13,11 +13,13 @@
     "action": "spawn-builder",
     "scalar": "RESOLVER-003",
     "model": "opus",
-    "reason": "Retry — second attempt; upgrading to opus.",
+    "reason": "Retry \u2014 second attempt; upgrading to opus.",
     "meta": {
-      "schema_version": 5,
+      "schema_version": 6,
       "attempt": 2,
-      "warnings": ["previous attempt failed reviewer check"]
+      "warnings": [
+        "previous attempt failed reviewer check"
+      ]
     }
   },
   {
@@ -26,7 +28,7 @@
     "model": "opus",
     "reason": "Story failed twice; escalating to loop-breaker.",
     "meta": {
-      "schema_version": 5,
+      "schema_version": 6,
       "attempt": 3,
       "fail_rung": "double-fail"
     }
@@ -37,9 +39,13 @@
     "model": null,
     "reason": "judged-gate-tripped",
     "meta": {
-      "schema_version": 5,
-      "gates_tripped": ["schema"],
-      "gate_reasons": {"schema": "no management surface story in phase"}
+      "schema_version": 6,
+      "gates_tripped": [
+        "schema"
+      ],
+      "gate_reasons": {
+        "schema": "no management surface story in phase"
+      }
     }
   },
   {
@@ -48,7 +54,7 @@
     "model": "sonnet",
     "reason": "Builder completed; spawning reviewer for story WORKER-004.",
     "meta": {
-      "schema_version": 5,
+      "schema_version": 6,
       "attempt": 1
     }
   },
@@ -58,7 +64,7 @@
     "model": "opus",
     "reason": "Checkpoint: phase_class=production; security-auditor upgrades to opus.",
     "meta": {
-      "schema_version": 5
+      "schema_version": 6
     }
   },
   {
@@ -67,7 +73,7 @@
     "model": "sonnet",
     "reason": "Checkpoint: intent-reviewer reviews all stories in phase.",
     "meta": {
-      "schema_version": 5
+      "schema_version": 6
     }
   },
   {
@@ -76,7 +82,7 @@
     "model": "opus",
     "reason": "Checkpoint step: security audit.",
     "meta": {
-      "schema_version": 5
+      "schema_version": 6
     }
   },
   {
@@ -85,7 +91,7 @@
     "model": "sonnet",
     "reason": "Checkpoint step: intent review.",
     "meta": {
-      "schema_version": 5
+      "schema_version": 6
     }
   },
   {
@@ -94,7 +100,7 @@
     "model": "sonnet",
     "reason": "Checkpoint step: docs review.",
     "meta": {
-      "schema_version": 5
+      "schema_version": 6
     }
   },
   {
@@ -103,7 +109,7 @@
     "model": null,
     "reason": "Checkpoint step: tag phase.",
     "meta": {
-      "schema_version": 5
+      "schema_version": 6
     }
   },
   {
@@ -112,9 +118,11 @@
     "model": null,
     "reason": "Context budget exceeded; waiting for operator acknowledgement.",
     "meta": {
-      "schema_version": 5,
+      "schema_version": 6,
       "gate": "context-budget",
-      "warnings": ["context_current_tokens is stale"]
+      "warnings": [
+        "context_current_tokens is stale"
+      ]
     }
   },
   {
@@ -123,7 +131,7 @@
     "model": "opus",
     "reason": "needs-spec",
     "meta": {
-      "schema_version": 5
+      "schema_version": 6
     }
   },
   {
@@ -132,16 +140,7 @@
     "model": null,
     "reason": "Phase complete and checkpointed.",
     "meta": {
-      "schema_version": 5
-    }
-  },
-  {
-    "action": "pause-context",
-    "scalar": "RESOLVER-010",
-    "model": null,
-    "reason": "pause-context: tokens=132000 threshold=120000 ceiling=132000",
-    "meta": {
-      "schema_version": 5
+      "schema_version": 6
     }
   }
 ]

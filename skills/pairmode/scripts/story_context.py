@@ -34,6 +34,32 @@ from state_utils import _atomic_write_json, state_lock
 # tracks all of them, keyed by story ID.
 CURRENT_STORIES_KEY = "current_stories"
 
+# INFRA-336: state.json key recording story IDs whose worktree was just
+# discarded (reviewer FAIL, ``discard-story-worktree``) but whose FAIL
+# outcome may not yet have been reconciled from ``effort.db``. Value shape
+# is ``{story_id: <iso8601 timestamp>}``. Existence here is what widens
+# ``subagent_transcript._story_accepts_late_bump``'s rule 2 to recognise a
+# story that was building a moment ago (and therefore has a real, not
+# stale/replayed, FAIL) even though its ``current_stories`` stamp has
+# already been cleared. Entries are consumed (removed) the moment the late
+# bump they authorized actually fires, or the moment the same story_id is
+# re-stamped by a later ``create-story-worktree`` — see
+# :func:`consume_recently_discarded` and its call sites — so this never
+# accumulates unboundedly across discards and never re-authorizes a later,
+# unrelated FAIL for the same story_id.
+RECENTLY_DISCARDED_STORIES_KEY = "recently_discarded_stories"
+
+# INFRA-336 (CER-148): state.json key recording, per story_id, the identity
+# ("cycle key") of the most recent attempt cycle whose FAIL has already
+# bumped the attempt counter — so a *second* FAIL row for the same
+# still-open attempt (e.g. builder self-report, then reviewer, both
+# eventually reconciled from effort.db) is recognised as a duplicate of one
+# already-counted semantic attempt rather than bumping a second time. See
+# ``subagent_transcript._attempt_cycle_key`` for how the cycle key is
+# derived, and :func:`cycle_already_bumped` / :func:`mark_cycle_bumped` for
+# the read/write pair. Value shape is ``{story_id: <cycle_key str>}``.
+FAIL_CYCLE_BUMPED_KEY = "fail_cycle_bumped"
+
 
 def is_pairmode_active(project_dir: Path) -> bool:
     """Return True if the project has pairmode active.
@@ -65,6 +91,7 @@ def set_current_story(
     companion_dir: Path,
     story_id: str,
     title: str | None = None,
+    model_selection_reason: str | None = None,
 ) -> dict:
     """Write current_story into .companion/state.json.
 
@@ -86,6 +113,17 @@ def set_current_story(
         companion_dir: Path to the .companion directory.
         story_id: Story identifier, e.g. "2.3".
         title: Optional human-readable story title.
+        model_selection_reason: (INFRA-348) The dispatch-time model-selection
+            reason (``"auto-baseline"``, ``"auto-downgrade"``,
+            ``"prompted-upgrade"``, ``"user-override"``, ...) the orchestrator
+            already computed for this story's builder spawn (``next-action``'s
+            ``reason`` field). Stored per-story (keyed, like everything else
+            this function writes) so ``subagent_transcript.record_attempt_from_transcript``
+            can plumb the *actual* dispatch-time value into the ``attempts``
+            row's ``model_selection_reason`` column without recomputing it —
+            a second, independent call to ``model_selector`` at record time
+            could disagree with the model that actually ran. Omitted (``None``,
+            the default) when the caller has no reason to stamp.
 
     Returns:
         The updated state dict (also written to disk).
@@ -102,6 +140,8 @@ def set_current_story(
         }
         if title is not None:
             entry["title"] = title
+        if model_selection_reason is not None:
+            entry["model_selection_reason"] = model_selection_reason
         state.setdefault(CURRENT_STORIES_KEY, {})[story_id] = entry
         state["current_story"] = entry
         write_state(companion_dir, state)
@@ -186,6 +226,147 @@ def _clear_current_story_locked(
 
     write_state(companion_dir, state)
     return state
+
+
+def mark_recently_discarded(companion_dir: Path, story_id: str) -> dict:
+    """Record *story_id* under ``state["recently_discarded_stories"]``
+    (INFRA-336).
+
+    Called by ``discard-story-worktree`` at the same point it clears
+    *story_id*'s ``current_stories`` stamp (``_clear_active_story``) — the
+    marker exists precisely to survive that clear, so a FAIL for this
+    ``story_id`` reconciled from ``effort.db`` *after* the discard (but
+    before a retry re-stamps it) still authorizes a late attempt-counter
+    bump. See :data:`RECENTLY_DISCARDED_STORIES_KEY` for the bounded-lifetime
+    contract and :func:`consume_recently_discarded` for the removal side.
+
+    Locked read-modify-write (mirrors :func:`set_current_story`) — two
+    near-simultaneous discards for different stories must not clobber each
+    other's marker entry.
+
+    Creates ``state.json`` if it does not exist. Returns the updated state
+    dict.
+    """
+    with state_lock(companion_dir / "state.json"):
+        state = read_state(companion_dir)
+        marker = state.setdefault(RECENTLY_DISCARDED_STORIES_KEY, {})
+        marker[story_id] = datetime.now(timezone.utc).isoformat()
+        write_state(companion_dir, state)
+        return state
+
+
+def consume_recently_discarded(companion_dir: Path, story_id: str) -> bool:
+    """Remove *story_id* from ``state["recently_discarded_stories"]``
+    (INFRA-336).
+
+    Called from two places (whichever fires first bounds the marker's
+    lifetime, per :data:`RECENTLY_DISCARDED_STORIES_KEY`'s contract):
+
+    - ``subagent_transcript._story_accepts_late_bump``'s caller, the moment
+      a late bump it authorized for this ``story_id`` actually fires;
+    - ``flex_build._stamp_active_story`` (``create-story-worktree``), the
+      moment this ``story_id`` is re-stamped as current — a retry means the
+      discard is old news, and a *second*, unrelated FAIL for the same
+      ``story_id`` must not still be treated as "just discarded".
+
+    Returns ``True`` if an entry was present and removed, ``False``
+    otherwise (including when ``state.json`` is missing/malformed or the
+    key is absent) — a pure no-op in the common case where nothing needs
+    consuming. Never raises.
+    """
+    try:
+        with state_lock(companion_dir / "state.json"):
+            state = read_state(companion_dir)
+            marker = state.get(RECENTLY_DISCARDED_STORIES_KEY)
+            if not isinstance(marker, dict) or story_id not in marker:
+                return False
+            marker.pop(story_id, None)
+            if marker:
+                state[RECENTLY_DISCARDED_STORIES_KEY] = marker
+            else:
+                state.pop(RECENTLY_DISCARDED_STORIES_KEY, None)
+            write_state(companion_dir, state)
+            return True
+    except Exception:
+        return False
+
+
+def cycle_already_bumped(companion_dir: Path, story_id: str, cycle_key: str | None) -> bool:
+    """Return ``True`` when *cycle_key* has already been recorded as bumped
+    for *story_id* (INFRA-336, CER-148).
+
+    ``cycle_key is None`` (no live ``current_stories``/``recently_discarded``
+    marker to anchor a cycle on — see
+    ``subagent_transcript._attempt_cycle_key``) always returns ``False``:
+    the caller must fall back to the pre-CER-148 unconditional-bump
+    behaviour rather than guess at deduplication with no anchor. Pure read;
+    never raises.
+    """
+    if not cycle_key:
+        return False
+    try:
+        state = read_state(companion_dir)
+        bumped = state.get(FAIL_CYCLE_BUMPED_KEY)
+        return isinstance(bumped, dict) and bumped.get(story_id) == cycle_key
+    except Exception:
+        return False
+
+
+def mark_cycle_bumped(companion_dir: Path, story_id: str, cycle_key: str | None) -> dict:
+    """Record that *cycle_key* has now bumped the attempt counter for
+    *story_id* (INFRA-336, CER-148) — a subsequent FAIL row carrying the
+    same ``cycle_key`` is then recognised as a duplicate of this same
+    semantic attempt by :func:`cycle_already_bumped`.
+
+    ``cycle_key is None`` is a no-op (returns the unmodified state) — there
+    is nothing to anchor a dedup record to. Locked read-modify-write,
+    mirroring :func:`mark_recently_discarded`.
+    """
+    if not cycle_key:
+        return read_state(companion_dir)
+    with state_lock(companion_dir / "state.json"):
+        state = read_state(companion_dir)
+        state.setdefault(FAIL_CYCLE_BUMPED_KEY, {})[story_id] = cycle_key
+        write_state(companion_dir, state)
+        return state
+
+
+def clear_story_bump_markers(companion_dir: Path, story_id: str) -> dict:
+    """Remove *story_id*'s entries from both
+    ``recently_discarded_stories`` and ``fail_cycle_bumped`` (INFRA-336).
+
+    Called from two places, each of which means "this story's prior FAIL
+    history is no longer relevant": ``flex_build._stamp_active_story``
+    (``create-story-worktree`` re-stamping the story — a new attempt cycle
+    is starting) and ``merge-story-worktree`` (the story landed; nothing
+    about a past discard/duplicate-FAIL cycle should linger). Locked
+    read-modify-write; missing keys/file is a silent no-op. Never raises.
+    """
+    try:
+        with state_lock(companion_dir / "state.json"):
+            state = read_state(companion_dir)
+            changed = False
+            discarded = state.get(RECENTLY_DISCARDED_STORIES_KEY)
+            if isinstance(discarded, dict) and story_id in discarded:
+                discarded.pop(story_id, None)
+                if discarded:
+                    state[RECENTLY_DISCARDED_STORIES_KEY] = discarded
+                else:
+                    state.pop(RECENTLY_DISCARDED_STORIES_KEY, None)
+                changed = True
+            bumped = state.get(FAIL_CYCLE_BUMPED_KEY)
+            if isinstance(bumped, dict) and story_id in bumped:
+                bumped.pop(story_id, None)
+                if bumped:
+                    state[FAIL_CYCLE_BUMPED_KEY] = bumped
+                else:
+                    state.pop(FAIL_CYCLE_BUMPED_KEY, None)
+                changed = True
+            if changed:
+                write_state(companion_dir, state)
+            return state
+    except Exception:
+        return {}
 
 
 def get_current_story(companion_dir: Path) -> dict | None:

@@ -78,7 +78,6 @@ def test_full_flag_set_round_trips_through_alias(tmp_path: Path) -> None:
         "--tokens-out", "400",
         "--cache-read-tokens", "50",
         "--cache-write-tokens", "20",
-        "--tool-uses", "7",
         "--duration-ms", "12345",
         "--outcome", "PASS",
         "--notes", "full flag round trip",
@@ -100,7 +99,6 @@ def test_full_flag_set_round_trips_through_alias(tmp_path: Path) -> None:
     assert row["tokens_out"] == 400
     assert row["cache_read_tokens"] == 50
     assert row["cache_write_tokens"] == 20
-    assert row["tool_uses"] == 7
     assert row["duration_ms"] == 12345
     assert row["outcome"] == "PASS"
     assert row["notes"] == "full flag round trip"

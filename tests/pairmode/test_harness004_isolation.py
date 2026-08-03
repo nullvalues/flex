@@ -108,12 +108,12 @@ def _make_position(
 
 
 class TestSchemaVersion:
-    """SCHEMA_VERSION must equal 5 after the INFRA-316 bump."""
+    """SCHEMA_VERSION must equal 6 after the INFRA-339 bump."""
 
     def test_schema_version_is_4(self) -> None:
-        """next_action.SCHEMA_VERSION must be 5 (INFRA-316 pause-context bump)."""
-        assert SCHEMA_VERSION == 5, (
-            f"Expected SCHEMA_VERSION == 5; got {SCHEMA_VERSION!r}"
+        """next_action.SCHEMA_VERSION must be 6 (INFRA-339 pause-context removal bump)."""
+        assert SCHEMA_VERSION == 6, (
+            f"Expected SCHEMA_VERSION == 6; got {SCHEMA_VERSION!r}"
         )
 
     def test_make_action_embeds_schema_version(self) -> None:
@@ -343,10 +343,15 @@ class TestPreCheckpointGuards:
 
 
 _STEP_SEQUENCE_CASES: list[tuple[list[str], str, "str | None"]] = [
-    # State 1: no steps done → first step is checkpoint-security
-    ([], CHECKPOINT_SECURITY, None),
-    # State 2: security done → checkpoint-intent
-    ([CHECKPOINT_SECURITY], CHECKPOINT_INTENT, None),
+    # State 1: no steps done → first step is checkpoint-security. INFRA-340:
+    # checkpoint-security now resolves a real model via
+    # select_security_auditor_model; default phase_class "production" →
+    # opus (production-class).
+    ([], CHECKPOINT_SECURITY, "opus"),
+    # State 2: security done → checkpoint-intent. INFRA-340: checkpoint-intent
+    # now resolves a real model via select_intent_reviewer_model; default
+    # phase_class "production" → sonnet (non-production-class).
+    ([CHECKPOINT_SECURITY], CHECKPOINT_INTENT, "sonnet"),
     # State 3: security + intent done → checkpoint-docs. INFRA-333:
     # checkpoint-docs now resolves a real model via
     # select_docs_reviewer_model; the fixture phase file carries no

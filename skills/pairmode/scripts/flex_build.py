@@ -77,6 +77,8 @@ from story_context import (  # noqa: E402
     get_current_stories,
     read_state,
     CURRENT_STORIES_KEY,
+    mark_recently_discarded,
+    clear_story_bump_markers,
 )
 from scope_guard import (  # noqa: E402
     entry_is_fresh,
@@ -87,21 +89,70 @@ from scope_guard import (  # noqa: E402
     standing_paths_for,
 )
 from table_utils import split_table_row  # noqa: E402
+from story_update import update_story_status, update_phase_story_status  # noqa: E402
 
 
-def _stamp_active_story(project_path: Path, story_id: str) -> None:
+def _stamp_active_story(
+    project_path: Path, story_id: str, *, model_selection_reason: "str | None" = None
+) -> None:
     """Stamp *story_id* as ``current_story`` in the main checkout's
     ``.companion/state.json``, creating the directory if needed.
 
     Best-effort: any failure is swallowed by the caller (create-story-worktree
     surfaces it as a warning) — a stamping failure must never prevent the
     worktree itself from being created.
+
+    *model_selection_reason* (INFRA-348, optional) is forwarded to
+    ``set_current_story`` unchanged — see that function's docstring for why
+    this is dispatch-time plumbing, not a value derived here.
     """
     story_path = _story_path(story_id, project_path)
     fm = _read_story_frontmatter(story_path)
     companion_dir = project_path / ".companion"
     companion_dir.mkdir(parents=True, exist_ok=True)
-    set_current_story(companion_dir, story_id, title=fm.get("title"))
+    set_current_story(
+        companion_dir,
+        story_id,
+        title=fm.get("title"),
+        model_selection_reason=model_selection_reason,
+    )
+    # INFRA-336: a re-stamp means any prior discard/duplicate-FAIL history
+    # for this story_id is stale — a *new* attempt cycle is starting, so a
+    # later FAIL must not be treated as still belonging to the discard that
+    # preceded this retry (Ensures 3's bounded-lifetime contract).
+    try:
+        clear_story_bump_markers(companion_dir, story_id)
+    except Exception:
+        pass
+
+
+def _clear_gate_verdict(project_path: Path, story_id: str) -> None:
+    """Pop *story_id*'s entry from ``state.json["gate_verdict"]``, if present.
+
+    INFRA-341: mirrors ``clear_attempt_count``/``_clear_active_story``/
+    ``clear_permissions_artifact`` — a story that has landed or been
+    discarded must not leave a stale recorded gate verdict behind for a
+    future re-attempt of the same story_id to silently reuse. Writes back
+    via ``_atomic_write_json`` only when a key was actually removed, to
+    avoid a needless write/lock on the common case where no verdict was
+    ever recorded for this story. Silent no-op when ``.companion/state.json``
+    does not exist or is malformed.
+    """
+    state_path = project_path / ".companion" / "state.json"
+    if not state_path.exists():
+        return
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if not isinstance(state, dict):
+            return
+    except (json.JSONDecodeError, OSError):
+        return
+    verdicts = state.get("gate_verdict")
+    if not isinstance(verdicts, dict) or story_id not in verdicts:
+        return
+    verdicts.pop(story_id, None)
+    state["gate_verdict"] = verdicts
+    _atomic_write_json(state_path, state)
 
 
 def _clear_active_story(project_path: Path, story_id: str) -> None:
@@ -1691,11 +1742,25 @@ def cmd_next_phase(after_phase: str, project_dir: str) -> None:
 
 def _mark_phase_complete_in_index(phase_key: str, project_dir: Path) -> bool:
     """Set the status cell of *phase_key*'s row in docs/phases/index.md to
-    'complete'.
+    'complete', and (CER-155) backfill its Tag cell when the ``cp-<phase_key>``
+    git tag is already real.
 
-    Idempotent no-op (returns ``False``) when the index file is absent, the
-    phase row is not found, or the row is already ``complete``. Returns
-    ``True`` when a write happened.
+    Idempotent no-op (returns ``False``) when the index file is absent or the
+    phase row is not found. Otherwise the status write and the Tag write are
+    independent — a call may write status only, Tag only, both, or neither
+    (fully idempotent when neither is needed). Returns ``True`` when
+    **either** write happened.
+
+    The Tag-cell check runs ``git tag --list cp-<phase_key>`` via
+    ``_run_git`` (never raising — any non-zero exit code, exception, or empty
+    stdout is treated as "tag not found"). This is the ordinary, expected
+    case at the moment ``record-checkpoint-step checkpoint-tag`` runs
+    (``CLAUDE.build.md``'s mandated order calls it *before* ``git tag``), so
+    this function does not claim to verify a tag that provably cannot exist
+    yet at call time — it backfills the cell opportunistically on any call
+    (first or retry) where the tag already exists. Only an existing 4+-column
+    row's Tag cell (``cells[3]``) is ever written; a 3-column row is never
+    grown to 4 columns.
 
     Extracted from ``cmd_mark_phase_complete`` so that both the standalone
     ``mark-phase-complete`` CLI command and the ``checkpoint-tag`` step of
@@ -1715,12 +1780,22 @@ def _mark_phase_complete_in_index(phase_key: str, project_dir: Path) -> bool:
     if not found:
         return False
 
-    # Check for idempotency: if already complete, no write.
-    for ref, status in rows:
-        if ref == phase_key and status == "complete":
-            return False
+    # CER-155: determine, once, whether the cp-<phase_key> git tag already
+    # exists — never raising out of this function (matches this file's
+    # established advisory-degradation style, e.g.
+    # _run_build_gate_subprocess's non-timeout except-Exception branch).
+    tag_name = f"cp-{phase_key}"
+    tag_exists = False
+    try:
+        tag_result = _run_git(["tag", "--list", tag_name], cwd=project_dir)
+        tag_exists = tag_result.returncode == 0 and bool(tag_result.stdout.strip())
+    except Exception:  # noqa: BLE001
+        tag_exists = False
 
-    # Rewrite the matching row in-place, line by line.
+    # Rewrite the matching row in-place, line by line. Both "does status
+    # need updating" and "does Tag need updating" are computed before
+    # deciding whether to write at all — the early-return-on-already-complete
+    # no longer short-circuits before the Tag-cell check runs.
     new_lines: list[str] = []
     replaced = False
     for line in text.splitlines(keepends=True):
@@ -1733,9 +1808,18 @@ def _mark_phase_complete_in_index(phase_key: str, project_dir: Path) -> bool:
             # its `\|` cells intact.
             cells = [p.strip() for p in split_table_row(stripped)[1:-1]]
             # cells[0]=phase, cells[1]=title, cells[2]=status, cells[3:]=rest
-            if len(cells) >= 3:
-                if cells[0] == phase_key and cells[2] != "complete":
-                    cells[2] = "complete"
+            if len(cells) >= 3 and cells[0] == phase_key:
+                needs_status = cells[2] != "complete"
+                needs_tag = (
+                    tag_exists
+                    and len(cells) >= 4
+                    and tag_name not in cells[3]
+                )
+                if needs_status or needs_tag:
+                    if needs_status:
+                        cells[2] = "complete"
+                    if needs_tag:
+                        cells[3] = f"{cells[3]} · {tag_name}"
                     new_row = "| " + " | ".join(cells) + " |\n"
                     new_lines.append(new_row)
                     replaced = True
@@ -1914,6 +1998,7 @@ def _mark_phase_complete_in_era_ledger(phase_key: str, project_dir: Path) -> boo
         )
 
     matches: list[tuple[Path, str, str | None]] = []
+    not_found_docs: list[Path] = []
     for era_path in active:
         try:
             text = era_path.read_text(encoding="utf-8")
@@ -1922,8 +2007,26 @@ def _mark_phase_complete_in_era_ledger(phase_key: str, project_dir: Path) -> boo
         new_text, status = _flip_era_ledger_row(text, phase_key)
         if status != "not_found":
             matches.append((era_path, status, new_text))
+        else:
+            not_found_docs.append(era_path)
 
     if not matches:
+        # CER-154: distinguish "active era docs exist but none of their
+        # ## Phases ledgers contain this phase's row" from "no active era
+        # docs at all" (the latter returns False above, before this loop,
+        # with no warning). The row may belong to an already-closed era
+        # doc's ledger — this function's search is deliberately scoped to
+        # active docs only (see docstring); widening it is out of scope for
+        # this warning.
+        if not_found_docs:
+            names = ", ".join(p.name for p in not_found_docs)
+            click.echo(
+                "warning: record-checkpoint-step: phase "
+                f"{phase_key!r} not found in any active era doc's ## Phases "
+                f"ledger (searched: {names}) — it may belong to an "
+                "already-closed era's ledger (CER-154).",
+                err=True,
+            )
         return False
 
     wrote_any = False
@@ -2153,32 +2256,61 @@ def write_attempt_count(story_id: str, count: int, project_dir: Path) -> None:
     Persists via ``state_utils._atomic_write_json`` (temp-file + os.replace),
     not a direct in-place write, so a reader never observes a
     truncated/partial file.
+
+    CER-147 (INFRA-336): the read-modify-write critical section (the
+    ``_read_attempt_counters`` call through the ``_atomic_write_json`` call)
+    runs inside ``state_utils.state_lock``, taken on
+    ``attempt_counter.json`` itself (its own ``.lock`` sibling, never
+    ``state.json``'s) — mirroring ``story_context.py``'s
+    ``with state_lock(companion_dir / "state.json")`` call sites. Two
+    near-simultaneous writers for different story_ids (or a write racing a
+    ``bump_attempt_count``/``clear_attempt_count`` call) no longer risk one
+    silently clobbering the other's entry. ``state_lock`` is bounded/
+    advisory/fail-open — a lock-acquisition failure still degrades to the
+    pre-CER-147 unsynchronized write, never a stall or a raise.
     """
     path = _attempt_counter_path(project_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    counters = _read_attempt_counters(project_dir)
-    counters[story_id] = count
-    _atomic_write_json(path, {_ATTEMPT_COUNTER_STORIES_KEY: counters})
+    with state_lock(path):
+        counters = _read_attempt_counters(project_dir)
+        counters[story_id] = count
+        _atomic_write_json(path, {_ATTEMPT_COUNTER_STORIES_KEY: counters})
 
 
 def bump_attempt_count(story_id: str, project_dir: Path) -> int:
     """Increment and persist the attempt counter for *story_id*; return the new count.
 
-    Reads the current count via ``read_attempt_count`` and writes
-    ``count + 1`` under *story_id*'s own key. Bumps are per-key: each story
-    has its own entry in the counter file, so another story's entry is
-    neither read nor overwritten by this call — a story with no existing
-    entry starts at 1, not at whatever count a different story happens to
-    hold (INFRA-282, CER-095.3; this replaces the pre-story "a mismatched
-    story_id resets the counter to 1" whole-file semantics).
+    Bumps are per-key: each story has its own entry in the counter file, so
+    another story's entry is neither read nor overwritten by this call — a
+    story with no existing entry starts at 1, not at whatever count a
+    different story happens to hold (INFRA-282, CER-095.3; this replaces the
+    pre-story "a mismatched story_id resets the counter to 1" whole-file
+    semantics).
 
     Called on builder/reviewer FAIL (INFRA-237). The persisted counter is
     ``next_action.infer_position``'s sole durable signal that a story
     attempt failed before any commit exists — independent of
     ``effort_tracking`` (core build-loop control state, not observability).
+
+    CER-147 (INFRA-336): reading the current count and writing the
+    incremented one used to be two separate calls
+    (``read_attempt_count`` + ``write_attempt_count``) — exactly the window
+    ``state_lock`` exists to narrow, since each call took (and released) its
+    own lock, leaving a gap between them where a second bump for the same
+    ``story_id`` could read the same pre-increment value. This function now
+    takes ``state_lock`` **once** around the whole read-modify-write,
+    inlining the ``_read_attempt_counters``/``_atomic_write_json`` pair
+    directly (rather than composing ``read_attempt_count``/
+    ``write_attempt_count``, which would either double-acquire the same
+    process's lock or silently reduce to two independent critical sections).
     """
-    new_count = read_attempt_count(story_id, project_dir) + 1
-    write_attempt_count(story_id, new_count, project_dir)
+    path = _attempt_counter_path(project_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with state_lock(path):
+        counters = _read_attempt_counters(project_dir)
+        new_count = counters.get(story_id, 0) + 1
+        counters[story_id] = new_count
+        _atomic_write_json(path, {_ATTEMPT_COUNTER_STORIES_KEY: counters})
     return new_count
 
 
@@ -2257,22 +2389,30 @@ def clear_attempt_count(project_dir: Path, story_id: str | None = None) -> None:
     Extracted as a module-level helper (mirrors ``read_attempt_count``) so
     ``cmd_merge_story_worktree`` can clear the counter on a successful merge
     without shelling out to the CLI (INFRA-237).
+
+    CER-147 (INFRA-336): both the whole-file delete and the scoped
+    pop-one-entry-and-rewrite each run inside ``state_lock`` on
+    ``attempt_counter.json`` — a clear racing a sibling story's
+    ``bump_attempt_count``/``write_attempt_count`` call must not interleave
+    with it and drop the other's update.
     """
     path = _attempt_counter_path(project_dir)
     if story_id is None:
-        if path.exists():
-            path.unlink()
+        with state_lock(path):
+            if path.exists():
+                path.unlink()
         return
-    counters = _read_attempt_counters(project_dir)
-    if story_id not in counters:
-        return
-    counters.pop(story_id, None)
-    if not counters:
-        if path.exists():
-            path.unlink()
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_write_json(path, {_ATTEMPT_COUNTER_STORIES_KEY: counters})
+    with state_lock(path):
+        counters = _read_attempt_counters(project_dir)
+        if story_id not in counters:
+            return
+        counters.pop(story_id, None)
+        if not counters:
+            if path.exists():
+                path.unlink()
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_json(path, {_ATTEMPT_COUNTER_STORIES_KEY: counters})
 
 
 # ---------------------------------------------------------------------------
@@ -3408,8 +3548,8 @@ def cmd_transition_era(
 def cmd_next_action(project_dir: str, as_json: bool, warnings: tuple) -> None:
     """Resolve the next build-loop action from durable state.
 
-    Pure-read: no file is written.  Advisory only — not wired into the live
-    CLAUDE.build.md loop (DP7).
+    Pure-read: no file is written. This is the decision engine the
+    CLAUDE.build.md build loop invokes each iteration to obtain the next action (DP7).
 
     Prints a human-readable summary by default; use --json to emit the
     canonical action object that round-trips through validate_action.
@@ -3917,12 +4057,9 @@ def _record_checkpoint_step(
 
       1. ``phase_key`` when given (validated against the index first);
       2. otherwise ``state.json["checkpoint_phase"]`` when non-empty;
-      3. otherwise the sole candidate from ``_active_phase_candidates`` — for
-         the terminal step, more than one candidate is a loud error (no
-         guessing which phase is being closed); for a non-terminal step it is
-         only a warning (nothing irreversible happens yet, and the terminal
-         step will demand the key anyway), and the stamp is left ``""`` (the
-         documented INFRA-260 backward-compatible value).
+      3. otherwise the sole candidate from ``_active_phase_candidates`` — more
+         than one candidate is a loud error regardless of step (CER-077,
+         CER-158): no guessing which phase is being worked, terminal or not.
 
     Note (INFRA-283 instruction 16 — accepted limitation): the read-write
     window between the state read above and the atomic ``os.replace`` below
@@ -4039,17 +4176,17 @@ def _record_checkpoint_step(
             keys = ", ".join(ref for ref, _status in candidates)
             message = (
                 "record-checkpoint-step: ambiguous active phase — "
-                f"candidate rows {keys} (CER-077). Re-run with "
+                f"candidate rows {keys} (CER-077, CER-158). Re-run with "
                 "--phase-key <key>."
             )
-            if is_terminal:
-                click.echo(message, err=True)
-                return 2
-            # Non-terminal step: nothing irreversible happens here, and the
-            # terminal step will demand the key anyway (A8) — degrade to a
-            # warning and stamp the documented INFRA-260 fallback value.
-            click.echo(f"warning: {message}", err=True)
-            effective_key = ""
+            # CER-158: every call (terminal or not) with an ambiguous index
+            # now hard-refuses — no state.json write, no stamping under the
+            # empty-string key the phase-keyed resolver read can never
+            # match. A non-terminal step used to degrade this to a warning
+            # and stamp effective_key = "" (INFRA-260); that silent no-op
+            # key is what this closes.
+            click.echo(message, err=True)
+            return 2
 
     # --- INFRA-314 (Ensures 1): the terminal step (checkpoint-tag) refuses
     # to record when the resolved phase holds a story that is neither
@@ -4379,8 +4516,7 @@ def cmd_record_intent_review(phase_key: str, verdict: str, project_dir: str) -> 
     Writes ``state.json["pre_build_intent_review"][phase_key] = verdict``,
     atomically (temp file + ``os.replace``, mirroring every other
     ``state.json`` writer in this module). This is the durable "already
-    reviewed" evidence ``next_action._is_fresh_phase``/
-    ``resolve_next_action``'s Row PBI reads to fire the
+    reviewed" evidence ``resolve_next_action``'s Row PBI reads to fire the
     ``spawn-intent-reviewer`` pre-build emission exactly once per phase
     (Ensures 2) and to route a non-PASS/ALIGNED verdict to ``await-user``
     instead of silently proceeding (Ensures 4).
@@ -4427,6 +4563,98 @@ def cmd_record_intent_review(phase_key: str, verdict: str, project_dir: str) -> 
 
     _atomic_write_json(state_path, state)
     click.echo(f"pre-build intent review: recorded {verdict} for phase {phase_key}")
+
+
+@flex_build.command("record-gate-verdict")
+@click.option(
+    "--story-id",
+    "story_id",
+    required=True,
+    type=str,
+    help="Story ID (e.g. INFRA-224) the gate-worker's verdict is for.",
+)
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+def cmd_record_gate_verdict(story_id: str, project_dir: str) -> None:
+    """Record a gate-worker verdict for *story_id* (INFRA-341).
+
+    Reads the gate worker's raw stdout text from stdin in full (not a CLI
+    argument — avoids shell-escaping a JSON payload) and writes
+    ``state.json["gate_verdict"][story_id] = verdict_map`` atomically (temp
+    file + ``os.replace``, mirroring every other ``state.json`` writer in
+    this module). This is the durable evidence
+    ``next_action.infer_position``/``resolve_next_action``'s Row 4b reads on
+    the next poll to route to ``await-user``/``spawn-builder`` via
+    ``route_gate_verdict`` instead of re-emitting ``spawn-gate-worker``
+    again — closing the INFRA-331 livelock (F8 of the phase-117 cold-eyes
+    review).
+
+    Investigation finding 2 (see ``docs/stories/INFRA/INFRA-341.md``): the
+    live gate worker (``skills/pairmode/gate_worker/SKILL.md``) only ever
+    emits two keys, ``schema`` and ``auth`` — ``stub`` is mechanical and
+    already resolved by Row 4a before ``spawn-gate-worker`` is ever emitted.
+    ``parse_worker_verdict_json`` requires all three keys and fail-closes
+    otherwise. So: if the parsed stdin is a JSON object without a ``"stub"``
+    key, this command injects ``"stub": "clean"`` before calling
+    ``parse_worker_verdict_json`` — reflecting true state, not loosening the
+    fail-closed contract. Stdin that is not valid JSON, or is a JSON object
+    that already carries an explicit non-clean ``"stub"`` value, is passed
+    through unmodified; the fail-closed malformed-JSON path is untouched.
+
+    Exits 0 unconditionally — on any well-formed or malformed stdin, the
+    fail-closed verdict from ``parse_worker_verdict_json`` is still a
+    *stored value*, never a CLI failure. A worker crash or garbage stdout
+    must still leave durable evidence the resolver can act on, not silently
+    vanish.
+    """
+    from next_action import parse_worker_verdict_json  # type: ignore[import]
+
+    raw_text = sys.stdin.read()
+
+    try:
+        parsed = json.loads(raw_text)
+    except json.JSONDecodeError:
+        parsed = None
+
+    if isinstance(parsed, dict) and "stub" not in parsed:
+        injected = dict(parsed)
+        injected["stub"] = "clean"
+        verdict_source = json.dumps(injected)
+    else:
+        verdict_source = raw_text
+
+    verdict_map = parse_worker_verdict_json(verdict_source)
+
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+    companion = project_path / ".companion"
+    companion.mkdir(parents=True, exist_ok=True)
+    state_path = companion / "state.json"
+
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            if not isinstance(state, dict):
+                state = {}
+        except (json.JSONDecodeError, OSError):
+            state = {}
+    else:
+        state = {}
+
+    verdicts = state.get("gate_verdict")
+    if not isinstance(verdicts, dict):
+        verdicts = {}
+    verdicts[story_id] = verdict_map
+    state["gate_verdict"] = verdicts
+
+    _atomic_write_json(state_path, state)
+
+    summary = ", ".join(f"{gate}={value}" for gate, value in sorted(verdict_map.items()))
+    click.echo(f"gate verdict: recorded for story {story_id}: {summary}")
 
 
 @flex_build.command("check-index")
@@ -4509,7 +4737,20 @@ def cmd_record_attempt(args: tuple[str, ...]) -> None:
     default=".",
     help="Project directory (main worktree). Defaults to CWD.",
 )
-def cmd_create_story_worktree(story_id: str, project_dir: str) -> None:
+@click.option(
+    "--model-selection-reason",
+    default=None,
+    help=(
+        "(INFRA-348) The model-selection reason next-action already computed "
+        "for this story's builder spawn (its `reason` field, e.g. "
+        "auto-baseline/auto-downgrade/prompted-upgrade/user-override). Stamped "
+        "into state.json so the hook-driven recording path can plumb the "
+        "actual dispatch-time value into effort.db without recomputing it."
+    ),
+)
+def cmd_create_story_worktree(
+    story_id: str, project_dir: str, model_selection_reason: "str | None" = None
+) -> None:
     """Create a disposable git worktree for a story's build/review cycle.
 
     Creates ``.pairmode-worktrees/<story-id>/`` on a new branch
@@ -4524,10 +4765,40 @@ def cmd_create_story_worktree(story_id: str, project_dir: str) -> None:
     returning the worktree path — both must be in place before the builder
     spawns so ``scope_guard.py`` can resolve the active story and its
     allowed paths regardless of the spawn's cwd (INFRA-238, Ensures 1).
+
+    INFRA-344: refuses (exit 1, no worktree/branch created) when the target
+    story's own spec file (``docs/stories/<RAIL>/<story_id>.md``) has an
+    uncommitted change against ``HEAD`` — staged, unstaged, or untracked.
+    This closes the gap where the worktree branches from a ``HEAD`` that
+    predates a spec-writer's in-progress elaboration (F10,
+    docs/build-loop-cold-eyes-review-20260801.md). The check is scoped to
+    exactly that one file; an uncommitted change elsewhere in the working
+    tree does not block worktree creation.
     """
     _validate_story_id_or_exit(story_id)
     project_path = Path(project_dir).resolve()
     wt_rel, wt_abs, branch = _worktree_paths(story_id, project_path)
+
+    # INFRA-344: refuse before creating anything if the story's own spec
+    # file has an uncommitted change against HEAD (`git status --porcelain`
+    # scoped to exactly that one path — staged, unstaged, or untracked all
+    # produce non-empty output here). If the git command itself fails (e.g.
+    # not a git repo), don't block on it here — let the subsequent `git
+    # worktree add` call surface that failure with its own clearer error;
+    # this check's job is narrowly the uncommitted-spec case.
+    story_spec_path = _story_path(story_id, project_path)
+    story_spec_rel = story_spec_path.relative_to(project_path)
+    status_check = _run_git(
+        ["status", "--porcelain", "--", str(story_spec_rel)],
+        project_path,
+    )
+    if status_check.returncode == 0 and status_check.stdout.strip():
+        click.echo(
+            f"error: uncommitted change to story spec: {story_spec_path}\n"
+            f"Commit it before retrying (e.g. `spec({story_id}): ...`).",
+            err=True,
+        )
+        sys.exit(1)
 
     if wt_abs.exists():
         click.echo(f"error: worktree already exists: {wt_abs}", err=True)
@@ -4561,7 +4832,7 @@ def cmd_create_story_worktree(story_id: str, project_dir: str) -> None:
     # half-created, but it also must not silently mask the story-scope gap,
     # so it is surfaced on stderr rather than swallowed.
     try:
-        _stamp_active_story(project_path, story_id)
+        _stamp_active_story(project_path, story_id, model_selection_reason=model_selection_reason)
     except Exception as exc:  # noqa: BLE001
         click.echo(f"warning: failed to stamp current_story for {story_id}: {exc}", err=True)
 
@@ -4709,6 +4980,16 @@ def cmd_merge_story_worktree(story_id: str, project_dir: str) -> None:
         # state, the same class of cross-story clobber INFRA-281 fixed for the
         # active-story stamp below.
         clear_attempt_count(project_path, story_id)
+        # INFRA-336: a landed story's prior discard/duplicate-FAIL bump
+        # history is no longer relevant — clear it alongside the attempt
+        # counter so a future, unrelated re-attempt of this story_id (a new
+        # phase re-opening it, say) never inherits a stale marker.
+        try:
+            companion_dir = project_path / ".companion"
+            if companion_dir.is_dir():
+                clear_story_bump_markers(companion_dir, story_id)
+        except Exception:
+            pass
         # INFRA-238: clear both artifacts create-story-worktree stamped — the
         # active-story marker and the Layer 1 permission artifact — so the next
         # story starts with a clean slate rather than inheriting this story's
@@ -4718,6 +4999,33 @@ def cmd_merge_story_worktree(story_id: str, project_dir: str) -> None:
         # worktree.
         _clear_active_story(project_path, story_id)
         clear_permissions_artifact(story_id, project_path)
+        # INFRA-341: a landed story's recorded gate verdict is stale evidence
+        # once the story is done — clear it alongside the other per-story
+        # stamps so a future re-attempt of this story_id never inherits a
+        # verdict from a build that already completed.
+        _clear_gate_verdict(project_path, story_id)
+        # INFRA-347 (CER-136): the merge already landed — flip the two status
+        # surfaces CER-136 found perpetually stale: the story's own frontmatter
+        # status: and its phase-doc Stories-table Status cell. Mirrors
+        # mark-phase-complete's phase-index flip (_mark_phase_complete_in_index)
+        # at the story level. Fail-open: a synthetic worktree with no real
+        # docs/stories/docs/phases tree (the pre-existing merge tests use bare
+        # story IDs like WT-004 with no story doc at all) must not turn an
+        # already-landed merge into a command failure.
+        try:
+            update_story_status(story_id, project_path, "complete")
+        except (FileNotFoundError, ValueError) as exc:
+            click.echo(
+                f"warning: merge-story-worktree: could not flip status for "
+                f"{story_id}: {exc}",
+                err=True,
+            )
+        else:
+            # update_phase_story_status never raises for a missing phases dir or
+            # an absent/unmatched Stories-table row (returns [] instead) — only
+            # gated on update_story_status having succeeded so the two writes
+            # stay ordered and a genuine story-id/story-file problem skips both.
+            update_phase_story_status(story_id, project_path, "complete")
         click.echo(f"merged {branch} into {main_branch}")
 
         if residue:
@@ -4781,6 +5089,26 @@ def cmd_discard_story_worktree(story_id: str, project_dir: str) -> None:
         # still running in its own worktree.
         _clear_active_story(project_path, story_id)
         clear_permissions_artifact(story_id, project_path)
+        # INFRA-341: a discarded story must not silently reuse a stale
+        # recorded gate verdict on its next attempt if its frontmatter
+        # changes during a spec revision — clear it alongside the other
+        # per-story stamps above.
+        _clear_gate_verdict(project_path, story_id)
+        # INFRA-336: record that story_id was *just* discarded, at the same
+        # point the current_stories stamp is cleared above — this is what
+        # lets subagent_transcript._story_accepts_late_bump's reconciliation-
+        # time rule 2 still authorize the (possibly not-yet-reconciled) FAIL
+        # that caused this discard, even though the liveness stamp it would
+        # otherwise key on is gone by the time the next sweep runs. Bounded:
+        # consumed the moment that late bump fires, or the moment a retry
+        # re-stamps this story_id (`_stamp_active_story` /
+        # `clear_story_bump_markers`), whichever comes first.
+        try:
+            companion_dir = project_path / ".companion"
+            if companion_dir.is_dir():
+                mark_recently_discarded(companion_dir, story_id)
+        except Exception:
+            pass
 
         click.echo(f"discarded {branch}")
 

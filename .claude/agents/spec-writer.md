@@ -3,11 +3,10 @@ name: spec-writer
 description: Spec-elaboration worker for flex-harness. Loads the spec-writer procedure skill and elaborates a stub story into a complete story spec.
 tools: [Read, Write, Edit, Bash, Grep, Glob]
 model: opus
-# spawn-spec-writer resolves with model="opus" (reason="needs-spec") in
-# next_action.py's Row-2 resolution — this frontmatter value mirrors that
-# default whenever the orchestrator does not pass an explicit override
-# (no select_spec_writer_model tier exists yet — INFRA-333 is separate
-# follow-on scope, this story wires the shell/dispatch entry only).
+# spawn-spec-writer resolves its model via select_spec_writer_model(story_class)
+# in next_action.py's Row-2 resolution (wired by INFRA-333) — this frontmatter
+# value mirrors the default the selector returns whenever the orchestrator does not
+# pass an explicit override.
 ---
 
 You are the spec-writer for the flex-harness project. You elaborate one

@@ -25,6 +25,7 @@ never run.  The CER backlog file is absent in all fixtures (passes vacuously).
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -135,17 +136,22 @@ def test_pre_guard_phase_incomplete(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "checkpoint_step,expected_action,expected_model",
     [
-        # 2: no steps done → checkpoint-security
+        # 2: no steps done → checkpoint-security. INFRA-340: checkpoint-security
+        # now resolves a real model via select_security_auditor_model; the
+        # fixture phase file carries no phase_class, which defaults to
+        # "production" → opus (production-class).
         (
             [],
             CHECKPOINT_SECURITY,
-            None,
+            "opus",
         ),
-        # 3: first step done → checkpoint-intent
+        # 3: first step done → checkpoint-intent. INFRA-340: checkpoint-intent
+        # now resolves a real model via select_intent_reviewer_model; default
+        # phase_class "production" → sonnet (non-production-class).
         (
             [CHECKPOINT_SECURITY],
             CHECKPOINT_INTENT,
-            None,
+            "sonnet",
         ),
         # 4: first two done → checkpoint-docs. INFRA-333: checkpoint-docs now
         # resolves a real model via select_docs_reviewer_model; the fixture
@@ -351,11 +357,73 @@ def test_check_guards_absent_cer_file_passes(tmp_path: Path) -> None:
     assert result == {"ok": True}
 
 
-def test_check_guards_deferred_stories_pass(tmp_path: Path) -> None:
-    """'deferred' story status is treated as complete for the phase guard."""
+def _raise_timeout_expired() -> bool:
+    raise subprocess.TimeoutExpired(cmd="pytest", timeout=600)
+
+
+def _raise_non_timeout_error() -> bool:
+    raise OSError("uv not found")
+
+
+def test_check_guards_build_gate_timeout_fails_closed(tmp_path: Path) -> None:
+    """Build gate guard fails closed when gate_fn raises TimeoutExpired (INFRA-343).
+
+    Proves guard 3's AWAIT_USER surfacing path (Row 9,
+    next_action.py:1584-1597) is reachable from a timeout, not just from a
+    real non-zero exit code.
+    """
+    phase_file = _make_phase_file(tmp_path, [("T-001", "complete")])
+    result = check_checkpoint_guards(
+        tmp_path, phase_file, gate_fn=_raise_timeout_expired
+    )
+    assert result == {"ok": False, "failed_guard": "build-gate"}
+
+
+def test_check_guards_build_gate_non_timeout_error_fails_open(tmp_path: Path) -> None:
+    """Build gate guard stays advisory fail-open on a non-timeout gate_fn error.
+
+    Proves Ensures 4's fail-open carve-out (CER-072/INFRA-230 bootstrap
+    tolerance) holds at the check_checkpoint_guards level too.
+    """
+    phase_file = _make_phase_file(tmp_path, [("T-001", "complete")])
+    result = check_checkpoint_guards(
+        tmp_path, phase_file, gate_fn=_raise_non_timeout_error
+    )
+    assert result == {"ok": True}
+
+
+def test_check_guards_bare_deferred_status_without_frontmatter_fails(tmp_path: Path) -> None:
+    """A bare 'deferred' table status with no corroborating story file now
+    fails the guard (INFRA-346, F13) — a table cell alone is no longer
+    trusted; it must be corroborated against the story's own frontmatter,
+    the same way `flex_build._deferral_gate_message` already requires at
+    checkpoint-tag."""
     phase_file = _make_phase_file(
         tmp_path,
         [("T-001", "complete"), ("T-002", "deferred")],
     )
+    result = check_checkpoint_guards(tmp_path, phase_file, gate_fn=lambda: True)
+    assert result == {"ok": False, "failed_guard": "phase-incomplete"}
+
+
+def test_check_guards_formally_deferred_story_passes(tmp_path: Path) -> None:
+    """A 'deferred' table status IS trusted once corroborated: a real story
+    file under docs/stories/ names the same phase key, carries
+    status: deferred in its own frontmatter, and is named inside the phase
+    doc's own ## Deferred stories section (INFRA-346, F13)."""
+    phase_file = _make_phase_file(
+        tmp_path,
+        [("T-001", "complete"), ("T-002", "deferred")],
+    )
+    with phase_file.open("a", encoding="utf-8") as f:
+        f.write("\n## Deferred stories\n\n- T-002 — deferred for this test.\n")
+
+    stories_dir = tmp_path / "docs" / "stories" / "T"
+    stories_dir.mkdir(parents=True, exist_ok=True)
+    (stories_dir / "T-002.md").write_text(
+        "---\nid: T-002\nphase: \"1\"\nstatus: deferred\n---\n\n## Ensures\n",
+        encoding="utf-8",
+    )
+
     result = check_checkpoint_guards(tmp_path, phase_file, gate_fn=lambda: True)
     assert result == {"ok": True}

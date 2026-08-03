@@ -129,21 +129,26 @@ Public API:
     Unknown/absent phase_class values default to "production" (opus,
     production-class).
 
-    Wiring note (INFRA-333 Ensures 1): the resolved value cannot ride
-    ``next_action.py``'s ``spawn-gate-worker`` action's ``model`` field —
-    ``validate_action`` requires ``model=null`` for any action outside
-    ``_SPAWN_ACTIONS``, and ``spawn-gate-worker`` is deliberately not a
-    member of that set (locked in by
+    Wiring note (INFRA-333 Ensures 1; superseded by INFRA-340): INFRA-333
+    added a Row 4b call site in ``next_action.py`` that surfaced this
+    function's result as advisory ``meta["gate_worker_model"]`` /
+    ``meta["gate_worker_model_reason"]`` keys, because the resolved value
+    cannot ride ``next_action.py``'s ``spawn-gate-worker`` action's ``model``
+    field — ``validate_action`` requires ``model=null`` for any action
+    outside ``_SPAWN_ACTIONS``, and ``spawn-gate-worker`` is deliberately not
+    a member of that set (locked in by
     ``test_spawn_gate_worker_with_model_fails_validate`` in
     ``tests/pairmode/test_next_action.py``; promoting it would be an
-    action-grammar redesign, out of this story's narrow "wire the missing
-    selectors" scope). The "spawn-gate-worker carries no builder model"
-    comment at ``next_action.py``'s ``SPAWN_GATE_WORKER`` declaration
-    therefore remains accurate for the action's ``model`` field after this
-    story. ``next_action.py``'s Row 4b instead calls this selector directly
-    and surfaces its result as an advisory ``meta["gate_worker_model"]`` /
-    ``meta["gate_worker_model_reason"]`` pair on the emitted action — a real
-    call site, not an unused function, without changing the grammar.
+    action-grammar redesign). INFRA-340 removed that Row 4b call site —
+    nothing ever consumed the advisory meta keys, and per the Phase-117
+    cold-eyes review, a computed-and-discarded value is worse than not
+    calling the selector at all. This function is retained, unused, pending
+    a future real consumer (possibly INFRA-341's gate-worker verdict-consumer
+    wiring, if that story's fix independently requires promoting
+    ``spawn-gate-worker`` into ``_SPAWN_ACTIONS`` for reasons of its own).
+    The "spawn-gate-worker carries no builder model" comment at
+    ``next_action.py``'s ``SPAWN_GATE_WORKER`` declaration remains accurate
+    for the action's ``model`` field.
 
   select_docs_reviewer_model(phase_class) -> tuple[str, str]
 
@@ -526,7 +531,9 @@ def select_gate_worker_model(phase_class: str) -> tuple[str, str]:
     See the module docstring's ``select_gate_worker_model`` entry for the
     full selection table and the wiring-note explaining why this result
     cannot ride ``next_action.py``'s ``spawn-gate-worker`` action's ``model``
-    field.
+    field. INFRA-340 removed the Row 4b call site that surfaced this
+    function's result as advisory meta — this function itself is unchanged
+    and retained, unused, pending a future real consumer.
 
     Unknown/absent phase_class values default to "production" (opus,
     production-class).

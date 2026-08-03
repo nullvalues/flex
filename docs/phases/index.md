@@ -138,6 +138,8 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 114 | Build-loop closeout: worktrees, scaffolding, migration tooling, doc currency | complete | [phase-114.md](phase-114.md) |
 | 115 | Observability closeout: API hardening, payload guards, rollup hygiene, functional validation | complete | [phase-115.md](phase-115.md) |
 | 116 | Cora upstream: methodology gates, resolver cadence, spec-time controls; backlog truth pass and 0.3.1 | complete | [phase-116.md](phase-116.md) |
+| 117 | Build-loop integrity remediation: escalation ladder, dead handoffs, CER-append corruption | complete | [phase-117.md](phase-117.md) |
+| 118 | Narrative of Record: propagation, spec-writer/intent-reviewer integration, and mid-build steering | planned | [phase-118.md](phase-118.md) |
 
 ---
 

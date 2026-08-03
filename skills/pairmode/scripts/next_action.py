@@ -168,47 +168,38 @@ INFRA-315 (Phase 116 -- pre-build intent review, resolver-emitted, opt-in):
   dict gained three new pure-read keys (``intent_review_opt_in``,
   ``phase_is_fresh``, ``pre_build_intent_verdict``).
 
-INFRA-316 (Phase 116 -- between-story context etiquette, Row PC):
-  Adds ``pause-context`` to the action vocabulary (``SCHEMA_VERSION`` bumped
-  from 4 to 5) and wires a new check into the Row-8 seam only ("story just
-  committed (PASS), more stories remain"): before emitting the next
-  ``spawn-builder``, the resolver reads ``.companion/state.json`` directly
-  and delegates to ``context_budget.should_block`` -- the exact pure
-  predicate ``hooks/pre_tool_use.py``'s PreToolUse gate already uses -- to
-  decide whether the orchestrator's own context-window occupancy
-  (``context_current_tokens`` vs ``context_budget_threshold`` and its
-  overrun/margin/acknowledgment siblings) is over budget and unacknowledged.
-  When it is, ``pause-context`` is emitted instead of ``spawn-builder``
-  (scalar = the next story ID, model=null); one operator acknowledgment
-  clears both this seam and the hook gate, because both consult the same
-  ``context_budget_acknowledged_at`` / ``context_budget_acknowledged_user_turn_seq``
-  state keys through the same ``should_block`` predicate (Requires 3).
+INFRA-316 (Phase 116 -- between-story context etiquette, Row PC) -- REMOVED
+  by INFRA-339 (Phase 117, ``SCHEMA_VERSION`` 5 -> 6). INFRA-316 added
+  ``pause-context`` to the action vocabulary and wired a check into the
+  Row-8 seam ("story just committed (PASS), more stories remain"): before
+  emitting the next ``spawn-builder``, the resolver would read
+  ``.companion/state.json`` directly and delegate to
+  ``context_budget.should_block`` to decide whether the orchestrator's own
+  context-window occupancy was over budget and unacknowledged, emitting
+  ``pause-context`` instead of ``spawn-builder`` when it was.
 
-  IMPORTANT (INFRA-321 F6 -- forward constraint honoured, not violated): this
-  seam consults the ORCHESTRATOR track only. It never imports, invokes, or
-  reads any output of ``context_budget_check.py``, whose sum is the
-  story-spend track (a phase-wide ``effort.db`` cost total) and is
-  explicitly forbidden as the source of a pause decision by INFRA-321 F6 --
-  wiring that sum in here would reintroduce the mis-attribution-2 pattern
-  INFRA-321 removed, just relabeled as a new feature. The story text's own
-  Context/Requires-1/Instructions-1 prose (drafted before INFRA-321 landed)
-  describes the older, superseded ``context_budget_check`` design; F6
-  explicitly supersedes it for this seam, and this implementation follows
-  F6. The emitted ``reason`` therefore carries ``tokens=<current>
-  threshold=<threshold> ceiling=<ceiling>`` (orchestrator-track quantities)
-  rather than the ``sum=... threshold=...`` phrasing the original story text
-  anticipated -- there is no effort.db sum in this data path to report.
-
-  Only the Row-8 seam is guarded (Instructions 2): Row 2 (first attempt of a
-  freshly-claimed phase) and attempt retries (Rows 5/6/7, same story) are
-  unaffected -- a mid-story pause would strand a half-built story (Requires
-  2/Ensures 3). Fail-open (Ensures 5): a missing/unreadable
-  ``state.json``, an absent ``context_current_tokens``, or any exception
-  raised while deriving the verdict all resolve to ``spawn-builder`` --
-  genuine errors additionally carry a warning in ``meta.warnings[]``; the
-  ordinary "no state.json yet" case does not warn, so an unconfigured
-  project's Row-8 output stays byte-identical to pre-INFRA-316 behaviour
-  (Ensures 1).
+  The Phase-117 cold-eyes review (F2/F12) found two independent problems:
+  (1) ``OUTCOME_PASS`` is provably unreachable from a live ``infer_position``
+  call -- ``next_story.find_next_story`` (the source of ``next_story_id``)
+  and ``infer_position`` both call the same ``_has_story_commit`` against
+  the same ``_git_log_oneline`` output microseconds apart, so the two calls
+  can never disagree, and the Row-8 branch this check lived in only ever
+  fired in hand-constructed test fixtures; (2) even setting reachability
+  aside, the check hand-assembled its verdict from the flat top-level
+  ``state.json`` mirror rather than the session-scoped values the equivalent
+  PreToolUse hook check uses (``context_budget.decide(...,
+  session_id=...)``) -- under a concurrent second session it could read
+  that session's window instead of the calling orchestrator's, the exact
+  CER-097 under-blocking shape INFRA-285 fixed for the hook. See
+  ``docs/stories/INFRA/INFRA-339.md`` § Requires 2 for the full analysis and
+  the recorded decision to remove the feature rather than invent a new
+  reachability signal for it. The orchestrator-track budget gate that
+  remains live is the PreToolUse hook (``hooks/pre_tool_use.py`` +
+  ``context_budget.decide``) only; this module no longer imports
+  ``context_budget`` at all. ``PAUSE_CONTEXT`` the constant is retained for
+  backward import compatibility (mirrors the ``CHECKPOINT`` precedent);
+  nothing produces the value at runtime, and it is no longer a member of
+  ``ACTIONS``.
 
 INFRA-318 (Phase 116 -- spec-time model review, Cora item A#7/AG-6):
   ``infer_position`` §4 (builder model selection) now reads the next story's
@@ -264,9 +255,9 @@ INFRA-333 (CER-139, AG-13 -- model-selection completeness for the three
     ``_SPAWN_ACTIONS`` member, so a non-null model here is grammar-legal and
     was already anticipated by the pre-INFRA-333 comment ("the harness sets
     model at spawn time via model_selector").
-  - Row 4b (``spawn-gate-worker``): calls the new
-    ``select_gate_worker_model(phase_class)`` and surfaces the result as
-    advisory ``meta["gate_worker_model"]``/``meta["gate_worker_model_reason"]``
+  - Row 4b (``spawn-gate-worker``): calls the new phase_class-keyed
+    gate-worker selector added to ``model_selector.py`` this story (see that
+    module's docstring) and surfaces the result as two advisory ``meta``
     keys -- NOT the action's ``model`` field, which stays ``None``.
     ``spawn-gate-worker`` is deliberately not a ``_SPAWN_ACTIONS`` member
     (``validate_action`` requires ``model=null`` for it, locked in by
@@ -274,12 +265,40 @@ INFRA-333 (CER-139, AG-13 -- model-selection completeness for the three
     would be an action-grammar redesign out of this story's narrow
     "wire the missing selectors" scope, so the "spawn-gate-worker carries no
     builder model" comment on the ``SPAWN_GATE_WORKER`` constant below
-    remains accurate for the ``model`` field after this story.
+    remains accurate for the ``model`` field after this story. (INFRA-340
+    later removes this Row 4b call entirely -- see the INFRA-340 entry
+    below.)
 
   Grammar-unchanged: no new action type, no ``ACTIONS``/``_SPAWN_ACTIONS``
   membership change, no ``SCHEMA_VERSION`` bump (still 5) -- only
   Position gains one new read-only key (``story_class``) and two actions'
   resolved ``model``/``meta`` values can differ from before this story.
+
+INFRA-340 (Phase 117 -- close the F3/F4 cold-eyes gaps left by INFRA-333):
+  (a) Row 9 now resolves ``checkpoint-security``'s and ``checkpoint-intent``'s
+  models via ``model_selector.select_security_auditor_model(phase_class)``/
+  ``select_intent_reviewer_model(phase_class)`` respectively, mirroring the
+  ``checkpoint-docs`` wiring INFRA-333 already added -- closes F3 (both
+  checkpoint roles previously carried a hardcoded ``model=None``, contrary to
+  the model-override contract documented on ``.claude/agents/
+  security-auditor.md``/``intent-reviewer.md``). ``phase_class`` is now
+  resolved once (via ``_phase_class_for``) above the Row 9 ``if``/``elif``
+  chain and shared by all three checkpoint branches.
+  (b) Row 4b no longer calls the phase_class-keyed gate-worker selector added
+  to ``model_selector.py`` by INFRA-333 -- that call computed a
+  ``(model, reason)`` pair and parked it in two advisory ``meta`` keys that
+  nothing ever consumed. Per the Phase-117 cold-eyes review's own conclusion
+  (F4), a computed-and-discarded value is worse than not calling the selector
+  at all, so this story removes the Row 4b call site rather than promoting
+  ``spawn-gate-worker`` into ``_SPAWN_ACTIONS`` (that remains explicitly out
+  of scope -- see ``docs/stories/INFRA/INFRA-340.md`` § Context § Decision).
+  The selector function itself is retained, unused, in ``model_selector.py``
+  for a future real consumer (possibly INFRA-341); see that module's
+  docstring for its full name and selection table.
+  Grammar-unchanged: no new action type, no ``ACTIONS``/``_SPAWN_ACTIONS``
+  membership change, no ``SCHEMA_VERSION`` bump (still 6) -- only two
+  actions' resolved ``model`` values differ, and ``spawn-gate-worker``'s
+  ``meta`` dict loses two advisory keys it never should have kept.
 """
 
 from __future__ import annotations
@@ -296,22 +315,11 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from table_utils import split_table_row  # noqa: E402
 
-# INFRA-316: the Row-8 context-etiquette check reuses context_budget's pure
-# should_block/effective_ceiling functions directly -- the same predicate
-# hooks/pre_tool_use.py's PreToolUse gate uses on the ORCHESTRATOR track
-# (INFRA-321 F6). This module deliberately does NOT import
-# context_budget_check (the story-spend/effort.db track); see the INFRA-316
-# module-docstring note above.
-try:
-    from skills.pairmode.scripts import context_budget  # noqa: E402
-except ImportError:  # flat import via hook/CLI sys.path
-    import context_budget  # type: ignore[no-redef]  # noqa: E402
-
 # ---------------------------------------------------------------------------
 # Schema version
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION: int = 5
+SCHEMA_VERSION: int = 6
 
 # ---------------------------------------------------------------------------
 # Action vocabulary (closed set for Era 003; designed to be extended later)
@@ -344,12 +352,22 @@ CHECKPOINT_DOCS: str = "checkpoint-docs"
 CHECKPOINT_TAG: str = "checkpoint-tag"  # inline action — NOT in _SPAWN_ACTIONS
 AWAIT_USER: str = "await-user"
 DONE: str = "done"
-# INFRA-316: between-story context-etiquette handoff, emitted at the Row-8
-# seam in place of spawn-builder when the ORCHESTRATOR track (INFRA-321 F6)
-# is over threshold and unacknowledged. An await-user-class action: model is
-# always null (NOT in _SPAWN_ACTIONS below). Consumers (the orchestrator
-# build loop) treat it as: record state, summarize, end session, resume
-# fresh — see CLAUDE.build.md.j2's one-line handoff instruction.
+# PAUSE_CONTEXT ("pause-context") was removed from ACTIONS by INFRA-339.
+# INFRA-316 (Phase 116) added this between-story context-etiquette handoff at
+# the Row-8 seam, but F2/F12 of the Phase-117 cold-eyes review found it was
+# structurally unreachable from a live infer_position call (the same
+# next_story.find_next_story predicate that selects next_story_id also
+# excludes any story it already returned true for, so
+# last_attempt_outcome == OUTCOME_PASS could never be observed) and, even
+# setting reachability aside, read the flat top-level state.json mirror
+# instead of the session-scoped values the equivalent PreToolUse hook check
+# uses — the exact CER-097 under-blocking shape INFRA-285 fixed. INFRA-339
+# removed the feature rather than repair it (see docs/stories/INFRA/
+# INFRA-339.md § Requires 2 for the recorded design decision); the
+# orchestrator-track budget gate that remains live is the PreToolUse hook
+# (hooks/pre_tool_use.py + context_budget.decide) only. The constant is
+# retained for backward import compatibility only (mirrors the CHECKPOINT
+# precedent above) — nothing produces this value at runtime.
 PAUSE_CONTEXT: str = "pause-context"
 
 ACTIONS: frozenset[str] = frozenset(
@@ -367,18 +385,18 @@ ACTIONS: frozenset[str] = frozenset(
         CHECKPOINT_TAG,
         AWAIT_USER,
         DONE,
-        PAUSE_CONTEXT,
     }
 )
 
 # Actions for which model may be non-null (auto-resolved spawn actions only).
 # spawn-gate-worker carries no builder model (the gate worker tier is not a
 # builder-model decision), so it is NOT in _SPAWN_ACTIONS — model must be None.
-# INFRA-333: model_selector.select_gate_worker_model(phase_class) now exists,
-# but its result still cannot ride this action's `model` field (that would be
-# an action-grammar redesign, out of this story's scope) — Row 4b surfaces it
-# instead as advisory `meta["gate_worker_model"]`/`meta["gate_worker_model_reason"]`
-# keys. This comment therefore remains accurate for the `model` field itself.
+# INFRA-333 added a phase_class-keyed selector for this role in
+# model_selector.py, but promoting spawn-gate-worker into _SPAWN_ACTIONS to
+# carry its result would be an action-grammar redesign, out of scope.
+# INFRA-333 instead surfaced the result as two advisory `meta` keys;
+# INFRA-340 removed that call site entirely (nothing consumed the advisory
+# meta) — Row 4b calls no selector today, and `model` stays None.
 # spawn-reviewer, spawn-security-auditor, and spawn-intent-reviewer carry a
 # model override (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS.
 # (spawn-reviewer membership is for orchestrator dispatch only — the resolver
@@ -394,10 +412,12 @@ ACTIONS: frozenset[str] = frozenset(
 # docstring entry above for why (resolve_next_action never emits
 # spawn-reviewer, so there is no action object here for the field to ride).
 # checkpoint-security, checkpoint-intent, checkpoint-docs carry a model override
-# (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS. INFRA-333:
-# Row 9 now actually resolves checkpoint-docs's model via
-# select_docs_reviewer_model(phase_class) (checkpoint-security/intent are
-# unchanged, out of this story's scope).
+# (checkpoint-agent model selection) and ARE in _SPAWN_ACTIONS. INFRA-333
+# wired checkpoint-docs's model via select_docs_reviewer_model(phase_class);
+# INFRA-340 closes the remaining gap (F3) by wiring checkpoint-security via
+# select_security_auditor_model(phase_class) and checkpoint-intent via
+# select_intent_reviewer_model(phase_class) — all three checkpoint roles now
+# resolve a real model instead of two of them hardcoding model=None.
 # checkpoint-tag is an inline action and is NOT in _SPAWN_ACTIONS.
 # spawn-spec-writer carries a model override and IS in _SPAWN_ACTIONS.
 # INFRA-333: the model is now resolved via select_spec_writer_model(story_class)
@@ -545,8 +565,11 @@ def _phase_class_for(phase_path: "Path | None") -> str:
     carries no ``phase_class`` field — the same fail-safe default
     ``model_selector.select_intent_reviewer_model``/
     ``select_security_auditor_model`` already apply for an absent field.
-    Used by Row 4b (``select_gate_worker_model``) and Row 9's
-    ``checkpoint-docs`` step (``select_docs_reviewer_model``).
+    Used by Row 9's ``checkpoint-security``/``checkpoint-intent``/
+    ``checkpoint-docs`` steps (``select_security_auditor_model``/
+    ``select_intent_reviewer_model``/``select_docs_reviewer_model``).
+    (Row 4b used this for its own gate-worker model selector through
+    INFRA-333; INFRA-340 removed that call site — see the Row 4b comment.)
     """
     from model_selector import DEFAULT_PHASE_CLASS  # type: ignore[import]
 
@@ -562,12 +585,32 @@ def _phase_class_for(phase_path: "Path | None") -> str:
         return DEFAULT_PHASE_CLASS
 
 
-def _check_phase_completion(active_phase_file: "Path | None") -> bool:
+def _check_phase_completion(
+    active_phase_file: "Path | None", project_dir: "Path | None" = None
+) -> bool:
     """Return True if every story row in the phase manifest is complete or deferred.
 
     Reads the ``## Stories`` table of ``active_phase_file``.  Returns True
     when the file is absent or unreadable (fail-open) and when the Stories
     table is empty (vacuously complete).
+
+    ``project_dir`` (INFRA-346, F13): when ``None`` (the default), behaviour
+    is byte-identical to before this story — a bare ``"deferred"`` table
+    cell counts as complete-for-guard-purposes, with no corroboration
+    against any story file's own frontmatter. This preserves every existing
+    call site/unit test that constructs a bare phase file with no sibling
+    ``docs/stories/`` tree.
+
+    When ``project_dir`` is given, a ``"deferred"`` row is additionally
+    cross-checked against ``index_integrity.is_formally_deferred`` — the
+    same predicate ``flex_build._deferral_gate_message`` already uses at
+    ``checkpoint-tag`` — so this resolver-side guard can no longer diverge
+    from the stronger, terminal-step gate and pass a phase that
+    ``checkpoint-tag`` would refuse. A ``"deferred"`` row with no
+    corroborating story file, or whose story file's own frontmatter
+    disagrees, fails the guard (ideology § Accepted constraints, "Never
+    silently pass contradictions"). ``"complete"`` rows are not re-verified
+    against frontmatter — only ``"deferred"`` rows gain the cross-check.
     """
     if active_phase_file is None:
         return True
@@ -575,6 +618,35 @@ def _check_phase_completion(active_phase_file: "Path | None") -> bool:
         text = Path(active_phase_file).read_text(encoding="utf-8")
     except OSError:
         return True  # fail open
+
+    # INFRA-346 A2: when project_dir is given, build the {story_id: status}
+    # frontmatter map once per call, before the Stories-table loop, scoped
+    # to stories whose frontmatter `phase:` equals this phase's key — the
+    # same restriction shape `flex_build._deferral_gate_message` already
+    # applies.
+    frontmatter_status_by_id: "dict[str, str] | None" = None
+    if project_dir is not None:
+        from schema_validator import _parse_frontmatter  # noqa: PLC0415
+
+        phase_key = Path(active_phase_file).stem
+        if phase_key.startswith("phase-"):
+            phase_key = phase_key[len("phase-") :]
+
+        frontmatter_status_by_id = {}
+        stories_dir = Path(project_dir) / "docs" / "stories"
+        if stories_dir.exists():
+            for story_file in stories_dir.rglob("*.md"):
+                try:
+                    story_text = story_file.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                fm = _parse_frontmatter(story_text) or {}
+                story_phase = str(fm.get("phase") or "").strip()
+                if story_phase != phase_key:
+                    continue
+                story_id = (fm.get("id") or story_file.stem).strip()
+                status = (fm.get("status") or "").lower().strip()
+                frontmatter_status_by_id[story_id] = status
 
     in_stories = False
     for line in text.splitlines():
@@ -599,6 +671,15 @@ def _check_phase_completion(active_phase_file: "Path | None") -> bool:
             status = cols[2].lower()
             if status not in ("complete", "deferred"):
                 return False
+            if status == "deferred" and frontmatter_status_by_id is not None:
+                from index_integrity import is_formally_deferred  # noqa: PLC0415
+
+                story_id = cols[0]
+                fm_status = frontmatter_status_by_id.get(story_id)
+                if fm_status is None:
+                    return False  # uncorroborated deferred claim — fail closed
+                if not is_formally_deferred(fm_status, story_id, text):
+                    return False
 
     return True
 
@@ -666,7 +747,16 @@ def _run_build_gate_subprocess(project_dir: "Path") -> bool:
       unaffected).
 
     Returns True (gate green) when the chosen command's exit code is 0.
-    Returns True (advisory pass) on timeout or any execution error.
+
+    A genuine ``subprocess.TimeoutExpired`` (the command was still running
+    when the deadline arrived) now returns **False** (gate red, fail closed)
+    per INFRA-343 — this guard exists specifically to catch what the
+    human-run reviewer suite might miss between review and checkpoint, and a
+    suite that never finishes cannot honestly report green. Any other
+    execution error (e.g. a missing ``uv``/``pytest`` binary, a bad ``cwd``)
+    still returns True (advisory pass, CER-072/INFRA-230 bootstrap
+    tolerance) — those indicate the tooling isn't runnable in this
+    environment, not that the suite ran and something was wrong with it.
     """
     import os
     import subprocess
@@ -698,7 +788,7 @@ def _run_build_gate_subprocess(project_dir: "Path") -> bool:
                 shell=True,
                 cwd=str(project_dir),
                 capture_output=True,
-                timeout=60,
+                timeout=600,
                 env=env,
             )
         else:
@@ -706,12 +796,21 @@ def _run_build_gate_subprocess(project_dir: "Path") -> bool:
                 ["uv", "run", "pytest", "tests/pairmode/", "-q", "--tb=no"],
                 cwd=str(project_dir),
                 capture_output=True,
-                timeout=60,
+                timeout=600,
                 env=env,
             )
         return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        # Fail closed: the suite was still running at the 600s deadline.
+        # This guard's entire purpose is to catch what the human-run
+        # reviewer suite might miss between review and checkpoint — a run
+        # that never completes is itself a signal worth stopping on, not
+        # something to wave through as green (INFRA-343).
+        return False
     except Exception:  # noqa: BLE001
-        return True  # advisory: fail open on error or timeout
+        # advisory: fail open — tooling/environment error, not a suite
+        # result (CER-072/INFRA-230 bootstrap tolerance preserved)
+        return True
 
 
 def check_checkpoint_guards(
@@ -745,17 +844,24 @@ def check_checkpoint_guards(
     phase_path = Path(active_phase_file) if active_phase_file is not None else None
 
     # Guard 1: all stories in phase are complete or deferred.
-    if not _check_phase_completion(phase_path):
+    if not _check_phase_completion(phase_path, project_path):
         return {"ok": False, "failed_guard": "phase-incomplete"}
 
     # Guard 2: no unresolved Do Now items in the CER backlog.
     if project_path is not None and not _check_cer_do_now(project_path):
         return {"ok": False, "failed_guard": "cer-do-now"}
 
-    # Guard 3: build gate (injectable; advisory-only on error/timeout).
+    # Guard 3: build gate (injectable). A genuine ``subprocess.TimeoutExpired``
+    # fails closed (INFRA-343) — the guard exists to catch what the
+    # human-run reviewer suite might miss; any other exception remains
+    # advisory fail-open (CER-072/INFRA-230 bootstrap tolerance).
     if gate_fn is not None:
+        import subprocess
+
         try:
             gate_ok = bool(gate_fn())
+        except subprocess.TimeoutExpired:
+            gate_ok = False  # fail closed: the run never completed
         except Exception:  # noqa: BLE001
             gate_ok = True  # advisory: fail open
     elif project_path is not None:
@@ -1032,6 +1138,12 @@ def infer_position(project_dir: "str | Path") -> dict:
         The recorded pre-build intent-review verdict for the active phase's
         key (``state.json["pre_build_intent_review"][phase_key]``), or None
         when no review has been recorded yet (INFRA-315).
+    gate_verdict : dict[str, str] | None
+        The recorded gate-worker verdict map for ``next_story_id``
+        (``state.json["gate_verdict"][next_story_id]``), or None when
+        ``next_story_id`` is None or no verdict has been recorded yet for it
+        (INFRA-341). Fail-open: any missing file, missing key, non-dict
+        value, or parse error also yields None.
     """
     from next_story import find_next_story  # type: ignore[import]
     from model_selector import select_builder_model  # type: ignore[import]
@@ -1361,6 +1473,34 @@ def infer_position(project_dir: "str | Path") -> dict:
         except Exception:  # noqa: BLE001
             pass
 
+    # ------------------------------------------------------------------
+    # 8. Gate-worker verdict (INFRA-341)
+    #
+    # ``gate_verdict`` is the durable evidence a real gate-worker verdict
+    # was recorded for ``next_story_id`` — ``state.json["gate_verdict"]`` is
+    # a ``dict[story_id, verdict_map]`` written by
+    # ``flex_build.py record-gate-verdict`` once the judged-gate-tripped
+    # ``spawn-gate-worker`` spawn returns. Absent entry -> None (not yet
+    # recorded). Mirrors ``pre_build_intent_verdict`` exactly (same
+    # try/except Exception: pass shape, same isinstance guards on both the
+    # outer dict and the per-story value). Pure read: this module never
+    # writes this key.
+    # ------------------------------------------------------------------
+    gate_verdict: "dict[str, str] | None" = None
+    if next_story_id is not None:
+        try:
+            state_path3 = project_path / ".companion" / "state.json"
+            if state_path3.exists():
+                raw_state3 = json.loads(state_path3.read_text(encoding="utf-8"))
+                if isinstance(raw_state3, dict):
+                    verdicts = raw_state3.get("gate_verdict")
+                    if isinstance(verdicts, dict):
+                        candidate_verdict_map = verdicts.get(next_story_id)
+                        if isinstance(candidate_verdict_map, dict):
+                            gate_verdict = candidate_verdict_map
+        except Exception:  # noqa: BLE001
+            pass
+
     return {
         "active_phase_file": active_phase_file,
         "next_story_id": next_story_id,
@@ -1381,6 +1521,7 @@ def infer_position(project_dir: "str | Path") -> dict:
         "intent_review_opt_in": intent_review_opt_in,
         "phase_is_fresh": phase_is_fresh,
         "pre_build_intent_verdict": pre_build_intent_verdict,
+        "gate_verdict": gate_verdict,
     }
 
 
@@ -1394,122 +1535,6 @@ def infer_position(project_dir: "str | Path") -> dict:
 #: Advisory signals that appear in meta.warnings[] but never change the action.
 _ADVISORY_GUARDRAIL: str = "guardrail-fired"
 _ADVISORY_CONTEXT: str = "context-budget-exceeded"
-
-
-def _read_state_for_context_pause(project_dir: "Path | None") -> dict:
-    """Read ``.companion/state.json`` for the Row-8 context-etiquette check.
-
-    Returns ``{}`` on any error (absent file, malformed JSON, non-dict root,
-    or ``project_dir`` being ``None``) -- fail-open (INFRA-316 Ensures 5).
-    Local reader, mirroring the same pattern ``context_health.py``'s
-    ``_read_state_for_headroom`` and ``context_budget.py``'s ``_read_state``
-    already use for this exact file.
-    """
-    if project_dir is None:
-        return {}
-    try:
-        state_path = Path(project_dir) / ".companion" / "state.json"
-        if not state_path.exists():
-            return {}
-        data = json.loads(state_path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
-
-
-def _check_context_pause(project_dir: "Path | None") -> "tuple[str | None, str | None]":
-    """INFRA-316 Row-8 seam: between-story context etiquette.
-
-    Returns ``(pause_reason, warning)``:
-
-    - ``pause_reason`` is a non-empty string (embeds ``tokens=... threshold=...
-      ceiling=...``) when the resolver must emit ``pause-context`` instead of
-      ``spawn-builder``; ``None`` when the resolver should proceed normally.
-    - ``warning`` is a fail-open advisory string (for ``meta.warnings[]``)
-      when a genuine error prevented deriving a verdict; ``None`` for the
-      ordinary "nothing configured yet" case, so an unconfigured project's
-      Row-8 output stays byte-identical to pre-INFRA-316 behaviour.
-
-    Consults the ORCHESTRATOR track ONLY (INFRA-321 F6): reads
-    ``context_current_tokens`` / ``context_budget_threshold`` /
-    ``context_budget_overrun_pct`` / ``context_budget_reprompt_margin`` /
-    the acknowledgment pair from ``.companion/state.json`` and delegates the
-    over-threshold-and-not-acknowledged decision to
-    ``context_budget.should_block`` -- the same pure predicate
-    ``hooks/pre_tool_use.py``'s PreToolUse gate uses, so one operator
-    acknowledgment clears both surfaces (Requires 3). This function never
-    imports or calls ``context_budget_check`` (the story-spend/effort.db
-    track) -- that is the exact data source INFRA-321 F6 forbids here.
-
-    Never raises: any exception while reading state or deriving the verdict
-    is caught and reported as a fail-open warning (Ensures 5).
-    """
-    try:
-        state = _read_state_for_context_pause(project_dir)
-        if not state:
-            # No state.json (or unreadable) yet — nothing configured to pause
-            # on. This is the ordinary case for a project that has not yet
-            # recorded any orchestrator-track measurement; fail open, no
-            # warning (Ensures 1: byte-identical under-threshold output).
-            return None, None
-
-        current_tokens: "int | None" = None
-        raw = state.get("context_current_tokens")
-        if raw is not None:
-            try:
-                v = int(raw)
-                if v > 0:
-                    current_tokens = v
-            except (TypeError, ValueError):
-                current_tokens = None
-        if current_tokens is None:
-            # No measurement recorded yet — same "nothing to pause on" case.
-            return None, None
-
-        threshold = int(state.get("context_budget_threshold", 130000) or 130000)
-        overrun_pct = float(state.get("context_budget_overrun_pct", 0.10) or 0.10)
-        expected_next, _provenance = context_budget.derive_expected_step_tokens(state)
-        reprompt_margin = int(state.get("context_budget_reprompt_margin", 10000) or 10000)
-
-        acknowledged_at_raw = state.get("context_budget_acknowledged_at")
-        acknowledged_at: "int | None"
-        if acknowledged_at_raw is None:
-            acknowledged_at = None
-        else:
-            try:
-                acknowledged_at = int(acknowledged_at_raw)
-            except (TypeError, ValueError):
-                acknowledged_at = None
-
-        user_turn_seq = int(state.get("context_budget_user_turn_seq", 0) or 0)
-        ack_turn_seq_raw = state.get("context_budget_acknowledged_user_turn_seq")
-        acknowledged_user_turn_seq = (
-            int(ack_turn_seq_raw) if ack_turn_seq_raw is not None else None
-        )
-
-        # Shared predicate (Requires 3 / Instructions 3) — identical call
-        # shape to hooks/pre_tool_use.py's decide() -> should_block() path.
-        over = context_budget.should_block(
-            current_tokens=current_tokens,
-            expected_next=expected_next,
-            threshold=threshold,
-            overrun_pct=overrun_pct,
-            acknowledged_at=acknowledged_at,
-            reprompt_margin=reprompt_margin,
-            user_turn_seq=user_turn_seq,
-            acknowledged_user_turn_seq=acknowledged_user_turn_seq,
-        )
-        if not over:
-            return None, None
-
-        ceiling = context_budget.effective_ceiling(threshold, overrun_pct, 1.0)
-        return (
-            f"pause-context: tokens={current_tokens} threshold={threshold} "
-            f"ceiling={ceiling}",
-            None,
-        )
-    except Exception as exc:  # fail-open (Ensures 5) — never brick the loop.
-        return None, f"context-pause-check-failed:{exc}"
 
 
 def resolve_next_action(
@@ -1561,10 +1586,7 @@ def resolve_next_action(
                Absent the opt-in (or any other value), this row never fires and
                resolver output is byte-identical to pre-INFRA-315 behaviour.
     Row 8  — story committed (PASS), more stories remain:
-               ORCHESTRATOR track over threshold, unacknowledged (INFRA-316,
-               INFRA-321 F6)                                → pause-context
-                                                                (scalar=next story ID)
-               else                                          → spawn-builder (next story, attempt 1)
+                                                              → spawn-builder (next story, attempt 1)
     Row 4  — any pre-flight gate blocked                   → await-user (gate-blocked:<which>)
     Row 3  — model reason == prompted-upgrade, counter 0   → await-user (model-upgrade)
     Row 2  — counter 0, auto model (RESOLVER-009 branch):
@@ -1667,18 +1689,26 @@ def resolve_next_action(
 
         _next_step = _remaining[0]
         # checkpoint-tag is NOT in _SPAWN_ACTIONS → model must be None.
-        # checkpoint-security/intent carry no model yet (out of INFRA-333
-        # scope — the harness still sets their model at spawn time via
-        # model_selector, unchanged by this story). checkpoint-docs now
-        # resolves a real model via select_docs_reviewer_model (INFRA-333
-        # Ensures 2), replacing the previous unconditional model=None the
-        # docs-reviewer.md.j2 comment used to describe.
+        # checkpoint-security, checkpoint-intent, and checkpoint-docs each
+        # resolve a real model via their respective model_selector functions
+        # (INFRA-333 Ensures 2 for checkpoint-docs; INFRA-340 closes F3 for
+        # checkpoint-security/checkpoint-intent, which previously carried
+        # model=None unconditionally). phase_class is resolved once via
+        # _phase_class_for, shared across all three branches.
         _checkpoint_model: "str | None" = None
+        _checkpoint_phase_class = _phase_class_for(_phase_path)
         if _next_step == CHECKPOINT_DOCS:
             from model_selector import select_docs_reviewer_model  # type: ignore[import]
 
-            _docs_phase_class = _phase_class_for(_phase_path)
-            _checkpoint_model, _ = select_docs_reviewer_model(_docs_phase_class)
+            _checkpoint_model, _ = select_docs_reviewer_model(_checkpoint_phase_class)
+        elif _next_step == CHECKPOINT_SECURITY:
+            from model_selector import select_security_auditor_model  # type: ignore[import]
+
+            _checkpoint_model, _ = select_security_auditor_model(_checkpoint_phase_class)
+        elif _next_step == CHECKPOINT_INTENT:
+            from model_selector import select_intent_reviewer_model  # type: ignore[import]
+
+            _checkpoint_model, _ = select_intent_reviewer_model(_checkpoint_phase_class)
 
         return make_action(
             _next_step,
@@ -1732,8 +1762,9 @@ def resolve_next_action(
         if pre_build_intent_verdict is None:
             # No review recorded yet for this phase — spawn it once, before
             # any builder. model=null (Requires 1: the model-null rule for
-            # non-builder spawns) — unlike checkpoint-time's
-            # checkpoint-intent, this emission carries no model override.
+            # non-builder spawns) — unlike checkpoint-time's checkpoint-intent
+            # (which resolves a model via select_intent_reviewer_model, INFRA-340),
+            # this emission carries no model override.
             return make_action(
                 SPAWN_INTENT_REVIEWER,
                 scalar=_phase_key,
@@ -1768,30 +1799,13 @@ def resolve_next_action(
     # The orchestrator hasn't cleared the counter yet, so we check outcome.
     # Attempt number for the next story resets to 1.
     #
-    # INFRA-316: before handing out the next story, consult the
-    # ORCHESTRATOR-track context check (Requires 2 — only this seam; mid-story
-    # retries below are unguarded). INFRA-321 F6: this reads
-    # .companion/state.json directly and never touches context_budget_check
-    # (story-spend track).
+    # INFRA-339 removed the INFRA-316 between-story context-etiquette check
+    # that used to sit here (see the PAUSE_CONTEXT constant's declaration
+    # comment above for why) — this seam is unconditional again, exactly as
+    # it was before INFRA-316.
     # ------------------------------------------------------------------
     if last_attempt_outcome == OUTCOME_PASS:
-        _phase_path = Path(active_phase_file) if active_phase_file is not None else None
-        _project_dir = _phase_path.parent.parent.parent if _phase_path is not None else None
-        _pause_reason, _pause_warning = _check_context_pause(_project_dir)
-
-        if _pause_reason is not None:
-            meta = dict(meta_base)
-            return make_action(
-                PAUSE_CONTEXT,
-                scalar=next_story_id,
-                model=None,
-                reason=_pause_reason,
-                meta=_with_claimed_skipped(meta),
-            )
-
         meta: dict = dict(meta_base)
-        if _pause_warning is not None:
-            meta["warnings"] = list(meta.get("warnings") or []) + [_pause_warning]
         meta["attempt"] = 1
         return make_action(
             SPAWN_BUILDER,
@@ -1835,22 +1849,36 @@ def resolve_next_action(
             name: (gate_schema if name == "schema" else gate_auth).get("blocked_reason", "")
             for name in judged_tripped
         }
-        # INFRA-333: select_gate_worker_model's result cannot ride this
-        # action's `model` field (validate_action requires model=null for
-        # any action outside `_SPAWN_ACTIONS`, and spawn-gate-worker is
-        # deliberately not a member — see the SPAWN_GATE_WORKER comment
-        # above and test_spawn_gate_worker_with_model_fails_validate). It is
-        # surfaced as an advisory meta value only; `model=None` is unchanged.
-        from model_selector import select_gate_worker_model  # type: ignore[import]
-
-        _gate_worker_phase_class = _phase_class_for(
-            Path(active_phase_file) if active_phase_file is not None else None
-        )
-        _gate_worker_model, _gate_worker_model_reason = select_gate_worker_model(
-            _gate_worker_phase_class
-        )
-        meta["gate_worker_model"] = _gate_worker_model
-        meta["gate_worker_model_reason"] = _gate_worker_model_reason
+        # INFRA-340: no model_selector call is made here. INFRA-333 had
+        # called this role's phase_class-keyed selector in model_selector.py
+        # and surfaced its result as two advisory `meta` keys, but nothing
+        # consumed them (the action's `model` field stays None —
+        # validate_action requires model=null for any action outside
+        # `_SPAWN_ACTIONS`, and spawn-gate-worker is deliberately not a
+        # member — see the SPAWN_GATE_WORKER comment above and
+        # test_spawn_gate_worker_with_model_fails_validate). Per the
+        # Phase-117 cold-eyes review (F4), a computed-and-discarded value is
+        # worse than not calling the selector at all, so this story removed
+        # the call site. The selector function itself remains defined in
+        # model_selector.py for a future real consumer (see
+        # docs/stories/INFRA/INFRA-340.md).
+        #
+        # INFRA-341: this is the livelock fix (F8 of the phase-117 cold-eyes
+        # review). Once a real gate-worker verdict has been recorded for
+        # this story (``position["gate_verdict"]`` is not None), apply the
+        # existing DP3.2 aggregation (``route_gate_verdict``) to it instead
+        # of re-emitting spawn-gate-worker again — routing to await-user on
+        # any block, or spawn-builder on flag/clean. The first poll after a
+        # judged gate trips still spawns the gate worker (no verdict
+        # recorded yet -> falls through below, unchanged); every poll after
+        # the orchestrator records that worker's verdict resolves instead of
+        # looping.
+        if position.get("gate_verdict") is not None:
+            return route_gate_verdict(
+                position["gate_verdict"],
+                next_story_id,
+                meta_base=_with_claimed_skipped(meta),
+            )
         return make_action(
             SPAWN_GATE_WORKER,
             scalar=next_story_id,

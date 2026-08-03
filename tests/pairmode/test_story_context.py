@@ -10,11 +10,18 @@ from click.testing import CliRunner
 
 from skills.pairmode.scripts.story_context import (
     CURRENT_STORIES_KEY,
+    FAIL_CYCLE_BUMPED_KEY,
+    RECENTLY_DISCARDED_STORIES_KEY,
     clear_current_story,
+    clear_story_bump_markers,
     cli,
+    consume_recently_discarded,
+    cycle_already_bumped,
     get_current_stories,
     get_current_story,
     is_pairmode_active,
+    mark_cycle_bumped,
+    mark_recently_discarded,
     match_file_to_module,
     read_state,
     set_current_story,
@@ -658,3 +665,121 @@ class TestClearCurrentStoryScoped:
         state = clear_current_story(companion, "NOT-A-REAL-STORY")
         assert state[CURRENT_STORIES_KEY]["A-001"]["id"] == "A-001"
         assert state["current_story"]["id"] == "A-001"
+
+
+# ---------------------------------------------------------------------------
+# INFRA-336: recently_discarded_stories marker
+# ---------------------------------------------------------------------------
+
+class TestMarkAndConsumeRecentlyDiscarded:
+    def test_mark_creates_state_json_and_entry(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        state = mark_recently_discarded(companion, "INFRA-330")
+        assert "INFRA-330" in state[RECENTLY_DISCARDED_STORIES_KEY]
+
+        on_disk = read_state(companion)
+        assert "INFRA-330" in on_disk[RECENTLY_DISCARDED_STORIES_KEY]
+
+    def test_mark_preserves_other_entries_and_keys(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        write_state(companion, {"effort_tracking": True})
+        mark_recently_discarded(companion, "INFRA-330")
+        mark_recently_discarded(companion, "INFRA-331")
+
+        state = read_state(companion)
+        assert state["effort_tracking"] is True
+        assert set(state[RECENTLY_DISCARDED_STORIES_KEY]) == {"INFRA-330", "INFRA-331"}
+
+    def test_consume_removes_entry_and_returns_true(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        mark_recently_discarded(companion, "INFRA-330")
+
+        assert consume_recently_discarded(companion, "INFRA-330") is True
+        state = read_state(companion)
+        assert "INFRA-330" not in state.get(RECENTLY_DISCARDED_STORIES_KEY, {})
+
+    def test_consume_of_absent_entry_returns_false_noop(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        assert consume_recently_discarded(companion, "INFRA-999") is False
+
+    def test_consume_leaves_sibling_entries_intact(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        mark_recently_discarded(companion, "INFRA-330")
+        mark_recently_discarded(companion, "INFRA-331")
+
+        consume_recently_discarded(companion, "INFRA-330")
+
+        state = read_state(companion)
+        assert "INFRA-331" in state[RECENTLY_DISCARDED_STORIES_KEY]
+        assert "INFRA-330" not in state[RECENTLY_DISCARDED_STORIES_KEY]
+
+    def test_consume_of_last_entry_removes_key_entirely(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        mark_recently_discarded(companion, "INFRA-330")
+
+        consume_recently_discarded(companion, "INFRA-330")
+
+        state = read_state(companion)
+        assert RECENTLY_DISCARDED_STORIES_KEY not in state
+
+
+# ---------------------------------------------------------------------------
+# INFRA-336 (CER-148): fail_cycle_bumped dedup marker
+# ---------------------------------------------------------------------------
+
+class TestCycleBumpMarkers:
+    def test_cycle_already_bumped_false_for_none_key(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        assert cycle_already_bumped(companion, "INFRA-336", None) is False
+
+    def test_cycle_already_bumped_false_before_marking(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        assert cycle_already_bumped(companion, "INFRA-336", "current:t1") is False
+
+    def test_mark_then_check_same_cycle_true(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        mark_cycle_bumped(companion, "INFRA-336", "current:t1")
+        assert cycle_already_bumped(companion, "INFRA-336", "current:t1") is True
+
+    def test_mark_then_check_different_cycle_false(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        mark_cycle_bumped(companion, "INFRA-336", "current:t1")
+        assert cycle_already_bumped(companion, "INFRA-336", "current:t2") is False
+
+    def test_mark_with_none_key_is_a_noop(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        mark_cycle_bumped(companion, "INFRA-336", None)
+        state = read_state(companion)
+        assert FAIL_CYCLE_BUMPED_KEY not in state
+
+
+class TestClearStoryBumpMarkers:
+    def test_clears_both_marker_keys_for_story(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        mark_recently_discarded(companion, "INFRA-336")
+        mark_cycle_bumped(companion, "INFRA-336", "current:t1")
+
+        clear_story_bump_markers(companion, "INFRA-336")
+
+        state = read_state(companion)
+        assert "INFRA-336" not in state.get(RECENTLY_DISCARDED_STORIES_KEY, {})
+        assert "INFRA-336" not in state.get(FAIL_CYCLE_BUMPED_KEY, {})
+
+    def test_leaves_sibling_story_entries_intact(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        mark_recently_discarded(companion, "INFRA-336")
+        mark_recently_discarded(companion, "INFRA-337")
+        mark_cycle_bumped(companion, "INFRA-336", "current:t1")
+        mark_cycle_bumped(companion, "INFRA-337", "current:t2")
+
+        clear_story_bump_markers(companion, "INFRA-336")
+
+        state = read_state(companion)
+        assert "INFRA-337" in state[RECENTLY_DISCARDED_STORIES_KEY]
+        assert "INFRA-337" in state[FAIL_CYCLE_BUMPED_KEY]
+
+    def test_noop_on_missing_state_json(self, tmp_path):
+        companion = make_companion_dir(tmp_path)
+        # Never raises, returns without creating state.json.
+        clear_story_bump_markers(companion, "INFRA-336")
+        assert not (companion / "state.json").exists()

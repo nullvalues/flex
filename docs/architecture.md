@@ -74,7 +74,7 @@ flex/
         table_utils.py            ← INFRA-297 (CER-069): `split_table_row` — the single owner of Markdown-table row splitting; splits on unescaped pipes only, returns raw un-stripped parts, never unescapes `\|`; stdlib-only with no sibling imports so it cannot join an import cycle. New table readers import it rather than writing a fresh split
         gate_verdict.py           ← WORKER-001 gate verdict grammar: VERBS (clean/block/flag), JUDGED_GATES (schema/auth; stub excluded), parse_verdict (string → (verb, reason)), validate_verdict_map (dict → violation list); stdlib-only, no I/O; the WORKER-rail contract analogue of next_action.py's action grammar
         worker_result.py          ← generalized worker return contract (WORKER-004, HARNESS003-main): four result types (BUILD-RESULT, REVIEW-RESULT, ADVICE, SPEC-RESULT), parse_worker_result (text → dict, validated), validate_worker_result (dict → violation list); stdlib-only, no I/O; parallel to gate_verdict.py for all non-gate workers
-        next_action.py            ← next-action resolver: action grammar (make_action, validate_action, ACTIONS), position read-model (infer_position), 9-state DP2 machine (resolve_next_action); HARNESS002-main adds spawn-gate-worker to ACTIONS, Row-4 DP2 split (stub→await-user directly; schema/auth→spawn-gate-worker), parse_worker_verdict_text (worker text return → per-gate verdict map), route_gate_verdict (DP3.2 aggregation: block→await-user, flag→proceed+warnings, clean→proceed); the live sequencing core since the flip (HARNESS006), pure-read; HARNESS003-main adds spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer to ACTIONS and _SPAWN_ACTIONS; SCHEMA_VERSION bumped to 2; HARNESS004-main adds checkpoint-security, checkpoint-intent, checkpoint-docs, checkpoint-tag to ACTIONS; removes monolithic checkpoint from ACTIONS (constant retained for import compat); adds check_checkpoint_guards (pre-checkpoint guards: phase-completion, CER Do Now, build-gate via injectable gate_fn); checkpoint step sequencing via _CHECKPOINT_SEQUENCE; SCHEMA_VERSION bumped to 3; HARNESS005-main adds spawn-spec-writer to ACTIONS and _SPAWN_ACTIONS; adds needs_spec bool to infer_position Position (True when ## Ensures absent or &lt; 5 non-blank lines — stub heuristic; fail-safe: unreadable story file → True); Row-2 split: needs_spec True → spawn-spec-writer (model=opus, reason=needs-spec), needs_spec False → spawn-builder as before; _count_ensures_nonblank_lines private helper (pure, no I/O); SPEC-RESULT{revised} routing lives in CLAUDE.build.md orchestrator prose (not in resolve_next_action); canonical reason string: spec-revised-awaiting-review; SCHEMA_VERSION bumped to 4; spawn-reviewer is in ACTIONS/_SPAWN_ACTIONS for orchestrator dispatch but is never emitted by resolve_next_action (CER-074); INFRA-328 Row 6 (double-fail → spawn-loop-breaker) now queries `effort_db.query_by_story` for the story's most recent `outcome == "FAIL"` attempt and surfaces its `notes` (fail_cause) column as the action's `reason` — replacing the prior bare `reason=""` — so CLAUDE.build.md's orchestrator loop can construct the `LOOP-BREAKER: [error] | FILE: [file:line] | TRIED: [what failed]` prompt CLAUDE.md's loop-breaker mode requires; fails open unchanged (any lookup error, missing effort.db, no FAIL rows, or a FAIL row with no notes still returns spawn-loop-breaker with reason="")
+        next_action.py            ← next-action resolver: action grammar (make_action, validate_action, ACTIONS), position read-model (infer_position), 9-state DP2 machine (resolve_next_action); HARNESS002-main adds spawn-gate-worker to ACTIONS, Row-4 DP2 split (stub→await-user directly; schema/auth→spawn-gate-worker), parse_worker_verdict_json (worker text return → per-gate verdict map), route_gate_verdict (DP3.2 aggregation: block→await-user, flag→proceed+warnings, clean→proceed); the live sequencing core since the flip (HARNESS006), pure-read; HARNESS003-main adds spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer to ACTIONS and _SPAWN_ACTIONS; SCHEMA_VERSION bumped to 2; HARNESS004-main adds checkpoint-security, checkpoint-intent, checkpoint-docs, checkpoint-tag to ACTIONS; removes monolithic checkpoint from ACTIONS (constant retained for import compat); adds check_checkpoint_guards (pre-checkpoint guards: phase-completion, CER Do Now, build-gate via injectable gate_fn); checkpoint step sequencing via _CHECKPOINT_SEQUENCE; SCHEMA_VERSION bumped to 3; HARNESS005-main adds spawn-spec-writer to ACTIONS and _SPAWN_ACTIONS; adds needs_spec bool to infer_position Position (True when ## Ensures absent or &lt; 5 non-blank lines — stub heuristic; fail-safe: unreadable story file → True); Row-2 split: needs_spec True → spawn-spec-writer (model=opus, reason=needs-spec), needs_spec False → spawn-builder as before; _count_ensures_nonblank_lines private helper (pure, no I/O); SPEC-RESULT{revised} routing lives in CLAUDE.build.md orchestrator prose (not in resolve_next_action); canonical reason string: spec-revised-awaiting-review; SCHEMA_VERSION bumped to 4; spawn-reviewer is in ACTIONS/_SPAWN_ACTIONS for orchestrator dispatch but is never emitted by resolve_next_action (CER-074); INFRA-328 Row 6 (double-fail → spawn-loop-breaker) now queries `effort_db.query_by_story` for the story's most recent `outcome == "FAIL"` attempt and surfaces its `notes` (fail_cause) column as the action's `reason` — replacing the prior bare `reason=""` — so CLAUDE.build.md's orchestrator loop can construct the `LOOP-BREAKER: [error] | FILE: [file:line] | TRIED: [what failed]` prompt CLAUDE.md's loop-breaker mode requires; fails open unchanged (any lookup error, missing effort.db, no FAIL rows, or a FAIL row with no notes still returns spawn-loop-breaker with reason=""); 2026-08-01 INFRA-341: closes the F8 livelock (`spawn-gate-worker` re-emitting identically on every poll since nothing consumed its verdict) — `infer_position` gains `gate_verdict` (`dict[str, str] | None`, read from `state.json["gate_verdict"][next_story_id]`, mirrors `pre_build_intent_verdict`'s fail-open read shape exactly); Row 4b now calls `route_gate_verdict(position["gate_verdict"], next_story_id, meta_base=meta)` — the existing DP3.2 aggregation, called from a real production path for the first time — whenever a verdict has been recorded, falling back to (re-)emitting `spawn-gate-worker` (unchanged) only when none has; `flex_build.py record-gate-verdict` is the new CLI writer (reads the worker's raw stdout from stdin, injects `"stub": "clean"` when absent to reconcile the live worker's two-key contract with `parse_worker_verdict_json`'s three-key requirement, then persists to `state.json["gate_verdict"][story_id]` via `_atomic_write_json`); `merge-story-worktree`/`discard-story-worktree` both clear the recorded verdict for their story_id, mirroring the existing attempt-counter/active-story/permissions clears; grammar-unchanged (no new action type, no `ACTIONS`/`_SPAWN_ACTIONS` membership change, no `SCHEMA_VERSION` bump)
         pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all three sync operations in fixed order (sync-all subcommand); also registers register/unregister/list-projects in the top-level CLI group
         pairmode_register.py      ← manage registered_projects in .companion/state.json (register/unregister/list-projects subcommands)
         pairmode_migrate.py       ← one-shot migration of an anchor-bootstrapped sibling project to flex naming (migrate-from-anchor subcommand)
@@ -217,6 +217,30 @@ Only story-build actions (`spawn-builder` / `spawn-reviewer`) are worktree-wrapp
 checkpoint-stage workers (`checkpoint-security`, `checkpoint-intent`, `checkpoint-docs`)
 are read-mostly, never commit, and stay on the main worktree unwrapped. `.pairmode-worktrees/`
 is git-ignored. Steps 3, 5, and 6 below happen inside that worktree.
+
+**2026-08-01 INFRA-344 (F10): worktree creation refuses an uncommitted spec elaboration.**
+`create-story-worktree` branches `pairmode/<ID>` from the current branch's `HEAD` — so a
+worktree created while the target story's own spec file (`docs/stories/<RAIL>/<ID>.md`)
+has an uncommitted change (staged, unstaged, or untracked) against `HEAD` hands the
+builder a checkout that predates that change. This was a live gap: the spec-writer's
+procedure never commits ("the orchestrator does that" —
+`skills/pairmode/skills/spec-writer/procedure.md`), and until this story
+`CLAUDE.build.md`'s dispatch loop never implemented that promise either — the generic
+`else` branch spawned `spawn-spec-writer` and re-polled `next-action` without ever
+committing the elaborated spec, so `needs_spec` (which reads the working-tree file
+directly) looked satisfied while the file itself sat uncommitted. Two closed layers, per
+INFRA-344's Context decision to fix both rather than either/or: (1) `CLAUDE.build.md`'s
+`while true` loop gained an explicit `spawn-spec-writer` branch that commits
+`docs/stories/<RAIL>/<scalar>.md` (scoped to that one path, never `git add -A`) with a
+`spec(<scalar>): ...` message immediately after the leaf worker returns — regardless of
+the returned `SPEC-RESULT` `status` — and before the loop's next `next-action` poll; (2)
+`create-story-worktree` itself now refuses (exit 1, no worktree, no branch, nothing on
+stdout) before creating anything, when `git status --porcelain -- <story-spec-path>` is
+non-empty for exactly that one path — mirroring the existing INFRA-296/CER-115
+fail-loud, all-or-nothing shape for a missing permissions artifact. The check is scoped
+to the target story's own spec file only; an uncommitted change elsewhere in the working
+tree never blocks worktree creation. `create-story-worktree` never auto-commits on the
+operator's behalf — refuse-and-instruct, not silent commit-on-their-behalf.
 
 **Worktree build-environment provisioning (CER-075, INFRA-302).** A git worktree contains
 exactly what git tracks, so a project's deliberately gitignored build inputs (`node_modules`,
@@ -433,6 +457,34 @@ so a claim never overrides commit evidence (CER-095.1).
    interleaved read-modify-write calls — a genuine advisory lock across `.companion/` writers is
    deferred to INFRA-285 (CER-097) rather than being pre-empted here with a second, competing
    locking scheme.
+   **INFRA-336 (CER-091 defect 4's real root cause, plus CER-147/CER-148):** the INFRA-264 E9
+   late-bump guard above still had a live gap — a story's *first* FAIL is commonly reconciled
+   from `effort.db` *after* `discard-story-worktree` has already cleared its `current_stories`
+   stamp (exactly the ordering `CLAUDE.build.md`'s build loop prescribes), and
+   `_story_accepts_late_bump`'s rule 2 read only `current_stories`/the flat mirror — never a
+   "this story was just discarded" signal — so that first FAIL's late bump was refused and the
+   escalation ladder stalled at attempt 1 forever. `discard-story-worktree` now writes
+   `state.json["recently_discarded_stories"][story_id]` (a timestamped marker, via
+   `story_context.mark_recently_discarded`) at the same point it clears the `current_stories`
+   stamp, and `_story_accepts_late_bump`'s rule 2 also accepts a story present in that marker.
+   The marker is bounded, not permanent: `story_context.consume_recently_discarded` removes it
+   the moment the late bump it authorized fires, and `story_context.clear_story_bump_markers`
+   removes it (and the CER-148 marker below) the moment `create-story-worktree` re-stamps the
+   same `story_id` or the story lands via `merge-story-worktree` — so it never re-authorizes a
+   later, unrelated FAIL for the same `story_id`. Separately (CER-148), the reconciliation
+   sweep (`subagent_transcript.reconcile_pending_attempts`) now recognises when a builder-FAIL
+   row and a reviewer-FAIL row belong to the *same* still-open attempt cycle — identified by
+   `state.json["current_stories"][story_id]["set_at"]` or the discard marker's own timestamp,
+   never row identity — and bumps the counter once per cycle, not once per FAIL row
+   (`state.json["fail_cycle_bumped"][story_id]`, via `story_context.cycle_already_bumped`/
+   `mark_cycle_bumped`). `write_attempt_count`/`bump_attempt_count`/`clear_attempt_count`
+   (CER-147) also now wrap their read-modify-write critical sections in `state_utils.state_lock`,
+   keyed to `attempt_counter.json`'s own `.lock` sibling (never `state.json`'s) — the advisory
+   lock deferred in the accepted-limitation note above, scoped to this one file. A reusable
+   stage-to-stage integration-test harness, `tests/pairmode/test_stage_integration.py`, drives
+   the real `next-action`/`create-story-worktree`/`discard-story-worktree` CLI surface end to
+   end against a real temporary project and proves the fix (and CER-147/CER-148) directly; later
+   phase-117 stories extend it rather than re-deriving the setup.
    **INFRA-285 (CER-097):** the context-budget accounting is the fourth structure this era
    keys, and the deferred lock above now exists. `state.json["context_sessions"][<session_id>]`
    holds `context_current_tokens`, `context_current_tokens_recorded_at`,
@@ -972,34 +1024,55 @@ so a claim never overrides commit evidence (CER-095.1).
    construction. This constrains **INFRA-316** (Phase 116, between-story context
    etiquette), which is not itself edited by this story.
 
-   **INFRA-316 landed this constraint (Phase 116).** `next_action.py`'s Row 8
-   ("story committed (PASS), more stories remain") now runs a between-story
-   context-etiquette check *before* emitting the next `spawn-builder`. The
-   check (`next_action._check_context_pause`) reads `.companion/state.json`
-   directly and delegates to `context_budget.should_block` — the identical
+   **INFRA-316 landed this constraint (Phase 116), and INFRA-339 removed it
+   (Phase 117).** `next_action.py`'s Row 8 ("story committed (PASS), more
+   stories remain") briefly ran a between-story context-etiquette check
+   *before* emitting the next `spawn-builder`. The check
+   (`next_action._check_context_pause`) read `.companion/state.json`
+   directly and delegated to `context_budget.should_block` — the identical
    pure predicate `hooks/pre_tool_use.py`'s PreToolUse gate already uses on
    the ORCHESTRATOR track (`context_current_tokens` vs
    `context_budget_threshold` and its overrun/margin/acknowledgment
-   siblings) — so one operator acknowledgment clears both surfaces. When the
-   check reports over-threshold-and-unacknowledged, the resolver emits a new
-   action, `pause-context` (`scalar`=the next story ID, `model=null`,
-   `reason` embeds `tokens=… threshold=… ceiling=…`), instead of
-   `spawn-builder`; `CLAUDE.build.md.j2`'s dispatch loop treats it as: record
-   state, summarize, end the session, resume fresh. This module never
-   imports or calls `context_budget_check.py` — doing so would have compared
-   the orchestrator-track threshold against a story-spend sum, exactly the
-   mis-attribution this section already forbade. `_ADVISORY_CONTEXT`
-   (`context-budget-exceeded`) remains unwired reserved vocabulary; it was
-   not reused for this seam because `pause-context` is a distinct
-   await-user-class action in its own right (`SCHEMA_VERSION` 4 → 5), not an
-   advisory attached to a still-emitted `spawn-builder` (a warned dispatch is
-   still a dispatch — the forbidden proxy this story's spec explicitly
-   named). Only the Row-8 seam is guarded: Row 2 (first attempt of a
-   freshly-claimed phase) and attempt retries (Rows 5/6/7, same story) are
-   unaffected, and the check fails open (missing/unreadable `state.json`, no
-   recorded `context_current_tokens`, or any exception while deriving the
-   verdict) to `spawn-builder`, with a warning in `meta.warnings[]` only for
-   the genuine-error case.
+   siblings). When it reported over-threshold-and-unacknowledged, the
+   resolver emitted an action, `pause-context` (`scalar`=the next story ID,
+   `model=null`, `reason` embeds `tokens=… threshold=… ceiling=…`), instead
+   of `spawn-builder`.
+
+   The Phase-117 cold-eyes review (`docs/build-loop-cold-eyes-review-
+   20260801.md`, findings F2 and F12) found this shipped structurally
+   unreachable and with a session-scoping bug. F2: `next_story_id` comes from
+   `next_story.find_next_story`, which already excludes any story for which
+   `_has_story_commit` returns true; `infer_position` then re-derives the
+   identical git log and calls the same `_has_story_commit` against the same
+   `next_story_id` microseconds later, so the two calls can never disagree —
+   `last_attempt_outcome == OUTCOME_PASS` was provably unreachable from a
+   live resolver call, so the Row-8 check only ever fired in
+   hand-constructed test fixtures. F12: even setting reachability aside, the
+   check hand-assembled its verdict from the flat top-level `state.json`
+   mirror rather than the session-scoped values the equivalent PreToolUse
+   hook check uses (`context_budget.decide(..., session_id=...)`,
+   `state.json["context_sessions"][<id>]`) — under a concurrent second
+   session it could read that session's window instead of the calling
+   orchestrator's, the exact CER-097 under-blocking shape INFRA-285 fixed
+   for the hook.
+
+   INFRA-339 removed the feature rather than repair it (see
+   `docs/stories/INFRA/INFRA-339.md` § Requires 2 for the recorded design
+   decision and reasoning): `pause-context` is no longer a live action
+   (`SCHEMA_VERSION` 5 → 6), `_check_context_pause` and
+   `_read_state_for_context_pause` are deleted from `next_action.py`, and
+   Row 8 is unconditional again — every "story committed (PASS), more
+   stories remain" poll now emits `spawn-builder` directly, exactly as it
+   did before INFRA-316. The orchestrator-track budget gate that remains
+   live is the PreToolUse hook (`hooks/pre_tool_use.py` +
+   `context_budget.decide`) only — it was already session-scoped and
+   field-proven (INFRA-193/INFRA-285 lineage) and needed no change. A new
+   stage-integration test (`tests/pairmode/test_stage_integration.py`)
+   drives the real CLI across a builder → worktree → commit → merge →
+   next-action sequence with an over-threshold state.json and asserts the
+   second `next-action` call still emits `spawn-builder`, proving Row 2/Row
+   8 was always the reachable path and that removing the second, broken
+   gate changes nothing observable in the live sequence.
 
 10. **Checkpoint** — at phase end, the checkpoint sequence runs:
     `checkpoint-security` (security-auditor, WORKER-008) → `checkpoint-intent` (intent-reviewer,
@@ -1051,6 +1124,15 @@ so a claim never overrides commit evidence (CER-095.1).
     refuses to close an era whose `## Phases` ledger holds a phase failing
     `index_integrity.is_phase_inactive` (`complete`/`deferred`/`backlog`), writing nothing
     (`_close_era_frontmatter` unreached). Both gates fail open on a missing phase/era doc.
+    **INFRA-346** adds a third consumer of the same shared predicate, earlier in the pipeline:
+    `next_action._check_phase_completion` (the resolver's own pre-checkpoint Guard 1, called
+    before `checkpoint-security` is ever dispatched) now also calls
+    `index_integrity.is_formally_deferred` for every `"deferred"`-status Stories-table row, when
+    given a `project_dir` — a table `deferred` cell with no corroborating story-file frontmatter,
+    or frontmatter that disagrees, now fails the resolver's own guard instead of only being caught
+    later, and more expensively, at `checkpoint-tag`. All three points that decide "formally
+    deferred" — the resolver's own pre-checkpoint guard, the `checkpoint-tag` story→phase gate, and
+    the `era_transition` phase→era gate — now share the one predicate.
 
     `cer.py groom --project-dir <dir>` re-reads `## Do Later` and `## Do Much Later` for every
     open row (same placeholder/resolution exemptions as Do Now) and prints each row's ID,
@@ -1648,15 +1730,24 @@ departure from "fail loudly": the story file itself is the durable artifact and 
 correctly; the manifest row is derived state an operator or `check-index` can reconcile.
 Failing the command would strand a correctly-written story behind a non-zero exit and push
 callers toward ignoring the exit code entirely.
-**Current status (corrected — the current `CLAUDE.build.md` is a ~52-line thin loop with no
-numbered "Step 3" and never calls `story_update.py`; neither does
-`skills/pairmode/skills/reviewer/procedure.md`):** frontmatter/phase-table story status is not
-written automatically by any orchestrator step today. It is git-commit-verified after the fact —
+**Current status (corrected — as of INFRA-347 (CER-136), `cmd_merge_story_worktree` in
+`flex_build.py` is the automatic caller; the `CLAUDE.build.md` thin loop and
+`skills/pairmode/skills/reviewer/procedure.md` still never call `story_update.py`
+themselves, but they don't need to):** frontmatter/phase-table story status **is**
+written automatically, at the point a story's worktree is merged —
+`cmd_merge_story_worktree` calls `story_update.update_story_status` and
+`story_update.update_phase_story_status` inside the same merge-lock critical section,
+after the merge has landed and the other per-story stamps are cleared, and before the
+command reports success. It remains git-commit-verified after the fact as a second
+line of defence —
 `flex_build.py check-index`'s status-drift check (RESOLVER-010) reads git log for a
 `feat(story-<ID>)` commit and flags any story whose file still shows `planned`/`draft` as drift —
-rather than orchestrator-prose-driven at commit time. `story_update.py` remains the canonical CLI
-for making the correction (manual or checkpoint-docs-driven), it is just not wired into the build
-loop as an automatic post-commit step.
+so a story merged before this fix landed, or one whose story file did not exist at
+merge time (a fail-open no-op — see the state-ownership table below), is still caught.
+`story_update.py` remains the canonical CLI for making the correction by hand when
+needed (e.g. reconciling a pre-INFRA-347 merge), but as of this fix it is no longer
+the *only* way the status gets set — it is wired into the build loop as an automatic
+post-merge step.
 Valid statuses: `draft`, `planned`, `in-progress`, `complete`, `backlog`.
 
 **Note (Phase 55 / Phase 81):** Phase 55 replaced the allow-rule-only cycle with
@@ -1860,9 +1951,15 @@ security-auditor checkpoint agent. The `reason` string is emitted on the second 
 | `pre-pr` | opus |
 
 Unknown or absent `phase_class` values default to `"production"` for both
-helpers. The orchestrator reads `phase_class` from the phase manifest frontmatter
-before spawning each checkpoint agent and passes the result as the Agent tool's
-`model` parameter (same override mechanism as the reviewer model selection).
+helpers. `next_action.py`'s Row 9 reads `phase_class` from the phase manifest
+frontmatter (via `_phase_class_for`) once per resolver call and calls
+`select_security_auditor_model`/`select_intent_reviewer_model` directly
+whenever `checkpoint-security`/`checkpoint-intent` is the next uncompleted
+checkpoint step — the same wiring shape as `select_docs_reviewer_model`'s
+`checkpoint-docs` call, below (INFRA-340; both checkpoint roles previously
+carried a hardcoded `model=None` in `resolve_next_action`, contrary to the
+model-override contract `.claude/agents/security-auditor.md`/
+`intent-reviewer.md` document).
 
 **Gate-worker / docs-reviewer / spec-writer model selection (INFRA-333, CER-139,
 AG-13).** Three roles previously had no `select_*_model` function at all —
@@ -1890,13 +1987,21 @@ action's `model` field — `validate_action` requires `model=null` for any
 action outside `_SPAWN_ACTIONS`, and `spawn-gate-worker` is deliberately not
 a member of that set (locked in by
 `test_spawn_gate_worker_with_model_fails_validate`); promoting it to
-`_SPAWN_ACTIONS` would be an action-grammar redesign, out of this story's
-narrow "wire the missing selectors" scope. `next_action.py`'s Row 4b instead
-calls this selector directly and surfaces the result as advisory
-`meta["gate_worker_model"]` / `meta["gate_worker_model_reason"]` keys on the
-emitted action — a real call site, not an unused function, without changing
-the grammar. `gate-worker.md.j2`'s frontmatter `model: sonnet` therefore
-remains the authoritative default (not merely a fallback) for this role.
+`_SPAWN_ACTIONS` would be an action-grammar redesign, which remains out of
+scope. INFRA-333 had `next_action.py`'s Row 4b call this selector directly
+and surface the result as advisory `meta["gate_worker_model"]` /
+`meta["gate_worker_model_reason"]` keys on the emitted action, but nothing
+in the orchestrator or harness ever consumed those keys. INFRA-340 removed
+that Row 4b call site (the Phase-117 cold-eyes review's own conclusion: a
+computed-and-discarded value is worse than not calling the selector at all)
+— Row 4b calls no model selector today, and the emitted action's `meta`
+dict no longer carries either key. `select_gate_worker_model` itself
+remains defined in `model_selector.py`, unchanged, for a future real
+consumer (possibly INFRA-341, if that story's gate-worker verdict-consumer
+wiring independently requires promoting `spawn-gate-worker` into
+`_SPAWN_ACTIONS`). `gate-worker.md.j2`'s frontmatter `model: sonnet` is
+once again the sole determinant of the gate-worker's model — the
+orchestrator never passes a computed override for this role.
 
 `select_docs_reviewer_model(phase_class) -> tuple[str, str]` — returns
 `(model, reason)` for the docs-reviewer checkpoint agent (WORKER-011,
@@ -2540,8 +2645,14 @@ Scoped to the window `HARNESS001-main … HARNESS005-main`:
    disposable and never read back by the orchestrator). The orchestrator remains the sole writer
    of all shared state during the additive window. Note: `check_checkpoint_guards` (introduced in
    RESOLVER-008) calls `_run_build_gate_subprocess` when `gate_fn` is not injected — this is a
-   subprocess call, not a state write. The pure-read constraint refers to `state.json`; the
-   subprocess invocation is advisory-only and fails open on timeout or error.
+   subprocess call, not a state write. The pure-read constraint refers to `state.json`;
+   the subprocess invocation now fails **closed** (returns `False`, blocking the gate)
+   on a genuine `subprocess.TimeoutExpired` — the guard exists specifically to catch
+   what the human-run reviewer suite might miss between review and checkpoint, and a
+   suite that never finishes inside the timeout cannot honestly report green
+   (INFRA-343) — and remains advisory fail-open only for other, non-timeout execution
+   errors (a missing test runner, a bad `cwd`, etc.), preserving the CER-072/INFRA-230
+   bootstrap-tolerance rationale for those cases.
 
 3. **Fleet-facing surface frozen on `main`.** Consumer-facing templates (`CLAUDE.build.md.j2`,
    `agents/*.md.j2`), global hooks, and agent files do not change on `main` until the flip — a
@@ -2563,14 +2674,14 @@ is **read-only** on every row.
 | `state.json` `context_*` (context tokens: `context_current_tokens`, `context_current_tokens_recorded_at`, `context_session_reset_at`) | orchestrator hooks (`post_tool_use.py` / `session_start.py`), frozen | read-only |
 | `state.json` `checkpoint_steps` (dict, keyed by phase key; INFRA-283, CER-095.4) | orchestrator (`flex_build.py record-checkpoint-step`) — **the authority** as of INFRA-283: one completed-step list per in-flight phase, so concurrent phases checkpointing under one orchestrator cannot record or wipe one another's progress. `checkpoint-tag` removes only its own key (`steps.pop(effective_key, None)`); a legacy-shape `state.json` (no keyed record) is read correctly and upgraded to this shape on its next successful write — no migration command exists | read-only (`next_action.infer_position` reads the active phase's own entry directly by key when this record is present; never writes it) |
 | `state.json` `checkpoint_step` | orchestrator (`flex_build.py record-checkpoint-step`); HARNESS009-main moved authority from LLM prose to CLI (RESOLVER-012); HARNESS015-main (RESOLVER-017) added reset-to-`[]` on `checkpoint-tag` completion, fixing a silent skip of the entire checkpoint sequence on every phase after the first; INFRA-260 (CER-083) — the resolver now honours this list only when the adjacent `checkpoint_phase` stamp is absent, empty, or matches the active phase's own key, so a list stamped for a *different* phase reads as `[]` instead of silently resuming a stale checkpoint. **As of INFRA-283 (CER-095.4), this is a derived mirror of `checkpoint_steps` above, not the authority** — written on every call (this call's own key's list on a non-terminal step; the sole remaining entry, or `[]` on ambiguity/exhaustion, on the terminal step) purely for readers outside this fix's scope, and the CER-083 mismatch rule above now applies only on the legacy path, before a keyed record exists | read-only (mismatched-stamp override on the legacy path only, still no write) |
-| `state.json` `checkpoint_phase` | orchestrator (`flex_build.py record-checkpoint-step`), added INFRA-260 (CER-083); INFRA-265 (CER-077) — the value stamped is now resolved by an explicit precedence chain, not a single re-derivation: an explicit `--phase-key` first (validated against the index; a mismatched stamp is an error, not a choice, **on the legacy path only as of INFRA-283 — see below**), then the existing non-empty stamp, then `resolve_current_phase`'s candidate set only when it is unambiguous (more than one candidate errors on the terminal step, warns and stamps `""` on a non-terminal one) — every `record-checkpoint-step` call stamps the precedence-resolved key in the same atomic write that appends the step; the terminal `checkpoint-tag` branch resets it to `""` alongside the `checkpoint_step` reset. **As of INFRA-283 (CER-095.4), this is a derived mirror of `checkpoint_steps` above, not the authority**: once a keyed record exists, the stamp only ever names whichever phase wrote most recently, so a mismatch against a different explicit `--phase-key` is no longer evidence of an operator mistake and the A4 disagreement check (CER-077) is skipped — applying it unconditionally would reject a second phase's perfectly correct concurrent call, the exact bug this story closes | read-only (`next_action.infer_position` reads it only on the legacy path, to decide whether to honour or clear `checkpoint_step`; it never writes `checkpoint_phase`) |
+| `state.json` `checkpoint_phase` | orchestrator (`flex_build.py record-checkpoint-step`), added INFRA-260 (CER-083); INFRA-265 (CER-077) — the value stamped is now resolved by an explicit precedence chain, not a single re-derivation: an explicit `--phase-key` first (validated against the index; a mismatched stamp is an error, not a choice, **on the legacy path only as of INFRA-283 — see below**), then the existing non-empty stamp, then `resolve_current_phase`'s candidate set only when it is unambiguous (more than one candidate hard-refuses regardless of step, as of INFRA-346/CER-158 — a non-terminal step used to degrade this to a warning and stamp `""`; that silent no-op key is what CER-158 closes) — every `record-checkpoint-step` call stamps the precedence-resolved key in the same atomic write that appends the step; the terminal `checkpoint-tag` branch resets it to `""` alongside the `checkpoint_step` reset. **As of INFRA-283 (CER-095.4), this is a derived mirror of `checkpoint_steps` above, not the authority**: once a keyed record exists, the stamp only ever names whichever phase wrote most recently, so a mismatch against a different explicit `--phase-key` is no longer evidence of an operator mistake and the A4 disagreement check (CER-077) is skipped — applying it unconditionally would reject a second phase's perfectly correct concurrent call, the exact bug this story closes | read-only (`next_action.infer_position` reads it only on the legacy path, to decide whether to honour or clear `checkpoint_step`; it never writes `checkpoint_phase`) |
 | `docs/phases/index.md` phase status cell | orchestrator, via `flex_build.py record-checkpoint-step checkpoint-tag` (INFRA-239) — the `checkpoint-tag` step's `_mark_phase_complete_in_index` call writes `complete` to the just-tagged phase's row in the same CLI invocation that resets `checkpoint_step`, so the two writes never land in separate orchestrator turns; the standalone `mark-phase-complete` command (`cmd_mark_phase_complete`) shares the same write helper for direct/manual use but is no longer required in the checkpoint path | read-only (`_resolve_active_phase` / `resolve_current_phase` skip `complete`/`deferred`/`backlog` rows when selecting the active phase) |
-| active era doc (`docs/eras/NNN-*.md`, `status: active`) `## Phases` ledger status cell | orchestrator, via `flex_build.py mark-phase-complete` / `record-checkpoint-step checkpoint-tag` (INFRA-267, CER-082) — both call `_mark_phase_complete_in_era_ledger` with the *same* phase key already passed to `_mark_phase_complete_in_index`, never a second re-derivation, so the ledger row and the index row flip in one invocation; the helper searches **every** currently-`active` era doc's ledger for the phase key's row and flips it wherever found (INFRA-326 — no longer a single pre-chosen "highest ID" target, which silently no-opped when the row lived in a different active doc), flipping every matching row on the rare genuine-ambiguity case where more than one active doc has the row; it is a silent no-op (returns `False`, writes nothing, raises nothing) only when `docs/eras/` is missing, no era doc is `active`, no active doc's ledger has a row matching the key, or every matching row already reads `complete`, and it never edits a non-`active` era doc — a legacy era without a ledger row must not change the exit status of either command. When more than one era doc is simultaneously `active`, a `warning:` line is printed to stderr (INFRA-326). The row itself is created by `phase_new.py` at scaffold time | read-only (`index_integrity` check 2c compares ledger rows against `docs/phases/index.md`; the resolver never reads or writes era docs) |
+| active era doc (`docs/eras/NNN-*.md`, `status: active`) `## Phases` ledger status cell | orchestrator, via `flex_build.py mark-phase-complete` / `record-checkpoint-step checkpoint-tag` (INFRA-267, CER-082) — both call `_mark_phase_complete_in_era_ledger` with the *same* phase key already passed to `_mark_phase_complete_in_index`, never a second re-derivation, so the ledger row and the index row flip in one invocation; the helper searches **every** currently-`active` era doc's ledger for the phase key's row and flips it wherever found (INFRA-326 — no longer a single pre-chosen "highest ID" target, which silently no-opped when the row lived in a different active doc), flipping every matching row on the rare genuine-ambiguity case where more than one active doc has the row; it is a silent no-op (returns `False`, writes nothing, raises nothing) only when `docs/eras/` is missing, no era doc is `active`, no active doc's ledger has a row matching the key, or every matching row already reads `complete`, and it never edits a non-`active` era doc — a legacy era without a ledger row must not change the exit status of either command. When more than one era doc is simultaneously `active`, a `warning:` line is printed to stderr (INFRA-326). As of INFRA-346 (CER-154), a distinct second `warning:` line is printed when active era docs exist but *none* of their ledgers contain the phase's row (as opposed to no active era docs at all, which stays silent) — naming the phase key and the searched doc(s), and noting the row may belong to an already-closed era's ledger (a case this function deliberately does not search). The row itself is created by `phase_new.py` at scaffold time | read-only (`index_integrity` check 2c compares ledger rows against `docs/phases/index.md`; the resolver never reads or writes era docs) |
 | active stories (`state.json` `current_stories`, keyed by story ID; INFRA-281/CER-095.2, superseding the single-slot `current_story`) | `story_context.py` — sole writer, via `set_current_story()` / `clear_current_story()`; `create-story-worktree` **adds** its story's key, `merge-story-worktree` / `discard-story-worktree` **remove only their own key**. The flat `current_story` mirror is a **derived** read compatibility shim for readers outside `scope_guard.py`'s scope (`hooks/session_start.py`, `global_session_check`, `skills/observability/api/src/routes/context.ts`, `subagent_transcript._story_accepts_late_bump`) — it is written only inside `set_current_story()`/`clear_current_story()`, never independently | read-only |
-| `effort.db` | `hooks/post_tool_use.py` → `subagent_transcript.py` / `effort_recorder.py` (INFRA-236); `record_attempt.py` CLI for non-hook callers | read-only |
+| `effort.db` | `hooks/post_tool_use.py` → `subagent_transcript.py` / `effort_recorder.py` (INFRA-236); `record_attempt.py` CLI for non-hook callers — since INFRA-345, `record_attempt.py` refuses (non-zero exit, no row written) to insert a second row for a `(story_id, agent_role, attempt_number)` triple that already has one, unless `--allow-duplicate` is passed, so a manual reconciliation call can no longer silently collide with a hook-written row for the same spawn | read-only |
 | `attempt_counter.json` (attempt counters) | `hooks/post_tool_use.py` → `subagent_transcript.record_attempt_from_transcript` → `flex_build.bump_attempt_count` on builder/reviewer FAIL (INFRA-237), **ungated** — the story was just spawned for, so it is active by construction, and gating it would risk dropping a real first FAIL; `subagent_transcript.reconcile_pending_attempts` → `flex_build.bump_attempt_count` as a *second, later* bump site for an async spawn's FAIL outcome that was only knowable after PostToolUse time (INFRA-258 — same function, same semantics, just a later call), **gated** since CER-091 defect 4 by `subagent_transcript._story_accepts_late_bump` — skipped when the story's own frontmatter `status` is `complete`/`merged`/`deferred`/`backlog`, or when the story is neither already counter-recorded nor `state.json`'s `current_story` (a reconciliation arriving arbitrarily later — possibly post-merge, possibly post-`/clear` — must not resurrect a counter file for a story nobody is building); `flex_build.py merge-story-worktree` → `flex_build.clear_attempt_count` on a successful land; the standalone `write-attempt-count` / `clear-attempt-count` CLI subcommands share the same underlying functions for direct/manual use but are no longer invoked from `CLAUDE.build.md.j2`'s loop | read-only |
 | `.companion/effort_recording.log` (diagnostic trace, CER-091) | `subagent_transcript.log_recording_event` — sole writer, called once per `record_attempt_from_transcript` invocation on every return path (including its outer `except`), and once by `hooks/post_tool_use.py`'s `SendMessage` branch (`decision="observed:non-spawn-tool"`); append-only, size-capped at `RECORDING_LOG_MAX_BYTES` (262 144 bytes, truncate-and-restart with a `log-truncated` marker line); not gated on `effort_tracking` — the log's purpose is explaining why recording did or did not happen, including when tracking itself is off | read-only (`pairmode_effort.py` and manual `tail` only; no resolver reads it) |
-| story `status` frontmatter | manual/advisory — `story_update.py` is the canonical CLI but no build-loop step calls it automatically; drift is caught after the fact by `flex_build.py check-index`'s git-commit status-drift check (RESOLVER-010), not prevented at write time | read-only |
+| story `status` frontmatter | `flex_build.py merge-story-worktree` (INFRA-347, CER-136) — `cmd_merge_story_worktree` calls `story_update.update_story_status`/`update_phase_story_status` automatically on every successful merge, inside the same merge-lock critical section, flipping both the story file's frontmatter and its phase-doc Status cell to `complete`; fail-open (a warning, not a command failure) when the story has no `docs/stories/<RAIL>/<ID>.md` file to flip. `story_update.py`'s standalone CLI remains available for manual/direct use (e.g. reconciling a pre-INFRA-347 merge); drift is still caught after the fact as a second line of defence by `flex_build.py check-index`'s git-commit status-drift check (RESOLVER-010) | read-only |
 | permission files (`docs/phases/permissions/<story_id>.json`) | orchestrator (`flex_build.py permissions-create`); `flex_build.py permissions-gc` (INFRA-290) as a second, operator-invoked writer — deletes only artifacts with no in-flight claim (no worktree dir, no `current_stories`/`current_story` stamp, story-ID-parseable filename); anything not positively classifiable is retained | read-only |
 | era/phase/story index (`docs/phases/index.md`) | orchestrator | read-only |
 | commits + tags | reviewer / orchestrator (via `git`) | read-only |
@@ -3046,8 +3157,11 @@ CLI subcommands remain available (and are exercised directly by
 Covered by the `.companion/` `.gitignore` rule — never committed.
 
 Cross-reference (INFRA-257): `effort.db`'s per-row `attempt_number` column is a
-*different* number, derived from a different source (`effort_db.next_attempt_number`
-counting persisted `attempts` rows) — see § Effort tracking for its definition. The
+*different* number, derived from a different source (`effort_db.insert_or_update_attempt`
+deriving `COALESCE(MAX(attempt_number), 0) + 1` atomically on the write side,
+inside the same transaction as the insert — CER-096 item C; INFRA-348 removed
+the earlier, now-callerless `next_attempt_number` read-only helper this
+cross-reference used to name) — see § Effort tracking for its definition. The
 two numbers are expected to diverge and neither is a "fix" for the other: this
 counter resets on merge and counts failures since the last land, while
 `attempt_number` never resets and counts lifetime spawns. A future reader should not
@@ -3056,9 +3170,13 @@ assume they must agree.
 Pairmode is considered active when `.claude/settings.deny-rationale.json` exists in the
 project root. The helper `skills/pairmode/scripts/story_context.py` provides:
 - `is_pairmode_active(project_dir)` — returns True when the deny-rationale file is present.
-- `set_current_story(companion_dir, story_id, title=None)` — writes the entry into
-  `current_stories[story_id]` and the `current_story` mirror (same entry, one atomic
-  write; INFRA-281) and returns the updated state dict.
+- `set_current_story(companion_dir, story_id, title=None, model_selection_reason=None)` —
+  writes the entry into `current_stories[story_id]` and the `current_story` mirror (same
+  entry, one atomic write; INFRA-281) and returns the updated state dict.
+  `model_selection_reason` (INFRA-348, optional) stamps the dispatch-time
+  model-selection reason `create-story-worktree --model-selection-reason` was
+  given, per story id, so `subagent_transcript.record_attempt_from_transcript`
+  can plumb it into the live `attempts` row without recomputing it.
 - `get_current_story(companion_dir)` — returns the `current_story` mirror dict or None.
 - `get_current_stories(companion_dir)` — returns the `current_stories` keyed dict
   (INFRA-281); derives a single-entry dict from the flat `current_story` when the state
@@ -3585,14 +3703,60 @@ without coupling that legibility to a specific pricing regime.
 one `attempts` table. Each row captures one agent spawn: `story_id`, `phase`,
 `rail`, `agent_role` (`builder` or `reviewer`), `model`, `attempt_number` —
 the **lifetime spawn ordinal for a `(story_id, agent_role)` pair**, derived
-at record time by `effort_db.next_attempt_number` from the count of existing
-rows already recorded for that pair (INFRA-257) — `tokens_total`,
-`tool_uses`, `duration_ms`, optional `outcome` (`PASS`/`FAIL`
+atomically on the write side by `effort_db.insert_or_update_attempt` inside
+the same transaction as the insert (CER-096, item C; see below) — `tokens_total`,
+`duration_ms`, optional `outcome` (`PASS`/`FAIL`
 for reviewer attempts), optional `backend` (`"anthropic"` or `"ollama"` —
 populated by sidebar cross-skill recording; NULL for pairmode loop rows from
 older builds), and a UTC timestamp. Pricing is intentionally absent
 from the schema: dollar projections are computed at read time from a
 user-maintained `pricing.json`, never persisted.
+
+**INFRA-348: `tool_uses` and `effort_db.next_attempt_number` are gone.**
+`tool_uses` had zero readers anywhere in the codebase and was hard-coded
+`None` by every writer; it was dropped from the schema (idempotently, via
+`effort_db._drop_columns_if_present` — `ALTER TABLE ... DROP COLUMN` on
+SQLite >= 3.35.0, a create/copy/swap rebuild otherwise, either way preserving
+every surviving row's other column values). `next_attempt_number` had zero
+callers left after INFRA-284 moved ordinal derivation onto the write-side
+atomic path above; the function itself is deleted (not merely deprecated).
+
+**`duration_ms` is wired on the primary live path (INFRA-348).** Every
+duration-computing call site in `subagent_transcript.py` — the synchronous
+sidechain path (`extract_subagent_usage`, the primary path for a spawn whose
+transcript is already interleaved into the calling session at
+`PostToolUse` time), the SubagentStop reconciliation payload branch
+(`reconcile_one`), the file-fallback branch (`read_completed_spawn`), and the
+quiescent-retirement sweep — derive it through the single shared
+`_duration_ms_from_ts(first_ts, last_ts)` helper: the millisecond delta
+between the first and last timestamped transcript entry belonging to that
+spawn. All four therefore agree on unit (milliseconds) and on what the
+interval measures. The observability API's `readers/effortDb.ts`
+`queryEffortSummary` already filtered `duration_ms IS NULL` out of its
+median aggregation before this story (a pre-existing correct contract, not a
+fix made here) — a database with pre-story (NULL) and post-story (populated)
+rows mixed together therefore returns a sane, finite `median_duration_ms` (or
+an explicit `null` when a phase has no populated rows yet), never `NaN`.
+
+**`story_class`/`model_selection_reason` are written by the live (hook-driven)
+path (INFRA-348).** `story_class` is read fresh, at record time, from the
+story file's own frontmatter (`flex_build._story_path` +
+`_read_story_frontmatter`, the same reader every other story/schema call
+site in this skill uses) — safe to re-read live because it is static,
+story-authored data. `model_selection_reason` is a runtime dispatch
+*decision*, not static data, so it is never recomputed at record time (a
+second `model_selector` call could disagree with the model that actually
+ran); instead, `create-story-worktree` accepts an optional
+`--model-selection-reason` flag (the orchestrator passes `next-action`'s own
+`reason` field for the `spawn-builder` action) and stamps it, per story id,
+into `state.json["current_stories"][story_id]["model_selection_reason"]`
+via `story_context.set_current_story`. `subagent_transcript.record_attempt_from_transcript`
+reads that per-story stamp back and passes it straight through to
+`effort_recorder.record_effort_ex`, which now accepts `story_class`/
+`model_selection_reason` as ordinary pass-through column values (previously
+these two columns had no hook-side writer at all — `record_attempt.py`'s CLI
+was their only writer; see INFRA-345). `record_attempt.py`'s manual CLI path
+is unaffected and keeps writing both columns exactly as before.
 
 **`attempts.phase` is checkpoint-only, by design (CER-105).** The `phase` column is
 populated **only** for spawns whose role is in `subagent_transcript.CHECKPOINT_ROLES`
@@ -3891,9 +4055,18 @@ the underlying race directly — `effort_db.insert_attempt_derived` now derives
 `attempt_number` as `COALESCE(MAX(attempt_number), 0) + 1` inside a single
 `BEGIN IMMEDIATE` transaction, so two genuinely concurrent spawns for the same
 `(story_id, agent_role)` pair can no longer read the same count and write the
-same `attempt_number`. `next_attempt_number` survives unchanged as an
+same `attempt_number`. `next_attempt_number` survived, at the time, as an
 advisory, read-only helper for callers that only need an estimate (e.g.
-display), not the derivation the recorder itself now uses.
+display), not the derivation the recorder itself used.
+
+**Amended Phase 117 — INFRA-348 (CER-153).** `next_attempt_number` is now
+deleted. The "survives as an advisory helper" justification above held only
+while at least one caller wanted the estimate it offered; by Phase 117 it had
+zero callers anywhere in the codebase (its own docstring's write-then-read
+race warning was, by then, an argument against ever adding one back, not a
+description of a live risk) — 43 lines of maintained dead code rather than a
+living convenience. `insert_or_update_attempt`'s atomic derivation (above)
+remains the only ordinal source; nothing replaces the deleted helper.
 
 **Async-spawn recording — deferred reconciliation (INFRA-258).** Agent
 spawns are asynchronous in current Claude Code sessions: at PostToolUse time

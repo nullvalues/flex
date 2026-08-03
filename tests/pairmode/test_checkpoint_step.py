@@ -64,6 +64,7 @@ def _write_minimal_project(tmp_path: Path, state_overrides: dict | None = None) 
     subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(project), check=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=str(project), check=True)
+    subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=str(project), check=True)
     (project / "README.md").write_text("init\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=str(project), check=True)
     subprocess.run(["git", "commit", "-q", "-m", "initial"], cwd=str(project), check=True)
@@ -222,8 +223,8 @@ class TestKeyedCheckpointStepsInPosition:
 
 class TestCheckpointActionVocabulary:
     def test_schema_version_is_4(self) -> None:
-        """SCHEMA_VERSION must be 5 after the INFRA-316 pause-context bump."""
-        assert SCHEMA_VERSION == 5
+        """SCHEMA_VERSION must be 6 after the INFRA-339 pause-context removal bump."""
+        assert SCHEMA_VERSION == 6
 
     def test_checkpoint_security_in_actions(self) -> None:
         assert CHECKPOINT_SECURITY == "checkpoint-security"

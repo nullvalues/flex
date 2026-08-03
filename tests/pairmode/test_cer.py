@@ -19,6 +19,8 @@ from skills.pairmode.scripts.cer import (
     _load_or_create_backlog,
     _next_cer_id,
     _parse_entries_from_backlog,
+    _render_backlog,
+    _scan_rows_in_sections,
     BACKLOG_REL_PATH,
 )
 
@@ -989,3 +991,126 @@ def test_cli_group_default_action_still_appends_finding(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     content = _backlog_path(tmp_path).read_text(encoding="utf-8")
     assert "Group conversion parity check" in content
+
+
+# ---------------------------------------------------------------------------
+# Tests: INFRA-338 — unified escape-aware row parser (F7 regression)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_entries_handles_escaped_pipe_in_finding_cell() -> None:
+    """A finding cell containing an escaped pipe (Task\\|Agent) parses as one
+    entry, with the literal `\\|` preserved unshredded (§ D1, § A1)."""
+    content = _render_backlog(
+        [
+            {
+                "id": "CER-001",
+                "finding": r"Matcher regression (Task\|Agent)",
+                "source": "reviewer",
+                "date": "2026-07-01",
+                "quadrant": "do_now",
+            }
+        ]
+    )
+    entries = _parse_entries_from_backlog(content)
+    assert len(entries) == 1
+    assert entries[0]["id"] == "CER-001"
+    assert entries[0]["finding"] == r"Matcher regression (Task\|Agent)"
+    assert entries[0]["source"] == "reviewer"
+    assert entries[0]["date"] == "2026-07-01"
+
+
+def test_append_finding_does_not_truncate_neighboring_resolved_row_with_escaped_pipe(
+    tmp_path: Path,
+) -> None:
+    """F7 regression (§ B1/B2): appending a new finding must not mutate a
+    neighboring row whose **RESOLVED** annotation contains an escaped pipe.
+
+    Seeds docs/cer/backlog.md directly (bypassing the CLI/append_finding
+    path) with a Do Now row already annotated
+    ``**RESOLVED Phase 1** — matcher fixed (Task\\|Agent)``, then calls
+    ``append_finding`` for an unrelated new finding in the same quadrant.
+    The forbidden proxy is "append_finding returns without raising" — this
+    test diffs the full seeded row's text instead.
+    """
+    seeded_entry = {
+        "id": "CER-001",
+        "finding": r"Matcher regression. **RESOLVED Phase 1** — matcher fixed (Task\|Agent)",
+        "source": "reviewer",
+        "date": "2026-07-01",
+        "quadrant": "do_now",
+        "phase": "100",
+    }
+    before_content = _render_backlog([seeded_entry], project_name="Test Project")
+    backlog = _backlog_path(tmp_path)
+    backlog.parent.mkdir(parents=True, exist_ok=True)
+    backlog.write_text(before_content, encoding="utf-8")
+
+    seeded_line_before = next(
+        line for line in before_content.splitlines() if line.strip().startswith("| CER-001")
+    )
+
+    # Sanity: the row is open (not resolution-marked) before the fix would be
+    # meaningless — it must already read as resolved going in.
+    assert "CER-001" not in [
+        row["id"] for row in find_open_do_now_rows(before_content)
+    ]
+
+    entry = append_finding(tmp_path, finding="Unrelated new finding", quadrant="do_now")
+    assert entry["id"] == "CER-002"
+
+    after_content = backlog.read_text(encoding="utf-8")
+    seeded_line_after = next(
+        line for line in after_content.splitlines() if line.strip().startswith("| CER-001")
+    )
+
+    # (a) the seeded row's line is byte-identical before and after.
+    assert seeded_line_after == seeded_line_before
+
+    # (b) find_open_do_now_rows — the same predicate the checkpoint-tag gate
+    # reads — still excludes CER-001 after the append.
+    open_ids = [row["id"] for row in find_open_do_now_rows(after_content)]
+    assert "CER-001" not in open_ids
+    assert "CER-002" in open_ids
+
+
+def test_parse_entries_from_backlog_matches_scan_rows_for_escaped_pipe_fixture() -> None:
+    """Parity check (§ D1): for the same escaped-pipe row,
+    `_parse_entries_from_backlog`'s field values match the cells
+    `_scan_rows_in_sections` (the reader half) returns for that row."""
+    content = _render_backlog(
+        [
+            {
+                "id": "CER-001",
+                "finding": r"Matcher regression (Task\|Agent)",
+                "source": "reviewer",
+                "date": "2026-07-01",
+                "quadrant": "do_now",
+                "phase": "100",
+            }
+        ]
+    )
+    entries = _parse_entries_from_backlog(content)
+    assert len(entries) == 1
+    entry = entries[0]
+
+    scanned = list(_scan_rows_in_sections(content, {"## Do Now"}))
+    assert len(scanned) == 1
+    _header, _stripped, cols = scanned[0]
+
+    assert entry["id"] == cols[0]
+    assert entry["finding"] == cols[1]
+    assert entry["source"] == cols[2]
+    assert entry["date"] == cols[3]
+    assert entry.get("phase") == cols[4]
+
+
+def test_table_row_re_constant_removed() -> None:
+    """§ A2 pin: `_TABLE_ROW_RE` is deleted from the module entirely, so a
+    future edit cannot silently reintroduce the naive pipe-splitting regex."""
+    import inspect
+
+    from skills.pairmode.scripts import cer as cer_module
+
+    source = inspect.getsource(cer_module)
+    assert "_TABLE_ROW_RE" not in source

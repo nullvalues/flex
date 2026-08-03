@@ -526,11 +526,12 @@ orchestrator — it exists solely for the human operator watching the
 transcript live. Also populate the `fail_cause` field (INFRA-236) in the
 returned `REVIEW-RESULT` JSON with the same text — that field, not the
 line above, is the actual data contract: the orchestrator only observes
-the final JSON object, so `subagent_transcript.py`'s
-`record_attempt_from_transcript()` (called from `hooks/post_tool_use.py`'s
-Task/Agent branch, never by the reviewer itself) reads `fail_cause` from
-`tool_response` to populate `record_attempt.py`'s `--notes` (alongside
-`--outcome FAIL`) in the effort database row.
+the final JSON object, so `hooks/post_tool_use.py`'s Task/Agent branch reads
+`fail_cause` from `tool_response` and passes it as the `notes=` keyword
+argument directly to `effort_recorder.record_effort` (via
+`subagent_transcript.record_attempt_from_transcript`) — `record_attempt.py`'s
+CLI is never invoked on this path; this hook path is the sole writer for
+that effort database row.
 
 On FAIL, revert:
 
@@ -607,7 +608,10 @@ Fields:
   above) — that line stays for human readability, but this JSON field is the
   actual data contract: the orchestrator only observes the final
   return-format-only JSON object, never any earlier line of the response, so
-  it reads `fail_cause` here and passes it as `--notes` to `record_attempt.py`.
+  it reads `fail_cause` here — the same field `hooks/post_tool_use.py`'s
+  Task/Agent branch reads from `tool_response` and passes as the `notes=`
+  keyword argument directly to `effort_recorder.record_effort`;
+  `record_attempt.py`'s CLI is never invoked on this path.
 
 Return only the JSON object. No preamble, no commentary, no usage block.
 

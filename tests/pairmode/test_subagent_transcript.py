@@ -697,23 +697,18 @@ class TestAttemptNumberDerivation:
         rows = effort_db.query_by_story(db_path, "INFRA-257")
         assert [r["attempt_number"] for r in rows] == [1, 2]
 
-    def test_derivation_failure_degrades_to_one_row_still_written(self, tmp_path: Path) -> None:
-        """A derivation-path exception must not lose the row — it degrades
-        to attempt_number=1 and the write still happens."""
-        project_dir = tmp_path / "project"
-        project_dir.mkdir(parents=True, exist_ok=True)
-        _enable_tracking(project_dir)
-
-        with patch.object(
-            effort_db, "next_attempt_number", side_effect=RuntimeError("boom")
-        ):
-            row_id = _record_spawn(project_dir, "builder", "INFRA-257")
-
-        assert row_id is not None
-        db_path = project_dir / ".companion" / "effort.db"
-        rows = effort_db.query_by_story(db_path, "INFRA-257")
-        assert len(rows) == 1
-        assert rows[0]["attempt_number"] == 1
+    def test_next_attempt_number_removed(self) -> None:
+        """INFRA-348 (Ensures 2): next_attempt_number is deleted from
+        effort_db — this module's own attempt-number derivation has gone
+        through effort_db.insert_or_update_attempt's atomic write-side
+        derivation since INFRA-284, so there is nothing left in this module
+        to patch it against. The old
+        ``test_derivation_failure_degrades_to_one_row_still_written`` test
+        patched a function that was already unused by this write path
+        (confirmed by ``test_next_attempt_number_not_referenced_in_module``
+        below); it is replaced by this existence check now that the
+        function is gone entirely rather than merely unused."""
+        assert not hasattr(effort_db, "next_attempt_number")
 
 
 # ---------------------------------------------------------------------------
@@ -722,9 +717,13 @@ class TestAttemptNumberDerivation:
 
 
 def _sidechain_entry_with_id(
-    msg_id: str, tokens_in: int, tokens_out: int, model: str = "claude-sonnet-5"
+    msg_id: str,
+    tokens_in: int,
+    tokens_out: int,
+    model: str = "claude-sonnet-5",
+    timestamp: "str | None" = None,
 ) -> dict:
-    return {
+    entry: dict = {
         "type": "assistant",
         "isSidechain": True,
         "message": {
@@ -738,6 +737,9 @@ def _sidechain_entry_with_id(
             },
         },
     }
+    if timestamp is not None:
+        entry["timestamp"] = timestamp
+    return entry
 
 
 def _output_assistant_entry(
@@ -827,6 +829,56 @@ class TestSumDedupedUsage:
         )
         usage = st.extract_subagent_usage(transcript_path, "toolu_dedupe")
         assert usage["tokens_out"] == 263
+
+    def test_extract_subagent_usage_computes_duration_ms_from_sidechain_timestamps(
+        self, tmp_path: Path
+    ) -> None:
+        """INFRA-348 (Ensures 3): the primary synchronous path derives
+        duration_ms from the sidechain entries' own timestamps — a known
+        5-second synthetic interval must round-trip to exactly 5000ms."""
+        home = _write_transcript(
+            tmp_path,
+            "sess-duration",
+            [
+                _tool_use_entry("toolu_duration"),
+                _sidechain_entry_with_id(
+                    "msg_1", 10, 5, timestamp="2026-05-01T00:00:00.000Z"
+                ),
+                _sidechain_entry_with_id(
+                    "msg_2", 10, 20, timestamp="2026-05-01T00:00:05.000Z"
+                ),
+                _completion_entry(),
+            ],
+        )
+        cwd = tmp_path / "project"
+        transcript_path = (
+            home / ".claude" / "projects" / str(cwd.resolve()).replace("/", "-")
+            / "sess-duration.jsonl"
+        )
+        usage = st.extract_subagent_usage(transcript_path, "toolu_duration")
+        assert usage["duration_ms"] == 5000
+
+    def test_extract_subagent_usage_duration_none_without_timestamps(
+        self, tmp_path: Path
+    ) -> None:
+        """No timestamped sidechain entries -> duration_ms stays None, not a
+        placeholder like 0."""
+        home = _write_transcript(
+            tmp_path,
+            "sess-no-ts",
+            [
+                _tool_use_entry("toolu_no_ts"),
+                _sidechain_entry_with_id("msg_1", 10, 5),
+                _completion_entry(),
+            ],
+        )
+        cwd = tmp_path / "project"
+        transcript_path = (
+            home / ".claude" / "projects" / str(cwd.resolve()).replace("/", "-")
+            / "sess-no-ts.jsonl"
+        )
+        usage = st.extract_subagent_usage(transcript_path, "toolu_no_ts")
+        assert usage["duration_ms"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -4295,6 +4347,83 @@ class TestParseWorkerOutcomeRejectedOutList:
         assert rejected == ["SUCCESS"]
 
 
+class TestParseWorkerOutcomeBalancedBraces:
+    """INFRA-337: `parse_worker_outcome` locates candidate JSON objects via
+    a balanced ``raw_decode`` scan (`_iter_json_objects`), not the old
+    non-nesting `\\{[^{}]*\\}` regex, which truncated at the first inner
+    `}` and so mis-parsed (or dropped entirely) any result whose
+    `reason`/`findings`/`fail_cause` string field quoted a literal
+    `{...}` — HIGH finding F6 of
+    `docs/build-loop-cold-eyes-review-20260801.md`.
+    """
+
+    def test_nested_dict_inside_string_and_list_no_longer_breaks_parsing(
+        self,
+    ) -> None:
+        # Ensures 3: a nested dict inside a list value, plus a `{`/`}` pair
+        # embedded inside a quoted string, in a single well-formed object.
+        text = json.dumps({
+            "type": "REVIEW-RESULT",
+            "verdict": "FAIL",
+            "findings": [
+                {
+                    "file": "x.py",
+                    "detail": "the guard `if (x) { revert() }` is unreachable",
+                    "severity": "HIGH",
+                }
+            ],
+        })
+        outcome, fail_cause = st.parse_worker_outcome(text)
+        assert outcome == "FAIL"
+        # fail_cause is not required to be set by this fixture (no
+        # `fail_cause` field present) — Ensures 3 only requires the
+        # outcome is recovered, not `(None, None)`.
+        assert (outcome, fail_cause) != (None, None)
+
+    def test_bare_quoted_brace_in_fail_cause_no_nested_dict(self) -> None:
+        # Ensures 4: a single non-nested object whose *string value* itself
+        # contains an unbalanced-looking `{`/`}` pair — the exact shape the
+        # old `\{[^{}]*\}` regex silently truncated at the first inner `}`.
+        text = json.dumps({
+            "type": "BUILD-RESULT",
+            "outcome": "FAIL",
+            "fail_cause": "the guard `if (x) { revert() }` is unreachable",
+        })
+        outcome, fail_cause = st.parse_worker_outcome(text)
+        assert outcome == "FAIL"
+        assert fail_cause == "the guard `if (x) { revert() }` is unreachable"
+
+    def test_multiple_candidate_objects_still_resolve_correctly(self) -> None:
+        # Ensures 5: two candidate objects in sequence — a legacy
+        # plain-text line followed by a JSON BUILD-RESULT whose `reason`
+        # string itself quotes what looks like a second JSON object as
+        # prose. JSON wins over the legacy fallback (existing precedence),
+        # and the brace-inside-string case no longer prevents the first
+        # (only) real JSON candidate from being found at all.
+        text = (
+            "BUILD-RESULT: DONE\n"
+            + json.dumps({
+                "type": "BUILD-RESULT",
+                "outcome": "FAIL",
+                "story_id": "INFRA-337",
+                "reason": 'looks like a second result: {"type": "BUILD-RESULT", "outcome": "PASS"}',
+            })
+        )
+        outcome, fail_cause = st.parse_worker_outcome(text)
+        assert outcome == "FAIL"
+
+    def test_malformed_input_still_returns_none_none_and_never_raises(
+        self,
+    ) -> None:
+        # Ensures 6: unterminated brace, no JSON at all.
+        assert st.parse_worker_outcome("{unterminated and not json at all") == (
+            None,
+            None,
+        )
+        assert st.parse_worker_outcome("no braces here whatsoever") == (None, None)
+        assert st.parse_worker_outcome("{ almost but not quite json") == (None, None)
+
+
 class TestLegacyPathPrecedenceUnchanged:
     """INFRA-293's plain-text fallback keeps its precedence (D2, D3)."""
 
@@ -4404,3 +4533,525 @@ class TestNonEnumOutcomeIsObservable:
             e for e in entries if e.get("decision") == "skip:non-enum-outcome"
         )
         assert rejection.get("rejected_outcomes") == ["SUCCESS"]
+
+
+# ---------------------------------------------------------------------------
+# INFRA-336: escalation-ladder discard-marker widening of rule 2
+# ---------------------------------------------------------------------------
+
+
+class TestLateBumpAfterDiscard:
+    """Ensures 1-3: a story's first FAIL, reconciled *after*
+    discard-story-worktree has already cleared its current_stories stamp,
+    still authorizes a late bump — and the marker that makes this possible
+    is bounded, not permanent."""
+
+    @staticmethod
+    def _write_story_file(project_dir: Path, story_id: str, status: str) -> None:
+        rail = story_id.split("-", 1)[0]
+        story_dir = project_dir / "docs" / "stories" / rail
+        story_dir.mkdir(parents=True, exist_ok=True)
+        (story_dir / f"{story_id}.md").write_text(
+            f"---\nid: {story_id}\nstatus: {status}\n---\n\nbody\n",
+            encoding="utf-8",
+        )
+
+    def test_recently_discarded_marker_authorizes_first_fail_bump(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensures 1: the story's own first FAIL — no counter entry, no
+        current_stories entry (discard already cleared it) — still bumps
+        when state.json's recently_discarded_stories names the story."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(
+            project_dir,
+            recently_discarded_stories={"INFRA-330": "2026-07-31T05:52:00+00:00"},
+        )
+        self._write_story_file(project_dir, "INFRA-330", "draft")
+
+        assert st._story_accepts_late_bump(project_dir, "INFRA-330") is True
+
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-330",
+            agent_role="reviewer",
+            attempt_number=1,
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+        )
+        output_file = tmp_path / "tasks" / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "REVIEW-RESULT", "verdict": "FAIL",
+                        "findings": ["x"], "reason": "y",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "agent-1", str(output_file))
+
+        st.reconcile_pending_attempts(project_dir=project_dir)
+
+        assert read_attempt_count("INFRA-330", project_dir) == 1
+
+    def test_no_marker_no_current_no_counter_still_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensures 2 (forbidden proxy guard): a stale/replayed row for a
+        story nobody is building and nobody just discarded is still
+        refused — the marker widening must not degrade rule 2 to an
+        unconditional True."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+        self._write_story_file(project_dir, "INFRA-999", "draft")
+
+        assert st._story_accepts_late_bump(project_dir, "INFRA-999") is False
+
+    def test_marker_for_different_story_does_not_leak(self, tmp_path: Path) -> None:
+        """Ensures 2: a recently_discarded entry for a *different* story_id
+        does not authorize this story_id's bump."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(
+            project_dir,
+            recently_discarded_stories={"INFRA-330": "2026-07-31T05:52:00+00:00"},
+        )
+        self._write_story_file(project_dir, "INFRA-331", "draft")
+
+        assert st._story_accepts_late_bump(project_dir, "INFRA-331") is False
+
+    def test_marker_consumed_once_bump_fires(self, tmp_path: Path) -> None:
+        """Ensures 3: the marker is removed the moment the late bump it
+        authorized actually fires — it does not accumulate/linger."""
+        from skills.pairmode.scripts.story_context import (
+            RECENTLY_DISCARDED_STORIES_KEY,
+            read_state,
+        )
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(
+            project_dir,
+            recently_discarded_stories={"INFRA-330": "2026-07-31T05:52:00+00:00"},
+        )
+        self._write_story_file(project_dir, "INFRA-330", "draft")
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-330",
+            agent_role="reviewer",
+            attempt_number=1,
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+        )
+        output_file = tmp_path / "tasks" / "agent.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "REVIEW-RESULT", "verdict": "FAIL",
+                        "findings": ["x"], "reason": "y",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "agent-1", str(output_file))
+
+        st.reconcile_pending_attempts(project_dir=project_dir)
+
+        companion_dir = project_dir / ".companion"
+        state = read_state(companion_dir)
+        marker = state.get(RECENTLY_DISCARDED_STORIES_KEY, {})
+        assert "INFRA-330" not in marker
+
+    def test_marker_consumed_on_restamp(self, tmp_path: Path) -> None:
+        """Ensures 3 (second trigger): create-story-worktree re-stamping the
+        story also consumes the marker."""
+        from skills.pairmode.scripts.flex_build import _stamp_active_story
+        from skills.pairmode.scripts.story_context import (
+            RECENTLY_DISCARDED_STORIES_KEY,
+            read_state,
+        )
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(
+            project_dir,
+            recently_discarded_stories={"INFRA-330": "2026-07-31T05:52:00+00:00"},
+        )
+        self._write_story_file(project_dir, "INFRA-330", "draft")
+
+        _stamp_active_story(project_dir, "INFRA-330")
+
+        companion_dir = project_dir / ".companion"
+        state = read_state(companion_dir)
+        marker = state.get(RECENTLY_DISCARDED_STORIES_KEY, {})
+        assert "INFRA-330" not in marker
+
+
+# ---------------------------------------------------------------------------
+# INFRA-336 (CER-148): one semantic FAIL cycle bumps the counter exactly once
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateFailInCycleGuard:
+    def test_builder_then_reviewer_fail_in_same_cycle_bumps_once(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensures 6: a builder FAIL row and a reviewer FAIL row for the
+        same story_id, both belonging to the same still-open attempt cycle
+        (current_stories[story_id]["set_at"] unchanged between the two),
+        reconciled together, bump the counter by exactly 1, not 2."""
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        set_at = "2026-08-01T00:00:00+00:00"
+        _enable_tracking(
+            project_dir,
+            current_stories={"INFRA-336": {"id": "INFRA-336", "set_at": set_at}},
+        )
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+
+        builder_row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-336",
+            agent_role="builder",
+            attempt_number=1,
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat(),
+        )
+        builder_output = tmp_path / "tasks" / "builder.output"
+        _write_output_file(
+            builder_output,
+            [
+                _output_assistant_entry(
+                    "msg_builder", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "BUILD-RESULT", "outcome": "FAIL",
+                        "story_id": "INFRA-336", "reason": "builder self-report",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, builder_row_id, "agent-builder", str(builder_output))
+
+        reviewer_row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-336",
+            agent_role="reviewer",
+            attempt_number=1,
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+        )
+        reviewer_output = tmp_path / "tasks" / "reviewer.output"
+        _write_output_file(
+            reviewer_output,
+            [
+                _output_assistant_entry(
+                    "msg_reviewer", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "REVIEW-RESULT", "verdict": "FAIL",
+                        "findings": ["x"], "reason": "y",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, reviewer_row_id, "agent-reviewer", str(reviewer_output))
+
+        st.reconcile_pending_attempts(project_dir=project_dir)
+
+        assert read_attempt_count("INFRA-336", project_dir) == 1
+
+        log_path = project_dir / ".companion" / "effort_recording.log"
+        lines = [json.loads(l) for l in log_path.read_text(encoding="utf-8").splitlines()]
+        decisions = [l.get("decision") for l in lines if l.get("story_id") == "INFRA-336"]
+        assert decisions.count("bump:late-fail") == 1
+        assert decisions.count("skip:duplicate-fail-in-cycle") == 1
+
+    def test_fail_in_a_new_cycle_after_restamp_bumps_again(
+        self, tmp_path: Path
+    ) -> None:
+        """Not a forbidden proxy: the dedup is cycle-scoped, not permanent —
+        a FAIL belonging to a genuinely new attempt cycle (a fresh
+        create-story-worktree set_at) still bumps."""
+        from skills.pairmode.scripts.flex_build import read_attempt_count
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(
+            project_dir,
+            current_stories={
+                "INFRA-336": {"id": "INFRA-336", "set_at": "2026-08-01T00:00:00+00:00"}
+            },
+        )
+
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-336",
+            agent_role="reviewer",
+            attempt_number=1,
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat(),
+        )
+        output_file = tmp_path / "tasks" / "attempt1.output"
+        _write_output_file(
+            output_file,
+            [
+                _output_assistant_entry(
+                    "msg_1", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "REVIEW-RESULT", "verdict": "FAIL",
+                        "findings": ["x"], "reason": "y",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "agent-1", str(output_file))
+        st.reconcile_pending_attempts(project_dir=project_dir)
+        assert read_attempt_count("INFRA-336", project_dir) == 1
+
+        # A new attempt cycle: a fresh set_at (as a real create-story-worktree
+        # retry would produce), plus a second, later FAIL row.
+        _enable_tracking(
+            project_dir,
+            current_stories={
+                "INFRA-336": {"id": "INFRA-336", "set_at": "2026-08-01T01:00:00+00:00"}
+            },
+        )
+        row_id_2 = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-336",
+            agent_role="reviewer",
+            attempt_number=2,
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(),
+        )
+        output_file_2 = tmp_path / "tasks" / "attempt2.output"
+        _write_output_file(
+            output_file_2,
+            [
+                _output_assistant_entry(
+                    "msg_2", 100, 50, stop_reason="end_turn",
+                    text=json.dumps({
+                        "type": "REVIEW-RESULT", "verdict": "FAIL",
+                        "findings": ["x"], "reason": "y",
+                    }),
+                )
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id_2, "agent-2", str(output_file_2))
+        st.reconcile_pending_attempts(project_dir=project_dir)
+
+        assert read_attempt_count("INFRA-336", project_dir) == 2
+
+
+# ---------------------------------------------------------------------------
+# INFRA-348: duration_ms / story_class / model_selection_reason live wiring
+# ---------------------------------------------------------------------------
+
+
+class TestInfra348LiveWiring:
+    def _write_sync_transcript(
+        self, home: Path, project_dir: Path, session_id: str, entries: "list[dict]"
+    ) -> None:
+        cwd_key = str(project_dir.resolve()).replace("/", "-")
+        transcript_dir = home / ".claude" / "projects" / cwd_key
+        transcript_dir.mkdir(parents=True, exist_ok=True)
+        (transcript_dir / f"{session_id}.jsonl").write_text(
+            "\n".join(json.dumps(e) for e in entries) + "\n", encoding="utf-8",
+        )
+
+    def test_duration_ms_wired_on_primary_synchronous_path(self, tmp_path: Path) -> None:
+        """Ensures 3: the primary (synchronous, record_attempt_from_transcript)
+        live path carries a non-null duration_ms equal to a known synthetic
+        millisecond interval — not merely "non-null"."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+        home = tmp_path / "home"
+        self._write_sync_transcript(
+            home, project_dir, "sess-dur",
+            [
+                _tool_use_entry("toolu_dur", subagent_type="builder"),
+                _sidechain_entry_with_id(
+                    "m1", 100, 50, timestamp="2026-05-01T00:00:00.000Z"
+                ),
+                _sidechain_entry_with_id(
+                    "m2", 100, 50, timestamp="2026-05-01T00:00:07.000Z"
+                ),
+                _completion_entry(),
+            ],
+        )
+        row_id = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="sess-dur",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-236"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "PASS",
+                "story_id": "INFRA-236", "reason": "x",
+            }),
+            tool_use_id="toolu_dur",
+            home=home,
+        )
+        assert row_id is not None
+        rows = effort_db.query_by_story(project_dir / ".companion" / "effort.db", "INFRA-236")
+        assert len(rows) == 1
+        assert rows[0]["duration_ms"] == 7000
+
+    def test_story_class_read_from_story_file_frontmatter(self, tmp_path: Path) -> None:
+        """Ensures 5: story_class is sourced from the story file's own
+        frontmatter at record time, via the existing story/schema reader."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+        story_dir = project_dir / "docs" / "stories" / "INFRA"
+        story_dir.mkdir(parents=True, exist_ok=True)
+        (story_dir / "INFRA-236.md").write_text(
+            "---\nid: INFRA-236\nrail: INFRA\nstory_class: doc\n---\n\n## Context\n",
+            encoding="utf-8",
+        )
+
+        row_id = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-236"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "PASS",
+                "story_id": "INFRA-236", "reason": "x",
+            }),
+        )
+        assert row_id is not None
+        rows = effort_db.query_by_story(project_dir / ".companion" / "effort.db", "INFRA-236")
+        assert rows[0]["story_class"] == "doc"
+
+    def test_story_class_none_when_story_file_absent(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        row_id = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-236"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "PASS",
+                "story_id": "INFRA-236", "reason": "x",
+            }),
+        )
+        assert row_id is not None
+        rows = effort_db.query_by_story(project_dir / ".companion" / "effort.db", "INFRA-236")
+        assert rows[0]["story_class"] is None
+
+    def test_model_selection_reason_plumbed_from_dispatch_stamp(self, tmp_path: Path) -> None:
+        """Ensures 5: model_selection_reason is read from the per-story
+        dispatch-time stamp (create-story-worktree --model-selection-reason,
+        via story_context.set_current_story), never recomputed here."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(
+            project_dir,
+            current_stories={
+                "INFRA-236": {
+                    "id": "INFRA-236",
+                    "set_at": "2026-08-01T00:00:00+00:00",
+                    "model_selection_reason": "prompted-upgrade",
+                }
+            },
+        )
+
+        row_id = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-236"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "PASS",
+                "story_id": "INFRA-236", "reason": "x",
+            }),
+        )
+        assert row_id is not None
+        rows = effort_db.query_by_story(project_dir / ".companion" / "effort.db", "INFRA-236")
+        assert rows[0]["model_selection_reason"] == "prompted-upgrade"
+
+    def test_model_selection_reason_none_when_no_dispatch_stamp(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir)
+
+        row_id = st.record_attempt_from_transcript(
+            project_dir=project_dir,
+            session_id="",
+            tool_input={"subagent_type": "builder", "prompt": "INFRA-236"},
+            tool_response=json.dumps({
+                "type": "BUILD-RESULT", "outcome": "PASS",
+                "story_id": "INFRA-236", "reason": "x",
+            }),
+        )
+        assert row_id is not None
+        rows = effort_db.query_by_story(project_dir / ".companion" / "effort.db", "INFRA-236")
+        assert rows[0]["model_selection_reason"] is None
+
+    def test_reconcile_one_payload_branch_computes_duration_ms(self, tmp_path: Path) -> None:
+        """Ensures 3: the SubagentStop payload branch (reconcile_one) — the
+        primary reconciliation branch for an async-launched spawn — is not
+        the branch that leaves duration_ms permanently unpopulated; it is
+        derived from the agent's own transcript file's first/last timestamps,
+        the same way the file-fallback branch already did."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        _enable_tracking(project_dir, pairmode_version="0.1.0")
+        db_path = project_dir / ".companion" / "effort.db"
+
+        row_id = effort_db.insert_attempt(
+            db_path,
+            story_id="INFRA-336",
+            agent_role="builder",
+            attempt_number=1,
+            ts=(datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(),
+        )
+        home = tmp_path / "home"
+        agent_transcript = (
+            home / ".claude" / "projects" / "slug" / "sess-1" / "subagents"
+            / "agent-336.jsonl"
+        )
+        _write_output_file(
+            agent_transcript,
+            [
+                _output_assistant_entry(
+                    "m1", 100, 50, timestamp="2026-05-01T00:00:00.000Z"
+                ),
+                _output_assistant_entry(
+                    "m2", 10, 5, timestamp="2026-05-01T00:00:09.000Z"
+                ),
+            ],
+        )
+        effort_db.set_spawn_ref(db_path, row_id, "agent-336", None)
+
+        decision = st.reconcile_one(
+            project_dir=project_dir,
+            agent_id="agent-336",
+            payload={
+                "last_assistant_message": json.dumps({
+                    "type": "BUILD-RESULT", "outcome": "PASS",
+                    "story_id": "INFRA-336", "reason": "done",
+                }),
+                "agent_transcript_path": str(agent_transcript),
+            },
+            home=home,
+        )
+        assert decision == "reconciled:payload"
+        rows = effort_db.query_by_story(db_path, "INFRA-336")
+        assert rows[0]["duration_ms"] == 9000

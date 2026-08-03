@@ -39,6 +39,9 @@ def _make_project_layout(tmp_path: Path) -> Path:
     subprocess.run(
         ["git", "config", "user.name", "Test"], cwd=str(project), check=True
     )
+    subprocess.run(
+        ["git", "config", "commit.gpgsign", "false"], cwd=str(project), check=True
+    )
     # Initial commit so `git log` returns at least one row.
     (project / "README.md").write_text("init\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=str(project), check=True)

@@ -46,7 +46,6 @@ def _seed(db: Path, **overrides) -> None:
         "tokens_out": 200,
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
-        "tool_uses": 1,
         "duration_ms": 500,
         "outcome": "PASS",
         "ts": "2026-05-01T00:00:00+00:00",
@@ -767,6 +766,66 @@ class TestValidateRebalanceDecisionQuality:
             if r["model_selection_reason"] == "auto-baseline"
         )
         assert baseline["efficiency_ratio"] == pytest.approx(1.0, abs=0.01)
+
+    def test_section2_populated_from_live_hook_driven_rows_only(
+        self, project_dir: Path
+    ) -> None:
+        """INFRA-348 (Ensures 6): a database whose rows were written only by
+        the live hook-driven path (subagent_transcript.record_attempt_from_transcript
+        plumbing the dispatch-time model_selection_reason stamp) — no
+        record_attempt.py-seeded rows at all — still populates Section 2,
+        rather than reporting an empty group."""
+        import sys as _sys
+        from pathlib import Path as _Path
+
+        _repo_root = _Path(__file__).resolve().parent.parent.parent
+        if str(_repo_root) not in _sys.path:
+            _sys.path.insert(0, str(_repo_root))
+        from skills.pairmode.scripts import subagent_transcript as st
+
+        # Stamp the dispatch-time model-selection reason exactly as
+        # create-story-worktree --model-selection-reason would.
+        state_path = project_dir / ".companion" / "state.json"
+        state_path.write_text(
+            json.dumps(
+                {
+                    "effort_tracking": True,
+                    "current_stories": {
+                        "INFRA-777": {
+                            "id": "INFRA-777",
+                            "model_selection_reason": "auto-baseline",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        for _ in range(3):
+            row_id = st.record_attempt_from_transcript(
+                project_dir=project_dir,
+                session_id="",
+                tool_input={"subagent_type": "builder", "prompt": "INFRA-777"},
+                tool_response=json.dumps({
+                    "type": "BUILD-RESULT", "outcome": "PASS",
+                    "story_id": "INFRA-777", "reason": "x",
+                }),
+            )
+            assert row_id is not None
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["validate-rebalance", "--json", "--project-dir", str(project_dir)],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["decision_quality"] != []
+        assert any(
+            r["model_selection_reason"] == "auto-baseline"
+            for r in data["decision_quality"]
+        )
 
 
 class TestValidateRebalanceStoryClassGrouping:

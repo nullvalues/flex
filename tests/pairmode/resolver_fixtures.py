@@ -97,6 +97,10 @@ def make_resolver_project(tmp_path: Path, cfg: dict) -> Path:
         ["git", "config", "user.name", "Test"],
         cwd=str(project), check=True,
     )
+    subprocess.run(
+        ["git", "config", "commit.gpgsign", "false"],
+        cwd=str(project), check=True,
+    )
     # Initial commit so git log is functional
     (project / "README.md").write_text("init\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=str(project), check=True)

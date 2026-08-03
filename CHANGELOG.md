@@ -6,6 +6,22 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Fixed [pairmode] — Phase 117 (Build-loop integrity remediation: escalation ladder, dead handoffs, CER-append corruption)
+- FAIL-escalation ladder and stage-integration harness (INFRA-336): attempt-counter bump now reliably fires after a discard, with a new stage-to-stage integration test harness catching regressions in that sequencing.
+- JSON-verdict parser hardened (INFRA-337): `parse_worker_outcome` correctly handles braces embedded inside `BUILD-RESULT`/`REVIEW-RESULT` string fields instead of mis-splitting on them.
+- CER backlog append corruption fixed (INFRA-338): reader and writer row parsers in `cer.py` unified so appends no longer corrupt existing rows.
+- Dead INFRA-316 pause-context removed (INFRA-339): `OUTCOME_PASS` was unreachable from `infer_position`; the pause-context branch and its session-scoping mismatch were removed rather than patched, `SCHEMA_VERSION` bumped.
+- Model-selector wiring completed (INFRA-340, INFRA-341): checkpoint-security/checkpoint-intent model dispatch finished; `spawn-gate-worker`'s verdict now reaches a real consumer, closing the INFRA-331 livelock.
+- `CLAUDE.build.md`/`.j2` template reconciled with an automated dispatch-parity drift check (INFRA-342).
+- Checkpoint build gate timeout fixed (INFRA-343): a 60s timeout no longer silently passes a 175s+ suite.
+- Spec-writer output now committed before `create-story-worktree` branches off HEAD (INFRA-344), closing a stale-worktree spec race.
+- Legacy `record_attempt.py` attempt-recording writer de-duplicated/reconciled against the live hook-driven path (INFRA-345).
+- The resolver's own phase-completion gate unified with checkpoint-tag's deferral gate so neither can diverge from the other (INFRA-346).
+- `merge-story-worktree` now flips a landed story's status to `complete` on every successful merge (INFRA-347, CER-136).
+- Dead `effort.db` columns wired or removed (INFRA-348): `tool_uses` and `effort_db.next_attempt_number` removed; `duration_ms` and `story_class`/`model_selection_reason` wired to real writers on the live recording path, including the `duration_ms` consumer in `skills/observability/api`.
+- Docstring-currency sweep (INFRA-349, CER-156): harness docstrings/comments that misdescribed live wiring corrected across `flex_build.py`, `next_action.py`, and two agent-shell frontmatter comments.
+- Pairmode tests de-coupled from the operator's gpg-signing config (INFRA-350, CER-157): git-fixture-creating tests scope `commit.gpgsign=false` to their own throwaway repos instead of inheriting global signing config, fixing spurious headless/CI failures.
+
 ## [0.3.1] — 2026-08-01
 
 *The Phase 95/96/98 entries below predate the `v0.3.0` fold tag (2026-07-24)

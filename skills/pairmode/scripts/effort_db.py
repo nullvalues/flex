@@ -19,10 +19,6 @@ Public API
 - ``check_guardrail(path, ...)`` — informational mid-loop guardrail that
   compares a just-completed builder attempt's tokens against the rail's
   recent median.  Returns a dict; never raises on missing data.
-- ``next_attempt_number(path, story_id, agent_role)`` — the lifetime spawn
-  ordinal for a ``(story_id, agent_role)`` pair, derived from the count of
-  existing rows for that pair.  Never raises; returns ``1`` on any missing,
-  unreadable, or corrupt database (INFRA-257).
 - ``set_spawn_ref(path, row_id, agent_id, output_file)`` — sets the
   ``agent_id``/``output_file`` columns on one row (INFRA-258). Never raises;
   returns ``True``/``False``.
@@ -82,7 +78,6 @@ CREATE TABLE IF NOT EXISTS attempts (
     tokens_out INTEGER,
     cache_read_tokens INTEGER,
     cache_write_tokens INTEGER,
-    tool_uses INTEGER,
     duration_ms INTEGER,
     outcome TEXT,
     notes TEXT,
@@ -106,6 +101,19 @@ _MIGRATIONS: tuple[str, ...] = (
     "ALTER TABLE attempts ADD COLUMN agent_id TEXT",
     "ALTER TABLE attempts ADD COLUMN output_file TEXT",
 )
+
+#: INFRA-348: columns removed from the live schema because they have zero
+#: readers anywhere (CER-153). Dropped idempotently by
+#: :func:`_drop_columns_if_present`, run from :func:`init_db` *after*
+#: ``_MIGRATIONS`` — an existing pre-INFRA-348 database is upgraded in
+#: place, never recreated empty (Ensures 8).
+_DROP_COLUMNS: tuple[str, ...] = ("tool_uses",)
+
+#: Minimum SQLite version exposing ``ALTER TABLE ... DROP COLUMN``
+#: (released 3.35.0). Below this, ``_drop_columns_if_present`` falls back to
+#: a create-new-table / copy-surviving-columns / swap rebuild that keeps the
+#: table's name and every surviving row's values intact.
+_MIN_SQLITE_DROP_COLUMN: tuple[int, int, int] = (3, 35, 0)
 
 #: CER-091 defect 2: the pair of columns that must BOTH be present
 #: (and non-None) in `reconcile_attempt`'s `fields` before any UPDATE runs.
@@ -221,7 +229,6 @@ _INSERT_COLUMNS: tuple[str, ...] = (
     "tokens_out",
     "cache_read_tokens",
     "cache_write_tokens",
-    "tool_uses",
     "duration_ms",
     "outcome",
     "notes",
@@ -379,14 +386,61 @@ def _connect(resolved: Path) -> sqlite3.Connection:
     return conn
 
 
+def _drop_columns_if_present(cur: sqlite3.Cursor, columns: "tuple[str, ...]") -> None:
+    """Idempotently drop *columns* from the ``attempts`` table if present
+    (INFRA-348, Ensures 1/8).
+
+    A no-op when none of *columns* exist on the table (running this twice,
+    or against a fresh post-story database that never had the column, is
+    always safe). Prefers ``ALTER TABLE ... DROP COLUMN`` on SQLite >=
+    :data:`_MIN_SQLITE_DROP_COLUMN`. On an older runtime, falls back to a
+    create-new-table / copy-surviving-columns / swap rebuild that keeps the
+    table's own name (so ``readers/effortDb.ts``'s SQL keeps resolving) and
+    every surviving column's values for every surviving row untouched.
+    Never raises — a failure here must not break ``init_db``.
+    """
+    try:
+        cur.execute("PRAGMA table_info(attempts)")
+        existing_cols = [row[1] for row in cur.fetchall()]
+    except sqlite3.OperationalError:
+        return
+
+    present = [c for c in columns if c in existing_cols]
+    if not present:
+        return
+
+    if sqlite3.sqlite_version_info >= _MIN_SQLITE_DROP_COLUMN:
+        for col in present:
+            try:
+                cur.execute(f"ALTER TABLE attempts DROP COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
+        return
+
+    # Fallback rebuild for SQLite older than 3.35.0 (no DROP COLUMN support).
+    try:
+        surviving = [c for c in existing_cols if c not in present]
+        surviving_sql = ", ".join(surviving)
+        cur.execute("ALTER TABLE attempts RENAME TO attempts_pre_drop_348")
+        cur.executescript(_SCHEMA_TABLE)
+        cur.execute(
+            f"INSERT INTO attempts ({surviving_sql}) "
+            f"SELECT {surviving_sql} FROM attempts_pre_drop_348"
+        )
+        cur.execute("DROP TABLE attempts_pre_drop_348")
+    except sqlite3.OperationalError:
+        pass
+
+
 def init_db(path: Path) -> None:
     """Create (or upgrade) the schema at *path*.  Idempotent.
 
     Creates the parent directory if it does not exist.
 
-    Also runs any pending column-addition migrations (``_MIGRATIONS``).
-    Each migration is wrapped in a try/except ``OperationalError`` so that
-    running ``init_db`` twice on an existing database is always safe.
+    Also runs any pending column-addition migrations (``_MIGRATIONS``) and
+    then any pending column *removals* (``_DROP_COLUMNS``, INFRA-348). Each
+    step is wrapped in a try/except ``OperationalError`` so that running
+    ``init_db`` twice on an existing database is always safe.
     """
 
     resolved = _depth_guard(path)
@@ -414,6 +468,11 @@ def init_db(path: Path) -> None:
             except sqlite3.OperationalError:
                 # Column already exists — safe to ignore.
                 pass
+        # INFRA-348: drop zero-reader columns from an existing (pre-story)
+        # database. Runs after the additive migrations above and before the
+        # post-migration indices below, since none of those indices
+        # reference a dropped column.
+        _drop_columns_if_present(cur, _DROP_COLUMNS)
         # Post-migration indices reference ALTER-added columns (CER-088) and
         # so must run after the migration loop above, each in its own guard —
         # an ancient SQLite without partial-index support degrades to "no
@@ -747,51 +806,6 @@ def query_by_phase(path: Path, phase: str) -> list[dict]:
         return _rows_to_dicts(cur, rows)
     finally:
         conn.close()
-
-
-def next_attempt_number(path: Path, story_id: str, agent_role: str) -> int:
-    """Return the lifetime spawn ordinal for the ``(story_id, agent_role)`` pair.
-
-    Computed as ``COUNT(*)`` of existing ``attempts`` rows matching *story_id*
-    and *agent_role*, plus one — the next row for this pair will therefore be
-    number ``count + 1``. ``story_id`` and ``agent_role`` are always bound as
-    SQL parameters, never interpolated into the query text.
-
-    Never raises (INFRA-257): this helper is called from a hook path, so any
-    failure — missing file, missing table, corrupt/non-sqlite file, or
-    empty/``None`` inputs — degrades to ``1``, the honest default for an
-    indistinguishable-from-empty history.
-
-    Advisory/read-only since CER-096: this is a plain read with no
-    transaction spanning it and a caller's later write, so it must not be
-    used to compute a value that is then written back — two concurrent
-    callers would read the same count and collide. ``insert_attempt_derived``
-    is the write path; it derives the ordinal atomically inside the same
-    transaction as the insert.
-    """
-
-    try:
-        if not story_id or not agent_role:
-            return 1
-
-        resolved = _depth_guard(path)
-        if not resolved.exists():
-            return 1
-
-        conn = _connect(resolved)
-        try:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT COUNT(*) FROM attempts WHERE story_id = ? AND agent_role = ?",
-                (story_id, agent_role),
-            )
-            row = cur.fetchone()
-            count = int(row[0]) if row else 0
-            return count + 1
-        finally:
-            conn.close()
-    except Exception:
-        return 1
 
 
 def set_spawn_ref(

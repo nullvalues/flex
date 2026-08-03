@@ -53,6 +53,7 @@ def _write_story(
     primary_files: list[str] | None = None,
     phase: str = "47",
     reviewer_model: str | None = None,
+    status: str = "planned",
 ) -> Path:
     """Write a minimal story spec under ``docs/stories/<RAIL>/<STORY_ID>.md``."""
     rail = story_id.split("-", 1)[0]
@@ -78,7 +79,7 @@ def _write_story(
         f"rail: {rail}\n"
         f"phase: '{phase}'\n"
         f"story_class: {story_class}\n"
-        "status: planned\n"
+        f"status: {status}\n"
         + pf_block
         + "touches: []\n"
         + reviewer_model_line
@@ -966,24 +967,42 @@ def test_reviewer_procedure_contains_fail_cause_instruction() -> None:
 
 
 def test_reviewer_procedure_passes_notes_on_reviewer_fail() -> None:
-    """The reviewer procedure must document --notes near --outcome FAIL."""
+    """The reviewer procedure must document notes= being passed directly to
+    effort_recorder.record_effort near a FAIL-related section (INFRA-345)
+    — not the stale claim that it is passed as --notes to record_attempt.py."""
     text = _REVIEWER_PROCEDURE.read_text(encoding="utf-8")
     lines = text.splitlines()
 
-    fail_lines = [i for i, ln in enumerate(lines) if "--outcome FAIL" in ln]
-    assert fail_lines, "No '--outcome FAIL' found in reviewer procedure.md"
+    fail_lines = [
+        i for i, ln in enumerate(lines) if "FAIL" in ln and "fail_cause" in text.lower()
+    ]
+    assert fail_lines, "No FAIL-related line found in reviewer procedure.md"
+
+    fail_cause_lines = [i for i, ln in enumerate(lines) if "fail_cause" in ln]
+    assert fail_cause_lines, "No 'fail_cause' found in reviewer procedure.md"
 
     found_notes_near_fail = False
-    for fail_idx in fail_lines:
+    for fail_idx in fail_cause_lines:
         window_start = max(0, fail_idx - 30)
         window_end = min(len(lines), fail_idx + 30)
         window = "\n".join(lines[window_start:window_end])
-        if "--notes" in window:
+        if "notes=" in window and "record_effort" in window:
             found_notes_near_fail = True
             break
 
     assert found_notes_near_fail, (
-        "--notes not found within 30 lines of '--outcome FAIL' in reviewer procedure.md"
+        "notes= passed to effort_recorder.record_effort not found within 30 lines "
+        "of 'fail_cause' in reviewer procedure.md"
+    )
+
+    # The stale, factually-wrong phrasing this story removes must be absent.
+    assert "--notes` to `record_attempt.py`" not in text, (
+        "stale '--notes` to `record_attempt.py`' phrasing still present in "
+        "reviewer procedure.md"
+    )
+    assert "populate `record_attempt.py`'s `--notes`" not in text, (
+        "stale 'populate record_attempt.py's --notes' phrasing still present in "
+        "reviewer procedure.md"
     )
 
 
@@ -1231,6 +1250,9 @@ def _init_git_repo(project: Path) -> None:
     subprocess.run(
         ["git", "config", "user.name", "Test"], cwd=str(project), check=True
     )
+    subprocess.run(
+        ["git", "config", "commit.gpgsign", "false"], cwd=str(project), check=True
+    )
     (project / "README.md").write_text("init\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=str(project), check=True)
     subprocess.run(
@@ -1268,8 +1290,18 @@ def _create_worktree(project: Path, story_id: str) -> subprocess.CompletedProces
     contents (or its malformedness) write their own before calling this.
     """
     rail = story_id.split("-", 1)[0]
+    story_rel = f"docs/stories/{rail}/{story_id}.md"
     if not (project / "docs" / "stories" / rail / f"{story_id}.md").exists():
         _write_story(project, story_id)
+    # INFRA-344: create-story-worktree now refuses when the target story's
+    # own spec file has an uncommitted change against HEAD, so every caller
+    # of this helper needs the spec committed first — whether the spec was
+    # just scaffolded above or the caller wrote its own via `_write_story`
+    # directly before invoking this helper (a no-op when already clean).
+    status = _git(project, "status", "--porcelain", "--", story_rel)
+    if status.stdout.strip():
+        _git(project, "add", story_rel)
+        _git(project, "commit", "-q", "-m", f"spec({story_id}): scaffold stub story")
     return _run(
         "create-story-worktree",
         "--story-id", story_id,
@@ -1368,6 +1400,125 @@ class TestStoryWorktreeLifecycle:
         )
         assert result.returncode == 0, result.stderr
         assert not counter_path.exists()
+
+    def test_merge_story_worktree_clears_gate_verdict(self, tmp_path: Path) -> None:
+        """INFRA-341: a landed story's recorded gate verdict is stale
+        evidence once the story is done — clear it alongside the attempt
+        counter/active-story/permissions stamps."""
+        _init_git_repo(tmp_path)
+        record = subprocess.run(
+            [
+                sys.executable, str(_SCRIPT),
+                "record-gate-verdict",
+                "--story-id", "WT-101",
+                "--project-dir", str(tmp_path),
+            ],
+            input=json.dumps({"schema": "clean", "auth": "clean"}),
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(_REPO_ROOT)},
+        )
+        assert record.returncode == 0, record.stderr
+        state_path = tmp_path / ".companion" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "WT-101" in state["gate_verdict"]
+
+        _create_worktree(tmp_path, "WT-101")
+        wt = tmp_path / ".pairmode-worktrees" / "WT-101"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-101",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        state_after = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "WT-101" not in state_after.get("gate_verdict", {})
+
+    def test_merge_story_worktree_flips_story_status_to_complete(
+        self, tmp_path: Path
+    ) -> None:
+        """INFRA-347 (CER-136): a successful merge flips both the story
+        file's frontmatter status: and its phase-doc Stories-table Status
+        cell to complete — the two status surfaces CER-136 found perpetually
+        stale."""
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-200", phase="200", status="draft")
+        _write_phase_manifest(
+            tmp_path, "200", [("WT-200", "title", "draft")]
+        )
+        _create_worktree(tmp_path, "WT-200")
+        wt = tmp_path / ".pairmode-worktrees" / "WT-200"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-200",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+
+        story_path = tmp_path / "docs" / "stories" / "WT" / "WT-200.md"
+        assert "status: complete" in story_path.read_text(encoding="utf-8")
+
+        phase_path = tmp_path / "docs" / "phases" / "phase-200.md"
+        phase_text = phase_path.read_text(encoding="utf-8")
+        row = next(
+            line for line in phase_text.splitlines() if "WT-200" in line
+        )
+        assert "complete" in row
+
+    def test_merge_story_worktree_without_story_doc_still_succeeds(
+        self, tmp_path: Path
+    ) -> None:
+        """INFRA-347: the fail-open contract — a merge for a story_id with no
+        real docs/stories/<RAIL>/<ID>.md file (the shape every pre-existing
+        WT-004/WT-100/WT-101-style fixture in this class uses) must not
+        regress: merge-story-worktree still exits 0, the commit still lands,
+        and the worktree/branch are still torn down."""
+        _init_git_repo(tmp_path)
+        _create_worktree(tmp_path, "WT-201")
+        # Remove the story doc _create_worktree scaffolded so the status
+        # flip has genuinely nothing to write to.
+        story_path = tmp_path / "docs" / "stories" / "WT" / "WT-201.md"
+        _git(tmp_path, "rm", "-q", "docs/stories/WT/WT-201.md")
+        _git(tmp_path, "commit", "-q", "-m", "remove story doc for WT-201")
+        assert not story_path.exists()
+
+        wt = tmp_path / ".pairmode-worktrees" / "WT-201"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-201",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        assert (tmp_path / "feature.txt").read_text() == "done\n"
+        assert not wt.exists()
+        branch = _git(
+            tmp_path, "rev-parse", "--verify", "refs/heads/pairmode/WT-201"
+        )
+        assert branch.returncode != 0
+
+    def test_merge_story_worktree_flips_status_even_without_matching_phase_row(
+        self, tmp_path: Path
+    ) -> None:
+        """INFRA-347: the story-level status write must succeed
+        independently of whether a phase-doc row exists to update — no
+        phase manifest is written for phase '202' at all."""
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-202", phase="202", status="draft")
+        _create_worktree(tmp_path, "WT-202")
+        wt = tmp_path / ".pairmode-worktrees" / "WT-202"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-202",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+
+        story_path = tmp_path / "docs" / "stories" / "WT" / "WT-202.md"
+        assert "status: complete" in story_path.read_text(encoding="utf-8")
 
     def test_merge_story_worktree_rebases_past_intervening_main_commits(
         self, tmp_path: Path
@@ -1477,6 +1628,38 @@ class TestStoryWorktreeLifecycle:
         assert branch.returncode != 0
         # The main worktree's own untracked content is untouched.
         assert (main_untracked / "keep.md").read_text() == "precious\n"
+
+    def test_discard_story_worktree_clears_gate_verdict(self, tmp_path: Path) -> None:
+        """INFRA-341: a discarded story must not silently reuse a stale
+        recorded gate verdict on its next attempt if its frontmatter
+        changes during a spec revision."""
+        _init_git_repo(tmp_path)
+        record = subprocess.run(
+            [
+                sys.executable, str(_SCRIPT),
+                "record-gate-verdict",
+                "--story-id", "WT-008",
+                "--project-dir", str(tmp_path),
+            ],
+            input=json.dumps({"schema": "block:no-owner-check", "auth": "clean"}),
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(_REPO_ROOT)},
+        )
+        assert record.returncode == 0, record.stderr
+        state_path = tmp_path / ".companion" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "WT-008" in state["gate_verdict"]
+
+        _create_worktree(tmp_path, "WT-008")
+        result = _run(
+            "discard-story-worktree",
+            "--story-id", "WT-008",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        state_after = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "WT-008" not in state_after.get("gate_verdict", {})
 
 
 def _write_pairmode_context(project: Path, data) -> Path:
@@ -1731,6 +1914,16 @@ class TestCreateStoryWorktreeAtomicity:
             "## Acceptance criterion\n\n_(fill in)_\n",
             encoding="utf-8",
         )
+        # INFRA-344: create-story-worktree now refuses on an uncommitted
+        # change to the target story's own spec file, so every call site
+        # here (which immediately calls create-story-worktree or
+        # check-story-scope expecting its *content* to be judged, not a
+        # dirty-git refusal) needs the write committed. A no-op (non-zero,
+        # uncaught) when *project* isn't a git repo yet is fine — no call
+        # site here relies on git state in that case.
+        story_rel = f"docs/stories/{rail}/{story_id}.md"
+        _git(project, "add", story_rel)
+        _git(project, "commit", "-q", "-m", f"spec({story_id}): write raw story")
         return story_path
 
     @staticmethod
@@ -1835,6 +2028,72 @@ class TestCreateStoryWorktreeAtomicity:
             "check-story-scope: failed to parse frontmatter:"
         )
         assert "Traceback" not in result.stderr
+
+
+class TestCreateStoryWorktreeRefusesUncommittedSpec:
+    """INFRA-344 (F10): create-story-worktree refuses when the target
+    story's own spec file has an uncommitted change against HEAD."""
+
+    def test_dirty_story_spec_is_refused(self, tmp_path: Path) -> None:
+        """(d) write, commit, then dirty again (uncommitted) — refused."""
+        _init_git_repo(tmp_path)
+        story_id = "WT-400"
+        result = _create_worktree(tmp_path, story_id)
+        assert result.returncode == 0, result.stderr
+        discard = _run(
+            "discard-story-worktree",
+            "--story-id", story_id,
+            "--project-dir", str(tmp_path),
+        )
+        assert discard.returncode == 0, discard.stderr
+
+        story_path = tmp_path / "docs" / "stories" / "WT" / f"{story_id}.md"
+        story_path.write_text(
+            story_path.read_text(encoding="utf-8") + "\n<!-- dirtied -->\n",
+            encoding="utf-8",
+        )
+
+        second = _run(
+            "create-story-worktree",
+            "--story-id", story_id,
+            "--project-dir", str(tmp_path),
+        )
+        assert second.returncode == 1
+        assert str(story_path) in second.stderr or "WT-400.md" in second.stderr
+        assert not (tmp_path / ".pairmode-worktrees" / story_id).exists()
+        branch = _git(
+            tmp_path, "rev-parse", "--verify", f"refs/heads/pairmode/{story_id}"
+        )
+        assert branch.returncode != 0
+        assert second.stdout.strip() == ""
+
+    def test_untracked_new_story_spec_is_refused(self, tmp_path: Path) -> None:
+        """The uncommitted case need not be a modification of a tracked
+        file — a brand-new, never-committed spec is exactly the shape the
+        spec-writer's Step-6 write followed by a skipped commit produces."""
+        _init_git_repo(tmp_path)
+        story_id = "WT-401"
+        _write_story(tmp_path, story_id)  # written, deliberately not committed
+
+        result = _run(
+            "create-story-worktree",
+            "--story-id", story_id,
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 1
+        assert "WT-401.md" in result.stderr
+        assert not (tmp_path / ".pairmode-worktrees" / story_id).exists()
+
+    def test_unrelated_dirty_file_does_not_block(self, tmp_path: Path) -> None:
+        """(e) an uncommitted change to an unrelated file does not trigger
+        the refusal — the check is scoped to exactly the target story's own
+        spec path."""
+        _init_git_repo(tmp_path)
+        (tmp_path / "unrelated.txt").write_text("dirt\n", encoding="utf-8")
+
+        result = _create_worktree(tmp_path, "WT-402")
+        assert result.returncode == 0, result.stderr
+        assert (tmp_path / ".pairmode-worktrees" / "WT-402").is_dir()
 
 
 class TestClaimedStoryIds:
