@@ -2,7 +2,7 @@
 id: INFRA-351
 rail: INFRA
 title: Split harness-role narratives into pairmode template source; scaffold via bootstrap NARRATIVE_FILES
-status: draft
+status: complete
 phase: "118"
 story_class: code
 auth_gated: false

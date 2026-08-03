@@ -21,8 +21,8 @@ Establish Narrative of Record as a templated, propagated doc-of-record layer for
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-351 | Split harness-role narratives into pairmode template source; scaffold via bootstrap NARRATIVE_FILES | draft |
-| INFRA-352 | Add sync-narratives to pairmode_sync.py, reusing INFRA-332's add-missing-file path | draft |
+| INFRA-351 | Split harness-role narratives into pairmode template source; scaffold via bootstrap NARRATIVE_FILES | complete |
+| INFRA-352 | Add sync-narratives to pairmode_sync.py, reusing INFRA-332's add-missing-file path | complete |
 | INFRA-353 | OPERATOR seed-then-extend: templated typical-operator baseline plus bootstrap-led project extension | draft |
 | INFRA-354 | Backfill flex's own docs/narratives/ from the new template source (real dogfood backfill) | draft |
 | INFRA-355 | Add Narrative of Record as spec-writer's sixth bounded input (DP1.3) | draft |
