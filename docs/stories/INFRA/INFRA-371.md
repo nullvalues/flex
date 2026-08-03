@@ -2,7 +2,7 @@
 id: INFRA-371
 rail: INFRA
 title: Close four residual doc/scoping seams left by INFRA-311 canon-retirement (CER-133)
-status: draft
+status: complete
 phase: "119"
 story_class: code
 auth_gated: false
