@@ -2,7 +2,7 @@
 id: INFRA-361
 rail: INFRA
 title: Establish Narrative of Record in docs/architecture.md; propose CLAUDE.md cold-start quad
-status: draft
+status: complete
 phase: "118"
 story_class: doc
 auth_gated: false
