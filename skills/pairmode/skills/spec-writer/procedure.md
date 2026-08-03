@@ -50,9 +50,9 @@ state, no prior-attempt transcripts, no effort database records.
 3. **The active era doc** — the single file in `docs/eras/*.md` whose frontmatter
    contains `status: active`
 4. **One recent complete story as format exemplar** — one story file from
-   `docs/stories/` whose frontmatter `status` is `complete`. Prefer the same rail as
-   the stub; if none exists in that rail, use any rail. Read exactly one file; do not
-   scan all stories.
+   `docs/stories/` whose frontmatter `status` is `complete`, excluding length outliers
+   per Step 2 item 4 below (INFRA-357). Prefer the same rail as the stub; if none
+   exists in that rail, use any rail. Read exactly one file; do not scan all stories.
 5. **`docs/ideology.md`** (INFRA-242) — the project's convictions, accepted
    constraints, and prototype fingerprints. Read in full. If the file does not
    exist, skip the ideology-alignment step (§ Step 4a below) and note the skip —
@@ -90,7 +90,12 @@ From the scalar (e.g. `BUILD-012`):
 2. Read `docs/phases/phase-<phase_key>.md` in full.
 3. Scan `docs/eras/` filenames; read the one whose frontmatter has `status: active`.
 4. Find one complete story in the same rail as the stub (or any rail if none exists in
-   that rail) and read it as a format exemplar.
+   that rail) and read it as a format exemplar — but skip any candidate whose length
+   is a clear outlier above this project's healthy range (roughly 14-36 lines, this
+   project's own stories 0-119 baseline measured pre-inflation; see
+   `docs/build-loop-cold-eyes-review-20260801.md`, INFRA-357) unless no shorter
+   complete story exists. Read exactly one file; do not scan the whole stories tree
+   to find it.
 5. Read `docs/ideology.md` in full. If it does not exist, note the absence and skip
    Step 4a below.
 6. Read the stub's `narrative_roles:` frontmatter field. If empty or absent, this
@@ -133,6 +138,14 @@ complete set of sections for this story.
   Avoid assertions that require human judgment to verify.
 - `## Instructions` must be precise enough that a fresh-context builder agent with no
   prior knowledge of the phase can implement the story without ambiguity.
+- **Brevity counter-instruction (INFRA-357), held with the same weight as the rule
+  above:** `## Ensures`/`## Instructions` should be as short as achieves unambiguous,
+  independently-verifiable acceptance. Trust the builder's ordinary engineering
+  judgment on well-understood mechanics; spell out only what is genuinely ambiguous
+  or load-bearing. Length is not evidence of rigor — a spec whose every line earns
+  its place is. (Context: `docs/build-loop-cold-eyes-review-20260801.md` found rising
+  spec length correlated with rising attempt counts, not rising quality, across this
+  project's own history.)
 - `## Tests` must include exact `bash` commands (using `uv run pytest`) and state the
   acceptance criterion (e.g. "suite green", "specific test passes").
 - `## Out of scope` must name at least one related capability that is intentionally
@@ -234,6 +247,19 @@ This is the procedure's only other write target besides the story file itself
 (§ Role, § Step 6's write rules) — it writes only the `stories:` frontmatter
 field of the cited narrative file(s), touching no other field and no other file.
 
+### Step 4d — Proportionality self-check (INFRA-357)
+
+After drafting (Step 4), compare the draft's rough line count against this story's
+own complexity signals (`primary_files`/`touches` count, `story_class`). This
+project's healthy baseline is roughly 14-36 lines (stories 0-119, pre-inflation);
+see `docs/build-loop-cold-eyes-review-20260801.md` and this phase's Goal for why
+this check exists. Treat a draft as disproportionate when it lands well outside
+that baseline for a simple story — concretely, a single `primary_files` entry with
+`story_class: doc`/`lesson` drafted past ~100 lines. When disproportionate, either
+revise the draft down, or add a one-line justification directly in the story body,
+mirroring the phase-authoring convention's own check ("if scope isn't comparable to
+recent phases, is the reason explicit?") applied at the story level.
+
 ### Step 5 — Check for human-review signals
 
 Return `status: "revised"` (rather than `"done"`) if any of the following apply:
@@ -249,6 +275,8 @@ Return `status: "revised"` (rather than `"done"`) if any of the following apply:
   inline within the spec draft (see Step 4a's conflict-resolution rule).
 - Step 4b proposes raising the builder or reviewer model above the default and
   that raise has not yet been operator-approved in the pinned form.
+- Step 4d's proportionality self-check found the draft disproportionate and no
+  one-line justification was added to resolve it.
 
 Otherwise return `status: "done"`.
 
