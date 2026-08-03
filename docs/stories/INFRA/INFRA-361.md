@@ -64,6 +64,31 @@ PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -q
 Acceptance: green — this is a documentation-only story; verification is a human read of the new
 section for accuracy against what INFRA-351 through 356 actually shipped, not a test assertion.
 
+## Proposed CLAUDE.md addition
+
+The following wording is proposed for `CLAUDE.md` § "read before any task" — extending the
+cold-start triad to a quad. The exact edit is deferred pending explicit operator approval, not
+made unilaterally by this story, per the asymmetric-caution posture INFRA-318 established.
+
+**Proposed replacement for lines 73–78 of CLAUDE.md:**
+
+```
+## read before any task
+1. `docs/brief.md` — what and why (operator intent)
+2. `docs/architecture.md` — how and architectural decisions
+3. Current phase file from `docs/phases/` (see current phase for active stories); or `docs/phase-prompts.md` for legacy projects that have not migrated
+4. `docs/narratives/` — role expectations and how the build loop works (what each role must be able to do, expect, and avoid)
+
+These four documents should be sufficient for any model or toolchain to cold-start this project
+and reproduce a valid variant without prior session context. The triad (items 1–3) documents
+the software; Narrative of Record (item 4) documents the loop that builds it — together they
+make the system reproducible end-to-end.
+```
+
+This addition makes the quad explicit and documented, matching the principle that introduced
+the cold-start triad itself: that a future agent or operator with no access to prior conversation
+should be able to continue the work by reading only the committed artifacts.
+
 ## Out of scope
 
 - Deciding the CLAUDE.md change unilaterally — explicitly not this story's call to make alone.

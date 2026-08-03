@@ -1692,6 +1692,56 @@ phase; INFRA-243's Out of scope explicitly rules that out):**
   Goal section documents the audit lineage (fable Plan-mode comparison, adversarial second-opinion
   review, follow-up operator questions) an agent would otherwise be missing.
 
+### Narrative of Record and the cold-start quad (INFRA-351 through INFRA-356)
+
+The cold-start triad — `docs/brief.md` (project goals/why), `docs/architecture.md` (system
+design/how), and the current phase doc (active stories/what) — enables a fresh agent or human
+reader to understand and continue work with no access to prior conversation. Narrative of Record
+extends this principle to the *roles* inside the build loop itself: **`docs/narratives/` holds
+role-level narratives describing what each role (builder, reviewer, intent-reviewer, etc.) must
+be able to do, expect, and avoid**, grounded in project ideology and architecture, not
+implementation details. A narrative describes "what this role needs to experience" end-to-end,
+not "here's the code that implements this role."
+
+**Where it lives:** `docs/narratives/` organized by role (`BUILDER/`, `REVIEWER/`, `OPERATOR/`,
+etc.), with numbered files per role (`ROLE-000-ideology.md`, `ROLE-010-*.md`, etc.) following
+the same disk-sort reading order as phase docs. No narrative indices or manifests required —
+the file system is the index.
+
+**How it propagates:** INFRA-351 (`sync.py`'s `NARRATIVE_FILES` constant) declares the ten
+canonical roles (nine harness-internal, plus OPERATOR). INFRA-352 (`sync-narratives` command,
+run at bootstrap and at era boundaries) templates each role's seed files from
+`skills/pairmode/templates/narratives/` and ensures no drift. INFRA-353 establishes the
+exception: OPERATOR narratives are not templated directly but are seeded as a blank scaffold
+and extended by the operator's own free-text input at bootstrap time (`OPERATOR-000-ideology.md`
+seed + `OPERATOR-010-project.md` extension), allowing projects to document their own
+operator-role expectations without requiring a one-size-fits-all template.
+
+**How it's consumed:** INFRA-355 wires Narrative of Record as the spec-writer's sixth bounded
+input — when a story's frontmatter lists `narrative_roles: [ROLE1, ROLE2, ...]`, the spec-writer
+reads exactly those `<ROLE>-000-ideology.md` files (and any numbered descendants) to ensure the
+drafted spec honors what each cited role needs to be able to do. INFRA-356 adds the matching
+check on the reviewer side: the intent-reviewer reads cited narratives post-build and compares
+the diff against narrative `Always true`/`Never` sections, treating narrative violations with the
+same weight as ideology drift (CRITICAL/HIGH findings that block checkpoint). The same check runs
+pre-build mode (INFRA-315) against the *planned* Ensures, verifying that architecture aligns
+with narrative before any code is written.
+
+**Relationship to the cold-start quad:** The triad asks "can I understand the system and the
+current work?" Narrative of Record completes that to "can I understand what each role needs to
+experience?" — a fourth dimension making the build loop itself reproducible and auditable, not
+just the software it produces. When a phase doc is read cold with no access to conversation, the
+referenced narratives let a reader verify that story Ensures and role expectations align, and
+catch gaps the diff alone wouldn't surface (a story that passes review but violates an
+intent-reviewer's alignment check is a signal, not a passing grade). This is the same reasoning
+that led to narrative-first design in other fleet projects (coherra, stackabid); flex is the
+first to wire narrative-checking into live procedures rather than stating it as intent.
+
+**`story_new.py` scaffold** adds `narrative_roles: []` to new story stubs. The decision of which
+roles a story concerns is left to the human or spec-writer (not auto-inferred from title or rail)
+and is recorded in frontmatter as a backreferable decision, mirroring how `OPERATOR-000` seed
+plus `OPERATOR-010-project.md` extension lets the operator record their own role-level intent.
+
 **`story_update.py` is the canonical tool for updating story status.**
 `update_story_status(story_id, project_dir, status)` updates a story file's frontmatter
 `status` field. `update_phase_story_status(story_id, project_dir, status)` updates the status

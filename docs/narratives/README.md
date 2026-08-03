@@ -89,27 +89,18 @@ in the same directory — no tooling is required for that.
   `docs/build-loop-cold-eyes-review-20260801.md` gives a CRITICAL/HIGH finding
   — not a stylistic nit.
 
-## Open question this era has not yet resolved
+## Narrative-of-record wiring in spec-writer and intent-reviewer
 
-**How does the spec-writer draw on these narratives, and how does the
-intent-reviewer check alignment against them?** In theory a minor addition (one
-more bounded input, one more checkpoint-time comparison); in practice, real
-tension exists and should not be waved past:
+The spec-writer draws on these narratives as its sixth bounded input (INFRA-355): when a
+story's frontmatter lists `narrative_roles: [...]`, the spec-writer reads exactly those cited
+`<ROLE>-000-ideology.md` files to ensure the drafted spec honors what each role needs to be
+able to do. The intent-reviewer checks alignment against narratives post-build and pre-build
+(INFRA-356): cited narrative `Always true`/`Never` sections are verified against the diff,
+treating narrative violations with the same weight as ideology drift (CRITICAL/HIGH findings).
 
-- The spec-writer's input contract (DP1.3) is a deliberately fixed cardinality
-  of five categories, each bounded for a stated reason (context cost,
-  contamination risk). Adding narratives as a sixth category needs the same
-  rigor the first five got.
-- The intent-reviewer's input contract explicitly forbids reading
-  "prior-attempt transcripts" or "accumulated orchestrator state" — which is
-  what a narrative-alignment check performed *during* a build, rather than at a
-  phase checkpoint, would require it to read. This is a change to what kind of
-  role the intent-reviewer is, not a wiring tweak.
-- No live mechanism exists today for one agent to observe another's session
-  while it runs — subagents run to completion and return. A narrative-aligned
-  "watch the builder and steer" role, if built, will be a staged checkpoint
-  (builder pauses, a review pass runs, builder resumes), not a passive
-  real-time observer, unless and until the underlying tooling changes.
-
-These are resolved in whatever phase actually wires narrative-of-record into the
-spec-writer/intent-reviewer procedures — not assumed here.
+See `docs/architecture.md` § Narrative of Record and the cold-start quad for the complete
+propagation mechanism (how narratives are synced, the OPERATOR seed-then-extend exception,
+the input contract changes, and the phase-level relationship to the cold-start triad). The
+procedure implementations are in `skills/pairmode/skills/spec-writer/procedure.md` (Step 2
+bounded inputs + post-draft backfill) and `skills/pairmode/skills/intent-reviewer/procedure.md`
+(post-build and pre-build narrative-alignment checks).
