@@ -5084,3 +5084,95 @@ class TestOperatorSeedThenExtend:
         dest_paths = {dest_rel for dest_rel, _ in NARRATIVE_FILES}
         assert self.OPERATOR_SEED_PATH not in dest_paths
         assert OPERATOR_SEED_FILE[0] == self.OPERATOR_SEED_PATH
+
+
+# ---------------------------------------------------------------------------
+# OPERATOR-010 extension write overwrite guard (INFRA-366)
+# ---------------------------------------------------------------------------
+
+class TestOperatorExtensionOverwriteGuard:
+    """The OPERATOR-010-project.md extension write must go through the same
+    _write_file prompt-before-clobber path as its sibling writes in the same
+    function (checkpoint-security HIGH finding)."""
+
+    OPERATOR_EXTENSION_PATH = "docs/narratives/OPERATOR/OPERATOR-010-project.md"
+
+    def test_existing_extension_file_declined_leaves_contents_unchanged(self, tmp_path):
+        first_note = "First-run note that must survive a declined overwrite."
+        run_bootstrap(tmp_path, extra_args=["--operator-note", first_note])
+        dest = tmp_path / self.OPERATOR_EXTENSION_PATH
+        original_content = dest.read_text(encoding="utf-8")
+        assert first_note in original_content
+
+        second_note = "Second-run note that must NOT land if the user declines."
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--operator-note", second_note,
+            ],
+            input="n\n" * 30,  # decline every overwrite prompt, including this one
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert dest.read_text(encoding="utf-8") == original_content, (
+            "declined overwrite must leave the file byte-identical to before the run"
+        )
+
+    def test_existing_extension_file_confirmed_is_replaced(self, tmp_path):
+        first_note = "First-run note that should be replaced on confirm."
+        run_bootstrap(tmp_path, extra_args=["--operator-note", first_note])
+        dest = tmp_path / self.OPERATOR_EXTENSION_PATH
+
+        second_note = "Second-run note that should land after confirming overwrite."
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--operator-note", second_note,
+            ],
+            input="y\n" * 30,  # confirm every overwrite prompt, including this one
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        new_content = dest.read_text(encoding="utf-8")
+        assert second_note in new_content
+        assert first_note not in new_content
+
+    def test_no_pre_existing_extension_file_writes_without_prompt(self, tmp_path):
+        note = "Fresh-project note, no pre-existing extension file."
+        result = run_bootstrap(tmp_path, extra_args=["--operator-note", note])
+        assert result.exit_code == 0, result.output
+        dest = tmp_path / self.OPERATOR_EXTENSION_PATH
+        assert dest.exists()
+        assert note in dest.read_text(encoding="utf-8")
+
+    def test_dry_run_performs_no_write_when_file_does_not_pre_exist(self, tmp_path):
+        note = "Dry-run note on a fresh project."
+        result = run_bootstrap(
+            tmp_path, extra_args=["--operator-note", note, "--dry-run"]
+        )
+        assert result.exit_code == 0, result.output
+        dest = tmp_path / self.OPERATOR_EXTENSION_PATH
+        assert not dest.exists()
+
+    def test_dry_run_performs_no_write_when_file_pre_exists(self, tmp_path):
+        first_note = "Pre-existing note before the dry-run."
+        run_bootstrap(tmp_path, extra_args=["--operator-note", first_note])
+        dest = tmp_path / self.OPERATOR_EXTENSION_PATH
+        original_content = dest.read_text(encoding="utf-8")
+
+        second_note = "Dry-run note that must not be written."
+        result = run_bootstrap(
+            tmp_path, extra_args=["--operator-note", second_note, "--dry-run"]
+        )
+        assert result.exit_code == 0, result.output
+        assert dest.read_text(encoding="utf-8") == original_content

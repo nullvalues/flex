@@ -1726,12 +1726,12 @@ def bootstrap(
             "\n"
             f"{operator_note}\n"
         )
-        if dry_run:
-            click.echo(f"  [dry-run] would write: {operator_extension_dest}")
-        else:
-            operator_extension_dest.parent.mkdir(parents=True, exist_ok=True)
-            operator_extension_dest.write_text(operator_extension_content, encoding="utf-8")
-            click.echo(f"  wrote: {operator_extension_dest}")
+        _write_file(
+            operator_extension_dest,
+            operator_extension_content,
+            dry_run=dry_run,
+            yes=yes,
+        )
 
     # ------------------------------------------------------------------
     # 4.5. Save template context for audit/sync rendering
