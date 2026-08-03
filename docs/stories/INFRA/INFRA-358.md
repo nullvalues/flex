@@ -2,7 +2,7 @@
 id: INFRA-358
 rail: INFRA
 title: Build the shared-suggestions-file mid-build steering mechanism (concurrent shadow-reviewer)
-status: draft
+status: complete
 phase: "118"
 story_class: code
 auth_gated: false
