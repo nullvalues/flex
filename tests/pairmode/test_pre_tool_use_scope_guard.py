@@ -313,3 +313,84 @@ def test_hook_allows_standing_surface_and_blocks_undeclared_code_file(tmp_path):
     payload = json.loads(stdout.strip())
     assert payload["decision"] == "block"
     assert "not in story scope" in payload["reason"]
+
+
+# ---------------------------------------------------------------------------
+# INFRA-365 (Phase-118 checkpoint-security HIGH) — the shadow-reviewer's
+# suggestions file is a standing surface at the real hook boundary. These
+# tests drive the real (unmocked) pre_tool_use -> scope_guard.check_path
+# path through a live worktree, the same call shape as
+# test_hook_allows_standing_surface_and_blocks_undeclared_code_file above —
+# not check_path called directly, and not a Path.write_text bypass (the
+# defect this story fixes shipped precisely because the covering test used
+# that bypass, see docs/stories/INFRA/INFRA-365.md § Context).
+# ---------------------------------------------------------------------------
+
+
+def _make_worktree_with_active_story(tmp_path: Path, story_id: str) -> Path:
+    """Build a fake linked worktree (same shape as `_make_linked_worktree`)
+    with an active story and a permissions artifact that does NOT declare
+    `.pairmode-suggestions.md` — the exact live-dispatch shape described in
+    the story's `## Context`."""
+    main_root = tmp_path / "main"
+    main_root.mkdir()
+    companion = main_root / ".companion"
+    companion.mkdir()
+    (companion / "state.json").write_text(
+        json.dumps(
+            {"current_story": {"id": story_id, "set_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    )
+    perm_dir = main_root / "docs" / "phases" / "permissions"
+    perm_dir.mkdir(parents=True)
+    (perm_dir / f"{story_id}.json").write_text(
+        json.dumps({"story_id": story_id, "allowed_paths": ["skills/foo.py"]})
+    )
+    worktree_dir = _make_linked_worktree(main_root, story_id)
+    return worktree_dir
+
+
+def test_hook_allows_write_to_suggestions_file_in_active_story_worktree(tmp_path):
+    """Ensures 1 & 3: with an active story resolved and
+    `.pairmode-suggestions.md` absent from that story's declared files, a
+    real `Write` to `<worktree>/.pairmode-suggestions.md` through the actual
+    pre_tool_use hook entry point is not blocked."""
+    story_id = "INFRA-962"
+    worktree_dir = _make_worktree_with_active_story(tmp_path, story_id)
+
+    exit_code, stdout = _run_main(
+        {
+            "tool_name": "Write",
+            "tool_input": {"file_path": ".pairmode-suggestions.md"},
+            "cwd": str(worktree_dir),
+        }
+    )
+    assert exit_code == 0
+    assert stdout.strip() == ""
+
+
+def test_hook_still_blocks_neighbouring_undeclared_paths(tmp_path):
+    """Ensures 2 & 4: the allowance is keyed on the exact filename at the
+    worktree root — a neighbouring dotfile and a nested path of the same
+    name are both still denied, and an ordinary undeclared code path in the
+    same worktree is still denied too (the fix did not disable story-scope
+    enforcement)."""
+    story_id = "INFRA-963"
+    worktree_dir = _make_worktree_with_active_story(tmp_path, story_id)
+
+    for undeclared_path in (
+        ".pairmode-other.md",
+        "subdir/.pairmode-suggestions.md",
+        "skills/undeclared.py",
+    ):
+        exit_code, stdout = _run_main(
+            {
+                "tool_name": "Write",
+                "tool_input": {"file_path": undeclared_path},
+                "cwd": str(worktree_dir),
+            }
+        )
+        assert exit_code == 0
+        payload = json.loads(stdout.strip())
+        assert payload["decision"] == "block", f"expected block for {undeclared_path}"
+        assert "not in story scope" in payload["reason"]

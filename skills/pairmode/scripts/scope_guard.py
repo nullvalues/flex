@@ -55,6 +55,16 @@ def _is_protected(path_str: str) -> bool:
 STANDING_SURFACES: tuple[str, ...] = (
     "docs/cer/backlog.md",
     "docs/architecture.md",
+    # INFRA-365 (Phase-118 checkpoint-security HIGH): the shadow-reviewer's
+    # sole output channel (INFRA-358/359, skills/pairmode/skills/
+    # shadow-reviewer/procedure.md § "The suggestions file"). Gitignored
+    # and deliberately never declared in any story's primary_files/touches
+    # (INFRA-358) — a standing entry is the only way a live shadow-reviewer
+    # dispatch (which resolves to the active story via resolve_call_story,
+    # same as the builder) can ever write it. Matched exactly at the
+    # worktree root; not a prefix/glob, so no other dotfile or nested path
+    # is affected.
+    ".pairmode-suggestions.md",
 )
 
 

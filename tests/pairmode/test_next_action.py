@@ -3632,7 +3632,16 @@ def _append_suggestion(worktree: Path, text: str, *, ts: str) -> None:
     """Append one timestamped entry to ``.pairmode-suggestions.md``, in the
     exact shape ``skills/pairmode/skills/shadow-reviewer/procedure.md``'s
     "The suggestions file" section documents: a top-of-file banner comment
-    on first write, then append-only ``## [ts] observation`` sections."""
+    on first write, then append-only ``## [ts] observation`` sections.
+
+    INFRA-365 Ensures 5: this is a direct ``Path.write_text``/``open(...)``
+    simulation of the shadow-reviewer's file-level protocol — it
+    deliberately bypasses the ``pre_tool_use`` hook and `scope_guard`
+    enforcement entirely. It does not exercise the real hook boundary; that
+    coverage is `tests/pairmode/test_pre_tool_use_scope_guard.py`'s
+    `test_hook_allows_write_to_suggestions_file_in_active_story_worktree`
+    (INFRA-365 Ensures 3).
+    """
     suggestions_path = worktree / ".pairmode-suggestions.md"
     if not suggestions_path.exists():
         suggestions_path.write_text(
@@ -3734,6 +3743,11 @@ class TestBuilderHighWaterMarkTracking:
         )
         assert create_result.exit_code == 0, create_result.output
         wt_path = Path(create_result.output.strip())
+        # INFRA-365 Ensures 5: reads/writes here go through `_append_suggestion`
+        # and direct `.read_text()` calls — a file-level protocol simulation
+        # that deliberately bypasses the hook (see that helper's docstring);
+        # the hook-boundary allow/deny coverage lives in
+        # test_pre_tool_use_scope_guard.py (INFRA-365 Ensures 3/4).
         suggestions_path = wt_path / ".pairmode-suggestions.md"
 
         # Checkpoint 0: file does not exist yet.
@@ -3925,6 +3939,47 @@ class TestSuggestionsFileExcludedFromGitStatus:
             check=True,
         )
         assert ".pairmode-suggestions.md" not in diff.stdout.splitlines()
+
+
+class TestSuggestionsFileExcludedFromStoryScopeReport:
+    """INFRA-365 Ensures 6: `.pairmode-suggestions.md` remains excluded from
+    story artifacts — the real `check-story-scope` report (the CLI surface
+    named in that command's own Ensures 7 elsewhere) does not begin listing
+    it as an in-scope story file once the file exists in the worktree and
+    the guard change (INFRA-365) has allowed the shadow-reviewer to write
+    it. Asserted against the real CLI, not assumed from `.gitignore`
+    inspection alone."""
+
+    def test_check_story_scope_report_never_mentions_suggestions_file(
+        self, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        story_id = "INFRA-965"
+        _scaffold_project(project_dir, story_id)
+
+        create_result = _stage_invoke(
+            "create-story-worktree",
+            "--story-id",
+            story_id,
+            "--project-dir",
+            str(project_dir),
+        )
+        assert create_result.exit_code == 0, create_result.output
+        wt_path = Path(create_result.output.strip())
+
+        # The shadow-reviewer's standing-surface write (real file present in
+        # the worktree, still never declared in primary_files/touches).
+        _append_suggestion(wt_path, "an observation", ts="2026-08-02T14:00:00Z")
+
+        scope_result = _stage_invoke(
+            "check-story-scope",
+            story_id,
+            "--project-dir",
+            str(wt_path),
+        )
+        assert scope_result.exit_code == 0, scope_result.output
+        assert ".pairmode-suggestions.md" not in scope_result.output
 
 
 class TestTeardownOrderingRuleIsDocumented:
