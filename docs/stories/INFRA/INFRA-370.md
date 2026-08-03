@@ -2,7 +2,7 @@
 id: INFRA-370
 rail: INFRA
 title: Auto-derive model_selector.py's test file into touches: when the module is touched (CER-145)
-status: draft
+status: complete
 phase: "119"
 story_class: code
 auth_gated: false
