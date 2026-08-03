@@ -37,7 +37,7 @@ unresolved operational findings.
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-363 | Freeze the spec-writer's format exemplar; correct INFRA-357's attempt-count claim | complete |
-| INFRA-364 | Trim dead/duplicated content from ideology.md, architecture.md, and pairmode SKILL.md | draft |
+| INFRA-364 | Trim dead/duplicated content from ideology.md, architecture.md, and pairmode SKILL.md | complete |
 | INFRA-367 | Add non-interactive rail-creation flags to story_new.py (CER-117) | draft |
 | INFRA-368 | Fix resolverState.ts getFlexBuildPath() resolving one directory too high (CER-142) | draft |
 | INFRA-369 | Decouple a migrate test from the literal checkout directory name flex-harness (CER-146) | draft |

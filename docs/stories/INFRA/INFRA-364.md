@@ -2,7 +2,7 @@
 id: INFRA-364
 rail: INFRA
 title: Trim dead/duplicated content from ideology.md, architecture.md, and pairmode SKILL.md
-status: draft
+status: complete
 phase: "119"
 story_class: doc
 auth_gated: false
