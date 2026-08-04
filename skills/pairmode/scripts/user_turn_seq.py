@@ -160,13 +160,12 @@ def record_user_turn(project_dir: "str | Path", data: dict | None) -> None:
     per-user-turn deltas into it would corrupt that median.
 
     § C6: when the refresh writes a measured value, it also stamps
-    ``context_current_tokens_source = "user-prompt-submit"`` — one of two live
-    writers of that provenance field (the other being the "manual"
-    ``set-context-tokens`` / ``bump-context-tokens`` commands). The third
-    named value, ``"post-tool-use"``, has NO live writer today:
-    ``hooks/post_tool_use.py`` is a protected path (``hooks/**``) and this
-    story does not edit it — see ``docs/cer/backlog.md``'s INFRA-321 follow-up
-    row. ``context_budget.decide()`` does not gate on this field either way.
+    ``context_current_tokens_source = "user-prompt-submit"`` — one of three
+    live writers of that provenance field (the other two being the "manual"
+    ``set-context-tokens`` / ``bump-context-tokens`` commands and
+    ``hooks/post_tool_use.py``'s Task/Agent branch, which stamps
+    ``"post-tool-use"``, INFRA-374). ``context_budget.decide()`` does not gate
+    on this field either way.
     """
     try:
         project_dir = Path(project_dir)

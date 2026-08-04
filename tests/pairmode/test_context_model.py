@@ -62,7 +62,7 @@ def test_boundary_rule_documented_in_module_source():
     assert "may NEVER be summed into an orchestrator-track" in normalized
 
 
-def test_context_current_tokens_sources_names_all_three_but_only_two_are_live():
+def test_context_current_tokens_sources_names_all_three_and_all_three_are_live():
     assert context_model.CONTEXT_CURRENT_TOKENS_SOURCES == (
         "post-tool-use",
         "user-prompt-submit",

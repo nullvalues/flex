@@ -124,6 +124,13 @@ def main():
                     context_budget.record_step_growth(
                         view, previous_tokens, live_tokens
                     )
+                    # INFRA-374: provenance stamp mirroring
+                    # user_turn_seq.record_user_turn's § C6 stamp. Literal
+                    # value, not an import — canonical definitions are
+                    # context_model.CONTEXT_CURRENT_TOKENS_SOURCE_KEY /
+                    # CONTEXT_CURRENT_TOKENS_SOURCES[0] ("post-tool-use").
+                    # Written to state (top level), not the per-session view.
+                    state["context_current_tokens_source"] = "post-tool-use"
                 # The ring buffer must become session-owned on this session's
                 # FIRST write, not on its first positive delta. session_view()
                 # inherits any key the session's entry lacks from the flat

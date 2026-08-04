@@ -3025,22 +3025,17 @@ growth series, since that is what `expected_step_tokens`'s median is supposed to
 mixing in per-user-turn deltas would corrupt it.
 
 **Writer provenance (`context_current_tokens_source`).** Every writer of
-`context_current_tokens` *should* also stamp `context_current_tokens_source`, an additive,
+`context_current_tokens` also stamps `context_current_tokens_source`, an additive,
 observability-only field (`context_budget.decide()` does not gate on it) that records which
-writer most recently wrote the value. **As of INFRA-321, only two of the three intended
-writers actually stamp it:**
+writer most recently wrote the value. **As of INFRA-374, all three intended writers stamp
+it:**
 
 - `record_user_turn`'s refresh (§ C1 above) → `"user-prompt-submit"` — live.
 - `flex_build.py set-context-tokens` / `bump-context-tokens` (manual override /
   debugging escape hatch) → `"manual"` — live.
-- `hooks/post_tool_use.py`'s Task/Agent branch → `"post-tool-use"` — **NOT yet wired**.
-  `hooks/` is a protected path (`scope_guard.PROTECTED_GLOBS`); INFRA-321's own § Out of
-  scope names this as the one exception that would require a hook edit, and instructs the
-  builder to report `BUILDER BLOCKED` rather than touch it. This is exactly what happened —
-  the PostToolUse writer's stamp is deferred to a follow-up row (`docs/cer/backlog.md`,
-  CER-129 annotation). Until that follow-up lands, a `context_current_tokens` value most
-  recently written by PostToolUse carries no source stamp (readers treat an absent/unknown
-  source exactly as before — no reader's behaviour depends on the field's presence).
+- `hooks/post_tool_use.py`'s Task/Agent branch → `"post-tool-use"` — live (INFRA-374).
+  The stamp is written as a literal inside the existing `_mutate` read-modify-write, only
+  when `live_tokens is not None`, matching the guard the other two writers already apply.
 
 ### Codified comingling — FLAGGED FOR REMOVAL AT HARNESS006 (RESOLVED, INFRA-321)
 
