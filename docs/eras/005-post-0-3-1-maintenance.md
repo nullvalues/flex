@@ -1,0 +1,19 @@
+---
+id: "005"
+name: Post-0.3.1 maintenance
+status: active
+---
+
+## Strategic intent
+
+Placeholder era opened at 0.3.1 sealing; real scope to be defined as maintenance/follow-on work surfaces.
+
+## Rails
+
+| Rail | Primary domain |
+|------|----------------|
+
+## Phases
+
+| Phase | Title | Status |
+|-------|-------|--------|
