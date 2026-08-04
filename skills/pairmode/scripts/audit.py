@@ -143,6 +143,21 @@ RECONSTRUCTION_REQUIRED_SECTIONS = [
     "## Comparison rubric",
 ]
 
+# Seeded cold-start docs that receive drift/staleness tracking (CER-121).
+# These are distinguished from CANONICAL_FILES/SCAFFOLD_FILES: they are
+# bootstrap-seeded, deny-listed from writes, and heavily customized in the
+# field (99-1568 line spread observed) — full section-level body comparison
+# would emit noise proportional to legitimate customization, which is why
+# they were never routed through SCAFFOLD_FILES. Heading-set comparison
+# against the seeding template is the deliberate bounded cut instead, mirroring
+# the dedicated _check_ideology_staleness / _check_reconstruction_staleness
+# pattern. Do not add entries here to CANONICAL_FILES or SCAFFOLD_FILES
+# (INFRA-372/CER-132 shares this module and must not conflict).
+SEEDED_COLD_START_DOCS: list[tuple[str, str]] = [
+    ("docs/architecture.md", "docs/architecture.md.j2"),
+    ("docs/checkpoints.md", "docs/checkpoints.md.j2"),
+]
+
 
 def _strip_html_comments(text: str) -> str:
     """Remove HTML comments (<!-- ... -->) from text."""
@@ -237,6 +252,58 @@ def _check_reconstruction_staleness(project_dir: Path) -> str | None:
     if found_real_content:
         return "OK"
     return "STALE"
+
+
+def _check_seeded_doc_drift(project_dir: Path, pair: tuple[str, str]) -> str | None:
+    """Drift/staleness check for a seeded cold-start doc (CER-121).
+
+    *pair* is a ``(dest_rel, template_rel)`` tuple, e.g. one entry of
+    ``SEEDED_COLD_START_DOCS``. Mirrors ``_check_ideology_staleness`` /
+    ``_check_reconstruction_staleness``: a dedicated tracking surface for
+    docs excluded from CANONICAL_FILES/SCAFFOLD_FILES because full body
+    comparison on a heavily-customized file would be noise proportional to
+    legitimate customization.
+
+    Returns:
+      - ``None``      — the project file is missing entirely.
+      - ``"STALE"``   — the file exists but every section body is
+        placeholder-only (per ``_is_stale_placeholder``).
+      - ``"DRIFTED"`` — at least one template heading is absent from the
+        project file. Extra project-only headings are never a finding here
+        — divergence in the customized direction is expected.
+      - ``"OK"``      — otherwise.
+    """
+    dest_rel, template_rel = pair
+    project_sections = _read_project_sections(project_dir, dest_rel)
+    if project_sections is None:
+        return None
+
+    # Only real ``##`` section headings count toward staleness/drift —
+    # the preamble (H1 title, intro prose above the first heading) and
+    # ``---`` separators are excluded, mirroring how canonical/scaffold
+    # comparison already skips separator keys. Without excluding preamble,
+    # a project file's H1 title text alone (e.g. "# testproject —
+    # Architecture") would count as "real content" and STALE could never
+    # fire even when every actual section body is placeholder-only.
+    project_bodies = [
+        body for key, body in project_sections.items() if key.startswith("##")
+    ]
+    if project_bodies and all(_is_stale_placeholder(body) for body in project_bodies):
+        return "STALE"
+
+    # Render the template with the project's own saved context so headings
+    # that interpolate variables (e.g. "## What {{ project_name }} is")
+    # compare like-for-like against the project file, not against an
+    # empty-context rendering.
+    context, _context_found = _load_project_context(project_dir)
+    template_sections = _read_template_sections(template_rel, context)
+    template_headings = {k for k in template_sections if k.startswith("##")}
+    project_headings = {k for k in project_sections if k.startswith("##")}
+
+    if template_headings - project_headings:
+        return "DRIFTED"
+
+    return "OK"
 
 
 def _load_project_context(project_dir: Path) -> tuple[dict, bool]:
@@ -712,6 +779,64 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
             )
         )
     # "OK" → no finding
+
+    # Seeded cold-start doc drift/staleness check (CER-121) — handled
+    # separately from CANONICAL_FILES/SCAFFOLD_FILES for the same reason as
+    # the ideology/reconstruction checks above: full section-level body
+    # comparison on a heavily-customized architecture.md/checkpoints.md
+    # would emit noise proportional to legitimate customization (99-1568
+    # line spread observed). Heading-set comparison is the deliberate
+    # bounded cut.
+    for seeded_pair in SEEDED_COLD_START_DOCS:
+        dest_rel, template_rel = seeded_pair
+        seeded_status = _check_seeded_doc_drift(project_dir, seeded_pair)
+        if seeded_status is None:
+            result.missing.append(
+                AuditItem(
+                    file=dest_rel,
+                    section="__file__",
+                    description=(
+                        f"File missing entirely — {dest_rel} is a seeded cold-start doc"
+                    ),
+                )
+            )
+        elif seeded_status == "STALE":
+            result.inconsistent.append(
+                AuditItem(
+                    file=dest_rel,
+                    section="__content__",
+                    description=(
+                        "STALE PLACEHOLDER — all sections contain placeholder text"
+                    ),
+                )
+            )
+        elif seeded_status == "DRIFTED" and not result.context_missing:
+            # Heading interpolation (e.g. "## What {{ project_name }} is")
+            # means the rendered template only matches like-for-like when a
+            # real saved context is available — same reason canonical-file
+            # body comparison above is skipped entirely when context_missing.
+            template_sections = _read_template_sections(template_rel, context)
+            project_sections = _read_project_sections(project_dir, dest_rel) or {}
+            template_headings = {
+                k for k in template_sections if k.startswith("##")
+            }
+            project_headings = {
+                k for k in project_sections if k.startswith("##")
+            }
+            for heading in sorted(template_headings - project_headings):
+                if (dest_rel, heading) in overrides:
+                    continue  # Intentionally diverged — skip
+                result.inconsistent.append(
+                    AuditItem(
+                        file=dest_rel,
+                        section=heading,
+                        description=(
+                            f"DRIFTED — template heading '{heading}' missing from "
+                            f"project file"
+                        ),
+                    )
+                )
+        # "OK" (or DRIFTED-without-context) → no finding
 
     # .pairmode-overrides existence + parse-health check (CER-132). Body/section
     # comparison is deliberately not used — the file's content is project-owned,
