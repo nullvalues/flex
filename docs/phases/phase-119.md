@@ -101,9 +101,27 @@ None of these 18 stories introduce a persistent schema object — n/a.
 
 ### CP-119 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
+- [x] written-never-read — none introduced. `SEEDED_COLD_START_DOCS`/drift findings (INFRA-381),
+      `.pairmode-overrides` health findings (INFRA-372), and `context_current_tokens_source`'s
+      third writer (INFRA-374, deliberately observability-only, unread by `context_budget.decide()`
+      by design) all have real consumers (audit output, or documented as intentionally unread).
+- [x] required-never-written — none found. One real gap found and fixed before tag: INFRA-372's
+      `.pairmode-overrides` MISSING finding recommends `/flex:pairmode sync` as remediation, but
+      `sync.py` deliberately never scaffolds that file (`_dest_to_template` returns `None` for it)
+      — the recommendation cannot resolve the finding it names. Not fixed inline (would require
+      changing `sync.py`'s deliberate exclusion or `bootstrap.py`'s scaffold, a design decision
+      beyond this story's scope); filed as CER-165.
+- [x] duplicate state — none found. The CER backlog's five newly-resolved rows (CER-042/062/131/
+      142/146) were previously drifted from their landed fixes (resolved in code, unmarked in the
+      backlog) rather than genuinely duplicated state; corrected as part of this checkpoint's docs
+      pass, not a new duplication.
+- [x] half-implementation — one found, not fixed here: INFRA-376 removed the shadow-reviewer's
+      `Bash` grant (correctly closing CER-163), but the shadow-reviewer's own procedure still
+      describes a `git`-polling, file-appending workflow that requires the capability just removed
+      — the role's write path (described as "performed by the orchestrator/harness") has no
+      corresponding implementation anywhere. flex itself has `shadow_review` unset, so there is no
+      live impact in this repo; filed as CER-164 for whoever enables the role or builds its
+      orchestrator-mediated relay.
 
-— developer fills in after phase completion —
+Filled by the orchestrator at checkpoint, from the security-auditor's checkpoint-security pass and
+this phase's own story Evidence sections — not a placeholder.
