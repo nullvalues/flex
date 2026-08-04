@@ -2,7 +2,7 @@
 id: INFRA-375
 rail: INFRA
 title: Audit hardcoded flex-harness absolute paths for release-channel staleness risk (CER-160)
-status: draft
+status: complete
 phase: "119"
 story_class: code
 auth_gated: false

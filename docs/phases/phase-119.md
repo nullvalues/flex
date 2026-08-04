@@ -46,7 +46,7 @@ unresolved operational findings.
 | INFRA-372 | Track .pairmode-overrides in CANONICAL_FILES/SCAFFOLD_FILES audit surfaces (CER-132) | complete |
 | INFRA-373 | Log SubagentStop-relay worker-contract rejections instead of silently dropping them (CER-131) | complete |
 | INFRA-374 | Wire the missing context_current_tokens_source writer in post_tool_use.py (CER-135) | complete |
-| INFRA-375 | Audit hardcoded flex-harness absolute paths for release-channel staleness risk (CER-160) | draft |
+| INFRA-375 | Audit hardcoded flex-harness absolute paths for release-channel staleness risk (CER-160) | complete |
 | INFRA-376 | Close shadow-reviewer Bash-bypass and bootstrap operator-note escaping gaps (CER-163) | draft |
 | INFRA-377 | Gate abs_path disclosure in observability API GET responses (CER-43) | draft |
 | INFRA-378 | Narrow observability API's CORS origin from wildcard for non-loopback overrides (CER-42) | draft |
