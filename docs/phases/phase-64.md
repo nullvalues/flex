@@ -65,11 +65,15 @@ new build. Applied to all three cached routes (system, context, lessons).
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-164 | `flex_observability.py` CLI hardening — subprocess exit, atomic write, ID uniqueness | backlog |
-| INFRA-165 | `context_budget.py` flex_factor correctness — NaN clamp + `render_alert_prompt` ceiling | backlog |
-| INFRA-167 | TypeScript parser robustness — phaseIndex blank-line, MODULE_FILENAME_RE, era leading zeros, flex_factor NaN | backlog |
-| INFRA-166 | Fastify API route hardening — null project_dir, 0-token divergence, NaN threshold, flex_factor live read | backlog |
-| INFRA-168 | `effortDb.ts` p90 off-by-one + in-flight promise dedup for route cache thundering herd | backlog |
+| INFRA-164 | `flex_observability.py` CLI hardening — subprocess exit, atomic write, ID uniqueness | complete |
+| INFRA-165 | `context_budget.py` flex_factor correctness — NaN clamp + `render_alert_prompt` ceiling | complete |
+| INFRA-167 | TypeScript parser robustness — phaseIndex blank-line, MODULE_FILENAME_RE, era leading zeros, flex_factor NaN | complete |
+| INFRA-166 | Fastify API route hardening — null project_dir, 0-token divergence, NaN threshold, flex_factor live read | complete |
+| INFRA-168 | `effortDb.ts` p90 off-by-one + in-flight promise dedup for route cache thundering herd | complete |
+
+> INFRA-164..168 completed under the HARNESS007-main checkout (Phase G resume); statuses
+> corrected by hand in INFRA-382 (CER-125) because story_update.py's write scope does not reach
+> legacy phase docs.
 
 **Dependency note:** INFRA-166 is listed after INFRA-167 because the context
 route's flex_factor live-read (finding 7) calls `parseStoryFrontmatter`, which
