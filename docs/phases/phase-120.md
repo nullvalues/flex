@@ -21,9 +21,9 @@ Migrate flex's own dogfooding sessions off the @inline self-referential plugin r
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-385 | Isolate test_pairmode_migrate.py/test_sync.py PreToolUse-registration tests from real ~/.claude/plugins/ state | draft |
-| INFRA-383 | Migrate flex's own build sessions from @inline to marketplace-installed plugin (CER-159) | draft |
-| INFRA-384 | Document version-bump-before-reinstall discipline and accepted @inline dual-registration limitation | draft |
+| INFRA-385 | Isolate test_pairmode_migrate.py/test_sync.py PreToolUse-registration tests from real ~/.claude/plugins/ state | complete |
+| INFRA-383 | Migrate flex's own build sessions from @inline to marketplace-installed plugin (CER-159) | complete |
+| INFRA-384 | Document version-bump-before-reinstall discipline and accepted @inline dual-registration limitation | complete |
 
 ## Ordering
 

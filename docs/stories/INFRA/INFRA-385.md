@@ -2,7 +2,7 @@
 id: INFRA-385
 rail: INFRA
 title: Isolate test_pairmode_migrate.py/test_sync.py PreToolUse-registration tests from real ~/.claude/plugins/ state
-status: draft
+status: complete
 phase: "120"
 story_class: code
 auth_gated: false
