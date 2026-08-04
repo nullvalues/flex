@@ -76,6 +76,46 @@ describe('GET /api/user/memories and /api/user/policies', () => {
     const body = res.json() as { generated_at: string; policies: Array<Record<string, unknown>> };
     expect(body.policies).toHaveLength(1);
     expect(body.policies[0]).toMatchObject({ filename: 'auth-rbac.md', first_heading: 'RBAC policy' });
+    expect(body.policies[0].abs_path).toBeUndefined();
+  });
+
+  it('policies: include_path=true populates abs_path (CER-043 opt-in disclosure)', async () => {
+    const policiesDir = path.join(fakeHome, '.claude', 'policies');
+    await fsp.mkdir(policiesDir, { recursive: true });
+    await fsp.writeFile(path.join(policiesDir, 'auth-rbac.md'), '# RBAC policy\n', 'utf8');
+    process.env.HOME = fakeHome;
+
+    const res = await app.inject({ method: 'GET', url: '/api/user/policies?include_path=true' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { policies: Array<Record<string, unknown>> };
+    expect(body.policies[0].abs_path).toBe(path.join(policiesDir, 'auth-rbac.md'));
+  });
+
+  it('any non-"true" include_path value omits abs_path on both endpoints (CER-043 closed default)', async () => {
+    const projectHash = 'demo-project-hash';
+    const memoryDir = path.join(fakeHome, '.claude', 'projects', projectHash, 'memory');
+    await fsp.mkdir(memoryDir, { recursive: true });
+    await fsp.writeFile(path.join(memoryDir, 'MEMORY.md'), '# Demo\n', 'utf8');
+    const policiesDir = path.join(fakeHome, '.claude', 'policies');
+    await fsp.mkdir(policiesDir, { recursive: true });
+    await fsp.writeFile(path.join(policiesDir, 'auth-rbac.md'), '# RBAC policy\n', 'utf8');
+    process.env.HOME = fakeHome;
+
+    for (const value of ['false', '1', 'TRUE', 'garbage']) {
+      const memRes = await app.inject({
+        method: 'GET',
+        url: `/api/user/memories?include_path=${value}`,
+      });
+      const memBody = memRes.json() as { projects: Array<{ memories: Array<Record<string, unknown>> }> };
+      expect(memBody.projects[0].memories[0].abs_path).toBeUndefined();
+
+      const polRes = await app.inject({
+        method: 'GET',
+        url: `/api/user/policies?include_path=${value}`,
+      });
+      const polBody = polRes.json() as { policies: Array<Record<string, unknown>> };
+      expect(polBody.policies[0].abs_path).toBeUndefined();
+    }
   });
 
   it('failure-shaped: a $HOME with no .claude directory at all returns 200 with empty lists, not a crash', async () => {
