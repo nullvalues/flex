@@ -2,7 +2,7 @@
 id: INFRA-378
 rail: INFRA
 title: Narrow observability API's CORS origin from wildcard for non-loopback overrides (CER-42)
-status: draft
+status: complete
 phase: "119"
 story_class: code
 auth_gated: false
