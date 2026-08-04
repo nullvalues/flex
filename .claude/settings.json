@@ -1,4 +1,16 @@
 {
+  "permissions": {
+    "allow": [
+      "Edit(.claude/agents/**)",
+      "Bash(uv run python * flex_build.py permissions-create *)",
+      "Bash(uv run python * flex_build.py write-permissions *)",
+      "Bash(uv run python * flex_build.py clear-permissions *)"
+    ],
+    "deny": [
+      "Edit(docs/phases/permissions/**)"
+    ],
+    "defaultMode": "auto"
+  },
   "hooks": {
     "PostToolUse": [
       {
@@ -13,16 +25,7 @@
       }
     ]
   },
-  "permissions": {
-    "defaultMode": "auto",
-    "allow": [
-      "Edit(.claude/agents/**)",
-      "Bash(uv run python * flex_build.py permissions-create *)",
-      "Bash(uv run python * flex_build.py write-permissions *)",
-      "Bash(uv run python * flex_build.py clear-permissions *)"
-    ],
-    "deny": [
-      "Edit(docs/phases/permissions/**)"
-    ]
+  "enabledPlugins": {
+    "flex@inline": false
   }
 }

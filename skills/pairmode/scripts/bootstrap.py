@@ -538,11 +538,19 @@ def _ensure_gitignore_ignores_settings_local(project_dir: pathlib.Path) -> None:
         return
 
 
-def _plugin_registered_hook_pairs(project_dir: pathlib.Path) -> set:
+def _plugin_registered_hook_pairs(
+    project_dir: pathlib.Path, *, home: "pathlib.Path | str | None" = None
+) -> set:
     """(event, basename) pairs already provided by an installed plugin's
     hooks.json, per the merged hook view (INFRA-288/CER-104). Shared by both
     registrars (INFRA-319 A1) so PreToolUse gets the same skip
     _register_context_budget_hooks already applied to the other four events.
+
+    *home* (INFRA-385) is passed straight through to
+    ``hook_view.merged_hook_view``/``plugin_hook_files``: ``None`` means the
+    real ``Path.home()`` (unchanged production behaviour); tests may pass an
+    isolated fixture home so this scan never reads the real
+    ``~/.claude/plugins/`` tree.
 
     Best-effort: degrades to ``set()`` on any failure. Failing closed here
     (registering nothing) would leave a project with no gate hook at all,
@@ -551,7 +559,7 @@ def _plugin_registered_hook_pairs(project_dir: pathlib.Path) -> set:
     try:
         return {
             (entry.get("event"), entry.get("basename"))
-            for entry in hook_view.merged_hook_view(project_dir)
+            for entry in hook_view.merged_hook_view(project_dir, home=home)
             if entry.get("source") == hook_view.HOOK_SOURCE_PLUGIN
         }
     except Exception:
@@ -595,8 +603,18 @@ def _evict_stale_committed_hook_entries(
     return removed
 
 
-def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> bool:
+def _register_pretooluse_hook(
+    settings_path: pathlib.Path,
+    plugin_root: pathlib.Path,
+    *,
+    home: "pathlib.Path | str | None" = None,
+) -> bool:
     """Merge a PreToolUse hook entry into .claude/settings.local.json.
+
+    *home* (INFRA-385): forwarded to the plugin-sourced-skip lookup
+    (``_plugin_registered_hook_pairs``); ``None`` keeps production behaviour
+    (the real ``Path.home()``) unchanged. Isolated-home test callers may pass
+    a fixture home so this never reads the real ``~/.claude/plugins/`` tree.
 
     Returns ``True`` when this call actually mutated the settings-level
     ``hooks`` registration (a new command entry was appended, the matcher was
@@ -638,7 +656,7 @@ def _register_pretooluse_hook(settings_path: pathlib.Path, plugin_root: pathlib.
     pre_tool_use_path = plugin_root / "hooks" / "pre_tool_use.py"
     command = f"uv run python {pre_tool_use_path}"
 
-    plugin_registered = _plugin_registered_hook_pairs(project_dir)
+    plugin_registered = _plugin_registered_hook_pairs(project_dir, home=home)
     if ("PreToolUse", pre_tool_use_path.name) in plugin_registered:
         click.echo(
             "skipping PreToolUse registration for pre_tool_use.py: already "
@@ -761,9 +779,19 @@ CONTEXT_BUDGET_HOOK_SPECS: tuple[dict, ...] = (
 )
 
 
-def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pathlib.Path) -> bool:
+def _register_context_budget_hooks(
+    settings_path: pathlib.Path,
+    plugin_root: pathlib.Path,
+    *,
+    home: "pathlib.Path | str | None" = None,
+) -> bool:
     """Merge the four load-bearing context-budget-gate hook entries into
     .claude/settings.local.json (INFRA-208; see CER-067, INFRA-192, INFRA-175, INFRA-182).
+
+    *home* (INFRA-385): forwarded to the plugin-sourced-skip lookup
+    (``_plugin_registered_hook_pairs``); ``None`` keeps production behaviour
+    (the real ``Path.home()``) unchanged. Isolated-home test callers may pass
+    a fixture home so this never reads the real ``~/.claude/plugins/`` tree.
 
     Returns ``True`` when at least one spec's registration was actually new
     (added, or a stale sibling entry was pruned) — ``False`` for a fully
@@ -823,7 +851,7 @@ def _register_context_budget_hooks(settings_path: pathlib.Path, plugin_root: pat
     # INFRA-288: (event, basename) pairs already registered by an installed
     # plugin's hooks.json. Best-effort — see the docstring for why a failure
     # here must degrade to "register as today", never to "register nothing".
-    plugin_registered = _plugin_registered_hook_pairs(project_dir)
+    plugin_registered = _plugin_registered_hook_pairs(project_dir, home=home)
 
     registered_this_run: list[tuple[str, str]] = []
     any_change = False

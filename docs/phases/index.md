@@ -141,6 +141,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 117 | Build-loop integrity remediation: escalation ladder, dead handoffs, CER-append corruption | complete | [phase-117.md](phase-117.md) |
 | 118 | Narrative of Record: propagation, spec-writer/intent-reviewer integration, and mid-build steering | complete | [phase-118.md](phase-118.md) |
 | 119 | Spec precision (frozen exemplar), fundamental-doc trim, and CER backlog drain (era 004 closeout) | complete | [phase-119.md](phase-119.md) |
+| 120 | CER-159 hook-firing fix: marketplace install migration, era-004 stable close | complete | [phase-120.md](phase-120.md) |
 
 ---
 

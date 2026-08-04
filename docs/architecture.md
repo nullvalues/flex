@@ -148,6 +148,64 @@ namespaces installed plugin skills as `<plugin-name>:<skill-name>` using
 `/flex:flex:*`. Both invariants are guarded by
 `tests/pairmode/test_plugin_manifest.py`.
 
+**Self-hosted plugin installation (Phase 120 — INFRA-383, CER-159 resolution).** Flex
+is normally installed as a marketplace plugin, ensuring that `${CLAUDE_PLUGIN_ROOT}` is
+populated at hook invocation time. If flex is instead registered as an inline plugin
+(via an implicit auto-load when this repo's cwd contains `.claude-plugin/plugin.json`),
+`${CLAUDE_PLUGIN_ROOT}` is never set, and every hook command in `hooks/hooks.json`
+(all of the form `python3 ${CLAUDE_PLUGIN_ROOT}/hooks/<name>.py`) expands to
+`python3 /hooks/<name>.py` and fails silently with `FileNotFoundError` before any hook
+code executes — breaking context-budget tracking, effort recording, and all other hook-driven
+features. To ensure flex runs with working hooks, register it as a marketplace plugin from
+a cloned tag snapshot (not the live working tree, which would recreate the inline problem):
+
+```bash
+git clone /mnt/work/flex ~/flex-marketplace-cache/flex-0.3.1
+git -C ~/flex-marketplace-cache/flex-0.3.1 checkout cp-119
+claude plugin marketplace add ~/flex-marketplace-cache/flex-0.3.1
+claude plugin install flex@nullvalues-flex
+```
+
+Verification: `claude plugin list` should show `flex@nullvalues-flex` enabled; the cache
+directory `~/.claude/plugins/cache/nullvalues-flex/flex/0.3.1/` should exist; and most
+importantly, `.companion/effort_recording.log` should gain a fresh entry after a session
+restart and an Agent spawn — this is the load-bearing check that proves hooks actually
+fire (inline registration also lists as present in `claude plugin list`, so only the
+log write confirms functional hooks).
+
+**Version-bump-before-reinstall discipline (Phase 120 — INFRA-384).** Installs land in a
+**version-keyed cache directory**, `~/.claude/plugins/cache/nullvalues-flex/flex/<version>/` —
+not a live symlink to the source tree. Reinstalling against an unchanged version string
+silently no-ops onto whatever snapshot is already sitting in that directory; it does not
+re-fetch from the source checkout. This was observed directly, cross-machine: a second
+machine in this fleet was running a cache snapshot frozen at 2026-07-28 (commit `0bab2ee`,
+`plugin.json` version `0.3.0`) while its source tree had advanced roughly 30 commits ahead —
+41 file diffs under `skills/pairmode` alone, and `hooks/subagent_stop.py` (added after the
+snapshot was taken) missing from the cache entirely. Two remedies, either sufficient on its
+own: (1) bump the declared version in both `.claude-plugin/plugin.json` and
+`.claude-plugin/marketplace.json` *before* reinstalling, so the cache path changes and the
+install is forced to re-copy; or (2) delete the stale
+`~/.claude/plugins/cache/nullvalues-flex/flex/<version>/` directory first, so a same-version
+reinstall has nothing stale to no-op onto. This machine's own install required remedy (2)
+(manual cache wipe) to pick up current code; no version bump was performed as part of this
+story.
+
+**Accepted limitation: `@inline` / marketplace dual-registration (Phase 120 — INFRA-384).**
+Once a project both has its own `.claude-plugin/plugin.json` at cwd root (the inline
+auto-load path) and is also installed as a marketplace plugin, **both registrations load in
+the same session** — confirmed via `~/.claude.json`'s `pluginUsage` map incrementing
+`flex@inline` and `flex@nullvalues-flex` together across a full restart. `claude plugin
+disable flex@inline -s project` exits 0 and writes `"enabledPlugins": {"flex@inline": false}`
+to `.claude/settings.json`, but has no functional effect on the inline auto-load — the
+inline registration keeps loading and its `pluginUsage` counter keeps incrementing regardless.
+No supported way to suppress the inline registration was found. This is accepted as a closed
+limitation for this project, not an open bug: the accepted cost is wasted hook execution
+cycles (the inline copy's hooks still fail on exec exactly as documented above, so this is
+duplicated failed work, not duplicated side effects) and misleading `pluginUsage` telemetry,
+with no correctness regression — no duplicate writes or corruption have been observed in
+`.companion/effort_recording.log` or `state.json`. Worth filing upstream via `/feedback` as a
+recommendation, but not a requirement of this project's own build.
+
 **Campaign unblockers (Phase 112 — INFRA-293, INFRA-294, INFRA-295).** Three
 RELEASE-065 field defects fixed ahead of the blocked migration campaign
 (phase 106): worker result-grammar reconciliation — `parse_worker_outcome`

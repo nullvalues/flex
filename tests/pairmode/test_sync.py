@@ -1525,10 +1525,25 @@ class TestSyncRegistersPreToolUseHook:
     machine-bound absolute path in a committed, shared file is portable for
     exactly one machine)."""
 
-    def test_sync_registers_pretooluse_hook(self, tmp_path: Path) -> None:
+    def test_sync_registers_pretooluse_hook(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """After sync, .claude/settings.local.json contains a PreToolUse hook
         entry under the canonical combined matcher (INFRA-206), and the
-        committed settings.json does not."""
+        committed settings.json does not.
+
+        Isolated against real host plugin state (INFRA-385): ``Path.home()``
+        is patched to an empty fixture directory so sync's settings-level
+        registrar never sees this machine's real ``~/.claude/plugins/`` tree
+        — without this, a machine with a real flex plugin install
+        (INFRA-383) has the registrar correctly skip the settings-level
+        write (INFRA-288/CER-104 dedup guard), which this test must not
+        conflate with a broken registrar.
+        """
+        fake_home = tmp_path / "isolated-home-infra385"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: fake_home)
+
         _copy_canonical_files(tmp_path)
 
         sync_project(tmp_path, yes=True)
@@ -1573,6 +1588,61 @@ class TestSyncRegistersPreToolUseHook:
                     assert h.get("command") != expected_command, (
                         "committed settings.json must not carry the "
                         "PreToolUse hook command"
+                    )
+
+    def test_sync_skips_pretooluse_registration_when_plugin_already_provides_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """INFRA-385 (opposite case of the test above, INFRA-288/CER-104): a
+        fixture home whose ``~/.claude/plugins/`` tree already registers
+        flex's PreToolUse hook must make sync skip the settings-level write
+        entirely — a settings-level duplicate would run the hook twice per
+        event. Uses an isolated fixture home, never the real one, so the
+        assertion holds identically regardless of host plugin-install state."""
+        fake_home = tmp_path / "isolated-home-infra385-with-plugin"
+        plugin_file = (
+            fake_home / ".claude" / "plugins" / "marketplace" / "flex"
+            / "hooks" / "hooks.json"
+        )
+        plugin_file.parent.mkdir(parents=True)
+        pre_tool_use_py = str(_plugin_root() / "hooks" / "pre_tool_use.py")
+        plugin_file.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "PreToolUse": [
+                            {
+                                "matcher": "Task|Agent|Edit|Write|Read",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": f"uv run python {pre_tool_use_py}",
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+        _copy_canonical_files(tmp_path)
+
+        sync_project(tmp_path, yes=True)
+
+        settings_local_path = tmp_path / ".claude" / "settings.local.json"
+        if settings_local_path.exists():
+            data = json.loads(settings_local_path.read_text(encoding="utf-8"))
+            pre_tool_use_list = data.get("hooks", {}).get("PreToolUse", [])
+            for block in pre_tool_use_list:
+                for h in block.get("hooks", []):
+                    assert h.get("command") != f"uv run python {pre_tool_use_py}", (
+                        "settings-level PreToolUse entry must not be written "
+                        "when a plugin already provides it"
                     )
 
 

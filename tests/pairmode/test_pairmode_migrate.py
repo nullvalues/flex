@@ -1496,7 +1496,18 @@ def _assert_relocates_stale_hook_command(
     physically running from (``plugin_root_subpath`` lets the caller pick a
     root that does, or does not, contain a ``flex-harness`` path segment,
     exercising both directions).
+
+    Isolated against real host plugin state (INFRA-385): ``Path.home()`` is
+    patched to an empty fixture directory so the relocation's settings-level
+    registrar never sees this machine's real ``~/.claude/plugins/`` tree —
+    without this, a machine with a real flex plugin install (INFRA-383) has
+    the registrar skip the settings-level write entirely (INFRA-288/CER-104
+    dedup guard), and the relocation this test asserts never happens.
     """
+    fake_home = tmp_path / "isolated-home-infra385"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+
     project = _build_030_project(
         tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS
     )
