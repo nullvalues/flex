@@ -1,8 +1,8 @@
 ---
 id: "004"
 name: flex — Operational closeout and 0.3.1
-status: complete
-closed_at: 2026-08-04
+status: active
+reopened_at: 2026-08-04
 ---
 
 ## Strategic intent
@@ -41,8 +41,9 @@ phase 116 as the era's last act.
 | 117 | Build-loop integrity remediation: escalation ladder, dead handoffs, CER-append corruption | complete |
 | 118 | Narrative of Record: propagation, spec-writer/intent-reviewer integration, and mid-build steering | complete |
 | 119 | Spec precision (frozen exemplar), fundamental-doc trim, and CER backlog drain (era 004 closeout) | complete |
+| 120 | CER-159 hook-firing fix: marketplace install migration, era-004 stable close | planned |
 
-## Exit criterion (closed 2026-08-04)
+## Exit criterion (closed 2026-08-04, superseded — see Reopened below)
 
 The era's strategic intent named four conditions: zero unresolved operational findings, docs
 matching code, a fleet that can actually receive the release, and a version-consistent plugin
@@ -63,3 +64,47 @@ backlog's checkpoint-blocking gate is clear, the broadest reasonable drain was d
 current — not on a literal zero count that a living backlog structurally cannot sustain.
 
 This era is tagged `cp-119`; era 005 opens as a lightweight placeholder pending real scope.
+
+## Reopened (2026-08-04)
+
+The closeout above is inaccurate in one respect: CER-159 (HIGH, `docs/cer/backlog.md`)
+was filed mid-era (2026-08-02, during Phase 117 build) and was left in `## Do Later`,
+unresolved, at closeout — but the "one honest qualifier" paragraph above only disclosed
+*pre-era* Do Later items (CER-001..019, CER-031, CER-035, CER-063) as the known-open
+exceptions. CER-159 was in-era and HIGH severity; its omission from that disclosure was
+an oversight, not a deliberate scoping call.
+
+Follow-up investigation (2026-08-04, this session) confirmed CER-159's suspected defect
+at much higher confidence than the original filing: `.companion/effort_recording.log`
+and `.companion/state.json`'s `context_sessions` map both show the `PostToolUse`
+Task/Agent hook branch (`hooks/post_tool_use.py`) has not executed even once since
+2026-07-31T05:52:22Z, spanning phases 115 through 119 (~4 days, dozens of Agent spawns).
+This is on flex's own dogfooding install (`flex@inline`, not marketplace-registered).
+Root cause (why it stopped firing) is still open — see the CER-159 entry for what's
+ruled in/out so far.
+
+This era is reopened, not un-tagged: `cp-119` and the 0.3.1 release stand as shipped.
+Reopening records that the closeout's "zero unresolved operational findings" framing
+needs this correction, and that a fix for CER-159 needs its own spec (per the
+spec-before-build policy) before any code changes.
+
+**Root cause pinned down (2026-08-04, high confidence — see CER-159 for full evidence
+chain):** direct standalone reproduction shows `hooks/post_tool_use.py` runs correctly
+on its own; the failure is in `hooks.json`'s invocation itself. `CLAUDE_PLUGIN_ROOT` is
+empty in this repo's session environment, so `python3 ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py`
+resolves to `python3 /hooks/post_tool_use.py` and fails instantly, before any hook logic
+runs — consistent with the session's own recorded hook-duration stats (p50 = 1ms for
+`pre_tool_hook_duration_ms`, far below normal Python startup time). Working hypothesis:
+`CLAUDE_PLUGIN_ROOT` is not populated for flex's `flex@inline` self-referential plugin
+registration the way it would be for a marketplace-installed plugin. Not confirmed at the
+CLI-internals level — this session cannot instrument the harness's actual hook-subprocess
+environment directly — but every available signal (standalone repro, empty env var,
+failure-timing statistics, this being uniquely flex's own dogfooding install rather than
+a fleet-wide pattern) fits this explanation.
+
+Next step: spec a fix for CER-159 — likely a `hooks.json` invocation change that stops
+depending on `${CLAUDE_PLUGIN_ROOT}` resolving for inline installs (e.g. a wrapper
+resolving the script path relative to `hooks.json`'s own location as a fallback), plus a
+live-session verification step to confirm the hypothesis before/while building. Which
+phase number receives that spec (new phase in this era vs. era-005) is still pending
+operator direction.
