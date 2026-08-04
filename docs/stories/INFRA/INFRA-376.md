@@ -2,7 +2,7 @@
 id: INFRA-376
 rail: INFRA
 title: Close shadow-reviewer Bash-bypass and bootstrap operator-note escaping gaps (CER-163)
-status: draft
+status: complete
 phase: "119"
 story_class: code
 auth_gated: false
