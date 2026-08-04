@@ -2,7 +2,7 @@
 id: INFRA-384
 rail: INFRA
 title: Document version-bump-before-reinstall discipline and accepted @inline dual-registration limitation
-status: draft
+status: complete
 phase: "120"
 story_class: doc
 auth_gated: false
