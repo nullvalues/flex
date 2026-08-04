@@ -2,7 +2,7 @@
 id: INFRA-381
 rail: INFRA
 title: Add drift/staleness tracking for bootstrap-seeded cold-start triad docs (CER-121)
-status: draft
+status: complete
 phase: "119"
 story_class: code
 auth_gated: false

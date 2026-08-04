@@ -52,7 +52,7 @@ unresolved operational findings.
 | INFRA-378 | Narrow observability API's CORS origin from wildcard for non-loopback overrides (CER-42) | complete |
 | INFRA-379 | Derive test_plugin_manifest.py's expected skill names from skills/*/SKILL.md glob (CER-109) | complete |
 | INFRA-380 | Match suffixed phase filenames in story_new.py's phase-manifest lookup (CER-62) | complete |
-| INFRA-381 | Add drift/staleness tracking for bootstrap-seeded cold-start triad docs (CER-121) | draft |
+| INFRA-381 | Add drift/staleness tracking for bootstrap-seeded cold-start triad docs (CER-121) | complete |
 | INFRA-382 | Correct stale story statuses in docs/phases/phase-64.md's Stories table (CER-125) | draft |
 
 ## Ordering
