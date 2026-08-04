@@ -148,6 +148,47 @@ namespaces installed plugin skills as `<plugin-name>:<skill-name>` using
 `/flex:flex:*`. Both invariants are guarded by
 `tests/pairmode/test_plugin_manifest.py`.
 
+**Self-hosted plugin installation (Phase 120 — INFRA-383, CER-159 resolution).** Flex
+is normally installed as a marketplace plugin, ensuring that `${CLAUDE_PLUGIN_ROOT}` is
+populated at hook invocation time. If flex is instead registered as an inline plugin
+(via an implicit auto-load when this repo's cwd contains `.claude-plugin/plugin.json`),
+`${CLAUDE_PLUGIN_ROOT}` is never set, and every hook command in `hooks/hooks.json`
+(all of the form `python3 ${CLAUDE_PLUGIN_ROOT}/hooks/<name>.py`) expands to
+`python3 /hooks/<name>.py` and fails silently with `FileNotFoundError` before any hook
+code executes — breaking context-budget tracking, effort recording, and all other hook-driven
+features. To ensure flex runs with working hooks, register it as a marketplace plugin from
+a cloned tag snapshot (not the live working tree, which would recreate the inline problem):
+
+```bash
+git clone /mnt/work/flex ~/flex-marketplace-cache/flex-0.3.1
+git -C ~/flex-marketplace-cache/flex-0.3.1 checkout cp-119
+claude plugin marketplace add ~/flex-marketplace-cache/flex-0.3.1
+claude plugin install flex@nullvalues-flex
+```
+
+Verification: `claude plugin list` should show `flex@nullvalues-flex` enabled; the cache
+directory `~/.claude/plugins/cache/nullvalues-flex/flex/0.3.1/` should exist; and most
+importantly, `.companion/effort_recording.log` should gain a fresh entry after a session
+restart and an Agent spawn — this is the load-bearing check that proves hooks actually
+fire (inline registration also lists as present in `claude plugin list`, so only the
+log write confirms functional hooks).
+
+**Important note on cache staleness:** Installs are version-keyed snapshot copies, not live
+links to the source tree. Reinstalling against an unchanged version string (e.g., `0.3.1`)
+silently serves the stale cache without re-fetching from the source directory. This machine's
+install required wiping `~/.claude/plugins/cache/nullvalues-flex/flex/0.3.1/` before
+reinstalling to pick up current code. The general discipline for this is documented in
+INFRA-384.
+
+**Known limitation:** `claude plugin disable flex@inline -s project` reports success and
+writes `"enabledPlugins": {"flex@inline": false}` to `.claude/settings.json`, but the inline
+registration persists in behavior (`~/.claude.json`'s `pluginUsage.flex@inline` counter keeps
+incrementing even after a full restart, and the inline-loaded hooks still fail). This is
+harmless: the inline copy's hooks fail exactly as before (no regression); the marketplace
+copy's hooks fire correctly; and no duplicate writes or corruption have been observed in
+`.companion/effort_recording.log` or `state.json`. The inline registration cannot be suppressed
+via CLI flags, so it is accepted as-is and both plugins coexist during the transition.
+
 **Campaign unblockers (Phase 112 — INFRA-293, INFRA-294, INFRA-295).** Three
 RELEASE-065 field defects fixed ahead of the blocked migration campaign
 (phase 106): worker result-grammar reconciliation — `parse_worker_outcome`
