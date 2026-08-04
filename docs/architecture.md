@@ -1863,6 +1863,19 @@ constant; changing its structure requires updating all callers.
 lists being empty produces zero allow rules with a warning, not a crash or silent
 misconfiguration.
 
+### Phase 119: spec precision and CER backlog drain (era 004 closeout)
+
+Phase 119, era 004's closing act, froze the spec-writer's exemplar input against a single
+non-rotating reference file (INFRA-363) and trimmed dead/duplicated content from `ideology.md`,
+this file, and `skills/pairmode/SKILL.md` (INFRA-364). The phase was then widened, per operator
+directive, to drain the broadest reasonable set of open CER backlog findings alongside the era's
+stated goal of zero unresolved operational findings: sixteen further stories (INFRA-367 through
+INFRA-382) closed findings spanning `story_new.py`'s non-interactive/anchoring behavior, the
+observability API's CORS/`abs_path` disclosure surface, `.pairmode-overrides` audit tracking,
+cold-start-doc drift tracking, `post_tool_use.py`'s attribution stamp, and several already-fixed
+findings confirmed via re-verification rather than duplicated work. See `docs/phases/phase-119.md`
+for the full story list and `docs/cer/backlog.md` for each finding's resolution annotation.
+
 ### Model selection: sonnet baseline, opus on demand
 
 Pairmode pins each agent to a specific Claude model in its template frontmatter.
