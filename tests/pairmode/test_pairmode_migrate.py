@@ -851,6 +851,8 @@ def _invoke_030(
     *,
     apply: bool = False,
     keep_expected_step_tokens: bool = False,
+    hooks_only: bool = False,
+    yes: bool = False,
 ) -> tuple[int, str]:
     """Invoke cmd_to_030 via the Click test runner; return (exit_code, output)."""
     from click.testing import CliRunner
@@ -861,6 +863,10 @@ def _invoke_030(
         args.append("--apply")
     if keep_expected_step_tokens:
         args.append("--keep-expected-step-tokens")
+    if hooks_only:
+        args.append("--hooks-only")
+    if yes:
+        args.append("--yes")
     # Mock subprocess.run so git log doesn't depend on the project being a real repo.
     with patch("pairmode_migrate.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -1671,6 +1677,275 @@ def test_to030_hook_block_noop_on_portable_only_settings(tmp_path: Path) -> None
     assert "repair" not in output
     assert "relocating" not in output
     assert settings_path.read_bytes() == before
+
+
+# ---------------------------------------------------------------------------
+# INFRA-386: to-030 --hooks-only
+# ---------------------------------------------------------------------------
+
+
+def test_to030_hooks_only_skips_state_seed_and_expected_step_tokens_rewrite(
+    tmp_path: Path,
+) -> None:
+    """Ensures 1: --hooks-only must not seed a missing state.json, and must not
+    rewrite the Era 2 expected_step_tokens stamp — even though a settings.json
+    with a stale hook entry is present (so the hook-repair block does fire)."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.ERA2_STAMP)
+    state_path = project / ".companion" / "state.json"
+    before_state = state_path.read_bytes()
+    settings_path = _write_settings_json(
+        project,
+        {
+            "PreToolUse": [
+                {
+                    "matcher": "Task|Agent|Edit|Write|Read",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    exit_code, output = _invoke_030(project, apply=True, hooks_only=True)
+
+    assert exit_code == 0, f"Non-zero exit: {output}"
+    # State.json must be byte-identical — no seed, no expected_step_tokens rewrite.
+    assert state_path.read_bytes() == before_state
+    assert "seeded" not in output
+    assert "expected_step_tokens" not in output
+    assert "rewrote" not in output
+    # The hook-repair block did fire (proves --hooks-only isn't a total no-op).
+    assert "[apply] relocating" in output or "[would] repair" in output or (
+        "relocating" in output
+    )
+    _ = settings_path  # sanity: fixture used
+
+
+def test_to030_hooks_only_skips_pipe_path_and_context_story_tokens_and_effort_tracking(
+    tmp_path: Path,
+) -> None:
+    """Ensures 1: --hooks-only must not touch pipe_path, context_story_tokens,
+    or effort_tracking, even when all three are present/absent in a way that
+    would otherwise trigger default to-030's steps."""
+    project = _build_030_project(
+        tmp_path,
+        expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS,
+        pipe_path="/tmp/companion.pipe",
+        context_story_tokens=1234,
+        # effort_tracking deliberately absent to test the backfill is skipped
+    )
+    state_path = project / ".companion" / "state.json"
+    before_state = state_path.read_bytes()
+
+    exit_code, output = _invoke_030(project, apply=True, hooks_only=True)
+
+    assert exit_code == 0, f"Non-zero exit: {output}"
+    assert state_path.read_bytes() == before_state, "state.json must be untouched"
+    assert "pipe_path" not in output
+    assert "context_story_tokens" not in output
+    assert "effort_tracking" not in output
+    state = json.loads(state_path.read_text())
+    assert state.get("pipe_path") == "/tmp/companion.pipe"
+    assert state.get("context_story_tokens") == 1234
+    assert "effort_tracking" not in state
+
+
+def test_to030_hooks_only_skips_protected_path_preview_and_agent_cleanup(
+    tmp_path: Path,
+) -> None:
+    """Ensures 1 (forbidden proxy guard): --hooks-only must not run the B3
+    protected-path preview or the B7 agent-cleanup block at all — not merely
+    print nothing for them."""
+    project = _build_030_project(
+        tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS
+    )
+    agents_dir = project / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+    (agents_dir / "builder.md").write_text(
+        "---\nname: builder\n---\ncustom content\n", encoding="utf-8"
+    )
+    before_agent = (agents_dir / "builder.md").read_bytes()
+
+    exit_code, output = _invoke_030(project, apply=True, hooks_only=True)
+
+    assert exit_code == 0
+    assert "[agent-cleanup]" not in output
+    assert "Protected-path preview" not in output
+    assert (agents_dir / "builder.md").read_bytes() == before_agent
+    assert "to-030 complete." not in output
+    assert "to-030 --hooks-only complete." in output
+
+
+def test_to030_hooks_only_keep_expected_step_tokens_is_inert(tmp_path: Path) -> None:
+    """Ensures 2: --keep-expected-step-tokens composes with --hooks-only but is
+    inert — the step it suppresses does not run under --hooks-only, so no
+    [keep] line is printed and sync-all gains no new flag for it."""
+    project = _build_030_project(tmp_path, expected_step_tokens=_mod.ERA2_STAMP)
+
+    exit_code, output = _invoke_030(
+        project, apply=True, hooks_only=True, keep_expected_step_tokens=True
+    )
+
+    assert exit_code == 0
+    assert "[keep]" not in output
+    assert "expected_step_tokens" not in output
+
+
+def test_to030_hooks_only_hard_failure_on_missing_project_dir(tmp_path: Path) -> None:
+    """Ensures 4: a project dir that does not exist is a hard failure under
+    --hooks-only — non-zero exit, distinct from the WARN-only paths."""
+    missing = tmp_path / "does-not-exist" / "nested" / "deep"
+
+    exit_code, output = _invoke_030(missing, apply=True, hooks_only=True)
+
+    assert exit_code != 0, f"Expected non-zero exit, got 0: {output}"
+
+
+def test_to030_hooks_only_hard_failure_on_malformed_settings_json(
+    tmp_path: Path,
+) -> None:
+    """Ensures 4: an unreadable/malformed settings.json is a hard failure under
+    --hooks-only. Default to-030 (no --hooks-only) keeps its existing silent
+    no-op behaviour for the same input (see
+    test_to030_hook_block_noop_on_unparseable_settings) — this hard-failure
+    contract is scoped to --hooks-only only."""
+    project = _build_030_project(
+        tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS
+    )
+    settings_path = project / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text("{not valid json", encoding="utf-8")
+
+    exit_code, output = _invoke_030(project, apply=True, hooks_only=True)
+
+    assert exit_code != 0, f"Expected non-zero exit, got 0: {output}"
+
+
+def test_to030_hooks_only_warn_only_outcome_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensures 4: --hooks-only exits 0 when its only adverse outcome is a
+    [WARN] condition (here: plugin_root not locally valid)."""
+    project = _build_030_project(
+        tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS
+    )
+    _write_settings_json(
+        project,
+        {
+            "PreToolUse": [
+                {
+                    "matcher": "Task|Agent|Edit|Write|Read",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(_mod, "_FLEX_ROOT", tmp_path / "no-such-flex-checkout")
+
+    exit_code, output = _invoke_030(project, apply=True, hooks_only=True)
+
+    assert exit_code == 0, f"WARN-only outcome must exit 0, got {exit_code}: {output}"
+    assert "[WARN]" in output
+
+
+def test_to030_hooks_only_dry_run_writes_nothing(tmp_path: Path) -> None:
+    """--hooks-only composes with --apply and defaults to dry-run like the
+    rest of to-030."""
+    project = _build_030_project(
+        tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS
+    )
+    settings_path = _write_settings_json(
+        project,
+        {
+            "PreToolUse": [
+                {
+                    "matcher": "Task|Agent|Edit|Write|Read",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    before = settings_path.read_bytes()
+
+    exit_code, output = _invoke_030(project, apply=False, hooks_only=True)
+
+    assert exit_code == 0
+    assert "[would] repair" in output
+    assert settings_path.read_bytes() == before
+
+
+def test_to030_hooks_only_second_apply_run_is_noop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensures 5: running to-030 --hooks-only --apply twice against an
+    already-repaired repo leaves settings.json and settings.local.json
+    byte-identical after the second run, and the second run's own dry-run
+    preview reports no pending hook changes."""
+    fake_home = tmp_path / "isolated-home-infra386"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+    project = _build_030_project(
+        tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS
+    )
+    fake_plugin_root = tmp_path / "synthetic-plugin-root"
+    (fake_plugin_root / "hooks").mkdir(parents=True)
+    (fake_plugin_root / "hooks" / "pre_tool_use.py").write_text(
+        "# stub\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(_mod, "_FLEX_ROOT", fake_plugin_root)
+
+    _write_settings_json(
+        project,
+        {
+            "PreToolUse": [
+                {
+                    "matcher": "Task|Agent|Edit|Write|Read",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    # First --apply run: relocates the stale entry.
+    exit_code_1, output_1 = _invoke_030(project, apply=True, hooks_only=True)
+    assert exit_code_1 == 0, output_1
+    assert "relocating" in output_1
+
+    settings_path = project / ".claude" / "settings.json"
+    local_path = project / ".claude" / "settings.local.json"
+    settings_after_first = settings_path.read_bytes()
+    local_after_first = local_path.read_bytes()
+
+    # Second --apply run: must be a byte-identical no-op.
+    exit_code_2, output_2 = _invoke_030(project, apply=True, hooks_only=True)
+    assert exit_code_2 == 0, output_2
+    assert settings_path.read_bytes() == settings_after_first
+    assert local_path.read_bytes() == local_after_first
+
+    # A dry-run preview after the repair reports no pending hook changes.
+    exit_code_3, output_3 = _invoke_030(project, apply=False, hooks_only=True)
+    assert exit_code_3 == 0, output_3
+    assert "would" not in output_3.lower() or "repair" not in output_3.lower()
 
 
 # ---------------------------------------------------------------------------
