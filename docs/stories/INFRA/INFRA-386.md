@@ -2,7 +2,7 @@
 id: INFRA-386
 rail: INFRA
 title: Fold to-030 stale-flex-harness repair into sync-all as a fifth step
-status: draft
+status: complete
 phase: "121"
 story_class: code
 auth_gated: false
