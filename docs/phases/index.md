@@ -143,6 +143,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 119 | Spec precision (frozen exemplar), fundamental-doc trim, and CER backlog drain (era 004 closeout) | complete | [phase-119.md](phase-119.md) |
 | 120 | CER-159 hook-firing fix: marketplace install migration, era-004 stable close | complete | [phase-120.md](phase-120.md) |
 | 121 | sync-all to-030 fold-in and fleet stale-hook remediation | planned | [phase-121.md](phase-121.md) |
+| 122 | shadow-reviewer write capability (CER-164) and shadow_review enablement | planned | [phase-122.md](phase-122.md) |
 
 ---
 

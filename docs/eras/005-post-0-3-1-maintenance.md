@@ -18,3 +18,4 @@ Placeholder era opened at 0.3.1 sealing; real scope to be defined as maintenance
 | Phase | Title | Status |
 |-------|-------|--------|
 | 121 | sync-all to-030 fold-in and fleet stale-hook remediation | planned |
+| 122 | shadow-reviewer write capability (CER-164) and shadow_review enablement | planned |
