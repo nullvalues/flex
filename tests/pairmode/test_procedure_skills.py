@@ -288,15 +288,25 @@ class TestAgentShellProcedurePointerIsAbsolute:
             f"{template_name} must still contain the {pointer_suffix} pointer "
             "as a suffix of its rendered (now-absolute) path"
         )
-        # Resolvable path shape: absolute (starts with "/"), and the full
-        # rendered line resolves via normal filesystem ".." handling to the
-        # real pairmode-install-relative path — pinned by finding the line
-        # that carries the pointer and asserting it starts with "/".
+        # INFRA-375 (CER-160): the pointer paragraph now has two branches —
+        # an in-tree-preferring repo-relative line (checked first) and a
+        # harness-absolute fallback line for a bootstrapped consumer with no
+        # vendored skills/pairmode/ (INFRA-304 E13) — so two lines now carry
+        # the pointer suffix, not one. Resolvable path shape: exactly one of
+        # them is bare repo-relative (the in-tree branch, byte-identical to
+        # pointer_suffix) and exactly one is absolute (starts with "/", the
+        # fallback branch) — pinned so a future edit cannot silently drop
+        # either branch or reintroduce a bare relative pointer with no
+        # absolute fallback.
         lines_with_pointer = [
             line.strip() for line in output.splitlines() if pointer_suffix in line
         ]
-        assert len(lines_with_pointer) == 1
-        assert lines_with_pointer[0].startswith("/")
+        assert len(lines_with_pointer) == 2
+        absolute_lines = [line for line in lines_with_pointer if line.startswith("/")]
+        relative_lines = [line for line in lines_with_pointer if not line.startswith("/")]
+        assert len(absolute_lines) == 1
+        assert len(relative_lines) == 1
+        assert relative_lines[0] == pointer_suffix
 
     def test_pairmode_pkg_dir_resolves_against_real_scripts_dir(self):
         # End-to-end sanity: with the *real* pairmode_scripts_dir this repo

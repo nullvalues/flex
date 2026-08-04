@@ -19,25 +19,36 @@ Its incentive, as written into its own procedure, points in exactly one
 direction: "precise enough that a fresh-context builder agent with no prior
 knowledge... can implement the story without ambiguity." Nothing in its brief
 asks the opposite question — precise enough, and *no more* than that — and one of
-its five inputs is a recent complete story used as a *format exemplar*, which
-means every spec it writes is partly shaped by whatever the last spec happened to
-look like.
+its inputs used to be a recent complete story used as a *format exemplar*, which
+meant every spec it wrote was partly shaped by whatever the last spec happened to
+look like. That input is now frozen (INFRA-363): the exemplar is a single fixed
+file, `docs/exemplars/EXEMPLAR-000.md`, that does not rotate with recency —
+changing which file serves as the exemplar is a deliberate, reviewable edit to
+that one file, never an automatic consequence of what shipped most recently.
 
 This is not a hypothetical risk. Measured directly against this project's own
 story history: early specs (stories 0–119) average 14–36 lines; by stories
-260–319, the average is 400–550+ lines, peaking at 1317. Builder attempts on the
-largest specs run roughly 50% higher than on the earliest ones. An external
-review (Devin/Windsurf) independently reached the same conclusion this project's
-own numbers confirm: specs have grown past the point of returns, and the growth
-itself — not the underlying story complexity — is implicated in the attempt-count
-rise. The spec-writer is not malfunctioning; it is doing exactly what its
-procedure asks, and the procedure asks for size with no brake.
+260–319, the average is 400–550+ lines, peaking at 1317. The actual cost driver
+on the largest specs is duration per attempt, not attempt count: shortest-quartile
+specs (avg 99 lines) took 4.0 min total build time touching 4.3 files;
+longest-quartile specs (avg 724 lines) took 29.5 min touching 9.9 files — 7.4x
+the time for 2.3x the file surface, versus only a ~10% difference in
+attempts-per-story (1.32 vs. 1.45, n=90; INFRA-363 re-measurement, corrected from
+this narrative's earlier ~50%-higher-attempt-count claim, CER-162). An external
+review (Devin/Windsurf) independently reached the same underlying conclusion this
+project's own numbers confirm: specs have grown past the point of returns, and
+the growth itself — not the underlying story complexity — is implicated in the
+cost rise. The spec-writer is not malfunctioning; it was doing exactly what its
+procedure asked, and the procedure asked for size with no brake — INFRA-357 added
+the brake (brevity/proportionality) and INFRA-363 froze the exemplar that kept
+re-triggering it.
 
 ## Always true
 
-- Reads exactly six bounded inputs (stub, phase doc, active era doc, one
-  exemplar complete story, `docs/ideology.md`, and — since INFRA-355 — any
-  narrative file(s) named in the stub's `narrative_roles:` field, when
+- Reads exactly six bounded inputs (stub, phase doc, active era doc, the frozen
+  format exemplar `docs/exemplars/EXEMPLAR-000.md` — since INFRA-363, not a
+  rotating "recent complete story" — `docs/ideology.md`, and — since INFRA-355 —
+  any narrative file(s) named in the stub's `narrative_roles:` field, when
   non-empty) and nothing accumulated from prior attempts or orchestrator
   state.
 - Every `## Ensures` assertion must be independently, mechanically verifiable —
@@ -62,9 +73,13 @@ procedure asks, and the procedure asks for size with no brake.
 The crux of this era's remediation, per the external Devin/Windsurf review and
 this project's own measured story-size/attempt-count data:
 
-- **Resolved, INFRA-357 (Phase 118):** the exemplar-imitation step now caps
-  imitation to this project's measured healthy baseline, adds a same-weight
-  brevity counter-instruction, and a Step 4d proportionality self-check.
+- **Resolved, INFRA-357 (Phase 118), superseded in part by INFRA-363:** the
+  exemplar-imitation step originally capped imitation to this project's measured
+  healthy baseline (skipping length-outlier candidates among "recent complete"
+  stories); INFRA-363 (below) replaced that range-based skip with a fully frozen
+  exemplar file, so the input no longer rotates at all. INFRA-357's other two
+  fixes — the same-weight brevity counter-instruction and the Step 4d
+  proportionality self-check — are unaffected and still stand.
 - The spec-writer never sees whether its own past specs actually correlated with
   successful attempt-1 builds or with rework — it has no feedback loop from its
   own output's real-world performance, so it cannot converge toward
@@ -73,12 +88,13 @@ this project's own measured story-size/attempt-count data:
 - **Resolved, INFRA-355 (Phase 118):** narrative-of-record is now the sixth
   bounded input, added with the same rigor as the original five (see `##
   Always true` above).
-- **New gap found during INFRA-362's dogfood exercise (Phase 118):** this
-  narrative's own load-bearing "largest specs run ~50% higher" attempt-count
-  claim (see `## Narrative` below) has since been re-measured by INFRA-363
-  and found wrong by roughly 5x (real delta ~10%; the actual cost driver is
-  duration-per-attempt, not attempt count) — not yet corrected here; tracked
-  as CER-162. Also: Step 2 item 4's "roughly 14-36 lines" exemplar baseline is
-  a historical measurement no complete story currently meets (shortest as of
-  Phase 118 is 84 lines), so its escape hatch fires on every run — tracked as
-  CER-162.
+- **RESOLVED, INFRA-363 (CER-162):** this narrative's own load-bearing "largest
+  specs run ~50% higher" attempt-count claim (see `## Narrative` above) had been
+  re-measured and found wrong by roughly 5x (real delta ~10%; the actual cost
+  driver is duration-per-attempt, not attempt count) — corrected in `##
+  Narrative` above. Also: Step 2 item 4's old "roughly 14-36 lines" exemplar
+  baseline, whose escape hatch fired on every run because no complete story met
+  it (shortest as of Phase 118 was 84 lines), is no longer reachable — INFRA-363
+  replaced range-based exemplar selection with the frozen
+  `docs/exemplars/EXEMPLAR-000.md` entirely, so there is no range language left
+  to go stale.

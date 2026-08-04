@@ -63,11 +63,15 @@ downstream inherits the error.
   caught before the builder finishes writing code (the crux of the Devin/Windsurf
   finding this era is responding to — see SPEC-WRITER's Open gaps for the root
   cause, and see this era's mid-build steering proposal).
-- Spec-writer's exemplar-imitation step (one recent complete story as format
-  template) has no counter-pressure toward proportionate spec size — the builder
-  inherits whatever length the spec-writer produced, with no signal
-  distinguishing "this length reflects real complexity" from "this length
-  reflects an imitation spiral."
+- **Resolved, INFRA-363:** spec-writer's exemplar-imitation step used to draw from
+  one recent complete story as a rotating format template, with no counter-pressure
+  toward proportionate spec size — the builder inherited whatever length the
+  spec-writer produced, with no signal distinguishing "this length reflects real
+  complexity" from "this length reflects an imitation spiral." The exemplar is now
+  frozen (`docs/exemplars/EXEMPLAR-000.md`, INFRA-363) rather than rotating, paired
+  with INFRA-357's brevity counter-instruction and proportionality self-check, so
+  the builder should no longer inherit a drifting-longer format shape from
+  whatever shipped most recently.
 - Per Phase 117 (INFRA-344): the builder's own worktree can silently contain a
   pre-elaboration stub spec instead of the one it thinks it's building against,
   if the spec-writer's output wasn't committed before the worktree branched. The

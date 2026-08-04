@@ -1299,9 +1299,9 @@ def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
     ``bootstrap.py``-owned template contract, run before sync-build's
     content-rewrite step.
 
-    Safe by default — without --apply, sync-agents, sync-narratives, and
-    sync-build are all run in dry-run mode (sync.py is skipped because it has
-    no --dry-run flag). Pass --apply to run all four and write changes to disk.
+    Safe by default — without --apply, all four commands (including sync.py,
+    invoked with its own --dry-run flag) run in dry-run/preview mode and write
+    nothing. Pass --apply to run all four and write changes to disk.
 
     Fail-fast: if any downstream command exits non-zero, the wrapper halts and
     exits with the same status code. Remaining commands are not invoked.
@@ -1317,11 +1317,15 @@ def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
     _sync_script = _this_script.parent / "sync.py"
 
     # Build the downstream invocation list.
-    # Each entry: (label, argv, skip_in_dry_run)
-    # skip_in_dry_run=True means the command is skipped when effective_apply is False.
+    # Each entry: (label, argv). All four commands are always invoked; in
+    # dry-run mode each receives its own --dry-run flag rather than being
+    # skipped (INFRA-371 — sync.py has always had a working --dry-run flag,
+    # it was only this wrapper that never reached it).
 
     # --- sync.py ---
     sync_argv = [sys.executable, str(_sync_script), "--project-dir", str(project_path)]
+    if not effective_apply:
+        sync_argv.append("--dry-run")
     if yes:
         sync_argv.append("--yes")
 
@@ -1360,11 +1364,11 @@ def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
     if yes:
         build_argv.append("--yes")
 
-    invocations: list[tuple[str, list[str], bool]] = [
-        ("sync (methodology files)", sync_argv, True),
-        ("sync-agents (agent frontmatter)", agents_argv, False),
-        ("sync-narratives (harness narrative backfill)", narratives_argv, False),
-        ("sync-build (CLAUDE.build.md)", build_argv, False),
+    invocations: list[tuple[str, list[str]]] = [
+        ("sync (methodology files)", sync_argv),
+        ("sync-agents (agent frontmatter)", agents_argv),
+        ("sync-narratives (harness narrative backfill)", narratives_argv),
+        ("sync-build (CLAUDE.build.md)", build_argv),
     ]
 
     # INFRA-323 § D19: sync_all cannot see *what* a child changed — each
@@ -1374,13 +1378,8 @@ def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
     # completes.
     baseline_stamp = _load_state(project_path).get("agent_surfaces_written_at")
 
-    for label, argv, skip_in_dry_run in invocations:
+    for label, argv in invocations:
         click.echo(f"=== {label} ===")
-        if skip_in_dry_run and not effective_apply:
-            click.echo(
-                "skipped: sync.py does not support --dry-run; pass --apply to run it"
-            )
-            continue
 
         result = subprocess.run(argv, check=False)  # noqa: S603
         if result.returncode != 0:

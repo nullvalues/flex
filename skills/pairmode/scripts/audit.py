@@ -143,6 +143,21 @@ RECONSTRUCTION_REQUIRED_SECTIONS = [
     "## Comparison rubric",
 ]
 
+# Seeded cold-start docs that receive drift/staleness tracking (CER-121).
+# These are distinguished from CANONICAL_FILES/SCAFFOLD_FILES: they are
+# bootstrap-seeded, deny-listed from writes, and heavily customized in the
+# field (99-1568 line spread observed) — full section-level body comparison
+# would emit noise proportional to legitimate customization, which is why
+# they were never routed through SCAFFOLD_FILES. Heading-set comparison
+# against the seeding template is the deliberate bounded cut instead, mirroring
+# the dedicated _check_ideology_staleness / _check_reconstruction_staleness
+# pattern. Do not add entries here to CANONICAL_FILES or SCAFFOLD_FILES
+# (INFRA-372/CER-132 shares this module and must not conflict).
+SEEDED_COLD_START_DOCS: list[tuple[str, str]] = [
+    ("docs/architecture.md", "docs/architecture.md.j2"),
+    ("docs/checkpoints.md", "docs/checkpoints.md.j2"),
+]
+
 
 def _strip_html_comments(text: str) -> str:
     """Remove HTML comments (<!-- ... -->) from text."""
@@ -237,6 +252,58 @@ def _check_reconstruction_staleness(project_dir: Path) -> str | None:
     if found_real_content:
         return "OK"
     return "STALE"
+
+
+def _check_seeded_doc_drift(project_dir: Path, pair: tuple[str, str]) -> str | None:
+    """Drift/staleness check for a seeded cold-start doc (CER-121).
+
+    *pair* is a ``(dest_rel, template_rel)`` tuple, e.g. one entry of
+    ``SEEDED_COLD_START_DOCS``. Mirrors ``_check_ideology_staleness`` /
+    ``_check_reconstruction_staleness``: a dedicated tracking surface for
+    docs excluded from CANONICAL_FILES/SCAFFOLD_FILES because full body
+    comparison on a heavily-customized file would be noise proportional to
+    legitimate customization.
+
+    Returns:
+      - ``None``      — the project file is missing entirely.
+      - ``"STALE"``   — the file exists but every section body is
+        placeholder-only (per ``_is_stale_placeholder``).
+      - ``"DRIFTED"`` — at least one template heading is absent from the
+        project file. Extra project-only headings are never a finding here
+        — divergence in the customized direction is expected.
+      - ``"OK"``      — otherwise.
+    """
+    dest_rel, template_rel = pair
+    project_sections = _read_project_sections(project_dir, dest_rel)
+    if project_sections is None:
+        return None
+
+    # Only real ``##`` section headings count toward staleness/drift —
+    # the preamble (H1 title, intro prose above the first heading) and
+    # ``---`` separators are excluded, mirroring how canonical/scaffold
+    # comparison already skips separator keys. Without excluding preamble,
+    # a project file's H1 title text alone (e.g. "# testproject —
+    # Architecture") would count as "real content" and STALE could never
+    # fire even when every actual section body is placeholder-only.
+    project_bodies = [
+        body for key, body in project_sections.items() if key.startswith("##")
+    ]
+    if project_bodies and all(_is_stale_placeholder(body) for body in project_bodies):
+        return "STALE"
+
+    # Render the template with the project's own saved context so headings
+    # that interpolate variables (e.g. "## What {{ project_name }} is")
+    # compare like-for-like against the project file, not against an
+    # empty-context rendering.
+    context, _context_found = _load_project_context(project_dir)
+    template_sections = _read_template_sections(template_rel, context)
+    template_headings = {k for k in template_sections if k.startswith("##")}
+    project_headings = {k for k in project_sections if k.startswith("##")}
+
+    if template_headings - project_headings:
+        return "DRIFTED"
+
+    return "OK"
 
 
 def _load_project_context(project_dir: Path) -> tuple[dict, bool]:
@@ -407,34 +474,82 @@ def _find_lesson_for_file(lessons: list[dict], file_path: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _load_overrides(project_dir: Path) -> set[tuple[str, str]]:
-    """Return set of (relative_file_path, normalised_section_key) pairs.
+def _load_overrides_with_diagnostics(
+    project_dir: Path,
+) -> tuple[set[tuple[str, str]], list[str]]:
+    """Return (pairs, malformed_line_messages) for ``.pairmode-overrides``.
 
     Parses ``project_dir / ".pairmode-overrides"``. Blank lines and lines
     starting with ``#`` are skipped. Each valid line is split on ``:``
     (max one split) into ``(file_path, section_key)``; both parts are
     stripped of leading/trailing whitespace.
+
+    A non-blank, non-comment line is malformed when it has no ``:`` or has
+    an empty file-path or section-key after stripping. Malformed lines are
+    reported (with their 1-based line number) rather than silently dropped
+    (CER-132) but do not contribute a pair to the returned set.
     """
     overrides_path = project_dir / ".pairmode-overrides"
     if not overrides_path.exists():
-        return set()
+        return set(), []
 
     result: set[tuple[str, str]] = set()
+    diagnostics: list[str] = []
     try:
         text = overrides_path.read_text(encoding="utf-8")
     except OSError:
-        return result
+        return result, diagnostics
 
-    for line in text.splitlines():
+    for line_number, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
         if ":" not in stripped:
+            diagnostics.append(
+                f"line {line_number}: missing ':' separator — expected 'file_path: section_key'"
+            )
             continue
         file_path, section_key = stripped.split(":", 1)
-        result.add((file_path.strip(), section_key.strip()))
+        file_path = file_path.strip()
+        section_key = section_key.strip()
+        if not file_path or not section_key:
+            diagnostics.append(
+                f"line {line_number}: empty file-path or section-key after splitting on ':'"
+            )
+            continue
+        result.add((file_path, section_key))
 
-    return result
+    return result, diagnostics
+
+
+def _load_overrides(project_dir: Path) -> set[tuple[str, str]]:
+    """Return set of (relative_file_path, normalised_section_key) pairs.
+
+    Delegates to ``_load_overrides_with_diagnostics`` and discards the
+    malformed-line diagnostics. Signature and return type unchanged (this
+    story's four in-tree callers rely on both).
+    """
+    pairs, _diagnostics = _load_overrides_with_diagnostics(project_dir)
+    return pairs
+
+
+def _check_overrides_health(project_dir: Path) -> list[str] | None:
+    """Existence + parse-health check for ``.pairmode-overrides`` (CER-132).
+
+    Returns None when the file is absent, an empty list when it parses
+    cleanly, and the malformed-line diagnostic messages otherwise. Content
+    that merely diverges from ``.pairmode-overrides.j2`` is never flagged —
+    the file is project-owned, so body/section comparison would be a false-
+    drift generator (that is why ``.pairmode-overrides`` is not in
+    CANONICAL_FILES/SCAFFOLD_FILES). This dedicated check, in the style of
+    ``_check_ideology_staleness``/``_check_reconstruction_staleness``, is
+    the tracking surface instead.
+    """
+    overrides_path = project_dir / ".pairmode-overrides"
+    if not overrides_path.exists():
+        return None
+    _pairs, diagnostics = _load_overrides_with_diagnostics(project_dir)
+    return diagnostics
 
 
 # ---------------------------------------------------------------------------
@@ -665,6 +780,89 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
         )
     # "OK" → no finding
 
+    # Seeded cold-start doc drift/staleness check (CER-121) — handled
+    # separately from CANONICAL_FILES/SCAFFOLD_FILES for the same reason as
+    # the ideology/reconstruction checks above: full section-level body
+    # comparison on a heavily-customized architecture.md/checkpoints.md
+    # would emit noise proportional to legitimate customization (99-1568
+    # line spread observed). Heading-set comparison is the deliberate
+    # bounded cut.
+    for seeded_pair in SEEDED_COLD_START_DOCS:
+        dest_rel, template_rel = seeded_pair
+        seeded_status = _check_seeded_doc_drift(project_dir, seeded_pair)
+        if seeded_status is None:
+            result.missing.append(
+                AuditItem(
+                    file=dest_rel,
+                    section="__file__",
+                    description=(
+                        f"File missing entirely — {dest_rel} is a seeded cold-start doc"
+                    ),
+                )
+            )
+        elif seeded_status == "STALE":
+            result.inconsistent.append(
+                AuditItem(
+                    file=dest_rel,
+                    section="__content__",
+                    description=(
+                        "STALE PLACEHOLDER — all sections contain placeholder text"
+                    ),
+                )
+            )
+        elif seeded_status == "DRIFTED" and not result.context_missing:
+            # Heading interpolation (e.g. "## What {{ project_name }} is")
+            # means the rendered template only matches like-for-like when a
+            # real saved context is available — same reason canonical-file
+            # body comparison above is skipped entirely when context_missing.
+            template_sections = _read_template_sections(template_rel, context)
+            project_sections = _read_project_sections(project_dir, dest_rel) or {}
+            template_headings = {
+                k for k in template_sections if k.startswith("##")
+            }
+            project_headings = {
+                k for k in project_sections if k.startswith("##")
+            }
+            for heading in sorted(template_headings - project_headings):
+                if (dest_rel, heading) in overrides:
+                    continue  # Intentionally diverged — skip
+                result.inconsistent.append(
+                    AuditItem(
+                        file=dest_rel,
+                        section=heading,
+                        description=(
+                            f"DRIFTED — template heading '{heading}' missing from "
+                            f"project file"
+                        ),
+                    )
+                )
+        # "OK" (or DRIFTED-without-context) → no finding
+
+    # .pairmode-overrides existence + parse-health check (CER-132). Body/section
+    # comparison is deliberately not used — the file's content is project-owned,
+    # so this is the dedicated tracking surface instead of a CANONICAL_FILES/
+    # SCAFFOLD_FILES entry.
+    overrides_diagnostics = _check_overrides_health(project_dir)
+    if overrides_diagnostics is None:
+        result.missing.append(
+            AuditItem(
+                file=".pairmode-overrides",
+                section="__file__",
+                description=(
+                    "File missing entirely — run bootstrap to generate .pairmode-overrides"
+                ),
+            )
+        )
+    elif overrides_diagnostics:
+        result.inconsistent.append(
+            AuditItem(
+                file=".pairmode-overrides",
+                section="__content__",
+                description="; ".join(overrides_diagnostics),
+            )
+        )
+    # empty list → parses cleanly, no finding
+
     return result
 
 
@@ -698,8 +896,12 @@ def _enrich_scaffold_context(context: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _retired_sections() -> dict[str, str]:
+def _retired_sections() -> dict[tuple[str, str], str]:
     """Return sync.py's RETIRED_SECTIONS registry (single source of truth).
+
+    Keyed by ``(canonical file, section key)`` tuples since INFRA-371 (file
+    scoping) — a section key retired from one canonical file no longer
+    matches a same-named genuine extension in a different canonical file.
 
     Imported lazily: sync.py imports audit.py at module load, so a top-level
     import here would be circular. The sibling-import pattern (lesson_utils,
@@ -747,7 +949,7 @@ def classify_extra(
         if item.file not in canonical_dests:
             records.append((item, "KEEP", None))
             continue
-        retired_by = retired.get(item.section)
+        retired_by = retired.get((item.file, item.section))
         overridden = (item.file, item.section) in overrides
         if retired_by is not None:
             severity = "OVERRIDE-KEPT" if overridden else "ERROR"
@@ -827,12 +1029,19 @@ def format_audit_output(result: AuditResult) -> str:
             lines.append(f"  ~ {item.file}: {item.description}")
         lines.append("")
 
+    pending_prunes: list[tuple[str, str, str]] = []  # (file, section, retired_by)
+
     if result.extra:
         # INFRA-311 (CER-120): EXTRA inside CANONICAL_FILES is a finding, not
         # a blessing. Scaffold files keep the keep-as-is rendering unchanged.
         records = classify_extra(result)
         canonical_records = [r for r in records if r[1] != "KEEP"]
         scaffold_records = [r for r in records if r[1] == "KEEP"]
+        pending_prunes = [
+            (item.file, item.section, retired_by)
+            for item, severity, retired_by in canonical_records
+            if severity == "ERROR" and retired_by is not None
+        ]
 
         if canonical_records:
             lines.append("EXTRA (canonical file \u2014 findings)")
@@ -866,9 +1075,27 @@ def format_audit_output(result: AuditResult) -> str:
             lines.append("")
 
     lines.append("RECOMMENDATION")
-    lines.append(
-        "  Run /flex:pairmode sync to apply missing/inconsistent items"
-    )
+    if pending_prunes:
+        # INFRA-371 (CER-133 item 6): a registry-matched retired section
+        # downstream must never be silently folded into a generic
+        # up-to-date/apply-changes message — name the pending prune(s)
+        # explicitly so an operator cannot be told the project is current
+        # while stale canon sits unpruned.
+        lines.append(
+            "  Pending retirement prune(s) — canon-retired content is still present:"
+        )
+        for file_, section, retired_by in pending_prunes:
+            lines.append(
+                f"    ✗ {file_}: section '{section}' (retired by {retired_by})"
+            )
+        lines.append(
+            "  Run /flex:pairmode sync to prune the above and apply any other missing/"
+            "inconsistent items"
+        )
+    else:
+        lines.append(
+            "  Run /flex:pairmode sync to apply missing/inconsistent items"
+        )
     lines.append("  Project-specific items will be preserved")
 
     return "\n".join(lines)

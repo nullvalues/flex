@@ -394,6 +394,49 @@ class TestDuplicateHookInvocationDeduped:
         assert decisions == ["recorded", "recorded:deduped"]
 
 
+class TestContextCurrentTokensSourceStamp:
+    """INFRA-374: the Task/Agent branch stamps context_current_tokens_source
+    the same way user_turn_seq.record_user_turn does."""
+
+    def test_stamps_post_tool_use_after_measured_task_event(self, tmp_path: Path) -> None:
+        _enable_tracking(tmp_path)
+        home = tmp_path / "home"
+        _write_transcript(home, tmp_path, "S1", 12_345)
+        result = _run_task_hook(tmp_path, home, "S1")
+        assert result.returncode == 0
+
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert state.get("context_current_tokens_source") == "post-tool-use"
+
+    def test_stamped_literal_matches_context_model_constant(self, tmp_path: Path) -> None:
+        scripts_dir = SCRIPTS
+        sys.path.insert(0, str(scripts_dir))
+        import context_model
+
+        _enable_tracking(tmp_path)
+        home = tmp_path / "home"
+        _write_transcript(home, tmp_path, "S1", 12_345)
+        _run_task_hook(tmp_path, home, "S1")
+
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert (
+            state.get("context_current_tokens_source")
+            == context_model.CONTEXT_CURRENT_TOKENS_SOURCES[0]
+        )
+
+    def test_no_measurement_leaves_the_key_unwritten(self, tmp_path: Path) -> None:
+        """No readable transcript -> live_tokens is None -> key untouched."""
+        _enable_tracking(tmp_path)
+        home = tmp_path / "home"
+        home.mkdir(parents=True, exist_ok=True)  # no transcript written
+
+        result = _run_task_hook(tmp_path, home, "S1")
+        assert result.returncode == 0
+
+        state = json.loads((tmp_path / ".companion" / "state.json").read_text())
+        assert "context_current_tokens_source" not in state
+
+
 class TestHookPathStaysThin:
     def test_no_hook_reads_the_merged_hook_view(self) -> None:
         """C4: the merged hook view (a filesystem read) is CLI/fleet-side

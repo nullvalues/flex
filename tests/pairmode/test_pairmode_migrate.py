@@ -1481,13 +1481,34 @@ def test_to030_dry_run_leaves_both_settings_files_byte_identical(
     assert not local_path.exists(), "dry run must write nothing"
 
 
-def test_to030_relocates_stale_flex_harness_hook_command(tmp_path: Path) -> None:
-    """B3: --apply removes the stale flex-harness entry from settings.json
-    and writes the correct entry to settings.local.json, through the § A
-    registrar (single construction site)."""
+def _assert_relocates_stale_hook_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    plugin_root_subpath: tuple[str, ...],
+) -> None:
+    """Shared body for the stale-hook-relocation cases (CER-146).
+
+    The correct relocated command is derived entirely from a synthetic
+    ``_FLEX_ROOT`` this test constructs and patches in — never from wherever
+    ``pairmode_migrate.py``'s own module happens to live on disk. That keeps
+    the outcome invariant to the literal name of the checkout the suite is
+    physically running from (``plugin_root_subpath`` lets the caller pick a
+    root that does, or does not, contain a ``flex-harness`` path segment,
+    exercising both directions).
+    """
     project = _build_030_project(
         tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS
     )
+
+    fake_plugin_root = tmp_path.joinpath(*plugin_root_subpath)
+    (fake_plugin_root / "hooks").mkdir(parents=True)
+    (fake_plugin_root / "hooks" / "pre_tool_use.py").write_text(
+        "# stub\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(_mod, "_FLEX_ROOT", fake_plugin_root)
+
+    stale_marker = "stale-pre-migration-marker-7c2e91"
     settings_path = _write_settings_json(
         project,
         {
@@ -1497,7 +1518,7 @@ def test_to030_relocates_stale_flex_harness_hook_command(tmp_path: Path) -> None
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py",
+                            "command": f"uv run python /{stale_marker}/hooks/pre_tool_use.py",
                         }
                     ],
                 }
@@ -1521,7 +1542,37 @@ def test_to030_relocates_stale_flex_harness_hook_command(tmp_path: Path) -> None
         for block in local_data["hooks"]["PreToolUse"]
         for h in block.get("hooks", [])
     ]
-    assert any(c.endswith("hooks/pre_tool_use.py") and "flex-harness" not in c for c in commands)
+    expected_command = f"uv run python {fake_plugin_root / 'hooks' / 'pre_tool_use.py'}"
+    assert any(
+        c == expected_command and stale_marker not in c for c in commands
+    )
+
+
+def test_to030_relocates_stale_hook_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B3: --apply removes a stale hook entry from settings.json and writes
+    the correct entry to settings.local.json, through the § A registrar
+    (single construction site). The expected replacement command is derived
+    from a synthetic plugin root this test patches in, not from the ambient
+    checkout directory the suite happens to run from (CER-146)."""
+    _assert_relocates_stale_hook_command(
+        tmp_path, monkeypatch, plugin_root_subpath=("synthetic-plugin-root",)
+    )
+
+
+def test_to030_relocates_stale_hook_command_when_plugin_root_named_flex_harness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B3 (CER-146): relocation still succeeds, and still targets exactly the
+    resolved plugin root, when that root's own path happens to contain a
+    ``flex-harness`` path segment — the outcome must be invariant to that
+    literal name, not merely tolerant of its absence."""
+    _assert_relocates_stale_hook_command(
+        tmp_path,
+        monkeypatch,
+        plugin_root_subpath=("flex-harness", "checkout"),
+    )
 
 
 def test_to030_warns_and_keeps_entry_when_plugin_root_unresolvable(

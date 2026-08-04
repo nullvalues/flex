@@ -165,6 +165,19 @@ def test_fifth_skill_auto_covered_by_derivation(tmp_path):
         _assert_skill_names_bare(tmp_path)
 
 
+def test_derivation_excludes_dir_without_skill_md(tmp_path):
+    _write_skill_md(tmp_path, "has_skill_md", "has_skill_md")
+    (tmp_path / "skills" / "no_skill_md").mkdir(parents=True, exist_ok=True)
+
+    derived = _derive_expected_skill_names(tmp_path)
+
+    assert set(derived.values()) == {"has_skill_md"}, (
+        f"expected only the directory containing SKILL.md to appear in the "
+        f"derived mapping, got {derived!r} — a skills/<name>/ directory with "
+        "no SKILL.md must be excluded (CER-109)."
+    )
+
+
 def test_derived_skill_names_anti_vacuity_floor():
     derived = _derive_expected_skill_names(_REPO_ROOT)
     assert derived, (

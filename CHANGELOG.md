@@ -13,6 +13,9 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 ### Added [pairmode] — Phase 118 (Narrative of Record: propagation, spec-writer/intent-reviewer integration, mid-build steering)
 - Narrative of Record: templated role-narrative layer (INFRA-351..354) wired into the build loop as spec-writer's sixth input (INFRA-355), intent-reviewer alignment checks (INFRA-356), exemplar-brevity discipline (INFRA-357), and a shadow-reviewer agent (INFRA-358..360); cold-start quad added to `CLAUDE.md` (INFRA-361, operator-approved); closing dogfood run (INFRA-362) found and fixed a shipped contract gap, filed CER-160..163; two security findings closed before tag (INFRA-365/366).
 
+### Fixed [pairmode] — Phase 119 (Spec precision, doc trim, and CER backlog drain — era 004 closeout)
+- Froze the spec-writer's exemplar to a single non-rotating file and trimmed dead/duplicated content from `ideology.md`/`architecture.md`/`SKILL.md` (INFRA-363/364). Widened, per operator directive, to drain 16 further CER backlog items (INFRA-367..382): `story_new.py` non-interactive/glob-anchoring fixes, observability API CORS narrowing and `abs_path` opt-in gating, `.pairmode-overrides` audit tracking, cold-start-doc drift tracking, `post_tool_use.py`'s attribution stamp, and several findings confirmed already-fixed by earlier stories rather than duplicated.
+
 ## [0.3.1] — 2026-08-01
 
 *The Phase 95/96/98 entries below predate the `v0.3.0` fold tag (2026-07-24)

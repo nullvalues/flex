@@ -26,6 +26,7 @@ from skills.pairmode.scripts.bootstrap import (
     _is_subsumed,
     _record_state,
 )
+from schema_validator import _parse_frontmatter
 
 
 @pytest.fixture(autouse=True)
@@ -5084,6 +5085,60 @@ class TestOperatorSeedThenExtend:
         dest_paths = {dest_rel for dest_rel, _ in NARRATIVE_FILES}
         assert self.OPERATOR_SEED_PATH not in dest_paths
         assert OPERATOR_SEED_FILE[0] == self.OPERATOR_SEED_PATH
+
+    # -- CER-163: adversarial-note frontmatter escaping ---------------------
+
+    _EXPECTED_EXTENSION_FRONTMATTER = {
+        "id": "OPERATOR-010",
+        "role": "OPERATOR",
+        "title": "Project-specific operator extension",
+        "status": "draft",
+        "stories": [],
+    }
+
+    def test_plain_note_frontmatter_matches_baseline(self, tmp_path):
+        """Baseline (Ensures 4): an ordinary note still renders the same
+        static frontmatter field set/values as before this story."""
+        note = "Ship small, review everything."
+        result = run_bootstrap(tmp_path, extra_args=["--operator-note", note])
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / self.OPERATOR_EXTENSION_PATH).read_text(encoding="utf-8")
+        fm = _parse_frontmatter(content)
+        assert fm == self._EXPECTED_EXTENSION_FRONTMATTER
+        assert note in content
+
+    def test_adversarial_note_frontmatter_still_parses(self, tmp_path):
+        """Ensures 3 (CER-163): a note containing a bare '---' line, a
+        leading '#' line, and YAML-special characters (':', '"', embedded
+        newlines) must not corrupt the surrounding frontmatter block — it
+        must still parse to the same field set/values as a plain-note run,
+        and the note text must survive intact (forbidden proxy: stripping
+        or rejecting the offending characters)."""
+        note = (
+            "First line of the note.\n"
+            "---\n"
+            '# a heading-looking line: "quoted value", and a colon: here\n'
+            "final line"
+        )
+        result = run_bootstrap(tmp_path, extra_args=["--operator-note", note])
+        assert result.exit_code == 0, result.output
+        dest = tmp_path / self.OPERATOR_EXTENSION_PATH
+        assert dest.exists()
+        content = dest.read_text(encoding="utf-8")
+
+        fm = _parse_frontmatter(content)
+        assert fm == self._EXPECTED_EXTENSION_FRONTMATTER, (
+            "adversarial operator-note corrupted the frontmatter block"
+        )
+        # the note text must be recoverable verbatim, not sanitised away.
+        assert note in content
+
+    def test_blank_note_frontmatter_unaffected(self, tmp_path):
+        """Regression (Ensures 4): a blank note still writes no extension
+        file at all — unchanged by this story's fix."""
+        result = run_bootstrap(tmp_path)
+        assert result.exit_code == 0, result.output
+        assert not (tmp_path / self.OPERATOR_EXTENSION_PATH).exists()
 
 
 # ---------------------------------------------------------------------------

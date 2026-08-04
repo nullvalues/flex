@@ -4191,6 +4191,91 @@ class TestReconcileOne:
 
         assert observed <= st.RECORDING_DECISIONS, observed - st.RECORDING_DECISIONS
 
+    def test_non_enum_outcome_via_relay_logs_skip_non_enum_outcome(
+        self, tmp_path: Path
+    ) -> None:
+        """INFRA-373 (CER-131): a refused JSON BUILD outcome arriving via the
+        relay path (reconcile_one's payload branch) writes a
+        skip:non-enum-outcome line to effort_recording.log — the same
+        visibility reconcile_pending_attempts/record_attempt_from_transcript
+        already have. The refusal behaviour itself (row left pending) is
+        unchanged."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        self._enable(project_dir)
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        self._pending_row(db_path, "INFRA-373", "agent-rejected")
+        home, transcript_path = self._agent_transcript(
+            tmp_path, "agent-rejected", [_output_assistant_entry("msg_1", 100, 50)],
+        )
+        payload = {
+            "agent_id": "agent-rejected",
+            "agent_transcript_path": str(transcript_path),
+            "last_assistant_message": _build_result_json("SUCCESS"),
+        }
+
+        decision = st.reconcile_one(
+            project_dir=project_dir, agent_id="agent-rejected", payload=payload,
+            home=home,
+        )
+
+        assert decision == "skip:no-outcome"
+        row = effort_db.query_by_story(db_path, "INFRA-373")[0]
+        assert row["outcome"] is None
+        assert row["tokens_total"] is None
+
+        log_path = project_dir / ".companion" / "effort_recording.log"
+        entries = [
+            json.loads(line)
+            for line in log_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        decisions = [e.get("decision") for e in entries]
+        assert "skip:non-enum-outcome" in decisions
+        rejection = next(
+            e for e in entries if e.get("decision") == "skip:non-enum-outcome"
+        )
+        assert rejection.get("rejected_outcomes") == ["SUCCESS"]
+
+    def test_valid_outcome_via_relay_does_not_log_non_enum_outcome(
+        self, tmp_path: Path
+    ) -> None:
+        """INFRA-373 Ensures 4: a valid, enum-conforming outcome reconciled
+        via the relay path writes no skip:non-enum-outcome line."""
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        self._enable(project_dir)
+        db_path = project_dir / ".companion" / "effort.db"
+        effort_db.init_db(db_path)
+        self._pending_row(db_path, "INFRA-373-OK", "agent-valid")
+        home, transcript_path = self._agent_transcript(
+            tmp_path, "agent-valid", [_output_assistant_entry("msg_1", 100, 50)],
+        )
+        payload = {
+            "agent_id": "agent-valid",
+            "agent_transcript_path": str(transcript_path),
+            "last_assistant_message": _build_result_json("PASS"),
+        }
+
+        decision = st.reconcile_one(
+            project_dir=project_dir, agent_id="agent-valid", payload=payload,
+            home=home,
+        )
+
+        assert decision == "reconciled:payload"
+        row = effort_db.query_by_story(db_path, "INFRA-373-OK")[0]
+        assert row["outcome"] == "PASS"
+
+        log_path = project_dir / ".companion" / "effort_recording.log"
+        entries = [
+            json.loads(line)
+            for line in log_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        decisions = [e.get("decision") for e in entries]
+        assert "skip:non-enum-outcome" not in decisions
+
 
 # ---------------------------------------------------------------------------
 # INFRA-299 (CER-113) — JSON BUILD outcome is enum-validated

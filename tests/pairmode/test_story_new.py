@@ -7,7 +7,13 @@ import pathlib
 import pytest
 from click.testing import CliRunner
 
-from skills.pairmode.scripts.story_new import story_new, _story_frontmatter, _story_body, create_story
+from skills.pairmode.scripts.story_new import (
+    story_new,
+    _story_frontmatter,
+    _story_body,
+    create_story,
+    derive_test_paths,
+)
 from skills.pairmode.scripts.flex_build import _read_story_frontmatter
 
 
@@ -207,6 +213,32 @@ class TestNonInteractiveRailCreation:
         rail_dir = tmp_path / "docs" / "stories" / "NEWRAIL"
         assert not rail_dir.exists()
 
+    def test_create_rail_flag_is_noop_when_rail_already_exists(self, tmp_path: pathlib.Path) -> None:
+        """Ensures 5 — --create-rail behaves identically to no flags when the rail
+        directory already exists: no prompt, no re-creation, same exit code."""
+        rail_dir = tmp_path / "docs" / "stories" / "EXISTING"
+        rail_dir.mkdir(parents=True)
+        result = invoke(
+            ["--rail", "EXISTING", "--title", "Story", "--create-rail", "--project-dir", str(tmp_path)],
+            input=None,
+        )
+        assert result.exit_code == 0, result.output
+        story_file = rail_dir / "EXISTING-001.md"
+        assert story_file.exists()
+
+    def test_yes_flag_is_noop_when_rail_already_exists(self, tmp_path: pathlib.Path) -> None:
+        """Ensures 5 — --yes behaves identically to no flags when the rail directory
+        already exists: no prompt, no re-creation, same exit code."""
+        rail_dir = tmp_path / "docs" / "stories" / "EXISTING"
+        rail_dir.mkdir(parents=True)
+        result = invoke(
+            ["--rail", "EXISTING", "--title", "Story", "--yes", "--project-dir", str(tmp_path)],
+            input=None,
+        )
+        assert result.exit_code == 0, result.output
+        story_file = rail_dir / "EXISTING-001.md"
+        assert story_file.exists()
+
     def test_existing_prompt_tests_unmodified_decline(self, tmp_path: pathlib.Path) -> None:
         """TestNewRailPrompt decline case still exits 0 with create_rail unspecified."""
         result = invoke(
@@ -299,6 +331,37 @@ class TestAppendToPhaseGlobShapePin:
         )
         assert result.exit_code == 0, result.output
         assert "SHAPE-001" in phase_path.read_text()
+
+    def test_prefix_phase_id_does_not_match_longer_id_manifest(self, tmp_path: pathlib.Path) -> None:
+        """CER-062 (Ensures 2): a phase id that is a strict prefix of another
+        phase id must not match that longer id's manifest — a request for
+        phase '119' must not match phase-1190-*.md or phase-2119-*.md.
+        The forbidden proxy (a loose `*<phase>*.md` glob) would wrongly match
+        both of these; the anchored `phase-{phase}-*.md` glob must not.
+        """
+        phases_dir = tmp_path / "docs" / "phases"
+        phases_dir.mkdir(parents=True)
+        stories_table = (
+            "# Phase\n\n## Stories\n\n| Story ID | Title | Status |\n|----------|-------|--------|\n"
+        )
+        unrelated_longer = phases_dir / "phase-1190-widget.md"
+        unrelated_longer.write_text(stories_table, encoding="utf-8")
+        unrelated_embedded = phases_dir / "phase-2119-widget.md"
+        unrelated_embedded.write_text(stories_table, encoding="utf-8")
+
+        rail_dir = tmp_path / "docs" / "stories" / "SHAPE"
+        rail_dir.mkdir(parents=True)
+
+        result = invoke(
+            ["--rail", "SHAPE", "--title", "Prefix miss", "--phase", "119", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        # Neither unrelated manifest was mutated.
+        assert "SHAPE-001" not in unrelated_longer.read_text()
+        assert "SHAPE-001" not in unrelated_embedded.read_text()
+        # And the not-found warning (Ensures 4) fired, naming phase '119'.
+        assert "119" in result.output
+        assert "could not be registered" in result.output
 
 
 class TestPhaseFlag:
@@ -976,3 +1039,184 @@ class TestTitleHashQuoting:
         output = _story_frontmatter("INFRA-001", "INFRA", "Plain title", None)
         assert "title: Plain title" in output
         assert 'title: "Plain title"' not in output
+
+
+class TestDeriveTestPaths:
+    """INFRA-370 Ensures 1, 3 — derive_test_paths() unit coverage."""
+
+    def test_existing_test_file_is_derived(self, tmp_path: pathlib.Path) -> None:
+        test_dir = tmp_path / "tests" / "pairmode"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_widget.py").write_text("", encoding="utf-8")
+        result = derive_test_paths(["skills/pairmode/scripts/widget.py"], tmp_path)
+        assert result == ["tests/pairmode/test_widget.py"]
+
+    def test_missing_test_file_contributes_nothing(self, tmp_path: pathlib.Path) -> None:
+        result = derive_test_paths(["skills/pairmode/scripts/ghost.py"], tmp_path)
+        assert result == []
+
+    def test_non_py_primary_file_contributes_nothing(self, tmp_path: pathlib.Path) -> None:
+        test_dir = tmp_path / "tests" / "pairmode"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_procedure.py").write_text("", encoding="utf-8")
+        result = derive_test_paths(["skills/pairmode/skills/spec-writer/procedure.md"], tmp_path)
+        assert result == []
+
+    def test_dedupe_preserves_input_order(self, tmp_path: pathlib.Path) -> None:
+        test_dir = tmp_path / "tests" / "pairmode"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_widget.py").write_text("", encoding="utf-8")
+        (test_dir / "test_gadget.py").write_text("", encoding="utf-8")
+        result = derive_test_paths(
+            [
+                "skills/pairmode/scripts/widget.py",
+                "skills/pairmode/scripts/gadget.py",
+                "other/dir/widget.py",  # same stem — must dedupe, not duplicate
+            ],
+            tmp_path,
+        )
+        assert result == [
+            "tests/pairmode/test_widget.py",
+            "tests/pairmode/test_gadget.py",
+        ]
+
+    def test_empty_primary_files_returns_empty(self, tmp_path: pathlib.Path) -> None:
+        assert derive_test_paths([], tmp_path) == []
+
+
+class TestPrimaryFileFlag:
+    """INFRA-370 Ensures 2, 3, 4 — --primary-file CLI wiring."""
+
+    def test_primary_file_written_and_test_path_merged_into_touches(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        test_dir = tmp_path / "tests" / "pairmode"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_widget.py").write_text("", encoding="utf-8")
+
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "Widget story",
+                "--primary-file", "skills/pairmode/scripts/widget.py",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        parts = content.split("---")
+        fm_block = parts[1]
+        assert "primary_files:" in fm_block
+        assert "- skills/pairmode/scripts/widget.py" in fm_block
+        assert "touches:" in fm_block
+        assert "- tests/pairmode/test_widget.py" in fm_block
+        # Forbidden proxy: must not merely be present in stdout while absent
+        # from the written frontmatter bytes.
+        touches_block = fm_block[fm_block.index("touches:"):]
+        assert "tests/pairmode/test_widget.py" in touches_block
+
+    def test_primary_file_without_test_file_omits_touches_entry(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "No test story",
+                "--primary-file", "skills/pairmode/scripts/ghost.py",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        fm_block = content.split("---")[1]
+        assert "primary_files:" in fm_block
+        assert "- skills/pairmode/scripts/ghost.py" in fm_block
+        assert "touches: []" in fm_block
+
+    def test_multiple_primary_files_all_written(self, tmp_path: pathlib.Path) -> None:
+        test_dir = tmp_path / "tests" / "pairmode"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_alpha.py").write_text("", encoding="utf-8")
+        (test_dir / "test_beta.py").write_text("", encoding="utf-8")
+
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "Two files story",
+                "--primary-file", "skills/pairmode/scripts/alpha.py",
+                "--primary-file", "skills/pairmode/scripts/beta.py",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        fm_block = content.split("---")[1]
+        assert "- skills/pairmode/scripts/alpha.py" in fm_block
+        assert "- skills/pairmode/scripts/beta.py" in fm_block
+        assert "- tests/pairmode/test_alpha.py" in fm_block
+        assert "- tests/pairmode/test_beta.py" in fm_block
+
+    def test_dedupe_when_test_path_already_declared_as_primary_file(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """A conventional test path that is itself passed as a --primary-file
+        must appear exactly once in the generated frontmatter (Ensures 3)."""
+        test_dir = tmp_path / "tests" / "pairmode"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_widget.py").write_text("", encoding="utf-8")
+
+        result = invoke(
+            [
+                "--rail", "INFRA",
+                "--title", "Self-test story",
+                "--primary-file", "skills/pairmode/scripts/widget.py",
+                "--primary-file", "tests/pairmode/test_widget.py",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        fm_block = content.split("---")[1]
+        assert fm_block.count("tests/pairmode/test_widget.py") == 1
+        assert "touches: []" in fm_block
+
+    def test_no_primary_file_flag_behaves_exactly_as_before(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """Ensures 4 — no --primary-file produces byte-identical frontmatter keys
+        to pre-INFRA-370 scaffolding: no primary_files: key, bare touches: []."""
+        result = invoke(
+            ["--rail", "INFRA", "--title", "Unaffected story", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        story_file = tmp_path / "docs" / "stories" / "INFRA" / "INFRA-001.md"
+        content = story_file.read_text()
+        fm_block = content.split("---")[1]
+        assert "primary_files:" not in fm_block
+        assert "touches: []" in fm_block
+
+    def test_create_story_programmatic_api_accepts_primary_files(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """create_story() (the programmatic API used by drift promotion) also
+        threads primary_files through to derive_test_paths."""
+        test_dir = tmp_path / "tests" / "pairmode"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_widget.py").write_text("", encoding="utf-8")
+        rail_dir = tmp_path / "docs" / "stories" / "INFRA"
+        rail_dir.mkdir(parents=True)
+
+        story_path = create_story(
+            rail="INFRA",
+            title="Programmatic story",
+            project_dir=tmp_path,
+            primary_files=["skills/pairmode/scripts/widget.py"],
+        )
+        content = story_path.read_text()
+        fm_block = content.split("---")[1]
+        assert "- skills/pairmode/scripts/widget.py" in fm_block
+        assert "- tests/pairmode/test_widget.py" in fm_block

@@ -2,7 +2,7 @@
 id: INFRA-363
 rail: INFRA
 title: Freeze the spec-writer's format exemplar; correct INFRA-357's attempt-count claim
-status: draft
+status: complete
 phase: "119"
 story_class: methodology
 auth_gated: false
@@ -12,6 +12,9 @@ primary_files:
 touches:
   - docs/stories/INFRA/INFRA-357.md
   - docs/architecture.md
+  - docs/narratives/SPEC-WRITER/SPEC-WRITER-000-ideology.md
+  - docs/narratives/BUILDER/BUILDER-000-ideology.md
+  - docs/exemplars/EXEMPLAR-000.md
 narrative_roles: [SPEC-WRITER]
 ---
 
@@ -76,6 +79,25 @@ alongside INFRA-357, in any order the operator chooses.
    its Context only, and only if INFRA-357 has not yet been built when this story builds (if
    INFRA-357 has already shipped, correct its Context anyway; the historical record should be
    accurate regardless of build order).
+5. **(CER-162)** `docs/narratives/SPEC-WRITER/SPEC-WRITER-000-ideology.md`'s `## Narrative` section
+   is corrected to match: its "largest specs run roughly 50% higher [attempt counts]" claim is
+   replaced with the same measured duration-per-attempt effect as Ensures 4 (this is the exact
+   file this story cites as its own bounded `narrative_roles:` input — the debunked statistic
+   cannot be left standing in the very narrative this story reads). Also correct the narrative's
+   Step-2-item-4 exemplar-range citation ("roughly 14-36 lines") to reflect that a frozen exemplar
+   (Ensures 1) replaces a range-based selection entirely, so the now-unreachable range language is
+   removed rather than left stale alongside the new frozen-file mechanism.
+6. Every other description of the exemplar-selection mechanism in the same narrative file, and in
+   sibling narrative files, is updated to match — not just the two spots Ensures 5 names. At
+   minimum: `SPEC-WRITER-000-ideology.md`'s `## Narrative` opening line ("one of its five inputs is
+   a recent complete story used as a format exemplar") and its `## Always true` bullet ("one
+   exemplar complete story") both still describe the pre-this-story rotating mechanism and must be
+   corrected to describe the frozen-file mechanism; and `docs/narratives/BUILDER/BUILDER-000-ideology.md`
+   references the same rotating-exemplar mechanism ("one recent complete story as format template")
+   and must be updated too. Search both files for every mention of "recent" + "exemplar"/"format
+   template" before considering this Ensures satisfied — a self-contradictory narrative (one section
+   describing the new mechanism, another still describing the old one) is a documentation-currency
+   failure, not a partial pass.
 
 **Forbidden proxy:** a brevity or proportionality instruction (INFRA-357's fix) without a frozen
 exemplar (this story's fix) is not sufficient on its own — the exemplar-selection mechanism is a
@@ -100,6 +122,11 @@ the self-reinforcing exemplar-rotation spiral intact.
    note is acceptable, matching the pattern already used elsewhere in this project's stories for
    post-hoc corrections — e.g. INFRA-025's frontmatter-correction note — rather than silently
    rewriting the original claim out of the historical record).
+5. Make the same correction to `SPEC-WRITER-000-ideology.md` (Ensures 5) — read the narrative's
+   current `## Narrative`/Step-2-item-4 language fresh before editing (it may already have partial
+   corrections from INFRA-362's dogfood exercise; check `stories:` frontmatter and recent history
+   first), and close out CER-162 in `docs/cer/backlog.md` with a `**RESOLVED**` annotation once
+   both corrections land.
 
 ## Tests
 

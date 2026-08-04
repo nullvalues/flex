@@ -2107,7 +2107,15 @@ def reconcile_one(
             return "skip:no-pending-row"
         row_id = row.get("id")
 
-        outcome, fail_cause = parse_worker_outcome(payload.get("last_assistant_message"))
+        # INFRA-373 (CER-131): a fresh out-list local to this call collects
+        # any JSON verdict either source's parser refuses, mirroring the
+        # `reconcile_pending_attempts`/`record_attempt_from_transcript`
+        # shape (INFRA-299) — this is the relay path's own consumer of that
+        # same `rejected` out-list, not a third logging mechanism.
+        rejected_outcomes: "list[str]" = []
+        outcome, fail_cause = parse_worker_outcome(
+            payload.get("last_assistant_message"), rejected=rejected_outcomes
+        )
 
         source: "str | None" = None
         usage: "dict[str, Any] | None" = None
@@ -2147,7 +2155,8 @@ def reconcile_one(
             # event-driven signal), but a fallback outcome fills the gap
             # when the payload gave none.
             result = read_completed_spawn(
-                row.get("output_file"), tasks_root=tasks_root, home=home
+                row.get("output_file"), tasks_root=tasks_root, home=home,
+                rejected=rejected_outcomes,
             )
             if result is not None and result.get("tokens_total") is not None:
                 usage = result
@@ -2157,6 +2166,21 @@ def reconcile_one(
                     outcome = result.get("outcome")
                     fail_cause = result.get("fail_cause")
                 source = "file-fallback"
+
+        if rejected_outcomes:
+            # In addition to — never instead of — this row's normal
+            # decision below (CER-131). Nothing below branches on it: a
+            # refused verdict already yields outcome=None on its own
+            # source, so the row's own skip:no-outcome/skip:no-usage or
+            # reconciled:* decision is unchanged by this log line.
+            try:
+                log_recording_event(
+                    project_path, decision="skip:non-enum-outcome",
+                    agent_id=agent_id, row_id=row_id,
+                    rejected_outcomes=rejected_outcomes,
+                )
+            except Exception:
+                pass
 
         if outcome is None:
             log_recording_event(

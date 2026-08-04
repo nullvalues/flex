@@ -84,12 +84,10 @@ STORY_SPEND_SOURCES: "tuple[str, ...]" = (
 CONTEXT_CURRENT_TOKENS_SOURCE_KEY: str = "context_current_tokens_source"
 
 #: The three known writer identities for CONTEXT_CURRENT_TOKENS_SOURCE_KEY.
-#: NOTE (INFRA-321): only "user-prompt-submit" (user_turn_seq.record_user_turn)
-#: and "manual" (flex_build.py set-context-tokens / bump-context-tokens) have
-#: a live writer today. "post-tool-use" is reserved for hooks/post_tool_use.py's
-#: Task/Agent branch, which is a protected path (hooks/**) — stamping it there
-#: is deferred to a follow-up story (see docs/cer/backlog.md). Do not read the
-#: presence of this tuple as a claim that all three writers exist.
+#: All three have a live writer today (INFRA-374): "post-tool-use"
+#: (hooks/post_tool_use.py's Task/Agent branch), "user-prompt-submit"
+#: (user_turn_seq.record_user_turn), and "manual" (flex_build.py
+#: set-context-tokens / bump-context-tokens).
 CONTEXT_CURRENT_TOKENS_SOURCES: "tuple[str, ...]" = (
     "post-tool-use",
     "user-prompt-submit",

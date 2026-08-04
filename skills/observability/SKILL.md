@@ -64,19 +64,25 @@ Available subcommands: `register`, `unregister`, `list`, `serve`.
 - `--host HOST` — bind to HOST instead of 127.0.0.1 (default: 127.0.0.1 loopback only). Setting
   `--host` (or the `FLEX_OBS_HOST` environment variable it writes into the child process) to
   anything the code does not recognise as loopback — e.g. `0.0.0.0`, `::`, or a LAN address —
-  makes the API reachable from other machines. The server detects this at startup and prints one
-  `console.error` warning naming the bind host and the effective CORS policy before it starts
-  listening; nothing about the bind itself is blocked, but the exposure is loud, not silent.
+  makes the API reachable from other machines. Loopback-only by default; a non-loopback
+  `FLEX_OBS_HOST` requires `FLEX_OBS_ALLOWED_ORIGINS` to be set, or cross-origin access is
+  denied outright (see CORS policy below). Nothing about the bind itself is blocked — the server
+  still listens — but an un-allow-listed non-loopback exposure is loud, not silent: it prints one
+  `console.error` warning naming `FLEX_OBS_HOST`/`FLEX_OBS_ALLOWED_ORIGINS` before it starts
+  listening.
 
 **CORS policy (CER-042):** on a loopback bind, the API keeps its permissive default —
 `Access-Control-Allow-Origin: *` — so the dev dashboard and any local tooling work without
 configuration. The moment the bind host is non-loopback, that wildcard is no longer safe (any
-website a browser on the exposed network visits could read repo data), so the policy flips to
-**deny all cross-origin requests by default**. To allow specific origins once exposed, set
+website a browser on the exposed network visits could read every registered repo's context
+data, effort metrics, and file paths), so the policy flips to **deny all cross-origin requests
+by default**, and the server prints exactly one startup warning naming both `FLEX_OBS_HOST` and
+`FLEX_OBS_ALLOWED_ORIGINS`. To allow specific origins once exposed, set
 `FLEX_OBS_ALLOWED_ORIGINS` to a comma-separated list of origins (e.g.
 `FLEX_OBS_ALLOWED_ORIGINS="https://dashboard.example.com,https://ops.example.com"`) in the
 environment `flex_observability.py serve` runs in — it is passed through to the Node child
-unchanged, no CLI flag needed. Only consulted off loopback; ignored (loopback stays `*`) on the
+unchanged, no CLI flag needed; once set, the exposure is an explicit, named choice and the
+startup warning does not fire. Only consulted off loopback; ignored (loopback stays `*`) on the
 default bind.
 
 **Path disclosure gate (CER-043):** `/api/user/memories` and `/api/user/policies` return the
@@ -94,8 +100,13 @@ flex_observability.py serve
 
 # Exposing the API beyond loopback: allow only a known dashboard origin
 FLEX_OBS_ALLOWED_ORIGINS="https://dashboard.example.com" flex_observability.py serve --host 0.0.0.0
-# stderr prints: flex-observability api is binding to 0.0.0.0, which is reachable beyond this
-# machine; CORS policy: allowed origins: https://dashboard.example.com
+# FLEX_OBS_ALLOWED_ORIGINS is set, so no startup warning fires — the exposure is explicit.
+
+# Exposing the API beyond loopback with no allow-list: cross-origin access is denied outright
+flex_observability.py serve --host 0.0.0.0
+# stderr prints: flex-observability api is binding to 0.0.0.0 (FLEX_OBS_HOST is set to a
+# non-loopback address); all cross-origin requests are denied because FLEX_OBS_ALLOWED_ORIGINS
+# is unset — set it to a comma-separated list of allowed origins to permit cross-origin access.
 ```
 
 ---

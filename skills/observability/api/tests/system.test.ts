@@ -61,15 +61,16 @@ describe('GET /api/repos/:id/system', () => {
       flex_factor: 1.0,
     });
 
-    // readResolverState shells out to `flex_build.py resolver-state`. It
-    // returns null here — not because the fixture is invalid (it's a real,
-    // valid flex-shaped tree), but because of a real, pre-existing path bug
-    // in getFlexBuildPath() (an extra '..' hop misses the `skills/` segment,
-    // so the spawned command always ENOENTs) — filed as CER-142, out of this
-    // story's declared `touches:` scope. null is the actual shipped
-    // behaviour today; this assertion pins it so a future fix (CER-142) is
-    // visible here as a test update, not a silent behaviour change.
-    expect(body.resolver_state).toBeNull();
+    // readResolverState shells out to `flex_build.py resolver-state`. Prior
+    // to INFRA-368 (CER-142) this always returned null here — not because
+    // the fixture is invalid (it's a real, valid flex-shaped tree), but
+    // because of a path bug in getFlexBuildPath() (an extra '..' hop missed
+    // the `skills/` segment, so the spawned command always ENOENTed). Now
+    // that the path resolves, `flex_build.py resolver-state` runs
+    // successfully against the fixture project and returns a real
+    // resolver-state document.
+    expect(body.resolver_state).not.toBeNull();
+    expect(body.resolver_state).toMatchObject({ schema_version: 1 });
   });
 
   it('failure-shaped: an unregistered repo id returns 404, not a crash', async () => {

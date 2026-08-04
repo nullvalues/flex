@@ -1357,6 +1357,25 @@ planned (and the story that would have executed them, `docs/stories/RELEASE/RELE
 is the canonical statement of the release channel's disposition; the cutover runbook and any story
 file defer to it, not the reverse, on any disagreement.
 
+**Resolution rule for procedure/skill docs vs. `flex_build.py` script invocations (CER-160).** A
+hardcoded `/mnt/work/flex-harness`-absolute path resolves into the release channel described above,
+which — by the mechanics just documented — only advances at checkpoint-tag. Any worker that resolves
+such a path is therefore running last-checkpoint's copy of whatever it points at, by construction,
+regardless of what has already landed in the current phase's working tree. This is the correct,
+deliberate behavior for `flex_build.py` **script** invocations (`CLAUDE.build.md`'s `next-action`,
+`create-story-worktree`, `merge-story-worktree`, and similar calls): the whole point of the channel
+is that the orchestrator drives the build loop with a toolchain that has already passed the three
+checkpoint gates, not with mid-phase, ungated edits to itself (see "Why a separate worktree instead
+of pointing the loop at `main`" above). It is the wrong behavior for procedure/skill **docs** — the
+`.md`/`.md.j2` pointer paragraphs that tell a spawned worker which procedure file to read — because
+those documents are meant to reflect the current phase's in-progress edits to the very procedure a
+builder or reviewer is about to follow; resolving them through the channel silently re-introduces a
+stale procedure mid-phase (reproduced live in INFRA-362's Phase 118 dogfood exercise, CER-160).
+Procedure/skill docs therefore prefer the project's own in-tree copy at the same repo-relative path
+when it exists, falling back to the harness-absolute path only for a bootstrapped consuming project
+that does not vendor `skills/pairmode/` — while `flex_build.py` script invocations stay pinned to the
+channel on purpose, unchanged by this rule.
+
 ---
 
 ## The canonical spec format
@@ -1673,6 +1692,19 @@ carries at *completion* time, but applied at phase *authoring* time instead:
 CLI echo, not new gating or validation logic — the operator remains the sole judge of whether the
 new phase satisfies it).
 
+**Story-level right-sizing (carried forward from this project's own early-preamble lineage,
+INFRA-363):** a `docs/phases/preamble.md`-lineage doc predating this project's current phase-doc
+convention stated the same idea one level down, at the story instead of the phase: *a story is
+right-sized when its acceptance criterion fits in one sentence.* That rule had been lost — stated
+nowhere in `skills/pairmode/skills/spec-writer/procedure.md` or in this section — until INFRA-363
+carried it forward here. It applies alongside the phase-authoring checklist above: where the
+checklist's second bullet asks whether a *phase's* scope is comparable to recent phases, the same
+question at the story level is whether a story's `## Ensures` could be restated as one sentence
+without losing anything a builder genuinely needs. When it cannot, the size may be warranted, but
+say so explicitly rather than treating length as evidence of rigor (INFRA-357's brevity
+counter-instruction) or leaning on a moving format exemplar to justify it (INFRA-363's frozen
+`docs/exemplars/EXEMPLAR-000.md`, which demonstrates the rule directly).
+
 **Worked example (retroactive, per Instructions item 4 — not a request to split or resize either
 phase; INFRA-243's Out of scope explicitly rules that out):**
 
@@ -1830,6 +1862,19 @@ constant; changing its structure requires updating all callers.
 **Rail-to-file mapping:** When `permission_scope.py` reads `primary_files` and `touches`, both
 lists being empty produces zero allow rules with a warning, not a crash or silent
 misconfiguration.
+
+### Phase 119: spec precision and CER backlog drain (era 004 closeout)
+
+Phase 119, era 004's closing act, froze the spec-writer's exemplar input against a single
+non-rotating reference file (INFRA-363) and trimmed dead/duplicated content from `ideology.md`,
+this file, and `skills/pairmode/SKILL.md` (INFRA-364). The phase was then widened, per operator
+directive, to drain the broadest reasonable set of open CER backlog findings alongside the era's
+stated goal of zero unresolved operational findings: sixteen further stories (INFRA-367 through
+INFRA-382) closed findings spanning `story_new.py`'s non-interactive/anchoring behavior, the
+observability API's CORS/`abs_path` disclosure surface, `.pairmode-overrides` audit tracking,
+cold-start-doc drift tracking, `post_tool_use.py`'s attribution stamp, and several already-fixed
+findings confirmed via re-verification rather than duplicated work. See `docs/phases/phase-119.md`
+for the full story list and `docs/cer/backlog.md` for each finding's resolution annotation.
 
 ### Model selection: sonnet baseline, opus on demand
 
@@ -2582,10 +2627,11 @@ Sequences all four sync operations in a single CLI call: `sync.py` (methodology 
 INFRA-352) → `sync-build` (CLAUDE.build.md). `sync-narratives` sits immediately after
 `sync-agents` — both are add-missing-file backfills against a `bootstrap.py`-owned template
 contract, run before `sync-build`'s content-rewrite step. Safe by default: without `--apply`,
-`sync.py` is skipped (it has no `--dry-run` flag) and the remaining three commands run in
-dry-run mode. With `--apply`, all four are invoked. Fail-fast: if any downstream command exits
-non-zero, the wrapper emits an error and exits with the same status code; remaining commands
-are not invoked.
+all four commands are invoked, `sync.py` included — `sync.py` runs with its own `--dry-run`
+flag (INFRA-371; it has always had a working `--dry-run` flag, the wrapper previously never
+reached it in dry-run mode) and the remaining three run in dry-run mode. With `--apply`, all
+four are invoked without `--dry-run`. Fail-fast: if any downstream command exits non-zero, the
+wrapper emits an error and exits with the same status code; remaining commands are not invoked.
 
 CLI:
 ```bash
@@ -2594,10 +2640,11 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 ```
 
 Behaviour:
-- `--dry-run` (default True): skips `sync.py`; runs `sync-agents`, `sync-narratives`, and
-  `sync-build` in dry-run mode.
-- `--apply`: runs all four; `sync-agents` and `sync-narratives` without `--dry-run`;
-  `sync-build` with `--apply`.
+- `--dry-run` (default True): runs all four commands, `sync.py` included, with `sync.py`
+  and `sync-agents`/`sync-narratives` passed `--dry-run` and `sync-build` also run without
+  `--apply` (its own dry-run default).
+- `--apply`: runs all four; `sync.py`, `sync-agents`, and `sync-narratives` without
+  `--dry-run`; `sync-build` with `--apply`.
 - `--yes` / `-y`: propagated to every downstream invocation.
 - Depth guard (`_depth_guard_sync_build`) runs against `--project-dir` before any subprocess call.
 - Per-command output is preceded by a `=== <label> ===` separator line.
@@ -2856,38 +2903,24 @@ story.
 This section records the binding methodology agreements for the `HARNESS001-ante1 … HARNESS005-main`
 additive window, extended through HARNESS009-main. Authority: `docs/agreements/HARNESS001-ante1.md`, DP4 and DP7.
 
-### (a) Four-point additive contract (DP4)
+### (a) Resolver pure-read invariant
 
-Scoped to the window `HARNESS001-main … HARNESS005-main`:
+**Resolver is pure-read.** `next-action` reads `state.json`, `effort.db`, the era/phase/story
+index, story status, and attempt counters; it writes nothing authoritative (any cache is
+disposable and never read back by the orchestrator). The orchestrator remains the sole writer
+of all shared state. Note: `check_checkpoint_guards` (introduced in RESOLVER-008) calls
+`_run_build_gate_subprocess` when `gate_fn` is not injected — this is a subprocess call, not a
+state write. The pure-read constraint refers to `state.json`; the subprocess invocation now
+fails **closed** (returns `False`, blocking the gate) on a genuine `subprocess.TimeoutExpired`
+— the guard exists specifically to catch what the human-run reviewer suite might miss between
+review and checkpoint, and a suite that never finishes inside the timeout cannot honestly report
+green (INFRA-343) — and remains advisory fail-open only for other, non-timeout execution errors
+(a missing test runner, a bad `cwd`, etc.), preserving the CER-072/INFRA-230 bootstrap-tolerance
+rationale for those cases.
 
-1. **Existing CLI surface frozen.** No rename / removal / flag-change to existing `flex_build.py`
-   subcommands or their output contracts. Additions (notably `next-action`) are allowed.
-   Consolidation / removal of old CLIs (`select-builder-model`, `next_story`, `check-*-gate`,
-   `read-attempt-count`, …) happens only at or after the flip (HARNESS006).
-
-2. **Resolver is pure-read.** `next-action` reads `state.json`, `effort.db`, the era/phase/story
-   index, story status, and attempt counters; it writes nothing authoritative (any cache is
-   disposable and never read back by the orchestrator). The orchestrator remains the sole writer
-   of all shared state during the additive window. Note: `check_checkpoint_guards` (introduced in
-   RESOLVER-008) calls `_run_build_gate_subprocess` when `gate_fn` is not injected — this is a
-   subprocess call, not a state write. The pure-read constraint refers to `state.json`;
-   the subprocess invocation now fails **closed** (returns `False`, blocking the gate)
-   on a genuine `subprocess.TimeoutExpired` — the guard exists specifically to catch
-   what the human-run reviewer suite might miss between review and checkpoint, and a
-   suite that never finishes inside the timeout cannot honestly report green
-   (INFRA-343) — and remains advisory fail-open only for other, non-timeout execution
-   errors (a missing test runner, a bad `cwd`, etc.), preserving the CER-072/INFRA-230
-   bootstrap-tolerance rationale for those cases.
-
-3. **Fleet-facing surface frozen on `main`.** Consumer-facing templates (`CLAUDE.build.md.j2`,
-   `agents/*.md.j2`), global hooks, and agent files do not change on `main` until the flip — a
-   mid-era `sync` on `main` yields the unchanged 0.2.x loop, never half-built harness code.
-   These evolve freely on `harness` (which the fleet never executes per DP1).
-
-4. **Guard test.** A `tests/pairmode/` test snapshots the 0.2.x `flex_build.py` command/flag
-   surface and asserts it stays a superset of that snapshot through HARNESS005 (additions are
-   OK; removals and renames fail). Cross-reference RELEASE-003. The snapshot is rebaselined at
-   the flip.
+The preceding section previously included three other points (CLI freeze, fleet-facing surface
+freeze, and a guard test) that were scoped to the `HARNESS001-main … HARNESS005-main` migration
+window; that window has closed and those points have been removed.
 
 ### (b) State-ownership table (DP7)
 
@@ -3024,47 +3057,22 @@ growth series, since that is what `expected_step_tokens`'s median is supposed to
 mixing in per-user-turn deltas would corrupt it.
 
 **Writer provenance (`context_current_tokens_source`).** Every writer of
-`context_current_tokens` *should* also stamp `context_current_tokens_source`, an additive,
+`context_current_tokens` also stamps `context_current_tokens_source`, an additive,
 observability-only field (`context_budget.decide()` does not gate on it) that records which
-writer most recently wrote the value. **As of INFRA-321, only two of the three intended
-writers actually stamp it:**
+writer most recently wrote the value. **As of INFRA-374, all three intended writers stamp
+it:**
 
 - `record_user_turn`'s refresh (§ C1 above) → `"user-prompt-submit"` — live.
 - `flex_build.py set-context-tokens` / `bump-context-tokens` (manual override /
   debugging escape hatch) → `"manual"` — live.
-- `hooks/post_tool_use.py`'s Task/Agent branch → `"post-tool-use"` — **NOT yet wired**.
-  `hooks/` is a protected path (`scope_guard.PROTECTED_GLOBS`); INFRA-321's own § Out of
-  scope names this as the one exception that would require a hook edit, and instructs the
-  builder to report `BUILDER BLOCKED` rather than touch it. This is exactly what happened —
-  the PostToolUse writer's stamp is deferred to a follow-up row (`docs/cer/backlog.md`,
-  CER-129 annotation). Until that follow-up lands, a `context_current_tokens` value most
-  recently written by PostToolUse carries no source stamp (readers treat an absent/unknown
-  source exactly as before — no reader's behaviour depends on the field's presence).
+- `hooks/post_tool_use.py`'s Task/Agent branch → `"post-tool-use"` — live (INFRA-374).
+  The stamp is written as a literal inside the existing `_mutate` read-modify-write, only
+  when `live_tokens is not None`, matching the guard the other two writers already apply.
 
 ### Codified comingling — FLAGGED FOR REMOVAL AT HARNESS006 (RESOLVED, INFRA-321)
 
-`CLAUDE.build.md:320-326` used to compare `threshold − N` (remaining window) against the
-`story-cost-estimate` effort.db median and advise `/clear` — exactly the wrong cross-feed of
-the effort.db ≠ context-control invariant. **That advisory is gone: `CLAUDE.build.md` is now
-52 lines and contains no such comparison.**
-
-The original note treated that single advisory as the only comingled site and expected its
-removal (HARNESS006) to close the finding. It did not: **three other live consumers survived
-the comingling independently of `CLAUDE.build.md`**, none of which the original note
-anticipated —
-
-1. `context_health.py`'s `/clear` recommendation (subagent retry-burden vs. a rolling median,
-   with no reference to `context_current_tokens`),
-2. `context_budget_check.py`'s shared `context_budget_threshold` key (phase spend compared
-   against the same key the orchestrator gate uses), and
-3. the `/context` waypoints/misses queries (`effortDb.ts`) applying the orchestrator ceiling
-   formula to subagent cost and labelling the result "Near-miss blocks".
-
-INFRA-321 (Phase 114) is where each of the three was re-based onto the story-spend track
-without changing its underlying measurement — see § The two-track model above for the full
-per-consumer account. **No gate was weakened and no new gate was added**;
-`context_budget.decide()`'s decision logic is untouched by this story (only the § A4 ceiling-
-formula extraction touched it, and that extraction is arithmetic-preserving).
+See § The two-track model above for the current, live account of effort.db / context-control
+separation and the three consumer subsystems that were re-based on that distinction in INFRA-321.
 
 **Rejected direction (recorded, not silently declined):** deriving orchestrator headroom (or
 a `/clear` recommendation) from `effort.db` totals was considered and rejected — it is

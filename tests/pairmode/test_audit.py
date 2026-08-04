@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -19,8 +20,11 @@ from skills.pairmode.scripts.audit import (
     _enrich_scaffold_context,
     _check_ideology_staleness,
     _check_reconstruction_staleness,
+    _check_overrides_health,
+    _check_seeded_doc_drift,
     _load_overrides,
     SCAFFOLD_FILES,
+    SEEDED_COLD_START_DOCS,
 )
 from skills.pairmode.scripts import audit as _audit_mod
 
@@ -53,6 +57,17 @@ def _copy_canonical_files(project_dir: Path) -> None:
     context, _ = _load_project_context(project_dir)
 
     for dest_rel, template_rel in CANONICAL_FILES:
+        dest_path = project_dir / dest_rel
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            rendered = _JINJA_ENV.get_template(template_rel).render(**context)
+        except Exception:
+            rendered = "# placeholder\n"
+        dest_path.write_text(rendered, encoding="utf-8")
+
+    # Also render the seeded cold-start docs (CER-121/INFRA-381) so their
+    # dedicated drift check does not flag a clean baseline as MISSING/DRIFTED.
+    for dest_rel, template_rel in _audit_mod.SEEDED_COLD_START_DOCS:
         dest_path = project_dir / dest_rel
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -213,6 +228,16 @@ def _write_clean_scaffold_files(project_dir: Path) -> None:
             encoding="utf-8",
         )
 
+    # Write a well-formed .pairmode-overrides so it doesn't trigger MISSING/
+    # INCONSISTENT in baseline tests (CER-132, INFRA-372).
+    overrides_path = project_dir / ".pairmode-overrides"
+    if not overrides_path.exists():
+        overrides_path.write_text(
+            "# project-specific keep-my-extension declarations\n"
+            "CLAUDE.md:project-specific notes\n",
+            encoding="utf-8",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -363,6 +388,41 @@ class TestFormatAuditOutput:
         output = format_audit_output(result)
         assert "RECOMMENDATION" in output
         assert "sync" in output
+
+    def test_recommendation_names_pending_retirement_prune(self) -> None:
+        """INFRA-371 (CER-133 item 6): when a registry-matched retired section is
+        present downstream, RECOMMENDATION must name the pending prune, not report
+        a generic apply-changes message that could be mistaken for up-to-date."""
+        result = self._make_result(
+            extra=[
+                AuditItem(
+                    file=".claude/agents/reviewer.md",
+                    section="## review checklist",
+                    description="EXTRA section",
+                )
+            ]
+        )
+        output = format_audit_output(result)
+        assert "RECOMMENDATION" in output
+        assert "Pending retirement prune" in output
+        assert ".claude/agents/reviewer.md" in output.split("RECOMMENDATION")[1]
+        assert "## review checklist" in output.split("RECOMMENDATION")[1]
+        assert "INFRA-241" in output.split("RECOMMENDATION")[1]
+
+    def test_recommendation_generic_when_no_pending_prune(self) -> None:
+        """A non-retired EXTRA (WARN, not ERROR) must not trigger the pending-prune
+        RECOMMENDATION wording."""
+        result = self._make_result(
+            extra=[
+                AuditItem(
+                    file=".claude/agents/builder.md",
+                    section="custom",
+                    description="Custom section",
+                )
+            ]
+        )
+        output = format_audit_output(result)
+        assert "Pending retirement prune" not in output
 
     def test_empty_sections_omitted(self) -> None:
         result = self._make_result()  # no items anywhere
@@ -2179,6 +2239,7 @@ class TestAuditOverridesSuppress:
         (tmp_path / "CLAUDE.md").unlink()
 
         # No .pairmode-overrides file
+        (tmp_path / ".pairmode-overrides").unlink()
         assert not (tmp_path / ".pairmode-overrides").exists()
 
         result = audit_project(tmp_path)
@@ -2186,6 +2247,100 @@ class TestAuditOverridesSuppress:
         assert len(claude_missing) > 0, (
             "Expected MISSING items for CLAUDE.md when no .pairmode-overrides file"
         )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-372 (CER-132) — .pairmode-overrides audit surface
+# ---------------------------------------------------------------------------
+
+
+class TestCheckOverridesHealth:
+    """Unit tests for _check_overrides_health."""
+
+    def test_absent_returns_none(self, tmp_path: Path) -> None:
+        result = _check_overrides_health(tmp_path)
+        assert result is None
+
+    def test_valid_content_returns_empty_list(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, ["CLAUDE.md:review checklist"])
+        result = _check_overrides_health(tmp_path)
+        assert result == []
+
+    def test_malformed_line_returns_diagnostics(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, ["CLAUDE.md review checklist"])
+        result = _check_overrides_health(tmp_path)
+        assert result is not None
+        assert len(result) == 1
+        assert "line 1" in result[0]
+
+    def test_empty_section_key_is_malformed(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, ["CLAUDE.md:"])
+        result = _check_overrides_health(tmp_path)
+        assert result is not None
+        assert len(result) == 1
+        assert "line 1" in result[0]
+
+    def test_empty_file_path_is_malformed(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, [":review checklist"])
+        result = _check_overrides_health(tmp_path)
+        assert result is not None
+        assert len(result) == 1
+        assert "line 1" in result[0]
+
+
+class TestAuditOverridesHealthIntegration:
+    """Integration: audit_project reports .pairmode-overrides existence/parse health."""
+
+    def test_missing_overrides_file_yields_missing_item(self, tmp_path: Path) -> None:
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        (tmp_path / ".pairmode-overrides").unlink()
+        assert not (tmp_path / ".pairmode-overrides").exists()
+
+        result = audit_project(tmp_path)
+        overrides_missing = [i for i in result.missing if i.file == ".pairmode-overrides"]
+        assert len(overrides_missing) == 1, (
+            f"Expected exactly one MISSING item for .pairmode-overrides, got: {result.missing}"
+        )
+
+    def test_malformed_overrides_yields_inconsistent_item_naming_line(
+        self, tmp_path: Path
+    ) -> None:
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        _write_overrides(tmp_path, ["CLAUDE.md:review checklist", "bad line no colon"])
+
+        result = audit_project(tmp_path)
+        overrides_inconsistent = [
+            i for i in result.inconsistent if i.file == ".pairmode-overrides"
+        ]
+        assert len(overrides_inconsistent) == 1, (
+            f"Expected exactly one INCONSISTENT item for .pairmode-overrides, got: "
+            f"{result.inconsistent}"
+        )
+        assert "line 2" in overrides_inconsistent[0].description
+
+    def test_valid_nontemplate_overrides_yields_no_finding(self, tmp_path: Path) -> None:
+        """A well-formed .pairmode-overrides is never flagged, regardless of how
+        far its content diverges from .pairmode-overrides.j2 — content is
+        project-owned and body comparison is deliberately not performed."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        _write_overrides(
+            tmp_path,
+            [
+                "# a project-specific comment unlike anything in the template",
+                "some/totally/custom/file.md:a made-up section",
+            ],
+        )
+
+        result = audit_project(tmp_path)
+        overrides_missing = [i for i in result.missing if i.file == ".pairmode-overrides"]
+        overrides_inconsistent = [
+            i for i in result.inconsistent if i.file == ".pairmode-overrides"
+        ]
+        assert overrides_missing == []
+        assert overrides_inconsistent == []
 
 
 # ---------------------------------------------------------------------------
@@ -2544,20 +2699,21 @@ class TestExtraOverrideVisibility:
 # Known parity gaps: bootstrap-seeded surfaces not yet tracked by any audit
 # surface, each held open by a live CER backlog row. When a gap is closed,
 # test_known_gaps_are_still_real_gaps fails and the entry must be removed.
-_KNOWN_GAPS: dict[str, str] = {
-    # Seeded, deny-listed, tracked by nothing — full body tracking is gated.
-    "docs/architecture.md": "CER-121",
-    "docs/checkpoints.md": "CER-121",
-    # Seeded by bootstrap, consumed by audit/sync as the override mechanism,
-    # but no audit surface checks its existence or health.
-    ".pairmode-overrides": "CER-132",
-}
+_KNOWN_GAPS: dict[str, str] = {}
 
 # Tracked outside CANONICAL_FILES/SCAFFOLD_FILES via dedicated audit checks:
-# audit_project reports file-missing and STALE PLACEHOLDER findings for these
-# through _check_ideology_staleness / _check_reconstruction_staleness.
+# audit_project reports file-missing, STALE PLACEHOLDER, and (for the seeded
+# cold-start docs) DRIFTED findings for these through
+# _check_ideology_staleness / _check_reconstruction_staleness /
+# _check_overrides_health (CER-132) / _check_seeded_doc_drift (CER-121).
 _DEDICATED_CHECK_FILES: frozenset[str] = frozenset(
-    ["docs/ideology.md", "docs/reconstruction.md"]
+    [
+        "docs/ideology.md",
+        "docs/reconstruction.md",
+        ".pairmode-overrides",
+        "docs/architecture.md",
+        "docs/checkpoints.md",
+    ]
 )
 
 
@@ -2611,3 +2767,276 @@ class TestBootstrapScaffoldAuditParity:
             f"_KNOWN_GAPS entries are now audit-tracked — remove them: "
             f"{stale_exceptions}"
         )
+
+
+# ---------------------------------------------------------------------------
+# CER-121 (INFRA-381) — seeded cold-start doc drift/staleness tracking
+# ---------------------------------------------------------------------------
+
+
+def _render_seeded_template(template_rel: str, context: dict | None = None) -> str:
+    if context is None:
+        context = {}
+    return _audit_mod._JINJA_ENV.get_template(template_rel).render(**context)
+
+
+ARCHITECTURE_PAIR = ("docs/architecture.md", "docs/architecture.md.j2")
+CHECKPOINTS_PAIR = ("docs/checkpoints.md", "docs/checkpoints.md.j2")
+
+
+class TestSeededColdStartDocsConstant:
+    """SEEDED_COLD_START_DOCS declares exactly the two seeded-doc pairs (Ensures 1)."""
+
+    def test_exact_pairs(self) -> None:
+        assert SEEDED_COLD_START_DOCS == [ARCHITECTURE_PAIR, CHECKPOINTS_PAIR]
+
+    def test_not_in_canonical_or_scaffold_files(self) -> None:
+        """CANONICAL_FILES/SCAFFOLD_FILES stay untouched (Instructions 4)."""
+        canonical_dests = {d for d, _ in _audit_mod.CANONICAL_FILES}
+        scaffold_dests = {d for d, _ in SCAFFOLD_FILES}
+        for dest, _template in SEEDED_COLD_START_DOCS:
+            assert dest not in canonical_dests
+            assert dest not in scaffold_dests
+
+
+class TestCheckSeededDocDrift:
+    """Unit tests for _check_seeded_doc_drift."""
+
+    def test_missing_file_returns_none(self, tmp_path: Path) -> None:
+        assert _check_seeded_doc_drift(tmp_path, ARCHITECTURE_PAIR) is None
+
+    def test_missing_checkpoints_file_returns_none(self, tmp_path: Path) -> None:
+        assert _check_seeded_doc_drift(tmp_path, CHECKPOINTS_PAIR) is None
+
+    def test_stale_when_all_bodies_placeholder(self, tmp_path: Path) -> None:
+        (tmp_path / "docs").mkdir(parents=True)
+        content = (
+            "# testproject — Architecture\n\n"
+            "## What testproject is\n\n"
+            "_(not yet specified)_\n\n"
+            "## Stack\n\n"
+            "_(not yet specified)_\n"
+        )
+        (tmp_path / "docs" / "architecture.md").write_text(content, encoding="utf-8")
+        assert _check_seeded_doc_drift(tmp_path, ARCHITECTURE_PAIR) == "STALE"
+
+    def test_drifted_when_template_heading_missing(self, tmp_path: Path) -> None:
+        (tmp_path / "docs").mkdir(parents=True)
+        content = (
+            "# testproject — Architecture\n\n"
+            "## What testproject is\n\n"
+            "Real content about what this project is.\n"
+        )
+        (tmp_path / "docs" / "architecture.md").write_text(content, encoding="utf-8")
+        assert _check_seeded_doc_drift(tmp_path, ARCHITECTURE_PAIR) == "DRIFTED"
+
+    def test_ok_when_all_template_headings_present(self, tmp_path: Path) -> None:
+        (tmp_path / "docs").mkdir(parents=True)
+        context, _ = _load_project_context(tmp_path)
+        rendered = _render_seeded_template("docs/architecture.md.j2", context)
+        (tmp_path / "docs" / "architecture.md").write_text(rendered, encoding="utf-8")
+        assert _check_seeded_doc_drift(tmp_path, ARCHITECTURE_PAIR) == "OK"
+
+    def test_ok_when_project_has_extra_sections_beyond_template(
+        self, tmp_path: Path
+    ) -> None:
+        """Extra sections present in the project file but absent from the
+        template must never trigger DRIFTED (Ensures 4)."""
+        (tmp_path / "docs").mkdir(parents=True)
+        context, _ = _load_project_context(tmp_path)
+        rendered = _render_seeded_template("docs/architecture.md.j2", context)
+        rendered += "\n## Extra project-specific section\n\nSome custom content here.\n"
+        (tmp_path / "docs" / "architecture.md").write_text(rendered, encoding="utf-8")
+        assert _check_seeded_doc_drift(tmp_path, ARCHITECTURE_PAIR) == "OK"
+
+    def test_checkpoints_ok_when_rendered_verbatim(self, tmp_path: Path) -> None:
+        (tmp_path / "docs").mkdir(parents=True)
+        context, _ = _load_project_context(tmp_path)
+        rendered = _render_seeded_template("docs/checkpoints.md.j2", context)
+        (tmp_path / "docs" / "checkpoints.md").write_text(rendered, encoding="utf-8")
+        assert _check_seeded_doc_drift(tmp_path, CHECKPOINTS_PAIR) == "OK"
+
+    def test_checkpoints_drifted_when_customized_away_from_template_heading(
+        self, tmp_path: Path
+    ) -> None:
+        """A project's real checkpoints.md replaces the template's placeholder
+        heading with real checkpoint names — the template heading itself is
+        then absent, which is the exact DRIFTED condition (bounded to heading-set,
+        not body content)."""
+        (tmp_path / "docs").mkdir(parents=True)
+        content = (
+            "# testproject Pairmode — Checkpoints\n\n"
+            "## cp1-real-phase-complete\n\n"
+            "**Phase:** 1\n"
+        )
+        (tmp_path / "docs" / "checkpoints.md").write_text(content, encoding="utf-8")
+        assert _check_seeded_doc_drift(tmp_path, CHECKPOINTS_PAIR) == "DRIFTED"
+
+
+class TestAuditSeededDocDriftIntegration:
+    """Integration: audit_project reports seeded cold-start doc findings."""
+
+    def _write_ok_architecture_and_checkpoints(self, project_dir: Path) -> None:
+        (project_dir / "docs").mkdir(parents=True, exist_ok=True)
+        # A real pairmode_context.json is required so DRIFTED comparison (which
+        # renders the template with the saved project context) is meaningful —
+        # audit_project suppresses DRIFTED findings when context is missing,
+        # mirroring the canonical-file body-diff suppression.
+        companion = project_dir / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        (companion / "pairmode_context.json").write_text(
+            json.dumps({"project_name": "testproject"}), encoding="utf-8"
+        )
+        context, _ = _load_project_context(project_dir)
+        for dest_rel, template_rel in SEEDED_COLD_START_DOCS:
+            rendered = _render_seeded_template(template_rel, context)
+            (project_dir / dest_rel).write_text(rendered, encoding="utf-8")
+
+    def test_missing_architecture_md_yields_missing_item(self, tmp_path: Path) -> None:
+        _write_state(tmp_path)
+        self._write_ok_architecture_and_checkpoints(tmp_path)
+        (tmp_path / "docs" / "architecture.md").unlink()
+
+        result = audit_project(tmp_path)
+        missing = [i for i in result.missing if i.file == "docs/architecture.md"]
+        assert len(missing) == 1, (
+            f"Expected exactly one MISSING item for docs/architecture.md, got: {result.missing}"
+        )
+
+    def test_missing_checkpoints_md_yields_missing_item(self, tmp_path: Path) -> None:
+        _write_state(tmp_path)
+        self._write_ok_architecture_and_checkpoints(tmp_path)
+        (tmp_path / "docs" / "checkpoints.md").unlink()
+
+        result = audit_project(tmp_path)
+        missing = [i for i in result.missing if i.file == "docs/checkpoints.md"]
+        assert len(missing) == 1, (
+            f"Expected exactly one MISSING item for docs/checkpoints.md, got: {result.missing}"
+        )
+
+    def test_no_finding_when_ok(self, tmp_path: Path) -> None:
+        _write_state(tmp_path)
+        self._write_ok_architecture_and_checkpoints(tmp_path)
+
+        result = audit_project(tmp_path)
+        seeded_files = {dest for dest, _t in SEEDED_COLD_START_DOCS}
+        missing = [i for i in result.missing if i.file in seeded_files]
+        inconsistent = [i for i in result.inconsistent if i.file in seeded_files]
+        assert missing == []
+        assert inconsistent == []
+
+    def test_stale_architecture_md_yields_stale_placeholder_finding(
+        self, tmp_path: Path
+    ) -> None:
+        _write_state(tmp_path)
+        self._write_ok_architecture_and_checkpoints(tmp_path)
+        (tmp_path / "docs" / "architecture.md").write_text(
+            "## What testproject is\n\n_(not yet specified)_\n", encoding="utf-8"
+        )
+
+        result = audit_project(tmp_path)
+        stale = [
+            i
+            for i in result.inconsistent
+            if i.file == "docs/architecture.md" and "STALE PLACEHOLDER" in i.description
+        ]
+        assert len(stale) == 1, f"Expected one STALE PLACEHOLDER finding, got: {result.inconsistent}"
+
+    def test_drifted_architecture_md_names_missing_heading(self, tmp_path: Path) -> None:
+        _write_state(tmp_path)
+        self._write_ok_architecture_and_checkpoints(tmp_path)
+        # Remove the "## Stack" section entirely from the project file, keeping
+        # the rest — the template heading is now missing from the project.
+        arch_path = tmp_path / "docs" / "architecture.md"
+        text = arch_path.read_text(encoding="utf-8")
+        drifted = re.sub(
+            r"^## Stack\n.*?(?=^---|\Z)",
+            "",
+            text,
+            count=1,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        assert drifted != text, "Expected the ## Stack section to be removable from the fixture"
+        arch_path.write_text(drifted, encoding="utf-8")
+
+        result = audit_project(tmp_path)
+        drifted_items = [
+            i
+            for i in result.inconsistent
+            if i.file == "docs/architecture.md" and "DRIFTED" in i.description
+        ]
+        assert len(drifted_items) == 1, f"Expected one DRIFTED finding, got: {result.inconsistent}"
+        assert "stack" in drifted_items[0].section
+
+    def test_extra_project_section_is_not_a_finding(self, tmp_path: Path) -> None:
+        """Ensures 4: extra project-only sections never produce a finding."""
+        _write_state(tmp_path)
+        self._write_ok_architecture_and_checkpoints(tmp_path)
+        arch_path = tmp_path / "docs" / "architecture.md"
+        with arch_path.open("a", encoding="utf-8") as f:
+            f.write("\n---\n\n## Extra project-specific section\n\nCustom content.\n")
+
+        result = audit_project(tmp_path)
+        extra = [i for i in result.extra if i.file == "docs/architecture.md"]
+        inconsistent = [i for i in result.inconsistent if i.file == "docs/architecture.md"]
+        missing = [i for i in result.missing if i.file == "docs/architecture.md"]
+        assert extra == [], "Extra sections on seeded docs must never be reported at all"
+        assert inconsistent == []
+        assert missing == []
+
+    def test_drifted_finding_suppressed_by_overrides(self, tmp_path: Path) -> None:
+        """Ensures 6: a DRIFTED finding is suppressed when the (file, heading)
+        pair is present in .pairmode-overrides."""
+        _write_state(tmp_path)
+        self._write_ok_architecture_and_checkpoints(tmp_path)
+        arch_path = tmp_path / "docs" / "architecture.md"
+        text = arch_path.read_text(encoding="utf-8")
+        drifted = re.sub(
+            r"^## Stack\n.*?(?=^---|\Z)",
+            "",
+            text,
+            count=1,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        arch_path.write_text(drifted, encoding="utf-8")
+
+        # Without the override, DRIFTED for '## stack' is reported.
+        result_without = audit_project(tmp_path)
+        drifted_without = [
+            i
+            for i in result_without.inconsistent
+            if i.file == "docs/architecture.md" and i.section == "## stack"
+        ]
+        assert len(drifted_without) == 1
+
+        _write_overrides(tmp_path, ["docs/architecture.md:## stack"])
+        result_with = audit_project(tmp_path)
+        drifted_with = [
+            i
+            for i in result_with.inconsistent
+            if i.file == "docs/architecture.md" and i.section == "## stack"
+        ]
+        assert drifted_with == [], (
+            f"Expected DRIFTED for '## stack' to be suppressed by .pairmode-overrides, "
+            f"got: {drifted_with}"
+        )
+
+    def test_format_audit_output_renders_drifted_finding(self, tmp_path: Path) -> None:
+        """Ensures 5: format_audit_output renders these findings, not drops them."""
+        _write_state(tmp_path)
+        self._write_ok_architecture_and_checkpoints(tmp_path)
+        arch_path = tmp_path / "docs" / "architecture.md"
+        text = arch_path.read_text(encoding="utf-8")
+        drifted = re.sub(
+            r"^## Stack\n.*?(?=^---|\Z)",
+            "",
+            text,
+            count=1,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        arch_path.write_text(drifted, encoding="utf-8")
+
+        result = audit_project(tmp_path)
+        output = format_audit_output(result)
+        assert "docs/architecture.md" in output
+        assert "DRIFTED" in output

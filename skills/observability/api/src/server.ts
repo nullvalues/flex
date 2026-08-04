@@ -136,15 +136,15 @@ async function main(): Promise<void> {
 
   const app = await buildServer(host);
 
-  if (!isLoopbackHost(host)) {
-    const allowedOriginsRaw = process.env.FLEX_OBS_ALLOWED_ORIGINS;
-    const corsDescription =
-      resolveCorsOrigin(host, allowedOriginsRaw) === false
-        ? 'all cross-origin requests are denied — set FLEX_OBS_ALLOWED_ORIGINS to permit specific origins'
-        : `allowed origins: ${allowedOriginsRaw}`;
+  // CER-042 (INFRA-378): warn only in the no-allowlist deny-all case — once an
+  // operator has explicitly set FLEX_OBS_ALLOWED_ORIGINS the exposure is a
+  // named, intentional choice and does not need a repeated startup warning.
+  if (!isLoopbackHost(host) && resolveCorsOrigin(host, process.env.FLEX_OBS_ALLOWED_ORIGINS) === false) {
     // eslint-disable-next-line no-console
     console.error(
-      `flex-observability api is binding to ${host}, which is reachable beyond this machine; CORS policy: ${corsDescription}`,
+      `flex-observability api is binding to ${host} (FLEX_OBS_HOST is set to a non-loopback address); ` +
+        'all cross-origin requests are denied because FLEX_OBS_ALLOWED_ORIGINS is unset — set it to a ' +
+        'comma-separated list of allowed origins to permit cross-origin access.',
     );
   }
 

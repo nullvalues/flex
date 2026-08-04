@@ -1713,7 +1713,21 @@ def bootstrap(
         operator_extension_dest = (
             project_path / "docs" / "narratives" / "OPERATOR" / "OPERATOR-010-project.md"
         )
-        operator_extension_content = (
+        # CER-163: the frontmatter block below is fixed, static YAML — none
+        # of its field values are interpolated from operator_note — and is
+        # fully emitted and closed (both `---` fences) before the note is
+        # appended in the body, below. This ordering is what makes the
+        # frontmatter block immune to the note's content: no matter what
+        # the note contains — a bare `---` line, a `#`-prefixed line,
+        # embedded `:`/`"`/newlines — it can only ever land after the
+        # closing fence, so no line of the note can open or close a
+        # frontmatter fence. Built as two separate strings (rather than one
+        # combined literal) so a future edit cannot accidentally interleave
+        # note content between the two fences without visibly restructuring
+        # this block. The note is written verbatim, never sanitised or
+        # stripped — the operator's own words must stay recoverable from
+        # the rendered file.
+        operator_extension_frontmatter = (
             "---\n"
             "id: OPERATOR-010\n"
             "role: OPERATOR\n"
@@ -1721,11 +1735,14 @@ def bootstrap(
             "status: draft\n"
             "stories: []\n"
             "---\n"
+        )
+        operator_extension_body = (
             "\n"
             "## Narrative\n"
             "\n"
             f"{operator_note}\n"
         )
+        operator_extension_content = operator_extension_frontmatter + operator_extension_body
         _write_file(
             operator_extension_dest,
             operator_extension_content,
