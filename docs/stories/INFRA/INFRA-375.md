@@ -21,6 +21,7 @@ touches:
   - skills/pairmode/templates/agents/shadow-reviewer.md.j2
   - .claude/agents/
   - docs/architecture.md
+  - tests/pairmode/test_procedure_skills.py
 narrative_roles: []
 ---
 
