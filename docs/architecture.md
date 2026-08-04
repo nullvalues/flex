@@ -1357,6 +1357,25 @@ planned (and the story that would have executed them, `docs/stories/RELEASE/RELE
 is the canonical statement of the release channel's disposition; the cutover runbook and any story
 file defer to it, not the reverse, on any disagreement.
 
+**Resolution rule for procedure/skill docs vs. `flex_build.py` script invocations (CER-160).** A
+hardcoded `/mnt/work/flex-harness`-absolute path resolves into the release channel described above,
+which — by the mechanics just documented — only advances at checkpoint-tag. Any worker that resolves
+such a path is therefore running last-checkpoint's copy of whatever it points at, by construction,
+regardless of what has already landed in the current phase's working tree. This is the correct,
+deliberate behavior for `flex_build.py` **script** invocations (`CLAUDE.build.md`'s `next-action`,
+`create-story-worktree`, `merge-story-worktree`, and similar calls): the whole point of the channel
+is that the orchestrator drives the build loop with a toolchain that has already passed the three
+checkpoint gates, not with mid-phase, ungated edits to itself (see "Why a separate worktree instead
+of pointing the loop at `main`" above). It is the wrong behavior for procedure/skill **docs** — the
+`.md`/`.md.j2` pointer paragraphs that tell a spawned worker which procedure file to read — because
+those documents are meant to reflect the current phase's in-progress edits to the very procedure a
+builder or reviewer is about to follow; resolving them through the channel silently re-introduces a
+stale procedure mid-phase (reproduced live in INFRA-362's Phase 118 dogfood exercise, CER-160).
+Procedure/skill docs therefore prefer the project's own in-tree copy at the same repo-relative path
+when it exists, falling back to the harness-absolute path only for a bootstrapped consuming project
+that does not vendor `skills/pairmode/` — while `flex_build.py` script invocations stay pinned to the
+channel on purpose, unchanged by this rule.
+
 ---
 
 ## The canonical spec format

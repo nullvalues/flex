@@ -27,10 +27,27 @@ You will be given:
 
 ## Procedure
 
-Load and follow the security audit procedure from the plugin-versioned skill:
+Load and follow the security audit procedure from the plugin-versioned skill.
+Prefer this project's own in-tree copy first, at the repo-relative path
+below, when it exists — a harness-absolute path resolves into the release
+channel, which only advances at checkpoint-tag, so content resolved that way
+can be a stale, pre-checkpoint-promotion copy mid-phase (CER-160):
 
 ```
 skills/pairmode/skills/security-auditor/procedure.md
+```
+
+Fall back to the path below, rendered absolute (anchored on the pairmode
+install this project was bootstrapped/synced from, via the existing
+`pairmode_scripts_dir` context variable), only when the in-tree copy above
+does not exist — a spawned worker's cwd is its own per-story worktree, and a
+bootstrapped consuming project that has not vendored `skills/pairmode/` has
+no in-tree copy to prefer, so a bare relative pointer alone does not resolve
+for that case (INFRA-304 E13, verified against a bootstrapped fixture; see
+INFRA-304 § Evidence):
+
+```
+/mnt/work/flex-harness/skills/pairmode/scripts/../../../skills/pairmode/skills/security-auditor/procedure.md
 ```
 
 Read that file in full before doing anything else. The security checklist,
