@@ -2,7 +2,7 @@
 id: INFRA-377
 rail: INFRA
 title: Gate abs_path disclosure in observability API GET responses (CER-43)
-status: draft
+status: complete
 phase: "119"
 story_class: code
 auth_gated: false
