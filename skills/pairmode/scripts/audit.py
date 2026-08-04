@@ -407,34 +407,82 @@ def _find_lesson_for_file(lessons: list[dict], file_path: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _load_overrides(project_dir: Path) -> set[tuple[str, str]]:
-    """Return set of (relative_file_path, normalised_section_key) pairs.
+def _load_overrides_with_diagnostics(
+    project_dir: Path,
+) -> tuple[set[tuple[str, str]], list[str]]:
+    """Return (pairs, malformed_line_messages) for ``.pairmode-overrides``.
 
     Parses ``project_dir / ".pairmode-overrides"``. Blank lines and lines
     starting with ``#`` are skipped. Each valid line is split on ``:``
     (max one split) into ``(file_path, section_key)``; both parts are
     stripped of leading/trailing whitespace.
+
+    A non-blank, non-comment line is malformed when it has no ``:`` or has
+    an empty file-path or section-key after stripping. Malformed lines are
+    reported (with their 1-based line number) rather than silently dropped
+    (CER-132) but do not contribute a pair to the returned set.
     """
     overrides_path = project_dir / ".pairmode-overrides"
     if not overrides_path.exists():
-        return set()
+        return set(), []
 
     result: set[tuple[str, str]] = set()
+    diagnostics: list[str] = []
     try:
         text = overrides_path.read_text(encoding="utf-8")
     except OSError:
-        return result
+        return result, diagnostics
 
-    for line in text.splitlines():
+    for line_number, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
         if ":" not in stripped:
+            diagnostics.append(
+                f"line {line_number}: missing ':' separator — expected 'file_path: section_key'"
+            )
             continue
         file_path, section_key = stripped.split(":", 1)
-        result.add((file_path.strip(), section_key.strip()))
+        file_path = file_path.strip()
+        section_key = section_key.strip()
+        if not file_path or not section_key:
+            diagnostics.append(
+                f"line {line_number}: empty file-path or section-key after splitting on ':'"
+            )
+            continue
+        result.add((file_path, section_key))
 
-    return result
+    return result, diagnostics
+
+
+def _load_overrides(project_dir: Path) -> set[tuple[str, str]]:
+    """Return set of (relative_file_path, normalised_section_key) pairs.
+
+    Delegates to ``_load_overrides_with_diagnostics`` and discards the
+    malformed-line diagnostics. Signature and return type unchanged (this
+    story's four in-tree callers rely on both).
+    """
+    pairs, _diagnostics = _load_overrides_with_diagnostics(project_dir)
+    return pairs
+
+
+def _check_overrides_health(project_dir: Path) -> list[str] | None:
+    """Existence + parse-health check for ``.pairmode-overrides`` (CER-132).
+
+    Returns None when the file is absent, an empty list when it parses
+    cleanly, and the malformed-line diagnostic messages otherwise. Content
+    that merely diverges from ``.pairmode-overrides.j2`` is never flagged —
+    the file is project-owned, so body/section comparison would be a false-
+    drift generator (that is why ``.pairmode-overrides`` is not in
+    CANONICAL_FILES/SCAFFOLD_FILES). This dedicated check, in the style of
+    ``_check_ideology_staleness``/``_check_reconstruction_staleness``, is
+    the tracking surface instead.
+    """
+    overrides_path = project_dir / ".pairmode-overrides"
+    if not overrides_path.exists():
+        return None
+    _pairs, diagnostics = _load_overrides_with_diagnostics(project_dir)
+    return diagnostics
 
 
 # ---------------------------------------------------------------------------
@@ -664,6 +712,31 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
             )
         )
     # "OK" → no finding
+
+    # .pairmode-overrides existence + parse-health check (CER-132). Body/section
+    # comparison is deliberately not used — the file's content is project-owned,
+    # so this is the dedicated tracking surface instead of a CANONICAL_FILES/
+    # SCAFFOLD_FILES entry.
+    overrides_diagnostics = _check_overrides_health(project_dir)
+    if overrides_diagnostics is None:
+        result.missing.append(
+            AuditItem(
+                file=".pairmode-overrides",
+                section="__file__",
+                description=(
+                    "File missing entirely — run bootstrap to generate .pairmode-overrides"
+                ),
+            )
+        )
+    elif overrides_diagnostics:
+        result.inconsistent.append(
+            AuditItem(
+                file=".pairmode-overrides",
+                section="__content__",
+                description="; ".join(overrides_diagnostics),
+            )
+        )
+    # empty list → parses cleanly, no finding
 
     return result
 

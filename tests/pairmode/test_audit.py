@@ -19,6 +19,7 @@ from skills.pairmode.scripts.audit import (
     _enrich_scaffold_context,
     _check_ideology_staleness,
     _check_reconstruction_staleness,
+    _check_overrides_health,
     _load_overrides,
     SCAFFOLD_FILES,
 )
@@ -210,6 +211,16 @@ def _write_clean_scaffold_files(project_dir: Path) -> None:
             "Performance: on par. Correctness: exceeds original.\n\n"
             "## Summary verdict\n\n"
             "Strong alignment with ideology.\n",
+            encoding="utf-8",
+        )
+
+    # Write a well-formed .pairmode-overrides so it doesn't trigger MISSING/
+    # INCONSISTENT in baseline tests (CER-132, INFRA-372).
+    overrides_path = project_dir / ".pairmode-overrides"
+    if not overrides_path.exists():
+        overrides_path.write_text(
+            "# project-specific keep-my-extension declarations\n"
+            "CLAUDE.md:project-specific notes\n",
             encoding="utf-8",
         )
 
@@ -2214,6 +2225,7 @@ class TestAuditOverridesSuppress:
         (tmp_path / "CLAUDE.md").unlink()
 
         # No .pairmode-overrides file
+        (tmp_path / ".pairmode-overrides").unlink()
         assert not (tmp_path / ".pairmode-overrides").exists()
 
         result = audit_project(tmp_path)
@@ -2221,6 +2233,100 @@ class TestAuditOverridesSuppress:
         assert len(claude_missing) > 0, (
             "Expected MISSING items for CLAUDE.md when no .pairmode-overrides file"
         )
+
+
+# ---------------------------------------------------------------------------
+# INFRA-372 (CER-132) — .pairmode-overrides audit surface
+# ---------------------------------------------------------------------------
+
+
+class TestCheckOverridesHealth:
+    """Unit tests for _check_overrides_health."""
+
+    def test_absent_returns_none(self, tmp_path: Path) -> None:
+        result = _check_overrides_health(tmp_path)
+        assert result is None
+
+    def test_valid_content_returns_empty_list(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, ["CLAUDE.md:review checklist"])
+        result = _check_overrides_health(tmp_path)
+        assert result == []
+
+    def test_malformed_line_returns_diagnostics(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, ["CLAUDE.md review checklist"])
+        result = _check_overrides_health(tmp_path)
+        assert result is not None
+        assert len(result) == 1
+        assert "line 1" in result[0]
+
+    def test_empty_section_key_is_malformed(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, ["CLAUDE.md:"])
+        result = _check_overrides_health(tmp_path)
+        assert result is not None
+        assert len(result) == 1
+        assert "line 1" in result[0]
+
+    def test_empty_file_path_is_malformed(self, tmp_path: Path) -> None:
+        _write_overrides(tmp_path, [":review checklist"])
+        result = _check_overrides_health(tmp_path)
+        assert result is not None
+        assert len(result) == 1
+        assert "line 1" in result[0]
+
+
+class TestAuditOverridesHealthIntegration:
+    """Integration: audit_project reports .pairmode-overrides existence/parse health."""
+
+    def test_missing_overrides_file_yields_missing_item(self, tmp_path: Path) -> None:
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        (tmp_path / ".pairmode-overrides").unlink()
+        assert not (tmp_path / ".pairmode-overrides").exists()
+
+        result = audit_project(tmp_path)
+        overrides_missing = [i for i in result.missing if i.file == ".pairmode-overrides"]
+        assert len(overrides_missing) == 1, (
+            f"Expected exactly one MISSING item for .pairmode-overrides, got: {result.missing}"
+        )
+
+    def test_malformed_overrides_yields_inconsistent_item_naming_line(
+        self, tmp_path: Path
+    ) -> None:
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        _write_overrides(tmp_path, ["CLAUDE.md:review checklist", "bad line no colon"])
+
+        result = audit_project(tmp_path)
+        overrides_inconsistent = [
+            i for i in result.inconsistent if i.file == ".pairmode-overrides"
+        ]
+        assert len(overrides_inconsistent) == 1, (
+            f"Expected exactly one INCONSISTENT item for .pairmode-overrides, got: "
+            f"{result.inconsistent}"
+        )
+        assert "line 2" in overrides_inconsistent[0].description
+
+    def test_valid_nontemplate_overrides_yields_no_finding(self, tmp_path: Path) -> None:
+        """A well-formed .pairmode-overrides is never flagged, regardless of how
+        far its content diverges from .pairmode-overrides.j2 — content is
+        project-owned and body comparison is deliberately not performed."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        _write_overrides(
+            tmp_path,
+            [
+                "# a project-specific comment unlike anything in the template",
+                "some/totally/custom/file.md:a made-up section",
+            ],
+        )
+
+        result = audit_project(tmp_path)
+        overrides_missing = [i for i in result.missing if i.file == ".pairmode-overrides"]
+        overrides_inconsistent = [
+            i for i in result.inconsistent if i.file == ".pairmode-overrides"
+        ]
+        assert overrides_missing == []
+        assert overrides_inconsistent == []
 
 
 # ---------------------------------------------------------------------------
@@ -2583,16 +2689,14 @@ _KNOWN_GAPS: dict[str, str] = {
     # Seeded, deny-listed, tracked by nothing — full body tracking is gated.
     "docs/architecture.md": "CER-121",
     "docs/checkpoints.md": "CER-121",
-    # Seeded by bootstrap, consumed by audit/sync as the override mechanism,
-    # but no audit surface checks its existence or health.
-    ".pairmode-overrides": "CER-132",
 }
 
 # Tracked outside CANONICAL_FILES/SCAFFOLD_FILES via dedicated audit checks:
 # audit_project reports file-missing and STALE PLACEHOLDER findings for these
-# through _check_ideology_staleness / _check_reconstruction_staleness.
+# through _check_ideology_staleness / _check_reconstruction_staleness /
+# _check_overrides_health (CER-132).
 _DEDICATED_CHECK_FILES: frozenset[str] = frozenset(
-    ["docs/ideology.md", "docs/reconstruction.md"]
+    ["docs/ideology.md", "docs/reconstruction.md", ".pairmode-overrides"]
 )
 
 
