@@ -50,7 +50,7 @@ unresolved operational findings.
 | INFRA-376 | Close shadow-reviewer Bash-bypass and bootstrap operator-note escaping gaps (CER-163) | complete |
 | INFRA-377 | Gate abs_path disclosure in observability API GET responses (CER-43) | complete |
 | INFRA-378 | Narrow observability API's CORS origin from wildcard for non-loopback overrides (CER-42) | complete |
-| INFRA-379 | Derive test_plugin_manifest.py's expected skill names from skills/*/SKILL.md glob (CER-109) | draft |
+| INFRA-379 | Derive test_plugin_manifest.py's expected skill names from skills/*/SKILL.md glob (CER-109) | complete |
 | INFRA-380 | Match suffixed phase filenames in story_new.py's phase-manifest lookup (CER-62) | draft |
 | INFRA-381 | Add drift/staleness tracking for bootstrap-seeded cold-start triad docs (CER-121) | draft |
 | INFRA-382 | Correct stale story statuses in docs/phases/phase-64.md's Stories table (CER-125) | draft |

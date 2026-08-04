@@ -2,7 +2,7 @@
 id: INFRA-379
 rail: INFRA
 title: Derive test_plugin_manifest.py's expected skill names from skills/*/SKILL.md glob (CER-109)
-status: draft
+status: complete
 phase: "119"
 story_class: code
 auth_gated: false
