@@ -2,7 +2,7 @@
 id: INFRA-380
 rail: INFRA
 title: Match suffixed phase filenames in story_new.py's phase-manifest lookup (CER-62)
-status: draft
+status: complete
 phase: "119"
 story_class: code
 auth_gated: false
