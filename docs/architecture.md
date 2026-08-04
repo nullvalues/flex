@@ -173,21 +173,38 @@ restart and an Agent spawn — this is the load-bearing check that proves hooks 
 fire (inline registration also lists as present in `claude plugin list`, so only the
 log write confirms functional hooks).
 
-**Important note on cache staleness:** Installs are version-keyed snapshot copies, not live
-links to the source tree. Reinstalling against an unchanged version string (e.g., `0.3.1`)
-silently serves the stale cache without re-fetching from the source directory. This machine's
-install required wiping `~/.claude/plugins/cache/nullvalues-flex/flex/0.3.1/` before
-reinstalling to pick up current code. The general discipline for this is documented in
-INFRA-384.
+**Version-bump-before-reinstall discipline (Phase 120 — INFRA-384).** Installs land in a
+**version-keyed cache directory**, `~/.claude/plugins/cache/nullvalues-flex/flex/<version>/` —
+not a live symlink to the source tree. Reinstalling against an unchanged version string
+silently no-ops onto whatever snapshot is already sitting in that directory; it does not
+re-fetch from the source checkout. This was observed directly, cross-machine: a second
+machine in this fleet was running a cache snapshot frozen at 2026-07-28 (commit `0bab2ee`,
+`plugin.json` version `0.3.0`) while its source tree had advanced roughly 30 commits ahead —
+41 file diffs under `skills/pairmode` alone, and `hooks/subagent_stop.py` (added after the
+snapshot was taken) missing from the cache entirely. Two remedies, either sufficient on its
+own: (1) bump the declared version in both `.claude-plugin/plugin.json` and
+`.claude-plugin/marketplace.json` *before* reinstalling, so the cache path changes and the
+install is forced to re-copy; or (2) delete the stale
+`~/.claude/plugins/cache/nullvalues-flex/flex/<version>/` directory first, so a same-version
+reinstall has nothing stale to no-op onto. This machine's own install required remedy (2)
+(manual cache wipe) to pick up current code; no version bump was performed as part of this
+story.
 
-**Known limitation:** `claude plugin disable flex@inline -s project` reports success and
-writes `"enabledPlugins": {"flex@inline": false}` to `.claude/settings.json`, but the inline
-registration persists in behavior (`~/.claude.json`'s `pluginUsage.flex@inline` counter keeps
-incrementing even after a full restart, and the inline-loaded hooks still fail). This is
-harmless: the inline copy's hooks fail exactly as before (no regression); the marketplace
-copy's hooks fire correctly; and no duplicate writes or corruption have been observed in
-`.companion/effort_recording.log` or `state.json`. The inline registration cannot be suppressed
-via CLI flags, so it is accepted as-is and both plugins coexist during the transition.
+**Accepted limitation: `@inline` / marketplace dual-registration (Phase 120 — INFRA-384).**
+Once a project both has its own `.claude-plugin/plugin.json` at cwd root (the inline
+auto-load path) and is also installed as a marketplace plugin, **both registrations load in
+the same session** — confirmed via `~/.claude.json`'s `pluginUsage` map incrementing
+`flex@inline` and `flex@nullvalues-flex` together across a full restart. `claude plugin
+disable flex@inline -s project` exits 0 and writes `"enabledPlugins": {"flex@inline": false}`
+to `.claude/settings.json`, but has no functional effect on the inline auto-load — the
+inline registration keeps loading and its `pluginUsage` counter keeps incrementing regardless.
+No supported way to suppress the inline registration was found. This is accepted as a closed
+limitation for this project, not an open bug: the accepted cost is wasted hook execution
+cycles (the inline copy's hooks still fail on exec exactly as documented above, so this is
+duplicated failed work, not duplicated side effects) and misleading `pluginUsage` telemetry,
+with no correctness regression — no duplicate writes or corruption have been observed in
+`.companion/effort_recording.log` or `state.json`. Worth filing upstream via `/feedback` as a
+recommendation, but not a requirement of this project's own build.
 
 **Campaign unblockers (Phase 112 — INFRA-293, INFRA-294, INFRA-295).** Three
 RELEASE-065 field defects fixed ahead of the blocked migration campaign
