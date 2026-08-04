@@ -96,6 +96,14 @@ ALLOWLIST = {
         "bootstrapped consumer with no vendored skills/pairmode/ (INFRA-304 "
         "E13); the in-tree branch wins in this repo (CER-160)."
     ),
+    ".claude/agents/shadow-reviewer.md": (
+        "fixed: in-tree-preferring pointer's fallback branch for a "
+        "bootstrapped consumer with no vendored skills/pairmode/ (INFRA-304 "
+        "E13); the in-tree branch wins in this repo (CER-160). Added by "
+        "INFRA-376 when this repo's own sync-agents was run for the first "
+        "time against the tenth (shadow-reviewer) template, closing the "
+        "dogfood gap CER-163 sub-finding (1) named."
+    ),
     # --- not-a-path: docstring/comment literals quoting the string as an
     # example of what a detector matches; no runtime path resolution happens.
     "skills/pairmode/scripts/hook_view.py": (

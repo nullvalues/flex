@@ -14,6 +14,7 @@ touches:
   - .claude/agents/shadow-reviewer.md
   - tests/pairmode/test_bootstrap.py
   - tests/pairmode/test_sync_agents.py
+  - tests/pairmode/test_harness_path_audit.py
 narrative_roles: []
 ---
 
@@ -46,6 +47,13 @@ operational findings.
   `scope_guard.py`/`pre_tool_use.py`. This story closes the remaining `Bash` route.
 - INFRA-366 complete — it routed the `OPERATOR-010-project.md` write through `_write_file`. This
   story hardens what that write emits, not how it is guarded.
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| tests/pairmode/test_harness_path_audit.py | new .claude/agents/shadow-reviewer.md entry (INFRA-376's sync-agents render) trips test_harness_path_audit.py's flex-harness-path allowlist; the allowlist row must be added alongside the shell | 2026-08-04T01:10:39Z |
 
 ## Ensures
 
