@@ -11,6 +11,7 @@ primary_files:
   - skills/observability/api/src/routes/user.ts
 touches:
   - docs/cer/backlog.md
+  - skills/observability/api/tests/user.test.ts
 narrative_roles: []
 ---
 
