@@ -2,7 +2,7 @@
 id: INFRA-372
 rail: INFRA
 title: Track .pairmode-overrides in CANONICAL_FILES/SCAFFOLD_FILES audit surfaces (CER-132)
-status: draft
+status: complete
 phase: "119"
 story_class: code
 auth_gated: false
