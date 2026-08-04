@@ -1,7 +1,8 @@
 ---
 id: "004"
 name: flex — Operational closeout and 0.3.1
-status: active
+status: complete
+closed_at: 2026-08-04
 reopened_at: 2026-08-04
 ---
 
@@ -41,7 +42,7 @@ phase 116 as the era's last act.
 | 117 | Build-loop integrity remediation: escalation ladder, dead handoffs, CER-append corruption | complete |
 | 118 | Narrative of Record: propagation, spec-writer/intent-reviewer integration, and mid-build steering | complete |
 | 119 | Spec precision (frozen exemplar), fundamental-doc trim, and CER backlog drain (era 004 closeout) | complete |
-| 120 | CER-159 hook-firing fix: marketplace install migration, era-004 stable close | planned |
+| 120 | CER-159 hook-firing fix: marketplace install migration, era-004 stable close | complete |
 
 ## Exit criterion (closed 2026-08-04, superseded — see Reopened below)
 
@@ -108,3 +109,39 @@ resolving the script path relative to `hooks.json`'s own location as a fallback)
 live-session verification step to confirm the hypothesis before/while building. Which
 phase number receives that spec (new phase in this era vs. era-005) is still pending
 operator direction.
+
+## Re-closed (2026-08-04, Phase 120)
+
+Phase 120 (INFRA-383/384/385) resolved CER-159 for real, not just hypothesized it. Root
+cause confirmed by direct reproduction: `hooks/post_tool_use.py` runs correctly standalone;
+`hooks.json`'s command invocation is what fails, because `${CLAUDE_PLUGIN_ROOT}` is never
+populated for `flex@inline`'s self-referential registration. Fix verified live, not just
+theorized: flex was registered as a real marketplace plugin (`flex@nullvalues-flex`, a
+directory-source marketplace pointed at a stable `cp-119` snapshot, decoupled from the live
+working tree), and hook firing was directly confirmed — first in an isolated scratch
+directory, then in this repo itself across a session restart (`effort_recording.log` and
+`state.json`'s `context_sessions` both show fresh, correctly-timestamped writes where before
+there were none since 2026-07-31).
+
+Two things intentionally NOT fixed, documented instead as accepted limitations (INFRA-384):
+the `flex@inline`/`flex@nullvalues-flex` dual registration cannot be suppressed (`claude
+plugin disable flex@inline -s project` reports success but has no functional effect — a
+Claude Code CLI gap, not something fixable in this project) but is harmless (the inline
+copy's hooks were already failing before any of this work, so its continued presence causes
+no regression); and the marketplace install's version-keyed cache requires a version bump
+before any future reinstall actually takes effect (no bump was needed for this phase — the
+one machine testing this had its stale cache manually wiped by the operator).
+
+Phase 120 also found and fixed a second, self-inflicted defect: three `tests/pairmode/`
+tests assumed no real flex plugin install would ever exist on a dev machine and scanned the
+literal `~/.claude/plugins/` unisolated — exactly the state the marketplace-install fix
+above creates for the first time. Fixed same-phase (INFRA-385, CER-168) by isolating those
+tests from real host state.
+
+This era is re-closed on Phase 120 (tag `cp-120`), superseding the `cp-119` closeout above.
+The original four-condition exit criterion (zero unresolved operational findings, docs
+matching code, a fleet that can receive the release, one active era) now holds without the
+CER-159 qualifier — CER-159 itself carries a RESOLVED marker, not just an evidence trail.
+Era 005 (already open as a placeholder since the original `cp-119` closeout) remains the
+correct home for whatever comes next; this phase did not need to open a new era to close
+this one.
