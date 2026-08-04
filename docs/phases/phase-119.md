@@ -44,7 +44,7 @@ unresolved operational findings.
 | INFRA-370 | Auto-derive model_selector.py's test file into touches: when the module is touched (CER-145) | complete |
 | INFRA-371 | Close four residual doc/scoping seams left by INFRA-311 canon-retirement (CER-133) | complete |
 | INFRA-372 | Track .pairmode-overrides in CANONICAL_FILES/SCAFFOLD_FILES audit surfaces (CER-132) | complete |
-| INFRA-373 | Log SubagentStop-relay worker-contract rejections instead of silently dropping them (CER-131) | draft |
+| INFRA-373 | Log SubagentStop-relay worker-contract rejections instead of silently dropping them (CER-131) | complete |
 | INFRA-374 | Wire the missing context_current_tokens_source writer in post_tool_use.py (CER-135) | draft |
 | INFRA-375 | Audit hardcoded flex-harness absolute paths for release-channel staleness risk (CER-160) | draft |
 | INFRA-376 | Close shadow-reviewer Bash-bypass and bootstrap operator-note escaping gaps (CER-163) | draft |

@@ -2,7 +2,7 @@
 id: INFRA-373
 rail: INFRA
 title: Log SubagentStop-relay worker-contract rejections instead of silently dropping them (CER-131)
-status: draft
+status: complete
 phase: "119"
 story_class: code
 auth_gated: false
