@@ -140,7 +140,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 116 | Cora upstream: methodology gates, resolver cadence, spec-time controls; backlog truth pass and 0.3.1 | complete | [phase-116.md](phase-116.md) |
 | 117 | Build-loop integrity remediation: escalation ladder, dead handoffs, CER-append corruption | complete | [phase-117.md](phase-117.md) |
 | 118 | Narrative of Record: propagation, spec-writer/intent-reviewer integration, and mid-build steering | complete | [phase-118.md](phase-118.md) |
-| 119 | Spec precision (frozen exemplar), fundamental-doc trim, and CER backlog drain (era 004 closeout) | planned | [phase-119.md](phase-119.md) |
+| 119 | Spec precision (frozen exemplar), fundamental-doc trim, and CER backlog drain (era 004 closeout) | complete | [phase-119.md](phase-119.md) |
 
 ---
 
