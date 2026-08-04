@@ -21,9 +21,17 @@ Migrate flex's own dogfooding sessions off the @inline self-referential plugin r
 
 | ID | Title | Status |
 |----|-------|--------|
+| INFRA-385 | Isolate test_pairmode_migrate.py/test_sync.py PreToolUse-registration tests from real ~/.claude/plugins/ state | draft |
 | INFRA-383 | Migrate flex's own build sessions from @inline to marketplace-installed plugin (CER-159) | draft |
 | INFRA-384 | Document version-bump-before-reinstall discipline and accepted @inline dual-registration limitation | draft |
-| INFRA-385 | Isolate test_pairmode_migrate.py/test_sync.py PreToolUse-registration tests from real ~/.claude/plugins/ state | draft |
+
+## Ordering
+
+INFRA-385 must build first, out of story-ID order: it fixes a test-suite-wide gate blocker
+(three tests in `tests/pairmode/` fail on any machine with a real flex marketplace install,
+independent of any story's own diff) that INFRA-383 hit and FAILed on for this exact reason
+on its first attempt. Building INFRA-383/384 before INFRA-385 lands would fail them again on
+the same unrelated cause.
 
 ## Schema delivery
 
