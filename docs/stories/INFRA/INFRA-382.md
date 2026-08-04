@@ -2,7 +2,7 @@
 id: INFRA-382
 rail: INFRA
 title: Correct stale story statuses in docs/phases/phase-64.md's Stories table (CER-125)
-status: draft
+status: complete
 phase: "119"
 story_class: code
 auth_gated: false
