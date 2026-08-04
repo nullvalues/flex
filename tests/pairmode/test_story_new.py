@@ -332,6 +332,37 @@ class TestAppendToPhaseGlobShapePin:
         assert result.exit_code == 0, result.output
         assert "SHAPE-001" in phase_path.read_text()
 
+    def test_prefix_phase_id_does_not_match_longer_id_manifest(self, tmp_path: pathlib.Path) -> None:
+        """CER-062 (Ensures 2): a phase id that is a strict prefix of another
+        phase id must not match that longer id's manifest — a request for
+        phase '119' must not match phase-1190-*.md or phase-2119-*.md.
+        The forbidden proxy (a loose `*<phase>*.md` glob) would wrongly match
+        both of these; the anchored `phase-{phase}-*.md` glob must not.
+        """
+        phases_dir = tmp_path / "docs" / "phases"
+        phases_dir.mkdir(parents=True)
+        stories_table = (
+            "# Phase\n\n## Stories\n\n| Story ID | Title | Status |\n|----------|-------|--------|\n"
+        )
+        unrelated_longer = phases_dir / "phase-1190-widget.md"
+        unrelated_longer.write_text(stories_table, encoding="utf-8")
+        unrelated_embedded = phases_dir / "phase-2119-widget.md"
+        unrelated_embedded.write_text(stories_table, encoding="utf-8")
+
+        rail_dir = tmp_path / "docs" / "stories" / "SHAPE"
+        rail_dir.mkdir(parents=True)
+
+        result = invoke(
+            ["--rail", "SHAPE", "--title", "Prefix miss", "--phase", "119", "--project-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        # Neither unrelated manifest was mutated.
+        assert "SHAPE-001" not in unrelated_longer.read_text()
+        assert "SHAPE-001" not in unrelated_embedded.read_text()
+        # And the not-found warning (Ensures 4) fired, naming phase '119'.
+        assert "119" in result.output
+        assert "could not be registered" in result.output
+
 
 class TestPhaseFlag:
     """--phase appends a row to the phase manifest."""
