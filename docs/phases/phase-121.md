@@ -26,6 +26,7 @@ Fold the to-030 stale-flex-harness hook repair into sync-all as an idempotent, o
 | INFRA-386 | Fold to-030 stale-flex-harness repair into sync-all as a fifth step | complete |
 | INFRA-387 | Apply to-030 stale-hook repair across remaining fleet repos | draft |
 | INFRA-389 | Fix bootstrap.py plugin-sourced-skip branches bypassing A7 stale-hook eviction (CER-169) | draft |
+| INFRA-390 | Trim CHANGELOG.md under the 200-line test gate | draft |
 
 ## Schema delivery
 
