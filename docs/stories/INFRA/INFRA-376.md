@@ -13,6 +13,7 @@ touches:
   - skills/pairmode/templates/agents/shadow-reviewer.md.j2
   - .claude/agents/shadow-reviewer.md
   - tests/pairmode/test_bootstrap.py
+  - tests/pairmode/test_sync_agents.py
 narrative_roles: []
 ---
 
