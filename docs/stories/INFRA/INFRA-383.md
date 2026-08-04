@@ -2,7 +2,7 @@
 id: INFRA-383
 rail: INFRA
 title: Migrate flex's own build sessions from @inline to marketplace-installed plugin (CER-159)
-status: draft
+status: complete
 phase: "120"
 story_class: doc
 auth_gated: false
