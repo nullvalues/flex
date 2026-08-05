@@ -12,6 +12,8 @@ primary_files:
   - skills/pairmode/scripts/audit.py
 touches:
   - tests/pairmode/test_audit.py
+  - tests/pairmode/test_overrides_boilerplate.py
+  - tests/pairmode/test_sync.py
 narrative_roles: []
 ---
 
@@ -39,6 +41,14 @@ forbids.
 
 - INFRA-391's `_split_sections` header-marker strip is present on main (it is).
 
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| tests/pairmode/test_overrides_boilerplate.py | pre-existing test asserted the pre-CER-170 stale ##-included key format the template docs are being fixed to stop documenting | 2026-08-05T22:25:09Z |
+
+| tests/pairmode/test_sync.py | pre-existing test computed its injected AuditItem.section key without the ## strip audit.py's real _split_sections already applies since CER-170; the dual-shape override-load strip added in this story exposes the latent mismatch, so the test's key derivation needs to match real audit output | 2026-08-05T22:32:15Z |
 ## Ensures
 
 1. `skills/pairmode/templates/.pairmode-overrides.j2` documents the current key format
