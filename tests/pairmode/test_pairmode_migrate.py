@@ -1948,6 +1948,101 @@ def test_to030_hooks_only_second_apply_run_is_noop(
     assert "would" not in output_3.lower() or "repair" not in output_3.lower()
 
 
+def test_to030_hooks_only_apply_evicts_stale_entry_when_plugin_already_provides_hook(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CER-169: a project carrying both a plugin-sourced hooks.json (the
+    plugin already provides PreToolUse for pre_tool_use.py) and a stale
+    machine-absolute pre_tool_use.py entry in the committed settings.json —
+    to-030 --hooks-only --apply correctly detects the offending entry and
+    echoes "[apply] relocating ...", and the eviction that message implies
+    actually happens: the committed file no longer contains the stale entry
+    afterward. Before this story, the two registrars both returned/continued
+    on the plugin-sourced-skip branch before ever reaching their own A7
+    eviction call, so this scenario echoed the relocating line but left the
+    stale entry in place (the exact gap INFRA-387's fleet re-scan needs
+    closed)."""
+    fake_home = tmp_path / "isolated-home-infra389"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+    project = _build_030_project(
+        tmp_path, expected_step_tokens=_mod.THIN_HARNESS_STEP_TOKENS
+    )
+
+    # Plugin already provides PreToolUse for pre_tool_use.py via the
+    # merged hook view (hook_view.merged_hook_view reads this).
+    plugin_hooks_file = (
+        fake_home / ".claude" / "plugins" / "marketplace" / "flex"
+        / "hooks" / "hooks.json"
+    )
+    plugin_hooks_file.parent.mkdir(parents=True)
+    plugin_hooks_file.write_text(
+        json.dumps({
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "Task|Agent|Edit|Write|Read", "hooks": [
+                        {"type": "command",
+                         "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use.py"},
+                    ]},
+                ]
+            }
+        }, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    fake_plugin_root = tmp_path / "synthetic-plugin-root"
+    (fake_plugin_root / "hooks").mkdir(parents=True)
+    (fake_plugin_root / "hooks" / "pre_tool_use.py").write_text(
+        "# stub\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(_mod, "_FLEX_ROOT", fake_plugin_root)
+
+    # A stale/machine-absolute pre_tool_use.py entry already present in the
+    # committed .claude/settings.json.
+    settings_path = _write_settings_json(
+        project,
+        {
+            "PreToolUse": [
+                {
+                    "matcher": "Task|Agent|Edit|Write|Read",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    exit_code, output = _invoke_030(project, apply=True, hooks_only=True)
+
+    assert exit_code == 0, f"Non-zero exit: {output}"
+    assert "[apply] relocating PreToolUse/pre_tool_use.py" in output
+
+    # The stale entry is actually gone from the committed file — the gap
+    # this story closes.
+    settings_data = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert settings_data.get("hooks", {}).get("PreToolUse", []) == []
+
+    # And no settings.local.json entry was written to replace it, since the
+    # plugin already provides the hook — proving the eviction happened via
+    # the plugin-sourced-skip branch, not the normal write path.
+    local_path = project / ".claude" / "settings.local.json"
+    if local_path.exists():
+        local_data = json.loads(local_path.read_text(encoding="utf-8"))
+        local_commands = [
+            h.get("command")
+            for block in local_data.get("hooks", {}).get("PreToolUse", [])
+            for h in block.get("hooks", [])
+        ]
+        assert not any(
+            c and c.rsplit("/", 1)[-1] == "pre_tool_use.py" for c in local_commands
+        )
+
+
 # ---------------------------------------------------------------------------
 # INFRA-323: RESTART REQUIRED notice for `migrate` and `to-030`
 # ---------------------------------------------------------------------------

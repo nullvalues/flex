@@ -4931,6 +4931,189 @@ class TestPortableHookRegistration:
 
 
 # ---------------------------------------------------------------------------
+# CER-169: A7 eviction must also run on the plugin-sourced-skip branches —
+# not only on the write path exercised above.
+# ---------------------------------------------------------------------------
+
+
+class TestA7EvictionOnPluginSourcedSkip:
+    """CER-169: _register_pretooluse_hook and _register_context_budget_hooks
+    both skip/continue on the plugin-sourced check before ever reaching their
+    own A7 eviction call. A stale committed-settings.json entry left behind
+    on a plugin-sourced-skip project must still be evicted — the plugin's own
+    registration is by definition correct, so it is safe to remove a stale
+    committed duplicate even though no new settings.local.json entry is
+    written on this branch."""
+
+    def _plugin_root(self) -> pathlib.Path:
+        return pathlib.Path(__file__).resolve().parent.parent.parent
+
+    def test_pretooluse_skip_still_evicts_stale_committed_entry(
+        self, tmp_path: pathlib.Path, _isolated_home: pathlib.Path, capsys
+    ) -> None:
+        project_dir = tmp_path / "project"
+        settings_path = project_dir / ".claude" / "settings.json"
+        settings_path.parent.mkdir(parents=True)
+
+        # Plugin already provides PreToolUse for pre_tool_use.py.
+        plugin_file = (
+            _isolated_home / ".claude" / "plugins" / "marketplace" / "flex"
+            / "hooks" / "hooks.json"
+        )
+        plugin_file.parent.mkdir(parents=True)
+        plugin_file.write_text(
+            json.dumps({
+                "hooks": {
+                    "PreToolUse": [
+                        {"matcher": "Task|Agent|Edit|Write|Read", "hooks": [
+                            {"type": "command",
+                             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use.py"},
+                        ]},
+                    ]
+                }
+            }, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        # A stale/machine-absolute pre_tool_use.py entry already present in
+        # the committed .claude/settings.json (e.g. left over from before
+        # the project's plugin install, or a machine-absolute path from a
+        # different developer's checkout).
+        unrelated_block = {
+            "matcher": "Edit|Write",
+            "hooks": [
+                {"type": "command", "command": "uv run python /some/project/pytest_hook.py"}
+            ],
+        }
+        committed = {
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "Task|Agent", "hooks": [
+                        {"type": "command",
+                         "command": "uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py"},
+                    ]},
+                ],
+                "PostToolUse": [unrelated_block],
+            }
+        }
+        settings_path.write_text(json.dumps(committed, indent=2) + "\n", encoding="utf-8")
+
+        plugin_root = self._plugin_root()
+        result = _r_pretooluse(settings_path, plugin_root)
+
+        # Skip branch still returns False (no local entry written).
+        assert result is False
+        out = capsys.readouterr().out
+        assert "skipping PreToolUse registration for pre_tool_use.py" in out
+
+        # The stale committed entry is gone even though no new local entry
+        # was written to replace it — the plugin's own registration already
+        # covers this pair.
+        committed_after = json.loads(settings_path.read_text(encoding="utf-8"))
+        assert committed_after["hooks"].get("PreToolUse", []) == []
+
+        # Unrelated PostToolUse block untouched.
+        assert committed_after["hooks"]["PostToolUse"] == [unrelated_block]
+
+    def test_context_budget_skip_still_evicts_stale_committed_entry(
+        self, tmp_path: pathlib.Path, _isolated_home: pathlib.Path, capsys
+    ) -> None:
+        project_dir = tmp_path / "project"
+        settings_path = project_dir / ".claude" / "settings.json"
+        settings_path.parent.mkdir(parents=True)
+
+        # Plugin already provides SessionStart for session_start.py.
+        plugin_file = (
+            _isolated_home / ".claude" / "plugins" / "marketplace" / "flex"
+            / "hooks" / "hooks.json"
+        )
+        plugin_file.parent.mkdir(parents=True)
+        plugin_file.write_text(
+            json.dumps({
+                "hooks": {
+                    "SessionStart": [
+                        {"hooks": [
+                            {"type": "command",
+                             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py"},
+                        ]},
+                    ]
+                }
+            }, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        # A stale/machine-absolute session_start.py entry already present in
+        # the committed .claude/settings.json.
+        committed = {
+            "hooks": {
+                "SessionStart": [
+                    {"hooks": [
+                        {"type": "command",
+                         "command": "uv run python /mnt/work/flex-harness/hooks/session_start.py"},
+                    ]},
+                ],
+            }
+        }
+        settings_path.write_text(json.dumps(committed, indent=2) + "\n", encoding="utf-8")
+
+        plugin_root = self._plugin_root()
+        _r_context_budget(settings_path, plugin_root)
+
+        out = capsys.readouterr().out
+        assert "skipping SessionStart registration for session_start.py" in out
+
+        committed_after = json.loads(settings_path.read_text(encoding="utf-8"))
+        assert committed_after["hooks"].get("SessionStart", []) == []
+
+    def test_context_budget_skip_does_not_add_to_registered_this_run_semantics(
+        self, tmp_path: pathlib.Path, _isolated_home: pathlib.Path, capsys
+    ) -> None:
+        """A skipped spec must not flip any_change True purely from eviction
+        — only an actually-registered/pruned local entry should do that
+        (INFRA-323 § A/B semantics are unchanged by CER-169)."""
+        project_dir = tmp_path / "project"
+        settings_path = project_dir / ".claude" / "settings.json"
+        settings_path.parent.mkdir(parents=True)
+
+        # Plugin provides ALL FOUR context-budget specs, and no stale
+        # committed entries exist for any of them — so nothing is evicted
+        # and nothing is locally registered: any_change must be False.
+        plugin_file = (
+            _isolated_home / ".claude" / "plugins" / "marketplace" / "flex"
+            / "hooks" / "hooks.json"
+        )
+        plugin_file.parent.mkdir(parents=True)
+        plugin_file.write_text(
+            json.dumps({
+                "hooks": {
+                    "UserPromptSubmit": [{"hooks": [
+                        {"type": "command",
+                         "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.py"},
+                    ]}],
+                    "SessionStart": [{"hooks": [
+                        {"type": "command",
+                         "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py"},
+                    ]}],
+                    "PostToolUse": [{"matcher": "Task|Agent", "hooks": [
+                        {"type": "command",
+                         "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py"},
+                    ]}],
+                    "SubagentStop": [{"hooks": [
+                        {"type": "command",
+                         "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/subagent_stop.py"},
+                    ]}],
+                }
+            }, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        plugin_root = self._plugin_root()
+        any_change = _r_context_budget(settings_path, plugin_root)
+
+        assert any_change is False
+
+
+# ---------------------------------------------------------------------------
 # NARRATIVE_FILES parity (INFRA-351)
 # ---------------------------------------------------------------------------
 
