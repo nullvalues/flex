@@ -2,7 +2,7 @@
 id: INFRA-387
 rail: INFRA
 title: Apply to-030 stale-hook repair across remaining fleet repos
-status: draft
+status: deferred
 phase: "121"
 story_class: code
 auth_gated: false
