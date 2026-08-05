@@ -467,3 +467,58 @@ def test_hook_allows_builder_write_to_same_path_shadow_reviewer_is_denied(tmp_pa
     )
     assert exit_code == 0
     assert stdout.strip() == ""
+
+
+# ---------------------------------------------------------------------------
+# CER-175 (INFRA-397), Ensures 9 — same real (unmocked) dispatch as the
+# INFRA-396 cases directly above, but with an ABSOLUTE file_path — the exact
+# form Claude Code actually sends for Edit/Write tool_input.file_path, and
+# the coverage gap that let the worktree-prefix bug ship: every INFRA-396
+# shadow-reviewer test above used a relative file_path, which never exercises
+# the worktree-prefix-stripping path at all.
+# ---------------------------------------------------------------------------
+
+
+def test_hook_allows_shadow_reviewer_write_to_suggestions_file_absolute_path(tmp_path):
+    """An absolute `<worktree>/.pairmode-suggestions.md` file_path emits no
+    block — the real bug this story fixes: this exact call shape was wrongly
+    DENIED before the worktree-prefix strip was added to the shadow-reviewer
+    branch."""
+    story_id = "INFRA-967"
+    worktree_dir = _make_worktree_with_active_story(tmp_path, story_id)
+    abs_path = worktree_dir / ".pairmode-suggestions.md"
+
+    exit_code, stdout = _run_main(
+        {
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(abs_path)},
+            "cwd": str(worktree_dir),
+            "agent_type": "shadow-reviewer",
+        }
+    )
+    assert exit_code == 0
+    assert stdout.strip() == ""
+
+
+def test_hook_blocks_shadow_reviewer_write_outside_suggestions_file_absolute_path(
+    tmp_path,
+):
+    """Forbidden proxy check: the same absolute-path call shape, but to a
+    different in-worktree file, still emits decision:block — the fix must
+    not have widened the allowed set beyond the one sanctioned filename."""
+    story_id = "INFRA-968"
+    worktree_dir = _make_worktree_with_active_story(tmp_path, story_id)
+    abs_path = worktree_dir / "skills" / "foo.py"
+
+    exit_code, stdout = _run_main(
+        {
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(abs_path)},
+            "cwd": str(worktree_dir),
+            "agent_type": "shadow-reviewer",
+        }
+    )
+    assert exit_code == 0
+    payload = json.loads(stdout.strip())
+    assert payload["decision"] == "block"
+    assert payload["reason"]

@@ -93,9 +93,45 @@ _SHADOW_REVIEWER_CONTROL_TOKENS = (
     "&&", "||", ";", "\n", "$(", "`", "&", ">", "<", "|",
 )
 
+# CER-175: git flags that carry real write, execution, or repo/dir-redirection
+# semantics on an otherwise-allowlisted `log`/`status`/`diff` subcommand — none
+# of these has a legitimate read-only use for the shadow-reviewer role, so a
+# false denial here is cheap while a miss is exactly the CER-175 bypass class
+# (`git diff --output=<path>` / `git --exec-path=<dir> log`, etc.). Screened
+# over every token of the command (git-global position or after the
+# subcommand), matching a token that equals the flag exactly (covers the
+# separated `--output <path>` form, where `<path>` is a distinct token) or
+# that starts with `<flag>=` (covers the attached `--output=<path>` form).
+_SHADOW_REVIEWER_DENIED_GIT_FLAGS = frozenset({
+    "--output",
+    "-o",
+    "--exec-path",
+    "-c",
+    "--config-env",
+    "-C",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+})
+
 
 def _has_control_token(command: str) -> bool:
     return any(tok in command for tok in _SHADOW_REVIEWER_CONTROL_TOKENS)
+
+
+def _has_denied_git_flag(tokens: list[str]) -> "str | None":
+    """Return the first denied flag found in *tokens*, or ``None``.
+
+    Matches a token that equals a denied flag exactly, or that starts with
+    ``<denied flag>=`` — covering both the attached (``--output=<v>``) and
+    separated (``--output <v>``) forms, regardless of whether the flag
+    appears before or after the git subcommand.
+    """
+    for tok in tokens:
+        for flag in _SHADOW_REVIEWER_DENIED_GIT_FLAGS:
+            if tok == flag or tok.startswith(flag + "="):
+                return flag
+    return None
 
 
 def check_command(command: str, agent_type: "str | None") -> tuple[bool, str]:
@@ -213,6 +249,18 @@ def _check_shadow_reviewer_command(command: str, tokens: list[str]) -> tuple[boo
         return False, (
             "not a git invocation — blocked for the shadow-reviewer role, "
             "which has no legitimate write path via Bash at all"
+        )
+
+    # CER-175: screen every token for a denied git flag before any
+    # subcommand matching runs — a flag with write/execution/dir-redirection
+    # semantics (e.g. `git diff --output=<path>`, `git --exec-path=<dir>
+    # log`) is denied regardless of where it appears in the command or
+    # whether the git subcommand itself is otherwise allowlisted.
+    denied_flag = _has_denied_git_flag(tokens)
+    if denied_flag is not None:
+        return False, (
+            f"git flag {denied_flag} is blocked for the shadow-reviewer "
+            "role — it has no legitimate write path via Bash at all"
         )
 
     # Phase (b): the git token must be the FIRST token — no scanning the

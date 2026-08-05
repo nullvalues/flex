@@ -125,7 +125,22 @@ def check_path(
         relative_path = _normalise(file_path, project)
         if relative_path is None:
             return _out_of_root_decision(file_path, project, project_dir)
-        if relative_path == _SHADOW_REVIEWER_ONLY_PATH:
+        # INFRA-397 (CER-175): the shadow-reviewer's real Write call carries
+        # an absolute path (it is dispatched into the per-story worktree),
+        # which `_normalise` turns into a worktree-prefixed repo-relative
+        # path (`.pairmode-worktrees/<story-id>/.pairmode-suggestions.md`) —
+        # that never equals the bare `_SHADOW_REVIEWER_ONLY_PATH` literal
+        # without stripping the prefix first, same as the builder path does
+        # via `_strip_worktree_prefix`. `resolve_call_story` is handed the
+        # *raw* project_dir (as the builder branch does above) purely for
+        # prefix identity here — the allowed set stays exactly one filename;
+        # this does NOT inherit the builder's primary_files/touches/
+        # STANDING_SURFACES scope (INFRA-396's Ensures 5, still asserted).
+        # When no active story resolves, `_strip_worktree_prefix` returns the
+        # path unchanged and the write is denied — fail-closed is correct.
+        active_story_id, _source = resolve_call_story(project_dir, file_path)
+        candidate = _strip_worktree_prefix(relative_path, active_story_id)
+        if candidate == _SHADOW_REVIEWER_ONLY_PATH:
             return True, "allowed (shadow-reviewer suggestions file)"
         return (
             False,

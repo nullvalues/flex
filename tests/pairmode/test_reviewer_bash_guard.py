@@ -240,3 +240,65 @@ def test_default_agent_type_untokenizable_command_still_fails_open():
     allowed, reason = guard.check_command('git log "unterminated', None)
     assert allowed is True
     assert reason
+
+
+# ---------------------------------------------------------------------------
+# CER-175 — shadow-reviewer git-flag write bypass (INFRA-397). Each of these
+# strings was auditor-verified live to ALLOW (and, for --output, to actually
+# create the target file) before this story's flag screen: the prior guard
+# inspected only the git subcommand, never git's own flags, so a write/
+# execution/dir-redirection flag on an otherwise-allowlisted `log`/`status`/
+# `diff` subcommand sailed through untouched.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git diff --output=/tmp/x HEAD",
+        "git diff --output /tmp/x HEAD",
+        "git --exec-path=/tmp/evil log",
+        "git --exec-path /tmp/evil log",
+        "git log -o /tmp/x",
+        "git -C /tmp log",
+        "git --git-dir=/tmp/evil/.git log",
+        "git --work-tree=/tmp diff",
+        "git -c core.pager=/tmp/evil.sh log",
+        "git --config-env=core.pager=EVIL log",
+    ],
+)
+def test_shadow_reviewer_denied_git_flags_blocked(command):
+    allowed, reason = guard.check_command(command, "shadow-reviewer")
+    assert allowed is False
+    assert reason
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git log",
+        "git status --porcelain",
+        "git diff",
+        "git log --oneline -n 20",
+        "git diff --stat",
+    ],
+)
+def test_shadow_reviewer_legitimate_commands_still_allowed_cer175(command):
+    allowed, reason = guard.check_command(command, "shadow-reviewer")
+    assert allowed is True
+    assert reason
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git diff --output=/tmp/x HEAD",
+        "git --exec-path=/tmp/evil log",
+    ],
+)
+def test_reviewer_agent_type_denied_flags_unaffected(command):
+    """The new flag screen is scoped strictly to shadow-reviewer — the
+    reviewer role's outcome for the same strings is unchanged (allow)."""
+    allowed, reason = guard.check_command(command, "reviewer")
+    assert allowed is True
+    assert reason

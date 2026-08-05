@@ -1321,3 +1321,106 @@ def test_default_agent_type_unaffected_by_shadow_reviewer_scoping(tmp_path: Path
     allowed, reason = scope_guard.check_path("skills/foo.py", tmp_path)
     assert allowed is True
     assert reason == "allowed"
+
+
+# ---------------------------------------------------------------------------
+# CER-175 (INFRA-397) — shadow-reviewer worktree-prefix gap. The real
+# shadow-reviewer Write call carries an absolute
+# `<main>/.pairmode-worktrees/<story-id>/.pairmode-suggestions.md` path,
+# which `_normalise` alone turns into the worktree-prefixed repo-relative
+# string — never equal to the bare `_SHADOW_REVIEWER_ONLY_PATH` literal
+# without stripping the prefix first, same as the builder path does via
+# `_strip_worktree_prefix`.
+# ---------------------------------------------------------------------------
+
+
+def test_shadow_reviewer_allowed_on_suggestions_file_absolute_worktree_path(
+    tmp_path: Path,
+) -> None:
+    """Ensures 6: the real absolute-path write the shadow-reviewer actually
+    issues (<main>/.pairmode-worktrees/<active-story-id>/.pairmode-suggestions.md),
+    called with project_dir=<worktree> (the real dispatch cwd, per
+    CLAUDE.build.md's spawn contract), is allowed once the worktree prefix
+    is stripped."""
+    main_root = tmp_path / "main"
+    main_root.mkdir()
+    worktree_dir = _make_linked_worktree(main_root, STORY_ID)
+    abs_path = worktree_dir / ".pairmode-suggestions.md"
+
+    allowed, reason = scope_guard.check_path(
+        abs_path, worktree_dir, agent_type="shadow-reviewer"
+    )
+    assert allowed is True
+    assert reason
+
+
+def test_shadow_reviewer_still_allowed_on_plain_relative_suggestions_file(
+    tmp_path: Path,
+) -> None:
+    """Ensures 6 (regression): the plain relative form
+    `.pairmode-suggestions.md` — never worktree-prefixed — keeps working
+    exactly as before this story's fix."""
+    _write_state(tmp_path, STORY_ID)
+    allowed, reason = scope_guard.check_path(
+        ".pairmode-suggestions.md", tmp_path, agent_type="shadow-reviewer"
+    )
+    assert allowed is True
+    assert reason
+
+
+def test_shadow_reviewer_denied_on_absolute_worktree_code_file(tmp_path: Path) -> None:
+    """Ensures 7: an absolute in-worktree path to anything other than
+    .pairmode-suggestions.md is still denied for the shadow-reviewer —
+    per-story worktree isolation is preserved, the allowed set stays exactly
+    one logical file."""
+    main_root = tmp_path / "main"
+    main_root.mkdir()
+    worktree_dir = _make_linked_worktree(main_root, STORY_ID)
+    abs_path = worktree_dir / "skills" / "foo.py"
+
+    allowed, reason = scope_guard.check_path(
+        abs_path, worktree_dir, agent_type="shadow-reviewer"
+    )
+    assert allowed is False
+    assert reason
+
+
+def test_shadow_reviewer_denied_on_absolute_worktree_architecture_doc(
+    tmp_path: Path,
+) -> None:
+    """Ensures 7: same as above for docs/architecture.md — a STANDING_SURFACES
+    entry the builder may write, but the shadow-reviewer never inherits."""
+    main_root = tmp_path / "main"
+    main_root.mkdir()
+    worktree_dir = _make_linked_worktree(main_root, STORY_ID)
+    abs_path = worktree_dir / "docs" / "architecture.md"
+
+    allowed, reason = scope_guard.check_path(
+        abs_path, worktree_dir, agent_type="shadow-reviewer"
+    )
+    assert allowed is False
+    assert reason
+
+
+def test_shadow_reviewer_denied_on_suggestions_file_under_foreign_story_worktree(
+    tmp_path: Path,
+) -> None:
+    """Ensures 7: a `.pairmode-suggestions.md` under a DIFFERENT story's
+    worktree segment must not be misidentified as the sanctioned file — the
+    active story is resolved from the call's own worktree-cwd
+    (`.pairmode-worktrees/<STORY_ID>/`, INFRA-280), and
+    `_strip_worktree_prefix` only strips a segment equal to THAT active
+    story, never the segment merely named in the target path."""
+    main_root = tmp_path / "main"
+    main_root.mkdir()
+    worktree_dir = _make_linked_worktree(main_root, STORY_ID)
+    foreign_story_id = "INFRA-111"
+    foreign_worktree_dir = main_root / ".pairmode-worktrees" / foreign_story_id
+    foreign_worktree_dir.mkdir(parents=True)
+    abs_path = foreign_worktree_dir / ".pairmode-suggestions.md"
+
+    allowed, reason = scope_guard.check_path(
+        abs_path, worktree_dir, agent_type="shadow-reviewer"
+    )
+    assert allowed is False
+    assert reason
