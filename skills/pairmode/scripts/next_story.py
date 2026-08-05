@@ -156,9 +156,25 @@ def _git_log_oneline(project_dir: Path) -> str:
 # Group 1 is the scope text between the first parentheses.
 _SCOPE_RE = re.compile(r'^[A-Za-z]+\(([^)]*)\)\s*:')
 
-# A story-ID token inside a commit scope. Deliberately uppercase-only — see
-# `_has_story_commit`'s docstring.
-_SCOPE_STORY_ID_RE = re.compile(r'\b[A-Z][A-Z0-9_]*-\d{2,}\b')
+# A story-ID token, deliberately uppercase-only — see `_has_story_commit`'s
+# docstring. Greedily consumes chained `-SEGMENT` prefixes (each starting
+# with an uppercase letter) ahead of the final `-NNN` so that a legacy
+# compound scope like `B034-API-005` (old phase-rail-number ID scheme,
+# pre-D1-re-key) is captured as ONE token, not left to leak its tail segment
+# as a false match for the bare current-scheme ID `API-005` (INFRA-297 follow-up:
+# see docstring below). Segments are letter-led by construction — a `-NNN`
+# suffix never starts a continuation — so this cannot merge two independent
+# bare IDs written back-to-back (`API-005-UI-006` still splits into
+# `API-005` + `UI-006`, since `005` isn't letter-led).
+_SCOPE_STORY_ID_RE = re.compile(r'\b[A-Z][A-Z0-9_]*(?:-[A-Z][A-Z0-9_]*)*-\d{2,}\b')
+
+# A bare uppercase phase-tag segment (`B034`, `B055`, ...) immediately
+# preceding a hyphen at the point a fallback match begins. Used only to
+# reject a fallback match embedded inside a legacy compound scope like
+# `B034-API-005` (see `_has_story_commit`'s fallback branch) — it must stay
+# uppercase-only so it never rejects a legitimate lowercase prefix like the
+# `story-` in `story-INFRA-100`.
+_LEGACY_COMPOUND_PREFIX_RE = re.compile(r'[A-Z][A-Z0-9_]*-$')
 
 
 def _has_story_commit(story_id: str, git_log: str) -> bool:
@@ -229,7 +245,20 @@ def _has_story_commit(story_id: str, git_log: str) -> bool:
                     return True
                 continue
 
-        if pattern.search(message):
+        # Whole-subject fallback: word-boundary, case-insensitive search —
+        # but reject a match embedded inside a legacy compound scope like
+        # `B034-API-005` (old phase-rail-number ID scheme, pre-D1-re-key).
+        # `\b` alone can't tell that apart from a standalone mention: hyphen
+        # is a non-word character on both sides, so the boundary is
+        # satisfied identically whether `API-005` is standalone or is the
+        # tail of `B034-API-005`. Only reject
+        # when the immediately preceding segment is a BARE uppercase run
+        # (a phase-tag shape) — a lowercase prefix like the `story-` in
+        # `story-INFRA-100` must still match, so the guard is deliberately
+        # uppercase-only, mirroring the scope detector's own restriction.
+        for candidate in pattern.finditer(message):
+            if _LEGACY_COMPOUND_PREFIX_RE.search(message[: candidate.start()]):
+                continue
             return True
     return False
 
