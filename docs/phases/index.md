@@ -149,6 +149,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 125 | De-identify fleet repo references from the public repo (CER-172) | planned | [phase-125.md](phase-125.md) |
 | 126 | Close shadow-reviewer Bash-guard bypass and scope its Write grant (CER-174) | planned | [phase-126.md](phase-126.md) |
 | 127 | Close shadow-reviewer git-flag write bypass and worktree-path scope_guard gap (CER-175) | planned | [phase-127.md](phase-127.md) |
+| 128 | Fix .pairmode-overrides template/migration gap from audit.py key-format change (CER-180) | planned | [phase-128.md](phase-128.md) |
 
 ---
 
