@@ -31,8 +31,11 @@ class TestOverridesBoilerplate:
         self.rendered = render_overrides_template()
 
     def test_rendered_contains_parser_correct_example(self):
-        """Rendered boilerplate must contain the ##-prefixed example key."""
-        assert "CLAUDE.md:## review checklist" in self.rendered
+        """Rendered boilerplate must contain the marker-free example key
+        (CER-170/INFRA-391 changed the parser's key shape to marker-free;
+        CER-180/INFRA-398 brought this template's documented example in
+        line with it)."""
+        assert "CLAUDE.md:review checklist" in self.rendered
 
     def test_example_entries_ignored_as_comments_by_load_overrides(self, tmp_path):
         """Comment lines in the rendered boilerplate are correctly ignored by _load_overrides."""

@@ -6,12 +6,20 @@
 # Format: one entry per line — <relative-file-path>:<normalised-section-key>
 # Lines starting with # are comments. Blank lines are ignored.
 #
-# The section key is the full header line — `##` markers included — lowercased and
-# whitespace-collapsed. Examples below match this format.
+# The section key is the header text ONLY — no leading `#`/`##` markers —
+# lowercased and whitespace-collapsed. For example, a canonical section header:
+#   HEADER: ## Review checklist
+# produces this section key:
+#   KEY: review checklist
 # Examples:
-#   CLAUDE.md:## review checklist
-#   .claude/agents/reviewer.md:### checklist
+#   CLAUDE.md:review checklist
+#   .claude/agents/reviewer.md:checklist
 #   .claude/agents/reviewer.md:**3. build gate**
+#
+# Note: keys written with leading `##` markers (the pre-CER-170 format) are
+# still accepted for now, but `pairmode audit` reports them as a stale-shape
+# diagnostic naming the file, the offending key, and its corrected form —
+# update them to the marker-free shape above when you see that diagnostic.
 #
 # Bold numbered checklist markers (e.g. `**3. BUILD GATE**`, `**5a. Conviction
 # consistency**`) are also valid, independently addressable section keys — this

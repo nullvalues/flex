@@ -506,8 +506,9 @@ def _find_lesson_for_file(lessons: list[dict], file_path: str) -> str | None:
 
 def _load_overrides_with_diagnostics(
     project_dir: Path,
-) -> tuple[set[tuple[str, str]], list[str]]:
-    """Return (pairs, malformed_line_messages) for ``.pairmode-overrides``.
+) -> tuple[set[tuple[str, str]], list[str], list[tuple[str, str, str]]]:
+    """Return (pairs, malformed_line_messages, stale_shape_entries) for
+    ``.pairmode-overrides``.
 
     Parses ``project_dir / ".pairmode-overrides"``. Blank lines and lines
     starting with ``#`` are skipped. Each valid line is split on ``:``
@@ -518,17 +519,31 @@ def _load_overrides_with_diagnostics(
     an empty file-path or section-key after stripping. Malformed lines are
     reported (with their 1-based line number) rather than silently dropped
     (CER-132) but do not contribute a pair to the returned set.
+
+    Dual-shape acceptance (CER-180/INFRA-398): a ``section_key`` that still
+    carries a leading ``#+\\s*`` marker (the pre-CER-170 documented shape,
+    e.g. ``## review checklist``) has that marker stripped before it is
+    added to the returned pair set — this is the same ``^#+\\s*`` strip
+    ``_split_sections`` already applies to derive its own keys, so a legacy
+    override entry matches the current internal key shape rather than
+    silently stopping suppression/protection. Each entry that required this
+    strip is also recorded in the third return value as
+    ``(file_path, raw_key, corrected_key)`` so callers (``_check_overrides_health``)
+    can surface a migration diagnostic — acceptance alone would make the
+    stale shape permanent and invisible (docs/ideology.md § Never silently
+    pass contradictions).
     """
     overrides_path = project_dir / ".pairmode-overrides"
     if not overrides_path.exists():
-        return set(), []
+        return set(), [], []
 
     result: set[tuple[str, str]] = set()
     diagnostics: list[str] = []
+    stale_entries: list[tuple[str, str, str]] = []
     try:
         text = overrides_path.read_text(encoding="utf-8")
     except OSError:
-        return result, diagnostics
+        return result, diagnostics, stale_entries
 
     for line_number, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
@@ -547,19 +562,22 @@ def _load_overrides_with_diagnostics(
                 f"line {line_number}: empty file-path or section-key after splitting on ':'"
             )
             continue
-        result.add((file_path, section_key))
+        corrected_key = re.sub(r"^#+\s*", "", section_key)
+        if corrected_key != section_key:
+            stale_entries.append((file_path, section_key, corrected_key))
+        result.add((file_path, corrected_key))
 
-    return result, diagnostics
+    return result, diagnostics, stale_entries
 
 
 def _load_overrides(project_dir: Path) -> set[tuple[str, str]]:
     """Return set of (relative_file_path, normalised_section_key) pairs.
 
     Delegates to ``_load_overrides_with_diagnostics`` and discards the
-    malformed-line diagnostics. Signature and return type unchanged (this
-    story's four in-tree callers rely on both).
+    malformed-line diagnostics and stale-shape entries. Signature and return
+    type unchanged (this story's four in-tree callers rely on both).
     """
-    pairs, _diagnostics = _load_overrides_with_diagnostics(project_dir)
+    pairs, _diagnostics, _stale_entries = _load_overrides_with_diagnostics(project_dir)
     return pairs
 
 
@@ -574,12 +592,25 @@ def _check_overrides_health(project_dir: Path) -> list[str] | None:
     CANONICAL_FILES/SCAFFOLD_FILES). This dedicated check, in the style of
     ``_check_ideology_staleness``/``_check_reconstruction_staleness``, is
     the tracking surface instead.
+
+    Since CER-180/INFRA-398, the returned list also carries one warning-level,
+    non-fatal diagnostic per entry whose key still begins with a stripped
+    ``#`` marker (the pre-CER-170 documented shape) — naming the offending
+    file, the offending raw key, and its corrected form — so a whole file of
+    now-silently-accepted stale keys is still visible as a migration signal.
+    A file whose keys are all in the current shape gets no such diagnostic.
     """
     overrides_path = project_dir / ".pairmode-overrides"
     if not overrides_path.exists():
         return None
-    _pairs, diagnostics = _load_overrides_with_diagnostics(project_dir)
-    return diagnostics
+    _pairs, diagnostics, stale_entries = _load_overrides_with_diagnostics(project_dir)
+    stale_diagnostics = [
+        f"stale key shape in {file_path!r}: {raw_key!r} should be {corrected_key!r} "
+        f"(leading '#' markers are no longer part of the section key format — "
+        f"see .pairmode-overrides.j2)"
+        for file_path, raw_key, corrected_key in stale_entries
+    ]
+    return diagnostics + stale_diagnostics
 
 
 # ---------------------------------------------------------------------------

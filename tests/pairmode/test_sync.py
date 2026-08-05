@@ -1252,7 +1252,9 @@ class TestSyncOverrides:
 
         canonical_text = (TEMPLATES_DIR / "CLAUDE.md.j2").read_text(encoding="utf-8")
         headers = re.findall(r"^## .+", canonical_text, re.MULTILINE)
-        last_key = _normalise(headers[-1])
+        # Match real _split_sections key derivation (CER-170/INFRA-391): strip
+        # the leading `#+\s*` header marker before normalising.
+        last_key = _normalise(re.sub(r"^#+\s*", "", headers[-1]))
 
         # Write a CLAUDE.md stub so file exists but last section is missing
         (tmp_path / "CLAUDE.md").write_text(

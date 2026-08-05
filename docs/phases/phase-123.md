@@ -23,6 +23,22 @@ Fix audit.py's _normalise()/_load_overrides() key-format mismatch (## Section vs
 |----|-------|--------|
 | INFRA-391 | Fix audit.py override-key format mismatch between _normalise() and _load_overrides() (CER-170) | complete |
 
+## Downstream remediation
+
+INFRA-391 changed audit.py's internal section-key contract without auditing every
+consumer of that contract, and the checkpoint's security-auditor gate needed three
+passes to actually close CER-170's real-world impact: the first pass found the
+operator-facing `.pairmode-overrides.j2` template still documented the old, now-broken
+key format with no migration (CER-180), fixed by a forked Phase 128 (INFRA-398); the
+second pass found `pairmode_drift_report.py` carried an independent, undeduped copy
+of the same section-key logic that silently ignored correctly-formatted overrides
+(CER-181), fixed by a forked Phase 129 (INFRA-399). The third pass passed clean, with
+two non-blocking MEDIUM findings (CER-184, CER-185 — a stale-persisted-rejection edge
+case and a cross-tool case-sensitivity divergence) filed to the CER backlog rather
+than blocking. See both forked phases' `**Parent phase:**` lines. The `complete`
+status above reflects INFRA-391 as specced and built, not that CER-170's full
+real-world impact was closed standalone — that required the two forked phases too.
+
 ## Schema delivery
 
 For each new persistent schema object (table, collection, migration) introduced in

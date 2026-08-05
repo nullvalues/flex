@@ -198,6 +198,9 @@ def test_load_overrides_missing_file(tmp_path: Path) -> None:
 
 
 def test_load_overrides_parses_entries(tmp_path: Path) -> None:
+    """Legacy ##-prefixed entries have the marker stripped (CER-170/CER-180,
+    via delegation to audit.py's loader, INFRA-399) — the returned key matches
+    the current internal `_split_sections` key shape, not the raw line text."""
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
     overrides_file = project_dir / ".pairmode-overrides"
@@ -209,8 +212,8 @@ def test_load_overrides_parses_entries(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     result = _load_overrides(project_dir)
-    assert ("CLAUDE.build.md", "## session modes") in result
-    assert (".claude/agents/builder.md", "## before writing anything") in result
+    assert ("CLAUDE.build.md", "session modes") in result
+    assert (".claude/agents/builder.md", "before writing anything") in result
 
 
 def test_load_overrides_ignores_lines_without_colon(tmp_path: Path) -> None:
@@ -700,11 +703,13 @@ def test_intentional_drift_section_reclassified(tmp_path: Path) -> None:
 
     project_dir = _make_project(tmp_path, "testproj", claude_build_content=drifted)
 
-    # Declare the section as intentional in .pairmode-overrides
+    # Declare the section as intentional in .pairmode-overrides, using the
+    # current documented marker-free entry shape (CLAUDE.build.md: Build loop) —
+    # not the legacy "## Build loop" shape (INFRA-399/CER-181).
     overrides_file = project_dir / ".pairmode-overrides"
     overrides_file.write_text(
         "# Intentional overrides\n"
-        "CLAUDE.build.md: ## Build loop\n",
+        "CLAUDE.build.md: Build loop\n",
         encoding="utf-8",
     )
 
@@ -731,10 +736,11 @@ def test_intentional_extra_section_reclassified(tmp_path: Path) -> None:
 
     project_dir = _make_project(tmp_path, "testproj", claude_build_content=content_with_extra)
 
-    # Declare the extra section as intentional
+    # Declare the extra section as intentional, using the current documented
+    # marker-free entry shape (INFRA-399/CER-181).
     overrides_file = project_dir / ".pairmode-overrides"
     overrides_file.write_text(
-        "CLAUDE.build.md: ## Custom override section\n",
+        "CLAUDE.build.md: Custom override section\n",
         encoding="utf-8",
     )
 
@@ -878,6 +884,245 @@ def test_undeclared_drift_not_reclassified(tmp_path: Path) -> None:
     assert not any(
         "build loop" in s for s in intentional_sections
     ), f"Undeclared section must not appear in intentional; intentional={project_data['intentional']}"
+
+
+# ---------------------------------------------------------------------------
+# INFRA-399 (CER-181): drift-report reuses audit.py's current override/section
+# logic instead of a diverged local copy — end-to-end through drift_report(),
+# mirroring the TestAuditOverridesSuppress shape INFRA-398 established for
+# audit_project().
+# ---------------------------------------------------------------------------
+
+
+def test_documented_format_override_reclassifies_drift_end_to_end(tmp_path: Path) -> None:
+    """A .pairmode-overrides entry in the current documented, marker-free
+    format (CLAUDE.build.md: Build loop) reclassifies a DRIFT section as
+    INTENTIONAL through the real drift_report() entry point (Ensures 1)."""
+    canonical = _canonical_build_md("testproj")
+
+    import re
+    drifted = re.sub(
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
+        r"\g<1>DOCUMENTED FORMAT DRIFT CONTENT\g<3>",
+        canonical,
+        count=1,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+
+    project_dir = _make_project(tmp_path, "testproj", claude_build_content=drifted)
+
+    # Confirm without overrides this is classified DRIFT.
+    result_without = drift_report([project_dir])
+    drift_without = {
+        item["section"] for item in result_without["projects"][0]["drift"]
+    }
+    assert any("build loop" in s for s in drift_without)
+
+    (project_dir / ".pairmode-overrides").write_text(
+        "CLAUDE.build.md: Build loop\n", encoding="utf-8"
+    )
+
+    result_with = drift_report([project_dir])
+    project_data = result_with["projects"][0]
+    drift_sections = {item["section"] for item in project_data["drift"]}
+    assert not any("build loop" in s for s in drift_sections), (
+        f"Documented-format override must not appear in drift; drift={project_data['drift']}"
+    )
+    intentional_sections = {item["section"] for item in project_data["intentional"]}
+    assert any("build loop" in s for s in intentional_sections), (
+        f"Documented-format override must appear in intentional; "
+        f"intentional={project_data['intentional']}"
+    )
+
+
+def test_documented_format_override_reclassifies_extra_end_to_end(tmp_path: Path) -> None:
+    """A .pairmode-overrides entry in the current documented, marker-free
+    format reclassifies an EXTRA section as INTENTIONAL through drift_report()
+    (Ensures 1)."""
+    canonical = _canonical_build_md("testproj")
+    content_with_extra = (
+        canonical + "\n\n## Documented extra section\n\nProject-specific content.\n"
+    )
+
+    project_dir = _make_project(tmp_path, "testproj", claude_build_content=content_with_extra)
+
+    result_without = drift_report([project_dir])
+    extra_without = {
+        item["section"] for item in result_without["projects"][0]["extra"]
+    }
+    assert any("documented extra section" in s for s in extra_without)
+
+    (project_dir / ".pairmode-overrides").write_text(
+        "CLAUDE.build.md: Documented extra section\n", encoding="utf-8"
+    )
+
+    result_with = drift_report([project_dir])
+    project_data = result_with["projects"][0]
+    extra_sections = {item["section"] for item in project_data["extra"]}
+    assert not any("documented extra section" in s for s in extra_sections), (
+        f"Documented-format override must not appear in extra; extra={project_data['extra']}"
+    )
+    intentional_sections = {item["section"] for item in project_data["intentional"]}
+    assert any("documented extra section" in s for s in intentional_sections), (
+        f"Documented-format override must appear in intentional; "
+        f"intentional={project_data['intentional']}"
+    )
+
+
+def test_mixed_case_documented_override_reclassifies_end_to_end(tmp_path: Path) -> None:
+    """A mixed-case, marker-free override entry (CLAUDE.build.md: Build Loop)
+    still reclassifies the (lowercase-keyed) DRIFT section as INTENTIONAL —
+    drift-report's local `_load_overrides` wrapper must apply `_normalise` to
+    audit's returned key so a capitalised entry still matches (Ensures 1)."""
+    canonical = _canonical_build_md("testproj")
+
+    import re
+    drifted = re.sub(
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
+        r"\g<1>MIXED CASE OVERRIDE DRIFT CONTENT\g<3>",
+        canonical,
+        count=1,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+
+    project_dir = _make_project(tmp_path, "testproj", claude_build_content=drifted)
+    (project_dir / ".pairmode-overrides").write_text(
+        "CLAUDE.build.md: Build Loop\n", encoding="utf-8"
+    )
+
+    result = drift_report([project_dir])
+    project_data = result["projects"][0]
+
+    drift_sections = {item["section"] for item in project_data["drift"]}
+    assert not any("build loop" in s for s in drift_sections), (
+        f"Mixed-case documented override must not appear in drift; drift={project_data['drift']}"
+    )
+    intentional_sections = {item["section"] for item in project_data["intentional"]}
+    assert any("build loop" in s for s in intentional_sections), (
+        f"Mixed-case documented override must appear in intentional; "
+        f"intentional={project_data['intentional']}"
+    )
+
+
+def test_legacy_marker_shaped_override_still_reclassifies_end_to_end(tmp_path: Path) -> None:
+    """The legacy ##-prefixed entry shape (CLAUDE.build.md: ## Build loop)
+    still suppresses through drift_report() — audit.py's dual-shape
+    acceptance (CER-180) reaches drift-report (Ensures 2)."""
+    canonical = _canonical_build_md("testproj")
+
+    import re
+    drifted = re.sub(
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
+        r"\g<1>LEGACY SHAPE OVERRIDE DRIFT CONTENT\g<3>",
+        canonical,
+        count=1,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+
+    project_dir = _make_project(tmp_path, "testproj", claude_build_content=drifted)
+    (project_dir / ".pairmode-overrides").write_text(
+        "CLAUDE.build.md: ## Build loop\n", encoding="utf-8"
+    )
+
+    result = drift_report([project_dir])
+    project_data = result["projects"][0]
+
+    drift_sections = {item["section"] for item in project_data["drift"]}
+    assert not any("build loop" in s for s in drift_sections)
+    intentional_sections = {item["section"] for item in project_data["intentional"]}
+    assert any("build loop" in s for s in intentional_sections)
+
+
+def test_undeclared_section_still_drift_end_to_end(tmp_path: Path) -> None:
+    """A section not named in .pairmode-overrides at all is still classified
+    DRIFT and still surfaces as a convergence candidate (Ensures 2)."""
+    canonical = _canonical_build_md("undeclared_a")
+
+    import re
+    drifted_a = re.sub(
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
+        r"\g<1>SHARED UNDECLARED DRIFT CONTENT\g<3>",
+        _canonical_build_md("undeclared_a"),
+        count=1,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    drifted_b = re.sub(
+        r"(## Build loop\n\n)(.*?)(\n\n##)",
+        r"\g<1>SHARED UNDECLARED DRIFT CONTENT\g<3>",
+        _canonical_build_md("undeclared_b"),
+        count=1,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+
+    proj_a = _make_project(tmp_path, "undeclared_a", claude_build_content=drifted_a)
+    proj_b = _make_project(tmp_path, "undeclared_b", claude_build_content=drifted_b)
+    # No .pairmode-overrides file at all for either project.
+
+    result = drift_report([proj_a, proj_b], convergent=True)
+
+    for project_data in result["projects"]:
+        drift_sections = {item["section"] for item in project_data["drift"]}
+        assert any("build loop" in s for s in drift_sections)
+        intentional_sections = {item["section"] for item in project_data["intentional"]}
+        assert not any("build loop" in s for s in intentional_sections)
+
+    candidates = result["convergence_candidates"]
+    assert any(
+        c["file"] == "CLAUDE.build.md" and "build loop" in c["section"]
+        for c in candidates
+    ), f"Undeclared shared drift must surface as a convergence candidate; candidates={candidates}"
+
+
+def test_drift_report_import_does_not_cycle() -> None:
+    """Importing pairmode_drift_report (which now imports from audit.py) does
+    not introduce a circular import, in either import order (Ensures 3)."""
+    import subprocess
+    import sys as _sys
+
+    repo_root = str(Path(__file__).resolve().parent.parent.parent)
+
+    for import_stmt in (
+        "import skills.pairmode.scripts.pairmode_drift_report",
+        "import skills.pairmode.scripts.audit, skills.pairmode.scripts.pairmode_drift_report",
+        "import skills.pairmode.scripts.pairmode_drift_report, skills.pairmode.scripts.audit",
+    ):
+        proc = subprocess.run(
+            [_sys.executable, "-c", import_stmt],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 0, (
+            f"{import_stmt!r} failed with exit code {proc.returncode}:\n{proc.stderr}"
+        )
+
+
+def test_no_independent_section_re_reimplementation() -> None:
+    """pairmode_drift_report.py must not carry an independent re-implementation
+    of the section-key derivation (Ensures 4)."""
+    source = Path(
+        "skills/pairmode/scripts/pairmode_drift_report.py"
+    ).read_text(encoding="utf-8")
+    import re as _re
+
+    assert not _re.search(r"^_SECTION_RE\s*=", source, _re.MULTILINE), (
+        "pairmode_drift_report.py must not define its own _SECTION_RE "
+        "(should import section-splitting logic from audit.py)"
+    )
+
+
+def test_no_independent_overrides_file_parsing() -> None:
+    """pairmode_drift_report.py must not open or split .pairmode-overrides
+    itself — it must delegate to audit.py's loader (Ensures 4)."""
+    source = Path(
+        "skills/pairmode/scripts/pairmode_drift_report.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'project_dir / ".pairmode-overrides"' not in source, (
+        "pairmode_drift_report.py must not open '.pairmode-overrides' itself "
+        "— that read belongs to audit.py's loader, which drift-report should "
+        "delegate to instead of re-implementing"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -2112,6 +2112,13 @@ class TestLoadOverrides:
         _write_overrides(tmp_path, ["CLAUDE.md review checklist"])
         assert _load_overrides(tmp_path) == set()
 
+    def test_legacy_hash_prefixed_key_is_stripped(self, tmp_path: Path) -> None:
+        """CER-180/INFRA-398: a legacy ``##``-included key is accepted and
+        stored under its stripped, current-shape form — so callers never see
+        the stale shape in the returned pair set."""
+        _write_overrides(tmp_path, ["CLAUDE.md:## review checklist"])
+        assert _load_overrides(tmp_path) == {("CLAUDE.md", "review checklist")}
+
     def test_mixed_valid_and_comment_lines(self, tmp_path: Path) -> None:
         _write_overrides(tmp_path, [
             "# comment",
@@ -2445,6 +2452,29 @@ class TestCheckOverridesHealth:
         assert len(result) == 1
         assert "line 1" in result[0]
 
+    def test_legacy_key_yields_stale_shape_diagnostic(self, tmp_path: Path) -> None:
+        """CER-180/INFRA-398: a legacy ``##``-included key produces a distinct,
+        non-fatal stale-shape diagnostic naming the file, the offending raw
+        key, and its corrected form — the acceptance in _load_overrides must
+        not be silent."""
+        _write_overrides(tmp_path, ["CLAUDE.md:## review checklist"])
+        result = _check_overrides_health(tmp_path)
+        assert result is not None
+        assert len(result) == 1
+        assert "CLAUDE.md" in result[0]
+        assert "## review checklist" in result[0]
+        assert "review checklist" in result[0]
+
+    def test_current_shape_keys_yield_no_stale_shape_diagnostic(self, tmp_path: Path) -> None:
+        """A file whose keys are all in the current (marker-free) shape gets
+        no stale-shape diagnostic."""
+        _write_overrides(
+            tmp_path,
+            ["CLAUDE.md:review checklist", "docs/x.md:**3. build gate**"],
+        )
+        result = _check_overrides_health(tmp_path)
+        assert result == []
+
 
 class TestAuditOverridesHealthIntegration:
     """Integration: audit_project reports .pairmode-overrides existence/parse health."""
@@ -2502,8 +2532,73 @@ class TestAuditOverridesHealthIntegration:
 
 
 # ---------------------------------------------------------------------------
-# CANONICAL_FILES / AGENT_FILES consistency (RELEASE-010)
+# CER-180/INFRA-398 — dual-shape acceptance + template round-trip
 # ---------------------------------------------------------------------------
+
+
+class TestOverridesDualShapeAcceptance:
+    """A legacy ##-prefixed override key suppresses the same finding as its
+    stripped, current-shape equivalent (CER-180/INFRA-398)."""
+
+    def _first_missing_key(self, tmp_path: Path) -> str:
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        (tmp_path / "CLAUDE.md").unlink()
+        result = audit_project(tmp_path)
+        claude_missing = [i for i in result.missing if i.file == "CLAUDE.md"]
+        assert claude_missing, "Need at least one MISSING CLAUDE.md section"
+        return claude_missing[0].section
+
+    def test_current_shape_key_suppresses(self, tmp_path: Path) -> None:
+        key = self._first_missing_key(tmp_path)
+        _write_overrides(tmp_path, [f"CLAUDE.md:{key}"])
+        result = audit_project(tmp_path)
+        still_missing = [
+            i for i in result.missing if i.file == "CLAUDE.md" and i.section == key
+        ]
+        assert still_missing == [], (
+            f"Expected current-shape override to suppress '{key}', got: {still_missing}"
+        )
+
+    def test_legacy_hash_prefixed_key_suppresses(self, tmp_path: Path) -> None:
+        key = self._first_missing_key(tmp_path)
+        _write_overrides(tmp_path, [f"CLAUDE.md:## {key}"])
+        result = audit_project(tmp_path)
+        still_missing = [
+            i for i in result.missing if i.file == "CLAUDE.md" and i.section == key
+        ]
+        assert still_missing == [], (
+            f"Expected legacy ##-prefixed override to suppress '{key}' the same way "
+            f"the stripped form does, got: {still_missing}"
+        )
+
+
+class TestOverridesTemplateRoundTrip:
+    """The .pairmode-overrides.j2 worked example's key must equal what
+    audit.py's own normalisation produces for the header line shown beside
+    it — verified by execution, not by eye (CER-180/INFRA-398 Ensures 2)."""
+
+    def test_worked_example_key_matches_audit_normalisation(self) -> None:
+        template_path = TEMPLATES_DIR / ".pairmode-overrides.j2"
+        text = template_path.read_text(encoding="utf-8")
+
+        header_match = re.search(r"^#\s*HEADER:\s*(.+)$", text, re.MULTILINE)
+        key_match = re.search(r"^#\s*KEY:\s*(.+)$", text, re.MULTILINE)
+        assert header_match, "Expected a worked-example 'HEADER: ...' line in .pairmode-overrides.j2"
+        assert key_match, "Expected a worked-example 'KEY: ...' line in .pairmode-overrides.j2"
+
+        header_line = header_match.group(1).strip()
+        documented_key = key_match.group(1).strip()
+
+        # Verified by execution: run the documented header line through
+        # audit.py's own key-derivation (the same `^#+\s*` strip + _normalise
+        # that _split_sections applies), not a hardcoded expected string.
+        expected_key = _audit_mod._normalise(re.sub(r"^#+\s*", "", header_line))
+        assert documented_key == expected_key, (
+            f"Template's worked example key {documented_key!r} does not match "
+            f"audit.py's own normalisation {expected_key!r} for header {header_line!r}"
+        )
+
 
 class TestCanonicalFilesAgentFilesConsistency:
     """CANONICAL_FILES in audit.py must account for every entry in AGENT_FILES in bootstrap.py.

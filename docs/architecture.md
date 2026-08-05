@@ -1567,6 +1567,27 @@ registry-matched keys ("canon-retired content still present; run sync"), and
 OVERRIDDEN / OVERRIDE-KEPT under a project override — while `SCAFFOLD_FILES` EXTRA keeps
 the keep-as-is rendering (scaffold bodies are inherently project-specific).
 
+**`.pairmode-overrides` section-key format (INFRA-391/398/399, CER-170/180/181, Phase
+123):** a section key is the header text with any leading `#+\s*` marker stripped, then
+lowercased and whitespace-collapsed (`_split_sections`/`_normalise`, `audit.py`) — e.g.
+`## Review Checklist` → `review checklist`. An operator's `.pairmode-overrides` entry is
+written as `file_path: section_key` in this same marker-free form (documented in
+`skills/pairmode/templates/.pairmode-overrides.j2` and `SKILL.md`). `_load_overrides_with_
+diagnostics` additionally accepts a legacy `##`-prefixed key (the pre-CER-170 format) as
+equivalent to its stripped form — a dual-shape acceptance window so existing fleet
+projects' override files keep working without an immediate edit — and
+`_check_overrides_health` emits a non-fatal diagnostic when it detects a legacy-shape
+entry, naming the corrected form. `sync.py` imports `audit.py`'s `_load_overrides`/
+`_SECTION_RE` directly (no duplicate copy) for its own destructive-write-protection gate.
+`pairmode_drift_report.py` likewise imports `audit.py`'s `_split_sections`/`_normalise`/
+`_load_overrides` rather than maintaining an independent copy — CER-181 found and fixed
+exactly this kind of duplication, after `drift_report.py`'s prior stale copy silently
+ignored a correctly-formatted override. `audit.py` is the sole owner of this parsing
+logic; a future change to the section-key contract must audit every consumer (`audit.py`
+itself, `sync.py`, `pairmode_drift_report.py`, and the `.pairmode-overrides.j2` template
+operators read) rather than assuming a single call site, per the CER-170/180/181 chain's
+own lesson.
+
 ### Rails and eras
 
 **Rails** are named architectural lanes. Each story belongs to one rail. Rail name + 3-digit

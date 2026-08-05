@@ -83,51 +83,19 @@ def _safe_project_dir(raw: str | Path) -> Path | None:
 
 
 # ---------------------------------------------------------------------------
-# Section splitting (reused from audit.py patterns)
+# Section splitting + .pairmode-overrides parsing — reused from audit.py
+# (INFRA-399/CER-181): drift-report used to carry an independent, stale copy
+# of this logic that never received the CER-170 (marker-stripping) or
+# CER-180 (dual-shape override acceptance) fixes. audit.py imports only
+# lesson_utils/_version, so importing from audit.py here introduces no cycle
+# (audit.py must never import from pairmode_drift_report.py).
 # ---------------------------------------------------------------------------
 
-_SECTION_RE = re.compile(r"^(##+ .+|---)$", re.MULTILINE)
-
-
-def _normalise(text: str) -> str:
-    """Lowercase and collapse whitespace for fuzzy comparison."""
-    return re.sub(r"\s+", " ", text.lower()).strip()
-
-
-def _split_sections(text: str) -> dict[str, str]:
-    """Split a markdown document into sections keyed by normalised header.
-
-    Splits on ``##`` headers and ``---`` separators.  Returns an ordered dict
-    mapping a normalised key to the section body text.
-    """
-    parts = _SECTION_RE.split(text)
-    sections: dict[str, str] = {}
-    key_counter = 0
-
-    i = 0
-    while i < len(parts):
-        chunk = parts[i].strip()
-        if not chunk:
-            i += 1
-            continue
-
-        if _SECTION_RE.fullmatch(chunk.strip()):
-            header = chunk.strip()
-            body = parts[i + 1].strip() if (i + 1) < len(parts) else ""
-            key = _normalise(header)
-            if key in sections:
-                key = f"{key}__{key_counter}"
-                key_counter += 1
-            sections[key] = body
-            i += 2
-        else:
-            # Preamble before first header
-            key = f"__preamble__{key_counter}"
-            key_counter += 1
-            sections[key] = chunk
-            i += 1
-
-    return sections
+from skills.pairmode.scripts.audit import (  # noqa: E402
+    _load_overrides as _audit_load_overrides,
+    _normalise,
+    _split_sections,
+)
 
 
 def _is_separator_key(key: str) -> bool:
@@ -137,39 +105,21 @@ def _is_separator_key(key: str) -> bool:
 
 # ---------------------------------------------------------------------------
 # .pairmode-overrides parser
-# Reused from audit.py — same file format, same parsing logic.
-# INFRA-064 wires INTENTIONAL classification; here we provide the stub/hook.
 # ---------------------------------------------------------------------------
 
 
 def _load_overrides(project_dir: Path) -> set[tuple[str, str]]:
     """Return set of (relative_file_path, normalised_section_key) declared overrides.
 
-    Parses ``project_dir / ".pairmode-overrides"``. Blank lines and comment
-    lines (``#``) are skipped. Each valid line is split on ``:`` (one split)
-    into ``(file_path, section_key)``.  The section_key is normalised (lowercased,
-    whitespace collapsed) so it matches the keys produced by ``_split_sections``.
+    Thin wrapper around audit.py's ``_load_overrides`` (INFRA-399): audit's
+    loader strips a leading ``#+\\s*`` marker (CER-170) and accepts both key
+    shapes (CER-180) but does not lowercase the section key, while
+    drift-report's section keys come from ``_normalise`` (lowercased,
+    whitespace-collapsed). Without this adapter, a capitalised override entry
+    would stop matching ``_split_sections``-derived keys.
     """
-    overrides_path = project_dir / ".pairmode-overrides"
-    if not overrides_path.exists():
-        return set()
-
-    result: set[tuple[str, str]] = set()
-    try:
-        text = overrides_path.read_text(encoding="utf-8")
-    except OSError:
-        return result
-
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if ":" not in stripped:
-            continue
-        file_path, section_key = stripped.split(":", 1)
-        result.add((file_path.strip(), _normalise(section_key.strip())))
-
-    return result
+    pairs = _audit_load_overrides(project_dir)
+    return {(file_path, _normalise(section_key)) for file_path, section_key in pairs}
 
 
 # ---------------------------------------------------------------------------
