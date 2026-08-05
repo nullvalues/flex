@@ -23,7 +23,7 @@ Fix CER-180: INFRA-391's audit.py section-key format change (CER-170) left skill
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-398 | Fix .pairmode-overrides template/migration gap from audit.py key-format change (CER-180) | draft |
+| INFRA-398 | Fix .pairmode-overrides template/migration gap from audit.py key-format change (CER-180) | complete |
 
 ## Schema delivery
 

@@ -2,7 +2,7 @@
 id: INFRA-398
 rail: INFRA
 title: Fix .pairmode-overrides template/migration gap from audit.py key-format change (CER-180)
-status: draft
+status: complete
 phase: "128"
 story_class: code
 auth_gated: false
