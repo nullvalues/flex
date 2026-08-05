@@ -143,7 +143,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 119 | Spec precision (frozen exemplar), fundamental-doc trim, and CER backlog drain (era 004 closeout) | complete | [phase-119.md](phase-119.md) |
 | 120 | CER-159 hook-firing fix: marketplace install migration, era-004 stable close | complete | [phase-120.md](phase-120.md) |
 | 121 | sync-all to-030 fold-in and fleet stale-hook remediation | complete | [phase-121.md](phase-121.md) |
-| 122 | shadow-reviewer write capability (CER-164) and shadow_review enablement | planned | [phase-122.md](phase-122.md) |
+| 122 | shadow-reviewer write capability (CER-164) and shadow_review enablement | complete | [phase-122.md](phase-122.md) |
 | 123 | Fix audit.py override-key normalisation mismatch (CER-170) | planned | [phase-123.md](phase-123.md) |
 | 124 | Scaffold EXEMPLAR-000.md for downstream projects (CER-171) | planned | [phase-124.md](phase-124.md) |
 | 125 | De-identify fleet repo references from the public repo (CER-172) | planned | [phase-125.md](phase-125.md) |
