@@ -127,13 +127,13 @@ def test_list_empty(tmp_registry):
 def test_list_shows_entries(tmp_registry):
     env, _ = tmp_registry
     _run("register", "--project-dir", "/mnt/work/flex", "--name", "flex", env=env)
-    _run("register", "--project-dir", "/mnt/work/forqsite", "--name", "forqsite", env=env)
+    _run("register", "--project-dir", "/mnt/work/Repo-E", "--name", "Repo-E", env=env)
     result = _run("list", env=env)
     assert result.returncode == 0
     assert "flex" in result.stdout
     assert "/mnt/work/flex" in result.stdout
-    assert "forqsite" in result.stdout
-    assert "/mnt/work/forqsite" in result.stdout
+    assert "Repo-E" in result.stdout
+    assert "/mnt/work/Repo-E" in result.stdout
 
 
 # ---------------------------------------------------------------------------

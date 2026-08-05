@@ -27,7 +27,7 @@ touches:
 
 ## Context
 
-Cora item A#7 (AG-6): model choice is asymmetric and should be decided at
+Repo-G item A#7 (AG-6): model choice is asymmetric and should be decided at
 SPEC time, story by story. **Lowering** below the default is cheap to get
 wrong (one rework cycle) — the spec-writer may do it unilaterally with a
 note. **Raising** above the default is expensive to get wrong silently

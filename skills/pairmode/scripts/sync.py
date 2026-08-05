@@ -87,18 +87,18 @@ from skills.pairmode.scripts.story_new import _add_rail_to_era, _find_era  # noq
 # retired from.
 RETIRED_SECTIONS: dict[tuple[str, str], str] = {
     # --- builder.md.j2 (retired by INFRA-241 thin-agent reduction) ---
-    (".claude/agents/builder.md", "## starting a story"): "INFRA-241",
-    (".claude/agents/builder.md", "## before writing anything"): "INFRA-241",
-    (".claude/agents/builder.md", "## implementation rules"): "INFRA-241",
-    (".claude/agents/builder.md", "## ⚙️ developer action gates"): "INFRA-241",
-    (".claude/agents/builder.md", "## when you are done"): "INFRA-241",
-    (".claude/agents/builder.md", "## if you cannot complete the story"): "INFRA-241",
-    (".claude/agents/builder.md", "## final output to orchestrator"): "INFRA-241",
+    (".claude/agents/builder.md", "starting a story"): "INFRA-241",
+    (".claude/agents/builder.md", "before writing anything"): "INFRA-241",
+    (".claude/agents/builder.md", "implementation rules"): "INFRA-241",
+    (".claude/agents/builder.md", "⚙️ developer action gates"): "INFRA-241",
+    (".claude/agents/builder.md", "when you are done"): "INFRA-241",
+    (".claude/agents/builder.md", "if you cannot complete the story"): "INFRA-241",
+    (".claude/agents/builder.md", "final output to orchestrator"): "INFRA-241",
     # --- reviewer.md.j2 (retired by INFRA-241) ---
-    (".claude/agents/reviewer.md", "## starting a review"): "INFRA-241",
-    (".claude/agents/reviewer.md", "## before reviewing"): "INFRA-241",
-    (".claude/agents/reviewer.md", "## contract check"): "INFRA-241",
-    (".claude/agents/reviewer.md", "## review checklist"): "INFRA-241",
+    (".claude/agents/reviewer.md", "starting a review"): "INFRA-241",
+    (".claude/agents/reviewer.md", "before reviewing"): "INFRA-241",
+    (".claude/agents/reviewer.md", "contract check"): "INFRA-241",
+    (".claude/agents/reviewer.md", "review checklist"): "INFRA-241",
     (".claude/agents/reviewer.md", "**1. protected files**"): "INFRA-241",
     (".claude/agents/reviewer.md", "**2. story scope**"): "INFRA-241",
     (".claude/agents/reviewer.md", "**2.5 story spec**"): "INFRA-241",
@@ -112,56 +112,56 @@ RETIRED_SECTIONS: dict[tuple[str, str], str] = {
         ".claude/agents/reviewer.md",
         "**6. rail scope (new stories only — skip if story has no story file)**",
     ): "INFRA-241",
-    (".claude/agents/reviewer.md", "## test run"): "INFRA-241",
-    (".claude/agents/reviewer.md", "## decision"): "INFRA-241",
-    (".claude/agents/reviewer.md", "### pass conditions"): "INFRA-241",
-    (".claude/agents/reviewer.md", "### fail conditions"): "INFRA-241",
-    (".claude/agents/reviewer.md", "## what you must not do"): "INFRA-241",
+    (".claude/agents/reviewer.md", "test run"): "INFRA-241",
+    (".claude/agents/reviewer.md", "decision"): "INFRA-241",
+    (".claude/agents/reviewer.md", "pass conditions"): "INFRA-241",
+    (".claude/agents/reviewer.md", "fail conditions"): "INFRA-241",
+    (".claude/agents/reviewer.md", "what you must not do"): "INFRA-241",
     # --- final output to orchestrator: also retired from reviewer.md.j2 ---
-    (".claude/agents/reviewer.md", "## final output to orchestrator"): "INFRA-241",
+    (".claude/agents/reviewer.md", "final output to orchestrator"): "INFRA-241",
     # --- before reviewing: also retired from intent-reviewer.md.j2 ---
-    (".claude/agents/intent-reviewer.md", "## before reviewing"): "INFRA-241",
+    (".claude/agents/intent-reviewer.md", "before reviewing"): "INFRA-241",
     # --- loop-breaker.md.j2 (retired by INFRA-241) ---
-    (".claude/agents/loop-breaker.md", "## input format"): "INFRA-241",
-    (".claude/agents/loop-breaker.md", "## your process"): "INFRA-241",
-    (".claude/agents/loop-breaker.md", "## output format"): "INFRA-241",
+    (".claude/agents/loop-breaker.md", "input format"): "INFRA-241",
+    (".claude/agents/loop-breaker.md", "your process"): "INFRA-241",
+    (".claude/agents/loop-breaker.md", "output format"): "INFRA-241",
     # --- what you must not do: also retired from loop-breaker.md.j2 ---
-    (".claude/agents/loop-breaker.md", "## what you must not do"): "INFRA-241",
+    (".claude/agents/loop-breaker.md", "what you must not do"): "INFRA-241",
     # --- output format: also retired from intent-reviewer.md.j2 ---
-    (".claude/agents/intent-reviewer.md", "## output format"): "INFRA-241",
+    (".claude/agents/intent-reviewer.md", "output format"): "INFRA-241",
     # --- security-auditor.md.j2 (retired by INFRA-241) ---
-    (".claude/agents/security-auditor.md", "## before auditing"): "INFRA-241",
-    (".claude/agents/security-auditor.md", "## audit priorities"): "INFRA-241",
+    (".claude/agents/security-auditor.md", "before auditing"): "INFRA-241",
+    (".claude/agents/security-auditor.md", "audit priorities"): "INFRA-241",
     (
         ".claude/agents/security-auditor.md",
-        "### 1. hook integrity (critical if violated)",
+        "1. hook integrity (critical if violated)",
     ): "INFRA-241",
     (
         ".claude/agents/security-auditor.md",
-        "### 2. credential exposure (critical if violated)",
+        "2. credential exposure (critical if violated)",
     ): "INFRA-241",
     (
         ".claude/agents/security-auditor.md",
-        "### 3. path traversal (high if violated)",
+        "3. path traversal (high if violated)",
     ): "INFRA-241",
     (
         ".claude/agents/security-auditor.md",
-        "### 4. domain isolation violation (high if violated)",
+        "4. domain isolation violation (high if violated)",
     ): "INFRA-241",
     (
         ".claude/agents/security-auditor.md",
-        "### 5. layer violation (high if violated)",
+        "5. layer violation (high if violated)",
     ): "INFRA-241",
     (
         ".claude/agents/security-auditor.md",
-        "### 6. spec file protection (medium if violated)",
+        "6. spec file protection (medium if violated)",
     ): "INFRA-241",
-    (".claude/agents/security-auditor.md", "## report format"): "INFRA-241",
+    (".claude/agents/security-auditor.md", "report format"): "INFRA-241",
     # --- intent-reviewer.md.j2 (retired by INFRA-241) ---
-    (".claude/agents/intent-reviewer.md", "## inputs you will receive"): "INFRA-241",
-    (".claude/agents/intent-reviewer.md", "## story alignment"): "INFRA-241",
-    (".claude/agents/intent-reviewer.md", "## design pivot detection"): "INFRA-241",
-    (".claude/agents/intent-reviewer.md", "## calibration"): "INFRA-241",
+    (".claude/agents/intent-reviewer.md", "inputs you will receive"): "INFRA-241",
+    (".claude/agents/intent-reviewer.md", "story alignment"): "INFRA-241",
+    (".claude/agents/intent-reviewer.md", "design pivot detection"): "INFRA-241",
+    (".claude/agents/intent-reviewer.md", "calibration"): "INFRA-241",
 }
 
 
@@ -219,6 +219,24 @@ def _header_from_key(key: str) -> str:
     return key
 
 
+def _normalise_section_boundary(line: str) -> str:
+    """Normalise a raw section-boundary *line* (``##``+ heading, ``---``
+    separator, or bold-marker checklist item) into the same key shape
+    ``audit._split_sections`` produces (CER-170/INFRA-391).
+
+    A heading line has its leading ``#+\\s*`` marker stripped before
+    normalising, exactly as ``_split_sections`` now does; ``---`` separators
+    and bold-marker lines (which never carry a leading ``#``) are unaffected
+    and pass through ``_normalise`` unchanged. This keeps sync.py's own
+    header/section-boundary matching in agreement with the section keys
+    audit.py hands it (e.g. via ``item.section``) after that fix — without
+    this, sync.py would keep comparing against the pre-fix ``## foo``-shaped
+    key that no longer exists anywhere in audit's output.
+    """
+    import re as _re
+    return _normalise(_re.sub(r"^#+\s*", "", line))
+
+
 def _split_by_h2(text: str) -> list[tuple[str, str]]:
     """Split text into (header_line, section_body) pairs.
 
@@ -272,7 +290,7 @@ def _find_bold_marker_range(project_text: str, section_key: str) -> tuple[int, i
     header_idx: int | None = None
     for i, line in enumerate(lines):
         stripped = line.rstrip("\n").rstrip("\r")
-        if _SECTION_RE.fullmatch(stripped) and _normalise(stripped) == section_key:
+        if _SECTION_RE.fullmatch(stripped) and _normalise_section_boundary(stripped) == section_key:
             header_idx = i
             break
 
@@ -305,7 +323,7 @@ def _replace_section_in_file(project_text: str, section_key: str, canonical_body
     replaced = False
 
     for header, body in parts:
-        if not replaced and _normalise(header) == section_key:
+        if not replaced and _normalise_section_boundary(header) == section_key:
             new_body = canonical_body if canonical_body.endswith("\n") else canonical_body + "\n"
             new_parts.append((header, new_body))
             replaced = True
@@ -315,14 +333,19 @@ def _replace_section_in_file(project_text: str, section_key: str, canonical_body
     if replaced:
         return _reconstruct_from_parts(new_parts)
 
-    # Fallback: find H3+ section by scanning lines for a matching header
-    heading_hashes = len(section_key) - len(section_key.lstrip("#"))
+    # Fallback: find H3+ section by scanning lines for a matching header.
+    # section_key no longer carries the leading "#+" marker (CER-170/
+    # INFRA-391), so heading depth for the "same or shallower depth" scan
+    # below is read off the *matched line itself*, not derived from
+    # section_key's own (now absent) leading "#" count.
     lines = project_text.splitlines(keepends=True)
     header_idx: int | None = None
+    heading_hashes = 0
     for i, line in enumerate(lines):
         stripped = line.rstrip("\n").rstrip("\r")
-        if stripped.startswith("#") and _normalise(stripped) == section_key:
+        if stripped.startswith("#") and _normalise_section_boundary(stripped) == section_key:
             header_idx = i
+            heading_hashes = len(stripped) - len(stripped.lstrip("#"))
             break
 
     if header_idx is not None:
@@ -370,7 +393,7 @@ def _remove_section_from_file(project_text: str, section_key: str) -> str:
     header_idx: int | None = None
     for i, line in enumerate(lines):
         stripped = line.rstrip("\n").rstrip("\r")
-        if _SECTION_RE.fullmatch(stripped) and _normalise(stripped) == section_key:
+        if _SECTION_RE.fullmatch(stripped) and _normalise_section_boundary(stripped) == section_key:
             header_idx = i
             break
 
@@ -391,19 +414,32 @@ def _append_section_to_file(project_text: str, header_key: str, canonical_body: 
     """Append a new section to the end of project_text.
 
     header_key is the normalised form. We try to reconstruct an approximate header
-    from the key (e.g. ``## foo bar`` → ``## Foo bar``).
+    from the key (e.g. ``foo bar`` → ``## foo bar``).
     """
-    # Reconstruct a plausible header from the normalised key
-    # Keys look like: "## foo bar" or "__preamble__0"
+    # Reconstruct a plausible header from the normalised key.
+    # Keys look like: "foo bar" (a real ``##``+ heading — the leading marker
+    # is no longer part of the key since CER-170/INFRA-391), "**...**"
+    # (a bold-marker checklist item, unaffected by that fix), or
+    # "__preamble__N" (preamble, not a real heading at all).
     if header_key.startswith("__"):
         # Preamble — just append the canonical body directly
         if not project_text.endswith("\n"):
             project_text += "\n"
         return project_text + "\n" + canonical_body
+    elif header_key.startswith("**"):
+        # Bold-marker checklist item — the key already is the literal marker
+        # text (never had a "#" prefix to strip in the first place).
+        header_text = header_key
+        if not project_text.endswith("\n"):
+            project_text += "\n"
+        body_text = canonical_body if canonical_body.endswith("\n") else canonical_body + "\n"
+        return project_text + "\n" + header_text + "\n" + body_text
     else:
-        # Try to recover something readable from the key
-        # The key was normalised from the actual template header
-        header_text = header_key  # Already in "## ..." form
+        # Real ``##``+ heading key: re-add the marker _append lost. Heading
+        # depth (H2 vs H3+) isn't recoverable from the key alone post-strip;
+        # default to H2, which is the depth of every MISSING/appended section
+        # this call site has historically handled.
+        header_text = "## " + header_key
         if not project_text.endswith("\n"):
             project_text += "\n"
         body_text = canonical_body if canonical_body.endswith("\n") else canonical_body + "\n"
@@ -750,7 +786,7 @@ def sync_project(
                     parts = _split_by_h2(project_text)
                     current_body = ""
                     for header, body in parts:
-                        if _normalise(header) == section_key:
+                        if _normalise_section_boundary(header) == section_key:
                             current_body = body
                             break
                     diff_text = _make_diff(current_body, canonical_body)

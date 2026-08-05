@@ -15,7 +15,7 @@ touches:
 
 ## Context
 
-Surfaced via an external report from the radar project (fable-orchestrated
+Surfaced via an external report from the Repo-L project (fable-orchestrated
 build): `story_new.py --phase MU020` created the story file correctly but
 silently failed to add the new row to the phase manifest's Stories table,
 requiring the operator to add it by hand.

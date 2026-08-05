@@ -925,12 +925,12 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 > ```
 
 **When to use:** When you want to bring a project fully up to date with the canonical pairmode
-methodology in one command — running all four sync operations in the correct order without having
+methodology in one command — running all five sync operations in the correct order without having
 to remember their individual flags or invocation sequences.
 
 **What it does:**
 
-Runs the four sync operations in a fixed, deterministic order:
+Runs the five sync operations in a fixed, deterministic order:
 
 1. `sync.py` — applies the audit delta to methodology files (`CLAUDE.md`, `docs/*`, scaffold
    templates). Always invoked; runs with its own `--dry-run` flag when `sync-all` is not in
@@ -942,8 +942,19 @@ Runs the four sync operations in a fixed, deterministic order:
    `docs/narratives/<ROLE>/`. Always invoked; runs in `--dry-run` mode by default.
 4. `sync-build` — diffs (and with `--apply`, rewrites) `CLAUDE.build.md` from the canonical
    `CLAUDE.build.md.j2` template. Always invoked; runs in `--dry-run` mode by default.
+5. `pairmode_migrate.py to-030 --hooks-only` (INFRA-386) — repairs stale, pre-rename
+   plugin-checkout-absolute hardcoded hook commands (and any other machine-absolute hook
+   commands) left in the project's committed `.claude/settings.json`, relocating them to
+   `.claude/settings.local.json`
+   through the same registrar `to-030` already uses (CER-127/INFRA-319). `--hooks-only` runs only
+   that repair block and none of `to-030`'s other one-time normalization steps (no `state.json`
+   seeding, `expected_step_tokens` rewrite, `pipe_path` removal, `context_story_tokens` removal,
+   `effort_tracking` backfill, `attempt_counter.json` retirement, protected-path preview, or agent
+   cleanup). Always invoked, last in the chain — the four preceding steps never touch
+   `settings.json` hook entries, so a fail-fast halt earlier in the chain leaves it untouched.
+   Runs in dry-run mode by default (no `--apply`), same as the other four.
 
-**Dry-run (default):** Safe by default. Without `--apply`, all four commands — including
+**Dry-run (default):** Safe by default. Without `--apply`, all five commands — including
 `sync.py`, via its own `--dry-run` flag — are invoked in dry-run/preview mode; nothing is
 written.
 
@@ -978,9 +989,9 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 **Flags:**
 - `--project-dir PATH` — target project root (default: current directory). Validated with a depth
   guard (paths with fewer than 3 components are rejected).
-- `--dry-run` — preview mode (default `True`). In dry-run mode, all four commands — `sync.py`
+- `--dry-run` — preview mode (default `True`). In dry-run mode, all five commands — `sync.py`
   included — run with `--dry-run` and write nothing.
-- `--apply` — write changes to disk. Overrides `--dry-run`; runs all four commands, `sync.py`
+- `--apply` — write changes to disk. Overrides `--dry-run`; runs all five commands, `sync.py`
   included, without `--dry-run`.
 - `--yes` / `-y` — suppress confirmation prompts in every downstream command.
 

@@ -23,7 +23,7 @@ touches:
 This story closes the two migration-tooling rows left in the Do Later backlog —
 CER-108 (`docs/cer/backlog.md:56`) and CER-111 (`docs/cer/backlog.md:59`) — and
 it is a campaign edge: the fleet migration campaign's next dispatch,
-RELEASE-070 (cora, 0.1.0 → 0.3.0), is the fleet project most likely to still
+RELEASE-070 (Repo-G, 0.1.0 → 0.3.0), is the fleet project most likely to still
 carry `anchor:`-prefixed skill names, because it is the oldest bootstrap on the
 fleet. The fix must therefore be on the `/mnt/work/flex-harness` release
 channel before RELEASE-070 runs, not merely on `main` (§ Ensures F).
@@ -44,7 +44,7 @@ INFRA-292 reached for seed, and it is enforced in this repo by
 (`:30-35`), which asserts bare names for all four skills.
 
 **CER-111 — the backlog row's premise is wrong, and the annotation must say so.**
-The row reads: *"`to-030` silently rewrote lumin's custom `expected_step_tokens`
+The row reads: *"`to-030` silently rewrote Repo-J's custom `expected_step_tokens`
 53000 → 5000; canary run kept the custom value with a WARN — restore keep+WARN
 (or prompt) for custom values."* Three separate claims in that sentence do not
 survive contact with the code at `pairmode_migrate.py:952-971`:
@@ -58,7 +58,7 @@ survive contact with the code at `pairmode_migrate.py:952-971`:
    `:856`). The fix direction the row proposes is a no-op.
 2. **The two observations are not a contradiction; they are the two arms of a
    clean A/B, and the discriminator is the value itself.**
-   `ERA2_STAMP = 53000` (`:733`) is the Era 2 fleet-wide stamp. lumin's custom
+   `ERA2_STAMP = 53000` (`:733`) is the Era 2 fleet-wide stamp. Repo-J's custom
    value was *exactly* 53000, so it took the rewrite arm. The canary's value was
    not 53000, so it took the keep+WARN arm. Both behaved exactly as written.
    A deliberately-chosen 53000 and the Era 2 stamp are **definitionally
@@ -70,10 +70,10 @@ survive contact with the code at `pairmode_migrate.py:952-971`:
    remedy from "add an echo" to "make the echo say something the operator can
    act on".
 
-**Session-fresh field evidence confirming the 2×2.** halfhorse (RELEASE-067,
+**Session-fresh field evidence confirming the 2×2.** Repo-F (RELEASE-067,
 2026-07-29) held exactly `53000` and hit the rewrite arm; the operator reviewed
-the echoed line and **accepted** the stamp rewrite. forqsite.help, caddy and
-meander each held `53416` and hit the keep+WARN arm, value preserved. Four
+the echoed line and **accepted** the stamp rewrite. Repo-D, Repo-C and
+Repo-B each held `53416` and hit the keep+WARN arm, value preserved. Four
 projects, two values, two arms, zero deviations — the branch is correct and the
 only genuine defect is that the rewrite arm gives an operator holding a
 deliberate 53000 no way to say "no".
@@ -236,7 +236,7 @@ restored. It must state, in the row itself:
 (a) keep+WARN was never removed — the three-way branch at
 `pairmode_migrate.py:956/:969` was live the whole time and pinned by
 `test_to030_keeps_custom_expected_step_tokens`;
-(b) lumin's value was exactly `ERA2_STAMP` (53000), which is definitionally
+(b) Repo-J's value was exactly `ERA2_STAMP` (53000), which is definitionally
 indistinguishable from a deliberate custom 53000, so the two observations are
 the two arms of a correct branch, not a contradiction;
 (c) "silently" was inaccurate — the rewrite arm always echoed;
@@ -321,7 +321,7 @@ read the test and see the end-to-end rewrite.
 
 **F2 (operator-run, pre-RELEASE-070).** After this story merges to `main`, the
 change is fast-forwarded to `/mnt/work/flex-harness` **before RELEASE-070
-(cora) is dispatched**, and the promotion is verified by reading the channel
+(Repo-G) is dispatched**, and the promotion is verified by reading the channel
 copy:
 
 ```bash
@@ -335,7 +335,7 @@ promotion. RELEASE-070 is not dispatched until this returns them.
 **F3.** The verification and its date are recorded in the phase doc's CP-114
 cold-eyes checklist (orchestrator-filled, per project convention). **Phase 114
 cannot be checkpointed with F2 unrun.** If RELEASE-070 is dispatched against an
-unpromoted channel, cora migrates with `anchor:` names still in frontmatter —
+unpromoted channel, Repo-G migrates with `anchor:` names still in frontmatter —
 record that as a FAIL and a re-migration obligation, not as a skip.
 
 **F4.** F2/F3 are **not** builder work. The builder's obligation ends at F1 and
@@ -453,7 +453,7 @@ PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -q 2>&1 | tail -30
   removing an interactive prompt from `story_new.py` for the same reason.)
 - **Changing `ERA2_STAMP` or `THIN_HARNESS_STEP_TOKENS`.** Both keep their
   current values (`53000`, `5000`).
-- **Retroactively repairing halfhorse's rewritten value.** The operator
+- **Retroactively repairing Repo-F's rewritten value.** The operator
   reviewed the echoed line at RELEASE-067 and accepted the stamp rewrite. That
   is a settled field decision, not a defect to undo.
 - **Rule 8 and the seed skill.** Already correct (INFRA-292); this story only

@@ -34,7 +34,7 @@ to the developer but never blocks. The developer decides whether to update the
 story spec or proceed.
 
 The same change applies to `skills/pairmode/templates/CLAUDE.build.md.j2` so
-future bootstraps and forqsite syncs inherit the gate.
+future bootstraps and Repo-E syncs inherit the gate.
 
 **Depends on INFRA-155.** The `check-story-scope` command must exist before this
 story builds.
@@ -113,14 +113,14 @@ add assertions for the new section there rather than creating a new test file.
 
 ### Manual propagation (orchestrator post-commit)
 
-After the reviewer commits, sync forqsite:
+After the reviewer commits, sync Repo-E:
 
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/pairmode_sync.py \
-  sync-build --project-dir /mnt/work/forqsite --apply --yes
+  sync-build --project-dir /mnt/work/Repo-E --apply --yes
 ```
 
-Verify `CLAUDE.build.md` in forqsite contains the new
+Verify `CLAUDE.build.md` in Repo-E contains the new
 `### Pre-story scope check` section. The builder does NOT attempt this step;
 the reviewer does NOT block on it.
 

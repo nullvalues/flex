@@ -120,7 +120,7 @@ not line number, and note the drift in its report.
   predicate in `cer.py`, consumed by both `cer._parse_entries_from_backlog`
   (`:124`) and `next_action._check_cer_do_now`, so the rule is defined once
   rather than duplicated with independent writers. Its docstring records why:
-  reading the placeholder row as a finding blocked caddy's first 0.3.0
+  reading the placeholder row as a finding blocked Repo-C's first 0.3.0
   checkpoint.
 - `next_action.check_checkpoint_guards` (`:508-566`) — Guard 2 call site
   (`:541-544`), which turns a `False` into
@@ -284,7 +284,7 @@ change to the grammar could silently start blocking fresh repos again).
 **C3.** The real scaffolded backlog from
 `skills/pairmode/templates/docs/cer/backlog.md.j2` (rendered, as
 `test_checkpoint_routing.py:297-317` already does) still passes the guard, and
-so does the four-cell caddy-shaped placeholder row (`:318-335`).
+so does the four-cell Repo-C-shaped placeholder row (`:318-335`).
 
 ### D — the grammar is published where consuming repos read it
 

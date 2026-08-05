@@ -201,7 +201,7 @@ INFRA-316 (Phase 116 -- between-story context etiquette, Row PC) -- REMOVED
   nothing produces the value at runtime, and it is no longer a member of
   ``ACTIONS``.
 
-INFRA-318 (Phase 116 -- spec-time model review, Cora item A#7/AG-6):
+INFRA-318 (Phase 116 -- spec-time model review, Repo-G item A#7/AG-6):
   ``infer_position`` §4 (builder model selection) now reads the next story's
   optional ``model:`` frontmatter field (validated against
   ``schema_validator.VALID_MODEL_TIERS``) and applies it via

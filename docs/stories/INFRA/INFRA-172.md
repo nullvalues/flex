@@ -19,7 +19,7 @@ touches:
 creation and nothing ever updates it. The parsing infrastructure already exists
 (`_parse_index_phases`, `_is_aggregate_range`). This story adds the missing write path.
 
-Confirmed drift: in forqsite, dozens of phases are checkpointed but still show
+Confirmed drift: in Repo-E, dozens of phases are checkpointed but still show
 `planned`. In flex, the status was maintained manually.
 
 ## Acceptance criteria

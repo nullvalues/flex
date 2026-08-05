@@ -5,7 +5,7 @@ phase_class: production
 
 # project — Phase 117: Build-loop integrity remediation: escalation ladder, dead handoffs, CER-append corruption
 
-← [Phase 116: Cora upstream: methodology gates, resolver cadence, spec-time controls; backlog truth pass and 0.3.1](phase-116.md)
+← [Phase 116: Repo-G upstream: methodology gates, resolver cadence, spec-time controls; backlog truth pass and 0.3.1](phase-116.md)
 
 <!-- Phase doc = planning surface only. Story-level detail (acceptance criteria,
      file paths, implementation guidance, test instructions, codebase recon)

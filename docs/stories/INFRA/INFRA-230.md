@@ -19,13 +19,13 @@ CER-072 (Do Now, CRITICAL, unresolved): `next_action.py::_run_build_gate_subproc
 (`next_action.py:367-395`) hardcodes `uv run pytest tests/pairmode/ -q --tb=no`
 in the target project directory and treats any non-zero exit as gate-red.
 `tests/pairmode/` exists only in flex/flex-harness itself — verified absent
-in every fleet project (forqsite, coherra, meander, caddy, radar, asp) — so
+in every fleet project (Repo-E, Repo-A, Repo-B, Repo-C, Repo-L, Repo-I) — so
 pytest exits non-zero with "file or directory not found," and the guard
 returns `False` unconditionally. The existing fail-open branch only covers
 exceptions/timeouts, not a clean non-zero exit, so it doesn't rescue this
 case.
 
-Live-hit: forqsite's first downstream 0.3.0 checkpoint (`PM065-main`, the
+Live-hit: Repo-E's first downstream 0.3.0 checkpoint (`PM065-main`, the
 migration phase itself) hard-blocked with `checkpoint-guard-failed:build-gate`
 while the project's real build gate (`pnpm build && pnpm typecheck && pnpm
 test`, 2827 tests) was green. Every migrated fleet project will hit this at
@@ -33,7 +33,7 @@ its first checkpoint until fixed.
 
 Confirmed this session: every bootstrapped project already carries
 `.companion/pairmode_context.json` with a populated `test_command` field
-(e.g. forqsite: `"pnpm test"`) — set by `bootstrap.py` at bootstrap time
+(e.g. Repo-E: `"pnpm test"`) — set by `bootstrap.py` at bootstrap time
 (`_infer_build_command`/`_validate_test_command`, `bootstrap.py:145-160`) and
 never previously read by the build-gate guard. flex-harness itself has no
 `.companion/pairmode_context.json` (confirmed absent this session), so its
@@ -46,7 +46,7 @@ hardcoded pytest fallback.
   (confirmed present and reproducing the bug this session).
 - `.companion/pairmode_context.json`'s `test_command` field, populated by
   `bootstrap.py` for every bootstrapped project (confirmed present in
-  forqsite this session; confirmed absent in flex-harness's own repo).
+  Repo-E this session; confirmed absent in flex-harness's own repo).
 
 ## Ensures
 
@@ -54,7 +54,7 @@ hardcoded pytest fallback.
   `project_dir/.companion/pairmode_context.json` first. If the file exists,
   is valid JSON, and has a non-empty `test_command` string field, that exact
   command string is run as the build gate (via a shell, since it may contain
-  `&&`-chained commands like forqsite's) instead of the hardcoded pytest
+  `&&`-chained commands like Repo-E's) instead of the hardcoded pytest
   invocation.
 - If `.companion/pairmode_context.json` does not exist, is not valid JSON, or
   has no non-empty `test_command` field, the function falls back to the
@@ -117,7 +117,7 @@ hardcoded pytest fallback.
   project's own session once this lands and it re-syncs the fixed
   `next_action.py` (via its `pairmode_scripts_dir` binding to this repo).
 - CER-073 through CER-076 (the other Do Later findings from the same
-  forqsite build) — separate, lower-severity items, not part of this fix.
+  Repo-E build) — separate, lower-severity items, not part of this fix.
 
 ## Tests
 

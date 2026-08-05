@@ -114,7 +114,7 @@ sensitivity: story files and phase docs contain project decision history — tre
 internal confidential.
 
 **Known Uses:** flex project — used on every code story across Phases 10–47,
-7 downstream projects (forqsite, radar, asp, aab, cora, and others).
+7 downstream projects (Repo-E, Repo-L, Repo-I, Repo-H, Repo-G, and others).
 
 **Related Patterns:**
 - `checkpoint-gated-autonomy`: the loop's BUILD GATE IS the autonomy checkpoint

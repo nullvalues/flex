@@ -23,5 +23,5 @@
   - Confidence: high
 
 - Product name is derived from working directory path ⚠️ implicit
-  - Evidence: "the working directory is `/mnt/work/cora` and the project is "cora", so I'll use that as PRODUCT_NAME"
+  - Evidence: "the working directory is `/mnt/work/Repo-G` and the project is "Repo-G", so I'll use that as PRODUCT_NAME"
   - Confidence: medium

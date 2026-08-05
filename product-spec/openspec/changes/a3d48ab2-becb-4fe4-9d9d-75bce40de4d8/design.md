@@ -53,5 +53,5 @@
   - Confidence: high
 
 - Plugin flag can be combined with session resume flag: claude -c --plugin-dir
-  - Evidence: "You can combine the flags: cd /mnt/work/cora && claude -c --plugin-dir /mnt/work/flex... That resumes your last cora session with Flex loaded."
+  - Evidence: "You can combine the flags: cd /mnt/work/Repo-G && claude -c --plugin-dir /mnt/work/flex... That resumes your last Repo-G session with Flex loaded."
   - Confidence: high

@@ -12,7 +12,7 @@ RELEASE-065 on evidence: E6b FAIL). RELEASE-066..070 resume after cp-112.
 
 ## Findings dossier (RELEASE-065 evidence, 2026-07-28; all verified live)
 
-**Defect 1 — E6b grammar skew (INFRA-293).** Caddy's proving cycle
+**Defect 1 — E6b grammar skew (INFRA-293).** Repo-C's proving cycle
 (PAIRMODE-002) left effort.db rows 33/34 permanently pending: `tokens_total`
 and `model` parse from the spawn transcripts, but `outcome` is None because
 the workers returned the 0.2-era plain-text grammar (`BUILD-RESULT: DONE`,
@@ -21,34 +21,34 @@ the workers returned the 0.2-era plain-text grammar (`BUILD-RESULT: DONE`,
 block; verdicts PASS/FAIL/ALIGNED per RECOGNISED_REVIEW_VERDICTS, ~line 308).
 The sweep's CER-091 defect-2 branch then correctly refuses to commit a partial
 row. Root cause: `pairmode_sync.py sync-agents` merges frontmatter and appends
-new template sections but preserves stale 0.2-era body content — caddy's
+new template sections but preserves stale 0.2-era body content — Repo-C's
 `.claude/agents/builder.md:106` carries the literal `BUILD-RESULT: DONE`
 example alongside the newly merged JSON-schema reference, and workers followed
 the old example. Canary playbook note 4's agent-cleanup WARN ("content differs
 from known 0.2.x template … manual porting required") has flagged this on all
 three migrations and was twice adjudicated noise (reclassified in RELEASE-065
-E12 note 4). Every 0.2-era fleet project (forqsite.help, halfhorse, pokus,
-base56, cora at minimum) will reproduce this. Fix direction (both ends, like
+E12 note 4). Every 0.2-era fleet project (Repo-D, Repo-F, Repo-K,
+base56, Repo-G at minimum) will reproduce this. Fix direction (both ends, like
 phase 110's CER-104 treatment): (a) parser tolerance — `parse_worker_outcome`
 additionally accepts a legacy plain-text verdict line, mapping recognised
 verdicts and handling `DONE` explicitly (map or reject-with-reason, decide in
-spec; note caddy's PAIRMODE-002 rows should become reconcilable after the fix
+spec; note Repo-C's PAIRMODE-002 rows should become reconcilable after the fix
 — an acceptance test candidate); (b) sync-side — the agent-file sync replaces
 the return-format section of stale bodies (or the to-030 agent-cleanup step
 ports it), so consumer workers stop emitting the legacy grammar in the first
 place.
 
-**Defect 2 — CER-guard placeholder false positive (INFRA-294).** Caddy's first
+**Defect 2 — CER-guard placeholder false positive (INFRA-294).** Repo-C's first
 0.3.0 checkpoint was blocked by `next_action._check_cer_do_now` reading the
 scaffolded CER-backlog placeholder row `| — | *(none)* | — | — |` as an
-unresolved Do Now item; the caddy operator deleted the row by hand (caddy
+unresolved Do Now item; the Repo-C operator deleted the row by hand (Repo-C
 commit f234915, filed there as CER-C004). Every repo whose CER backlog was
 scaffolded with the placeholder hits this on its first checkpoint. Fix in
 `next_action.py`'s `_check_cer_do_now` (and check the backlog template under
 `skills/pairmode/templates/` for the placeholder shape it emits); a regression
 test with the scaffolded placeholder row belongs alongside.
 
-**Defect 3 — snapshot writes into the scripts checkout (INFRA-295).** Caddy's
+**Defect 3 — snapshot writes into the scripts checkout (INFRA-295).** Repo-C's
 native session ran `fleet_discovery.py` (channel scripts) without
 `--no-snapshot`; the `--snapshot` default (`docs/fleet-snapshot.md`, resolved
 relative to the flex checkout the script derives, see `fleet_discovery.py`)
@@ -60,7 +60,7 @@ rule in spec; keep `--no-snapshot` and explicit `--snapshot PATH` behaviour.
 
 ## Cold-eyes corrections (fable review, pre-spec — fold into specs)
 
-1. **Pending-row shape (INFRA-293 acceptance):** caddy rows 33/34 are
+1. **Pending-row shape (INFRA-293 acceptance):** Repo-C rows 33/34 are
    fully-NULL-except-`model` (`model` was set at insert; tokens are parseable
    at sweep time but the refuse-partial branch at `subagent_transcript.py:1711`
    skips the whole row). Do not spec an acceptance test asserting
@@ -83,10 +83,10 @@ rule in spec; keep `--no-snapshot` and explicit `--snapshot PATH` behaviour.
    risk.
 4. **Fleet re-sweep is time-bounded and now owned by INFRA-293:**
    `RECONCILE_MAX_AGE_DAYS = 14` (`subagent_transcript.py:156`) — the fix must
-   reach `/mnt/work/flex-harness` and a sweep must run in caddy before
+   reach `/mnt/work/flex-harness` and a sweep must run in Repo-C before
    2026-08-11 or rows 33/34 leave the sweep window permanently. INFRA-293's
    Ensures must include: after channel release, the explicit sweep CLI run in
-   caddy reconciles rows 33/34 (they are otherwise reconcilable today —
+   Repo-C reconciles rows 33/34 (they are otherwise reconcilable today —
    predicate and target-allowlist verified).
 5. **Placeholder skip-rule already exists (INFRA-294, avoid duplicate state):**
    `cer.py:119-120` (`cer_id == "—" or finding == "*(none)*"`) is the canonical
@@ -135,7 +135,7 @@ Spec-writers must drain these into their stories (spec-time backlog pull):
 Related CERs already filed: CER-110 (plugin-sourced duplicate-hook signal,
 fleet-wide — NOT in this phase's scope), CER-111 (to-030 expected_step_tokens
 rewrite — three-way data now recorded in RELEASE-065; not in scope unless the
-spec-writer finds it cheap), CER-C001..C004 live in caddy's backlog (C004 is
+spec-writer finds it cheap), CER-C001..C004 live in Repo-C's backlog (C004 is
 defect 2 upstream).
 
 <!-- Phase doc = planning surface only. Story-level detail (acceptance criteria,
@@ -178,7 +178,7 @@ this phase, record the management surface before the phase is checkpointed.
 2026-07-28 (operator-approved, well inside the 2026-08-11 deadline). The fix
 was promoted to `/mnt/work/flex-harness` via ff-only merge to `df54fa06`, then
 the explicit sweep `subagent_transcript.py reconcile --project-dir
-/mnt/work/caddy --limit 200 --json` returned `{"reconciled": 3}`. Row check
+/mnt/work/Repo-C --limit 200 --json` returned `{"reconciled": 3}`. Row check
 before: rows 33/34 both `tokens_total=NULL, outcome=NULL`; after: row 33 =
 `(sonnet, 7457, PASS)`, row 34 = `(sonnet, 9145, PASS)` — both non-NULL, the
 E6b legacy plain-text verdict grammar reconciles in the field. F4 satisfied by

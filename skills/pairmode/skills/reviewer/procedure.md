@@ -271,6 +271,14 @@ Does any code modify existing lesson entries in lessons.json other than
 changing the `status` field?
 Lessons are append-only. Any other mutation is HIGH.
 
+CER-173 exception: `scrub_fleet_names.py`'s lessons-scoped mode
+(`apply_lessons()`/`verify_lessons()`, `--lessons` CLI flag) performing a
+real-name-only text substitution on an existing entry's free-text fields
+(`source_project`, `trigger`, `problem`, `learning`,
+`methodology_change.description`, `value_framing`) is not a violation of
+this rule. Any other field change, addition, removal, or reorder — via that
+path or any other — is still HIGH.
+
 ### 6. TEST COVERAGE
 
 Does the diff include Python (or other) logic modules with no corresponding

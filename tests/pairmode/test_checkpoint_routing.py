@@ -325,7 +325,7 @@ def test_check_guards_cer_do_now_scaffolded_placeholder_passes(tmp_path: Path) -
 
 
 def test_check_guards_cer_do_now_four_cell_placeholder_passes(tmp_path: Path) -> None:
-    """CER Do Now guard passes on the four-cell placeholder row observed in caddy."""
+    """CER Do Now guard passes on the four-cell placeholder row observed in Repo-C."""
     phase_file = _make_phase_file(tmp_path, [("T-001", "complete")])
 
     cer_dir = tmp_path / "docs" / "cer"

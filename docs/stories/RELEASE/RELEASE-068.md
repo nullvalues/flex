@@ -1,7 +1,7 @@
 ---
 id: RELEASE-068
 rail: RELEASE
-title: Migrate pokus to pairmode 0.3.0 — canon files only
+title: Migrate Repo-K to pairmode 0.3.0 — canon files only
 status: complete
 phase: "106"
 auth_gated: false
@@ -20,7 +20,7 @@ touches:
      populated here per the RELEASE-064..067 precedent (operator-directed): the
      single in-repo write target is *this file* — the `## Evidence` section
      appended by the executor. Every other write target is outside the repo,
-     under `/mnt/work/pokus`, and therefore cannot appear in `touches:` at all;
+     under `/mnt/work/Repo-K`, and therefore cannot appear in `touches:` at all;
      that is the point of phase 106 § Execution model. The cross-repo write set
      is enumerated instead in `## Cross-repo scope boundaries` below.
      Both lists are written **block-style**, not flow-style: per RELEASE-066
@@ -28,53 +28,53 @@ touches:
      frontmatter reader and crashes `create-story-worktree`'s
      `generate_permissions_artifact` with a `TypeError`. Do not "tidy" these into
      flow style.
-     The title was narrowed from "Migrate pokus to pairmode 0.3.0 (coordinate
+     The title was narrowed from "Migrate Repo-K to pairmode 0.3.0 (coordinate
      around in-flight UAT-gated work)" per the operator directive recorded in
      § Context. -->
 
 ## Context
 
 Phase 106 drives the remaining pairmode 0.3.0 fleet migrations centrally from
-flex. RELEASE-063 was the canary (meander); RELEASE-064..067 migrated lumin,
-caddy, forqsite.help and halfhorse using the six-step mechanic in
+flex. RELEASE-063 was the canary (Repo-B); RELEASE-064..067 migrated Repo-J,
+Repo-C, Repo-D and Repo-F using the six-step mechanic in
 `docs/harness-cutover-runbook.md` § *Per-project mechanic*, each run carrying the
 full evidence load: migration **plus** a proving story cycle inside the target
 whose attempt rows proved the CER-101/103/104 recording cluster downstream.
 
-**Target repo: `/mnt/work/pokus`.**
+**Target repo: `/mnt/work/Repo-K`.**
 
 ### OPERATOR DIRECTIVE (2026-07-29) — this story is canon-only
 
-The original RELEASE-068 scope was "migrate pokus, coordinating around its
-in-flight UAT-gated work" (pokus holds its own proposed migration phase,
+The original RELEASE-068 scope was "migrate Repo-K, coordinating around its
+in-flight UAT-gated work" (Repo-K holds its own proposed migration phase,
 `docs/phases/phase-proposed-pairmode-030-migration-20260722-001.md`, explicitly
 gated on TEST-002 clearing). The operator has **eliminated that coordination
 risk by narrowing the story rather than scheduling around it**:
 
-> Canon-only migration of pokus — sync the pairmode 0.3.0 canon files into
-> `/mnt/work/pokus` and nothing more, so phase 106 can close.
+> Canon-only migration of Repo-K — sync the pairmode 0.3.0 canon files into
+> `/mnt/work/Repo-K` and nothing more, so phase 106 can close.
 
 Consequences, stated plainly so no executor re-widens them:
 
 - **No proving story cycle.** Mechanic step 6 (the sibling stories' E5/E6/E7) is
   **not** run here. The phase-106 § *Checkpoint proves* clause — "each migrated
-  project completed one proving story cycle" — is **narrowed for pokus by this
-  directive**. RELEASE-071 (campaign close) must record pokus as
+  project completed one proving story cycle" — is **narrowed for Repo-K by this
+  directive**. RELEASE-071 (campaign close) must record Repo-K as
   *canon-synced, proof-deferred* rather than silently counting it as proven. The
-  campaign's downstream proof already exists (forqsite.help CONTENT-005 row 14,
-  operator-ruled qualified pass; re-confirmed on halfhorse) — pokus is not
+  campaign's downstream proof already exists (Repo-D CONTENT-005 row 14,
+  operator-ruled qualified pass; re-confirmed on Repo-F) — Repo-K is not
   load-bearing for it.
-- **Nothing outside canon surfaces is touched.** Not pokus's Kotlin/Android code,
+- **Nothing outside canon surfaces is touched.** Not Repo-K's Kotlin/Android code,
   not its `docs/`, not its stories or backlog, not TEST-002/TEST-003, not its
   proposed migration phase doc, not its UAT harness. See
   § *Cross-repo scope boundaries* for the exhaustive write list.
-- **The coordination question does not arise.** Recon (below) confirms pokus has
+- **The coordination question does not arise.** Recon (below) confirms Repo-K has
   **no build attempt in flight**: working tree clean at `1bf8383`, no
   `current_story` in `.companion/state.json`, no story worktrees, TEST-002 and
   TEST-003 both `status: planned`. Canon sync cannot collide with an in-flight
   story because there is not one.
 
-### Recon — pokus's actual state (captured 2026-07-29, read-only)
+### Recon — Repo-K's actual state (captured 2026-07-29, read-only)
 
 Recorded here so the executor can detect drift rather than rediscover the
 baseline. These are **expectations, not evidence** — re-observe every one and
@@ -92,8 +92,8 @@ record what actually prints (see `## Ensures` C1).
 | Stale result grammar in agent bodies | `builder.md` 1 hit, `reviewer.md` 1 hit (`BUILD-RESULT: DONE` / `REVIEW-RESULT: PASS`); other four clean |
 | `sync.py --dry-run` RETIRED prunes | **46 sections, every one under `.claude/agents/*.md`, all attributed to INFRA-241** — zero prunes proposed in `CLAUDE.md` or `CLAUDE.build.md` |
 | `.pairmode-overrides` | present but **comment-only — no declared entries** (so the L022 apply-path defect is inert here) |
-| `.claude/settings.json` hook commands | all four point at **`/mnt/work/flex/hooks/*.py`** (the dev checkout), not the release channel — CER-127 class (1). Those files **do exist**, so pokus's sessions are not broken |
-| `.claude/settings.local.json` | exists, 7 `Write(`/`Edit(` allow rules (no sediment problem — meander had 133) |
+| `.claude/settings.json` hook commands | all four point at **`/mnt/work/flex/hooks/*.py`** (the dev checkout), not the release channel — CER-127 class (1). Those files **do exist**, so Repo-K's sessions are not broken |
+| `.claude/settings.local.json` | exists, 7 `Write(`/`Edit(` allow rules (no sediment problem — Repo-B had 133) |
 | Test surface | one pytest file, `tests/test_context_budget_check.py`; the project's real gate is `cd app && ./gradlew assembleDebug` |
 | `pairmode_context.json` `test_command` | `cd app && ./gradlew assembleDebug` — this is what canon `CLAUDE.build.md`'s **Build standards** line will carry |
 
@@ -112,14 +112,14 @@ narrower one:
   actioned.
 - `.companion/state.json` — the `pairmode_version` stamp (written by `sync.py`'s
   state merge) and the `to-030` schema normalisation.
-- No `skills/` payload is copied into a consuming repo by any sync path. pokus
+- No `skills/` payload is copied into a consuming repo by any sync path. Repo-K
   has no `skills/` directory and this story does not create one.
 
 ### Hazards this phase's own landings introduced
 
 1. **Canon-retirement pruning is live (INFRA-311, cp-113).** `sync.py` now
    *deletes* downstream sections whose normalised key appears in
-   `RETIRED_SECTIONS`. pokus is the first project this campaign syncs with that
+   `RETIRED_SECTIONS`. Repo-K is the first project this campaign syncs with that
    path active, and it has **46 matches**. Pruning is correct here — those
    sections are the pre-INFRA-241 fat agent bodies — but it is destructive and
    must be previewed.
@@ -134,16 +134,16 @@ narrower one:
    key such as `## before reviewing` or `**3. build gate**` would match a
    *legitimate project extension* of the same name in any canonical file. The
    per-section confirmation prompt on the apply path is the only guard. Recon
-   found no collision in pokus (all 46 prunes land in agent files whose bodies
+   found no collision in Repo-K (all 46 prunes land in agent files whose bodies
    are verifiably the retired canon), but the executor re-verifies rather than
    trusting that: **decline any prune whose section is not verifiably stale
    canon in a canonical file.**
-4. **`.pairmode-overrides` is not honoured on the apply path (L022, cora).**
-   Declaring a section there protects it at *audit* time only. pokus has no
+4. **`.pairmode-overrides` is not honoured on the apply path (L022, Repo-G).**
+   Declaring a section there protects it at *audit* time only. Repo-K has no
    declared entries, so nothing is at risk — but do not add entries mid-story and
    assume they will hold.
-5. **Canon replaces pokus's inline review checklist, and that is intended.**
-   pokus's `CLAUDE.md` § *Review checklist* is a 0.2-era inline four-item list
+5. **Canon replaces Repo-K's inline review checklist, and that is intended.**
+   Repo-K's `CLAUDE.md` § *Review checklist* is a 0.2-era inline four-item list
    including its gradle build gate; canon replaces it with the thin pointer to
    `skills/pairmode/skills/reviewer/procedure.md`. The gradle gate is **not
    lost** — it survives as `test_command` on `CLAUDE.build.md`'s **Build
@@ -151,7 +151,7 @@ narrower one:
    verifies exactly that before the replacement is accepted as safe. Separately,
    that pointer path is repo-relative and does not resolve inside a consumer repo
    with no `skills/` payload — record it as a finding (C13), do not fix it here.
-6. **CER-127 / INFRA-319.** pokus's hook commands point at `/mnt/work/flex/hooks`
+6. **CER-127 / INFRA-319.** Repo-K's hook commands point at `/mnt/work/flex/hooks`
    and **no sync or migrate rule rewrites hook command paths**. They will still
    point there after this story. That is CER-127 class (1) field evidence for
    INFRA-319 (phase 114) and is recorded, not surgically fixed — see C8 for the
@@ -162,7 +162,7 @@ Two things about how this story runs are settled by phase 106 § *Execution mode
 acting:
 
 1. **No sandboxed builder subagent, no flex worktree.** The write targets live at
-   `/mnt/work/pokus`, outside this repo; the worktree loop and `scope_guard.py`
+   `/mnt/work/Repo-K`, outside this repo; the worktree loop and `scope_guard.py`
    forbid writes there — correctly. Execution is **orchestrator-level with the
    operator present**.
 2. **Acceptance is evidence-shaped, not diff-shaped.** The flex-side diff is one
@@ -189,7 +189,7 @@ outside this list is a scope violation to be reported, not rationalized.
   (`flex_build.py` status/record subcommands). Hand-edits are not part of this
   story.
 
-**Writable — inside `/mnt/work/pokus`, and only via the pairmode CLIs:**
+**Writable — inside `/mnt/work/Repo-K`, and only via the pairmode CLIs:**
 
 - `CLAUDE.md` — canonical sections updated by `sync.py`.
 - `CLAUDE.build.md` — regenerated wholesale to the 0.3.0 thin-harness template by
@@ -206,13 +206,13 @@ outside this list is a scope violation to be reported, not rationalized.
 - `.claude/settings.local.json` — **only** if the operator explicitly approves a
   prune (7 rules; no sediment problem is expected), and only after a backup is
   written alongside it.
-- Git objects/refs in pokus, via **one** migration commit (and its push).
+- Git objects/refs in Repo-K, via **one** migration commit (and its push).
 
 **Read-only — never written by this story:**
 
 - `/mnt/work/flex-harness` (the release channel) — scripts are *invoked* from it.
   `git -C /mnt/work/flex-harness status --porcelain` must print nothing at the end.
-- Everything else under `/mnt/work/pokus`: `app/`, `product-spec/`, `scripts/`,
+- Everything else under `/mnt/work/Repo-K`: `app/`, `product-spec/`, `scripts/`,
   `tests/`, `gradle*`, `docs/**` (including `docs/brief.md`,
   `docs/phases/index.md`, `docs/cer/backlog.md` — the `SCAFFOLD_FILES` trio),
   `docs/stories/**`, `docs/uat/**`, `docs/eras/**`,
@@ -222,15 +222,15 @@ outside this list is a scope violation to be reported, not rationalized.
   `.pairmode-overrides`, `.companion/effort.db`,
   `.companion/pairmode_context.json`, `.companion/modules.json`,
   `.companion/product.json`, `README.md`.
-- `/mnt/work/meander`, `/mnt/work/lumin`, `/mnt/work/caddy`,
-  `/mnt/work/forqsite.help`, `/mnt/work/halfhorse` — already migrated. No re-sync.
+- `/mnt/work/Repo-B`, `/mnt/work/Repo-J`, `/mnt/work/Repo-C`,
+  `/mnt/work/Repo-D`, `/mnt/work/Repo-F` — already migrated. No re-sync.
 
 **Forbidden outright:**
 
 - Every other project directory under `/mnt/work/` — RELEASE-069 and RELEASE-070
-  own base56 and cora.
-- Running any pokus story, spec-writing any pokus story, sequencing pokus's
-  proposed migration phase, or editing pokus's backlog/index/era docs.
+  own base56 and Repo-G.
+- Running any Repo-K story, spec-writing any Repo-K story, sequencing Repo-K's
+  proposed migration phase, or editing Repo-K's backlog/index/era docs.
 - `docs/harness-cutover-runbook.md` and `docs/cer/backlog.md` in flex — findings
   are *named* under C13, never applied here.
 
@@ -247,7 +247,7 @@ outside this list is a scope violation to be reported, not rationalized.
 - **RELEASE-063..067 are complete with their `## Evidence` sections present.**
   This story is specced against their playbook notes; it does not re-derive them.
 - **RELEASE-069, RELEASE-070, RELEASE-071 are still `draft`.**
-- `/mnt/work/pokus` exists as a git repository, its working tree is **clean**,
+- `/mnt/work/Repo-K` exists as a git repository, its working tree is **clean**,
   and it has **no build attempt in flight** (no `current_story` in
   `.companion/state.json`, no `.companion/attempt_counter.json` naming a live
   story, no story worktrees). Per canary playbook note 1 a dirty tree is a
@@ -286,15 +286,15 @@ thing happened.
 - the operator directive quoted, with the one-line statement that mechanic step 6
   is deliberately not run.
 
-**C1. A pre-sync baseline exists and pokus is unambiguously identified.**
-`## Evidence` contains, captured **before any write to pokus**:
-- the verbatim `fleet_discovery.py --no-snapshot` block for `/mnt/work/pokus`
+**C1. A pre-sync baseline exists and Repo-K is unambiguously identified.**
+`## Evidence` contains, captured **before any write to Repo-K**:
+- the verbatim `fleet_discovery.py --no-snapshot` block for `/mnt/work/Repo-K`
   (`--no-snapshot` is **mandatory** — 4-of-5 prior runs, plus INFRA-295's
   refuse-by-default), showing `binding`, `signal1`, `signal2`, plus the run's
   `Projects with duplicate hooks:` line;
-- `git -C /mnt/work/pokus log --oneline -3`, `git -C /mnt/work/pokus status --porcelain`
-  (must be empty), and `git -C /mnt/work/pokus branch --show-current`;
-- `readlink -f /mnt/work/pokus` confirming no symlink indirection and that no
+- `git -C /mnt/work/Repo-K log --oneline -3`, `git -C /mnt/work/Repo-K status --porcelain`
+  (must be empty), and `git -C /mnt/work/Repo-K branch --show-current`;
+- `readlink -f /mnt/work/Repo-K` confirming no symlink indirection and that no
   similarly-named sibling was scanned in its place;
 - the in-flight check: `.companion/state.json` has no `current_story`, and
   `.companion/attempt_counter.json` is absent or names no live story;
@@ -302,11 +302,11 @@ thing happened.
   `.companion/state.json` (CER-111: reading `expected_step_tokens` only
   afterwards makes the delta unrecoverable);
 - the **pre-sync** stale-grammar counts:
-  `grep -rc 'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS' /mnt/work/pokus/.claude/agents/*.md`;
+  `grep -rc 'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS' /mnt/work/Repo-K/.claude/agents/*.md`;
 - the four hook command strings from `.claude/settings.json`, verbatim;
-- `ls /mnt/work/pokus/.claude/agents/` (recording that `gate-worker.md` is absent);
-- one line naming which starting shape pokus is in (expected: **bound-0.2.x,
-  no-declaration** — the ordinary branch lumin/caddy/forqsite.help/halfhorse took).
+- `ls /mnt/work/Repo-K/.claude/agents/` (recording that `gate-worker.md` is absent);
+- one line naming which starting shape Repo-K is in (expected: **bound-0.2.x,
+  no-declaration** — the ordinary branch Repo-J/Repo-C/Repo-D/Repo-F took).
 
 If any observed value differs from the § Recon table, say so explicitly and
 re-assess before applying anything.
@@ -318,7 +318,7 @@ proposed prune was verified.**
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python \
   /mnt/work/flex-harness/skills/pairmode/scripts/sync.py \
-  --project-dir /mnt/work/pokus --dry-run
+  --project-dir /mnt/work/Repo-K --dry-run
 ```
 
 (run from `/mnt/work/flex-harness`), including:
@@ -327,7 +327,7 @@ PATH=$HOME/.local/bin:$PATH uv run python \
 - the `Preserved:` list;
 - an explicit statement, per CER-133 item 2, that **every** retired key in the
   list belongs to a `CANONICAL_FILES` agent shell whose body is verifiably
-  pre-INFRA-241 canon — **and not** to a pokus-authored extension that merely
+  pre-INFRA-241 canon — **and not** to a Repo-K-authored extension that merely
   shares a section name. Naming the files the prunes land in
   (expected: `.claude/agents/*.md` only, zero prunes in `CLAUDE.md` /
   `CLAUDE.build.md`) satisfies this.
@@ -338,62 +338,62 @@ If the preview proposes a prune in `CLAUDE.md` or `CLAUDE.build.md`, or any prun
 the executor cannot tie to retired canon, that prune is **declined** and the fact
 is recorded. A declined prune is not a story failure; an unexamined prune is.
 
-**C3. Canon is applied, and pokus reports 0.3.0.**
+**C3. Canon is applied, and Repo-K reports 0.3.0.**
 `## Evidence` records the `sync-all --apply` invocation and its output (all three
 downstream steps: `sync (methodology files)` → `sync-agents` → `sync-build`), and
 then:
 
 ```bash
-grep pairmode_version /mnt/work/pokus/.companion/state.json
+grep pairmode_version /mnt/work/Repo-K/.companion/state.json
 ```
 
 reading exactly `"pairmode_version": "0.3.0"`.
 
-**C4. pokus binds the release channel.**
+**C4. Repo-K binds the release channel.**
 A post-sync `fleet_discovery.py --no-snapshot` run, in the **same command form as
-C1** so the two are directly comparable, shows for `/mnt/work/pokus`:
+C1** so the two are directly comparable, shows for `/mnt/work/Repo-K`:
 - `signal2 (pairmode_version): 0.3.0`
 - `signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts`
 - `binding: both`
 
 All three. `binding: version` post-sync is a **fail**: the stamp landed but the
-scripts declaration did not, and pokus would still consume an unknown copy.
+scripts declaration did not, and Repo-K would still consume an unknown copy.
 
-**C5. `CLAUDE.build.md` is the thin template *and* pokus's real gate survived.**
+**C5. `CLAUDE.build.md` is the thin template *and* Repo-K's real gate survived.**
 `## Evidence` records:
-- `grep -c 'flex_build.py next-action' /mnt/work/pokus/CLAUDE.build.md` — all five
+- `grep -c 'flex_build.py next-action' /mnt/work/Repo-K/CLAUDE.build.md` — all five
   prior runs printed `2`; plus a `head -8` showing the thin dispatch preamble and
   the `pairmode_scripts_dir = /mnt/work/flex-harness/skills/pairmode/scripts`
   line;
 - the rendered **Build standards** line verbatim
-  (`grep -n 'Build standards' /mnt/work/pokus/CLAUDE.build.md`), showing
+  (`grep -n 'Build standards' /mnt/work/Repo-K/CLAUDE.build.md`), showing
   ``test_command=`cd app && ./gradlew assembleDebug` ``. This is the assertion
-  that pokus's gradle gate survived the `CLAUDE.md` review-checklist
+  that Repo-K's gradle gate survived the `CLAUDE.md` review-checklist
   canonicalisation. If `test_command` renders as `(unset)`, that is a **stop** —
   the gate was lost and the sync must be rolled back per
   `docs/harness-cutover-runbook.md` § *Rollback procedure*;
 - the fact that no 0.2-era fat loop section survived the regeneration: `sync-build`
   rewrites the file wholesale, so `grep -c '## Checkpoint sequence' ` (or any other
-  pokus-era heading from the pre-sync file) returns `0`. Record one such check.
+  Repo-K-era heading from the pre-sync file) returns `0`. Record one such check.
 
 **C6. The seven canonical agent shells are current and the retired bodies are
 gone.**
 `## Evidence` records:
-- `ls /mnt/work/pokus/.claude/agents/` showing all seven canonical files including
+- `ls /mnt/work/Repo-K/.claude/agents/` showing all seven canonical files including
   the newly created `gate-worker.md`;
 - for a **named sample of at least eight** pruned section headers spanning all
   five pruned agent files (e.g. `## Starting a story`, `## Implementation rules`,
   `## Review checklist`, `**3. Build gate**`, `## Your process`,
   `## Audit priorities`, `### 4. Domain isolation violation`,
   `## Design pivot detection`), a case-insensitive grep over
-  `/mnt/work/pokus/.claude/agents/*.md` returning **zero** hits, plus the total
+  `/mnt/work/Repo-K/.claude/agents/*.md` returning **zero** hits, plus the total
   prune count reported by the apply run compared against C2's dry-run count;
 - the **post-sync** stale-grammar check —
-  `grep -rn 'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS' /mnt/work/pokus/.claude/agents/*.md`
+  `grep -rn 'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS' /mnt/work/Repo-K/.claude/agents/*.md`
   returns nothing (or only occurrences that are explicitly part of the new
   legacy-tolerance documentation), recorded as a delta against C1's pre-sync
   counts (expected: `builder.md` 1 → 0, `reviewer.md` 1 → 0). A surviving stale
-  example is the caddy shape that re-blocked this campaign once; report it to the
+  example is the Repo-C shape that re-blocked this campaign once; report it to the
   operator rather than proceeding;
 - a spot-check that each shell now carries `## Inputs`, `## Procedure` and
   `## Return`, and that its `## Procedure` points at a
@@ -403,7 +403,7 @@ gone.**
 `## Evidence` records the `to-030 --apply` output in full, and specifically:
 - `expected_step_tokens` **pre** (expected `53000`) and **post** (expected
   `5000`), and whether the rewrite was silent or accompanied by a WARN. This is
-  the CER-111 comparison: 3-of-4 keep-with-WARN vs 1-of-4 silent rewrite; pokus
+  the CER-111 comparison: 3-of-4 keep-with-WARN vs 1-of-4 silent rewrite; Repo-K
   carries the exact Era-2 stamp so a **rewrite** is expected — say so and add it
   to the tally;
 - whether the `[agent-cleanup]` step printed *"content differs from known 0.2.x
@@ -418,15 +418,15 @@ gone.**
 **C8. CER-127 hook-path state is recorded as INFRA-319 evidence, and not
 surgically fixed.**
 `## Evidence` records:
-- the four hook command strings from `/mnt/work/pokus/.claude/settings.json`
+- the four hook command strings from `/mnt/work/Repo-K/.claude/settings.json`
   **after** the sync, showing they are unchanged (expected: still
   `uv run python /mnt/work/flex/hooks/<hook>.py`) — i.e. **no sync or migrate
   rule rewrites hook command paths**, which is CER-127 class (1) confirmed in the
   field;
 - `ls /mnt/work/flex/hooks/` proving those paths **resolve on this machine**, so
-  pokus's sessions are not broken and the stale binding is a portability/channel
+  Repo-K's sessions are not broken and the stale binding is a portability/channel
   defect rather than an outage;
-- `pairmode_sync.py audit-hooks --project-dir /mnt/work/pokus` (dry-run) output,
+- `pairmode_sync.py audit-hooks --project-dir /mnt/work/Repo-K` (dry-run) output,
   and an explicit note that any remaining `DUPLICATE:` lines are plugin-sourced
   and non-pairmode (CER-110; `Projects with duplicate hooks: 0` is **not**
   asserted by this story). Recon saw none;
@@ -434,7 +434,7 @@ surgically fixed.**
   and stating that this story performed **no** hook-path rewrite.
 
 **Narrow exception — the only case where a settings rewrite is in scope.** If the
-hook command paths do **not** resolve (files absent, so every pokus prompt would
+hook command paths do **not** resolve (files absent, so every Repo-K prompt would
 hard-fail with `can't open file ...`), then and only then apply the **minimal**
 rewrite: repoint the four existing pairmode hook commands at
 `/mnt/work/flex-harness/hooks/<same-basename>.py`, changing nothing else in
@@ -444,9 +444,9 @@ which does **not** discharge INFRA-319. Adding, removing or reordering hook
 entries, touching non-pairmode hooks, or generalising the paths is out of scope
 either way.
 
-**C9. No non-canon file in pokus was modified.**
-`## Evidence` records `git -C /mnt/work/pokus status --porcelain` (pre-commit) and
-`git -C /mnt/work/pokus show --stat HEAD` (post-commit). The changed-path set must
+**C9. No non-canon file in Repo-K was modified.**
+`## Evidence` records `git -C /mnt/work/Repo-K status --porcelain` (pre-commit) and
+`git -C /mnt/work/Repo-K show --stat HEAD` (post-commit). The changed-path set must
 be a **subset** of:
 
 ```
@@ -470,26 +470,26 @@ C10. Any other path — `app/**`, `docs/**`, `tests/**`, `product-spec/**`,
 § *Rollback procedure* rather than committing.
 
 Additionally, per **CER-116**: the migration commit subject must **not** name a
-`RELEASE-0NN` story ID — it is pokus's own history. `## Evidence` records the
+`RELEASE-0NN` story ID — it is Repo-K's own history. `## Evidence` records the
 subject verbatim (recommended:
 `sync: migrate to pairmode 0.3.0 canon (canon files only)`).
 
 **C10. `settings.local.json` is handled deliberately.**
-`## Evidence` records whether `/mnt/work/pokus/.claude/settings.local.json`
+`## Evidence` records whether `/mnt/work/Repo-K/.claude/settings.local.json`
 exists, its `Write(`/`Edit(` rule count (recon: 7), and the **operator's decision
-quoted** — the expected decision being **keep** (7 rules is not the meander-class
+quoted** — the expected decision being **keep** (7 rules is not the Repo-B-class
 sediment problem). If pruned, record the post-prune count and the backup
 location. "Not mentioned" is a fail; do not prune unilaterally.
 
-**C11. pokus's cheap test surface is green, and its heavy gate is explicitly out
+**C11. Repo-K's cheap test surface is green, and its heavy gate is explicitly out
 of scope.**
 `## Evidence` records:
-- the result of running pokus's single pytest file, from `/mnt/work/pokus`:
+- the result of running Repo-K's single pytest file, from `/mnt/work/Repo-K`:
   `PATH=$HOME/.local/bin:$PATH uv run pytest tests/ -q` (or `python -m pytest`
-  if pokus has no uv project file — record which was used and why). Green is the
+  if Repo-K has no uv project file — record which was used and why). Green is the
   expected result; a failure must be diagnosed as pre-existing or sync-caused,
   and a sync-caused failure is a **stop**;
-- an explicit statement that `cd app && ./gradlew assembleDebug` — pokus's real
+- an explicit statement that `cd app && ./gradlew assembleDebug` — Repo-K's real
   build gate — was **not** run, because this story changes no Kotlin/Android
   source and an Android build is out of scope for a canon-only migration. Record
   it as a deliberate exclusion, not an omission.
@@ -524,13 +524,13 @@ RELEASE-071.**
   appear: (i) canon `CLAUDE.md` § *Review checklist* and the agent shells' §
   *Procedure* point at repo-relative `skills/pairmode/skills/...` paths that do
   not resolve in a consumer repo carrying no payload (same portability class as
-  CER-127; observed on pokus); (ii) pokus still holds
+  CER-127; observed on Repo-K); (ii) Repo-K still holds
   `docs/phases/phase-proposed-pairmode-030-migration-20260722-001.md`, now
-  partially satisfied — reconciling or retiring it is **pokus's own** work in its
+  partially satisfied — reconciling or retiring it is **Repo-K's own** work in its
   own session, not this story's;
-- states in one sentence, for RELEASE-071 to consume: *pokus is canon-synced at
+- states in one sentence, for RELEASE-071 to consume: *Repo-K is canon-synced at
   0.3.0 with no proving cycle; the phase-106 checkpoint-proves clause is narrowed
-  for pokus by the 2026-07-29 operator directive, and pokus must be counted as
+  for Repo-K by the 2026-07-29 operator directive, and Repo-K must be counted as
   proof-deferred, not proven.*
 
 **C14. flex's own suite is unaffected.**
@@ -561,13 +561,13 @@ All pairmode CLI invocations below are run **from `/mnt/work/flex-harness`** wit
 
 2. **Capture the baseline (C1) before touching anything.** Run
    `fleet_discovery.py --no-snapshot` (never without `--no-snapshot`) and capture
-   pokus's block; capture git log/status/branch, `readlink -f`, the in-flight
+   Repo-K's block; capture git log/status/branch, `readlink -f`, the in-flight
    check, both state-json values, the stale-grammar counts, the four hook command
    strings, and the agents directory listing. If the tree is dirty or a story is
    in flight, **stop** — that is an operator decision, recorded verbatim.
 
 3. **Preview the destructive path with `sync.py` directly (C2).** Run
-   `sync.py --project-dir /mnt/work/pokus --dry-run` and capture the entire
+   `sync.py --project-dir /mnt/work/Repo-K --dry-run` and capture the entire
    output. Do **not** use `sync-all --dry-run` for this: CER-133 item 6 —
    `sync_all` sets `skip_in_dry_run=True` on the `sync.py` entry and prints
    *"skipped: sync.py does not support --dry-run"*, hiding every prune.
@@ -582,7 +582,7 @@ All pairmode CLI invocations below are run **from `/mnt/work/flex-harness`** wit
    ```bash
    PATH=$HOME/.local/bin:$PATH uv run python \
      skills/pairmode/scripts/pairmode_sync.py \
-     sync-all --project-dir /mnt/work/pokus --apply
+     sync-all --project-dir /mnt/work/Repo-K --apply
    ```
 
    Order matters and the wrapper enforces it: `sync.py` (canonical sections +
@@ -605,7 +605,7 @@ All pairmode CLI invocations below are run **from `/mnt/work/flex-harness`** wit
    prompt surfaces. Do not work around the block.
 
 5. **Normalise state (C7).** Run
-   `pairmode_migrate.py to-030 --project-dir /mnt/work/pokus --apply` **after**
+   `pairmode_migrate.py to-030 --project-dir /mnt/work/Repo-K --apply` **after**
    the sync, capturing the full output. Record the `expected_step_tokens`
    pre/post delta and the `[agent-cleanup]` WARN. Delete
    `.companion/state.json.lock` if it is left behind; never commit it.
@@ -613,7 +613,7 @@ All pairmode CLI invocations below are run **from `/mnt/work/flex-harness`** wit
 6. **Verify the binding and the loop (C4, C5, C6).** Re-run
    `fleet_discovery.py --no-snapshot` in the same form as step 2 and require
    `binding: both`. Then run the `CLAUDE.build.md` checks — including the **Build
-   standards `test_command`** check, which is the one that proves pokus's gradle
+   standards `test_command`** check, which is the one that proves Repo-K's gradle
    gate survived — and the agent-shell checks (seven files present, sampled
    pruned headers absent, stale grammar clean, `## Inputs`/`## Procedure`/
    `## Return` present). If `test_command` renders `(unset)`, or a stale grammar
@@ -623,7 +623,7 @@ All pairmode CLI invocations below are run **from `/mnt/work/flex-harness`** wit
    exit path.
 
 7. **Record CER-127 without fixing it (C8).** Re-read the four hook commands from
-   pokus's `settings.json`, confirm they are unchanged and that the referenced
+   Repo-K's `settings.json`, confirm they are unchanged and that the referenced
    files exist, run `audit-hooks` in dry-run, and write the INFRA-319 linkage
    sentence. Only if the paths do **not** resolve, apply C8's narrow minimal
    rewrite with its three recorded justifications. Do not perform any other
@@ -631,10 +631,10 @@ All pairmode CLI invocations below are run **from `/mnt/work/flex-harness`** wit
 
 8. **Handle `settings.local.json` (C10) and the test surface (C11).** Present the
    rule count to the operator and record the decision verbatim (expected: keep).
-   Run pokus's pytest file and record the result; record the gradle exclusion
+   Run Repo-K's pytest file and record the result; record the gradle exclusion
    explicitly.
 
-9. **Commit once in pokus (C9).** Verify `git status --porcelain` against C9's
+9. **Commit once in Repo-K (C9).** Verify `git status --porcelain` against C9's
    allowlist **before** staging. Stage only allowlisted paths — prefer explicit
    `git add <path> …` over `git add -A`, so an unexpected path fails loudly
    instead of riding along — then commit with a subject that names no
@@ -656,8 +656,8 @@ All pairmode CLI invocations below are run **from `/mnt/work/flex-harness`** wit
     directive), and list the follow-ups named.
 
 13. **Exit and restart the session before any agent-registration verification or
-    the next build session in pokus (post-spec operator addendum, 2026-07-29).**
-    Steps 4 and 5 rewrite pokus's seven agent shells and create `gate-worker.md`
+    the next build session in Repo-K (post-spec operator addendum, 2026-07-29).**
+    Steps 4 and 5 rewrite Repo-K's seven agent shells and create `gate-worker.md`
     **mid-session**, and Claude Code loads `.claude/agents/*.md` at session start
     only — step 6's checks are *file* checks and pass regardless, so nothing in
     this story's verification would catch the stale registry. `/clear` is not
@@ -670,8 +670,8 @@ All pairmode CLI invocations below are run **from `/mnt/work/flex-harness`** wit
 — canon surfaces only, findings named not fixed, no bespoke hook surgery — is
 resolved *toward* the constraint rather than through it: where the global
 "conceptual rebuild completeness" instinct would push for also fixing CER-127 and
-reconciling pokus's proposed phase doc, this spec routes both to their owning
-stories (INFRA-319; pokus's own session) and records the deferral explicitly
+reconciling Repo-K's proposed phase doc, this spec routes both to their owning
+stories (INFRA-319; Repo-K's own session) and records the deferral explicitly
 rather than silently omitting it.
 
 **Spec-preflight note (INFRA-320 § C).** The scan reports
@@ -697,60 +697,60 @@ grep -c RETIRED_SECTIONS /mnt/work/flex-harness/skills/pairmode/scripts/sync.py
 # C1 — baseline. --no-snapshot is mandatory (INFRA-295 + 4-of-5 prior runs).
 cd /mnt/work/flex-harness
 PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/fleet_discovery.py --no-snapshot
-readlink -f /mnt/work/pokus
-git -C /mnt/work/pokus log --oneline -3
-git -C /mnt/work/pokus status --porcelain          # must be empty
-git -C /mnt/work/pokus branch --show-current
-cat /mnt/work/pokus/.companion/state.json
-ls /mnt/work/pokus/.companion/attempt_counter.json 2>&1   # expect: No such file
-grep -rc 'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS' /mnt/work/pokus/.claude/agents/*.md
-grep -o '"command": *"[^"]*"' /mnt/work/pokus/.claude/settings.json
-ls /mnt/work/pokus/.claude/agents/
-grep -c 'Write(\|Edit(' /mnt/work/pokus/.claude/settings.local.json
+readlink -f /mnt/work/Repo-K
+git -C /mnt/work/Repo-K log --oneline -3
+git -C /mnt/work/Repo-K status --porcelain          # must be empty
+git -C /mnt/work/Repo-K branch --show-current
+cat /mnt/work/Repo-K/.companion/state.json
+ls /mnt/work/Repo-K/.companion/attempt_counter.json 2>&1   # expect: No such file
+grep -rc 'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS' /mnt/work/Repo-K/.claude/agents/*.md
+grep -o '"command": *"[^"]*"' /mnt/work/Repo-K/.claude/settings.json
+ls /mnt/work/Repo-K/.claude/agents/
+grep -c 'Write(\|Edit(' /mnt/work/Repo-K/.claude/settings.local.json
 
 # C2 — the destructive preview. sync.py DIRECTLY, not via sync-all (CER-133(6)).
 PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/sync.py \
-  --project-dir /mnt/work/pokus --dry-run
+  --project-dir /mnt/work/Repo-K --dry-run
 
 # C3 — apply canon (prefer without --yes; see Instructions step 4)
 PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/pairmode_sync.py \
-  sync-all --project-dir /mnt/work/pokus --apply
-grep pairmode_version /mnt/work/pokus/.companion/state.json
+  sync-all --project-dir /mnt/work/Repo-K --apply
+grep pairmode_version /mnt/work/Repo-K/.companion/state.json
 
 # C7 — state normalisation, AFTER the sync
 PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/pairmode_migrate.py \
-  to-030 --project-dir /mnt/work/pokus --apply
-cat /mnt/work/pokus/.companion/state.json
-rm -f /mnt/work/pokus/.companion/state.json.lock
+  to-030 --project-dir /mnt/work/Repo-K --apply
+cat /mnt/work/Repo-K/.companion/state.json
+rm -f /mnt/work/Repo-K/.companion/state.json.lock
 
 # C4 — post-sync binding, same command form as C1
 PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/fleet_discovery.py --no-snapshot
 
-# C5 — thin loop AND pokus's gate surviving in Build standards
-grep -c 'flex_build.py next-action' /mnt/work/pokus/CLAUDE.build.md    # expect 2
-head -8 /mnt/work/pokus/CLAUDE.build.md
-grep -n 'Build standards' /mnt/work/pokus/CLAUDE.build.md             # test_command must be the gradle command
-grep -ci 'checkpoint sequence' /mnt/work/pokus/CLAUDE.build.md        # a pre-sync heading: expect 0
+# C5 — thin loop AND Repo-K's gate surviving in Build standards
+grep -c 'flex_build.py next-action' /mnt/work/Repo-K/CLAUDE.build.md    # expect 2
+head -8 /mnt/work/Repo-K/CLAUDE.build.md
+grep -n 'Build standards' /mnt/work/Repo-K/CLAUDE.build.md             # test_command must be the gradle command
+grep -ci 'checkpoint sequence' /mnt/work/Repo-K/CLAUDE.build.md        # a pre-sync heading: expect 0
 
 # C6 — agent shells: seven present, retired bodies gone, grammar clean
-ls /mnt/work/pokus/.claude/agents/
+ls /mnt/work/Repo-K/.claude/agents/
 grep -rin '## Starting a story\|## Implementation rules\|## Review checklist\|\*\*3. Build gate\*\*\|## Your process\|## Audit priorities\|### 4. Domain isolation violation\|## Design pivot detection' \
-  /mnt/work/pokus/.claude/agents/*.md                                  # expect no output
-grep -rn 'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS' /mnt/work/pokus/.claude/agents/*.md
-grep -l '## Procedure' /mnt/work/pokus/.claude/agents/*.md
+  /mnt/work/Repo-K/.claude/agents/*.md                                  # expect no output
+grep -rn 'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS' /mnt/work/Repo-K/.claude/agents/*.md
+grep -l '## Procedure' /mnt/work/Repo-K/.claude/agents/*.md
 
 # C8 — CER-127 evidence; recorded, not fixed
-grep -o '"command": *"[^"]*"' /mnt/work/pokus/.claude/settings.json
+grep -o '"command": *"[^"]*"' /mnt/work/Repo-K/.claude/settings.json
 ls /mnt/work/flex/hooks/
 PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/pairmode_sync.py \
-  audit-hooks --project-dir /mnt/work/pokus
+  audit-hooks --project-dir /mnt/work/Repo-K
 
 # C9 — nothing non-canon changed; then one commit, no RELEASE ID in the subject
-git -C /mnt/work/pokus status --porcelain
-git -C /mnt/work/pokus show --stat HEAD
+git -C /mnt/work/Repo-K status --porcelain
+git -C /mnt/work/Repo-K show --stat HEAD
 
-# C11 — pokus's cheap test surface (gradle explicitly NOT run)
-cd /mnt/work/pokus && PATH=$HOME/.local/bin:$PATH uv run pytest tests/ -q 2>&1 | tail -20
+# C11 — Repo-K's cheap test surface (gradle explicitly NOT run)
+cd /mnt/work/Repo-K && PATH=$HOME/.local/bin:$PATH uv run pytest tests/ -q 2>&1 | tail -20
 
 # C12 — cleanliness
 git -C /mnt/work/flex diff --name-only
@@ -767,28 +767,28 @@ failure.
 
 ## Out of scope
 
-- **The proving story cycle (mechanic step 6).** No pokus story is specced,
+- **The proving story cycle (mechanic step 6).** No Repo-K story is specced,
   built, reviewed or merged by this story; no `effort.db` assertions are made.
   The sibling stories' E5/E6/E7 have **no counterpart here** — by directive, not
-  by oversight. RELEASE-071 records pokus as proof-deferred.
-- **All pokus project work.** Kotlin/Android source under `app/`,
+  by oversight. RELEASE-071 records Repo-K as proof-deferred.
+- **All Repo-K project work.** Kotlin/Android source under `app/`,
   `product-spec/`, `scripts/`, `tests/`, gradle configuration, TEST-002,
   TEST-003, the UAT harness under `docs/uat/`, and anything under
   `docs/stories/`. Untouched.
-- **All pokus planning docs.** `docs/brief.md`, `docs/phases/index.md`,
+- **All Repo-K planning docs.** `docs/brief.md`, `docs/phases/index.md`,
   `docs/cer/backlog.md` (the `SCAFFOLD_FILES` trio — sync preserves their bodies
   and this story does not "fix" their findings), `docs/architecture.md`,
   `docs/ideology.md`, `docs/eras/**`, the root
   `phase-01-android-mediaprojection-magnifier.md`, and the proposed migration
   phase `docs/phases/phase-proposed-pairmode-030-migration-20260722-001.md` —
-  which stays exactly as it is. Sequencing, reconciling or deleting it is pokus's
+  which stays exactly as it is. Sequencing, reconciling or deleting it is Repo-K's
   own work in its own orchestrator session (named as a follow-up under C13).
-- **No backlog or spec restructuring in pokus.** No CER filing, no rail
+- **No backlog or spec restructuring in Repo-K.** No CER filing, no rail
   creation, no phase renumbering, no index grooming.
 - **CER-127's real fix.** No portable hook-path resolution, no migrate/sync
   rewrite rule, no audit check for machine-absolute hook paths. That is
   **INFRA-319 (phase 114)**. This story only supplies field evidence, plus C8's
-  narrow containment rewrite in the single case where pokus's sessions would
+  narrow containment rewrite in the single case where Repo-K's sessions would
   otherwise be broken outright.
 - **CER-133's fixes.** The stale `sync.py has no --dry-run` claims, the
   `skip_in_dry_run` wrapper behaviour, `(file, key)` scoping for
@@ -797,51 +797,51 @@ failure.
 - **L021/L022 fixes.** The security-auditor procedure's unconsumed
   `domain_isolation_rule` and `sync.py`'s apply-path disregard for
   `.pairmode-overrides` are observed and cited; neither is fixed, and no
-  `.pairmode-overrides` entries are authored in pokus.
+  `.pairmode-overrides` entries are authored in Repo-K.
 - **Editing flex's runbook or CER backlog.** `docs/harness-cutover-runbook.md`
   keeps its uncorrected step-3/step-5 forms (5-of-5 recurrence now); findings are
   named under C13. Ask the operator before filing anything.
-- **Re-syncing already-migrated projects.** meander, lumin, caddy,
-  forqsite.help and halfhorse are read-only here. base56 and cora belong to
+- **Re-syncing already-migrated projects.** Repo-B, Repo-J, Repo-C,
+  Repo-D and Repo-F are read-only here. base56 and Repo-G belong to
   RELEASE-069 and RELEASE-070.
-- **Running pokus's gradle build.** `cd app && ./gradlew assembleDebug` is
+- **Running Repo-K's gradle build.** `cd app && ./gradlew assembleDebug` is
   deliberately not run (C11 records the exclusion).
 
 ## Evidence
 
-**Execution model:** orchestrator-level with operator present (per this story's own Execution model note) — no story worktree, no builder subagent dispatched. All pairmode CLI invocations ran from the release channel `/mnt/work/flex-harness`, targeting `/mnt/work/pokus`.
+**Execution model:** orchestrator-level with operator present (per this story's own Execution model note) — no story worktree, no builder subagent dispatched. All pairmode CLI invocations ran from the release channel `/mnt/work/flex-harness`, targeting `/mnt/work/Repo-K`.
 
 ### C0 — Preconditions
 - cp tags present in both `/mnt/work/flex` and `/mnt/work/flex-harness`: cp-105, cp-110, cp-111, cp-112, cp-113 (all confirmed via `git tag`).
 - Channel HEAD: `33d626f1 chore(phase-113): mark phase complete in index and era ledger (checkpoint-tag step)` — matches flex's cp-113 tag.
 - `RETIRED_SECTIONS` present in channel's `skills/pairmode/scripts/sync.py`.
 - RELEASE-063..067 all `complete`; RELEASE-069/070/071 all `draft` (verified in phase-106.md Stories table).
-- Operator directive quoted (2026-07-29): "Canon-only migration of pokus — sync the pairmode 0.3.0 canon files into `/mnt/work/pokus` and nothing more, so phase 106 can close." No proving story cycle run, per this directive.
+- Operator directive quoted (2026-07-29): "Canon-only migration of Repo-K — sync the pairmode 0.3.0 canon files into `/mnt/work/Repo-K` and nothing more, so phase 106 can close." No proving story cycle run, per this directive.
 
 ### C1 — Pre-sync baseline
 ```
-git -C /mnt/work/pokus status --porcelain   -> (empty, clean)
-git -C /mnt/work/pokus branch --show-current -> main
-git -C /mnt/work/pokus log -1 --oneline      -> 1bf8383 fix(phase-proposed): correct pairmode tooling path to flex-harness, not flex
-readlink -f /mnt/work/pokus                  -> /mnt/work/pokus
+git -C /mnt/work/Repo-K status --porcelain   -> (empty, clean)
+git -C /mnt/work/Repo-K branch --show-current -> main
+git -C /mnt/work/Repo-K log -1 --oneline      -> 1bf8383 fix(phase-proposed): correct pairmode tooling path to flex-harness, not flex
+readlink -f /mnt/work/Repo-K                  -> /mnt/work/Repo-K
 No .pairmode-worktrees dir, no current_story stamp file -> no build in flight
 .companion/state.json: pairmode_version=0.2.0, expected_step_tokens=53000, effort_tracking=true
 Stale-grammar grep: builder.md 1 hit, reviewer.md 1 hit (BUILD-RESULT: DONE / REVIEW-RESULT: PASS)
 Hook commands (.claude/settings.json): all four point at /mnt/work/flex/hooks/*.py (dev checkout)
 .claude/agents/: six shells present (builder, intent-reviewer, loop-breaker, reconstruction-agent, reviewer, security-auditor); gate-worker.md missing
 .claude/settings.local.json: 27 total allow rules, 7 Write/Edit-specific (app/** source files)
-fleet_discovery.py --no-snapshot for pokus: signal1=false (no-declaration), signal2=0.2.0, binding=version
+fleet_discovery.py --no-snapshot for Repo-K: signal1=false (no-declaration), signal2=0.2.0, binding=version
 ```
 Starting shape: bound-0.2.x, no-declaration — matches recon table exactly, no deviation.
 
 ### C2 — Destructive preview
-Ran `uv run python skills/pairmode/scripts/sync.py --project-dir /mnt/work/pokus --dry-run` (direct sync.py, not sync-all --dry-run, per CER-133 item 6). Result: 46 RETIRED prunes total — 7 builder.md, 20 reviewer.md, 4 loop-breaker.md, 9 security-auditor.md, 6 intent-reviewer.md — all tagged `canon-retired by INFRA-241`, all landing exclusively in `.claude/agents/*.md` (none in CLAUDE.md or CLAUDE.build.md). Reviewed the full list with the operator; every retired section name matched generic 0.2-era agent boilerplate already seen pruned in the five prior campaign migrations (meander/lumin/caddy/forqsite.help/halfhorse) — none traceable to a pokus-specific extension. Operator approved proceeding to apply (no prunes declined).
+Ran `uv run python skills/pairmode/scripts/sync.py --project-dir /mnt/work/Repo-K --dry-run` (direct sync.py, not sync-all --dry-run, per CER-133 item 6). Result: 46 RETIRED prunes total — 7 builder.md, 20 reviewer.md, 4 loop-breaker.md, 9 security-auditor.md, 6 intent-reviewer.md — all tagged `canon-retired by INFRA-241`, all landing exclusively in `.claude/agents/*.md` (none in CLAUDE.md or CLAUDE.build.md). Reviewed the full list with the operator; every retired section name matched generic 0.2-era agent boilerplate already seen pruned in the five prior campaign migrations (Repo-B/Repo-J/Repo-C/Repo-D/Repo-F) — none traceable to a Repo-K-specific extension. Operator approved proceeding to apply (no prunes declined).
 
 ### C3 — Canon applied
-`pairmode_sync.py sync-all --project-dir /mnt/work/pokus --apply --yes` (--yes used because the full prune list was already reviewed with the operator at C2, satisfying the only-if-already-reviewed condition; no prune had been declined). First invocation was blocked by the Claude Code auto-mode permission classifier on the first out-of-repo write (canary note 7 scenario, materialized). Per instructions, did not work around it — asked the operator to toggle auto mode off. Operator confirmed auto mode off; retried; sync-all completed successfully (sync -> sync-agents -> sync-build, fixed order, no errors/tracebacks in output). Post-sync `.companion/state.json` shows `pairmode_version: "0.3.0"`.
+`pairmode_sync.py sync-all --project-dir /mnt/work/Repo-K --apply --yes` (--yes used because the full prune list was already reviewed with the operator at C2, satisfying the only-if-already-reviewed condition; no prune had been declined). First invocation was blocked by the Claude Code auto-mode permission classifier on the first out-of-repo write (canary note 7 scenario, materialized). Per instructions, did not work around it — asked the operator to toggle auto mode off. Operator confirmed auto mode off; retried; sync-all completed successfully (sync -> sync-agents -> sync-build, fixed order, no errors/tracebacks in output). Post-sync `.companion/state.json` shows `pairmode_version: "0.3.0"`.
 
 ### C4 — Post-sync binding
-`fleet_discovery.py --no-snapshot` for pokus: `signal1=true` (value `/mnt/work/flex-harness/skills/pairmode/scripts`), `signal2=true` (value `0.3.0`), `binding="both"`. Passes — not `binding: version` alone.
+`fleet_discovery.py --no-snapshot` for Repo-K: `signal1=true` (value `/mnt/work/flex-harness/skills/pairmode/scripts`), `signal2=true` (value `0.3.0`), `binding="both"`. Passes — not `binding: version` alone.
 
 ### C5 — CLAUDE.build.md shape
 `head -8` shows thin preamble + `pairmode_scripts_dir = /mnt/work/flex-harness/skills/pairmode/scripts`. Build standards line present: `test_command=cd app && ./gradlew assembleDebug | test_dir=tests/ | protected_paths=(none) | domain_isolation_rule=(none)` — not `(unset)`, so no rollback triggered. `grep -c "^## Checkpoint sequence"` -> 0 (no surviving 0.2-era heading).
@@ -850,7 +850,7 @@ Ran `uv run python skills/pairmode/scripts/sync.py --project-dir /mnt/work/pokus
 Seven canonical shells present after sync, including newly created `gate-worker.md`. All 46 named retired section headers (per C2's list) return zero grep hits post-sync — confirmed via the sync-all apply output itself showing each as pruned, no leftovers. Post-sync stale-grammar grep: builder.md and reviewer.md both clean (delta 1->0 as expected); no surviving example needing operator report.
 
 ### C7 — to-030 normalization
-`pairmode_migrate.py to-030 --project-dir /mnt/work/pokus --apply`:
+`pairmode_migrate.py to-030 --project-dir /mnt/work/Repo-K --apply`:
 ```
 [apply] rewrote expected_step_tokens: 53000 -> 5000   (silent rewrite, as expected per recon)
 ```
@@ -859,18 +859,18 @@ Full state.json pre/post diff: only `pairmode_version` (0.2.0->0.3.0), `last_syn
 `.companion/state.json.lock` was left behind by the migrate step; deleted per instructions (never committed).
 
 ### C8 — CER-127 recorded, not fixed
-Re-read `.claude/settings.json` hook commands post-sync: all four still point at `/mnt/work/flex/hooks/*.py`, unchanged from pre-sync baseline. Confirmed all four files exist and resolve on this machine (`ls -la` on all four paths succeeded). `pairmode_sync.py audit-hooks --project-dir /mnt/work/pokus` -> "no duplicate hook registrations found". No narrow rewrite applied (paths resolve; the exception's trigger condition was not met).
+Re-read `.claude/settings.json` hook commands post-sync: all four still point at `/mnt/work/flex/hooks/*.py`, unchanged from pre-sync baseline. Confirmed all four files exist and resolve on this machine (`ls -la` on all four paths succeeded). `pairmode_sync.py audit-hooks --project-dir /mnt/work/Repo-K` -> "no duplicate hook registrations found". No narrow rewrite applied (paths resolve; the exception's trigger condition was not met).
 
 **New field finding (not present in the story's recon):** `sync-all`'s `sync-build` step, when first run, unconditionally rewrote `.claude/settings.json` — repointing all four hook commands from `/mnt/work/flex/hooks/` to `/mnt/work/flex-harness/hooks/` and adding a new, previously-absent `SubagentStop` hook block — even though the pre-existing paths already resolved. This is new tooling behavior not seen in RELEASE-064..067 and not authorized by this story's C8 exception (which only permits a rewrite when paths *don't* resolve). The change was reverted (`git checkout HEAD -- .claude/settings.json`) before commit, per operator decision. Operator context: rewriting to the flex-harness path does not fix the underlying portability problem (CER-127/INFRA-319) — it substitutes one hardcoded absolute path for another, and neither path exists on a machine that installs flex via the local marketplace cache (the phase-111 packaging-repair goal). This is now flagged as new field evidence for INFRA-319 / phase 114, not something this story fixes. `settings.json` was excluded from the final commit.
 
 ### C9 — Non-canon file check
-Pre-stage `git status --porcelain` reviewed; commit's changed-path set (`git show --stat HEAD`) = exactly: `.claude/agents/{builder,gate-worker,intent-reviewer,loop-breaker,reviewer,security-auditor}.md`, `.companion/state.json`, `CLAUDE.build.md`, `CLAUDE.md` — 9 files, a strict subset of the writable-canon allowlist. `.claude/settings.json` was NOT included (reverted per C8 finding above). `.claude/settings.local.json` was pruned under explicit C10 operator approval (see below) but is git-ignored in pokus and was never staged/committed. Along the way, an unrelated diagnostic step (`flex_build.py next-action --project-dir /mnt/work/pokus`, run to check C5) and a stray `rm -rf tests/__pycache__` briefly deleted a git-tracked `.pyc` file; this was caught immediately and restored via `git checkout HEAD -- tests/__pycache__/test_context_budget_check.cpython-312.pyc` before staging — final commit contains no trace of it. Commit subject: `sync: migrate to pairmode 0.3.0 canon (canon files only)` — does not name a RELEASE-0NN ID, per CER-116. Commit `7443b35`, pushed `6ea11ee..7443b35` to `origin/main`.
+Pre-stage `git status --porcelain` reviewed; commit's changed-path set (`git show --stat HEAD`) = exactly: `.claude/agents/{builder,gate-worker,intent-reviewer,loop-breaker,reviewer,security-auditor}.md`, `.companion/state.json`, `CLAUDE.build.md`, `CLAUDE.md` — 9 files, a strict subset of the writable-canon allowlist. `.claude/settings.json` was NOT included (reverted per C8 finding above). `.claude/settings.local.json` was pruned under explicit C10 operator approval (see below) but is git-ignored in Repo-K and was never staged/committed. Along the way, an unrelated diagnostic step (`flex_build.py next-action --project-dir /mnt/work/Repo-K`, run to check C5) and a stray `rm -rf tests/__pycache__` briefly deleted a git-tracked `.pyc` file; this was caught immediately and restored via `git checkout HEAD -- tests/__pycache__/test_context_budget_check.cpython-312.pyc` before staging — final commit contains no trace of it. Commit subject: `sync: migrate to pairmode 0.3.0 canon (canon files only)` — does not name a RELEASE-0NN ID, per CER-116. Commit `7443b35`, pushed `6ea11ee..7443b35` to `origin/main`.
 
 ### C10 — settings.local.json decision
 Existence confirmed: yes, 27 total allow rules (7 Write/Edit-specific, targeting `app/**` Kotlin/Android source files; the other 20 were Bash/Read rules referencing a prior project name `/mnt/work/anchor` — stale sediment from before a project rename). Operator's decision, quoted verbatim: **"Prune it"**, then clarified to **"Remove all 27 rules"** when asked whether to keep the 7 Write/Edit rules or clear everything. A backup was taken first (`.claude/settings.local.json.bak-pre-release-068`, untracked, local only) before the file was overwritten to `{"permissions": {"allow": []}}`. This deviates from the story's expected default ("expected: keep") — recorded here as the operator's explicit, deliberate call, not a unilateral prune.
 
 ### C11 — Test surface
-`uv run pytest tests/ -q` from `/mnt/work/pokus`: 6 passed, 0 failed. Gradle build (`cd app && ./gradlew assembleDebug`) was explicitly **not** run — deliberate exclusion, not omission, since no Kotlin/Android source was touched by this canon-only migration.
+`uv run pytest tests/ -q` from `/mnt/work/Repo-K`: 6 passed, 0 failed. Gradle build (`cd app && ./gradlew assembleDebug`) was explicitly **not** run — deliberate exclusion, not omission, since no Kotlin/Android source was touched by this canon-only migration.
 
 ### C12 — Cleanliness
 `git -C /mnt/work/flex status --porcelain` after all work: empty except for this story file's own edit (this Evidence section) and any tool-written phase/index/ledger rows from `flex_build.py` recording commands — no stray edits under `skills/`, `tests/`, `ui/`, `.claude-plugin/`.
@@ -882,22 +882,22 @@ Existence confirmed: yes, 27 total allow rules (7 Write/Edit-specific, targeting
 Per-hazard status from this story's six Context hazards:
 1. Canon-retirement pruning (INFRA-311) — **materialized**: 46 prunes applied cleanly, all `.claude/agents/*.md`, none in canon files.
 2. `sync-all --dry-run` hiding prunes (CER-133 item 6) — **avoided**: used `sync.py --dry-run` directly per instructions, so this did not bite.
-3. `RETIRED_SECTIONS` keys not file-scoped (CER-133 item 2) — **did not materialize**: manual review confirmed no collision with a pokus-specific extension.
-4. `.pairmode-overrides` not honored on apply (L022) — **N/A**: pokus had no declared override entries; none were authored.
-5. Canon replacing inline review checklist / gradle gate survival — **verified fine** (C5); the `skills/pairmode/skills/<role>/procedure.md` pointer path is repo-relative and will not resolve in pokus as a consumer repo — recorded as finding (i) below, not fixed.
+3. `RETIRED_SECTIONS` keys not file-scoped (CER-133 item 2) — **did not materialize**: manual review confirmed no collision with a Repo-K-specific extension.
+4. `.pairmode-overrides` not honored on apply (L022) — **N/A**: Repo-K had no declared override entries; none were authored.
+5. Canon replacing inline review checklist / gradle gate survival — **verified fine** (C5); the `skills/pairmode/skills/<role>/procedure.md` pointer path is repo-relative and will not resolve in Repo-K as a consumer repo — recorded as finding (i) below, not fixed.
 6. CER-127 / hook paths — **materialized differently than expected**: recorded under C8 above as new field evidence (`sync-build`'s new unconditional, non-portable hook-path rewrite) for INFRA-319 / phase 114.
 
 New deviation found and named (not filed to `docs/cer/backlog.md` — operator was not asked to file it during this story; routed here as narrative evidence only, per "ask operator before filing" instruction):
 - `sync-build`'s new settings.json/hook rewrite behavior (see C8) — candidate follow-up for INFRA-319 / phase 114.
 
 Two required known follow-ups:
-(i) The repo-relative `skills/pairmode/skills/<role>/procedure.md` pointer path in the canon agent shells does not resolve in a payload-less consumer repo like pokus.
-(ii) pokus's own proposed migration phase doc (gated on TEST-002) is untouched and remains pokus's own future work to reconcile.
+(i) The repo-relative `skills/pairmode/skills/<role>/procedure.md` pointer path in the canon agent shells does not resolve in a payload-less consumer repo like Repo-K.
+(ii) Repo-K's own proposed migration phase doc (gated on TEST-002) is untouched and remains Repo-K's own future work to reconcile.
 
-**RELEASE-071 closing sentence:** "pokus is canon-synced at 0.3.0 with no proving cycle; the phase-106 checkpoint-proves clause is narrowed for pokus by the 2026-07-29 operator directive, and pokus must be counted as proof-deferred, not proven."
+**RELEASE-071 closing sentence:** "Repo-K is canon-synced at 0.3.0 with no proving cycle; the phase-106 checkpoint-proves clause is narrowed for Repo-K by the 2026-07-29 operator directive, and Repo-K must be counted as proof-deferred, not proven."
 
 ### C14 — flex suite
 `uv run pytest tests/pairmode/ -q` (no `-x`) from `/mnt/work/flex`: **4305 passed, 211 skipped, 0 failed** in 157.68s. No new failures; this story touched no flex code.
 
 ### Step 13 — Session restart requirement (CER-134 / INFRA-323)
-Per the 2026-07-29 operator addendum: steps 4/5 rewrote pokus's agent shells and created `gate-worker.md` mid-migration. Claude Code only loads a project's `.claude/agents/*.md` at that project's own session start, so any Claude Code session that was already running rooted at `/mnt/work/pokus` before this sync would carry a stale in-process agent registry — `/clear` would not fix that, since it shares the same process/registry. This orchestrator session is rooted at `/mnt/work/flex` and never loaded pokus's agent shells into any registry, so no restart is required here. The requirement applies only to whichever session next operates *inside* `/mnt/work/pokus` (an agent-registration check or a pokus build session) — if such a session was already open pre-sync, it must be freshly started; a session opened fresh after this commit will load the correct 0.3.0 shells automatically with no special action needed.
+Per the 2026-07-29 operator addendum: steps 4/5 rewrote Repo-K's agent shells and created `gate-worker.md` mid-migration. Claude Code only loads a project's `.claude/agents/*.md` at that project's own session start, so any Claude Code session that was already running rooted at `/mnt/work/Repo-K` before this sync would carry a stale in-process agent registry — `/clear` would not fix that, since it shares the same process/registry. This orchestrator session is rooted at `/mnt/work/flex` and never loaded Repo-K's agent shells into any registry, so no restart is required here. The requirement applies only to whichever session next operates *inside* `/mnt/work/Repo-K` (an agent-registration check or a Repo-K build session) — if such a session was already open pre-sync, it must be freshly started; a session opened fresh after this commit will load the correct 0.3.0 shells automatically with no special action needed.

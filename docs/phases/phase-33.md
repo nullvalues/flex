@@ -13,7 +13,7 @@ sibling projects during the Phase 32 post-review, two blocking problems surfaced
 
 1. **Every script call in `CLAUDE.build.md.j2` uses a relative path**
    (`skills/pairmode/scripts/`) that only resolves when CWD is the flex repo.
-   All four sibling projects (cora, radar, aab, forqsite) have no local `skills/`
+   All four sibling projects (Repo-G, Repo-L, Repo-H, Repo-E) have no local `skills/`
    directory, so every `record_attempt.py`, `permission_scope.py`, and
    `story_update.py` call silently fails in sibling builds. Months of build
    activity have produced zero effort data in those projects.
@@ -32,7 +32,7 @@ Three supporting improvements round out the phase:
 - `pairmode_version` is still `0.1.0` with no staleness signal for projects
   that haven't been synced.
 
-The final story deploys all fixes to cora, radar, aab, and forqsite via
+The final story deploys all fixes to Repo-G, Repo-L, Repo-H, and Repo-E via
 `sync-build --apply` and `sync-agents --yes`.
 
 **Story dependencies:**
@@ -66,7 +66,7 @@ The final story deploys all fixes to cora, radar, aab, and forqsite via
 
 ## Requires
 - `CLAUDE.build.md.j2` and `pairmode_sync.py` exist and pass template tests.
-- Sibling projects (cora, radar, aab, forqsite) have no local `skills/` directory.
+- Sibling projects (Repo-G, Repo-L, Repo-H, Repo-E) have no local `skills/` directory.
 
 ## Ensures
 - `pairmode_sync.py`'s `_build_template_context()` returns a `pairmode_scripts_dir`
@@ -423,8 +423,8 @@ The final story deploys all fixes to cora, radar, aab, and forqsite via
 - INFRA-081 complete: `sync-agents` propagates new body sections additively.
 - INFRA-082 complete: bootstrap writes `PAIRMODE_ALLOW` rules.
 - INFRA-083 complete: reviewer model selection outputs `(model, reason)`.
-- All four sibling projects accessible at `../cora`, `../radar`, `../aab`,
-  `../forqsite` relative to flex root (`/mnt/work/<sibling>`).
+- All four sibling projects accessible at `../Repo-G`, `../Repo-L`, `../Repo-H`,
+  `../Repo-E` relative to flex root (`/mnt/work/<sibling>`).
 
 ## Ensures
 - Each sibling's `CLAUDE.build.md` is updated to the rendered template (with
@@ -444,7 +444,7 @@ The final story deploys all fixes to cora, radar, aab, and forqsite via
 This is a deployment story. The orchestrator performs the steps directly — no
 builder subagent needed.
 
-For each sibling in `[/mnt/work/cora, /mnt/work/radar, /mnt/work/aab, /mnt/work/forqsite]`:
+For each sibling in `[/mnt/work/Repo-G, /mnt/work/Repo-L, /mnt/work/Repo-H, /mnt/work/Repo-E]`:
 
 **Step A — sync-build:**
 
@@ -454,7 +454,7 @@ PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/pairmode_sync.
 ```
 
 Review the diff. If the sibling's `CLAUDE.build.md` has project-specific sections
-(content beyond what the template renders), note them. For forqsite specifically:
+(content beyond what the template renders), note them. For Repo-E specifically:
 the file is 693 lines vs ~563 for the rendered template — inspect the extra content
 before applying.
 
@@ -519,16 +519,16 @@ git commit -m "chore(pairmode): sync-build and sync-agents from flex v0.2.0"
 ```
 
 **Primary files:** (none — orchestrator-only deployment story)
-**Touches:** `/mnt/work/cora/CLAUDE.build.md`, `/mnt/work/radar/CLAUDE.build.md`,
-`/mnt/work/aab/CLAUDE.build.md`, `/mnt/work/forqsite/CLAUDE.build.md`,
-`/mnt/work/cora/.claude/agents/reviewer.md`,
-`/mnt/work/radar/.claude/agents/reviewer.md`,
-`/mnt/work/aab/.claude/agents/reviewer.md`,
-`/mnt/work/forqsite/.claude/agents/reviewer.md`,
-`/mnt/work/cora/.claude/settings.local.json`,
-`/mnt/work/radar/.claude/settings.local.json`,
-`/mnt/work/aab/.claude/settings.local.json`,
-`/mnt/work/forqsite/.claude/settings.local.json`
+**Touches:** `/mnt/work/Repo-G/CLAUDE.build.md`, `/mnt/work/Repo-L/CLAUDE.build.md`,
+`/mnt/work/Repo-H/CLAUDE.build.md`, `/mnt/work/Repo-E/CLAUDE.build.md`,
+`/mnt/work/Repo-G/.claude/agents/reviewer.md`,
+`/mnt/work/Repo-L/.claude/agents/reviewer.md`,
+`/mnt/work/Repo-H/.claude/agents/reviewer.md`,
+`/mnt/work/Repo-E/.claude/agents/reviewer.md`,
+`/mnt/work/Repo-G/.claude/settings.local.json`,
+`/mnt/work/Repo-L/.claude/settings.local.json`,
+`/mnt/work/Repo-H/.claude/settings.local.json`,
+`/mnt/work/Repo-E/.claude/settings.local.json`
 
 **Tests:** Methodology story — no test file expected. Verify by:
 - Confirming `## Contract check` present in each sibling's `reviewer.md`.

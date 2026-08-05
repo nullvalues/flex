@@ -5,7 +5,7 @@
       "id": "L001",
       "date": "2026-04-20",
       "source_project": "flex",
-      "trigger": "Ran audit against cora \u2014 a project with pairmode scaffold but no pairmode_context.json",
+      "trigger": "Ran audit against Repo-G \u2014 a project with pairmode scaffold but no pairmode_context.json",
       "problem": "44 INCONSISTENT findings for every section body because fallback context renders all template variables as empty strings. The output is confusing \u2014 it looks like everything needs repair, when really the project just needs to be bootstrapped with pairmode to generate the context file.",
       "learning": "When audit detects no pairmode_context.json, it should emit a prominent warning: 'No pairmode_context.json found \u2014 template body comparison will show false INCONSISTENT for all variable-bearing sections. Bootstrap this project with /flex:pairmode to fix.' MISSING and EXTRA findings remain reliable; INCONSISTENT findings require a context file to be meaningful.",
       "methodology_change": {
@@ -24,7 +24,7 @@
       "id": "L002",
       "date": "2026-04-20",
       "source_project": "flex",
-      "trigger": "Ran audit against radar and forqsite \u2014 projects with pairmode scaffold",
+      "trigger": "Ran audit against Repo-L and Repo-E \u2014 projects with pairmode scaffold",
       "problem": "INCONSISTENT findings include entries with section keys like '---' and '---__0'. These are separator lines (_split_sections treats '---' as a section delimiter and the text after it as the section body). Users see 'Section --- content differs from canonical template' and cannot tell what content is being compared or where to look in the file.",
       "learning": "The _split_sections output uses '---' as section keys in audit output. These entries are hard to interpret. Either: (a) skip separator-keyed sections from INCONSISTENT comparison since --- separators carry no semantic content, or (b) display the surrounding context (what section comes before/after) when reporting --- inconsistencies.",
       "methodology_change": {
@@ -119,7 +119,7 @@
       "id": "L007",
       "date": "2026-04-21",
       "source_project": "flex",
-      "trigger": "Dogfood pairmode on multiple projects simultaneously \u2014 flex + ud running at same time",
+      "trigger": "Dogfood pairmode on multiple projects simultaneously \u2014 flex + Repo-O running at same time",
       "problem": "All hook scripts wrote to /tmp/companion.pipe, and pgrep -f sidebar.py checked for any sidebar process. With two projects running, all events from both projects merged into one sidebar window. The wrong project's spec was shown for every event.",
       "learning": "The pipe path must be scoped to the project directory. Each project gets its own pipe derived from an 8-char md5 hash of the project dir. The sidebar reads its own pipe only. Hooks read the pipe_path from .companion/state.json at startup.",
       "methodology_change": {
@@ -139,7 +139,7 @@
     {
       "id": "L008",
       "date": "2026-04-24",
-      "source_project": "radar",
+      "source_project": "Repo-L",
       "trigger": "Phase 21 spec written, CER agent run on spec before build, found 20 issues including compile-blockers",
       "problem": "Spec had multiple errors that would have caused the builder to produce uncompilable code or silently wrong behaviour: wrong call site argument in updateTask (data vs existing), missing explicit createRail body pass-through, reorderRail cross-context corruption, missing ApiRail type update in adapters.ts, stale contextRailsById race condition.",
       "learning": "Running a cold-eyes review on the phase spec itself (not just on built code) catches architectural and correctness errors before any builder time is spent. The CER agent reading actual source files alongside the spec finds mismatches the spec author missed. This is more valuable than a post-build reviewer alone.",
@@ -160,7 +160,7 @@
       "id": "L009",
       "date": "2026-05-04",
       "source_project": "flex",
-      "trigger": "Cross-project audit (cora, radar, forqsite) of .claude/agents/ configurations",
+      "trigger": "Cross-project audit (Repo-G, Repo-L, Repo-E) of .claude/agents/ configurations",
       "problem": "Pairmode templates pinned only the builder to sonnet, leaving reviewer-class agents to inherit the orchestrator's model. If the orchestrator ran on sonnet (efficiency reasons), the entire quality gate ran on sonnet, losing the judgment-quality benefit.",
       "learning": "Model selection should be explicit per role, not inherited. Volume work (builder) -> sonnet for compute efficiency. Judgment work (reviewer, intent-reviewer, loop-breaker, security-auditor) -> opus for judgment quality. Inheritance from the orchestrator is a silent capability leak. Add a documented fallback policy: if the preferred model is rate-limited, fall back one tier (Opus -> Sonnet on reviewers; Sonnet -> Haiku on builder), never below Haiku.",
       "methodology_change": {
@@ -179,7 +179,7 @@
       "id": "L010",
       "date": "2026-05-04",
       "source_project": "flex",
-      "trigger": "Forqsite restricted reviewer tools to [Read, Grep, Glob, Bash]; cora and radar did not. Cross-project audit surfaced the divergence.",
+      "trigger": "Repo-E restricted reviewer tools to [Read, Grep, Glob, Bash]; Repo-G and Repo-L did not. Cross-project audit surfaced the divergence.",
       "problem": "Reviewers with full tool access can \"fix\" failing code (edit a test until it passes, edit production until the test passes) instead of reverting, hiding the real failure. Concrete example: a reviewer faced with a failing assertion can edit the assertion to match the (wrong) actual output and commit, presenting a green test that no longer tests the invariant. This compromises the commit-or-revert contract.",
       "learning": "Reviewer-class agents should be limited to read-only tools plus Bash. Bash preserves the commit-or-revert capability via git; Edit/Write removal closes the \"reviewer backdoor\" failure mode. This is layered with the orchestrator's pre-reviewer commit discipline (which protects against accidental erasure of uncommitted methodology files) \u2014 neither layer alone is sufficient.",
       "methodology_change": {
@@ -238,7 +238,7 @@
       "id": "L013",
       "date": "2026-05-07",
       "source_project": "flex",
-      "trigger": "Phase 24 session start revealed that flex's own `.claude/agents/` files had no `model:` frontmatter, and forqsite/radar still carried pre-INFRA-044 opus reviewer assignments \u2014 despite INFRA-044 having updated the templates.",
+      "trigger": "Phase 24 session start revealed that flex's own `.claude/agents/` files had no `model:` frontmatter, and Repo-E/Repo-L still carried pre-INFRA-044 opus reviewer assignments \u2014 despite INFRA-044 having updated the templates.",
       "problem": "Pairmode templates and bootstrapped project files diverge silently after any template update. There is no mechanism to propagate changes to existing projects short of manual edits or a full re-bootstrap. The drift is invisible until a session starts and the wrong model is used.",
       "learning": "Two complementary patterns close the gap: (1) a sync command that re-renders template frontmatter into existing agent files on demand; (2) a note in the methodology that any template change affecting agent behaviour should be followed by a `pairmode sync-agents` run on all active projects. The sync command is idempotent \u2014 running it twice produces no further changes.",
       "value_framing": "Template updates that affect build behaviour (model selection, tool restrictions, upgrade triggers) must propagate to existing projects or the update has only partial effect. The effort spent tuning templates is wasted if projects accumulate stale copies.",
@@ -279,8 +279,8 @@
     {
       "id": "L015",
       "date": "2026-05-18",
-      "source_project": "forqsite",
-      "trigger": "External CER on forqsite 2026-05-18 surfaced multiple doc/code mismatches accumulated over many phases: architecture.md claimed 58 role_permissions rows but actual seed produces 56 (migration 0050 was tightened by 0052 with no doc update); three additional backlog items pointed to docs that no longer matched code. None caught by per-story or checkpoint reviews. Pairmode's existing DOCUMENTATION CURRENCY check in reviewer.md.j2 covers only README.md; checkpoint Documentation review covers only README + brief.",
+      "source_project": "Repo-E",
+      "trigger": "External CER on Repo-E 2026-05-18 surfaced multiple doc/code mismatches accumulated over many phases: architecture.md claimed 58 role_permissions rows but actual seed produces 56 (migration 0050 was tightened by 0052 with no doc update); three additional backlog items pointed to docs that no longer matched code. None caught by per-story or checkpoint reviews. Pairmode's existing DOCUMENTATION CURRENCY check in reviewer.md.j2 covers only README.md; checkpoint Documentation review covers only README + brief.",
       "problem": "The per-story doc check has too narrow a scope. Any documentation that describes a code area \u2014 architecture, configuration runbooks, design docs, operator guides, schema docs, anything in docs/ \u2014 should travel with the code that the story touches. Today those docs decay silently until an external review catches them, by which point original intent is lost and the doc actively misleads any future agent reading it cold.",
       "learning": "Documentation reliability across builds is what preserves project context across sessions and compactions. The reviewer's doc check should expand from README-only to any non-history doc in docs/ whose content references code the story touched. The fix is builder-remediable inline: the builder updates the relevant doc as part of the same story commit, not a doc-rebuild phase. The check is approximate but cheap \u2014 grep the doc surface for references to changed files/symbols, flag candidates, let the reviewer judge. Severity HIGH when the doc statement is now factually wrong, MEDIUM for missing README user-facing change.",
       "methodology_change": {
@@ -301,7 +301,7 @@
       "id": "L016",
       "date": "2026-05-18",
       "source_project": "flex",
-      "trigger": "Reviewing L005 marker hygiene during forqsite session 2026-05-18. Found that L005's marker in CLAUDE.md.j2 points at the wrong file \u2014 the actual implementation correctly landed in agents/reviewer.md.j2. Also realized L015 was implemented directly (template edits written outside the /flex:pairmode review flow), leaving its status as 'captured' despite the change being live in the canonical templates.",
+      "trigger": "Reviewing L005 marker hygiene during Repo-E session 2026-05-18. Found that L005's marker in CLAUDE.md.j2 points at the wrong file \u2014 the actual implementation correctly landed in agents/reviewer.md.j2. Also realized L015 was implemented directly (template edits written outside the /flex:pairmode review flow), leaving its status as 'captured' despite the change being live in the canonical templates.",
       "problem": "Two related gaps in lesson_review.py: (1) markers are append-only \u2014 they are never removed or transformed when status flips to 'applied', so stale markers accumulate in templates and may trick future maintainers into re-implementing already-applied changes; (2) affects\u2192template file mapping is too coarse \u2014 'reviewer_checklist' maps only to CLAUDE.md.j2, but the actual implementation of review-flow changes often belongs in agents/reviewer.md.j2, so the marker lands in the wrong file. Plus a missing affordance: no flag for 'I implemented this directly, just mark it applied', forcing either redundant markers (via --approve) or manual JSON edits.",
       "learning": "Markers are 'pending work' signals and must be lifecycle-managed. When a lesson flips to 'applied' the marker should either be removed entirely or transformed into a brief breadcrumb ({# LESSON LNNN APPLIED YYYY-MM-DD in <file> #}). Affects keys should be granular enough that markers land near where the actual change is most likely to happen. And there must be a clean path to declare a lesson applied when the change was implemented directly without going through review's annotation step.",
       "methodology_change": {
@@ -340,8 +340,8 @@
     {
       "id": "L018",
       "date": "2026-06-29",
-      "source_project": "meander",
-      "trigger": "Orchestrator post-build note from meander INFRA-008: the pre-reviewer git add docs/phases/ swept up a story deliverable whose primary_file lived under docs/phases/, committing it unreviewed under the chore(orchestrator) message.",
+      "source_project": "Repo-B",
+      "trigger": "Orchestrator post-build note from Repo-B INFRA-008: the pre-reviewer git add docs/phases/ swept up a story deliverable whose primary_file lived under docs/phases/, committing it unreviewed under the chore(orchestrator) message.",
       "problem": "The blanket 'git add docs/phases/ docs/cer/' in the pre-reviewer step is intentionally broad. But when a story's declared primary_file is also under docs/phases/ \u2014 common for doc and spec stories \u2014 the blanket add silently commits that deliverable before the reviewer fires. The reviewer then diffs an empty working tree, cannot verify the story output, and the commit lands under the wrong message and without review.",
       "learning": "The pre-reviewer git add must exclude files declared as primary_files (and touches) in the active story's spec. Correct pattern: (1) blanket 'git add docs/phases/ docs/cer/', then (2) 'git reset HEAD -- <file>' for each primary_file/touch that falls under a staged directory. This preserves the reviewer's ability to diff the story deliverable while still protecting methodology files. Applies any time a story's deliverable lives under a directory covered by the blanket add.",
       "methodology_change": {
@@ -360,8 +360,8 @@
     {
       "id": "L019",
       "date": "2026-07-09",
-      "source_project": "aab",
-      "trigger": "sync-all on aab surfaced a stale pytest test_command despite a TypeScript/pnpm stack",
+      "source_project": "Repo-H",
+      "trigger": "sync-all on Repo-H surfaced a stale pytest test_command despite a TypeScript/pnpm stack",
       "problem": "product.json/pairmode_context.json retained a bootstrap-default Python pytest test_command for a non-Python project; CLAUDE.build.md.j2's fallback for build_command/test_command is a hardcoded pytest invocation instead of a stack-agnostic placeholder, so an unset value silently renders a wrong-language command instead of surfacing as unconfigured.",
       "learning": "Fallback defaults for build_command/test_command in templates must never assume a language/toolchain; they should force explicit configuration (e.g. a NOT CONFIGURED placeholder that fails loudly) rather than defaulting to a Python-specific command.",
       "methodology_change": {
@@ -379,7 +379,7 @@
     {
       "id": "L020",
       "date": "2026-07-13",
-      "source_project": "forqsite.help",
+      "source_project": "Repo-D",
       "trigger": "Reviewer noticed docs/phases/phase-2.md existed with 5 stories but docs/phases/index.md still showed only Phase 1 (title stale as '\u2014 fill in \u2014', 'Next to build' pointing at Phase 1), and the active era's Phases table in docs/eras/001-initial.md was empty",
       "problem": "Phase docs were hand-authored by copying the phase.md.j2 template format closely instead of running phase_new.py. The hand-authored file matched the template's content conventions exactly (frontmatter, planning-surface comment, section structure) but skipped the script's side-effect writes: appending a row to docs/phases/index.md and to the active era's Phases table. Because the content itself looked correct, the drift wasn't visible from reading the phase file alone \u2014 only from cross-referencing it against index.md and the era file.",
       "learning": "Faithfully reproducing a template's content format does not guarantee the side effects that the generating script performs. Phase registration (index.md row, era Phases table row) is a script side effect, not something derivable from a phase file's own content, so an agent that hand-writes a phase doc \u2014 even a well-formed one \u2014 will silently leave the index and era tracking stale. This class of drift is only caught by explicitly diffing phase-N.md files against index.md/era rows, not by reviewing the phase file in isolation.",
@@ -398,8 +398,8 @@
     {
       "id": "L021",
       "date": "2026-07-29",
-      "source_project": "cora",
-      "trigger": "cora 0.3.0 sync: security-auditor procedure skill audited for project parameterization",
+      "source_project": "Repo-G",
+      "trigger": "Repo-G 0.3.0 sync: security-auditor procedure skill audited for project parameterization",
       "problem": "Build standards declares domain_isolation_rule but the security-auditor procedure never reads it; the procedure checklist is flex-repo-specific (hooks, pipes), so any non-flex project adopting the thin agent loses its entire security checklist.",
       "learning": "Checkpoint procedures must consume Build standards parameters the same way the reviewer procedure consumes protected_paths and test_command.",
       "methodology_change": {
@@ -417,8 +417,8 @@
     {
       "id": "L022",
       "date": "2026-07-29",
-      "source_project": "cora",
-      "trigger": "cora 0.3.0 sync: .pairmode-overrides declared CLAUDE.md:review checklist before running sync-all --apply",
+      "source_project": "Repo-G",
+      "trigger": "Repo-G 0.3.0 sync: .pairmode-overrides declared CLAUDE.md:review checklist before running sync-all --apply",
       "problem": "sync.py overwrote the declared override section anyway, contradicting the documented contract that declared sections are never overwritten.",
       "learning": "Either sync.py does not read .pairmode-overrides on the apply path, or key normalization diverges from the audit path; the protection contract is only enforced at audit time.",
       "methodology_change": {

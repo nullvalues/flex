@@ -18,14 +18,14 @@ touches: []
 Live-hit twice this session, in two different fleet projects mid-migration
 to pairmode 0.3.0:
 
-- **caddy**: the builder ran `pairmode_sync.py sync-all --apply --yes` and
+- **Repo-C**: the builder ran `pairmode_sync.py sync-all --apply --yes` and
   found it silently added a full second, duplicate set of hook wirings to
   `.claude/settings.json` (`PreToolUse`, `UserPromptSubmit`, `SessionStart`,
   `PostToolUse`) pointing at `/mnt/work/flex-harness/hooks/*.py`, alongside
   the pre-existing set pointing at `/mnt/work/flex/hooks/*.py`. The builder
   correctly treated this as an unauthorized protected-file change (Instructions
   §5's documented failure mode) and rolled back rather than merging it.
-- **forqsite**: already migrated (`INFRA-020`), and confirmed this session to
+- **Repo-E**: already migrated (`INFRA-020`), and confirmed this session to
   already carry this exact duplicate wiring live — every one of the four
   hook events fires twice per turn, once via `/mnt/work/flex`'s copy and once
   via `/mnt/work/flex-harness`'s copy. That project's own checkpoint notes
@@ -145,11 +145,11 @@ change itself.
 
 ## Out of scope
 
-- Actually cleaning up the already-duplicated hooks in forqsite's live
+- Actually cleaning up the already-duplicated hooks in Repo-E's live
   `.claude/settings.json` — that is separate, direct, per-project
   remediation (re-sync once this fix lands, or manual cleanup), not part of
   this flex-harness code fix.
-- Retrying caddy's `PAIRMODE-001` story — that happens in caddy's own
+- Retrying Repo-C's `PAIRMODE-001` story — that happens in Repo-C's own
   session once this fix is confirmed landed here.
 - Any change to `_merge_allow_rules` or other unrelated `bootstrap.py`
   functions.

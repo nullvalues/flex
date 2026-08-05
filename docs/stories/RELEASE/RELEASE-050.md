@@ -1,7 +1,7 @@
 ---
 id: RELEASE-050
 rail: RELEASE
-title: Fleet migration — sync halfhorse to pairmode 0.3.0
+title: Fleet migration — sync Repo-F to pairmode 0.3.0
 status: deferred
 phase: "97"
 story_class: code

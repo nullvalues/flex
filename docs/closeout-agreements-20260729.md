@@ -1,7 +1,7 @@
 # Closeout agreements — era 004 revision (2026-07-29)
 
 **Inputs reconciled:**
-- `/mnt/work/cora/docs/agreements/flex-upstream-candidates.md` (cora 0.1.0→0.3.0 hand-migration findings, items A#1–A#8)
+- `/mnt/work/Repo-G/docs/agreements/flex-upstream-candidates.md` (Repo-G 0.1.0→0.3.0 hand-migration findings, items A#1–A#8)
 - `docs/closeout-planning-cold-eyes-review_20260729.md` (external cold-eyes review, findings F1–F12, proposed CER-119..126)
 - Cold synthesis + reconciliation against era-004 planning (phases 113–115, INFRA-296..310), this session.
 
@@ -17,7 +17,7 @@ The cold-eyes review's sizing principle ("no new phase; ~2 stories + widened
 INFRA-310") is **set aside by operator decision**. Era 004 was deliberately
 scaffolded incomplete at inception, with stated intent that it would be reviewed
 and revised based on external review — specifically the cold-eyes pass and the
-cora hand-migration findings. The original scope was too narrow in spite of that
+Repo-G hand-migration findings. The original scope was too narrow in spite of that
 stated intent. The era is therefore **expanded**, not contained: two new stories
 in existing phases, a widened INFRA-310, and a new phase 116.
 
@@ -78,8 +78,8 @@ era-003 transition to orphaned phase 108 / RELEASE-072).
 5. **F11 → INFRA-310**: flex's own `.companion/state.json` bumped to 0.3.1;
    file added to `touches:`.
 
-### AG-6 — Phase 116: cora upstream (in era, pre-tag)
-The six deferred cora items become a sequenced phase inside era 004, shipping in
+### AG-6 — Phase 116: Repo-G upstream (in era, pre-tag)
+The six deferred Repo-G items become a sequenced phase inside era 004, shipping in
 0.3.1. New story IDs assigned at spec time (INFRA-313.. or as the spec-writer
 rails them):
 - **A#1** — CER backlog gate/groom: `cer.py gate` (nonzero on open Do Now,
@@ -105,7 +105,7 @@ rails them):
   raise/lower review (lower unilaterally with note; raise requires operator).
 
 ### AG-7 — INFRA-310 + 0.3.1 tag move to phase 116 (terminal story)
-- Phase 116 = six cora stories, then the widened INFRA-310 as its terminal
+- Phase 116 = six Repo-G stories, then the widened INFRA-310 as its terminal
   story; the 0.3.1 record and tag remain the era's last act.
 - Phase 115 = observability closeout minus the record story (its remaining
   stories + INFRA-312).
@@ -390,7 +390,7 @@ from either reconciled input.
   would train operators to dismiss the true warning.
 - Pulled into **phase 114** as **INFRA-323**: this phase already owns build-loop
   friction removal and doc currency, and the forcing function is immediate —
-  RELEASE-068's canon-only pokus migration creates `gate-worker.md` and rewrites
+  RELEASE-068's canon-only Repo-K migration creates `gate-worker.md` and rewrites
   seven agent shells via `sync-all --apply`, then verifies only that the *files*
   are on disk, which passes in a stale session.
 - Three deliverables: (a) one `session_lifecycle.py` module defining the
@@ -434,7 +434,7 @@ from either reconciled input.
   (`scope_guard.PROTECTED_GLOBS`) and is declared explicitly in `touches:`.
 - RELEASE-068 (phase 106) received a dated one-line **post-spec operator
   addendum** at INFRA-323's spec time adding the exit-and-restart step before
-  agent verification, so the pokus migration is not blocked on this story
+  agent verification, so the Repo-K migration is not blocked on this story
   landing. `RELEASE-068.md` is deliberately **not** in INFRA-323's `touches:`.
 
 ### AG-13 — CER-137..141 (phase 116): agent-dispatch completeness
@@ -442,7 +442,7 @@ from either reconciled input.
 Filed after AG-12 and outside both reconciled input documents, from a live
 operator-directed process review during phase 115's build loop
 (2026-07-31) that started as a narrower question — why a `story_class: doc`
-elaboration story on a sibling project (cora's era-001 `docs/stories/DESIGN/`
+elaboration story on a sibling project (Repo-G's era-001 `docs/stories/DESIGN/`
 frontmatter work) kept failing on haiku with no escalation — and widened
 once the same session's own checkpoint-docs dispatch (this phase) hit an
 identical gap live: `docs-reviewer` fell back to a generic subagent because

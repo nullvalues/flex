@@ -58,17 +58,17 @@ is that surface.
 
 ## Stack
 
-Aligned with the existing project family (forqsite, cora, asp, aab, radar) to
+Aligned with the existing project family (Repo-E, Repo-G, Repo-I, Repo-H, Repo-L) to
 allow boilerplate reuse and avoid maintaining a divergent JS toolchain.
 
 | Layer | Choice | Rationale |
 |---|---|---|
-| API server | Fastify 5 | Standard across cora, asp, aab, radar |
+| API server | Fastify 5 | Standard across Repo-G, Repo-I, Repo-H, Repo-L |
 | Frontend | Vite + React 19 | Standard across all active SPAs in the family |
 | Package manager | pnpm workspaces (`api/` + `ui/`) | Standard monorepo split |
 | Styling | Tailwind CSS v4 | Standard; Tailwind v4 is the current baseline |
-| Components | shadcn/ui | Pull from forqsite boilerplate |
-| Data fetching | TanStack Query | Standard across cora, asp, aab, radar |
+| Components | shadcn/ui | Pull from Repo-E boilerplate |
+| Data fetching | TanStack Query | Standard across Repo-G, Repo-I, Repo-H, Repo-L |
 | Repo location | `skills/observability/` inside flex | Consistent with how other projects call flex scripts directly |
 | Bind | `127.0.0.1:7777` (loopback only) | Dev-local tool; must not appear on a network interface |
 
@@ -88,7 +88,7 @@ Settled before story specs are drafted so they survive context compaction.
     "version": 1,
     "repos": [
       {"id": "flex", "project_dir": "/mnt/work/flex", "color": "#7aa2f7"},
-      {"id": "forqsite", "project_dir": "/mnt/work/forqsite", "color": "#e0af68"}
+      {"id": "Repo-E", "project_dir": "/mnt/work/Repo-E", "color": "#e0af68"}
     ],
     "default_port": 7777,
     "bind_host": "127.0.0.1"
@@ -184,7 +184,7 @@ Settled before story specs are drafted so they survive context compaction.
               ┌───────────────────────────┼───────────────────────┐
               ▼                           ▼                       ▼
 ┌─────────────────────┐  ┌─────────────────────┐  ┌────────────────────────┐
-│ /mnt/work/flex      │  │ /mnt/work/forqsite   │  │ ~/.claude/             │
+│ /mnt/work/flex      │  │ /mnt/work/Repo-E   │  │ ~/.claude/             │
 │ .companion/         │  │ .companion/          │  │   policies/*.md        │
 │   state.json        │  │   state.json         │  │   projects/<hash>/     │
 │   effort.db  (ro)   │  │   effort.db (ro)     │  │     memory/*.md        │

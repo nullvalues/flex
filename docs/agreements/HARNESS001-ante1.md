@@ -37,9 +37,9 @@ version numbers, and establishes the dev line — *before* any refactor lands.
 - **Migration tool:** `sync-build` is **diff/replace, not merge** — it rewrites a
   consumer's `CLAUDE.build.md` from the canonical `.j2` template. `sync-all`
   sequences `sync` → `sync-agents` → `sync-build`; dry-run by default.
-- **Fleet (uncertain):** `registered_projects` = `["/mnt/work/coherra"]` (drift
-  opt-in only). Docs additionally name forqsite, radar, asp, aab, cora, lumin,
-  halfhorse. The true set of `FLEX_DIR`-consumers is not enumerable from here.
+- **Fleet (uncertain):** `registered_projects` = `["/mnt/work/Repo-A"]` (drift
+  opt-in only). Docs additionally name Repo-E, Repo-L, Repo-I, Repo-H, Repo-G, Repo-J,
+  Repo-F. The true set of `FLEX_DIR`-consumers is not enumerable from here.
 - **Git state:** `main` is the only live line; `era2`/`era3-methodology`/`pairmode`
   branches are stale. Checkpoints are tagged (`cpNN-…`); **no semver release tags
   exist.**
@@ -304,7 +304,7 @@ passes for the reason the architecture works.
 
 **Question:** Who actually consumes this shared tree, so cutover is safe?
 
-**Context:** `registered_projects` lists only coherra; docs name 7+ others; the
+**Context:** `registered_projects` lists only Repo-A; docs name 7+ others; the
 true `FLEX_DIR`-consumer set is unknown.
 
 **Recommendation:** a discovery deliverable — scan candidate project dirs for a

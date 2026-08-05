@@ -20,7 +20,7 @@ competition.
 **Template drift** is the gap that caused the Phase 24 session opener: INFRA-044
 updated the agent templates but provided no mechanism for existing projects to
 adopt the new model assignments. The flex repo's own `.claude/agents/` files
-had to be patched manually. Forqsite, radar, cora, lumin, and halfhorse still
+had to be patched manually. Repo-E, Repo-L, Repo-G, Repo-J, and Repo-F still
 carry stale model assignments. `pairmode sync-agents` closes the gap for any
 project that has already bootstrapped pairmode.
 
@@ -147,8 +147,8 @@ If no agent file exists for a template, skip (sync-agents does not create new fi
 
 **Motivation:** INFRA-044 updated agent templates but existing bootstrapped projects
 could not adopt the new model assignments without manual edits to each agent file.
-`sync-agents` makes template propagation a single command — run it on forqsite,
-radar, cora etc. after any template update to bring them current.
+`sync-agents` makes template propagation a single command — run it on Repo-E,
+Repo-L, Repo-G etc. after any template update to bring them current.
 
 **Instructions:**
 
@@ -184,7 +184,7 @@ the template-drift problem and the sync-on-demand solution.
 **Lesson content:**
 
 - **trigger**: Phase 24 session start revealed that flex's own `.claude/agents/`
-  files had no `model:` frontmatter, and forqsite/radar still carried pre-INFRA-044
+  files had no `model:` frontmatter, and Repo-E/Repo-L still carried pre-INFRA-044
   opus reviewer assignments — despite INFRA-044 having updated the templates.
 - **problem**: Pairmode templates and bootstrapped project files diverge silently
   after any template update. There is no mechanism to propagate changes to existing

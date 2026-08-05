@@ -40,9 +40,9 @@ These are all documented in flex's CLAUDE.md review checklist item 1, but the
 auditor agent has not been updated to match.
 
 **Consequence:** any pairmode-bootstrapped project running the security-auditor at
-checkpoint time (including radar) flags 6 CRITICAL findings and 1 HIGH finding in
+checkpoint time (including Repo-L) flags 6 CRITICAL findings and 1 HIGH finding in
 the pairmode infrastructure hooks — false positives that block every downstream
-checkpoint. Confirmed in radar Phase MU010 audit (2026-07-01).
+checkpoint. Confirmed in Repo-L Phase MU010 audit (2026-07-01).
 
 There is also a second gap: neither the template nor the live file contain an
 **audit-scope rule**. The auditor currently reports findings in installed plugin
@@ -208,8 +208,8 @@ grep -n "Audit scope" .claude/agents/security-auditor.md
 
 - Modifying any other hook or skill script.
 - Changes to `CLAUDE.md` checklist item 1 (already correct and authoritative).
-- Propagating the updated template to downstream projects (radar etc.) via
+- Propagating the updated template to downstream projects (Repo-L etc.) via
   `pairmode sync` — that is the downstream operator's responsibility after this
-  story lands. The fix to radar's blocked checkpoint can be applied immediately
+  story lands. The fix to Repo-L's blocked checkpoint can be applied immediately
   by the operator as a documented false-positive override referencing flex
   CLAUDE.md checklist item 1.

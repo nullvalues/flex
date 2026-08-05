@@ -120,3 +120,55 @@ def test_unbalanced_quotes_fail_open():
     allowed, reason = guard.check_command("git commit -m 'unterminated", "reviewer")
     assert allowed is True
     assert reason
+
+
+# ---------------------------------------------------------------------------
+# shadow-reviewer agent_type (INFRA-388) — strict default-deny allowlist.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git log",
+        "git log --oneline -5",
+        "git status",
+        "git status --porcelain",
+        "git diff",
+        "git diff HEAD~1",
+    ],
+)
+def test_shadow_reviewer_allowed_forms_return_true(command):
+    allowed, reason = guard.check_command(command, "shadow-reviewer")
+    assert allowed is True
+    assert reason
+
+
+def test_shadow_reviewer_blocked_git_subcommand_returns_false():
+    """A representative blocked git subcommand — allowed for the reviewer
+    role today, but the shadow-reviewer never commits or reverts anything."""
+    allowed, reason = guard.check_command("git commit -m x", "shadow-reviewer")
+    assert allowed is False
+    assert reason
+
+
+def test_shadow_reviewer_non_git_command_blocked_in_contrast_to_reviewer():
+    """A non-git command is blocked for the shadow-reviewer, in explicit
+    contrast with the same input returning True under agent_type="reviewer"
+    (the reviewer's fail-open default this role must not inherit)."""
+    shadow_allowed, shadow_reason = guard.check_command("echo hi", "shadow-reviewer")
+    assert shadow_allowed is False
+    assert shadow_reason
+
+    reviewer_allowed, reviewer_reason = guard.check_command("echo hi", "reviewer")
+    assert reviewer_allowed is True
+    assert reviewer_reason
+
+
+def test_shadow_reviewer_redirection_bearing_command_blocked():
+    """A git log command with shell redirection is blocked even though a
+    sanctioned `git log` invocation appears in the same string — defense
+    against _find_git_invocation's known non-handling of `>`/`>>`/`<`."""
+    allowed, reason = guard.check_command("git log > x", "shadow-reviewer")
+    assert allowed is False
+    assert reason

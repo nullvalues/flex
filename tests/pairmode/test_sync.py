@@ -546,6 +546,74 @@ class TestSyncCreatesMissingClaudeMd:
         )
 
 
+class TestSyncCreatesMissingExemplar:
+    """When docs/exemplars/EXEMPLAR-000.md doesn't exist, sync backfills it
+    from canonical (INFRA-392/CER-171), via the existing generic
+    CANONICAL_FILES/_dest_to_template backfill path — no bespoke sync logic."""
+
+    def test_sync_creates_exemplar_file(self, tmp_path: Path) -> None:
+        # All canonical files except EXEMPLAR-000.md
+        for dest_rel, template_rel in CANONICAL_FILES:
+            if dest_rel == "docs/exemplars/EXEMPLAR-000.md":
+                continue
+            template_path = TEMPLATES_DIR / template_rel
+            dest_path = tmp_path / dest_rel
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            if template_path.exists():
+                dest_path.write_text(template_path.read_text(encoding="utf-8"), encoding="utf-8")
+            else:
+                dest_path.write_text("# placeholder\n", encoding="utf-8")
+
+        assert not (tmp_path / "docs" / "exemplars" / "EXEMPLAR-000.md").exists()
+
+        sync_project(tmp_path, yes=True)
+
+        assert (tmp_path / "docs" / "exemplars" / "EXEMPLAR-000.md").exists(), (
+            "sync should create docs/exemplars/EXEMPLAR-000.md"
+        )
+
+    def test_created_exemplar_content_matches_canonical(self, tmp_path: Path) -> None:
+        for dest_rel, template_rel in CANONICAL_FILES:
+            if dest_rel == "docs/exemplars/EXEMPLAR-000.md":
+                continue
+            template_path = TEMPLATES_DIR / template_rel
+            dest_path = tmp_path / dest_rel
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            if template_path.exists():
+                dest_path.write_text(template_path.read_text(encoding="utf-8"), encoding="utf-8")
+            else:
+                dest_path.write_text("# placeholder\n", encoding="utf-8")
+
+        sync_project(tmp_path, yes=True)
+
+        expected = (TEMPLATES_DIR / "docs" / "exemplars" / "EXEMPLAR-000.md.j2").read_text(
+            encoding="utf-8"
+        )
+        actual = (tmp_path / "docs" / "exemplars" / "EXEMPLAR-000.md").read_text(
+            encoding="utf-8"
+        )
+        assert actual == expected
+
+    def test_applied_records_exemplar_creation(self, tmp_path: Path) -> None:
+        for dest_rel, template_rel in CANONICAL_FILES:
+            if dest_rel == "docs/exemplars/EXEMPLAR-000.md":
+                continue
+            template_path = TEMPLATES_DIR / template_rel
+            dest_path = tmp_path / dest_rel
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            if template_path.exists():
+                dest_path.write_text(template_path.read_text(encoding="utf-8"), encoding="utf-8")
+            else:
+                dest_path.write_text("# placeholder\n", encoding="utf-8")
+
+        result = sync_project(tmp_path, yes=True)
+
+        applied_text = " ".join(result.applied)
+        assert "docs/exemplars/EXEMPLAR-000.md" in applied_text, (
+            f"EXEMPLAR-000.md creation should appear in applied list, got: {result.applied}"
+        )
+
+
 class TestSyncPreservesProjectSpecificSections:
     """Project-specific checklist items / extra sections survive sync."""
 
@@ -617,14 +685,14 @@ class TestSyncUsesContextWhenCreatingFiles:
     def test_sync_creates_claude_md_with_rendered_content_not_raw_j2(
         self, tmp_path: Path
     ) -> None:
-        """When pairmode_context.json exists with project_name='cora', sync creates
-        CLAUDE.md with rendered content (contains 'cora', not '{{ project_name }}')."""
+        """When pairmode_context.json exists with project_name='Repo-G', sync creates
+        CLAUDE.md with rendered content (contains 'Repo-G', not '{{ project_name }}')."""
         import json as _json
 
         companion = tmp_path / ".companion"
         companion.mkdir(parents=True, exist_ok=True)
         ctx = {
-            "project_name": "cora",
+            "project_name": "Repo-G",
             "project_description": "a test project",
             "stack": "Python / pytest",
             "build_command": "uv run pytest",
@@ -648,7 +716,7 @@ class TestSyncUsesContextWhenCreatingFiles:
 
         content = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
         # Should contain rendered project name, not raw Jinja2
-        assert "cora" in content, "Created CLAUDE.md should contain rendered project name"
+        assert "Repo-G" in content, "Created CLAUDE.md should contain rendered project name"
         assert "{{ project_name }}" not in content, (
             "Created CLAUDE.md should not contain raw Jinja2 syntax"
         )
@@ -1107,13 +1175,18 @@ class TestSyncOverrides:
     """sync_project respects .pairmode-overrides: declared sections are skipped with a note."""
 
     def _get_first_canonical_section_key(self) -> tuple[str, str]:
-        """Return (raw_header, normalised_key) for the first ## header in CLAUDE.md.j2."""
+        """Return (raw_header, normalised_key) for the first ## header in CLAUDE.md.j2.
+
+        The key is ##-stripped before normalising (CER-170/INFRA-391) to match
+        both the real internal `_split_sections` key shape and the
+        SKILL.md-documented `.pairmode-overrides` entry format.
+        """
         import re
         from skills.pairmode.scripts.audit import _normalise
         canonical_text = (TEMPLATES_DIR / "CLAUDE.md.j2").read_text(encoding="utf-8")
         headers = re.findall(r"^## .+", canonical_text, re.MULTILINE)
         assert headers, "CLAUDE.md.j2 must have at least one ## header"
-        return headers[0], _normalise(headers[0])
+        return headers[0], _normalise(re.sub(r"^#+\s*", "", headers[0]))
 
     def test_override_section_not_appended_to_existing_file(self, tmp_path: Path) -> None:
         """When a MISSING section in an existing file is declared in .pairmode-overrides,
@@ -1130,7 +1203,7 @@ class TestSyncOverrides:
         assert len(headers) >= 2, "CLAUDE.md.j2 must have at least 2 ## headers"
 
         last_header = headers[-1]
-        last_key = _normalise(last_header)
+        last_key = _normalise(re.sub(r"^#+\s*", "", last_header))
 
         # Write a CLAUDE.md stub with only the first section so the last section is MISSING
         (tmp_path / "CLAUDE.md").write_text(
@@ -1915,10 +1988,10 @@ class TestRetiredSectionsRegistry:
     def test_registry_seeded_with_infra_241_reductions(self) -> None:
         """The INFRA-241 fat-reviewer-checklist keys are the seed content."""
         for key in (
-            (_REVIEWER_DEST, "## review checklist"),
+            (_REVIEWER_DEST, "review checklist"),
             (_REVIEWER_DEST, "**1. protected files**"),
             (_REVIEWER_DEST, "**3. build gate**"),
-            (_REVIEWER_DEST, "## final output to orchestrator"),
+            (_REVIEWER_DEST, "final output to orchestrator"),
         ):
             assert RETIRED_SECTIONS.get(key) == "INFRA-241", key
 
@@ -1989,7 +2062,7 @@ class TestSyncPrunesRetiredSections:
         assert "RETIRED (canon-removed, pruned):" in report
         assert len(result.retired) == 2
         assert any(
-            "## review checklist" in entry and "INFRA-241" in entry
+            "review checklist" in entry and "INFRA-241" in entry
             for entry in result.retired
         )
         assert any(
@@ -2009,7 +2082,7 @@ class TestSyncPrunesRetiredSections:
         reduced = {
             k: v
             for k, v in RETIRED_SECTIONS.items()
-            if k != (_REVIEWER_DEST, "## review checklist")
+            if k != (_REVIEWER_DEST, "review checklist")
         }
         monkeypatch.setattr(_sync_mod, "RETIRED_SECTIONS", reduced)
 
@@ -2017,7 +2090,7 @@ class TestSyncPrunesRetiredSections:
 
         written = reviewer_path.read_text(encoding="utf-8")
         assert "## Review checklist" in written
-        assert not any("## review checklist" in entry for entry in result.retired)
+        assert not any("review checklist" in entry for entry in result.retired)
 
 
 class TestRetiredSectionsAreFileScoped:
@@ -2034,7 +2107,7 @@ class TestRetiredSectionsAreFileScoped:
         _write_ideology_md(tmp_path)
 
         # Retirement is only recorded against the reviewer.md destination.
-        scoped = {(_REVIEWER_DEST, "## review checklist"): "INFRA-241"}
+        scoped = {(_REVIEWER_DEST, "review checklist"): "INFRA-241"}
         monkeypatch.setattr(_sync_mod, "RETIRED_SECTIONS", scoped)
 
         # A different canonical file — builder.md — carries a genuine
@@ -2078,7 +2151,7 @@ class TestSyncPreservesGenuineExtensions:
 
         assert any(
             _REVIEWER_DEST in entry
-            and "## project extension notes" in entry
+            and "project extension notes" in entry
             and "project-specific" in entry
             for entry in result.preserved
         )
@@ -2091,7 +2164,7 @@ class TestSyncPreservesGenuineExtensions:
         result = sync_project(tmp_path, yes=True)
 
         assert not any(
-            "## review checklist" in entry and "project-specific" in entry
+            "review checklist" in entry and "project-specific" in entry
             for entry in result.preserved
         )
 
@@ -2147,7 +2220,7 @@ class TestSyncRetirementOverrideWins:
     def test_override_keeps_retired_section_under_apply(self, tmp_path: Path) -> None:
         reviewer_path = _make_stale_fleet_fixture(tmp_path)
         (tmp_path / ".pairmode-overrides").write_text(
-            f"{_REVIEWER_DEST}: ## review checklist\n"
+            f"{_REVIEWER_DEST}: review checklist\n"
             f"{_REVIEWER_DEST}: **1. protected files**\n",
             encoding="utf-8",
         )
@@ -2164,7 +2237,7 @@ class TestSyncRetirementOverrideWins:
     ) -> None:
         _make_stale_fleet_fixture(tmp_path)
         (tmp_path / ".pairmode-overrides").write_text(
-            f"{_REVIEWER_DEST}: ## review checklist\n"
+            f"{_REVIEWER_DEST}: review checklist\n"
             f"{_REVIEWER_DEST}: **1. protected files**\n",
             encoding="utf-8",
         )
@@ -2173,11 +2246,11 @@ class TestSyncRetirementOverrideWins:
 
         override_kept = [e for e in result.preserved if "override-kept" in e]
         assert any(
-            "## review checklist" in e and "INFRA-241" in e for e in override_kept
+            "review checklist" in e and "INFRA-241" in e for e in override_kept
         )
         # Not blessed as plain project-specific EXTRA either
         assert not any(
-            "## review checklist" in e and "project-specific" in e
+            "review checklist" in e and "project-specific" in e
             for e in result.preserved
         )
 
@@ -2206,7 +2279,7 @@ class TestSyncRetirementUserDeclined:
         assert "## Review checklist" in written
         assert result.retired == []
         assert any(
-            "## review checklist" in entry
+            "review checklist" in entry
             and "canon-retired by INFRA-241" in entry
             and "user declined" in entry
             for entry in result.skipped
@@ -2214,6 +2287,6 @@ class TestSyncRetirementUserDeclined:
         # The prompt names the section key and the retiring story ID.
         retirement_prompts = [p for p in prompts if "Remove retired section" in p]
         assert any(
-            "## review checklist" in p and "INFRA-241" in p
+            "review checklist" in p and "INFRA-241" in p
             for p in retirement_prompts
         )

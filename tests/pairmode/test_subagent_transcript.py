@@ -155,7 +155,7 @@ class TestParseWorkerOutcome:
         assert outcome == "FAIL"
 
     # INFRA-293 (E6b / CER-101 downstream): 0.2-era plain-text result
-    # grammar fallback. Caddy effort.db rows 33/34 (PAIRMODE-002) were
+    # grammar fallback. Repo-C effort.db rows 33/34 (PAIRMODE-002) were
     # stranded because the workers emitted the legacy
     # "BUILD-RESULT: DONE" / "REVIEW-RESULT: PASS" grammar and the parser
     # only read the WORKER-004 JSON grammar.
@@ -219,10 +219,10 @@ class TestParseWorkerOutcome:
     def test_caddy_row_33_build_done_via_read_completed_spawn(
         self, tmp_path: Path
     ) -> None:
-        """Reproduces caddy effort.db row 33 (PAIRMODE-002): a builder
+        """Reproduces Repo-C effort.db row 33 (PAIRMODE-002): a builder
         spawn whose final assistant message is the 0.2-era plain-text
         return `BUILD-RESULT: DONE`."""
-        output_file = tmp_path / "tasks" / "caddy-row-33.output"
+        output_file = tmp_path / "tasks" / "Repo-C-row-33.output"
         _write_output_file(
             output_file,
             [
@@ -239,10 +239,10 @@ class TestParseWorkerOutcome:
     def test_caddy_row_34_review_pass_via_read_completed_spawn(
         self, tmp_path: Path
     ) -> None:
-        """Reproduces caddy effort.db row 34 (PAIRMODE-002): a reviewer
+        """Reproduces Repo-C effort.db row 34 (PAIRMODE-002): a reviewer
         spawn whose final assistant message is the 0.2-era plain-text
         return `REVIEW-RESULT: PASS`."""
-        output_file = tmp_path / "tasks" / "caddy-row-34.output"
+        output_file = tmp_path / "tasks" / "Repo-C-row-34.output"
         _write_output_file(
             output_file,
             [

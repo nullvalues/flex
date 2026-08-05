@@ -7,7 +7,7 @@
      belongs in docs/stories/<RAIL>/<ID>.md — not here. -->
 ## Goal
 
-Replace two brittle placeholders in the checkpoint report template. First: rename [CP-N] to [phase-id] so suffix-keyed phases (e.g. RD077-main) render correctly. Second: replace the [N+1] arithmetic in both the context-health advisory and the closing prompt with a new flex_build.py next-phase CLI that reads the index and returns the next row's key — enabling the closing prompt to branch between 'Build Phase [ID]' when a next phase is already spec'd and 'spec next phase [intent]' when none exists. Both the live CLAUDE.build.md and the canonical CLAUDE.build.md.j2 template receive the update; forqsite sync follows the same AC5 pattern as INFRA-149.
+Replace two brittle placeholders in the checkpoint report template. First: rename [CP-N] to [phase-id] so suffix-keyed phases (e.g. RD077-main) render correctly. Second: replace the [N+1] arithmetic in both the context-health advisory and the closing prompt with a new flex_build.py next-phase CLI that reads the index and returns the next row's key — enabling the closing prompt to branch between 'Build Phase [ID]' when a next phase is already spec'd and 'spec next phase [intent]' when none exists. Both the live CLAUDE.build.md and the canonical CLAUDE.build.md.j2 template receive the update; Repo-E sync follows the same AC5 pattern as INFRA-149.
 
 ## Stories
 

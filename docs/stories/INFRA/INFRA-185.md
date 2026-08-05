@@ -23,7 +23,7 @@ live `.companion/state.json` `registered_projects` and runs real drift detection
 against the actual fleet.
 
 When two or more registered projects share a convergence pattern (observed
-2026-06-26 with `registered_projects = [coherra, meander]`), the CLI reaches the
+2026-06-26 with `registered_projects = [Repo-A, Repo-B]`), the CLI reaches the
 interactive prompt `Promote to canonical? [y/n/skip]`, receives no stdin under
 `CliRunner`, and aborts with exit code 1. The tests assert `result.exit_code == 0`,
 so they fail:
@@ -32,7 +32,7 @@ so they fail:
 - `test_end_of_run_summary_contains_review_complete`
 
 This is **environment-dependent**: the tests were green at session start (effectively
-<2 projects sharing a pattern) and went red when a second project (`meander`) was
+<2 projects sharing a pattern) and went red when a second project (`Repo-B`) was
 present. A unit test must never invoke live, interactive fleet drift promotion. The
 two affected tests assert on the lesson-annotation output ("ACTION REQUIRED",
 "REVIEW COMPLETE"), not on drift behaviour — so the drift step is pure contamination
@@ -98,7 +98,7 @@ PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q
 
 ### Out of scope
 
-- The provenance of `meander` in `registered_projects` (how a brand-new project was
+- The provenance of `Repo-B` in `registered_projects` (how a brand-new project was
   registered without the operator running the registration flow) — captured
   separately as **CER-058** (Do Later); not fixed here.
 - Any change to `lesson_review.py` production drift-promotion behaviour.

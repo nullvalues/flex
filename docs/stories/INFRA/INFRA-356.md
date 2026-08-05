@@ -49,8 +49,8 @@ shadow-reviewer role, not an extension of this one).
 3. A narrative-alignment finding gets its own tag in the `REVIEW-RESULT` output (distinct from an
    ideology-drift finding), so a downstream consumer (or this project's own CER backlog) can
    distinguish "narrative gap" from "ideology gap" from "design pivot" — the same three-way
-   distinction coherra's own narrative README describes wanting (`Gap type: technical/narrative/both`)
-   even though coherra itself never implemented it.
+   distinction Repo-A's own narrative README describes wanting (`Gap type: technical/narrative/both`)
+   even though Repo-A itself never implemented it.
 4. A story with empty/absent `narrative_roles:` is not checked against any narrative — no false
    positive from a story that never claimed to concern a role narrative.
 5. Full `tests/pairmode/` suite green.

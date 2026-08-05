@@ -64,9 +64,9 @@ story.
 Further surfaced 2026-07-21: a fresh fleet-wide `fleet_discovery.py` run
 (the 2026-07-17 snapshot in `docs/fleet-snapshot.md` had gone stale) shows
 **0 of 18 bound projects pass DP8** — every project is still `binding:
-version`, on pairmode 0.2.0 (aab, asp, base56, caddy, coherra, forqsite,
-forqsite.help, halfhorse, lumin, meander, pokus, radar, rockue, stackabid,
-ud) or 0.1.0 (anchor, cora), with Signal-1 absent. `stackabid` is newly
+version`, on pairmode 0.2.0 (Repo-H, Repo-I, base56, Repo-C, Repo-A, Repo-E,
+Repo-D, Repo-F, Repo-J, Repo-B, Repo-K, Repo-L, Repo-M, Repo-N,
+Repo-O) or 0.1.0 (anchor, Repo-G), with Signal-1 absent. `Repo-N` is newly
 bound since the 07-17 snapshot. RELEASE-024 through RELEASE-040 originally
 specced one migration story per bound sibling project (17 total;
 `/mnt/work/flex` itself is out of scope here — its self-sync is
@@ -76,18 +76,18 @@ root and are therefore invisible to `scope_guard`'s enforcement, so these
 must be executed directly, not dispatched to a scope-bound spawn-builder
 subagent.
 
-**anchor and cora excluded (decided 2026-07-21):** `anchor` is flex's frozen
+**anchor and Repo-G excluded (decided 2026-07-21):** `anchor` is flex's frozen
 predecessor — flex was hard-forked from it and it will not be developed
 further, so it is not part of the managed fleet at all. Its migration story
 (originally RELEASE-025) is removed outright, and RELEASE-015's DP8 gate is
-updated to never scan or block on it. `cora` was the testbed where
+updated to never scan or block on it. `Repo-G` was the testbed where
 anchor/flex build-loop principles were originally proven out and still
 holds artifacts worth porting into flex — notably a lesson about not
 allowing a schema-introducing story to complete without a matching UI
 management story, which passes smoke tests but fails immediately in UAT
 (flex's own `CLAUDE.md` "Conceptual rebuild completeness" policy already
-codifies a version of this, but cora's specific case hasn't been reviewed
-for gaps). cora's migration story (RELEASE-030) combines the 0.1.0 schema
+codifies a version of this, but Repo-G's specific case hasn't been reviewed
+for gaps). Repo-G's migration story (RELEASE-030) combines the 0.1.0 schema
 gap with this extraction work, making it larger than a standard migration;
 it is deferred (`status: backlog`) rather than dropped, and excluded from
 RELEASE-015's pass/fail condition — see "Deferred stories" below.
@@ -103,22 +103,22 @@ RELEASE-015's pass/fail condition — see "Deferred stories" below.
 | RELEASE-020 | Wire `flex_factor` into the context-budget `PreToolUse` gate | complete |
 | RELEASE-021 | Fix the unacknowledgeable `CONTEXT CHECK REQUIRED` gate trap | complete |
 | RELEASE-022 | Pre-fold doc sweep — era status, post-flip staleness, reviewer input-scope contradiction | deferred |
-| RELEASE-024 | Fleet migration — sync aab to pairmode 0.3.0 | deferred |
-| RELEASE-026 | Fleet migration — sync asp to pairmode 0.3.0 | deferred |
+| RELEASE-024 | Fleet migration — sync Repo-H to pairmode 0.3.0 | deferred |
+| RELEASE-026 | Fleet migration — sync Repo-I to pairmode 0.3.0 | deferred |
 | RELEASE-027 | Fleet migration — sync base56 to pairmode 0.3.0 | deferred |
-| RELEASE-028 | Fleet migration — sync caddy to pairmode 0.3.0 | deferred |
-| RELEASE-029 | Fleet migration — sync coherra to pairmode 0.3.0 | deferred |
-| RELEASE-030 | Fleet migration — sync cora to pairmode 0.3.0 (0.1.0 schema gap + artifact extraction) | backlog |
-| RELEASE-031 | Fleet migration — sync forqsite to pairmode 0.3.0 | deferred |
-| RELEASE-032 | Fleet migration — sync forqsite.help to pairmode 0.3.0 | deferred |
-| RELEASE-033 | Fleet migration — sync halfhorse to pairmode 0.3.0 | deferred |
-| RELEASE-034 | Fleet migration — sync lumin to pairmode 0.3.0 | deferred |
-| RELEASE-035 | Fleet migration — sync meander to pairmode 0.3.0 | deferred |
-| RELEASE-036 | Fleet migration — sync pokus to pairmode 0.3.0 | deferred |
-| RELEASE-037 | Fleet migration — sync radar to pairmode 0.3.0 | deferred |
-| RELEASE-038 | Fleet migration — sync rockue to pairmode 0.3.0 | deferred |
-| RELEASE-039 | Fleet migration — sync stackabid to pairmode 0.3.0 | deferred |
-| RELEASE-040 | Fleet migration — sync ud to pairmode 0.3.0 | deferred |
+| RELEASE-028 | Fleet migration — sync Repo-C to pairmode 0.3.0 | deferred |
+| RELEASE-029 | Fleet migration — sync Repo-A to pairmode 0.3.0 | deferred |
+| RELEASE-030 | Fleet migration — sync Repo-G to pairmode 0.3.0 (0.1.0 schema gap + artifact extraction) | backlog |
+| RELEASE-031 | Fleet migration — sync Repo-E to pairmode 0.3.0 | deferred |
+| RELEASE-032 | Fleet migration — sync Repo-D to pairmode 0.3.0 | deferred |
+| RELEASE-033 | Fleet migration — sync Repo-F to pairmode 0.3.0 | deferred |
+| RELEASE-034 | Fleet migration — sync Repo-J to pairmode 0.3.0 | deferred |
+| RELEASE-035 | Fleet migration — sync Repo-B to pairmode 0.3.0 | deferred |
+| RELEASE-036 | Fleet migration — sync Repo-K to pairmode 0.3.0 | deferred |
+| RELEASE-037 | Fleet migration — sync Repo-L to pairmode 0.3.0 | deferred |
+| RELEASE-038 | Fleet migration — sync Repo-M to pairmode 0.3.0 | deferred |
+| RELEASE-039 | Fleet migration — sync Repo-N to pairmode 0.3.0 | deferred |
+| RELEASE-040 | Fleet migration — sync Repo-O to pairmode 0.3.0 | deferred |
 | RELEASE-015 | Pre-fold discovery gate (DP8) — fresh fleet snapshot, hard block on un-migrated projects | deferred |
 | RELEASE-016 | Fold merge — fold-prep → main, tag v0.3.0 | deferred |
 | RELEASE-017 | Post-fold re-sync of migrated projects + RELEASE-002 status reconciliation | deferred |
@@ -126,15 +126,15 @@ RELEASE-015's pass/fail condition — see "Deferred stories" below.
 
 ## Deferred stories
 
-RELEASE-030 (fleet migration — cora) was deferred on 2026-07-21. cora
+RELEASE-030 (fleet migration — Repo-G) was deferred on 2026-07-21. Repo-G
 combines the standard 0.1.0-schema-gap migration work with a separate need:
 extracting build-loop lessons proven there (notably a rule about
 schema-introducing stories requiring a matching UI management story, found
-via cora's own history — passes smoke tests but fails UAT without it)
+via Repo-G's own history — passes smoke tests but fails UAT without it)
 before a routine sync-all overwrites the artifacts that demonstrate it.
 That extraction work isn't yet scoped, so the story is parked at
 `status: backlog` rather than built now. RELEASE-015's DP8 gate excludes
-`cora` from its pass/fail condition so this deferral doesn't block the fold.
+`Repo-G` from its pass/fail condition so this deferral doesn't block the fold.
 
 Resumed as its own dedicated story once the artifact-extraction work is
 scoped — no target phase assigned yet.

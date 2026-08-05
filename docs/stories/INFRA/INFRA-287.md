@@ -662,7 +662,7 @@ Acceptance:
 ## Out of scope
 
 - **Backfilling historical rows.** Every `NULL`-token/`NULL`-outcome row already
-  in flex's and meander's `effort.db` stays exactly as it is. Rows younger than
+  in flex's and Repo-B's `effort.db` stays exactly as it is. Rows younger than
   `RECONCILE_MAX_AGE_DAYS` whose output files still exist will reconcile
   naturally on the next sweeps; the rest are permanently pending and that is the
   honest record. A retroactive repair pass across two projects' databases is a

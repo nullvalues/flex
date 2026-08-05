@@ -1,7 +1,7 @@
 ---
 id: RELEASE-024
 rail: RELEASE
-title: Fleet migration — sync aab to pairmode 0.3.0 thin-harness loop
+title: Fleet migration — sync Repo-H to pairmode 0.3.0 thin-harness loop
 status: planned
 phase: "HARNESS016-main"
 story_class: code
@@ -20,10 +20,10 @@ touches:
 - This story is one of the fleet migrations RELEASE-015's DP8 gate checks
   for — it is a *prerequisite* to RELEASE-015 passing, not gated by it. Run
   independently of RELEASE-015/016/017/018.
-- `/mnt/work/aab` is on pairmode 0.2.0 with `binding: version`
+- `/mnt/work/Repo-H` is on pairmode 0.2.0 with `binding: version`
   (Signal-1 absent), confirmed via fresh `fleet_discovery.py` run 2026-07-21.
 - **Cross-repo scope, not enforced by scope_guard**: this story's actual file
-  writes happen entirely inside `/mnt/work/aab`, outside
+  writes happen entirely inside `/mnt/work/Repo-H`, outside
   `/mnt/work/flex-harness`'s project root. `scope_guard.check_path()`
   normalises paths via `Path.relative_to(project_dir)`; a path outside
   flex-harness's root cannot be normalised, and if an active story has
@@ -35,67 +35,67 @@ touches:
   framing of fleet migration as operator-initiated, not a spawned build
   story.
 - Seam gate (`docs/harness-cutover-runbook.md` § Seam gate) passes for
-  `/mnt/work/aab`:
-  - `git -C /mnt/work/aab status --porcelain` is empty (all work committed
+  `/mnt/work/Repo-H`:
+  - `git -C /mnt/work/Repo-H status --porcelain` is empty (all work committed
     and pushed).
   - `uv run python flex_build.py read-attempt-count` (run from
-    `/mnt/work/aab`) returns `0`.
-  - `/mnt/work/aab` is at a phase boundary (checkpoint tag, or every
+    `/mnt/work/Repo-H`) returns `0`.
+  - `/mnt/work/Repo-H` is at a phase boundary (checkpoint tag, or every
     current-phase story `status: complete`).
-  - `flex_build.py check-stubs --project-dir /mnt/work/aab` returns clean.
-  - `/mnt/work/aab` appears in `fleet_discovery.py list-projects`.
-  If any seam-gate item fails, defer this story until `/mnt/work/aab`'s
+  - `flex_build.py check-stubs --project-dir /mnt/work/Repo-H` returns clean.
+  - `/mnt/work/Repo-H` appears in `fleet_discovery.py list-projects`.
+  If any seam-gate item fails, defer this story until `/mnt/work/Repo-H`'s
   own maintainer resolves it — do not force migration mid-story.
 
 ## Ensures
 
-- `/mnt/work/aab`'s `.companion/state.json` reads
+- `/mnt/work/Repo-H`'s `.companion/state.json` reads
   `"pairmode_version": "0.3.0"`.
-- `/mnt/work/aab`'s `CLAUDE.build.md` bakes an absolute
+- `/mnt/work/Repo-H`'s `CLAUDE.build.md` bakes an absolute
   `pairmode_scripts_dir` pointing at
   `/mnt/work/flex-harness/skills/pairmode/scripts` (Signal-1 present).
-- `fleet_discovery.py discover --project-dir /mnt/work/aab` (run from
+- `fleet_discovery.py discover --project-dir /mnt/work/Repo-H` (run from
   flex-harness) reports `binding: scripts`.
-- One complete pairmode story cycle has run through `/mnt/work/aab`'s
+- One complete pairmode story cycle has run through `/mnt/work/Repo-H`'s
   migrated loop with no regressions, and the result is committed and pushed
-  in `/mnt/work/aab`'s own repo.
+  in `/mnt/work/Repo-H`'s own repo.
 - No changes to any file inside `/mnt/work/flex-harness` other than an
   updated fleet snapshot (if regenerated).
 
 ## Instructions
 
 Execute the runbook's 6-step Era 3 procedure (`docs/harness-cutover-runbook.md`
-§ Per-project mechanic) against `/mnt/work/aab`, all commands run with
+§ Per-project mechanic) against `/mnt/work/Repo-H`, all commands run with
 `PATH=$HOME/.local/bin:$PATH` from `/mnt/work/flex-harness` except where
 noted:
 
 1. Confirm the seam gate (Requires) passes.
 2. Dry-run:
-   `uv run python skills/pairmode/scripts/pairmode_sync.py sync-all --project-dir /mnt/work/aab --dry-run`.
+   `uv run python skills/pairmode/scripts/pairmode_sync.py sync-all --project-dir /mnt/work/Repo-H --dry-run`.
    Review the diff.
 3. Apply:
-   `uv run python skills/pairmode/scripts/pairmode_sync.py sync-all --project-dir /mnt/work/aab --apply --yes`.
+   `uv run python skills/pairmode/scripts/pairmode_sync.py sync-all --project-dir /mnt/work/Repo-H --apply --yes`.
 4. Normalize:
-   `uv run python skills/pairmode/scripts/pairmode_migrate.py to-030 --project-dir /mnt/work/aab --apply`.
+   `uv run python skills/pairmode/scripts/pairmode_migrate.py to-030 --project-dir /mnt/work/Repo-H --apply`.
 5. Verify Signal-1:
-   `uv run python skills/pairmode/scripts/fleet_discovery.py discover --project-dir /mnt/work/aab`
+   `uv run python skills/pairmode/scripts/fleet_discovery.py discover --project-dir /mnt/work/Repo-H`
    shows `binding: scripts`. If absent, stop and fix `CLAUDE.build.md` before
    continuing.
-6. Run one complete story cycle in `/mnt/work/aab`'s migrated loop (any
+6. Run one complete story cycle in `/mnt/work/Repo-H`'s migrated loop (any
    story — doc/lesson stories are fine). Confirm `pairmode_version: 0.3.0`
-   in `.companion/state.json`, then from `/mnt/work/aab`:
+   in `.companion/state.json`, then from `/mnt/work/Repo-H`:
    `git add -A && git commit -m "sync: migrate to pairmode 0.3.0 thin-harness loop" && git push`.
 
 If step 5 or 6 fails, roll back per the runbook's rollback procedure
-(`git -C /mnt/work/aab checkout HEAD -- CLAUDE.build.md .companion/state.json`)
-and re-run the Era 2 loop; do not leave `/mnt/work/aab` half-migrated.
+(`git -C /mnt/work/Repo-H checkout HEAD -- CLAUDE.build.md .companion/state.json`)
+and re-run the Era 2 loop; do not leave `/mnt/work/Repo-H` half-migrated.
 
 ## Tests
 
-- `PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/fleet_discovery.py discover --project-dir /mnt/work/aab`
+- `PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/fleet_discovery.py discover --project-dir /mnt/work/Repo-H`
   reports `pairmode_version: 0.3.0` and `binding: scripts`.
-- `git -C /mnt/work/aab status --porcelain` is empty after the story
+- `git -C /mnt/work/Repo-H status --porcelain` is empty after the story
   (committed and pushed).
-- If `/mnt/work/aab` has its own test suite, it passes post-migration
+- If `/mnt/work/Repo-H` has its own test suite, it passes post-migration
   (project-specific — check for a `tests/` dir or documented test command in
   its own `CLAUDE.md`).

@@ -17,15 +17,15 @@ touches: []
 A cold-eyes review this session found fleet-discovery coverage silently
 shrank: `docs/fleet-snapshot.md`'s 2026-07-22 snapshot shows only 10 bound
 projects, down from 16 on 2026-07-17, with six known fleet projects
-(base56, caddy, forqsite.help, pokus, rockue, stackabid) missing entirely
+(base56, Repo-C, Repo-D, Repo-K, Repo-M, Repo-N) missing entirely
 from discovery output, despite all of them being real, active projects with
 pending or in-flight pairmode 0.3.0 migration work this session directly
 interacted with.
 
 Root cause, confirmed by direct code read: `fleet_discovery.py`'s default
 candidate list is `_DOCUMENTED_CANDIDATES` (`fleet_discovery.py:48`), a
-hardcoded 9-name list (`coherra`, `forqsite`, `radar`, `asp`, `aab`, `cora`,
-`lumin`, `halfhorse`, `meander`) that was never updated as the fleet grew.
+hardcoded 9-name list (`Repo-A`, `Repo-E`, `Repo-L`, `Repo-I`, `Repo-H`, `Repo-G`,
+`Repo-J`, `Repo-F`, `Repo-B`) that was never updated as the fleet grew.
 The tool's separate `registered_projects` mechanism (read from *this*
 checkout's own `.companion/state.json`) is confirmed empty (`[]`) in this
 repo, and is explicitly documented as "drift-opt-in (distinct purpose;
@@ -42,17 +42,17 @@ the "no partial folds" guarantee DP8 exists to protect.
 ## Requires
 
 - `fleet_discovery.py::_DOCUMENTED_CANDIDATES` in its current form
-  (confirmed present and missing 7 projects this session: base56, caddy,
-  forqsite.help, pokus, rockue, stackabid, ud).
+  (confirmed present and missing 7 projects this session: base56, Repo-C,
+  Repo-D, Repo-K, Repo-M, Repo-N, Repo-O).
 
 ## Ensures
 
 - `_DOCUMENTED_CANDIDATES` includes all 15 known, currently-bound fleet
-  projects: the existing 9 (`coherra`, `forqsite`, `radar`, `asp`, `aab`,
-  `cora`, `lumin`, `halfhorse`, `meander`) plus the 6 missing ones
-  identified this session (`base56`, `caddy`, `forqsite.help`, `pokus`,
-  `rockue`, `stackabid`) plus `ud` (confirmed a real, active fleet project
-  this session — `/mnt/work/ud`, "ud migration" project).
+  projects: the existing 9 (`Repo-A`, `Repo-E`, `Repo-L`, `Repo-I`, `Repo-H`,
+  `Repo-G`, `Repo-J`, `Repo-F`, `Repo-B`) plus the 6 missing ones
+  identified this session (`base56`, `Repo-C`, `Repo-D`, `Repo-K`,
+  `Repo-M`, `Repo-N`) plus `Repo-O` (confirmed a real, active fleet project
+  this session — `/mnt/work/Repo-O`, "Repo-O migration" project).
 - `anchor` is **not** added — confirmed this session and previously
   documented (HARNESS016-main) as flex's frozen, non-pairmode-consumer
   predecessor, explicitly excluded from the managed fleet.
@@ -68,10 +68,10 @@ the "no partial folds" guarantee DP8 exists to protect.
 
 1. In `skills/pairmode/scripts/fleet_discovery.py`, locate
    `_DOCUMENTED_CANDIDATES` (`fleet_discovery.py:48`) and add the 7 missing
-   project name strings (`"base56"`, `"caddy"`, `"forqsite.help"`,
-   `"pokus"`, `"rockue"`, `"stackabid"`, `"ud"`), keeping the list
+   project name strings (`"base56"`, `"Repo-C"`, `"Repo-D"`,
+   `"Repo-K"`, `"Repo-M"`, `"Repo-N"`, `"Repo-O"`), keeping the list
    alphabetically sorted.
-2. Do not add `anchor` or `cora` beyond `cora`'s existing entry (it's
+2. Do not add `anchor` or `Repo-G` beyond `Repo-G`'s existing entry (it's
    already present; leave it as-is — its parked/excluded status is handled
    elsewhere, not by removing it from discovery candidates).
 3. Do not change any other line in the file.

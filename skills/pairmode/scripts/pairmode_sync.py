@@ -22,9 +22,10 @@ helper both commands call rather than duplicated. It never rewrites the
 content of an already-present narrative file (that's out of scope — see
 ``docs/stories/INFRA/INFRA-352.md``).
 
-``sync-all`` runs all four sync operations in fixed order: sync.py (methodology
+``sync-all`` runs all five sync operations in fixed order: sync.py (methodology
 files) → sync-agents (agent frontmatter) → sync-narratives (harness narrative
-backfill) → sync-build (CLAUDE.build.md).
+backfill) → sync-build (CLAUDE.build.md) → ``pairmode_migrate.py to-030
+--hooks-only`` (stale-flex-harness / machine-absolute hook repair, INFRA-386).
 
 Usage:
     uv run python skills/pairmode/scripts/pairmode_sync.py sync-agents \\
@@ -382,7 +383,7 @@ def _sections_to_add(
 # `## Final output to orchestrator`; the 0.3 template's equivalent section is
 # `## Return`. Those are different concept keys, so the additive-only merge
 # below is structurally incapable of ever replacing the stale one — it can
-# only add a heading the target doesn't have. This is what stranded caddy's
+# only add a heading the target doesn't have. This is what stranded Repo-C's
 # effort.db rows 33/34: a worker reading top-down followed the first (stale)
 # return contract it met, sitting earlier in the file than the appended
 # `## Return`.
@@ -1290,18 +1291,24 @@ def sync_build(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
     help="Suppress confirmation prompts; propagated to each downstream command.",
 )
 def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
-    """Run all four sync operations in fixed order.
+    """Run all five sync operations in fixed order.
 
     Invocation order: sync.py (methodology files) → sync-agents (agent
     frontmatter) → sync-narratives (harness narrative backfill) → sync-build
-    (CLAUDE.build.md). sync-narratives sits immediately after sync-agents
-    (INFRA-352) — both are add-missing-file backfills against the same
-    ``bootstrap.py``-owned template contract, run before sync-build's
-    content-rewrite step.
+    (CLAUDE.build.md) → ``pairmode_migrate.py to-030 --hooks-only``
+    (stale-flex-harness / machine-absolute hook repair, INFRA-386).
+    sync-narratives sits immediately after sync-agents (INFRA-352) — both are
+    add-missing-file backfills against the same ``bootstrap.py``-owned
+    template contract, run before sync-build's content-rewrite step. The
+    fifth step is ordered last: the four preceding steps rewrite methodology
+    docs, agent frontmatter, and CLAUDE.build.md and never touch
+    ``.claude/settings.json`` hook entries, so it is disjoint from them, and
+    placing it last means a fail-fast halt in an earlier step leaves
+    settings.json untouched.
 
-    Safe by default — without --apply, all four commands (including sync.py,
+    Safe by default — without --apply, all five commands (including sync.py,
     invoked with its own --dry-run flag) run in dry-run/preview mode and write
-    nothing. Pass --apply to run all four and write changes to disk.
+    nothing. Pass --apply to run all five and write changes to disk.
 
     Fail-fast: if any downstream command exits non-zero, the wrapper halts and
     exits with the same status code. Remaining commands are not invoked.
@@ -1315,12 +1322,15 @@ def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
     # Paths for downstream scripts
     _this_script = Path(__file__).resolve()
     _sync_script = _this_script.parent / "sync.py"
+    _migrate_script = _this_script.parent / "pairmode_migrate.py"
 
     # Build the downstream invocation list.
-    # Each entry: (label, argv). All four commands are always invoked; in
-    # dry-run mode each receives its own --dry-run flag rather than being
-    # skipped (INFRA-371 — sync.py has always had a working --dry-run flag,
-    # it was only this wrapper that never reached it).
+    # Each entry: (label, argv). All five commands are always invoked; in
+    # dry-run mode each receives its own --dry-run flag (or, for the fifth
+    # step, simply omits --apply — to-030 has no --dry-run flag of its own,
+    # dry-run is its default) rather than being skipped (INFRA-371 — sync.py
+    # has always had a working --dry-run flag, it was only this wrapper that
+    # never reached it).
 
     # --- sync.py ---
     sync_argv = [sys.executable, str(_sync_script), "--project-dir", str(project_path)]
@@ -1364,11 +1374,31 @@ def sync_all(project_dir: str, dry_run: bool, apply: bool, yes: bool) -> None:
     if yes:
         build_argv.append("--yes")
 
+    # --- pairmode_migrate.py to-030 --hooks-only (INFRA-386) ---
+    # Fifth and last step: stale-flex-harness / machine-absolute hook-command
+    # repair in the project's committed .claude/settings.json. Disjoint from
+    # the four steps above (none of them touch settings.json hook entries),
+    # so it is ordered last — a fail-fast halt earlier in the chain leaves
+    # settings.json untouched. --apply/--yes propagate identically to the
+    # first four; --hooks-only is unconditional so this step never runs
+    # to-030's other normalization behaviour.
+    migrate_argv = [
+        sys.executable, str(_migrate_script),
+        "to-030",
+        "--project-dir", str(project_path),
+        "--hooks-only",
+    ]
+    if effective_apply:
+        migrate_argv.append("--apply")
+    if yes:
+        migrate_argv.append("--yes")
+
     invocations: list[tuple[str, list[str]]] = [
         ("sync (methodology files)", sync_argv),
         ("sync-agents (agent frontmatter)", agents_argv),
         ("sync-narratives (harness narrative backfill)", narratives_argv),
         ("sync-build (CLAUDE.build.md)", build_argv),
+        ("to-030 --hooks-only (stale hook-command repair)", migrate_argv),
     ]
 
     # INFRA-323 § D19: sync_all cannot see *what* a child changed — each

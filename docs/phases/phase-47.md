@@ -79,12 +79,12 @@ the same way.
 
 ## Goal
 
-Synthesize the methodology lessons from five downstream projects (forqsite,
-radar, asp, aab, cora) back into the canonical flex template. Two motivating
+Synthesize the methodology lessons from five downstream projects (Repo-E,
+Repo-L, Repo-I, Repo-H, Repo-G) back into the canonical flex template. Two motivating
 findings from the cross-repo evaluation:
 
 1. **Convergent inventions** in downstream projects (rebuild-completeness
-   vocabulary in CORA/AAB/ASP; phase-doc existence gate in forqsite; doc-currency
+   vocabulary in Repo-G/Repo-H/Repo-I; phase-doc existence gate in Repo-E; doc-currency
    review check in four of five projects) signal canonical gaps that should be
    filled now.
 2. **Canonical bloat** has accumulated — CLAUDE.build.md is 728 lines and ~250
@@ -145,19 +145,19 @@ section.
 - **T4 — DOC CURRENCY review check severity: HIGH.**
   Reason: stale docs that no longer match code actively mislead future
   agents — exactly the failure mode flex methodology exists to prevent.
-  asp/aab/cora/forqsite already run it as HIGH; canonical adopts the same.
+  Repo-I/Repo-H/Repo-G/Repo-E already run it as HIGH; canonical adopts the same.
 
 - **T5 — Phase queue lives in `docs/phases/index.md`: UPGRADE THE INDEX,
   NO NEW FILE.** The canonical `index.md` template is enriched from day zero
   to carry queue semantics: explicit "next to build" pointer, deferred-stories
-  lineage column, backlog-promotion entries. forqsite's `build-queue.md`
+  lineage column, backlog-promotion entries. Repo-E's `build-queue.md`
   invention is recognised as the symptom of a too-thin index, not a need for
   a second file. One source of truth, one template.
 
 - **T6 — Auth-check generalization: APPROVED.** The canonical auth check
   should learn to read a recorded RBAC/ABAC classification from
   `docs/architecture.md` and skip the per-story prompt when present.
-  Forqsite already does this manually; canonical generalizes. Architectural
+  Repo-E already does this manually; canonical generalizes. Architectural
   constraints should manifest as automatic reflexes.
 
 - **T7 — Sync-back / lift-to-canonical workflow: APPROVED.** Need a guided,
@@ -213,17 +213,17 @@ the rendered `CLAUDE.md` files of all five downstream projects:
   same story commit").
 - **Two-tier structure is healthy.** `CLAUDE.md` is the brief overview
   pointing at `reviewer.md` for detail; downstream projects use both. The
-  original evaluation finding (asp/aab/cora/forqsite have DOC CURRENCY at
-  item #4) is partially correct — confirmed for asp, aab, forqsite; cora
-  does not have it. radar also lacks it entirely.
+  original evaluation finding (Repo-I/Repo-H/Repo-G/Repo-E have DOC CURRENCY at
+  item #4) is partially correct — confirmed for Repo-I, Repo-H, Repo-E; Repo-G
+  does not have it. Repo-L also lacks it entirely.
 - **Reference path is wrong.** `CLAUDE.md.j2:51` says
   `See \`agents/reviewer.md\` § 4 for the full discovery and judgement procedure.`
   but `bootstrap.py:64` ships the file to `.claude/agents/reviewer.md`.
   Agents following the pointer look in the wrong place. One-line fix.
-- **Two downstream projects need re-sync.** radar (`last_sync: 2026-04-22`)
-  and cora (`last_sync: 2026-05-07`) both bootstrapped before DOC CURRENCY
-  was added to canonical (asp has no last_sync field but has the check;
-  aab synced 2026-05-22 and has it). Sync re-render should propagate the
+- **Two downstream projects need re-sync.** Repo-L (`last_sync: 2026-04-22`)
+  and Repo-G (`last_sync: 2026-05-07`) both bootstrapped before DOC CURRENCY
+  was added to canonical (Repo-I has no last_sync field but has the check;
+  Repo-H synced 2026-05-22 and has it). Sync re-render should propagate the
   check; verify on completion.
 - **No "promote" work remains.** The user-approved decision (HIGH severity)
   matches what's already shipped.
@@ -258,20 +258,20 @@ downstream projects:
   (`pairmode_drift_report.py:114-117`) keys sections by the full header
   line *including* the `##` markers, then lowercase-normalises. So
   `## review checklist` matches but `review checklist` does not.
-  - forqsite's `.pairmode-overrides` (2332 bytes) shows examples *with*
+  - Repo-E's `.pairmode-overrides` (2332 bytes) shows examples *with*
     markers (`CLAUDE.md:## review checklist`) — correct.
-  - radar/asp/aab/ (~582 bytes each) show examples *without* markers
+  - Repo-L/Repo-I/Repo-H/ (~582 bytes each) show examples *without* markers
     (`CLAUDE.md:review checklist`) — incorrect; entries following these
     examples would silently fail to match.
-  - cora has no `.pairmode-overrides` file at all.
+  - Repo-G has no `.pairmode-overrides` file at all.
   Anyone following the boilerplate examples in the four projects with the
   shorter format would write entries that don't work and have no diagnostic.
 
 - **`checklist_items` field in `pairmode_context.json` is vestigial.**
   Captured at bootstrap (or by reconstruction parsing), persisted in
-  context, and never consumed by the template. forqsite's context.json has
+  context, and never consumed by the template. Repo-E's context.json has
   rich `checklist_items` with name/description/severity for each, but
-  forqsite's *rendered* `CLAUDE.md` items (TENANT ISOLATION, VISIBILITY
+  Repo-E's *rendered* `CLAUDE.md` items (TENANT ISOLATION, VISIBILITY
   JOIN, ...) were added manually — they don't match the items in
   `checklist_items` semantically. The field is dead data.
 
@@ -288,10 +288,10 @@ downstream projects, and lesson L004:
   downstream project has the file and uses it on sync.
 - The variable plumbing exists; the template forgot to call it.
   `CLAUDE.md.j2:70` hardcodes `uv run pytest tests/pairmode/ -x -q`. That is
-  the source of the stale text in cora/radar/asp/aab. The fix is a one-line
+  the source of the stale text in Repo-G/Repo-L/Repo-I/Repo-H. The fix is a one-line
   template edit to reference `{{ test_command }}` (with the same wrapper
   shape — sync re-runs will then regenerate correctly per project).
-- AAB has a data defect: `test_command` in `pairmode_context.json` is the
+- Repo-H has a data defect: `test_command` in `pairmode_context.json` is the
   flex literal even though the stack is Node/pnpm. Needs a one-shot value
   correction *and* a validator to prevent recurrence.
 - Lesson L004 is not in conflict with variable substitution. L004 correctly
@@ -311,7 +311,7 @@ downstream projects, and lesson L004:
   `reviewer.md.j2` (full procedure with discovery, per-file checks, severity
   matrix, resolution). HIGH severity already. Only real defect: the pointer
   in CLAUDE.md.j2:51 says `agents/reviewer.md` but the file actually ships
-  to `.claude/agents/reviewer.md`. Two downstream projects (radar, cora)
+  to `.claude/agents/reviewer.md`. Two downstream projects (Repo-L, Repo-G)
   also lack the check entirely — pre-DOC-CURRENCY syncs. Re-sync via runbook.
 - **T3 is essentially satisfied; recon surfaced adjacent defects.** See
   "T3 recon" below for full findings. Summary: canonical template never
@@ -337,7 +337,7 @@ lines 453-498, `CLAUDE.build.md` (rendered, same range), `hooks/hooks.json`,
 `skills/companion/scripts/sidebar.py` (`handle_stop`),
 `docs/architecture.md` step 9, the flex local `CLAUDE.md`
 HOOK PERFORMANCE / PIPE CONTRACT review checks, and the union of
-`.companion/effort.db` across forqsite/radar/asp/aab/cora/anchor/pokus.
+`.companion/effort.db` across Repo-E/Repo-L/Repo-I/Repo-H/Repo-G/anchor/Repo-K.
 
 - **The doc-stated rule is a four-step LLM ritual.** `CLAUDE.build.md.j2`
   lines 453-498 instruct the orchestrator, between every story, to read
@@ -397,8 +397,8 @@ HOOK PERFORMANCE / PIPE CONTRACT review checks, and the union of
   gap later (separate phase, separate spec).
 
 - **Real seed data exists.** Union of `attempts.tokens_total` across
-  seven existing downstream `effort.db` files (cora, forqsite, pokus,
-  radar, asp, anchor, aab — 688 attempts total):
+  seven existing downstream `effort.db` files (Repo-G, Repo-E, Repo-K,
+  Repo-L, Repo-I, anchor, Repo-H — 688 attempts total):
   - builder (n=261): median 53 416, p75 77 498, p90 111 434, max 235 348
   - reviewer (n=263): median 49 499, p75 58 308, p90 75 349, max 124 376
   - sidebar/other (n=164): median 4 492, p90 7 865
@@ -582,8 +582,8 @@ INFRA-129.
 - `skills/pairmode/templates/CLAUDE.md.j2:70` contains the literal
   `PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q 2>&1 | tail -30`
   inside the `## Story test verification` fenced bash block. This is the
-  source of the stale text in `cora/CLAUDE.md`, `radar/CLAUDE.md`,
-  `asp/CLAUDE.md`, and `aab/CLAUDE.md`.
+  source of the stale text in `Repo-G/CLAUDE.md`, `Repo-L/CLAUDE.md`,
+  `Repo-I/CLAUDE.md`, and `Repo-H/CLAUDE.md`.
 - `skills/pairmode/scripts/audit.py:218-247 _load_project_context` reads
   `.companion/pairmode_context.json` and exposes `test_command` as a Jinja
   variable. All five downstream projects already have `test_command`
@@ -630,7 +630,7 @@ INFRA-129.
 - Re-rendering downstream projects' `CLAUDE.md` files. That is the operator's
   job after this story merges, covered by the "Downstream propagation" runbook
   in this phase doc.
-- Fixing AAB's corrupted `test_command` value (it's a Python literal in a
+- Fixing Repo-H's corrupted `test_command` value (it's a Python literal in a
   Node project's context.json). That is BOOTSTRAP-003's territory and the
   runbook.
 - Touching `CLAUDE.build.md.j2`'s inline `uv run python -c "..."` blocks.
@@ -644,7 +644,7 @@ INFRA-129.
 
 #### Requires
 
-- `aab/.companion/pairmode_context.json` has
+- `Repo-H/.companion/pairmode_context.json` has
   `test_command = "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q"`
   despite `stack` being `"TypeScript / pnpm workspaces / Fastify v5 / Drizzle ORM / Postgres / Vite / React 19 / Tailwind v4 / better-auth / zod / vitest"`.
   This is a data defect introduced at bootstrap time — the operator
@@ -680,15 +680,15 @@ INFRA-129.
   1. Python stack + Python test_command → no warnings.
   2. Python stack + Node test_command (`pnpm test`) → no warnings. The
      inverse direction is not a defect we have evidence for; do not gate it.
-  3. Node stack + Python test_command (the AAB case) → one warning.
+  3. Node stack + Python test_command (the Repo-H case) → one warning.
   4. Node stack + Node test_command → no warnings.
 - **No changes to `pairmode_context.json` schema.** No changes to any
-  template. No changes to existing downstream context files (the AAB
+  template. No changes to existing downstream context files (the Repo-H
   correction is the operator's job, covered by the runbook).
 
 #### Out of scope
 
-- Fixing AAB's existing bad value. The validator only warns going forward;
+- Fixing Repo-H's existing bad value. The validator only warns going forward;
   the operator fixes the existing value as part of the runbook.
 - Adding more rules. The framework is in place; future rules (e.g., Node
   stack + missing `pnpm`/`npm`/`yarn` in test_command) can be added later
@@ -725,13 +725,13 @@ INFRA-129.
   Therefore the correct example is `CLAUDE.md:## review checklist`, not
   `CLAUDE.md:review checklist`. Any override entry written by an operator
   following the current boilerplate will silently fail to match.
-- forqsite's manually corrected `.pairmode-overrides` (2332 bytes) carries
+- Repo-E's manually corrected `.pairmode-overrides` (2332 bytes) carries
   the parser-correct examples and an additional `sync-build` caveat that the
   canonical boilerplate lacks. It is the de-facto reference for what the
   canonical should ship.
-- Four downstream projects (radar, asp, aab — and any other project that
-  bootstrapped from the current template) carry the wrong boilerplate. cora
-  has no `.pairmode-overrides` file. forqsite has the correct one (manual
+- Four downstream projects (Repo-L, Repo-I, Repo-H — and any other project that
+  bootstrapped from the current template) carry the wrong boilerplate. Repo-G
+  has no `.pairmode-overrides` file. Repo-E has the correct one (manual
   fix).
 
 #### Ensures
@@ -753,7 +753,7 @@ INFRA-129.
     --apply` rewrites CLAUDE.build.md wholesale and ignores these
     declarations. Maintain CLAUDE.build.md via surgical merge, never via
     `sync-build --apply`."
-  - Total length stays under 25 lines. The forqsite version (76 lines after
+  - Total length stays under 25 lines. The Repo-E version (76 lines after
     expansion) is too verbose for canonical; preserve only the essential
     contract.
 - **`tests/pairmode/test_overrides_boilerplate.py`** (new file, or appended
@@ -771,8 +771,8 @@ INFRA-129.
 #### Out of scope
 
 - Fixing existing downstream boilerplate. Covered by the runbook.
-- Promoting forqsite's longer version verbatim. The canonical stays terse;
-  the runbook can point operators to forqsite if they want a fuller
+- Promoting Repo-E's longer version verbatim. The canonical stays terse;
+  the runbook can point operators to Repo-E if they want a fuller
   reference.
 - Adding new override capabilities (per-line patterns, regex matching,
   etc.). The mechanism's behaviour is unchanged.
@@ -797,7 +797,7 @@ INFRA-129.
   mapping: `(".claude/agents/reviewer.md", "agents/reviewer.md.j2")`. The
   rendered file ships to `.claude/agents/reviewer.md`, not `agents/reviewer.md`.
 - Every downstream project verified shows the file at
-  `.claude/agents/reviewer.md` (forqsite/radar/asp/aab/cora — confirmed by
+  `.claude/agents/reviewer.md` (Repo-E/Repo-L/Repo-I/Repo-H/Repo-G — confirmed by
   `find` listing). Agents following the pointer in the current canonical
   text look in a nonexistent directory.
 
@@ -819,7 +819,7 @@ INFRA-129.
 
 - Re-rendering downstream projects' `CLAUDE.md` files to propagate the
   fix. Covered by the runbook.
-- Re-syncing radar and cora to add DOC CURRENCY in the first place.
+- Re-syncing Repo-L and Repo-G to add DOC CURRENCY in the first place.
   Same runbook handles both fixes in one sync pass.
 - The BUILD GATE variable inconsistency (CER-028). Recorded in the CER
   backlog; needs a semantic decision (`build_command` vs `test_command`)
@@ -836,7 +836,7 @@ INFRA-129.
 #### Requires
 
 - The `attempts` table schema (verified via sqlite on
-  `cora/.companion/effort.db`):
+  `Repo-G/.companion/effort.db`):
   ```
   story_id, phase, rail, agent_role, model, attempt_number,
   tokens_total, tokens_in, tokens_out, cache_read_tokens,
@@ -935,9 +935,9 @@ INFRA-129.
   — operator CLI:
   ```bash
   uv run python skills/pairmode/scripts/refresh_effort_baseline.py \
-      --project-dirs /mnt/work/forqsite /mnt/work/radar /mnt/work/asp \
-                     /mnt/work/aab /mnt/work/cora /mnt/work/anchor \
-                     /mnt/work/pokus \
+      --project-dirs /mnt/work/Repo-E /mnt/work/Repo-L /mnt/work/Repo-I \
+                     /mnt/work/Repo-H /mnt/work/Repo-G /mnt/work/anchor \
+                     /mnt/work/Repo-K \
       --output skills/pairmode/seed/effort_baseline.json
   ```
   Reads `.companion/effort.db` from each path, aggregates
@@ -946,7 +946,7 @@ INFRA-129.
   ```json
   {
     "generated_at": "2026-05-29T00:00:00Z",
-    "source_projects": ["forqsite", "radar", "..."],
+    "source_projects": ["Repo-E", "Repo-L", "..."],
     "by_role": {
       "builder":  {"n": 261, "median": 53416, "p75": 77498, "p90": 111434},
       "reviewer": {"n": 263, "median": 49499, "p75": 58308, "p90": 75349}
@@ -1394,13 +1394,13 @@ them avoids three small stories whose only differences are file paths.
 ## Downstream propagation runbook (T4)
 
 Operator-executed after INFRA-126 is merged. One pass handles both the
-pointer fix and the radar/cora missing-DOC-CURRENCY backfill.
+pointer fix and the Repo-L/Repo-G missing-DOC-CURRENCY backfill.
 
 1. **Re-sync every downstream project** so `CLAUDE.md` picks up the corrected
-   reference path *and* (for radar and cora) gains the missing DOC CURRENCY
+   reference path *and* (for Repo-L and Repo-G) gains the missing DOC CURRENCY
    item:
    ```bash
-   for p in forqsite radar asp aab cora; do
+   for p in Repo-E Repo-L Repo-I Repo-H Repo-G; do
      uv run python skills/pairmode/scripts/pairmode_sync.py update \
        --project-dir /mnt/work/$p
    done
@@ -1415,8 +1415,8 @@ pointer fix and the radar/cora missing-DOC-CURRENCY backfill.
    (Note: `! grep` will fail the shell command if the bare path is found —
    that's the intent; flip to a positive grep if scripting.)
 
-3. **Spot-check radar and cora's checklist position.** DOC CURRENCY should
-   land at item #4 in radar and cora (the canonical position), since
+3. **Spot-check Repo-L and Repo-G's checklist position.** DOC CURRENCY should
+   land at item #4 in Repo-L and Repo-G (the canonical position), since
    neither carries project-specific extensions ahead of the canonical
    items. If sync places it later, inspect the rendered output before
    committing.
@@ -1429,10 +1429,10 @@ Operator-executed after INFRA-125 is merged. These steps update existing
 downstream projects to the corrected boilerplate.
 
 1. **Re-render `.pairmode-overrides` in each downstream project that
-   currently ships the broken boilerplate** (radar, asp, aab — verify before
+   currently ships the broken boilerplate** (Repo-L, Repo-I, Repo-H — verify before
    acting):
    ```bash
-   for p in radar asp aab; do
+   for p in Repo-L Repo-I Repo-H; do
      test -f /mnt/work/$p/.pairmode-overrides || continue
      # Only re-render if the file currently has no real (non-comment, non-blank) entries.
      if ! grep -v '^#' /mnt/work/$p/.pairmode-overrides | grep -q '\S'; then
@@ -1443,17 +1443,17 @@ downstream projects to the corrected boilerplate.
      fi
    done
    ```
-   aab has real override entries (5 lines under CLAUDE.build.md, none under
+   Repo-H has real override entries (5 lines under CLAUDE.build.md, none under
    CLAUDE.md); inspect manually and rewrite the keys to include the
    correct `##`/`###` markers.
 
-2. **Leave forqsite alone.** Its `.pairmode-overrides` is already correct
+2. **Leave Repo-E alone.** Its `.pairmode-overrides` is already correct
    and includes additional project-specific extension content the canonical
    doesn't carry.
 
-3. **Optionally scaffold for cora.** cora has no `.pairmode-overrides` file.
-   If cora has any project-owned section divergences (none currently known),
-   run `pairmode sync` against cora to scaffold the file.
+3. **Optionally scaffold for Repo-G.** Repo-G has no `.pairmode-overrides` file.
+   If Repo-G has any project-owned section divergences (none currently known),
+   run `pairmode sync` against Repo-G to scaffold the file.
 
 4. **Verify.** In each touched project:
    ```bash
@@ -1469,15 +1469,15 @@ Operator-executed after INFRA-124 and BOOTSTRAP-003 are merged. These steps
 are *not* a story — they happen across five different repositories that
 flex's builder/reviewer loop doesn't touch.
 
-1. **Fix AAB's `test_command` value.**
-   Edit `/mnt/work/aab/.companion/pairmode_context.json` — set
-   `test_command` to a Node value appropriate for the AAB project (likely
+1. **Fix Repo-H's `test_command` value.**
+   Edit `/mnt/work/Repo-H/.companion/pairmode_context.json` — set
+   `test_command` to a Node value appropriate for the Repo-H project (likely
    `pnpm test`, but operator confirms by checking `package.json`).
 
 2. **Re-render `CLAUDE.md` in every downstream project** so the Story test
    verification block picks up the corrected variable. From flex's repo:
    ```bash
-   for p in forqsite radar asp aab cora; do
+   for p in Repo-E Repo-L Repo-I Repo-H Repo-G; do
      uv run python skills/pairmode/scripts/pairmode_sync.py update \
        --project-dir /mnt/work/$p
    done
@@ -1489,9 +1489,9 @@ flex's builder/reviewer loop doesn't touch.
    Sync renders the canonical position; the duplicate sits below the
    canonical section and looks like manual content to sync. Operator
    deletes by hand:
-   - `forqsite/CLAUDE.md`: the second `## session modes` block (around
+   - `Repo-E/CLAUDE.md`: the second `## session modes` block (around
      line 178 — the first occurrence at line 5 is canonical and stays).
-   - `radar/CLAUDE.md`: the second `## session modes` block (around
+   - `Repo-L/CLAUDE.md`: the second `## session modes` block (around
      line 121 — the first occurrence at line 5 stays).
 
 4. **Verify.** In each downstream project:
@@ -1525,9 +1525,9 @@ re-render + optional state.json field opt-in + seed file refresh.
    activity has occurred since, regenerate:
    ```bash
    uv run python skills/pairmode/scripts/refresh_effort_baseline.py \
-       --project-dirs /mnt/work/forqsite /mnt/work/radar \
-                      /mnt/work/asp /mnt/work/aab /mnt/work/cora \
-                      /mnt/work/anchor /mnt/work/pokus \
+       --project-dirs /mnt/work/Repo-E /mnt/work/Repo-L \
+                      /mnt/work/Repo-I /mnt/work/Repo-H /mnt/work/Repo-G \
+                      /mnt/work/anchor /mnt/work/Repo-K \
        --output skills/pairmode/seed/effort_baseline.json
    ```
    Commit the regenerated file if values changed materially.
@@ -1536,7 +1536,7 @@ re-render + optional state.json field opt-in + seed file refresh.
    the new mechanical-enforcement pointer** (replaces the dead
    four-step ritual):
    ```bash
-   for p in forqsite radar asp aab cora; do
+   for p in Repo-E Repo-L Repo-I Repo-H Repo-G; do
      uv run python skills/pairmode/scripts/pairmode_sync.py update \
        --project-dir /mnt/work/$p
    done
@@ -1548,7 +1548,7 @@ re-render + optional state.json field opt-in + seed file refresh.
 3. **Verify the new pointer is present** in each project's
    `CLAUDE.build.md`:
    ```bash
-   for p in forqsite radar asp aab cora; do
+   for p in Repo-E Repo-L Repo-I Repo-H Repo-G; do
      echo "== $p =="
      grep "Enforced mechanically" /mnt/work/$p/CLAUDE.build.md | head -1
      grep -c "hooks/pre_tool_use.py" /mnt/work/$p/CLAUDE.build.md
@@ -1564,7 +1564,7 @@ re-render + optional state.json field opt-in + seed file refresh.
    and code-level defaults apply. Operators who want per-project
    overrides edit the file directly:
    ```bash
-   for p in forqsite radar asp aab cora; do
+   for p in Repo-E Repo-L Repo-I Repo-H Repo-G; do
      echo "== $p =="
      test -f /mnt/work/$p/.companion/state.json && \
        python3 -c "
@@ -1610,31 +1610,31 @@ re-render + optional state.json field opt-in + seed file refresh.
 ## T6 recon (recorded 2026-05-30)
 
 Findings from inspecting `skills/pairmode/templates/CLAUDE.build.md.j2:125-137`,
-`forqsite/CLAUDE.build.md:142-154`, `radar/docs/architecture.md:1282-1310`,
-`forqsite/docs/architecture.md:504-519`, `asp/docs/architecture.md`,
-`cora/docs/architecture.md`, and `aab/docs/architecture.md`.
+`Repo-E/CLAUDE.build.md:142-154`, `Repo-L/docs/architecture.md:1282-1310`,
+`Repo-E/docs/architecture.md:504-519`, `Repo-I/docs/architecture.md`,
+`Repo-G/docs/architecture.md`, and `Repo-H/docs/architecture.md`.
 
 - **Current canonical** (`CLAUDE.build.md.j2:125-137`) is the per-story prompt: if
   auth-gated, load `auth-coexistence.md`, surface RBAC/ABAC/both question, record
   before building. No detection step for a pre-existing recorded classification.
 
-- **Forqsite has a hand-crafted auto-satisfy override** (`CLAUDE.build.md:142-154`).
-  Operator manually authored: "forqsite is RBAC-only (confirmed by operator; recorded
+- **Repo-E has a hand-crafted auto-satisfy override** (`CLAUDE.build.md:142-154`).
+  Operator manually authored: "Repo-E is RBAC-only (confirmed by operator; recorded
   in `docs/architecture.md § Auth model`). Auto-satisfied — no per-story prompt
   needed." Functionally correct; the canonical generalization should produce the same
   behavior for any project whose architecture.md has a recorded classification.
 
 - **Classification recording formats across downstream projects:**
-  - forqsite: `## Auth model` section at line 504 with `**Classification: RBAC only.**`
+  - Repo-E: `## Auth model` section at line 504 with `**Classification: RBAC only.**`
     embedded as a leading bold line.
-  - radar: `## Auth model classification (Phase 85)` section at line 1282 with
+  - Repo-L: `## Auth model classification (Phase 85)` section at line 1282 with
     `**Classification:** RBAC only — ...` as a leading bold line.
-  - asp: No recorded classification (auth work in progress; phases still building auth layer).
-  - cora: No recorded classification.
-  - aab: Partial — ADR-style classification note in architecture.md but no formal
+  - Repo-I: No recorded classification (auth work in progress; phases still building auth layer).
+  - Repo-G: No recorded classification.
+  - Repo-H: Partial — ADR-style classification note in architecture.md but no formal
     `**Classification:**` marker line.
 
-- **Detection pattern.** Both forqsite and radar use `**Classification:**` as a
+- **Detection pattern.** Both Repo-E and Repo-L use `**Classification:**` as a
   bold-markdown line marker. The canonical detection instruction can be: read
   `docs/architecture.md` and search for a line beginning with `**Classification:**`.
   This covers both existing recording formats without requiring a section-header
@@ -1646,13 +1646,13 @@ Findings from inspecting `skills/pairmode/templates/CLAUDE.build.md.j2:125-137`,
   This keeps architecture.md as the single source of truth (working principle 8) and
   requires no bootstrap change.
 
-- **Radar's CLAUDE.build.md is the main beneficiary.** radar has the classification
+- **Repo-L's CLAUDE.build.md is the main beneficiary.** Repo-L has the classification
   on record (`**Classification:** RBAC only`) but its `CLAUDE.build.md` still has
   the generic per-story prompt. After T6 lands, `pairmode_sync sync-build --apply`
-  will render the generalized version; radar's build sessions will auto-satisfy the
+  will render the generalized version; Repo-L's build sessions will auto-satisfy the
   auth check without an operator prompt.
 
-- **Forqsite's CLAUDE.build.md should not be overwritten by sync-build.** Forqsite's
+- **Repo-E's CLAUDE.build.md should not be overwritten by sync-build.** Repo-E's
   hand-crafted version is already correct and functionally equivalent to the
   generalized template. The operator should verify the behavior is preserved, not
   blindly re-render. The `.pairmode-overrides` sync-build caveat (shipped in INFRA-125)
@@ -1660,8 +1660,8 @@ Findings from inspecting `skills/pairmode/templates/CLAUDE.build.md.j2:125-137`,
   `sync-build --apply`."
 
 - **Story is template + rendered copy + tests only.** No auth policy files change.
-  No architecture.md changes (classification recording is pre-existing in forqsite
-  and radar). The INFRA-129 runbook's sync-build pass can carry this fix as well — one
+  No architecture.md changes (classification recording is pre-existing in Repo-E
+  and Repo-L). The INFRA-129 runbook's sync-build pass can carry this fix as well — one
   downstream sync covers CER-027 pointer + T6 auth check in a single pass.
 
 ---
@@ -1689,11 +1689,11 @@ Findings from inspecting `skills/pairmode/templates/CLAUDE.build.md.j2:125-137`,
 
   If the story is not auth-gated, skip this section.
   ```
-- forqsite's `CLAUDE.build.md:142-154` is the de-facto reference for the
+- Repo-E's `CLAUDE.build.md:142-154` is the de-facto reference for the
   auto-satisfy behavior. The canonical must produce the same behavior for any project
   whose `docs/architecture.md` carries `**Classification:**`.
 - The detection pattern (`**Classification:**` as a bold-markdown line) works for both
-  forqsite (`**Classification: RBAC only.**`) and radar (`**Classification:** RBAC only — ...`).
+  Repo-E (`**Classification: RBAC only.**`) and Repo-L (`**Classification:** RBAC only — ...`).
   The search is a substring / line-start match — no section-header parsing required.
 - `/mnt/work/flex/CLAUDE.build.md` is hand-maintained (flex does not bootstrap itself).
   Same substitution must be applied to the rendered flex local copy, as in INFRA-129.
@@ -1762,14 +1762,14 @@ Findings from inspecting `skills/pairmode/templates/CLAUDE.build.md.j2:125-137`,
 
 - Changing the downstream `CLAUDE.build.md` files directly. Covered by the downstream
   propagation runbook below (operator runs `pairmode_sync sync-build --apply`).
-- Recording classifications in asp/cora/aab architecture docs. The projects haven't
+- Recording classifications in Repo-I/Repo-G/Repo-H architecture docs. The projects haven't
   built their auth layers yet (or have partial classification notes). This story only
   makes the canonical template capable of consuming a recorded classification — it
   does not create those records.
 - Making the detection smarter (e.g., extracting the classification text for display,
   detecting "RBAC + ABAC" vs "RBAC only" semantically). One `**Classification:**`
   substring match is sufficient for the auto-satisfy decision.
-- Modifying forqsite's hand-crafted `CLAUDE.build.md`. The operator should verify the
+- Modifying Repo-E's hand-crafted `CLAUDE.build.md`. The operator should verify the
   behavior is preserved after the canonical change; no mechanical re-render needed.
 
 ---
@@ -1782,24 +1782,24 @@ in `docs/architecture.md` will auto-satisfy the auth check after this sync pass.
 1. **Re-render `CLAUDE.build.md` in each downstream project** that does not have a
    hand-crafted auth check override:
    ```bash
-   for p in radar asp aab cora; do
+   for p in Repo-L Repo-I Repo-H Repo-G; do
      uv run python skills/pairmode/scripts/pairmode_sync.py sync-build \
        --apply --yes --project-dir /mnt/work/$p
    done
    ```
 
-2. **Leave forqsite alone.** Its hand-crafted version is already correct and
+2. **Leave Repo-E alone.** Its hand-crafted version is already correct and
    functionally equivalent to the generalized template.
 
-3. **Verify radar's new auth check behavior.** radar has a recorded classification
+3. **Verify Repo-L's new auth check behavior.** Repo-L has a recorded classification
    (`**Classification:** RBAC only` in `docs/architecture.md:1284`). After sync-build:
    ```bash
-   grep -A 20 "Auth check (conditional" /mnt/work/radar/CLAUDE.build.md | head -25
+   grep -A 20 "Auth check (conditional" /mnt/work/Repo-L/CLAUDE.build.md | head -25
    ```
    Should see the detection step and `auto-satisfied` path (not the old unconditional
    `Load ~/.claude/policies/auth-coexistence.md` as first instruction).
 
-4. **Note for asp/aab/cora.** These projects don't have recorded classifications yet.
+4. **Note for Repo-I/Repo-H/Repo-G.** These projects don't have recorded classifications yet.
    Their synced `CLAUDE.build.md` will have the new template (with the detection step),
    which will fall through to the original prompt behavior until a classification is
    recorded in their `docs/architecture.md`. No action needed — the template degrades
@@ -1812,7 +1812,7 @@ in `docs/architecture.md` will auto-satisfy the auth check after this sync pass.
 Findings from inspecting `skills/pairmode/templates/docs/phases/phase.md.j2`,
 `skills/pairmode/scripts/bootstrap.py:161-189` (`_write_file`),
 `bootstrap.py:907-938` (phase scaffold logic),
-and five downstream `docs/phases/phase-1.md` files (forqsite, radar, asp, aab, cora).
+and five downstream `docs/phases/phase-1.md` files (Repo-E, Repo-L, Repo-I, Repo-H, Repo-G).
 
 - **Current `phase.md.j2`** renders a bare phase doc: title, nav links, `## Goal`,
   `## Stories` table, and a `CP-N Cold-eyes checklist` sentinel. No schema tracking
@@ -1904,17 +1904,17 @@ and five downstream `docs/phases/phase-1.md` files (forqsite, radar, asp, aab, c
 
 Findings from inspecting `skills/pairmode/templates/docs/phases/index.md.j2`,
 `tests/pairmode/test_templates.py:1025-1083` (`INDEX_PHASE_CONTEXT` +
-`TestIndexMdJ2Template`), and downstream `docs/phases/index.md` files (forqsite,
-radar, aab).
+`TestIndexMdJ2Template`), and downstream `docs/phases/index.md` files (Repo-E,
+Repo-L, Repo-H).
 
 - **Current `index.md.j2`** is 10 lines: project title, one-line prose, and a Jinja2
   `{% for phase %}` table with columns `Phase | Title | Status | Link`. No queue
   semantics. The `phases` context variable is a list of `{id, title, status, file}`
   dicts.
 
-- **forqsite's `index.md`** is richer (naming convention note, backlog source pointer)
+- **Repo-E's `index.md`** is richer (naming convention note, backlog source pointer)
   but was hand-evolved, not templated. The `build-queue.md` invention referenced in
-  the T5 decision is gone from forqsite's current `docs/phases/` directory — either
+  the T5 decision is gone from Repo-E's current `docs/phases/` directory — either
   never committed or since merged. The evaluation's "too-thin index" diagnosis is
   confirmed: downstream projects independently improvise index content that the
   canonical template doesn't scaffold.

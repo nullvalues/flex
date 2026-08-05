@@ -55,7 +55,7 @@ recorded attempt for INFRA-263 (agent=builder, attempt=1)   # exit 0
 
 **CER-071 and CER-073 are duplicate filings of this one defect** (backlog lines 71 and 59):
 CER-071 diagnosed it as "the alias declares its own narrower option set instead of passing
-`*args` through, unlike `create-story-worktree`"; CER-073 reports the live hit on forqsite's
+`*args` through, unlike `create-story-worktree`"; CER-073 reports the live hit on Repo-E's
 first Era-3 story cycle (2026-07-22) and prescribes the fix used here —
 `context_settings={"ignore_unknown_options": True}` plus a variadic passthrough argument, plus
 a test that a full real record-attempt flag set round-trips through the alias. Both rows are

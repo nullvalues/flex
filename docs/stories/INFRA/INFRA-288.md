@@ -36,7 +36,7 @@ touches:
 Phase 110 restores truthful effort recording end-to-end. INFRA-287 fixes *why no
 row ever reconciles*; this story fixes *why every row exists twice*.
 
-CER-104 (HIGH): meander's first native 0.3.0 session after the RELEASE-063 canary
+CER-104 (HIGH): Repo-B's first native 0.3.0 session after the RELEASE-063 canary
 migration wrote perfect duplicate pairs — same `tool_use_id`, `decision=recorded`
 logged twice 15–30 ms apart, for all 31 spawns of the day (rows 211–272). The
 insert path is not doubled: `subagent_transcript.record_attempt_from_transcript`
@@ -583,7 +583,7 @@ Acceptance:
   (`project_dir = Path(data.get("cwd") or ".")`), strict `_derive_phase_key`
   parsing, the reconcile-time FAIL bump and the escalation ladder, and the NULL
   `attempts.model` on reviewer rows.
-- **Backfilling or de-duplicating rows already written.** The 31 doubled meander
+- **Backfilling or de-duplicating rows already written.** The 31 doubled Repo-B
   pairs (rows 211–272) and any flex equivalents stay as they are; a historical
   cleanup is a separate, operator-gated story. This fix is forward-only.
 - **A cross-process lock around the recorder.** The `BEGIN IMMEDIATE` transaction

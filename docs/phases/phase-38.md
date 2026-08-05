@@ -23,7 +23,7 @@ Three small cleanup items surfaced from the Phase 37 era: two from the CER backl
    path: `PROJECT_DIR=$(echo "$INPUT" | jq -re '.cwd // "."``) && cd "$PROJECT_DIR"`.
 
 3. **Outcome case normalisation.** `record_attempt.py` stores the `--outcome` value verbatim.
-   Two rows in cora were recorded as `pass` (lowercase) instead of `PASS`, excluding them
+   Two rows in Repo-G were recorded as `pass` (lowercase) instead of `PASS`, excluding them
    from pass-rate aggregations that filter `outcome = 'PASS'`. Fix: normalise to uppercase
    before inserting.
 
@@ -153,7 +153,7 @@ The reviewer verifies:
 
 - `record_attempt.py` passes `outcome=outcome` verbatim to `_effort_db.insert_attempt`
   at line 237.
-- Two historical rows in cora have `outcome = 'pass'` (lowercase), excluded from
+- Two historical rows in Repo-G have `outcome = 'pass'` (lowercase), excluded from
   `outcome = 'PASS'` pass-rate queries.
 
 #### Ensures

@@ -322,7 +322,7 @@ def test_register_tolerates_missing_sidecar(tmp_path: Path) -> None:
     cdir = tmp_path / ".companion"
     cdir.mkdir()
     (cdir / "state.json").write_text(
-        json.dumps({"registered_projects": ["/mnt/work/coherra"]}), encoding="utf-8"
+        json.dumps({"registered_projects": ["/mnt/work/Repo-A"]}), encoding="utf-8"
     )
 
     runner = CliRunner()
@@ -334,7 +334,7 @@ def test_register_tolerates_missing_sidecar(tmp_path: Path) -> None:
 
     state = _state(tmp_path)
     # Pre-existing entry survives verbatim (A4).
-    assert "/mnt/work/coherra" in state["registered_projects"]
+    assert "/mnt/work/Repo-A" in state["registered_projects"]
     assert str(Path(project).resolve()) in state["registered_projects"]
 
 
@@ -362,8 +362,8 @@ def test_register_tolerates_malformed_sidecar(tmp_path: Path, bad_sidecar) -> No
 
 def test_provenance_for_unknown_when_no_sidecar_record() -> None:
     """_provenance_for returns the unknown sentinel for an unrecorded path."""
-    state = {"registered_projects": ["/mnt/work/coherra"]}
-    prov = _provenance_for(state, "/mnt/work/coherra")
+    state = {"registered_projects": ["/mnt/work/Repo-A"]}
+    prov = _provenance_for(state, "/mnt/work/Repo-A")
     assert prov == {"source": PROVENANCE_UNKNOWN, "registered_at": None}
 
 
@@ -371,10 +371,10 @@ def test_provenance_for_returns_recorded_entry() -> None:
     """_provenance_for returns the exact recorded entry when present."""
     state = {
         REGISTERED_PROJECTS_PROVENANCE_KEY: {
-            "/mnt/work/coherra": {"source": "cli", "registered_at": "2026-01-01T00:00:00+00:00"}
+            "/mnt/work/Repo-A": {"source": "cli", "registered_at": "2026-01-01T00:00:00+00:00"}
         }
     }
-    prov = _provenance_for(state, "/mnt/work/coherra")
+    prov = _provenance_for(state, "/mnt/work/Repo-A")
     assert prov == {"source": "cli", "registered_at": "2026-01-01T00:00:00+00:00"}
 
 
@@ -396,13 +396,13 @@ def test_audit_projects_reports_unknown_for_preexisting_entries(tmp_path: Path) 
     cdir = tmp_path / ".companion"
     cdir.mkdir()
     (cdir / "state.json").write_text(
-        json.dumps({"registered_projects": ["/mnt/work/coherra"]}), encoding="utf-8"
+        json.dumps({"registered_projects": ["/mnt/work/Repo-A"]}), encoding="utf-8"
     )
 
     runner = CliRunner()
     result = runner.invoke(audit_projects, ["--companion-dir", str(cdir)])
     assert result.exit_code == 0, result.output
-    assert "/mnt/work/coherra" in result.output
+    assert "/mnt/work/Repo-A" in result.output
     assert "source: unknown" in result.output
     assert "1 unknown (pre-INFRA-270)" in result.output
 
@@ -426,7 +426,7 @@ def test_audit_projects_is_read_only(tmp_path: Path) -> None:
     cdir.mkdir()
     state_path = cdir / "state.json"
     state_path.write_text(
-        json.dumps({"registered_projects": ["/mnt/work/coherra"]}), encoding="utf-8"
+        json.dumps({"registered_projects": ["/mnt/work/Repo-A"]}), encoding="utf-8"
     )
     before = state_path.read_bytes()
 
@@ -456,7 +456,7 @@ def test_audit_projects_json_output(tmp_path: Path) -> None:
     cdir = tmp_path / ".companion"
     cdir.mkdir()
     (cdir / "state.json").write_text(
-        json.dumps({"registered_projects": ["/mnt/work/coherra"]}), encoding="utf-8"
+        json.dumps({"registered_projects": ["/mnt/work/Repo-A"]}), encoding="utf-8"
     )
 
     runner = CliRunner()
@@ -464,5 +464,5 @@ def test_audit_projects_json_output(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["unknown_count"] == 1
-    assert payload["registered"][0]["path"] == "/mnt/work/coherra"
+    assert payload["registered"][0]["path"] == "/mnt/work/Repo-A"
     assert payload["registered"][0]["source"] == PROVENANCE_UNKNOWN

@@ -55,27 +55,27 @@ against**: `docs/fleet-snapshot.md` (the authoritative fleet list). No content
 change to `fleet-snapshot.md` is required by this story; it is the scope anchor,
 and the external nature of the true targets is stated explicitly here.
 
-### Fleet scope (from `docs/fleet-snapshot.md`, 16 discovered projects minus `anchor` minus `cora`)
+### Fleet scope (from `docs/fleet-snapshot.md`, 16 discovered projects minus `anchor` minus `Repo-G`)
 
 `anchor` is excluded — it was determined **not** to be a pairmode consumer; it is
-a separate sibling plugin repo. `cora` is also excluded — it is a known carve-out
-project and must not be touched by this rollout (see § `cora` exclusion below).
+a separate sibling plugin repo. `Repo-G` is also excluded — it is a known carve-out
+project and must not be touched by this rollout (see § `Repo-G` exclusion below).
 That leaves **14 target projects**:
 
-`coherra`, `meander`, `caddy`, `forqsite`, `forqsite.help`, `radar`, `asp`,
-`aab`, `lumin`, `halfhorse`, `base56`, `pokus`, `rockue`, `ud`.
+`Repo-A`, `Repo-B`, `Repo-C`, `Repo-E`, `Repo-D`, `Repo-L`, `Repo-I`,
+`Repo-H`, `Repo-J`, `Repo-F`, `base56`, `Repo-K`, `Repo-M`, `Repo-O`.
 
-(All under `/mnt/work/<name>`. `asp` is the repo where the CER-067 live symptom was
+(All under `/mnt/work/<name>`. `Repo-I` is the repo where the CER-067 live symptom was
 reported — prioritize verifying it, and check whether the forged
 `context_budget_acknowledged_*` workaround keys were left in its `state.json`.)
 
-### `cora` exclusion
+### `Repo-G` exclusion
 
-`cora` is a known carve-out project and is explicitly out of scope for this
+`Repo-G` is a known carve-out project and is explicitly out of scope for this
 rollout — it is not to be touched by this process. It retains its manually-added
 `PostToolUse` (`Edit|Write|MultiEdit` → `pnpm typecheck`) and `Stop` hooks as-is,
 without the new `UserPromptSubmit`/`SessionStart`/`PostToolUse Task|Agent`
-registrations. Any future decision to bring `cora` into the standard fleet
+registrations. Any future decision to bring `Repo-G` into the standard fleet
 registration is a separate, deliberate follow-up story — not an implicit
 consequence of this one.
 
@@ -94,8 +94,8 @@ consequence of this one.
    (e.g. a pytest runner) is preserved as a **sibling**, not merged or replaced
    (guaranteed by INFRA-208's by-command registrar).
 
-3. **`anchor` and `cora` are untouched.** No commit, no `settings.json` change is
-   made in `/mnt/work/anchor` or `/mnt/work/cora`.
+3. **`anchor` and `Repo-G` are untouched.** No commit, no `settings.json` change is
+   made in `/mnt/work/anchor` or `/mnt/work/Repo-G`.
 
 4. **One commit per repo, `settings.json` only.** Each fleet repo receives exactly
    one commit containing only its `.claude/settings.json` change. Any other
@@ -119,7 +119,7 @@ consequence of this one.
 
 This is an operational procedure run by the orchestrator against external repos —
 **not** a `pytest` gate in flex. For each of the 14 target fleet projects (all
-except `anchor` and `cora`):
+except `anchor` and `Repo-G`):
 
 1. **Apply the generalized registration** to that project's
    `<project>/.claude/settings.json` using the **fixed** registrar from INFRA-208
@@ -149,12 +149,12 @@ except `anchor` and `cora`):
    keep the commit surgically scoped (matching the INFRA-206 approach).
 
 Special handling:
-- **`asp`** — after registration, inspect `.companion/state.json` for the forged
+- **`Repo-I`** — after registration, inspect `.companion/state.json` for the forged
   CER-067 workaround keys (`context_budget_acknowledged_at`,
   `context_budget_acknowledged_user_turn_seq` set to defeat the gate). Note their
   presence in the completion record; deciding whether to reset them is a follow-up,
   not required by this story.
-- **`cora`** — excluded from this rollout entirely (see § `cora` exclusion above).
+- **`Repo-G`** — excluded from this rollout entirely (see § `Repo-G` exclusion above).
   Do not apply the registrar, do not diff, do not commit. Its manually-added
   `PostToolUse`/`Stop` pair from CER-067 is left exactly as-is.
 
@@ -167,7 +167,7 @@ Verification is operational and post-hoc:
 - For each of the 14 target fleet projects, confirm `.claude/settings.json`
   `hooks` contains `UserPromptSubmit`, `SessionStart`, and a `PostToolUse`
   `Task|Agent` block (plus the pre-existing `PreToolUse` block).
-- Confirm `anchor` and `cora` were not modified.
+- Confirm `anchor` and `Repo-G` were not modified.
 - Confirm each commit touched only `.claude/settings.json`.
 
 flex's own gate (`PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q`)
@@ -179,12 +179,12 @@ the per-project verification result in the CP-95 checklist.
 - Any change to flex's own tree beyond this story doc — the registrar generalization
   is INFRA-208.
 - **`anchor`** — excluded (not a pairmode consumer; separate sibling plugin repo).
-- **`cora`** — excluded (known carve-out project; not to be touched by this
-  process — see § `cora` exclusion).
+- **`Repo-G`** — excluded (known carve-out project; not to be touched by this
+  process — see § `Repo-G` exclusion).
 - Registering the four deferred companion/sidebar blocks (`Stop`,
   `PermissionRequest`/`ExitPlanMode`, `PostToolUse` `Write|Edit|MultiEdit`,
   `SessionEnd`) in fleet projects — out of scope for the same reason as INFRA-208.
-- Cleaning up / resetting any forged CER-067 workaround state (e.g. in `asp`) — a
+- Cleaning up / resetting any forged CER-067 workaround state (e.g. in `Repo-I`) — a
   separate follow-up.
 - Re-bootstrapping or version-bumping fleet projects beyond what a scoped
   `settings.json` registration (or an accepted `pairmode sync`) entails.
@@ -192,18 +192,18 @@ the per-project verification result in the CP-95 checklist.
 ## Completion note
 
 Read-only fleet audit (2026-07-21) found the rollout already applied ahead of
-this story's build: 13 of the 14 target projects (`coherra`, `meander`, `caddy`,
-`forqsite`, `forqsite.help`, `radar`, `asp`, `aab`, `lumin`, `halfhorse`,
-`base56`, `pokus`, `rockue`, `ud` — 14 total) already carried all three
+this story's build: 13 of the 14 target projects (`Repo-A`, `Repo-B`, `Repo-C`,
+`Repo-E`, `Repo-D`, `Repo-L`, `Repo-I`, `Repo-H`, `Repo-J`, `Repo-F`,
+`base56`, `Repo-K`, `Repo-M`, `Repo-O` — 14 total) already carried all three
 registrations (`UserPromptSubmit`, `SessionStart`, `PostToolUse` `Task|Agent`)
 with the pre-existing `PreToolUse` block preserved in every case. No further
 commits were required.
 
 - `anchor` — confirmed untouched (no `UserPromptSubmit`/`SessionStart` present).
-- `cora` — excluded per the § `cora` exclusion above; confirmed untouched. Its
+- `Repo-G` — excluded per the § `Repo-G` exclusion above; confirmed untouched. Its
   manual `PostToolUse` (`Edit|Write|MultiEdit` → `pnpm typecheck`) and `Stop`
   hooks remain exactly as before.
-- `asp` — registrations confirmed present. Inspected `.companion/state.json`:
+- `Repo-I` — registrations confirmed present. Inspected `.companion/state.json`:
   the forged CER-067 workaround keys (`context_budget_acknowledged_at`,
   `context_budget_acknowledged_user_turn_seq`) are still present. Resetting
   them remains out of scope / a separate follow-up, per this story.

@@ -269,7 +269,7 @@ A forked phase doc opens with:
 
 | Organization | Context | Scale |
 |-------------|---------|-------|
-| flex project — 5 downstream projects (forqsite, radar, asp, aab, cora) | Used across Phases 10–47. Global policy encoded in `~/.claude/CLAUDE.md` "Phase continuity" section. The Phase 47 resume marker (CER-027 context clear, 2026-05-29) is the canonical production example of the pattern saving a multi-month initiative from a mid-phase context loss. | Team |
+| flex project — 5 downstream projects (Repo-E, Repo-L, Repo-I, Repo-H, Repo-G) | Used across Phases 10–47. Global policy encoded in `~/.claude/CLAUDE.md` "Phase continuity" section. The Phase 47 resume marker (CER-027 context clear, 2026-05-29) is the canonical production example of the pattern saving a multi-month initiative from a mid-phase context loss. | Team |
 
 ---
 

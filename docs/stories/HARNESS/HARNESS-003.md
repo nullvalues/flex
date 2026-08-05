@@ -23,7 +23,7 @@ DP3; ≡ DP7 of HARNESS001-ante1; CER-053/D1). Today `expected_step_tokens` — 
 (`bootstrap.py:417` `_load_seed_expected_step_tokens()` → `by_role.builder.median`, fallback
 `_DEFAULT_EXPECTED_STEP_TOKENS = 53000`), stamped fleet-wide (`sync.py:594`) and read at
 `context_budget.py:526`. So a context-control constant is sourced from per-story **effort cost**
-— the comingling — and never re-estimated per project (radar and forqsite both show exactly
+— the comingling — and never re-estimated per project (Repo-L and Repo-E both show exactly
 53000, over-reserving ~53k and firing the gate too early). This story re-sources it off effort
 entirely; the SPA display half is Phase G (OBS-003).
 

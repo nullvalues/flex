@@ -23,7 +23,7 @@ touches:
 
 ## Context
 
-Cora item A#5 (AG-6): structured payloads whose shape no database enforces —
+Repo-G item A#5 (AG-6): structured payloads whose shape no database enforces —
 JSON blobs, markdown tables read by parsers, wire formats between scripts —
 are "covered contracts": a canonical doc section describes the shape, code
 reflects it. "Without the gate, the doc becomes aspirational and the code
@@ -138,6 +138,6 @@ includes the evidence-quoting obligation, not just a read instruction;
 ## Out of scope
 
 - Mechanical (hook-level) enforcement of the read gate.
-- TypeScript-reflection tooling from cora's original (their compiled-TS
+- TypeScript-reflection tooling from Repo-G's original (their compiled-TS
   half is project-specific; the flex mechanism is language-neutral pairs).
 - Sweeping existing divergences (INFRA-305; CER rows for the rest).

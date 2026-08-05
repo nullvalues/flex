@@ -44,7 +44,7 @@ reads never fire:
   `context_current_tokens` is never written from a live transcript read — the
   gate reads a value nothing downstream ever produces.
 
-Live symptom (CER-067): an agent working in the `asp` repo reported the budget
+Live symptom (CER-067): an agent working in the `Repo-I` repo reported the budget
 gate "can never self-clear via a normal 'Continue building' reply" and applied an
 **undocumented, self-reinvented workaround** (forging
 `context_budget_acknowledged_at` and `context_budget_acknowledged_user_turn_seq`

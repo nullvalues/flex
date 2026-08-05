@@ -106,7 +106,7 @@ def test_spec_writer_model_proposal_step_present() -> None:
     text = _read(_SPEC_WRITER_PROCEDURE)
     assert "Step 4b" in text, (
         "spec-writer procedure must add a numbered asymmetric model-proposal "
-        "step (INFRA-318, Cora A#7/AG-6)"
+        "step (INFRA-318, Repo-G A#7/AG-6)"
     )
     step = text.split("### Step 4b", 1)[1].split("### Step 5", 1)[0]
     assert "model:" in step

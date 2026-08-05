@@ -42,7 +42,7 @@ output files, so their mtime is refreshed continuously and the
 fire for the session's own spawns; ~18% of completed transcripts carry no
 `stop_reason` stamp at all (measured 2026-07-28: 51 of 294 output files —
 `subagent_transcript.py:1240-1255`), so `end_turn` detection does not cover them
-either. The observed shape: forqsite.help row 13, content parse-proven `PASS`,
+either. The observed shape: Repo-D row 13, content parse-proven `PASS`,
 row stuck pending until a *later* session swept it. That is CER-114.
 
 There is exactly one event in the harness that is defined to fire when a spawned

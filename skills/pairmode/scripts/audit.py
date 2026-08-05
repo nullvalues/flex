@@ -62,6 +62,14 @@ CANONICAL_FILES: list[tuple[str, str]] = [
     (".claude/agents/docs-reviewer.md", "agents/docs-reviewer.md.j2"),
     (".claude/agents/spec-writer.md", "agents/spec-writer.md.j2"),
     (".claude/agents/shadow-reviewer.md", "agents/shadow-reviewer.md.j2"),
+    # EXEMPLAR-000.md (INFRA-392/CER-171): the spec-writer procedure's frozen
+    # bounded input 4 (skills/pairmode/skills/spec-writer/procedure.md §
+    # Input contract item 4, INFRA-363). Not a SCAFFOLD_FILES entry — its
+    # content is harness-owned and frozen, not project-specific prose a
+    # project should freely diverge on — so it gets the same full body
+    # comparison as every other CANONICAL_FILES entry. Must stay mirrored
+    # with EXEMPLAR_FILES in bootstrap.py.
+    ("docs/exemplars/EXEMPLAR-000.md", "docs/exemplars/EXEMPLAR-000.md.j2"),
 ]
 
 # Scaffold files: Phase 7 docs that receive full section-level comparison.
@@ -286,7 +294,7 @@ def _check_seeded_doc_drift(project_dir: Path, pair: tuple[str, str]) -> str | N
     # Architecture") would count as "real content" and STALE could never
     # fire even when every actual section body is placeholder-only.
     project_bodies = [
-        body for key, body in project_sections.items() if key.startswith("##")
+        body for key, body in project_sections.items() if _is_heading_key(key)
     ]
     if project_bodies and all(_is_stale_placeholder(body) for body in project_bodies):
         return "STALE"
@@ -297,8 +305,8 @@ def _check_seeded_doc_drift(project_dir: Path, pair: tuple[str, str]) -> str | N
     # empty-context rendering.
     context, _context_found = _load_project_context(project_dir)
     template_sections = _read_template_sections(template_rel, context)
-    template_headings = {k for k in template_sections if k.startswith("##")}
-    project_headings = {k for k in project_sections if k.startswith("##")}
+    template_headings = {k for k in template_sections if _is_heading_key(k)}
+    project_headings = {k for k in project_sections if _is_heading_key(k)}
 
     if template_headings - project_headings:
         return "DRIFTED"
@@ -378,7 +386,12 @@ def _split_sections(text: str) -> dict[str, str]:
         if _SECTION_RE.fullmatch(chunk.strip()):
             header = chunk.strip()
             body = parts[i + 1].strip() if (i + 1) < len(parts) else ""
-            key = _normalise(header)
+            # Strip a leading markdown header marker (e.g. "## ") before
+            # normalising, so the section key matches the SKILL.md-documented
+            # `.pairmode-overrides` entry format (##-free) — CER-170/INFRA-391.
+            # `_normalise()` itself is left untouched (still used unmodified
+            # for body-content comparisons below).
+            key = _normalise(re.sub(r"^#+\s*", "", header))
             # Avoid key collisions by appending a counter if needed
             if key in sections:
                 key = f"{key}__{key_counter}"
@@ -432,6 +445,23 @@ def _is_stale_placeholder(body: str) -> bool:
 def _is_separator_key(key: str) -> bool:
     """Return True when *key* represents a ``---`` separator line (not a real section)."""
     return bool(re.match(r'^-+(__\d+)?$', key))
+
+
+def _is_heading_key(key: str) -> bool:
+    """Return True when *key* was derived from a real ``##``+ markdown heading.
+
+    Since CER-170/INFRA-391, ``_split_sections`` strips the leading ``#+\\s*``
+    marker before normalising a heading into its key, so a heading-derived key
+    no longer carries a literal ``##`` prefix to test for. This distinguishes
+    heading keys from the other three key shapes `_split_sections` produces:
+    preamble keys (``__preamble__N``), separator keys (``---`` / ``_is_separator_key``),
+    and bold-marker checklist-item keys (``**...**``).
+    """
+    return (
+        not key.startswith("__preamble__")
+        and not _is_separator_key(key)
+        and not key.startswith("**")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -818,10 +848,10 @@ def audit_project(project_dir: Path, applies_to: str = "all") -> AuditResult:
             template_sections = _read_template_sections(template_rel, context)
             project_sections = _read_project_sections(project_dir, dest_rel) or {}
             template_headings = {
-                k for k in template_sections if k.startswith("##")
+                k for k in template_sections if _is_heading_key(k)
             }
             project_headings = {
-                k for k in project_sections if k.startswith("##")
+                k for k in project_sections if _is_heading_key(k)
             }
             for heading in sorted(template_headings - project_headings):
                 if (dest_rel, heading) in overrides:

@@ -171,12 +171,12 @@ the procedure skill is the single source of truth. flex itself is thin. **The fl
 |---|---|---|---|
 | flex (canon) | **47** | 0 | yes |
 | `templates/agents/reviewer.md.j2` | 47 | 0 | — |
-| coherra | 293 | 1 | no |
-| caddy | 321 | 1 | no |
-| asp | 311 | 1 | no |
-| forqsite | **639** | **3** | no |
-| radar | 282 | 1 | no |
-| meander | 314 | 1 | no |
+| Repo-A | 293 | 1 | no |
+| Repo-C | 321 | 1 | no |
+| Repo-I | 311 | 1 | no |
+| Repo-E | **639** | **3** | no |
+| Repo-L | 282 | 1 | no |
+| Repo-B | 314 | 1 | no |
 
 Every downstream project carries **6×–13× canon**, retaining the full pre-`INFRA-241` inline
 review checklist. `sync` *appended* the new thin shell without removing the fat body, so
@@ -231,7 +231,7 @@ absent from `SCAFFOLD_FILES` (`audit.py:56-60`), absent from the staleness check
 while `bootstrap.py:112-113` simultaneously deny-lists it from writes. Seeded, protected, and
 unmaintained: it ossifies.
 
-Observed divergence: coherra 365 lines, caddy 99, asp 1568, forqsite 1493.
+Observed divergence: Repo-A 365 lines, Repo-C 99, Repo-I 1568, Repo-E 1493.
 
 This is the same defect class `INFRA-305` is fixing *inside flex* (`CER-078`/`084`/`100` — a
 stale grading contract that produced a false CRITICAL and cost a phase's time). `INFRA-305`
@@ -565,7 +565,7 @@ grep -H '^status:' docs/eras/*.md
 **Fleet canon divergence (F1, F7):**
 
 ```bash
-for p in coherra caddy asp forqsite radar meander; do d=/mnt/work/$p
+for p in Repo-A Repo-C Repo-I Repo-E Repo-L Repo-B; do d=/mnt/work/$p
   printf "%-10s reviewer_lines:%-5s git_clean_fd:%-3s procedure:%s\n" "$p" \
     "$(wc -l < $d/.claude/agents/reviewer.md)" \
     "$(grep -c 'git clean -fd' $d/.claude/agents/reviewer.md)" \
@@ -579,7 +579,7 @@ grep -c 'git clean -fd' skills/pairmode/skills/reviewer/procedure.md   # 2 (legi
 **`audit` greenlighting stale sections (F2):**
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/audit.py --project-dir /mnt/work/caddy
+PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/audit.py --project-dir /mnt/work/Repo-C
 ```
 
 **Version surfaces (all `0.3.0`):**
@@ -601,8 +601,8 @@ numbered from `119`.
 **Do Now:**
 
 - **CER-119 — CRITICAL:** the `INFRA-241` thin-agent canon reduction never propagated to any
-  bootstrapped project. flex's `.claude/agents/reviewer.md` is 47 lines (== template); coherra
-  293, caddy 321, asp 311, forqsite 639, radar 282, meander 314 — all retaining the full
+  bootstrapped project. flex's `.claude/agents/reviewer.md` is 47 lines (== template); Repo-A
+  293, Repo-C 321, Repo-I 311, Repo-E 639, Repo-L 282, Repo-B 314 — all retaining the full
   pre-`INFRA-241` inline review checklist, and all still carrying `git clean -fd` (canon carries
   it only in `skills/pairmode/skills/reviewer/procedure.md`). `sync` appended the thin shell
   without removing the fat body, so every downstream shell holds two contradictory contracts.

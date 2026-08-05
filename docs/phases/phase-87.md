@@ -13,10 +13,10 @@ era: "003"
 ## Goal
 
 Close a methodology bug found via an external report from another
-pairmode-run project (coherra): `sync.py`'s section-level diffing silently
+pairmode-run project (Repo-A): `sync.py`'s section-level diffing silently
 reverted a legitimate, previously-committed project customization.
 
-Coherra's `.claude/agents/reviewer.md` had its BUILD GATE checklist item
+Repo-A's `.claude/agents/reviewer.md` had its BUILD GATE checklist item
 (and the matching "## Test run" block) hand-fixed in story INFRA-009 to run
 `pnpm -r --if-present build && pnpm -r --if-present test` instead of the
 canonical single `{{ test_command }}`. Running `pairmode sync` afterward
@@ -29,7 +29,7 @@ the build step entirely — because:
   `intent-reviewer.md.j2`) are not headers — they're bold markers like
   `**3. BUILD GATE**`, `**2.5 STORY SPEC**`, `**5a. Conviction consistency**`
   living inside one large `## Review checklist` H2 section.
-- Because BUILD GATE isn't independently addressable, coherra's customized
+- Because BUILD GATE isn't independently addressable, Repo-A's customized
   checklist body as a whole differs from canonical and audits as
   INCONSISTENT for the entire `## Review checklist` section (10 items).
   `.pairmode-overrides` can only declare the override at that same
@@ -52,7 +52,7 @@ get exactly that one item pinned, with the rest of the checklist still
 tracking canonical.
 
 A second, unrelated methodology bug found via the same external report chain
-(caddy project, same session that reported the coherra issue): the
+(Repo-C project, same session that reported the Repo-A issue): the
 orchestrator itself repeatedly violated the build loop's cold-read contract
 — `CLAUDE.build.md` says the builder gets "the story ID only... Do not pass
 story text, file contents, or git history" and the reviewer "reads its own
@@ -80,7 +80,7 @@ The fix: a new `Read`-matched branch in `hooks/pre_tool_use.py`, delegating
 to a new `cold_read_guard.py` module (matching the existing thin-dispatcher
 pattern), blocks `Read` calls to `docs/stories/**` or `.claude/agents/**`
 whenever `agent_type` is absent from the payload. Scope is deliberately
-narrower than the full set of files the caddy incident touched: it excludes
+narrower than the full set of files the Repo-C incident touched: it excludes
 `docs/phases/**` and `docs/architecture.md`, because `CLAUDE.build.md`
 already has legitimate, documented orchestrator-level reads of those paths
 (the "3.5 Phase doc boundary scan" step, phase-completion Stories-table
@@ -90,7 +90,7 @@ break sanctioned behavior, not just the violation. `docs/stories/**` and
 every documented interaction with them is either a subagent's own cold read
 or an orchestrator-side CLI/`git add` call that never opens their content.
 
-A third, unrelated finding, surfaced via an external report from the radar
+A third, unrelated finding, surfaced via an external report from the Repo-L
 project (fable-orchestrated): `story_new.py --phase MU020` failed to
 auto-register the new story into the phase's Stories table. `_append_to_phase`
 (`skills/pairmode/scripts/story_new.py:127-137`) only recognizes two filename
@@ -100,7 +100,7 @@ prefix) and exact `phase-{phase}.md`. Suffixed phase manifests, of the form
 --suffix` produces — see CER-038), match neither glob. `_append_to_phase`
 falls through to `return False` with no error surfaced to the caller, so the
 story file is still created correctly but the phase manifest's Stories table
-silently fails to get the new row — the radar operator had to add the row by
+silently fails to get the new row — the Repo-L operator had to add the row by
 hand. Logged as CER-062 (Do Later) and pulled forward into this phase since
 it's a low-effort, directly-related tooling fix alongside the other two
 stories in this phase.

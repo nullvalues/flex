@@ -30,7 +30,7 @@ builder side, `:155-` for the reviewer side). `code` is the only class with
 an unconditional retry-upgrade path today.
 
 Live-hit that surfaced this (reported by the operator from a sibling
-project's build loop, cora): era-001 `docs/stories/DESIGN/*.md`
+project's build loop, Repo-G): era-001 `docs/stories/DESIGN/*.md`
 frontmatter-elaboration stories were classified `story_class: doc` — no
 application-code file was ever touched, so `doc` looked like the correct fit
 at spec time (commit history shows no recorded reasoning for picking `doc`

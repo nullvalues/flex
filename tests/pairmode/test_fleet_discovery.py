@@ -938,12 +938,12 @@ class TestLegacyStateCompat:
         fake_flex_root = tmp_path / "legacy_flex"
         (fake_flex_root / ".companion").mkdir(parents=True)
         (fake_flex_root / ".companion" / "state.json").write_text(
-            json.dumps({"registered_projects": ["/mnt/work/coherra", "/mnt/work/caddy"]}),
+            json.dumps({"registered_projects": ["/mnt/work/Repo-A", "/mnt/work/Repo-C"]}),
             encoding="utf-8",
         )
         monkeypatch.setattr(fd, "_FLEX_ROOT", fake_flex_root)
         projects = fd._read_registered_projects()
-        assert [str(p) for p in projects] == ["/mnt/work/coherra", "/mnt/work/caddy"]
+        assert [str(p) for p in projects] == ["/mnt/work/Repo-A", "/mnt/work/Repo-C"]
 
 
 class TestSnapshotDuplicateHooksSection:
@@ -1061,3 +1061,64 @@ class TestMergedViewDuplicateHooks:
         fd._check_duplicate_hooks(proj)
         assert (proj / ".claude" / "settings.json").read_bytes() == settings_before
         assert plugin_file.read_bytes() == plugin_before
+
+
+# ---------------------------------------------------------------------------
+# INFRA-393 (CER-172): local, gitignored fleet map replaces the hardcoded
+# _DOCUMENTED_CANDIDATES name list. Real sibling-repo names must never be
+# committed source string literals; the extra-candidates source is now a
+# local <flex-root>/.pairmode-fleet.local.json file.
+# ---------------------------------------------------------------------------
+
+class TestLocalFleetConfig:
+    def test_present_file_with_entries(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        flex_root = tmp_path / "fake_flex_root"
+        flex_root.mkdir()
+        (flex_root / ".pairmode-fleet.local.json").write_text(
+            json.dumps({
+                "example-repo-1": "/fake/example-repo-1",
+                "example-repo-2": "/fake/example-repo-2",
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(fd, "_FLEX_ROOT", flex_root)
+        result = fd._load_local_fleet_map()
+        assert result == {
+            "example-repo-1": "/fake/example-repo-1",
+            "example-repo-2": "/fake/example-repo-2",
+        }
+
+    def test_default_candidates_includes_local_fleet_map_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        flex_root = tmp_path / "fake_flex_root"
+        flex_root.mkdir()
+        (flex_root / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"example-repo-1": "/fake/example-repo-1"}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(fd, "_FLEX_ROOT", flex_root)
+        candidates = fd._default_candidates()
+        assert Path("/fake/example-repo-1") in candidates
+
+    def test_absent_file_returns_empty_dict(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        flex_root = tmp_path / "fake_flex_root"
+        flex_root.mkdir()
+        monkeypatch.setattr(fd, "_FLEX_ROOT", flex_root)
+        assert fd._load_local_fleet_map() == {}
+        # And _default_candidates() must not crash either.
+        fd._default_candidates()
+
+    def test_malformed_json_returns_empty_dict(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        flex_root = tmp_path / "fake_flex_root"
+        flex_root.mkdir()
+        (flex_root / ".pairmode-fleet.local.json").write_text("{not valid json", encoding="utf-8")
+        monkeypatch.setattr(fd, "_FLEX_ROOT", flex_root)
+        assert fd._load_local_fleet_map() == {}
+        fd._default_candidates()
+
+    def test_source_no_longer_defines_documented_candidates(self) -> None:
+        """Regression guard (CER-172): the old hardcoded repo-name list must
+        never resurface in source."""
+        source = Path(fd.__file__).read_text(encoding="utf-8")
+        assert "_DOCUMENTED_CANDIDATES" not in source

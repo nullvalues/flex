@@ -4,15 +4,15 @@ A living documentation layer alongside `docs/architecture.md` (the how) and the
 phase docs (the what): narratives describe **what a role in this build loop must
 be able to do and expect, and why** — grounded in `docs/ideology.md` and
 `docs/brief.md` — not implementation, not a technical spec. Their purpose is to
-surface whole-loop gaps *before* they compound, the same way coherra/stackabid's
+surface whole-loop gaps *before* they compound, the same way Repo-A/Repo-N's
 narratives surface UX gaps before UAT.
 
 flex's narrative roles are not end users of a product UI — they're the roles
 inside the build loop itself (builder, reviewer, loop-breaker, the four
 checkpoint-adjacent workers, spec-writer), plus the orchestrator that dispatches
 them and the operator who depends on the whole thing. Precedent for a
-non-human/system-role narrative already exists in the fleet (coherra's
-PLATFORM-OPERATOR, stackabid's ARTHUR); this project is the first to write
+non-human/system-role narrative already exists in the fleet (Repo-A's
+PLATFORM-OPERATOR, Repo-N's ARTHUR); this project is the first to write
 narratives for the harness's own internal roles, and the first anywhere in the
 fleet to actually wire narrative-checking into a live spec-writer/reviewer
 procedure rather than stating it as intent.

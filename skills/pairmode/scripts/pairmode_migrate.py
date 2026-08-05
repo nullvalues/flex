@@ -977,21 +977,87 @@ def cmd_anchor_to_flex(
         "operator's only way to say 'keep it'."
     ),
 )
-def cmd_to_030(project_dir: str, apply: bool, keep_expected_step_tokens: bool) -> None:
+@click.option(
+    "--hooks-only",
+    is_flag=True,
+    default=False,
+    help=(
+        "Run only the stale-hook / machine-absolute settings.json repair "
+        "block (CER-127/INFRA-319) and skip every other to-030 normalization "
+        "step (no state.json seeding, no expected_step_tokens rewrite, no "
+        "pipe_path notice, no context_story_tokens removal, no "
+        "effort_tracking backfill, no attempt_counter retirement, no "
+        "protected-path preview, no agent cleanup). This is what "
+        "`pairmode_sync.py sync-all` invokes as its fifth step (INFRA-386). "
+        "--keep-expected-step-tokens is accepted but inert under this flag, "
+        "since the step it suppresses does not run."
+    ),
+)
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    default=False,
+    help=(
+        "Accepted for propagation symmetry with sync-all's other four steps "
+        "(INFRA-386) — to-030 has no confirmation prompt to skip, so this is "
+        "currently a no-op."
+    ),
+)
+def cmd_to_030(
+    project_dir: str,
+    apply: bool,
+    keep_expected_step_tokens: bool,
+    hooks_only: bool = False,
+    yes: bool = False,  # noqa: ARG001 — propagation symmetry only, see help text
+) -> None:
     """Normalise a 0.2.x project to the 0.3.0 schema.
 
     Dry-run by default — pass --apply to write changes.
     Actions labelled [would] are only performed when --apply is passed.
+
+    With --hooks-only, only the stale-hook settings.json repair block runs
+    (INFRA-386); every other normalization step is skipped entirely.
     """
     project_path = Path(project_dir).resolve()
     companion_dir = project_path / ".companion"
     state_path = companion_dir / "state.json"
 
     # -----------------------------------------------------------------------
+    # --hooks-only hard-failure checks (INFRA-386, Ensures 4).
+    #
+    # Under --hooks-only, sync-all's fifth step relies on this command's
+    # returncode for its fail-fast contract, so a project dir that does not
+    # exist, or a committed settings.json that cannot be read/parsed, must
+    # be reported as a hard failure rather than silently treated as
+    # "nothing to repair". This is scoped to --hooks-only only: default
+    # to-030 keeps its existing silent-no-op behaviour on unparseable
+    # settings.json (see test_to030_hook_block_noop_on_unparseable_settings)
+    # — that default-mode behaviour stays byte-identical (Instructions §1).
+    # -----------------------------------------------------------------------
+    if hooks_only:
+        if not project_path.is_dir():
+            click.echo(
+                f"error: --project-dir does not exist: {project_path}",
+                err=True,
+            )
+            sys.exit(1)
+        settings_json_path = project_path / ".claude" / "settings.json"
+        if settings_json_path.exists() and not _try_parse_json(settings_json_path):
+            click.echo(
+                f"error: {settings_json_path} exists but is unreadable or "
+                "malformed JSON — cannot safely inspect hook entries.",
+                err=True,
+            )
+            sys.exit(1)
+
+    # -----------------------------------------------------------------------
     # B5: state.json seed — if .companion/ exists but state.json is absent/
     #     unreadable, write a minimal valid seed.
     # -----------------------------------------------------------------------
-    if companion_dir.exists() and (
+    if hooks_only:
+        state: dict = _load_state(companion_dir)
+    elif companion_dir.exists() and (
         not state_path.exists()
         or not _try_parse_json(state_path)
     ):
@@ -1005,86 +1071,87 @@ def cmd_to_030(project_dir: str, apply: bool, keep_expected_step_tokens: bool) -
             click.echo(f"[would] seed missing state.json at {state_path} with {seed}")
         # After seeding, nothing more to do for state fields — they're already correct.
         # Skip into the rest of the checks.
-        state: dict = seed
+        state = seed
     else:
         state = _load_state(companion_dir)
 
-    # -----------------------------------------------------------------------
-    # B6: expected_step_tokens — rewrite Era 2 fleet-wide stamp (53000 → 5000)
-    #
-    # CER-111: a deliberately-chosen 53000 and the Era 2 stamp are
-    # definitionally indistinguishable in state.json — the file records a
-    # number, not its provenance. keep+WARN below was never removed (it has
-    # been live since this branch was written); the only genuine gap was that
-    # an operator holding a deliberate 53000 had no way to say "no" to the
-    # rewrite arm. --keep-expected-step-tokens (INFRA-303) is that escape
-    # hatch — it is the operator's only way to override the rewrite arm.
-    # -----------------------------------------------------------------------
-    est = state.get("expected_step_tokens")
-    if keep_expected_step_tokens:
-        click.echo(
-            f"[keep] expected_step_tokens={est!r} — left unchanged "
-            "(--keep-expected-step-tokens)"
-        )
-    elif est == ERA2_STAMP:
-        if apply:
-            state["expected_step_tokens"] = THIN_HARNESS_STEP_TOKENS
-            sys.path.insert(0, str(_SCRIPTS_DIR))
-            from state_utils import _atomic_write_json  # noqa: PLC0415
-            _atomic_write_json(state_path, state)
+    if not hooks_only:
+        # -------------------------------------------------------------------
+        # B6: expected_step_tokens — rewrite Era 2 fleet-wide stamp (53000 → 5000)
+        #
+        # CER-111: a deliberately-chosen 53000 and the Era 2 stamp are
+        # definitionally indistinguishable in state.json — the file records a
+        # number, not its provenance. keep+WARN below was never removed (it has
+        # been live since this branch was written); the only genuine gap was that
+        # an operator holding a deliberate 53000 had no way to say "no" to the
+        # rewrite arm. --keep-expected-step-tokens (INFRA-303) is that escape
+        # hatch — it is the operator's only way to override the rewrite arm.
+        # -------------------------------------------------------------------
+        est = state.get("expected_step_tokens")
+        if keep_expected_step_tokens:
             click.echo(
-                f"[apply] rewrote expected_step_tokens: {ERA2_STAMP} → {THIN_HARNESS_STEP_TOKENS} "
-                f"— {ERA2_STAMP} is the Era 2 fleet-wide stamp, indistinguishable from a "
-                "deliberately-chosen value of the same number; pass "
-                "--keep-expected-step-tokens to keep a deliberate value."
+                f"[keep] expected_step_tokens={est!r} — left unchanged "
+                "(--keep-expected-step-tokens)"
             )
-        else:
+        elif est == ERA2_STAMP:
+            if apply:
+                state["expected_step_tokens"] = THIN_HARNESS_STEP_TOKENS
+                sys.path.insert(0, str(_SCRIPTS_DIR))
+                from state_utils import _atomic_write_json  # noqa: PLC0415
+                _atomic_write_json(state_path, state)
+                click.echo(
+                    f"[apply] rewrote expected_step_tokens: {ERA2_STAMP} → {THIN_HARNESS_STEP_TOKENS} "
+                    f"— {ERA2_STAMP} is the Era 2 fleet-wide stamp, indistinguishable from a "
+                    "deliberately-chosen value of the same number; pass "
+                    "--keep-expected-step-tokens to keep a deliberate value."
+                )
+            else:
+                click.echo(
+                    f"[would] rewrite expected_step_tokens: {ERA2_STAMP} → {THIN_HARNESS_STEP_TOKENS} "
+                    f"— {ERA2_STAMP} is the Era 2 fleet-wide stamp, indistinguishable from a "
+                    "deliberately-chosen value of the same number; pass "
+                    "--keep-expected-step-tokens to keep a deliberate value."
+                )
+        elif est is not None and est != THIN_HARNESS_STEP_TOKENS:
             click.echo(
-                f"[would] rewrite expected_step_tokens: {ERA2_STAMP} → {THIN_HARNESS_STEP_TOKENS} "
-                f"— {ERA2_STAMP} is the Era 2 fleet-wide stamp, indistinguishable from a "
-                "deliberately-chosen value of the same number; pass "
-                "--keep-expected-step-tokens to keep a deliberate value."
+                f"[WARN] custom expected_step_tokens={est!r} — value kept (not the Era 2 stamp)."
             )
-    elif est is not None and est != THIN_HARNESS_STEP_TOKENS:
-        click.echo(
-            f"[WARN] custom expected_step_tokens={est!r} — value kept (not the Era 2 stamp)."
-        )
 
-    # -----------------------------------------------------------------------
-    # B4: pipe_path — deprecation notice and removal
-    # -----------------------------------------------------------------------
-    if "pipe_path" in state:
-        click.echo(
-            "[deprecation] state.json contains 'pipe_path' — "
-            "this key is deprecated. The companion pipe now lives at "
-            "$TMPDIR/companion.pipe (fixed location). "
-        )
-        if apply:
-            state.pop("pipe_path")
-            sys.path.insert(0, str(_SCRIPTS_DIR))
-            from state_utils import _atomic_write_json  # noqa: PLC0415
-            _atomic_write_json(state_path, state)
-            click.echo("[apply] removed 'pipe_path' key from state.json")
-        else:
-            click.echo("[would] remove 'pipe_path' key from state.json")
+        # -------------------------------------------------------------------
+        # B4: pipe_path — deprecation notice and removal
+        # -------------------------------------------------------------------
+        if "pipe_path" in state:
+            click.echo(
+                "[deprecation] state.json contains 'pipe_path' — "
+                "this key is deprecated. The companion pipe now lives at "
+                "$TMPDIR/companion.pipe (fixed location). "
+            )
+            if apply:
+                state.pop("pipe_path")
+                sys.path.insert(0, str(_SCRIPTS_DIR))
+                from state_utils import _atomic_write_json  # noqa: PLC0415
+                _atomic_write_json(state_path, state)
+                click.echo("[apply] removed 'pipe_path' key from state.json")
+            else:
+                click.echo("[would] remove 'pipe_path' key from state.json")
 
-    # -----------------------------------------------------------------------
-    # INFRA-290 (D): context_story_tokens removal
-    #
-    # Dead on both sides since INFRA-182: `context_budget.decide()` stopped
-    # reading it and `set-context-tokens` stopped writing it. Entries left in
-    # place fleet-wide are pure residue — remove the key when present. A
-    # state.json without the key is a silent no-op.
-    # -----------------------------------------------------------------------
-    if "context_story_tokens" in state:
-        if apply:
-            state.pop("context_story_tokens")
-            sys.path.insert(0, str(_SCRIPTS_DIR))
-            from state_utils import _atomic_write_json  # noqa: PLC0415
-            _atomic_write_json(state_path, state)
-            click.echo("[apply] removed 'context_story_tokens' key from state.json")
-        else:
-            click.echo("[would] remove 'context_story_tokens' key from state.json")
+        # -------------------------------------------------------------------
+        # INFRA-290 (D): context_story_tokens removal
+        #
+        # Dead on both sides since INFRA-182: `context_budget.decide()` stopped
+        # reading it and `set-context-tokens` stopped writing it. Entries left in
+        # place fleet-wide are pure residue — remove the key when present. A
+        # state.json without the key is a silent no-op.
+        # -------------------------------------------------------------------
+        if "context_story_tokens" in state:
+            if apply:
+                state.pop("context_story_tokens")
+                sys.path.insert(0, str(_SCRIPTS_DIR))
+                from state_utils import _atomic_write_json  # noqa: PLC0415
+                _atomic_write_json(state_path, state)
+                click.echo("[apply] removed 'context_story_tokens' key from state.json")
+            else:
+                click.echo("[would] remove 'context_story_tokens' key from state.json")
 
     # -----------------------------------------------------------------------
     # CER-127 / INFRA-319: repair stale flex hook-command entries left in the
@@ -1223,169 +1290,172 @@ def cmd_to_030(project_dir: str, apply: bool, keep_expected_step_tokens: bool) -
                     if to_repair_events - {"PreToolUse"}:
                         _register_context_budget_hooks(settings_json_path, plugin_root)
 
-    # -----------------------------------------------------------------------
-    # B8: effort_tracking backfill (INFRA-236)
-    #
-    # bootstrap.py's _record_state() auto-enables effort_tracking on every
-    # NEW pairmode bootstrap and preserves an existing (even explicitly
-    # False) value — but a project whose state.json predates that
-    # auto-enable logic, and that has not been re-bootstrapped since, is
-    # left with the key permanently absent (bootstrap is only invoked once,
-    # normally). This backfills exactly that gap: key absent → set True.
-    # A project that explicitly disabled tracking (effort_tracking: false)
-    # is left untouched — this is a backfill for the missing-key case only,
-    # never an override of an explicit choice.
-    # -----------------------------------------------------------------------
-    if "effort_tracking" not in state:
-        if apply:
-            state["effort_tracking"] = True
-            sys.path.insert(0, str(_SCRIPTS_DIR))
-            from state_utils import _atomic_write_json  # noqa: PLC0415
-            _atomic_write_json(state_path, state)
-            click.echo(
-                "[apply] backfilled missing 'effort_tracking': true in state.json"
-            )
-        else:
-            click.echo(
-                "[would] backfill missing 'effort_tracking': true in state.json"
-            )
-
-    # -----------------------------------------------------------------------
-    # INFRA-290 (E): stale legacy-shape attempt_counter.json retirement
-    #
-    # `flex_build._read_attempt_counters` still normalises the pre-INFRA-282
-    # flat shape ({"story_id": ..., "attempt_count": ...}) in memory, and the
-    # keyed upgrade only happens as a side effect of the next write — so a
-    # project that has not built since INFRA-282 keeps the legacy file
-    # forever. Act ONLY on the flat shape: dict, no "stories" key, string
-    # "story_id" key. Keyed-shape, absent, or unparseable files: do nothing,
-    # print nothing.
-    #
-    # "Stale" is enforced, not assumed: delete only when the story is not in
-    # flight (`_counter_story_in_flight`). Deleting a live counter would
-    # silently reset a running story's escalation ladder to attempt 1 — the
-    # exact class of silent data loss Phase 110 exists to stop. An in-flight
-    # story's file is instead upgraded in place to the keyed shape.
-    # -----------------------------------------------------------------------
-    counter_path = companion_dir / "attempt_counter.json"
-    if counter_path.exists() and _try_parse_json(counter_path):
-        try:
-            counter_data = json.loads(counter_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            counter_data = None
-        if (
-            isinstance(counter_data, dict)
-            and "stories" not in counter_data
-            and isinstance(counter_data.get("story_id"), str)
-        ):
-            legacy_id = counter_data["story_id"]
-            try:
-                legacy_count = int(counter_data.get("attempt_count", 0))
-            except (TypeError, ValueError):
-                legacy_count = 0
-            if _counter_story_in_flight(project_path, legacy_id):
-                if apply:
-                    sys.path.insert(0, str(_SCRIPTS_DIR))
-                    from state_utils import _atomic_write_json  # noqa: PLC0415
-                    _atomic_write_json(
-                        counter_path, {"stories": {legacy_id: legacy_count}}
-                    )
-                    click.echo(
-                        "[apply] upgraded legacy-shape attempt_counter.json to "
-                        f"keyed shape (story {legacy_id} in flight)"
-                    )
-                else:
-                    click.echo(
-                        "[would] upgrade legacy-shape attempt_counter.json to "
-                        f"keyed shape (story {legacy_id} in flight)"
-                    )
-            else:
-                if apply:
-                    try:
-                        counter_path.unlink(missing_ok=True)
-                    except OSError:
-                        pass
-                    click.echo(
-                        "[apply] deleted stale legacy-shape attempt_counter.json "
-                        f"(story {legacy_id}, not in flight)"
-                    )
-                else:
-                    click.echo(
-                        "[would] delete stale legacy-shape attempt_counter.json "
-                        f"(story {legacy_id}, not in flight)"
-                    )
-
-    # -----------------------------------------------------------------------
-    # B3: Protected-path preview — recent commits touching PROTECTED_GLOBS
-    # -----------------------------------------------------------------------
-    _protected_path_preview(project_path)
-
-    # -----------------------------------------------------------------------
-    # B7: Stale agent cleanup
-    # -----------------------------------------------------------------------
-    agents_dir = project_path / ".claude" / "agents"
-    # INFRA-323 § C14: paths this B7 block actually deleted (apply mode
-    # only) — the restart-notice surface list. Empty when every agent shell
-    # only took the flag-for-manual-porting branch (the
-    # _ERA2_AGENT_HASHES-empty path — no notice, § C14 negative).
-    deleted_agent_shells: list[str] = []
-    if agents_dir.is_dir():
-        click.echo("[agent-cleanup] Checking .claude/agents/ for stale 0.2.x renders...")
-        for stem in _AGENT_STEMS:
-            agent_file = agents_dir / f"{stem}.md"
-            if not agent_file.exists():
-                continue
-            content_hash = _sha256_of_file(agent_file)
-            known_hash = _ERA2_AGENT_HASHES.get(stem)
-            if known_hash is not None and content_hash == known_hash:
-                # Matches a known stale template — safe to delete
-                if apply:
-                    agent_file.unlink()
-                    deleted_agent_shells.append(
-                        str(agent_file.relative_to(project_path))
-                    )
-                    click.echo(
-                        f"[apply] deleted stale agent {agent_file.name} "
-                        f"(matched Era 2 hash)"
-                    )
-                else:
-                    click.echo(
-                        f"[would] delete stale agent {agent_file.name} "
-                        f"(matched Era 2 hash)"
-                    )
-            else:
-                # Not in the hash allowlist — treat as project-customised
-                era2_placeholder = f"# 0.2.x template for {stem} (not available)\n"
-                actual_lines = agent_file.read_text(encoding="utf-8").splitlines(keepends=True)
-                diff = list(
-                    difflib.unified_diff(
-                        [era2_placeholder],
-                        actual_lines,
-                        fromfile=f"{stem}.md (0.2.x template)",
-                        tofile=f"{stem}.md (current)",
-                        lineterm="",
-                    )
-                )
+    if not hooks_only:
+        # -------------------------------------------------------------------
+        # B8: effort_tracking backfill (INFRA-236)
+        #
+        # bootstrap.py's _record_state() auto-enables effort_tracking on every
+        # NEW pairmode bootstrap and preserves an existing (even explicitly
+        # False) value — but a project whose state.json predates that
+        # auto-enable logic, and that has not been re-bootstrapped since, is
+        # left with the key permanently absent (bootstrap is only invoked once,
+        # normally). This backfills exactly that gap: key absent → set True.
+        # A project that explicitly disabled tracking (effort_tracking: false)
+        # is left untouched — this is a backfill for the missing-key case only,
+        # never an override of an explicit choice.
+        # -------------------------------------------------------------------
+        if "effort_tracking" not in state:
+            if apply:
+                state["effort_tracking"] = True
+                sys.path.insert(0, str(_SCRIPTS_DIR))
+                from state_utils import _atomic_write_json  # noqa: PLC0415
+                _atomic_write_json(state_path, state)
                 click.echo(
-                    f"[agent-cleanup] {agent_file.name}: content differs from known 0.2.x "
-                    f"template (or allowlist not populated). Manual porting required.\n"
-                    f"  Port any customisations from {agent_file} into the relevant "
-                    f"procedure skill under skills/pairmode/skills/."
+                    "[apply] backfilled missing 'effort_tracking': true in state.json"
                 )
-                if diff:
-                    click.echo("  Diff (0.2.x template → current):")
-                    for line in diff[:30]:
-                        click.echo(f"    {line}")
+            else:
+                click.echo(
+                    "[would] backfill missing 'effort_tracking': true in state.json"
+                )
+
+        # -------------------------------------------------------------------
+        # INFRA-290 (E): stale legacy-shape attempt_counter.json retirement
+        #
+        # `flex_build._read_attempt_counters` still normalises the pre-INFRA-282
+        # flat shape ({"story_id": ..., "attempt_count": ...}) in memory, and the
+        # keyed upgrade only happens as a side effect of the next write — so a
+        # project that has not built since INFRA-282 keeps the legacy file
+        # forever. Act ONLY on the flat shape: dict, no "stories" key, string
+        # "story_id" key. Keyed-shape, absent, or unparseable files: do nothing,
+        # print nothing.
+        #
+        # "Stale" is enforced, not assumed: delete only when the story is not in
+        # flight (`_counter_story_in_flight`). Deleting a live counter would
+        # silently reset a running story's escalation ladder to attempt 1 — the
+        # exact class of silent data loss Phase 110 exists to stop. An in-flight
+        # story's file is instead upgraded in place to the keyed shape.
+        # -------------------------------------------------------------------
+        counter_path = companion_dir / "attempt_counter.json"
+        if counter_path.exists() and _try_parse_json(counter_path):
+            try:
+                counter_data = json.loads(counter_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                counter_data = None
+            if (
+                isinstance(counter_data, dict)
+                and "stories" not in counter_data
+                and isinstance(counter_data.get("story_id"), str)
+            ):
+                legacy_id = counter_data["story_id"]
+                try:
+                    legacy_count = int(counter_data.get("attempt_count", 0))
+                except (TypeError, ValueError):
+                    legacy_count = 0
+                if _counter_story_in_flight(project_path, legacy_id):
+                    if apply:
+                        sys.path.insert(0, str(_SCRIPTS_DIR))
+                        from state_utils import _atomic_write_json  # noqa: PLC0415
+                        _atomic_write_json(
+                            counter_path, {"stories": {legacy_id: legacy_count}}
+                        )
+                        click.echo(
+                            "[apply] upgraded legacy-shape attempt_counter.json to "
+                            f"keyed shape (story {legacy_id} in flight)"
+                        )
+                    else:
+                        click.echo(
+                            "[would] upgrade legacy-shape attempt_counter.json to "
+                            f"keyed shape (story {legacy_id} in flight)"
+                        )
+                else:
+                    if apply:
+                        try:
+                            counter_path.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                        click.echo(
+                            "[apply] deleted stale legacy-shape attempt_counter.json "
+                            f"(story {legacy_id}, not in flight)"
+                        )
+                    else:
+                        click.echo(
+                            "[would] delete stale legacy-shape attempt_counter.json "
+                            f"(story {legacy_id}, not in flight)"
+                        )
+
+        # -------------------------------------------------------------------
+        # B3: Protected-path preview — recent commits touching PROTECTED_GLOBS
+        # -------------------------------------------------------------------
+        _protected_path_preview(project_path)
+
+        # -------------------------------------------------------------------
+        # B7: Stale agent cleanup
+        # -------------------------------------------------------------------
+        agents_dir = project_path / ".claude" / "agents"
+        # INFRA-323 § C14: paths this B7 block actually deleted (apply mode
+        # only) — the restart-notice surface list. Empty when every agent shell
+        # only took the flag-for-manual-porting branch (the
+        # _ERA2_AGENT_HASHES-empty path — no notice, § C14 negative).
+        deleted_agent_shells: list[str] = []
+        if agents_dir.is_dir():
+            click.echo("[agent-cleanup] Checking .claude/agents/ for stale 0.2.x renders...")
+            for stem in _AGENT_STEMS:
+                agent_file = agents_dir / f"{stem}.md"
+                if not agent_file.exists():
+                    continue
+                content_hash = _sha256_of_file(agent_file)
+                known_hash = _ERA2_AGENT_HASHES.get(stem)
+                if known_hash is not None and content_hash == known_hash:
+                    # Matches a known stale template — safe to delete
+                    if apply:
+                        agent_file.unlink()
+                        deleted_agent_shells.append(
+                            str(agent_file.relative_to(project_path))
+                        )
+                        click.echo(
+                            f"[apply] deleted stale agent {agent_file.name} "
+                            f"(matched Era 2 hash)"
+                        )
+                    else:
+                        click.echo(
+                            f"[would] delete stale agent {agent_file.name} "
+                            f"(matched Era 2 hash)"
+                        )
+                else:
+                    # Not in the hash allowlist — treat as project-customised
+                    era2_placeholder = f"# 0.2.x template for {stem} (not available)\n"
+                    actual_lines = agent_file.read_text(encoding="utf-8").splitlines(keepends=True)
+                    diff = list(
+                        difflib.unified_diff(
+                            [era2_placeholder],
+                            actual_lines,
+                            fromfile=f"{stem}.md (0.2.x template)",
+                            tofile=f"{stem}.md (current)",
+                            lineterm="",
+                        )
+                    )
+                    click.echo(
+                        f"[agent-cleanup] {agent_file.name}: content differs from known 0.2.x "
+                        f"template (or allowlist not populated). Manual porting required.\n"
+                        f"  Port any customisations from {agent_file} into the relevant "
+                        f"procedure skill under skills/pairmode/skills/."
+                    )
+                    if diff:
+                        click.echo("  Diff (0.2.x template → current):")
+                        for line in diff[:30]:
+                            click.echo(f"    {line}")
+        else:
+            click.echo("[agent-cleanup] No .claude/agents/ directory found — skipping.")
+
+        click.echo("\nto-030 complete.")
+
+        # INFRA-323 § C14: notice after the closing line, whenever B7 actually
+        # deleted an agent shell. apply-gated — deleted_agent_shells is always
+        # empty in dry-run mode (the [would] branch never appends to it).
+        if apply:
+            _emit_migrate_restart_notice(project_path, deleted_agent_shells, "to-030")
     else:
-        click.echo("[agent-cleanup] No .claude/agents/ directory found — skipping.")
-
-    click.echo("\nto-030 complete.")
-
-    # INFRA-323 § C14: notice after the closing line, whenever B7 actually
-    # deleted an agent shell. apply-gated — deleted_agent_shells is always
-    # empty in dry-run mode (the [would] branch never appends to it).
-    if apply:
-        _emit_migrate_restart_notice(project_path, deleted_agent_shells, "to-030")
+        click.echo("\nto-030 --hooks-only complete.")
 
 
 def _try_parse_json(path: Path) -> bool:

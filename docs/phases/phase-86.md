@@ -13,7 +13,7 @@ era: "003"
 ## Goal
 
 Close a methodology bug found via an external report from another
-pairmode-run project (meander): `permissions-create` (`flex_build.py`,
+pairmode-run project (Repo-B): `permissions-create` (`flex_build.py`,
 Layer 1 of the two-layer permission model documented in `CLAUDE.build.md`)
 unconditionally rewrites `docs/phases/permissions/<STORY_ID>.json` — including
 a fresh `generated_at` timestamp — on every story build, even when the

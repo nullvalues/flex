@@ -1,7 +1,7 @@
 ---
 name: shadow-reviewer
 description: Concurrent shadow-reviewer for flex. Loads the shadow-reviewer procedure skill and offers advisory, take-it-or-leave-it suggestions to a builder operating in the same worktree, via a shared suggestions file.
-tools: [Read]
+tools: [Read, Write, Bash]
 model: sonnet
 # fallback: haiku  (never below)
 # INFRA-358: no dispatch action or model-selector call reaches this role yet —

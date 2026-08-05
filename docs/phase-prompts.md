@@ -73,7 +73,7 @@ updates, and writes approved updates to the templates.
 
 **Acceptance criterion:** `skills/pairmode/templates/CLAUDE.md.j2` and
 `skills/pairmode/templates/CLAUDE.build.md.j2` render correctly with test context data
-and produce output structurally identical to the canonical versions in cora/radar.
+and produce output structurally identical to the canonical versions in Repo-G/Repo-L.
 
 **Instructions:**
 
@@ -89,7 +89,7 @@ Create `templates/CLAUDE.md.j2`. Template variables:
 
 The template should produce the canonical CLAUDE.md structure:
 - Project context block (name, description, stack, domain model)
-- Session modes section (Build mode / Review mode — verbatim from cora pattern)
+- Session modes section (Build mode / Review mode — verbatim from Repo-G pattern)
 - Review checklist (rendered from checklist_items)
 - Review output format (severity definitions — these are universal, not templated)
 - Loop-breaker mode section (universal — not templated)
@@ -105,7 +105,7 @@ Create `templates/CLAUDE.build.md.j2`. Template variables:
 - `{{ test_command }}`
 - `{{ migration_command }}` — optional, empty string if not applicable
 
-The template should produce the canonical CLAUDE.build.md structure matching cora's version
+The template should produce the canonical CLAUDE.build.md structure matching Repo-G's version
 exactly, with the project-specific commands substituted in.
 
 Write a test at `tests/pairmode/test_templates.py` that renders both templates with sample
@@ -135,7 +135,7 @@ Template variables (shared across all agent templates):
 - `{{ domain_isolation_rule }}` — the primary isolation invariant (e.g. "filter by workspace_id")
 - `{{ checklist_items }}` — for reviewer template
 
-Each agent template should produce output structurally identical to the cora equivalents.
+Each agent template should produce output structurally identical to the Repo-G equivalents.
 The builder and reviewer templates are the most critical — they encode the methodology.
 
 **Builder template requirements:**
@@ -151,7 +151,7 @@ The builder and reviewer templates are the most critical — they encode the met
 - "Before reviewing" section: read architecture.md, read story spec, run git diff HEAD
 - Checklist section (rendered from checklist_items + universal items)
 - Test run section
-- PASS/FAIL decision logic (verbatim from cora — this is canonical)
+- PASS/FAIL decision logic (verbatim from Repo-G — this is canonical)
 - Commit format on PASS
 - Revert + report format on FAIL
 - "What you must not do" section
@@ -554,7 +554,7 @@ Create `tests/pairmode/test_lesson_review.py` (mock user input for testing).
 ## Phase 4 — Audit and Sync
 
 **Goal:** Compare existing projects against the current canonical methodology and apply
-updates non-destructively. First real-world validation: audit cora, radar, and forqsite.
+updates non-destructively. First real-world validation: audit Repo-G, Repo-L, and Repo-E.
 
 ---
 
@@ -705,9 +705,9 @@ No new production code — tests only.
 ⚙️ DEVELOPER ACTION — Run audit against sibling repos
 
 Before Phase 5, run `/flex:pairmode audit` against:
-- `/mnt/work/cora`
-- `/mnt/work/radar`
-- `/mnt/work/forqsite`
+- `/mnt/work/Repo-G`
+- `/mnt/work/Repo-L`
+- `/mnt/work/Repo-E`
 
 Document the findings. Use the output to identify any gaps in the audit logic
 (things the audit missed that you can see manually). File those as lessons with

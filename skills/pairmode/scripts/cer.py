@@ -147,7 +147,7 @@ def is_placeholder_row(cells) -> bool:
     ``| — | *(none)* | — | — | — |`` (Do Now/Do Later/Do Much Later) or the
     six-column ``| — | *(none)* | — | — | — | — |`` (Do Never) — whenever a
     quadrant has no entries. That row is not a finding: reading it as an
-    unresolved Do Now item blocked caddy's first 0.3.0 checkpoint
+    unresolved Do Now item blocked Repo-C's first 0.3.0 checkpoint
     (`next_action._check_cer_do_now`, INFRA-294) by failing the
     ``cer-do-now`` checkpoint guard forever. This predicate is the single
     shared source of truth for recognising that row, consumed by both
@@ -158,7 +158,7 @@ def is_placeholder_row(cells) -> bool:
     ``cells`` may be any sequence of (possibly unstripped) table cell
     strings; column count is not checked, since the placeholder row appears
     in four-, five-, and six-column shapes across sections and consumer
-    repos (e.g. the four-cell row observed in caddy's own backlog).
+    repos (e.g. the four-cell row observed in Repo-C's own backlog).
     """
     stripped = [c.strip() for c in cells]
     if not stripped:
@@ -375,7 +375,7 @@ def find_groomable_rows(text: str) -> list[dict]:
     This function only reads and reports — it never writes
     ``docs/cer/backlog.md``. The operator decides which arrived-gate rows to
     pull forward into ``## Do Now``; `groom` never promotes automatically
-    (preserved do-not-do, cora agreement A#1 / AG-6).
+    (preserved do-not-do, Repo-G agreement A#1 / AG-6).
 
     Pure: no file I/O. The caller supplies the already-read text.
     """
@@ -750,7 +750,7 @@ def cmd_groom(project_dir: str) -> None:
     and a summary count. Exit code is always 0 — groom informs, it never
     decides. **groom never edits docs/cer/backlog.md and never promotes a
     row automatically; the operator decides every pull** (preserved
-    do-not-do, cora agreement A#1 / AG-6).
+    do-not-do, Repo-G agreement A#1 / AG-6).
 
     This command has no automated invocation, checkpoint-step wiring, or
     scheduled reminder anywhere in the build loop today (CER-152) — nothing

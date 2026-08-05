@@ -98,7 +98,7 @@ fires on `source="clear"` and prints a reassuring status block
 required.
 
 **The forcing function is imminent.** RELEASE-068 (phase 106, specced
-2026-07-29 at `e7439fbf`) performs a canon-only migration of `/mnt/work/pokus`
+2026-07-29 at `e7439fbf`) performs a canon-only migration of `/mnt/work/Repo-K`
 that **creates `gate-worker.md` and rewrites seven agent shells** via
 `sync-all --apply` (its step 4), then verifies at step 6 that "seven files
 present, sampled pruned headers absent, stale grammar clean". Every one of
@@ -575,7 +575,7 @@ PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -q 2>&1 | tail -30
   every methodology file would put a banner on nearly every sync — see R7.
 - **RELEASE-068's own execution.** The addendum instruction line was added to
   `docs/stories/RELEASE/RELEASE-068.md` § *Instructions* at **this story's spec
-  time** (2026-07-29, marked as a post-spec operator addendum) so that the pokus
+  time** (2026-07-29, marked as a post-spec operator addendum) so that the Repo-K
   migration is not blocked on this story landing. That file is therefore **not**
   in this story's `touches:` and must not be edited by the builder. Phase 106's
   execution is independent of phase 114's build order.

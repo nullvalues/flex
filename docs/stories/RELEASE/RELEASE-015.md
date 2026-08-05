@@ -27,7 +27,7 @@ primary_files:
   gate run must therefore execute from `/mnt/work/flex-harness`, since
   migrated projects bind to the harness path until RELEASE-017 re-points them.
 - The default candidate list is `registered_projects` plus 9 hardcoded names
-  (coherra, forqsite, radar, asp, aab, cora, lumin, halfhorse, meander) — this
+  (Repo-A, Repo-E, Repo-L, Repo-I, Repo-H, Repo-G, Repo-J, Repo-F, Repo-B) — this
   does **not** scan `/mnt/work` exhaustively, so a stray 10th consumer would be
   invisible to the gate as configured.
 - Live read 2026-07-16: all 9 named projects are still on pairmode
@@ -39,7 +39,7 @@ primary_files:
     Already absent from the 9-name hardcoded list above; the broadened
     `--candidate-dir` scan this story adds (Ensures) must explicitly skip
     `/mnt/work/anchor` rather than silently rediscovering and blocking on it.
-  - `cora` — present in the hardcoded list, but deferred (RELEASE-030,
+  - `Repo-G` — present in the hardcoded list, but deferred (RELEASE-030,
     `status: backlog`): combines the 0.1.0 schema gap with artifact-extraction
     work (build-loop lessons proven there, worth porting into flex before a
     routine sync overwrites them) that makes it larger than a standard
@@ -54,7 +54,7 @@ primary_files:
 - A fresh run of the harness checkout's `fleet_discovery.py` regenerates
   `docs/fleet-snapshot.md` with a current timestamp, committed on `fold-prep`.
 - **Hard gate (DP8):** passes only if every bound project *other than the
-  explicitly excluded `anchor` and `cora` (see Requires)* shows
+  explicitly excluded `anchor` and `Repo-G` (see Requires)* shows
   `pairmode_version: 0.3.0` AND `binding: scripts` (or `both`). Any
   non-excluded project showing 0.2.x/0.1.x, or Signal-1 absent, blocks this
   story — it completes with verdict BLOCKED, and RELEASE-016/017/018 must not
@@ -87,7 +87,7 @@ primary_files:
    **except `/mnt/work/anchor`** (excluded per Requires — do not pass it as a
    candidate).
 3. Evaluate the gate per Ensures, excluding `anchor` (never scanned) and
-   `cora` (scanned and reported, but not counted toward pass/fail) from the
+   `Repo-G` (scanned and reported, but not counted toward pass/fail) from the
    pass/fail condition. If BLOCKED on any other project, list it by name and
    point at the runbook's §Seam gate + §Per-project mechanic — those
    migrations are operator work in other repositories, not performed by this

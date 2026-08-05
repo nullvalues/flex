@@ -3,7 +3,7 @@ era: "004"
 phase_class: production
 ---
 
-# project — Phase 116: Cora upstream: methodology gates, resolver cadence, spec-time controls; backlog truth pass and 0.3.1
+# project — Phase 116: Repo-G upstream: methodology gates, resolver cadence, spec-time controls; backlog truth pass and 0.3.1
 
 ← [Phase 115: Observability closeout: API hardening, payload guards, rollup hygiene, functional validation](phase-115.md)
 
@@ -15,7 +15,7 @@ phase_class: production
 <!-- State this phase's single purpose in one or two sentences (docs/architecture.md
      § Phase-authoring convention, INFRA-243). If the work naturally splits into more
      than one purpose, that's a signal to open a sibling phase, not to widen this one. -->
-Upstream the six methodology extensions field-proven on cora's 0.1.0→0.3.0 hand-migration (AG-6, `docs/closeout-agreements-20260729.md`) — close-time disposition gates, backlog gate/groom, pre-build intent review, between-story context etiquette, covered contracts, spec-time model review — close the agent-dispatch completeness gap surfaced live during this phase's own build loop (AG-13, `docs/closeout-agreements-20260729.md`: three of eight agent roles were never registered, two more have no model-selection tier, and no class-level escalation path exists for `doc`/`lesson`/`methodology` work) — then make the era's record true and stamp 0.3.1 (INFRA-310, terminal). This phase exists because the operator set aside the cold-eyes review's containment sizing: era 004 was scaffolded incomplete by design, and these inputs are the revision it was waiting for.
+Upstream the six methodology extensions field-proven on Repo-G's 0.1.0→0.3.0 hand-migration (AG-6, `docs/closeout-agreements-20260729.md`) — close-time disposition gates, backlog gate/groom, pre-build intent review, between-story context etiquette, covered contracts, spec-time model review — close the agent-dispatch completeness gap surfaced live during this phase's own build loop (AG-13, `docs/closeout-agreements-20260729.md`: three of eight agent roles were never registered, two more have no model-selection tier, and no class-level escalation path exists for `doc`/`lesson`/`methodology` work) — then make the era's record true and stamp 0.3.1 (INFRA-310, terminal). This phase exists because the operator set aside the cold-eyes review's containment sizing: era 004 was scaffolded incomplete by design, and these inputs are the revision it was waiting for.
 
 ## Stories
 

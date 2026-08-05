@@ -11,6 +11,8 @@ way.
 
 This document is the source of truth for the flex codebase itself. Read it before any task.
 
+Current era: `005` — Post-0.3.1 maintenance (`docs/eras/005-post-0-3-1-maintenance.md`).
+
 ---
 
 ## Module structure
@@ -75,7 +77,7 @@ flex/
         gate_verdict.py           ← WORKER-001 gate verdict grammar: VERBS (clean/block/flag), JUDGED_GATES (schema/auth; stub excluded), parse_verdict (string → (verb, reason)), validate_verdict_map (dict → violation list); stdlib-only, no I/O; the WORKER-rail contract analogue of next_action.py's action grammar
         worker_result.py          ← generalized worker return contract (WORKER-004, HARNESS003-main): four result types (BUILD-RESULT, REVIEW-RESULT, ADVICE, SPEC-RESULT), parse_worker_result (text → dict, validated), validate_worker_result (dict → violation list); stdlib-only, no I/O; parallel to gate_verdict.py for all non-gate workers
         next_action.py            ← next-action resolver: action grammar (make_action, validate_action, ACTIONS), position read-model (infer_position), 9-state DP2 machine (resolve_next_action); HARNESS002-main adds spawn-gate-worker to ACTIONS, Row-4 DP2 split (stub→await-user directly; schema/auth→spawn-gate-worker), parse_worker_verdict_json (worker text return → per-gate verdict map), route_gate_verdict (DP3.2 aggregation: block→await-user, flag→proceed+warnings, clean→proceed); the live sequencing core since the flip (HARNESS006), pure-read; HARNESS003-main adds spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer to ACTIONS and _SPAWN_ACTIONS; SCHEMA_VERSION bumped to 2; HARNESS004-main adds checkpoint-security, checkpoint-intent, checkpoint-docs, checkpoint-tag to ACTIONS; removes monolithic checkpoint from ACTIONS (constant retained for import compat); adds check_checkpoint_guards (pre-checkpoint guards: phase-completion, CER Do Now, build-gate via injectable gate_fn); checkpoint step sequencing via _CHECKPOINT_SEQUENCE; SCHEMA_VERSION bumped to 3; HARNESS005-main adds spawn-spec-writer to ACTIONS and _SPAWN_ACTIONS; adds needs_spec bool to infer_position Position (True when ## Ensures absent or &lt; 5 non-blank lines — stub heuristic; fail-safe: unreadable story file → True); Row-2 split: needs_spec True → spawn-spec-writer (model=opus, reason=needs-spec), needs_spec False → spawn-builder as before; _count_ensures_nonblank_lines private helper (pure, no I/O); SPEC-RESULT{revised} routing lives in CLAUDE.build.md orchestrator prose (not in resolve_next_action); canonical reason string: spec-revised-awaiting-review; SCHEMA_VERSION bumped to 4; spawn-reviewer is in ACTIONS/_SPAWN_ACTIONS for orchestrator dispatch but is never emitted by resolve_next_action (CER-074); INFRA-328 Row 6 (double-fail → spawn-loop-breaker) now queries `effort_db.query_by_story` for the story's most recent `outcome == "FAIL"` attempt and surfaces its `notes` (fail_cause) column as the action's `reason` — replacing the prior bare `reason=""` — so CLAUDE.build.md's orchestrator loop can construct the `LOOP-BREAKER: [error] | FILE: [file:line] | TRIED: [what failed]` prompt CLAUDE.md's loop-breaker mode requires; fails open unchanged (any lookup error, missing effort.db, no FAIL rows, or a FAIL row with no notes still returns spawn-loop-breaker with reason=""); 2026-08-01 INFRA-341: closes the F8 livelock (`spawn-gate-worker` re-emitting identically on every poll since nothing consumed its verdict) — `infer_position` gains `gate_verdict` (`dict[str, str] | None`, read from `state.json["gate_verdict"][next_story_id]`, mirrors `pre_build_intent_verdict`'s fail-open read shape exactly); Row 4b now calls `route_gate_verdict(position["gate_verdict"], next_story_id, meta_base=meta)` — the existing DP3.2 aggregation, called from a real production path for the first time — whenever a verdict has been recorded, falling back to (re-)emitting `spawn-gate-worker` (unchanged) only when none has; `flex_build.py record-gate-verdict` is the new CLI writer (reads the worker's raw stdout from stdin, injects `"stub": "clean"` when absent to reconcile the live worker's two-key contract with `parse_worker_verdict_json`'s three-key requirement, then persists to `state.json["gate_verdict"][story_id]` via `_atomic_write_json`); `merge-story-worktree`/`discard-story-worktree` both clear the recorded verdict for their story_id, mirroring the existing attempt-counter/active-story/permissions clears; grammar-unchanged (no new action type, no `ACTIONS`/`_SPAWN_ACTIONS` membership change, no `SCHEMA_VERSION` bump)
-        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); add missing harness-role narrative files (sync-narratives subcommand, INFRA-352); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all four sync operations in fixed order (sync-all subcommand); also registers register/unregister/list-projects in the top-level CLI group
+        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); add missing harness-role narrative files (sync-narratives subcommand, INFRA-352); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all five sync operations in fixed order (sync-all subcommand, fifth step — stale-hook repair — added INFRA-386); also registers register/unregister/list-projects in the top-level CLI group
         pairmode_register.py      ← manage registered_projects in .companion/state.json (register/unregister/list-projects subcommands)
         pairmode_migrate.py       ← one-shot migration of an anchor-bootstrapped sibling project to flex naming (migrate-from-anchor subcommand)
         global_session_check.py   ← global SessionStart hook; detects pairmode, prints status block or bootstrap prompt; stdlib-only (runs as bare python3)
@@ -1153,7 +1155,7 @@ so a claim never overrides commit evidence (CER-095.1).
     genuinely open rows through. `cer.is_resolution_marked` is the single implementation of this
     grammar; no consumer re-derives its own test.
 
-    **CER backlog gate and groom (INFRA-313, cora agreement A#1).** The Do Now scan behind the
+    **CER backlog gate and groom (INFRA-313, Repo-G agreement A#1).** The Do Now scan behind the
     guard above is a single shared function, `cer.find_open_do_now_rows(text)` — pure, no I/O,
     returning `{"id", "text"}` for every open row — consumed by both
     `next_action._check_cer_do_now` (the resolver's soft `cer-do-now` guard) and `cer.py gate`
@@ -1169,7 +1171,7 @@ so a claim never overrides commit evidence (CER-095.1).
     `docs/cer/backlog.md` fails open on both paths, matching the resolver's own guard — a project
     that has never run `cer.py` is never blocked by it.
 
-    **Deferral/disposition gates at both boundaries (INFRA-314, cora A#6/AG-6).** Two more
+    **Deferral/disposition gates at both boundaries (INFRA-314, Repo-G A#6/AG-6).** Two more
     refusals compose at the same `checkpoint-tag` seam as the CER gate above, plus one at the
     era-close seam — one shared predicate (`index_integrity.is_formally_deferred`: status
     `deferred` AND named in the phase doc's `## Deferred stories` section), so the two never
@@ -1199,7 +1201,7 @@ so a claim never overrides commit evidence (CER-095.1).
     **read-only**: it never writes `docs/cer/backlog.md` and never promotes a row to Do Now
     automatically. Pulling an arrived-gate row forward is always an operator decision, recorded in
     the promotion ledger (`docs/phases/index.md` § backlog promotions, which this story does not
-    rebuild) — this is the preserved do-not-do from cora agreement A#1/AG-6. Per the global
+    rebuild) — this is the preserved do-not-do from Repo-G agreement A#1/AG-6. Per the global
     backlog-grooming policy, every cold-eyes review should run `cer.py groom` and surface any
     arrived-gate rows as "ready to pull forward" for the operator; the pull itself is never
     automated.
@@ -1824,7 +1826,7 @@ just the software it produces. When a phase doc is read cold with no access to c
 referenced narratives let a reader verify that story Ensures and role expectations align, and
 catch gaps the diff alone wouldn't surface (a story that passes review but violates an
 intent-reviewer's alignment check is a signal, not a passing grade). This is the same reasoning
-that led to narrative-first design in other fleet projects (coherra, stackabid); flex is the
+that led to narrative-first design in other fleet projects (Repo-A, Repo-N); flex is the
 first to wire narrative-checking into live procedures rather than stating it as intent.
 
 **`story_new.py` scaffold** adds `narrative_roles: []` to new story stubs. The decision of which
@@ -2064,7 +2066,7 @@ Reason: high-scope code story; opus reduces rework risk
 Say "upgrade" to use opus, or "continue" to proceed with sonnet.
 ```
 
-**Spec-time model override: `model:` / `reviewer_model:` (INFRA-318, Cora
+**Spec-time model override: `model:` / `reviewer_model:` (INFRA-318, Repo-G
 A#7/AG-6).** Optional story frontmatter fields, one shared vocabulary
 (`schema_validator.VALID_MODEL_TIERS = {haiku, sonnet, opus}`; `fable` is the
 loop-breaker's escalation tier only and is never declarable). Asymmetric by
@@ -2347,7 +2349,7 @@ have always finished loading by the time any validator function actually runs.
 `story_new.py`'s stub scaffold gains `narrative_roles: []` to the frontmatter
 template — empty by default, never auto-inferred from title or rail.
 
-**The `stories:` two-way trace (Step 4c).** Mirroring coherra's own two-way
+**The `stories:` two-way trace (Step 4c).** Mirroring Repo-A's own two-way
 trace convention (a narrative file's `stories:` frontmatter lists which
 stories cite it), the spec-writer backfills its own story's `id` into each
 cited narrative's `stories:` list once the draft is complete — a new Step 4c,
@@ -2680,16 +2682,19 @@ Behaviour:
 - Applies a depth guard on `--project-dir` (fewer than 3 path components are rejected).
 
 **`pairmode_sync.py` — `sync-all` subcommand.**
-Sequences all four sync operations in a single CLI call: `sync.py` (methodology files)
+Sequences all five sync operations in a single CLI call: `sync.py` (methodology files)
 → `sync-agents` (agent frontmatter) → `sync-narratives` (harness narrative backfill,
-INFRA-352) → `sync-build` (CLAUDE.build.md). `sync-narratives` sits immediately after
-`sync-agents` — both are add-missing-file backfills against a `bootstrap.py`-owned template
-contract, run before `sync-build`'s content-rewrite step. Safe by default: without `--apply`,
-all four commands are invoked, `sync.py` included — `sync.py` runs with its own `--dry-run`
-flag (INFRA-371; it has always had a working `--dry-run` flag, the wrapper previously never
-reached it in dry-run mode) and the remaining three run in dry-run mode. With `--apply`, all
-four are invoked without `--dry-run`. Fail-fast: if any downstream command exits non-zero, the
-wrapper emits an error and exits with the same status code; remaining commands are not invoked.
+INFRA-352) → `sync-build` (CLAUDE.build.md) → `to-030 --hooks-only` (stale-flex-harness
+hook repair, INFRA-386, Phase 121 — folds the operator's `to-030` + `audit-hooks`
+precedent into `sync-all` as an idempotent, order-independent fifth step). `sync-narratives`
+sits immediately after `sync-agents` — both are add-missing-file backfills against a
+`bootstrap.py`-owned template contract, run before `sync-build`'s content-rewrite step.
+Safe by default: without `--apply`, all five commands are invoked, `sync.py` included —
+`sync.py` runs with its own `--dry-run` flag (INFRA-371; it has always had a working
+`--dry-run` flag, the wrapper previously never reached it in dry-run mode) and the remaining
+four run in dry-run mode. With `--apply`, all five are invoked without `--dry-run`. Fail-fast:
+if any downstream command exits non-zero, the wrapper emits an error and exits with the same
+status code; remaining commands are not invoked.
 
 CLI:
 ```bash
@@ -2698,11 +2703,12 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 ```
 
 Behaviour:
-- `--dry-run` (default True): runs all four commands, `sync.py` included, with `sync.py`
-  and `sync-agents`/`sync-narratives` passed `--dry-run` and `sync-build` also run without
-  `--apply` (its own dry-run default).
-- `--apply`: runs all four; `sync.py`, `sync-agents`, and `sync-narratives` without
-  `--dry-run`; `sync-build` with `--apply`.
+- `--dry-run` (default True): runs all five commands, `sync.py` included, with `sync.py`
+  and `sync-agents`/`sync-narratives` passed `--dry-run`, `sync-build` also run without
+  `--apply` (its own dry-run default), and the fifth step (`to-030 --hooks-only`) run
+  without `--apply`.
+- `--apply`: runs all five; `sync.py`, `sync-agents`, and `sync-narratives` without
+  `--dry-run`; `sync-build` and the fifth step (`to-030 --hooks-only`) with `--apply`.
 - `--yes` / `-y`: propagated to every downstream invocation.
 - Depth guard (`_depth_guard_sync_build`) runs against `--project-dir` before any subprocess call.
 - Per-command output is preceded by a `=== <label> ===` separator line.
@@ -2739,7 +2745,7 @@ module constant `REGISTERED_PROJECTS_WRITERS`. The invariant is enforced by
 `test_registered_projects_has_a_single_writer`, which walks every `.py` file under
 `skills/`/`hooks/` and fails if any file besides those named in
 `REGISTERED_PROJECTS_WRITERS` assigns the key. Entries predating this story (including
-the `meander` entry that prompted CER-058) carry `source: unknown` in the
+the `Repo-B` entry that prompted CER-058) carry `source: unknown` in the
 `registered_projects_provenance` sidecar because their provenance is genuinely
 unrecoverable — the audit found no in-repo writer bypasses `register`, so an
 out-of-band edit of `state.json` remains the only explanation, and the invariant
@@ -2789,7 +2795,7 @@ as-is rather than parameterized.
 
 The Build standards line also carries `intent_review` (default rendered value:
 `(unset)`). This is a **behaviour switch**, not a per-project fact like the four keys
-above — it turns on the resolver's pre-build intent-review emission (Cora item A#2,
+above — it turns on the resolver's pre-build intent-review emission (Repo-G item A#2,
 AG-6: catch spec-level drift before the first builder spawn of a fresh phase, not only
 at checkpoint). The only value that opts a project in is the literal string
 `pre-build`; absent, or any other value, leaves `next_action.resolve_next_action`'s
@@ -2825,7 +2831,7 @@ A **covered contract** is a structured payload whose shape no database enforces 
 a JSON blob, a markdown table read by a parser, a wire format between scripts —
 where a canonical doc section describes the shape and a source file implements it.
 Without a gate, the doc drifts to aspirational and the code becomes the only truth
-(Cora item A#5, AG-6). `covered_contracts` is a Build standards key (INFRA-240
+(Repo-G item A#5, AG-6). `covered_contracts` is a Build standards key (INFRA-240
 per-project-facts pattern): a list of `doc-section::source-file` pairs, `::`-joined
 (the separator cannot appear in a heading or a repo-relative path, unlike `/` or `:`
 alone) and `, `-joined across pairs, same encoding style as `protected_paths`.
@@ -2851,6 +2857,15 @@ deliberately out of scope for this story — see the phase-116 stories list.
   for `ideology.md.j2`. Do not merge these back into a single key.
 
 - Lessons are append-only. Existing lesson entries may only have their `status` field updated.
+  CER-173 narrow exception: `skills/pairmode/scripts/scrub_fleet_names.py`'s lessons-scoped
+  mode (`apply_lessons()`/`verify_lessons()`, `--lessons` CLI flag) performs a real-name-only
+  text substitution within an existing entry's free-text fields (`source_project`, `trigger`,
+  `problem`, `learning`, `methodology_change.description`, `value_framing`), sourced entirely
+  from the runtime-loaded local fleet map (INFRA-393/CER-172). It never touches `id`, `date`,
+  `status`, `enforced_by`, `applies_to`, `methodology_change.affects`, `validation_phase`, or
+  entry count/ordering. This is the only authorized route around `lesson_utils.save_lessons`'s
+  append-only guard; the guard itself is unchanged, and no other field change, addition,
+  removal, or reorder is permitted under this exception.
 - Two optional lesson fields were introduced in Phase 24 (L012) and are not yet supported by
   the `lesson.py` CLI — write them directly when appending:
   - `value_framing` (string) — the durable metric framing for efficiency-based lessons (e.g.,
@@ -3602,7 +3617,7 @@ remaining companion/sidebar blocks (`Stop`, `PermissionRequest`/
 `ExitPlanMode`, `PostToolUse` `Write|Edit|MultiEdit`, `SessionEnd`) remain
 opt-in. Phase 95 (INFRA-208/INFRA-209) shipped this registrar generalization
 and verified the fleet rollout — 13 of 14 in-scope projects already carried
-the three registrations by the time INFRA-209 ran (no commits needed); `cora`
+the three registrations by the time INFRA-209 ran (no commits needed); `Repo-G`
 is formally excluded as a known carve-out, `anchor` remains excluded as a
 non-pairmode-consumer sibling plugin repo. Phase 95's INFRA-222 additionally
 fixed an escaped-pipe parsing bug in `next_action.py`'s checkpoint guard
@@ -3671,7 +3686,7 @@ plugin `hooks/hooks.json` into one provenance-tagged list, grouped by command
 basename (never by resolved path — a plugin's `${CLAUDE_PLUGIN_ROOT}` command
 must keep matching the settings entry's absolute path). The settings-only read
 was structurally blind to a hook registered once in settings and once by an
-installed plugin — the exact shape that doubled every effort row on meander
+installed plugin — the exact shape that doubled every effort row on Repo-B
 while fleet discovery reported 0 duplicates.
 
 Fleet rule: a project that receives a hook from an installed flex plugin must
@@ -4440,7 +4455,7 @@ plain-text FAIL form (a stuck builder emitted the prose `BUILDER STUCK —
 `REVIEW-RESULT` verdict is recognised only when it is a member of the same
 `RECOGNISED_REVIEW_VERDICTS` frozenset the JSON path uses — no second copy
 of the verdict vocabulary. This exists so already-stranded 0.2-era fleet
-rows (e.g. caddy's `effort.db` rows 33/34, PAIRMODE-002) remain reconcilable
+rows (e.g. Repo-C's `effort.db` rows 33/34, PAIRMODE-002) remain reconcilable
 inside the `RECONCILE_MAX_AGE_DAYS` (14-day) window, without a tolerant
 parser ever writing a guessed outcome for an unrecognised verdict token.
 
@@ -4666,9 +4681,9 @@ value `hooks/post_tool_use.py` reads from `data["cwd"]` names the *session*
 that spawned a Task/Agent — the project whose `effort.db` gets the row is a
 different question the moment a spawn is dispatched *from* one flex session
 *against* another project (a fleet campaign's `--project-dir
-/mnt/work/meander` in the prompt, or a cwd under that project's own
+/mnt/work/Repo-B` in the prompt, or a cwd under that project's own
 `.pairmode-worktrees/`). Merging the two was the RELEASE-063 canary's root
-cause: `LEGAL-001` rows landed in flex's db while meander's held zero.
+cause: `LEGAL-001` rows landed in flex's db while Repo-B's held zero.
 `subagent_transcript.resolve_recording_project` now resolves the row's
 actual target from the spawn itself, mirroring `scope_guard
 .resolve_call_story`'s shape (per-call resolution, not one global slot) —
@@ -4951,8 +4966,18 @@ A project matched by either signal is reported; the report distinguishes "bound 
 path", "bound by version only", and "both".
 
 **Default candidate set:** `registered_projects` from this checkout's `.companion/state.json`,
-merged with the documented candidate names under the parent of the flex root. Overridable via
-`--candidate-dir` (repeatable) or `--candidates-file`.
+merged with the real absolute paths from `_load_local_fleet_map()` (CER-172, INFRA-393). This
+repo is public, so real sibling-repo directory names are never committed as source string
+literals — they used to live in a hardcoded `_DOCUMENTED_CANDIDATES` name list, removed in
+INFRA-393. The mechanism now is a local, gitignored `<flex-root>/.pairmode-fleet.local.json`
+file mapping a stable anonymized label (e.g. `"repo-a"`) to a real absolute path (e.g.
+`"repo-a": "/mnt/work/<real-name>"`); `_load_local_fleet_map()` reads it and returns `{}` when
+the file is missing, unreadable, or not valid JSON (same never-raise contract as
+`_read_registered_projects()`). A tracked `.pairmode-fleet.local.json.example` at the repo root
+holds fake placeholder entries as the template a fresh operator copies and fills with their own
+fleet paths; the same local file is also the real→anonymized-label mapping INFRA-394 uses to
+scrub already-committed docs. Overridable via `--candidate-dir` (repeatable) or
+`--candidates-file`.
 
 **Read-only contract:** the tool never opens any scanned project file for write. The only file
 it writes is a snapshot at `docs/fleet-snapshot.md`, and only **inside the repo the tool was

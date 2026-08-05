@@ -35,11 +35,11 @@ project whose `.companion/effort.db` gets the row* (`:1411`,
 `_read_state(project_path)`). For a native session those are the same thing.
 For the fleet campaign this phase exists to unblock they are not: a spawn
 dispatched from a flex session against another project — `--project-dir
-/mnt/work/meander` in the prompt, or a cwd under that project's
+/mnt/work/Repo-B` in the prompt, or a cwd under that project's
 `.pairmode-worktrees/` — records into **flex's** db. The RELEASE-063 canary
-is the proof: `LEGAL-001` rows 419/420 sit in flex's `effort.db` and meander's
+is the proof: `LEGAL-001` rows 419/420 sit in flex's `effort.db` and Repo-B's
 db has zero. The row is not merely mislabelled, it is *in the wrong file*, so
-meander's `checkpoint-report` under-reports and flex's per-role medians are
+Repo-B's `checkpoint-report` under-reports and flex's per-role medians are
 polluted by another project's work.
 
 The answer already exists in this codebase in a neighbouring form.
@@ -58,7 +58,7 @@ would *create* directories at an agent-chosen location. The containment is an
 operator-controlled allowlist that already exists and is already populated:
 `state.json["registered_projects"]` (read today by
 `fleet_discovery._read_registered_projects`, `fleet_discovery.py:85-98`; flex's
-own entry currently lists coherra, meander, caddy and forqsite.help). A derived
+own entry currently lists Repo-A, Repo-B, Repo-C and Repo-D). A derived
 candidate outside that allowlist is not silently used and not silently
 discarded — it falls back to the session project and says so in the recording
 log.
@@ -67,7 +67,7 @@ log.
 `_PHASE_BARE_RE` (`:125`) is `\bPhase\s+([A-Za-z0-9][A-Za-z0-9._-]*)`, applied
 to a checkpoint worker's prompt with no shape validation on the capture. It
 matched the word after "Phase" in ordinary prose: flex row 416 carries
-`story_id = "phase:key"` and meander rows 233-236 carry `"phase:checkpoint"`.
+`story_id = "phase:key"` and Repo-B rows 233-236 carry `"phase:checkpoint"`.
 Those are not phases. They are synthetic story ids that no `query_by_phase`
 will ever find and that no per-story rollup will ever exclude — the exact
 mis-attribution `CHECKPOINT_ROLES` and `_derive_attribution` (`:534-560`) were
@@ -483,7 +483,7 @@ the session fallback for the two pre-resolution log calls only. Thread
 `target_project` / `target_source` into every post-resolution
 `log_recording_event` call — including the ones inside the `effort_tracking`
 early return, which is exactly where an operator debugging "why is there no row
-in meander's db" will look first. Emit the additional
+in Repo-B's db" will look first. Emit the additional
 `skip:target-unregistered` line when `target_source ==
 "rejected-unregistered"`, then carry on and record against the session project;
 do not return early. Pass `target_path` to `_derive_attribution` for item B's
@@ -611,7 +611,7 @@ Acceptance:
 ## Out of scope
 
 - **Repairing historical rows.** `phase:key` (flex row 416),
-  `phase:checkpoint` (meander rows 233-236) and the misattributed `LEGAL-001`
+  `phase:checkpoint` (Repo-B rows 233-236) and the misattributed `LEGAL-001`
   rows 419/420 in flex's db stay exactly where they are. A cross-project row
   migration is a destructive data operation across two projects' databases and
   needs its own spec with its own reversibility argument. This story fixes the

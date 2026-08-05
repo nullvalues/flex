@@ -143,7 +143,7 @@ test that doesn't match how a procedure-skill change is actually exercised.)
   frozen exemplar's shape — same reasoning as INFRA-357's Out-of-scope: this is a procedure/
   judgment fix, and a hard mechanical gate is a follow-up finding if dogfooding shows the frozen
   exemplar alone isn't enough, not something to build speculatively here.
-- Propagating the frozen-exemplar pattern to sibling repos (cora, anchor, forqsite, radar, etc.)
+- Propagating the frozen-exemplar pattern to sibling repos (Repo-G, anchor, Repo-E, Repo-L, etc.)
   that use the same pairmode methodology but are separate repos with their own tooling — each
   would need its own story in its own repo; this story is scoped to flex only.
 - Restoring the one-sentence-acceptance rule's original source doc (the legacy preamble lineage)

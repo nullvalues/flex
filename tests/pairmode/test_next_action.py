@@ -366,7 +366,7 @@ class TestInferPositionActivePhase:
 class TestResolveActivePhaseAnnotatedStatus:
     """Annotated ``complete (...)`` status rows must read as inactive (INFRA-225).
 
-    Reproduces the ``aab`` phase-15 shape: an index row whose status carries a
+    Reproduces the ``Repo-H`` phase-15 shape: an index row whose status carries a
     parenthetical suffix after ``complete``.  ``is_phase_inactive`` is an
     exact-membership test and would treat such a row as *active*; the ported
     ``startswith("complete")`` fallback in ``_resolve_active_phase`` must skip

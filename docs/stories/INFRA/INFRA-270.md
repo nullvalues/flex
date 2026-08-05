@@ -29,7 +29,7 @@ both halves of "does flex know what its fleet actually is": the **registration l
 (CER-058) and the **binding signal** (CER-059).
 
 **CER-058 — unexplained `registered_projects` writes.** A brand-new project
-(`meander`, bootstrapped 2026-06-26, still in inception) appeared in flex's
+(`Repo-B`, bootstrapped 2026-06-26, still in inception) appeared in flex's
 `.companion/state.json` `registered_projects` without the operator ever running
 `pairmode_sync.py register`. The CER asks for an audit: *enumerate every writer of
 `registered_projects` and confirm none bypasses the intended registration entry
@@ -45,15 +45,15 @@ Every other reference is a read — `fleet_discovery._read_registered_projects:6
 it only *prints* the register command as operator guidance (`bootstrap.py:670`).
 
 So the audit's conclusion is already visible: **no in-repo bypass path exists**, and
-the `meander` entry was written out of band — a manual or agent-session edit of
+the `Repo-B` entry was written out of band — a manual or agent-session edit of
 `state.json`. That conclusion is worth nothing as a spec-time observation, because
 nothing prevents the next such write and nothing records that the audit was ever run.
 This story converts the finding into two durable artifacts: a **single-writer
 regression test** that fails if any new module assigns the key, and a **provenance
 sidecar** so an entry that arrived out of band is visibly distinguishable from one
 that came through `register`. The four entries live today
-(`/mnt/work/coherra`, `/mnt/work/meander`, `/mnt/work/caddy`,
-`/mnt/work/forqsite.help`) predate provenance and must audit as `unknown` rather than
+(`/mnt/work/Repo-A`, `/mnt/work/Repo-B`, `/mnt/work/Repo-C`,
+`/mnt/work/Repo-D`) predate provenance and must audit as `unknown` rather than
 being retroactively invented.
 
 **CER-059 — Signal-1 zero-hit.** `docs/fleet-snapshot.md` showed all discovered
@@ -194,7 +194,7 @@ enforced by `test_registered_projects_has_a_single_writer` against
 `REGISTERED_PROJECTS_WRITERS`, that entries predating this story carry
 `source: unknown` because their provenance is genuinely unrecoverable, and that an
 out-of-band edit of `state.json` remains possible — the invariant covers *code paths*,
-not the filesystem. It must not claim `meander` was traced to a specific writer; the
+not the filesystem. It must not claim `Repo-B` was traced to a specific writer; the
 audit found no in-repo bypass, and asserting more than that would be a fabrication.
 
 ### B — Signal-1 absence is diagnosable
@@ -299,7 +299,7 @@ gains a one-line entry for `registered_projects_provenance` marked **optional**.
 `CER-059` rows each gain a bolded `**RESOLVED Phase 105 — INFRA-270 …**` note appended
 to the Finding cell, and each row's `Phase` cell reads `105`. Neither row is deleted or
 moved between quadrants. CER-058's note must state the audit's *actual* finding — no
-in-repo writer bypasses `register`; the `meander` entry has no recoverable provenance
+in-repo writer bypasses `register`; the `Repo-B` entry has no recoverable provenance
 and audits as `unknown`; the invariant is now test-enforced but covers code paths only.
 CER-059's note must name (a) as diagnosed-and-instrumented, and (b)/(c) as verified
 pre-existing.
@@ -356,7 +356,7 @@ two legitimate resolutions are.
 
 **3. (A) Wire the CLI and document.** Add `audit_projects` to `pairmode_sync.py:1185`'s
 import and `add_command` block. Write A8's architecture paragraph. Be precise about what
-the audit found: *no in-repo bypass path exists*. Do not write that `meander` was traced
+the audit found: *no in-repo bypass path exists*. Do not write that `Repo-B` was traced
 to bootstrap or to any named path — it was not, and the honest finding is that
 provenance is unrecoverable. Overclaiming here is worse than the gap, because the next
 operator reads this paragraph instead of re-running the audit.
@@ -492,7 +492,7 @@ Acceptance:
 
 ## Out of scope
 
-- **Un-registering `meander`, or any live fleet-state edit.** This story builds the audit
+- **Un-registering `Repo-B`, or any live fleet-state edit.** This story builds the audit
   and reports the finding; deciding whether a registered project belongs in the list is an
   operator call, and `.companion/state.json` is runtime state, not a build artifact. The
   builder must not modify flex's own `registered_projects`.

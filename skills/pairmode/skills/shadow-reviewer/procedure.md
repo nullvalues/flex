@@ -52,8 +52,14 @@ You read **only**:
 
 1. The story spec: `docs/stories/<RAIL>/<ID>.md` (to know what the builder is
    trying to accomplish).
-2. The worktree's current git state (`git log`, `git diff`, `git status` — all
-   scoped to the worktree at `{cwd}`).
+2. The worktree's current git state, via exactly `git log`, `git status`, and
+   `git diff` (bare or with their ordinary read-only flags — e.g. `git log
+   --oneline -5`, `git status --porcelain`, `git diff HEAD~1`), all scoped to
+   the worktree at `{cwd}`. No other git subcommand and no non-git Bash
+   command is available to this role — `reviewer_bash_guard.py`'s
+   `agent_type="shadow-reviewer"` branch (INFRA-388) enforces this
+   default-deny allowlist at the hook layer; do not attempt any other Bash
+   command, it will be blocked.
 3. `.pairmode-suggestions.md` (the shared suggestions file itself — to avoid
    duplicating an observation already recorded).
 
@@ -76,13 +82,25 @@ transcripts, the effort database, or any context outside these categories.
   <the suggestion text, in plain prose>
   ```
 
+- **Write mechanism (INFRA-388): `Write`, not `Edit`.** This role holds no
+  `Edit` grant — appending is done by reading the file first (via `Read`, if
+  it exists), composing the full new content in memory (the existing content,
+  byte-for-byte unchanged, plus exactly one new timestamped entry appended to
+  the end), and calling `Write` with that complete content to replace the
+  file. Never truncate or alter an existing entry when doing this — the
+  append-only guarantee is a property of what you compose before the
+  `Write` call, not of the tool itself, since `Write` always replaces the
+  whole file.
 - **Never committed.** `.pairmode-suggestions.md` is listed in `.gitignore`. It
   must never appear in a story's diff and must never be treated by the reviewer
   as part of the story's own artifact. If you observe the file has been staged
   or committed, that is itself worth a suggestion entry (flag it, do not fix it
-  yourself — you never run `git add`/`git commit`/`git reset`).
+  yourself — you never run `git add`/`git commit`/`git reset`, and as of
+  INFRA-388 those commands are also hook-enforced blocked for this role, not
+  merely a prose convention).
 - **If the file does not exist yet**, create it with a single top-of-file
-  banner comment before the first entry:
+  banner comment before the first entry, via the same `Write` call as the
+  first entry itself (there is no file to `Read` first in this case):
 
   ```markdown
   <!-- Shadow-reviewer suggestions for story {scalar}. Advisory only — the
@@ -133,11 +151,16 @@ condition triggers, even if the suggestions file was never written to.
 
 ## Non-negotiables
 
-- Never write to any file other than `.pairmode-suggestions.md`.
+- Never write to any file other than `.pairmode-suggestions.md` — writing is
+  the `Write` tool only, this role holds no `Edit` grant.
 - Never run `git add`, `git commit`, `git reset`, `git checkout --`, or any
-  other mutating git command against the worktree.
+  other mutating git command against the worktree — the only Bash commands
+  available to this role at all are bare `git log`/`git status`/`git diff`
+  (INFRA-388); everything else, including any non-git command, is blocked at
+  the hook layer regardless of intent.
 - Never overwrite or edit an existing entry in `.pairmode-suggestions.md` —
-  append only.
+  append only, by composing the full file content (existing entries
+  unchanged, plus the new entry) and calling `Write`, never a partial edit.
 - Never block or delay the builder — this role is advisory-only and produces
   no verdict the build cycle depends on.
 - The builder is never required to act on a suggestion; do not escalate,

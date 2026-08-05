@@ -113,6 +113,19 @@ AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/shadow-reviewer.md", "agents/shadow-reviewer.md.j2"),
 ]
 
+# EXEMPLAR-000.md (INFRA-392/CER-171): harness-owned, frozen exemplar the
+# spec-writer procedure's bounded input 4 reads for structural format
+# (skills/pairmode/skills/spec-writer/procedure.md § Input contract item 4,
+# INFRA-363). Deliberately kept out of AGENT_FILES — it is not a dispatch
+# shell and does not belong in the restart-notice surface (written_agent_shells,
+# below) that AGENT_FILES feeds — but reuses the exact same skip-if-exists-
+# unless-force write treatment and the existing --force-agents flag, since
+# its "project-owned after first write" contract is identical. Must stay
+# mirrored with CANONICAL_FILES in audit.py.
+EXEMPLAR_FILES: list[tuple[str, str]] = [
+    ("docs/exemplars/EXEMPLAR-000.md", "docs/exemplars/EXEMPLAR-000.md.j2"),
+]
+
 # INFRA-351: the nine harness-role narratives (the build-loop roles themselves —
 # BUILDER, REVIEWER, LOOP-BREAKER, SECURITY-AUDITOR, INTENT-REVIEWER,
 # DOCS-REVIEWER, GATE-WORKER, SPEC-WRITER, ORCHESTRATOR) describe the harness,
@@ -649,6 +662,13 @@ def _register_pretooluse_hook(
     installed plugin's hooks.json must not also get a settings-level entry.
 
     Creates the local settings file (and its .gitignore guard) if absent.
+
+    CER-169: A7 eviction now also runs on the plugin-sourced skip path
+    below, not only on the normal write path — the plugin's own
+    registration is by definition the correct entry, so evicting a stale
+    committed-settings.json duplicate is unconditionally safe once the
+    plugin-sourced pair is confirmed, even though no new
+    settings.local.json entry is written on that branch.
     """
     project_dir = settings_path.parent.parent
     local_settings_path = _hook_settings_path(project_dir)
@@ -663,6 +683,14 @@ def _register_pretooluse_hook(
             "registered by an installed plugin's hooks.json — a "
             "settings-level duplicate would run the hook twice per event "
             "(INFRA-288/CER-104, CER-127)"
+        )
+        # A7 (CER-169): even though no local entry is written on this
+        # skip path, the plugin's own registration is by definition the
+        # correct entry — so evicting a stale/duplicate/machine-absolute
+        # committed-settings.json entry for this pair is unconditionally
+        # safe here too, not just on the write path below.
+        _evict_stale_committed_hook_entries(
+            settings_path, "PreToolUse", pre_tool_use_path.name
         )
         return False
 
@@ -829,6 +857,15 @@ def _register_context_budget_hooks(
     ``.claude/settings.local.json`` (see _hook_settings_path); any stale
     entry already in the committed file for a spec actually registered this
     run is evicted afterward (A7).
+
+    CER-169: A7 eviction is no longer gated on membership in
+    ``registered_this_run`` — a spec that hit the plugin-sourced skip
+    (below) is, by construction, never added to that list, so eviction for
+    such a spec is now performed unconditionally at the skip site itself.
+    ``registered_this_run`` retains its original meaning ("registered
+    locally this run") for its other use (the ``any_change``
+    restart-surface signal, INFRA-323 § A/B) — a skipped spec's local
+    registration state never changed, so it still must not appear there.
     """
     project_dir = settings_path.parent.parent
     local_settings_path = _hook_settings_path(project_dir)
@@ -867,6 +904,17 @@ def _register_context_budget_hooks(
                 "already registered by an installed plugin's hooks.json — a "
                 "settings-level duplicate would run the hook twice per event "
                 "(INFRA-288, CER-104)"
+            )
+            # A7 (CER-169): eviction here is unconditional and separate from
+            # registered_this_run — that list still means "registered
+            # locally this run" for its any_change/restart-surface use
+            # (INFRA-323 § A/B); a skipped pair's local registration state
+            # never changed, so it must not be added there. But the plugin's
+            # own registration is by definition correct, so a stale/
+            # duplicate/machine-absolute committed-settings.json entry for
+            # this pair is safe to evict regardless.
+            _evict_stale_committed_hook_entries(
+                settings_path, spec["event"], hook_path.name
             )
             continue
 
@@ -1706,6 +1754,32 @@ def bootstrap(
             wrote = _write_file(dest, content, dry_run=dry_run, yes=yes)
             if wrote and not dry_run:
                 written_agent_shells.append(dest_rel)
+
+    # ------------------------------------------------------------------
+    # 4a-2. Write EXEMPLAR-000.md (INFRA-392/CER-171)
+    # ------------------------------------------------------------------
+    # Same skip-if-exists-unless-force treatment as AGENT_FILES, reusing
+    # --force-agents — but not appended to written_agent_shells: this is not
+    # an agent dispatch shell, so it does not belong in the restart-notice
+    # surface below.
+    for dest_rel, template_name in EXEMPLAR_FILES:
+        dest = project_path / dest_rel
+        if not dry_run and dest.exists() and not force_agents:
+            click.echo(
+                f"  skipped (project-owned): {dest} — use --force-agents to overwrite"
+            )
+            continue
+        try:
+            content = _render_template(template_name, context)
+        except jinja2.TemplateError as exc:
+            click.echo(f"  ERROR rendering {template_name}: {exc}", err=True)
+            sys.exit(1)
+        if force_agents and not dry_run:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content, encoding="utf-8")
+            click.echo(f"  wrote: {dest}")
+        else:
+            _write_file(dest, content, dry_run=dry_run, yes=yes)
 
     # ------------------------------------------------------------------
     # 4b. Write the nine harness-role narrative files (INFRA-351)

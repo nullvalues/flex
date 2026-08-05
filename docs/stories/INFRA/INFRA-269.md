@@ -47,8 +47,8 @@ execute independently on every event. So each of these projects runs the
 already fixed on the harness line (INFRA-246's reviewer-spawn context-budget
 gate, INFRA-236's effort recording) and producing duplicate, racing writes to
 `.companion/state.json` and `effort.db` from two different code versions. This
-was confirmed on all four migrated fleet projects surveyed (aab, asp, coherra,
-forqsite): two blocks per event across `PreToolUse`, `UserPromptSubmit`,
+was confirmed on all four migrated fleet projects surveyed (Repo-H, Repo-I, Repo-A,
+Repo-E): two blocks per event across `PreToolUse`, `UserPromptSubmit`,
 `SessionStart`, and `PostToolUse`. They were hand-cleaned in that session; no
 code fix was applied, so the next survey will find the same state on any
 project that was not hand-touched.

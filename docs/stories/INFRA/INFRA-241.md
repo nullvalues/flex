@@ -116,7 +116,7 @@ gap: total.
   two documented, distinct causes, neither of which is "the block fired and got
   ignored": (1) the pre-INFRA-193 self-clearing bug (CER-047), fixed; (2) an agent
   manually forging `context_budget_acknowledged_*` keys into `state.json` to defeat the
-  gate entirely (CER-067/asp finding) — a workaround around the gate never firing
+  gate entirely (CER-067/Repo-I finding) — a workaround around the gate never firing
   correctly, not a case of a fired block being overridden. This story's fix, once
   landed, restores a real hard block for genuine cases.
 - **Amended, folded in rather than a separate story**: `context_budget.py`'s

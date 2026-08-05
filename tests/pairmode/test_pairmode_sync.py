@@ -1037,15 +1037,16 @@ def test_sync_all_dry_run_default_invokes_sync_py_with_dry_run_flag(
 ) -> None:
     """In default dry-run mode (INFRA-371): sync.py is invoked with its own --dry-run
     flag rather than skipped; sync-agents, sync-narratives, and sync-build also get
-    --dry-run."""
+    --dry-run. The fifth step (to-030 --hooks-only) has no --dry-run flag of its own —
+    dry-run is its default, so it simply omits --apply."""
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, calls = _capturing_run([0, 0, 0, 0])
+    mock_run, calls = _capturing_run([0, 0, 0, 0, 0])
 
     result = _run_sync_all(["--project-dir", str(project_dir)], mock_run)
 
     assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
-    # sync.py is now invoked too — four subprocess calls
-    assert len(calls) == 4, f"Expected 4 subprocess calls, got {len(calls)}: {calls}"
+    # sync.py is now invoked too — five subprocess calls
+    assert len(calls) == 5, f"Expected 5 subprocess calls, got {len(calls)}: {calls}"
     # sync.py must contain --dry-run and must not be skipped
     sync_argv = calls[0]
     assert "--dry-run" in sync_argv, f"sync.py argv missing --dry-run: {sync_argv}"
@@ -1066,24 +1067,32 @@ def test_sync_all_dry_run_default_invokes_sync_py_with_dry_run_flag(
     build_argv = calls[3]
     assert "--dry-run" in build_argv, f"sync-build argv missing --dry-run: {build_argv}"
     assert "sync-build" in build_argv, f"Expected sync-build call, got: {build_argv}"
-    # stdout should contain all four section headers; no skipped notice anymore
+    # to-030 --hooks-only: no --dry-run flag exists on it; dry-run is simply the
+    # absence of --apply.
+    migrate_argv = calls[4]
+    assert "to-030" in migrate_argv, f"Expected to-030 call, got: {migrate_argv}"
+    assert "--hooks-only" in migrate_argv, f"Expected --hooks-only, got: {migrate_argv}"
+    assert "--apply" not in migrate_argv, f"--apply present in dry-run: {migrate_argv}"
+    # stdout should contain all five section headers; no skipped notice anymore
     assert "=== sync (methodology files) ===" in result.output
     assert "=== sync-agents (agent frontmatter) ===" in result.output
     assert "=== sync-narratives (harness narrative backfill) ===" in result.output
     assert "=== sync-build (CLAUDE.build.md) ===" in result.output
+    assert "=== to-030 --hooks-only (stale hook-command repair) ===" in result.output
     assert "skipped:" not in result.output
 
 
-def test_sync_all_apply_invokes_all_four_in_order(tmp_path: pathlib.Path) -> None:
-    """--apply: all four commands invoked in order; no --dry-run; sync-build gets --apply."""
+def test_sync_all_apply_invokes_all_five_in_order(tmp_path: pathlib.Path) -> None:
+    """--apply: all five commands invoked in order; no --dry-run; sync-build and the
+    fifth step (to-030 --hooks-only) both get --apply."""
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, calls = _capturing_run([0, 0, 0, 0])
+    mock_run, calls = _capturing_run([0, 0, 0, 0, 0])
 
     result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
 
     assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
-    assert len(calls) == 4, f"Expected 4 subprocess calls, got {len(calls)}: {calls}"
-    # Order: sync.py, sync-agents, sync-narratives, sync-build
+    assert len(calls) == 5, f"Expected 5 subprocess calls, got {len(calls)}: {calls}"
+    # Order: sync.py, sync-agents, sync-narratives, sync-build, to-030 --hooks-only
     assert "sync.py" in calls[0][-2] or any("sync.py" in a for a in calls[0]), (
         f"First call should be sync.py, got: {calls[0]}"
     )
@@ -1092,44 +1101,81 @@ def test_sync_all_apply_invokes_all_four_in_order(tmp_path: pathlib.Path) -> Non
         f"Third call should be sync-narratives, got: {calls[2]}"
     )
     assert "sync-build" in calls[3], f"Fourth call should be sync-build, got: {calls[3]}"
+    assert "to-030" in calls[4], f"Fifth call should be to-030, got: {calls[4]}"
+    assert "--hooks-only" in calls[4], f"Fifth call missing --hooks-only: {calls[4]}"
     # No --dry-run in any argv
     for argv in calls:
         assert "--dry-run" not in argv, f"--dry-run found in argv: {argv}"
     # sync-build should contain --apply
     assert "--apply" in calls[3], f"sync-build argv missing --apply: {calls[3]}"
+    # fifth step should contain --apply
+    assert "--apply" in calls[4], f"to-030 argv missing --apply: {calls[4]}"
 
 
 def test_sync_all_yes_propagates_to_all_in_apply_mode(tmp_path: pathlib.Path) -> None:
-    """--apply --yes: all four invocations receive --yes."""
+    """--apply --yes: all five invocations receive --yes."""
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, calls = _capturing_run([0, 0, 0, 0])
+    mock_run, calls = _capturing_run([0, 0, 0, 0, 0])
 
     result = _run_sync_all(
         ["--project-dir", str(project_dir), "--apply", "--yes"], mock_run
     )
 
     assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
-    assert len(calls) == 4
+    assert len(calls) == 5
     for argv in calls:
         assert "--yes" in argv, f"--yes missing from argv: {argv}"
 
 
-def test_sync_all_yes_in_dry_run_propagates_to_all_four(
+def test_sync_all_yes_in_dry_run_propagates_to_all_five(
     tmp_path: pathlib.Path,
 ) -> None:
-    """--yes in dry-run mode (INFRA-371): all four commands, sync.py included, each get
-    --yes and --dry-run."""
+    """--yes in dry-run mode (INFRA-371): all five commands, sync.py included, each get
+    --yes; the first four also get --dry-run (the fifth has no --dry-run flag of its
+    own — dry-run is its default, so --apply is simply omitted)."""
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, calls = _capturing_run([0, 0, 0, 0])
+    mock_run, calls = _capturing_run([0, 0, 0, 0, 0])
 
     result = _run_sync_all(["--project-dir", str(project_dir), "--yes"], mock_run)
 
     assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
-    assert len(calls) == 4, f"Expected 4 calls, got {len(calls)}: {calls}"
+    assert len(calls) == 5, f"Expected 5 calls, got {len(calls)}: {calls}"
     for argv in calls:
         assert "--yes" in argv, f"--yes missing from argv: {argv}"
+    for argv in calls[:4]:
         assert "--dry-run" in argv, f"--dry-run missing from argv: {argv}"
+    assert "--dry-run" not in calls[4], (
+        f"to-030 has no --dry-run flag of its own: {calls[4]}"
+    )
+    assert "--apply" not in calls[4], f"--apply present in dry-run: {calls[4]}"
     assert "skipped:" not in result.output
+
+
+def test_sync_all_fifth_step_argv_carries_to030_hooks_only_and_propagated_flags(
+    tmp_path: pathlib.Path,
+) -> None:
+    """INFRA-386: the fifth step's argv targets pairmode_migrate.py's to-030 command
+    with --hooks-only, --project-dir, and the run's --apply/--yes propagated
+    identically to the first four steps."""
+    project_dir = _make_deep_project_dir(tmp_path)
+    mock_run, calls = _capturing_run([0, 0, 0, 0, 0])
+
+    result = _run_sync_all(
+        ["--project-dir", str(project_dir), "--apply", "--yes"], mock_run
+    )
+
+    assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}:\n{result.output}"
+    migrate_argv = calls[4]
+    assert any("pairmode_migrate.py" in a for a in migrate_argv), (
+        f"Expected pairmode_migrate.py in argv, got: {migrate_argv}"
+    )
+    assert "to-030" in migrate_argv
+    assert "--hooks-only" in migrate_argv
+    assert "--apply" in migrate_argv
+    assert "--yes" in migrate_argv
+    assert "--project-dir" in migrate_argv
+    idx = migrate_argv.index("--project-dir")
+    assert migrate_argv[idx + 1] == str(project_dir.resolve())
 
 
 def test_sync_all_halts_on_sync_py_failure(tmp_path: pathlib.Path) -> None:
@@ -1179,7 +1225,8 @@ def test_sync_all_halts_on_sync_narratives_failure(tmp_path: pathlib.Path) -> No
 
 
 def test_sync_all_halts_on_sync_build_failure(tmp_path: pathlib.Path) -> None:
-    """If sync-build exits 3, wrapper exits 3; all four commands were invoked."""
+    """If sync-build exits 3, wrapper exits 3; the fifth step (to-030 --hooks-only)
+    is not invoked."""
     project_dir = _make_deep_project_dir(tmp_path)
     mock_run, calls = _capturing_run([0, 0, 0, 3])
 
@@ -1187,6 +1234,20 @@ def test_sync_all_halts_on_sync_build_failure(tmp_path: pathlib.Path) -> None:
 
     assert result.exit_code == 3, f"Expected exit 3, got {result.exit_code}"
     assert len(calls) == 4, f"Expected 4 calls, got {len(calls)}: {calls}"
+
+
+def test_sync_all_halts_on_to030_hooks_only_failure(tmp_path: pathlib.Path) -> None:
+    """INFRA-386 Ensures 4: if the fifth step (to-030 --hooks-only) exits non-zero,
+    sync-all's fail-fast contract applies unchanged — the wrapper echoes the error
+    and exits with the same status code."""
+    project_dir = _make_deep_project_dir(tmp_path)
+    mock_run, calls = _capturing_run([0, 0, 0, 0, 1])
+
+    result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
+
+    assert result.exit_code == 1, f"Expected exit 1, got {result.exit_code}"
+    assert len(calls) == 5, f"Expected 5 calls, got {len(calls)}: {calls}"
+    assert "halting chain" in result.output
 
 
 def test_sync_all_depth_guard_rejects_shallow_dir(tmp_path: pathlib.Path) -> None:
@@ -1211,7 +1272,7 @@ def test_sync_all_project_dir_defaults_to_cwd(tmp_path: pathlib.Path) -> None:
 
     # Use a sufficiently deep real directory as CWD
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, calls = _capturing_run([0, 0, 0, 0])
+    mock_run, calls = _capturing_run([0, 0, 0, 0, 0])
 
     runner = CliRunner()
     # Change working directory to project_dir so the default "." resolves there
@@ -1234,9 +1295,9 @@ def test_sync_all_project_dir_defaults_to_cwd(tmp_path: pathlib.Path) -> None:
 
 
 def test_sync_all_header_separators_present_in_order(tmp_path: pathlib.Path) -> None:
-    """--apply mode: all four === headers appear in the correct order in stdout."""
+    """--apply mode: all five === headers appear in the correct order in stdout."""
     project_dir = _make_deep_project_dir(tmp_path)
-    mock_run, _ = _capturing_run([0, 0, 0, 0])
+    mock_run, _ = _capturing_run([0, 0, 0, 0, 0])
 
     result = _run_sync_all(["--project-dir", str(project_dir), "--apply"], mock_run)
 
@@ -1246,6 +1307,7 @@ def test_sync_all_header_separators_present_in_order(tmp_path: pathlib.Path) -> 
         "=== sync-agents (agent frontmatter) ===",
         "=== sync-narratives (harness narrative backfill) ===",
         "=== sync-build (CLAUDE.build.md) ===",
+        "=== to-030 --hooks-only (stale hook-command repair) ===",
     ]
     positions = [result.output.find(h) for h in headers]
     assert all(p >= 0 for p in positions), (

@@ -52,7 +52,7 @@ and phase 116's canon rewrites are only propagatable once shrinkage works.
 
 **Design choice: an explicit canon-side retirement manifest, not blanket
 pruning.** A `--prune-extra` flag that deletes all EXTRA content would violate
-the one promise sync must keep — genuinely project-specific extensions (cora's
+the one promise sync must keep — genuinely project-specific extensions (Repo-G's
 deliberate extensions region is the live example) are EXTRA *by design* and
 must survive. The distinction "once-canonical, since retired" vs "never
 canonical" is knowledge only canon has, so canon must declare it: a

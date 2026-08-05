@@ -10,8 +10,8 @@ primary_files:
   - skills/pairmode/templates/CLAUDE.build.md.j2
 touches:
   - docs/phases/index.md
-  - /mnt/work/forqsite/docs/phases/index.md
-  - /mnt/work/forqsite/CLAUDE.build.md
+  - /mnt/work/Repo-E/docs/phases/index.md
+  - /mnt/work/Repo-E/CLAUDE.build.md
 ---
 
 # BUILD-028 — CLAUDE.build.md: call mark-phase-complete at checkpoint + retroactive fix
@@ -25,7 +25,7 @@ both repos.
 Confirmed drift:
 - flex `docs/phases/index.md`: statuses were maintained manually and are currently
   correct; no retroactive fix needed.
-- forqsite `docs/phases/index.md`: phases that are checkpointed but still show
+- Repo-E `docs/phases/index.md`: phases that are checkpointed but still show
   `planned` need to be identified and corrected.
 
 ## Acceptance criteria
@@ -47,30 +47,30 @@ Confirmed drift:
 2. The prose explains: "This records the phase as complete in `docs/phases/index.md`.
    The index update is staged and included in the checkpoint commit."
 
-3. The same addition is applied to `forqsite/CLAUDE.build.md` and
+3. The same addition is applied to `Repo-E/CLAUDE.build.md` and
    `skills/pairmode/templates/CLAUDE.build.md.j2`.
 
-### Retroactive forqsite fix
+### Retroactive Repo-E fix
 
-4. Identify every phase in `forqsite/docs/phases/index.md` that has a git tag
+4. Identify every phase in `Repo-E/docs/phases/index.md` that has a git tag
    (i.e., has been checkpointed) but still shows a non-`complete` status. For each:
-   - Run `mark-phase-complete --phase [key] --project-dir /mnt/work/forqsite`
+   - Run `mark-phase-complete --phase [key] --project-dir /mnt/work/Repo-E`
 
-5. The retroactive fix is committed to forqsite as a standalone "chore" commit:
+5. The retroactive fix is committed to Repo-E as a standalone "chore" commit:
    `chore: retroactive mark-phase-complete for all checkpointed phases`
 
 ### Verification
 
-6. After the retroactive fix, `_parse_index_phases` on forqsite's index returns no row
+6. After the retroactive fix, `_parse_index_phases` on Repo-E's index returns no row
    where the status is `planned` for a phase that has a git tag.
 
 ## Implementation guidance
 
-### Finding checkpointed phases in forqsite
+### Finding checkpointed phases in Repo-E
 
 ```bash
 # List all checkpoint tags (cp-prefixed or cp\d+ pattern)
-git -C /mnt/work/forqsite tag | grep -E '^cp'
+git -C /mnt/work/Repo-E tag | grep -E '^cp'
 ```
 
 Cross-reference with the index to find rows still showing `planned`. Typical pattern:

@@ -27,13 +27,13 @@ fleet re-sync an accurate baseline row for the hub itself.
 
 Found **16** bound project(s):
 
-### `/mnt/work/aab`
+### `/mnt/work/Repo-H`
 
 - **Binding:** both
 - **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
 - **Signal 2 (pairmode_version):** present — `0.3.0`
 
-### `/mnt/work/asp`
+### `/mnt/work/Repo-I`
 
 - **Binding:** both
 - **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
@@ -45,79 +45,79 @@ Found **16** bound project(s):
 - **Signal 1 (scripts path):** absent
 - **Signal 2 (pairmode_version):** present — `0.2.0`
 
-### `/mnt/work/caddy`
+### `/mnt/work/Repo-C`
 
 - **Binding:** version
 - **Signal 1 (scripts path):** absent
 - **Signal 2 (pairmode_version):** present — `0.2.0`
 
-### `/mnt/work/coherra`
+### `/mnt/work/Repo-A`
 
 - **Binding:** both
 - **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
 - **Signal 2 (pairmode_version):** present — `0.3.0`
 
-### `/mnt/work/cora`
+### `/mnt/work/Repo-G`
 
 - **Binding:** version
 - **Signal 1 (scripts path):** absent
 - **Signal 2 (pairmode_version):** present — `0.1.0`
 
-### `/mnt/work/forqsite`
+### `/mnt/work/Repo-E`
 
 - **Binding:** both
 - **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
 - **Signal 2 (pairmode_version):** present — `0.3.0`
 
-### `/mnt/work/forqsite.help`
+### `/mnt/work/Repo-D`
 
 - **Binding:** version
 - **Signal 1 (scripts path):** absent
 - **Signal 2 (pairmode_version):** present — `0.2.0`
 
-### `/mnt/work/halfhorse`
+### `/mnt/work/Repo-F`
 
 - **Binding:** version
 - **Signal 1 (scripts path):** absent
 - **Signal 2 (pairmode_version):** present — `0.2.0`
 
-### `/mnt/work/lumin`
+### `/mnt/work/Repo-J`
 
 - **Binding:** version
 - **Signal 1 (scripts path):** absent
 - **Signal 2 (pairmode_version):** present — `0.2.0`
 
-### `/mnt/work/meander`
+### `/mnt/work/Repo-B`
 
 - **Binding:** version
 - **Signal 1 (scripts path):** absent
 - **Signal 2 (pairmode_version):** present — `0.2.0`
 
-### `/mnt/work/pokus`
+### `/mnt/work/Repo-K`
 
 - **Binding:** version
 - **Signal 1 (scripts path):** absent
 - **Signal 2 (pairmode_version):** present — `0.2.0`
 
-### `/mnt/work/radar`
+### `/mnt/work/Repo-L`
 
 - **Binding:** both
 - **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
 - **Signal 2 (pairmode_version):** present — `0.3.0`
 
-### `/mnt/work/rockue`
+### `/mnt/work/Repo-M`
 
 - **Binding:** both
 - **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
 - **Signal 2 (pairmode_version):** present — `0.3.0`
 
-### `/mnt/work/stackabid`
+### `/mnt/work/Repo-N`
 
 - **Binding:** both
 - **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`
 - **Signal 2 (pairmode_version):** present — `0.3.0`
 
-### `/mnt/work/ud`
+### `/mnt/work/Repo-O`
 
 - **Binding:** both
 - **Signal 1 (scripts path):** present — `/mnt/work/flex-harness/skills/pairmode/scripts`

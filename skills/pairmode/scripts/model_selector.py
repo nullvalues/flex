@@ -367,7 +367,7 @@ def apply_declared_model_floor(
     """Apply a story-declared ``model:``/``reviewer_model:`` floor (INFRA-318)
     to an already-auto-selected ``(model, reason)`` pair.
 
-    Asymmetric by design (Cora item A#7 / AG-6):
+    Asymmetric by design (Repo-G item A#7 / AG-6):
 
     - ``attempt_number <= 1``: a declared model is an outright *override* —
       the spec-writer's already-approved choice (raise or lower) replaces the

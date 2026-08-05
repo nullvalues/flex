@@ -19,7 +19,7 @@ build loop. But operators need visibility into the full scope of stub stories
 in a project BEFORE building — to plan remediation, estimate effort, and decide
 whether to run a cleanup phase before the next feature phase.
 
-Without this CLI, an operator running "Build Phase N" on forqsite would
+Without this CLI, an operator running "Build Phase N" on Repo-E would
 encounter the stub gate on every story, one at a time. With this CLI, they
 can run a pre-build audit and see all 63 stubs at once.
 

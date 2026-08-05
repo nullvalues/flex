@@ -93,13 +93,13 @@ is (rail+class) → (all-rails, same class) → (all PASS rows) → seeded_defau
 all-rails for a given story_class is more appropriate than cross-class mixing since
 story_class (code/doc/lesson) is a strong cost predictor.
 
-**D4 — forqsite sync:** `forqsite/CLAUDE.build.md` is synced in BUILD-027.
+**D4 — Repo-E sync:** `Repo-E/CLAUDE.build.md` is synced in BUILD-027.
 
 **D5 — Phase index transition was never implemented.** `phase_new.py` writes `planned`
 on row creation; no code path or checkpoint instruction ever writes `complete`. The
 parsing infrastructure exists (`_parse_index_phases`) but the write path is missing.
 Fix: `mark-phase-complete --phase N` command (INFRA-172) called in checkpoint step 7
-(BUILD-028). Retroactive fix applied to forqsite (dozens of phases checkpointed but
+(BUILD-028). Retroactive fix applied to Repo-E (dozens of phases checkpointed but
 still showing `planned`).
 
 ## Stories

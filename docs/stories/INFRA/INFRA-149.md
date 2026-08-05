@@ -68,20 +68,20 @@ gate has a valid token count on every subsequent Task spawn.
 
 ### Manual propagation (orchestrator post-commit step — not builder acceptance)
 
-5. The builder cannot reach `/mnt/work/forqsite` due to cross-project scope restrictions.
-   After the story commits, the orchestrator runs the forqsite sync directly. The builder
+5. The builder cannot reach `/mnt/work/Repo-E` due to cross-project scope restrictions.
+   After the story commits, the orchestrator runs the Repo-E sync directly. The builder
    does NOT attempt AC5; the reviewer does NOT block on it.
 
    Orchestrator step (run after reviewer PASS):
    ```bash
    PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/pairmode_sync.py \
-     sync-build --project-dir /mnt/work/forqsite --apply --yes
+     sync-build --project-dir /mnt/work/Repo-E --apply --yes
    ```
-   Verify `CLAUDE.build.md` in forqsite contains the `set-context-tokens` step.
+   Verify `CLAUDE.build.md` in Repo-E contains the `set-context-tokens` step.
 
 ## Out of scope
 
-- Syncing all registered projects (only forqsite required at acceptance; others can sync on
+- Syncing all registered projects (only Repo-E required at acceptance; others can sync on
   their next scheduled sync)
 - Changes to any script or hook (INFRA-148)
 - Changes to the reviewer or builder agent templates

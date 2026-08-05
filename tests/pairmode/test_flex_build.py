@@ -708,7 +708,7 @@ def test_check_stub_unterminated_fence_passes(tmp_path: Path) -> None:
 
 
 def test_check_stub_home_006_shape_passes(tmp_path: Path) -> None:
-    """The forqsite HOME-006 shape: instructions telling a builder to append a
+    """The Repo-E HOME-006 shape: instructions telling a builder to append a
     resolution note whose fenced content contains a delegation phrase must
     pass the gate (CER-076's originating false positive)."""
     _write_stub_story_fm(

@@ -53,11 +53,13 @@ _FLEX_ROOT = _SKILLS_DIR.parent                         # flex root
 # The canonical scripts path for THIS checkout
 _THIS_SCRIPTS_DIR = _SCRIPTS_DIR
 
-# Documented candidate names under /mnt/work/ (from DP8 context; non-exhaustive)
-_DOCUMENTED_CANDIDATES = [
-    "aab", "asp", "base56", "caddy", "coherra", "cora", "forqsite", "forqsite.help",
-    "halfhorse", "lumin", "meander", "pokus", "radar", "rockue", "stackabid", "ud",
-]
+# Local fleet-map config (CER-172): this repo is public, so real sibling-repo
+# names must never be committed as source string literals. Extra fleet
+# candidates beyond registered_projects instead come from a local, gitignored
+# JSON file at the flex root — see _load_local_fleet_map() below and
+# .pairmode-fleet.local.json.example for the template a fresh operator copies
+# and fills with their own real fleet paths.
+_LOCAL_FLEET_CONFIG_FILENAME = ".pairmode-fleet.local.json"
 
 # Pattern to find pairmode_scripts_dir in CLAUDE.build.md
 _SCRIPTS_DIR_PATTERN = re.compile(
@@ -98,19 +100,36 @@ def _read_registered_projects() -> list[Path]:
         return []
 
 
+def _load_local_fleet_map() -> dict[str, str]:
+    """Read the local, gitignored fleet map (CER-172).
+
+    Reads ``<flex-root>/.pairmode-fleet.local.json``, a mapping of stable
+    anonymized label (e.g. ``"repo-a"``) to real absolute path (e.g.
+    ``"repo-a": "/mnt/work/<real-name>"``). Never raises: on a missing file,
+    an unreadable file, or invalid JSON, returns ``{}`` — same never-raise
+    contract as ``_read_registered_projects()``. This file is per-operator
+    and gitignored; only ``.pairmode-fleet.local.json.example`` (fake
+    placeholder entries) is committed.
+    """
+    local_path = _FLEX_ROOT / _LOCAL_FLEET_CONFIG_FILENAME
+    try:
+        with local_path.open() as f:
+            return json.load(f)
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return {}
+
+
 def _default_candidates() -> list[Path]:
-    """Build the default candidate list: registered_projects + documented dirs."""
+    """Build the default candidate list: registered_projects + local fleet map."""
     candidates: list[Path] = []
 
     # From registered_projects
     candidates.extend(_read_registered_projects())
 
-    # From documented candidate names under the parent of the flex root
-    # (e.g. /mnt/work/ when flex is at /mnt/work/flex)
-    work_dir = _FLEX_ROOT.parent
-    for name in _DOCUMENTED_CANDIDATES:
-        p = work_dir / name
-        candidates.append(p)
+    # From the local, gitignored fleet map (CER-172) — real absolute paths,
+    # never committed source string literals.
+    for real_path in _load_local_fleet_map().values():
+        candidates.append(Path(real_path))
 
     # Deduplicate while preserving order
     seen: set[Path] = set()

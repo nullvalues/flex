@@ -9,7 +9,7 @@ primary_files:
   - CLAUDE.build.md
   - skills/pairmode/templates/CLAUDE.build.md.j2
 touches:
-  - /mnt/work/forqsite/CLAUDE.build.md
+  - /mnt/work/Repo-E/CLAUDE.build.md
 ---
 
 # BUILD-027 — CLAUDE.build.md: accumulated context gate + bump-context-tokens in Step 6
@@ -85,7 +85,7 @@ persists across `story_context.py --clear`).
 
 ### Sync
 
-7. The same gate redesign and Step 6 addition are applied to `forqsite/CLAUDE.build.md`
+7. The same gate redesign and Step 6 addition are applied to `Repo-E/CLAUDE.build.md`
    at the equivalent locations.
 
 8. `skills/pairmode/templates/CLAUDE.build.md.j2` receives the same edits.

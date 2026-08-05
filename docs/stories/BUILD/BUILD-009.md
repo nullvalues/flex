@@ -25,7 +25,7 @@ the builder reads them and perpetuates the pattern.
 
 **Gap 2 — no stub gate.** Before Step 1, there is a pre-story schema gate
 (checking for new persistent schema objects) but no check that the story file is
-a self-contained spec. Forqsite story files contain summary Ensures + "See phase
+a self-contained spec. Repo-E story files contain summary Ensures + "See phase
 doc for full spec" delegation — the builder must read the phase doc to build. The
 story file is not the contract; the phase doc is. This is the delegation failure mode.
 

@@ -147,8 +147,8 @@ body before editing. All anchors were re-verified against clean `main` at
 **A1. The fleet audit is run and its raw output is pasted into this story's
 `## Evidence` section before `parse_worker_outcome` is edited.** For every path
 in `registered_projects` from this checkout's `.companion/state.json`
-(currently `/mnt/work/coherra`, `/mnt/work/meander`, `/mnt/work/caddy`,
-`/mnt/work/forqsite.help`, `/mnt/work/halfhorse`) plus this project itself, the
+(currently `/mnt/work/Repo-A`, `/mnt/work/Repo-B`, `/mnt/work/Repo-C`,
+`/mnt/work/Repo-D`, `/mnt/work/Repo-F`) plus this project itself, the
 audit reports, per project: whether `.companion/effort.db` exists, and
 `SELECT outcome, agent_role, COUNT(*) FROM attempts GROUP BY outcome,
 agent_role`. A project with no database contributes a line saying so; an
@@ -421,7 +421,7 @@ the worktree has no `state.json` of its own. The audit read
 `/mnt/work/flex/.companion/state.json` (the main checkout's, read-only) for
 `registered_projects` and prepended `/mnt/work/flex` itself. That list now
 contains **seven** projects — the five named in § Requires plus
-`/mnt/work/halfhorse` and `/mnt/work/cora`, the latter registered since this
+`/mnt/work/Repo-F` and `/mnt/work/Repo-G`, the latter registered since this
 story was specced.
 
 ```
@@ -439,7 +439,7 @@ story was specced.
    outcome='PASS' role=reviewer n=54
    outcome='PASS' role=security-auditor n=9
    outcome='PASS' role=sidebar-extractor n=200
-/mnt/work/coherra:
+/mnt/work/Repo-A:
    outcome=None role=builder n=362
    outcome=None role=loop-breaker n=1
    outcome=None role=reviewer n=12
@@ -448,7 +448,7 @@ story was specced.
    outcome='PASS' role=intent-reviewer n=1
    outcome='PASS' role=reviewer n=301
    outcome='PASS' role=security-auditor n=1
-/mnt/work/meander:
+/mnt/work/Repo-B:
    outcome=None role=builder n=122
    outcome=None role=intent-reviewer n=5
    outcome=None role=reviewer n=19
@@ -459,7 +459,7 @@ story was specced.
    outcome='PASS' role=security-auditor n=1
    outcome='PASS' role=seed-miner n=4
    outcome='PASS' role=seed-reconcile n=6
-/mnt/work/caddy:
+/mnt/work/Repo-C:
    outcome=None role=builder n=18
    outcome='ALIGNED' role=intent-reviewer n=1
    outcome='FAIL' role=reviewer n=3
@@ -467,15 +467,15 @@ story was specced.
    outcome='PASS' role=builder n=1
    outcome='PASS' role=reviewer n=12
    outcome='PASS' role=security-auditor n=1
-/mnt/work/forqsite.help:
+/mnt/work/Repo-D:
    outcome=None role=builder n=6
    outcome='FAIL' role=reviewer n=2
    outcome='PASS' role=builder n=1
    outcome='PASS' role=reviewer n=5
-/mnt/work/halfhorse:
+/mnt/work/Repo-F:
    outcome='PASS' role=builder n=1
    outcome='PASS' role=reviewer n=1
-/mnt/work/cora:
+/mnt/work/Repo-G:
    outcome=None role=builder n=53
    outcome='FAIL' role=reviewer n=8
    outcome='FAIL' role=sidebar-extractor n=1
@@ -497,20 +497,20 @@ values is the stable result):
 
 | value | classification | count | projects |
 |---|---|---|---|
-| `NULL` | pending (not yet reconciled) | 666 | flex, coherra, meander, caddy, forqsite.help, cora |
+| `NULL` | pending (not yet reconciled) | 666 | flex, Repo-A, Repo-B, Repo-C, Repo-D, Repo-G |
 | `PASS` | BUILD/REVIEW enum member | 822 | all seven |
-| `FAIL` | BUILD/REVIEW enum member | 214 | flex, coherra, meander, caddy, forqsite.help, cora |
-| `ALIGNED` | REVIEW enum member (intent-reviewer) | 10 | flex (9), caddy (1) |
+| `FAIL` | BUILD/REVIEW enum member | 214 | flex, Repo-A, Repo-B, Repo-C, Repo-D, Repo-G |
+| `ALIGNED` | REVIEW enum member (intent-reviewer) | 10 | flex (9), Repo-C (1) |
 | `UNKNOWN` | quiescent retirement marker (`:1878`) | 0 | — none observed |
-| `PARTIAL` | **FINDING — outside the enum** | 1 | caddy |
-| `pass` | **FINDING — outside the enum** | 2 | cora |
+| `PARTIAL` | **FINDING — outside the enum** | 1 | Repo-C |
+| `pass` | **FINDING — outside the enum** | 2 | Repo-G |
 
 The union is therefore **not** a subset of `{PASS, FAIL, ALIGNED, UNKNOWN,
 NULL}`. Per A2 this is a finding; the rows are named and the handling decision
 is stated below. (Per A3, the negative-result path does not apply — the counts
 above are given regardless.)
 
-**Finding 1 — `PARTIAL`, 1 row.** `/mnt/work/caddy/.companion/effort.db`
+**Finding 1 — `PARTIAL`, 1 row.** `/mnt/work/Repo-C/.companion/effort.db`
 `attempts.id = 31`: `story_id='PAIRMODE-001'`, `phase='EH005-main'`,
 `rail='PAIRMODE'`, `agent_role='builder'`, `model='claude-sonnet-4-5'`,
 `attempt_number=1`, `tokens_total=42317`, `ts='2026-07-24T03:16:35Z'`,
@@ -522,7 +522,7 @@ mode'`. A builder returned a `BUILD-RESULT` whose `outcome` word was
 `FAIL` by any reader, so it silently escaped the escalation ladder.
 
 **Finding 2 — `pass` (lowercase), 2 rows.**
-`/mnt/work/cora/.companion/effort.db` `attempts.id = 8`
+`/mnt/work/Repo-G/.companion/effort.db` `attempts.id = 8`
 (`story_id='SMOKE-001'`, `agent_role='builder'`, `model='claude-sonnet-4-6'`,
 `ts='2026-05-17T02:48:23Z'`) and `attempts.id = 12` (same story,
 `agent_role='reviewer'`, `ts='2026-05-17T03:49:31Z'`). Both are smoke-test rows
@@ -540,8 +540,8 @@ B4 refuses to rescue.
    recoverable state — and a `skip:non-enum-outcome` line naming the rejected
    value is written to `.companion/effort_recording.log`. The
    worker-contract violation becomes observable instead of silent.
-3. **No already-written row is rewritten, back-filled, or deleted.** caddy
-   id 31 and cora ids 8/12 stay exactly as they are; historical cleanup is
+3. **No already-written row is rewritten, back-filled, or deleted.** Repo-C
+   id 31 and Repo-G ids 8/12 stay exactly as they are; historical cleanup is
    explicitly out of scope. The three rows were read read-only and not
    modified.
 4. The blast radius the INFRA-293 deferral worried about is now counted: **3

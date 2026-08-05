@@ -31,7 +31,7 @@ big one (`node_modules`) was solved by vendoring the payload into the repo
 `node_modules` and `.env.local` are gitignored by design, so each fresh
 worktree arrives without them, and every builder and reviewer re-discovers the
 same gap and re-applies the same ad-hoc `ln -s` workaround. CER-075 records
-this from the forqsite Era-3 build — *every* HOME story paid the tax — and
+this from the Repo-E Era-3 build — *every* HOME story paid the tax — and
 names the cost precisely: repeated wasted agent effort, plus habituation to
 "known failures", which is the more expensive half. A reviewer who has learned
 that three test files always fail in a worktree has stopped reading those

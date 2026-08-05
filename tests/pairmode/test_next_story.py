@@ -531,7 +531,7 @@ from next_story import _has_story_commit  # noqa: E402
 # 0978447b, so the real log no longer reproduces the false positive this
 # test exists to pin.
 _E83CE900 = (
-    "e83ce900 story(RELEASE-066): forqsite.help migrated; E6 split verdict — "
+    "e83ce900 story(RELEASE-066): Repo-D migrated; E6 split verdict — "
     "E4b grammar replacement PROVEN in field, CER-101 content half PROVEN via "
     "reviewer row 14, builder row 13 pending on termination-detection artifact "
     "(new-1); RELEASE-067+ held for operator ruling"
