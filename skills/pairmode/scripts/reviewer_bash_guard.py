@@ -14,13 +14,21 @@ enforced that contract; the reviewer is an LLM following prose, not a shell
 script. This module is the enforcement half; `hooks/pre_tool_use.py`'s new
 `Bash` branch is the dispatch half.
 
-Scope: this guard governs the `reviewer` role only. `agent_type != "reviewer"`
-(including `None` — an orchestrator or non-subagent Bash call, and every
-other subagent role: builder, loop-breaker, security-auditor, intent-reviewer)
-always fails open with no command inspection at all — this is a
-defense-in-depth guard behind the sandbox for one specific, already-observed
-improvisation (a reviewer running `git reset --hard` / `git revert` on FAIL),
-not a general Bash policy engine.
+Scope: this guard governs the `reviewer` role, and — as of INFRA-388 — the
+`shadow-reviewer` role. `agent_type` values outside those two (including
+`None` — an orchestrator or non-subagent Bash call, and every other subagent
+role: builder, loop-breaker, security-auditor, intent-reviewer) always fail
+open with no command inspection at all — this is a defense-in-depth guard
+behind the sandbox for specific, already-observed improvisations (a reviewer
+running `git reset --hard` / `git revert` on FAIL; a shadow-reviewer that
+would otherwise have no enforced boundary on its restored Bash grant,
+CER-164), not a general Bash policy engine. The `shadow-reviewer` branch is
+strict where the `reviewer` branch is permissive: it default-*denies* both
+non-git commands and any git subcommand outside its narrow read-only
+allowlist (`log`/`status`/`diff`), since — unlike the reviewer — the
+shadow-reviewer holds no other legitimate write path via Bash at all; the
+reviewer's fail-open-on-unrecognized-input default would silently reopen
+CER-163's Bash-heredoc-append bypass if reused here.
 
 Parsing is deliberately a heuristic, not a full shell parser: tokenize with
 `shlex`, look for a `git` invocation, and treat its first non-flag argument as
@@ -67,9 +75,25 @@ _DISCARD_POINTER = (
     "revert), not a raw git command"
 )
 
+# Sanctioned by shadow-reviewer/procedure.md's read-only polling protocol
+# (INFRA-358/INFRA-388): the shadow-reviewer never commits, reverts, or
+# otherwise mutates the worktree via Bash — its only legitimate write path
+# is the `Write` tool against `.pairmode-suggestions.md` (scope_guard.py's
+# STANDING_SURFACES entry, INFRA-365).
+_SHADOW_REVIEWER_ALLOWED_SUBCOMMANDS = frozenset({"log", "status", "diff"})
+
 
 def check_command(command: str, agent_type: "str | None") -> tuple[bool, str]:
     try:
+        if agent_type == "shadow-reviewer":
+            if not command or not isinstance(command, str):
+                return True, "empty or non-string command — allowing"
+            try:
+                tokens = shlex.split(command)
+            except ValueError:
+                return True, "command did not tokenize — allowing"
+            return _check_shadow_reviewer_command(command, tokens)
+
         if agent_type != "reviewer":
             return True, "not a reviewer-issued command — allowing"
 
@@ -126,6 +150,41 @@ def check_command(command: str, agent_type: "str | None") -> tuple[bool, str]:
         )
     except Exception as exc:  # fail open
         return True, f"reviewer_bash_guard error — allowing: {exc}"
+
+
+def _check_shadow_reviewer_command(command: str, tokens: list[str]) -> tuple[bool, str]:
+    """Strict, default-deny check for `agent_type="shadow-reviewer"`.
+
+    Only bare `git log`/`git status`/`git diff` (with ordinary read-only
+    flags) are sanctioned. No other git subcommand and no non-git command is
+    allowed — the shadow-reviewer has no legitimate write path via Bash at
+    all (INFRA-388).
+    """
+    # Defense-in-depth against _find_git_invocation's known non-handling of
+    # redirection tokens (it only breaks on &&/||/;/|, not >/>>/<), so a
+    # `git log > file` would otherwise be treated as a plain `git log` args
+    # list and pass the subcommand check below.
+    if any(op in command for op in (">", "<", "|")):
+        return False, (
+            "shell redirection/pipe tokens are blocked for the "
+            "shadow-reviewer role — it has no legitimate write path via "
+            "Bash at all"
+        )
+
+    subcommand, _flags = _find_git_invocation(tokens)
+    if subcommand is None:
+        return False, (
+            "not a git invocation — blocked for the shadow-reviewer role, "
+            "which has no legitimate write path via Bash at all"
+        )
+
+    if subcommand not in _SHADOW_REVIEWER_ALLOWED_SUBCOMMANDS:
+        return False, (
+            f"git {subcommand} is not in the shadow-reviewer role's "
+            "sanctioned read-only command set (log, status, diff)"
+        )
+
+    return True, f"sanctioned shadow-reviewer read-only git {subcommand} — allowing"
 
 
 def _find_git_invocation(tokens: list[str]) -> tuple["str | None", list[str]]:

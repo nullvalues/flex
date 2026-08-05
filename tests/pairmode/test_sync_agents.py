@@ -554,12 +554,13 @@ def test_no_agents_dir_returns_no_changes(tmp_path: pathlib.Path):
 # shadow-reviewer tool-grant (CER-163) — INFRA-376
 # ---------------------------------------------------------------------------
 
-def test_shadow_reviewer_template_declares_read_not_bash():
-    """Ensures 1: the shadow-reviewer agent-shell template's `tools:` list
-    contains `Read` and does not contain `Bash`, and no other write-capable
-    tool (`Write`, `Edit`, `NotebookEdit`) is granted in its place. Asserted
-    on the rendered frontmatter's declared grant, not on advisory prose in
-    the template body (the story's forbidden proxy)."""
+def test_shadow_reviewer_template_declares_read_write_bash():
+    """Ensures 7 (INFRA-388, supersedes the CER-163 contract this test
+    previously asserted): the shadow-reviewer agent-shell template's
+    `tools:` list contains `Read`, `Write`, and `Bash`, and neither `Edit`
+    nor `NotebookEdit` is granted. Asserted on the rendered frontmatter's
+    declared grant, not on advisory prose in the template body (the story's
+    forbidden proxy)."""
     template_path = TEMPLATES_DIR / "shadow-reviewer.md.j2"
     assert template_path.is_file(), f"missing template: {template_path}"
 
@@ -573,17 +574,19 @@ def test_shadow_reviewer_template_declares_read_not_bash():
     )
     assert tools_line is not None, f"no tools: line found in {frontmatter!r}"
     assert "Read" in tools_line
-    assert "Bash" not in tools_line
-    assert "Write" not in tools_line
+    assert "Write" in tools_line
+    assert "Bash" in tools_line
     assert "Edit" not in tools_line
     assert "NotebookEdit" not in tools_line
 
 
-def test_sync_agents_adds_shadow_reviewer_with_read_not_bash(tmp_path: pathlib.Path):
-    """Ensures 2: re-rendering `.claude/agents/shadow-reviewer.md` via the
-    project's own sync-agents add-missing-file path (INFRA-332) — the same
-    path a fresh sync of this repo takes — produces a file declaring `Read`
-    and not `Bash`. Asserted on file contents, not captured stdout."""
+def test_sync_agents_adds_shadow_reviewer_with_read_write_bash(tmp_path: pathlib.Path):
+    """Ensures 7 (INFRA-388, supersedes the CER-163 contract this test
+    previously asserted): re-rendering `.claude/agents/shadow-reviewer.md`
+    via the project's own sync-agents add-missing-file path (INFRA-332) —
+    the same path a fresh sync of this repo takes — produces a file
+    declaring `Read`, `Write`, and `Bash`, with neither `Edit` nor
+    `NotebookEdit` present. Asserted on file contents, not captured stdout."""
     project_dir = _make_project(tmp_path)
     _write_state(project_dir, {"project_name": "flex"})
 
@@ -600,7 +603,10 @@ def test_sync_agents_adds_shadow_reviewer_with_read_not_bash(tmp_path: pathlib.P
     )
     assert tools_line is not None
     assert "Read" in tools_line
-    assert "Bash" not in tools_line
+    assert "Write" in tools_line
+    assert "Bash" in tools_line
+    assert "Edit" not in tools_line
+    assert "NotebookEdit" not in tools_line
 
     # Round-trip: re-running sync-agents produces no further diff on this file.
     result2 = _invoke(project_dir, extra_args=["--yes"])
