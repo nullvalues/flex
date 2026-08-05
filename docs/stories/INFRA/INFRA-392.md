@@ -2,7 +2,7 @@
 id: INFRA-392
 rail: INFRA
 title: Scaffold EXEMPLAR-000.md into downstream projects via bootstrap/sync/audit (CER-171)
-status: draft
+status: complete
 phase: "124"
 story_class: code
 auth_gated: false
