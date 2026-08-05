@@ -2,7 +2,7 @@
 id: INFRA-399
 rail: INFRA
 title: De-duplicate pairmode_drift_report.py's stale override-key parser (CER-181)
-status: draft
+status: complete
 phase: "129"
 story_class: code
 auth_gated: false

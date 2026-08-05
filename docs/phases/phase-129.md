@@ -23,7 +23,7 @@ Fix CER-181: pairmode_drift_report.py carries an independent, unfixed copy of au
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-399 | De-duplicate pairmode_drift_report.py's stale override-key parser (CER-181) | draft |
+| INFRA-399 | De-duplicate pairmode_drift_report.py's stale override-key parser (CER-181) | complete |
 
 ## Schema delivery
 
