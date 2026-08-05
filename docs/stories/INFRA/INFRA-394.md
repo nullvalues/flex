@@ -2,7 +2,7 @@
 id: INFRA-394
 rail: INFRA
 title: Scrub real fleet repo names from committed docs via stable Repo-A..Repo-O mapping (CER-172)
-status: draft
+status: complete
 phase: "125"
 story_class: doc
 auth_gated: false

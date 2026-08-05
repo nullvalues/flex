@@ -2,7 +2,7 @@
 id: INFRA-393
 rail: INFRA
 title: Externalize fleet_discovery.py's hardcoded repo list into a local gitignored config (CER-172)
-status: draft
+status: complete
 phase: "125"
 story_class: code
 auth_gated: false

@@ -21,8 +21,8 @@ Stop real fleet/sibling-project repo names from being committed to this public r
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-393 | Externalize fleet_discovery.py's hardcoded repo list into a local gitignored config (CER-172) | draft |
-| INFRA-394 | Scrub real fleet repo names from committed docs via stable Repo-A..Repo-O mapping (CER-172) | draft |
+| INFRA-393 | Externalize fleet_discovery.py's hardcoded repo list into a local gitignored config (CER-172) | complete |
+| INFRA-394 | Scrub real fleet repo names from committed docs via stable Repo-A..Repo-O mapping (CER-172) | complete |
 
 ## Schema delivery
 
