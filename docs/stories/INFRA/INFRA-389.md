@@ -2,7 +2,7 @@
 id: INFRA-389
 rail: INFRA
 title: Fix bootstrap.py plugin-sourced-skip branches bypassing A7 stale-hook eviction (CER-169)
-status: draft
+status: complete
 phase: "121"
 story_class: code
 auth_gated: false

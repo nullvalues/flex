@@ -144,6 +144,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 120 | CER-159 hook-firing fix: marketplace install migration, era-004 stable close | complete | [phase-120.md](phase-120.md) |
 | 121 | sync-all to-030 fold-in and fleet stale-hook remediation | planned | [phase-121.md](phase-121.md) |
 | 122 | shadow-reviewer write capability (CER-164) and shadow_review enablement | planned | [phase-122.md](phase-122.md) |
+| 123 | Fix audit.py override-key normalisation mismatch (CER-170) | planned | [phase-123.md](phase-123.md) |
 
 ---
 

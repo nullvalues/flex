@@ -2,7 +2,7 @@
 id: INFRA-390
 rail: INFRA
 title: Trim CHANGELOG.md under the 200-line test gate
-status: draft
+status: complete
 phase: "121"
 story_class: doc
 auth_gated: false
