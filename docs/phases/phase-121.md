@@ -24,9 +24,21 @@ Fold the to-030 stale-flex-harness hook repair into sync-all as an idempotent, o
 | ID | Title | Status |
 |----|-------|--------|
 | INFRA-386 | Fold to-030 stale-flex-harness repair into sync-all as a fifth step | complete |
-| INFRA-387 | Apply to-030 stale-hook repair across remaining fleet repos | draft |
+| INFRA-387 | Apply to-030 stale-hook repair across remaining fleet repos | deferred |
 | INFRA-389 | Fix bootstrap.py plugin-sourced-skip branches bypassing A7 stale-hook eviction (CER-169) | complete |
 | INFRA-390 | Trim CHANGELOG.md under the 200-line test gate | complete |
+
+## Deferred stories
+
+- **INFRA-387** — Apply to-030 stale-hook repair across remaining fleet repos.
+  Deferred: all 13 target fleet repos had dirty working trees at every build
+  attempt (unrelated operator work in progress), and the story's Ensures
+  correctly forbid writing to a dirty tree — so the fleet-wide re-scan
+  Ensures item could not be satisfied through no fault of the mechanism
+  itself (confirmed working via the two already-clean exclusion repos).
+  Resumes once the operator has committed/stashed the fleet repos' working
+  trees, as a new story in a new phase per the phase-continuity resume
+  convention (this phase is closing checkpointed regardless).
 
 ## Schema delivery
 
