@@ -1,7 +1,7 @@
 ---
 id: RELEASE-053
 rail: RELEASE
-title: Fleet migration — sync pokus to pairmode 0.3.0
+title: Fleet migration — sync Repo-K to pairmode 0.3.0
 status: deferred
 phase: "97"
 story_class: code

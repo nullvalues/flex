@@ -15,7 +15,7 @@ Close the second half of the manual-context-step problem. Phase 67 fixed the
 fresh-bootstrap case; this phase fixes the mid-build `/clear` case (CER-047).
 Today `context_current_tokens` survives `/clear`: the dead-reckoning counter
 keeps the old session's accumulated total (confirmed in production: 212,492
-tokens carried across a clear in coherra), and the context gate re-blocks on a
+tokens carried across a clear in Repo-A), and the context gate re-blocks on a
 number that describes a window that no longer exists. The CER-041 TTL only
 recovers after 60 minutes, and even then routes the operator to the same manual
 `set-context-tokens` step.

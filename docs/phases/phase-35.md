@@ -735,7 +735,7 @@ grep -rni "anchor" . --exclude-dir=.git --exclude-dir=__pycache__ \
 PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q
 
 # 8. Lessons file is valid JSON and no 'anchor' source_project remains.
-#    Non-anchor sources (e.g. 'radar', 'forqsite' from sibling-project lessons)
+#    Non-anchor sources (e.g. 'Repo-L', 'Repo-E' from sibling-project lessons)
 #    are legitimate; the migration only rewrites 'anchor' → 'flex'.
 PATH=$HOME/.local/bin:$PATH uv run python -c "
 import json

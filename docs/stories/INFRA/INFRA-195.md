@@ -35,7 +35,7 @@ touches:
     runs uninterrupted from the checklist's own header to the next H2.
     None of these bold markers are independently addressable section keys
     today.
-  - Confirmed externally (coherra project): a project that hand-customizes
+  - Confirmed externally (Repo-A project): a project that hand-customizes
     one checklist bullet (there, BUILD GATE — extending the canonical
     single `{{ test_command }}` to
     `pnpm -r --if-present build && pnpm -r --if-present test`, plus a
@@ -59,7 +59,7 @@ touches:
     `_replace_section_in_file`'s final `return project_text` at
     `sync.py:173` for the no-match case).
   - `.pairmode-overrides` (project-root file, documented at
-    `/mnt/work/coherra/.pairmode-overrides` and equivalent files in other
+    `/mnt/work/Repo-A/.pairmode-overrides` and equivalent files in other
     synced projects) currently only shows `##`/`###` header examples in its
     format comment — it has no example of pinning a single checklist
     bullet, because doing so isn't possible today.

@@ -9,7 +9,7 @@ era: "001"
 ## Goal
 
 Phase 35 renamed this repo from `anchor` to `flex`. But every sibling project that
-was bootstrapped by anchor (cora, radar, aab, forqsite, ud, and any future
+was bootstrapped by anchor (Repo-G, Repo-L, Repo-H, Repo-E, Repo-O, and any future
 discoveries) still carries anchor references in its bootstrap-generated
 methodology surface — `CLAUDE.build.md`, agent file bodies, hooks, launcher
 scripts, the companion sidebar, identifier names, environment-variable names,
@@ -273,7 +273,7 @@ tmp_path/
    `"anchor-"`, and `project_name` is `"flex"` if it was `"anchor"`.
 
 4. **`test_migrate_state_json_custom_project_name_preserved`** — If
-   `project_name` is set to `"cora"` (or anything not `"anchor"`), the
+   `project_name` is set to `"Repo-G"` (or anything not `"anchor"`), the
    migration does NOT change it.
 
 5. **`test_migrate_does_not_touch_authored_content`** — After migration, the

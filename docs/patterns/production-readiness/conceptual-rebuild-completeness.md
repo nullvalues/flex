@@ -245,7 +245,7 @@ This story satisfies the gate for any story in the same phase that introduces th
 
 | Organization | Context | Scale |
 |-------------|---------|-------|
-| flex project — 5 downstream projects (forqsite, radar, asp, aab, cora) | Enforced since Phase 40 via the Pre-story schema gate in `CLAUDE.build.md`. Global policy encoded in `~/.claude/CLAUDE.md` under "Conceptual rebuild completeness." The gate runs before every builder sub-agent spawn for any story that introduces a new schema object. | Team |
+| flex project — 5 downstream projects (Repo-E, Repo-L, Repo-I, Repo-H, Repo-G) | Enforced since Phase 40 via the Pre-story schema gate in `CLAUDE.build.md`. Global policy encoded in `~/.claude/CLAUDE.md` under "Conceptual rebuild completeness." The gate runs before every builder sub-agent spawn for any story that introduces a new schema object. | Team |
 
 ---
 

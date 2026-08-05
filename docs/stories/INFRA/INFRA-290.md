@@ -84,7 +84,7 @@ it, and that are cheapest to clear now while the forcing function is present:
    `discard-story-worktree` already call `clear_permissions_artifact`
    (`flex_build.py:3496`, `:3559`, INFRA-238), so the *ongoing* leak is
    closed. What is not closed is the backlog: 118 files currently sit in
-   `docs/phases/permissions/` in this repo (≈150 in meander), every one of
+   `docs/phases/permissions/` in this repo (≈150 in Repo-B), every one of
    them for a story that landed before INFRA-238 or was cleaned up by hand.
    They are inert but they are exactly the kind of sediment that makes a
    later reader unable to tell live state from residue.
@@ -661,7 +661,7 @@ Acceptance:
   This story installs the check; it does not perform a repository-wide audit.
   Anything such an audit would find belongs in a CER row, filed when the check
   first runs for real.
-- **Deleting this repo's 118 stranded permission artifacts, or meander's ~150.**
+- **Deleting this repo's 118 stranded permission artifacts, or Repo-B's ~150.**
   F6 reports; the operator decides when to run `--apply`. A story diff is the
   wrong place for a mass deletion of untracked-by-this-story files.
 - **Wiring `permissions-gc` into the build loop or the checkpoint sequence.**

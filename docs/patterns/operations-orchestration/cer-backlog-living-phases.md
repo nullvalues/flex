@@ -219,7 +219,7 @@ Without the backlog: CER-020 would have been filed as if it were a new, unrelate
 
 ### Variations
 
-- **Separate backlog file per project vs. shared policy file:** The flex project uses a single `docs/cer/backlog.md` per project repository, with the quadrant triage policy living in the global `~/.claude/CLAUDE.md`. Downstream projects (forqsite, radar, asp, aab, cora) each have their own backlog files with findings specific to that project. The policy is shared; the entries are per-project.
+- **Separate backlog file per project vs. shared policy file:** The flex project uses a single `docs/cer/backlog.md` per project repository, with the quadrant triage policy living in the global `~/.claude/CLAUDE.md`. Downstream projects (Repo-E, Repo-L, Repo-I, Repo-H, Repo-G) each have their own backlog files with findings specific to that project. The policy is shared; the entries are per-project.
 
 - **CER ID scheme:** The flex project uses sequential global IDs (CER-001, CER-002, ...) across all quadrants. An alternative is per-quadrant IDs (DN-001 for Do Now, DL-001 for Do Later) — this makes the quadrant visible in the ID itself. The tradeoff: global IDs are simpler to cross-reference across quadrant movements; per-quadrant IDs make the current quadrant self-documenting in any reference.
 
@@ -265,7 +265,7 @@ Without the backlog: CER-020 would have been filed as if it were a new, unrelate
 
 | Organization | Context | Scale |
 |-------------|---------|-------|
-| flex project, operated by david@halfhorse.com | Pairmode build loop across Phases 10–47; CER backlog at `docs/cer/backlog.md` with entries CER-001 through CER-030+; every security audit, intent review, and operator observation files into the quadrant triage log | 1 primary repo + 5 downstream projects (forqsite, radar, asp, aab, cora); 30+ CER entries spanning 35+ phases |
+| flex project, operated by david@halfhorse.com | Pairmode build loop across Phases 10–47; CER backlog at `docs/cer/backlog.md` with entries CER-001 through CER-030+; every security audit, intent review, and operator observation files into the quadrant triage log | 1 primary repo + 5 downstream projects (Repo-E, Repo-L, Repo-I, Repo-H, Repo-G); 30+ CER entries spanning 35+ phases |
 
 ---
 

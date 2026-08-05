@@ -730,7 +730,7 @@ class TestAuditRendersTemplateWithContext:
             bootstrap,
             [
                 "--project-dir", str(tmp_path),
-                "--project-name", "cora",
+                "--project-name", "Repo-G",
                 "--stack", "Python / FastAPI",
                 "--build-command", "uv run pytest",
             ],
@@ -757,14 +757,14 @@ class TestAuditRendersTemplateWithContext:
         )
 
     def test_context_project_name_used_in_rendered_canonical(self, tmp_path: Path) -> None:
-        """When pairmode_context.json has project_name='cora', canonical sections
-        contain 'cora' after rendering, not '{{ project_name }}'."""
+        """When pairmode_context.json has project_name='Repo-G', canonical sections
+        contain 'Repo-G' after rendering, not '{{ project_name }}'."""
         import json as _json
 
         companion = tmp_path / ".companion"
         companion.mkdir(parents=True, exist_ok=True)
         ctx = {
-            "project_name": "cora",
+            "project_name": "Repo-G",
             "project_description": "a test project",
             "stack": "Python",
             "build_command": "uv run pytest",
@@ -786,7 +786,7 @@ class TestAuditRendersTemplateWithContext:
         from skills.pairmode.scripts.audit import _read_template_sections, _load_project_context
         loaded_ctx, ctx_found = _load_project_context(tmp_path)
         assert ctx_found is True
-        assert loaded_ctx["project_name"] == "cora"
+        assert loaded_ctx["project_name"] == "Repo-G"
 
         sections = _read_template_sections("CLAUDE.md.j2", loaded_ctx)
         # All section bodies should not contain raw Jinja2 syntax
@@ -794,9 +794,9 @@ class TestAuditRendersTemplateWithContext:
             assert "{{" not in body, (
                 f"Section '{key}' still contains Jinja2 syntax after rendering: {body[:100]}"
             )
-        # At least some section should mention 'cora'
+        # At least some section should mention 'Repo-G'
         all_text = " ".join(sections.values())
-        assert "cora" in all_text, "Rendered CLAUDE.md canonical should contain 'cora'"
+        assert "Repo-G" in all_text, "Rendered CLAUDE.md canonical should contain 'Repo-G'"
 
 
 # ---------------------------------------------------------------------------

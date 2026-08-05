@@ -173,18 +173,18 @@ cd skills/observability/api && FLEX_OBS_PORT=7778 ./node_modules/.bin/tsx src/se
 (dev-mode tsx, loopback bind `127.0.0.1` — the default.)
 
 **Registered repos exercised (3, all pre-existing on the operator's registry,
-`~/.config/flex-observability/registry.json`):** `radar` (`/mnt/work/radar`),
-`forqsite` (`/mnt/work/forqsite`), `flex` (`/mnt/work/flex`).
+`~/.config/flex-observability/registry.json`):** `Repo-L` (`/mnt/work/Repo-L`),
+`Repo-E` (`/mnt/work/Repo-E`), `flex` (`/mnt/work/flex`).
 
 **Repos list** (`GET /api/repos`): returned all three, each
-`state_json_present: true` — `radar`, `forqsite`, `flex` all have a live
+`state_json_present: true` — `Repo-L`, `Repo-E`, `flex` all have a live
 `.companion/state.json`.
 
 **Context budget** (`GET /api/repos/:id/context`):
-- `radar`: `current.tokens = 25000`, `current.stale = true` (recorded_at
+- `Repo-L`: `current.tokens = 25000`, `current.stale = true` (recorded_at
   ~2 days old), `context_budget_overrun_pct = 0.25` (a real per-project
   override, `source: "state.json"`, vs. the `0.10` default).
-- `forqsite`: `current.tokens = 109485`, `current.stale = false` (recorded
+- `Repo-E`: `current.tokens = 109485`, `current.stale = false` (recorded
   86s before the request), `context_budget_threshold = 150000` (also a
   per-project override).
 - `flex`: `current.tokens = 272519`, `current.stale = true`,
@@ -193,15 +193,15 @@ cd skills/observability/api && FLEX_OBS_PORT=7778 ./node_modules/.bin/tsx src/se
   route's own LIMIT 100).
 
 **Effort/story status** (`GET /api/repos/:id/system`):
-- `radar`: 57 phases parsed; last phase `MU023-main`, status `complete`,
+- `Repo-L`: 57 phases parsed; last phase `MU023-main`, status `complete`,
   title "Migrate to pairmode 0.3.0", 1 story (`MU-128`,
   `story_class: methodology`, `status: complete`).
-- `forqsite`: 96 phases parsed; last phase `PM068-main`, status `planned`.
+- `Repo-E`: 96 phases parsed; last phase `PM068-main`, status `planned`.
 - `flex`: 127 phases parsed; last phase `HARNESS016-main`, status
   `deferred`, title "Final fold — pre-fold gate, merge to main, re-sync".
 
 **Lessons** (`GET /api/repos/:id/lessons`):
-- `radar`, `forqsite`: `lessons: []` — both repos have no
+- `Repo-L`, `Repo-E`: `lessons: []` — both repos have no
   `lessons/lessons.json` on disk; the route's fail-open (`parseLessons`
   returns `[]` on ENOENT) is exercised for real, not the fixture only.
 - `flex`: 22 lessons parsed, 1 promotion candidate (`L001`,
@@ -210,7 +210,7 @@ cd skills/observability/api && FLEX_OBS_PORT=7778 ./node_modules/.bin/tsx src/se
 
 **User memories/policies** (`GET /api/user/memories`, `GET /api/user/policies`,
 operator's real `$HOME`): 14 project memory directories found (e.g.
-`-mnt-work` with 7 memory files, `-mnt-work-aab` with 15); 3 policy files
+`-mnt-work` with 7 memory files, `-mnt-work-Repo-H` with 15); 3 policy files
 found (`auth-abac.md`, `auth-coexistence.md`, `auth-rbac.md`), each with a
 real parsed `first_heading`.
 
@@ -230,7 +230,7 @@ non-loopback-deny branches.
 resolves one directory too high, so the spawned `flex_build.py
 resolver-state` call always fails and `resolver_state` is `null` on every
 route response — observed live against all three real repos above
-(`radar`, `forqsite`, `flex` all show `resolver_state: null`), not just the
+(`Repo-L`, `Repo-E`, `flex` all show `resolver_state: null`), not just the
 INFRA-312 test fixture. Out of this story's declared `touches:` scope
 (`src/readers/` is not listed), so filed rather than fixed in-scope per
 Ensures 5's explicit provision, with the exact one-line fix named in the

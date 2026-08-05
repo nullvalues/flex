@@ -37,11 +37,11 @@ pending explicit go.
 
 ## What the observability surface revealed
 
-Reviewing radar + forqsite side-by-side (`flex_eph/Screenshot … 11-50-04.png`)
+Reviewing Repo-L + Repo-E side-by-side (`flex_eph/Screenshot … 11-50-04.png`)
 surfaced real process defects, not just display issues:
 
-- **D1 — `expected_step_tokens` is mis-sourced and uniform.** Both radar and
-  forqsite show exactly **53000** from STATE.JSON despite being very different
+- **D1 — `expected_step_tokens` is mis-sourced and uniform.** Both Repo-L and
+  Repo-E show exactly **53000** from STATE.JSON despite being very different
   projects. Root cause: it is seeded from the *effort baseline builder median*
   (`bootstrap.py:417` `_load_seed_expected_step_tokens()` → `by_role.builder.median`,
   fallback `_DEFAULT_EXPECTED_STEP_TOKENS = 53000`) and stamped fleet-wide; `sync.py:594`
@@ -51,7 +51,7 @@ surfaced real process defects, not just display issues:
   re-estimated per project. Effect: the live budget gate over-reserves ~53k and
   fires far too early everywhere.
 - **D2 — `context_current_tokens` stuck at the reset seed.** Both projects read
-  25.0k (the SessionStart reset value) and are STALE (radar ~45h, forqsite ~15h).
+  25.0k (the SessionStart reset value) and are STALE (Repo-L ~45h, Repo-E ~15h).
   The live token writer isn't updating these projects. Needs root-cause (writer not
   firing? these projects simply idle since the fix?).
 - **D3 — waypoint outcomes uniformly FAIL.** Every waypoint on both projects shows

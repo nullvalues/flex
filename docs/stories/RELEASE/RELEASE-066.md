@@ -1,7 +1,7 @@
 ---
 id: RELEASE-066
 rail: RELEASE
-title: Migrate forqsite.help to pairmode 0.3.0
+title: Migrate Repo-D to pairmode 0.3.0
 status: complete
 phase: "106"
 auth_gated: false
@@ -20,7 +20,7 @@ touches:
      RELEASE-064 / RELEASE-065 precedent (operator-directed): the single in-repo
      write target is *this file* — the `## Evidence` section appended by the
      executor. Every other write target is outside the repo, under
-     `/mnt/work/forqsite.help`, and therefore cannot appear in `touches:` at all;
+     `/mnt/work/Repo-D`, and therefore cannot appear in `touches:` at all;
      that is the point of phase 106 § Execution model. The cross-repo write set is
      enumerated instead in `## Cross-repo scope boundaries` below. -->
 
@@ -42,16 +42,16 @@ touches:
 Phase 106 drives the remaining pairmode 0.3.0 fleet migrations centrally from
 flex, using the six-step mechanic in `docs/harness-cutover-runbook.md`
 § *Per-project mechanic* as the unit of work. RELEASE-063 was the campaign canary
-(meander), RELEASE-064 the first follow-on (lumin), RELEASE-065 the second
-(caddy). **RELEASE-066 is the fourth run — and the first one after the campaign
+(Repo-B), RELEASE-064 the first follow-on (Repo-J), RELEASE-065 the second
+(Repo-C). **RELEASE-066 is the fourth run — and the first one after the campaign
 was re-blocked and then unblocked.**
 
-**Target repo: `/mnt/work/forqsite.help`.**
+**Target repo: `/mnt/work/Repo-D`.**
 
 > **Path disambiguation — read this before running anything.** Two sibling
-> repositories exist: `/mnt/work/forqsite` and `/mnt/work/forqsite.help`. They are
-> different projects. This story targets **`/mnt/work/forqsite.help`** — the one
-> named in the phase-106 Stories table — and `/mnt/work/forqsite` is
+> repositories exist: `/mnt/work/Repo-E` and `/mnt/work/Repo-D`. They are
+> different projects. This story targets **`/mnt/work/Repo-D`** — the one
+> named in the phase-106 Stories table — and `/mnt/work/Repo-E` is
 > out of scope entirely (see `## Out of scope`). Confirm the target from
 > `fleet_discovery.py`'s candidate scan before the first write, and record the
 > confirmation in E1. A mechanic run against the wrong sibling is a
@@ -63,10 +63,10 @@ verdict on the load-bearing E6 check:
 
 - **E6a (attribution, CER-103) and E6c (dedupe, CER-104) PASSED** — the campaign's
   first downstream proof that the cp-110 remediation reaches a consumer project.
-- **E6b (content, CER-101) FAILED** — caddy's proving-cycle attempt rows landed
+- **E6b (content, CER-101) FAILED** — Repo-C's proving-cycle attempt rows landed
   with `outcome NULL` and stayed permanently pending. Root cause, isolated in
   RELEASE-065's Evidence: `sync-agents` merged frontmatter and appended new
-  sections but **preserved stale 0.2-era body content**, so caddy's workers
+  sections but **preserved stale 0.2-era body content**, so Repo-C's workers
   returned the plain-text grammar (`BUILD-RESULT: DONE`, `REVIEW-RESULT: PASS`)
   that `parse_worker_outcome` cannot read. Every 0.2-era fleet project was
   expected to hit this. RELEASE-065 therefore **BLOCKED RELEASE-066..070**.
@@ -75,7 +75,7 @@ Phase 112 (`cp-112`, era-003 § Phases: *"Campaign unblockers: worker
 result-grammar reconciliation, CER-guard placeholder fix, snapshot write
 targeting"*, status `complete`) was opened to clear exactly that block. Per the
 campaign context supplied with this story, four unblockers landed and were
-field-proven against caddy in a follow-up sweep:
+field-proven against Repo-C in a follow-up sweep:
 
 1. **Legacy plain-text verdict grammar tolerance** — `parse_worker_outcome` now
    additionally accepts the 0.2-era plain-text verdict line, so a consumer whose
@@ -85,7 +85,7 @@ field-proven against caddy in a follow-up sweep:
    migrated projects get the JSON grammar as their only example.
 3. **CER placeholder-row guard** — `_check_cer_do_now` no longer reads the
    scaffolded `(none)` placeholder row as an unresolved Do-Now item (RELEASE-065
-   new-3 / caddy CER-C004), which previously blocked every migrated repo's first
+   new-3 / Repo-C CER-C004), which previously blocked every migrated repo's first
    checkpoint until hand-edited.
 4. **Snapshot-write targeting** — `fleet_discovery.py`'s default snapshot no
    longer writes `docs/fleet-snapshot.md` into the channel checkout it only reads
@@ -102,7 +102,7 @@ re-blocks RELEASE-067..070, exactly as RELEASE-065's failure did.
 Canary playbook note 2 (the runbook's step-5 `discover` subcommand /
 `--project-dir` flag form is wrong) **recurred 3-of-3** and the runbook is still
 unamended. On top of that, RELEASE-065's E11 caught the *default snapshot path*
-writing into `/mnt/work/flex-harness` because caddy's native session ran
+writing into `/mnt/work/flex-harness` because Repo-C's native session ran
 `fleet_discovery.py` without `--no-snapshot`. Unblocker 4 fixes the targeting,
 but this spec still requires `--no-snapshot` on every discovery invocation —
 including any run inside the target project's own session — because that is the
@@ -121,7 +121,7 @@ Two things about how this story runs are unusual and are settled by phase 106
 should read before acting:
 
 1. **No sandboxed builder subagent, no flex worktree.** The write targets live at
-   `/mnt/work/forqsite.help`, outside this repo. The standard worktree loop and
+   `/mnt/work/Repo-D`, outside this repo. The standard worktree loop and
    `scope_guard.py` forbid writes there — correctly. Execution is
    orchestrator-level with the operator present.
 2. **Acceptance is evidence-shaped, not diff-shaped.** The flex-side diff is one
@@ -152,7 +152,7 @@ scope violation to be reported, not rationalized.
   (`flex_build.py` status/record subcommands). Hand-edits to those files are not
   part of this story.
 
-**Writable — inside `/mnt/work/forqsite.help` (the target repo, and only via the
+**Writable — inside `/mnt/work/Repo-D` (the target repo, and only via the
 pairmode CLIs or an operator-approved edit):**
 
 - `CLAUDE.build.md` — rewritten to the 0.3.0 thin-harness template by `sync-all`.
@@ -177,13 +177,13 @@ pairmode CLIs or an operator-approved edit):**
 - `/mnt/work/flex-harness` (the release channel) — scripts are *invoked* from it.
   `git -C /mnt/work/flex-harness status --porcelain` must print nothing at the end
   (E11). If it does not, something wrote into the channel and that is a finding.
-- `/mnt/work/meander`, `/mnt/work/lumin`, `/mnt/work/caddy` — read for the E10
+- `/mnt/work/Repo-B`, `/mnt/work/Repo-J`, `/mnt/work/Repo-C` — read for the E10
   proof-debt re-check only. No sync, no re-migration.
 - `/mnt/work/flex/skills/`, `tests/`, `ui/`, `.claude-plugin/` — untouched.
 
 **Forbidden outright:**
 
-- `/mnt/work/forqsite` — the *other* sibling repo. Not this target. Not read, not
+- `/mnt/work/Repo-E` — the *other* sibling repo. Not this target. Not read, not
   scanned as a candidate, not migrated.
 - Every other project directory under `/mnt/work/` — RELEASE-067..070 own those.
 - `docs/harness-cutover-runbook.md` and `docs/cer/backlog.md` in flex — findings
@@ -218,9 +218,9 @@ pairmode CLIs or an operator-approved edit):**
   `docs/architecture.md` § *Release channel — flex-harness*.
 - **The target exists as a git repository and its working tree is clean** at the
   moment the mechanic begins. The path is *expected* to be
-  `/mnt/work/forqsite.help`; confirm it from `fleet_discovery.py`'s candidate scan
-  rather than assuming, and confirm it is not the sibling `/mnt/work/forqsite`.
-  Per canary playbook note 1 — which **recurred 2-of-3**, and on caddy in the new
+  `/mnt/work/Repo-D`; confirm it from `fleet_discovery.py`'s candidate scan
+  rather than assuming, and confirm it is not the sibling `/mnt/work/Repo-E`.
+  Per canary playbook note 1 — which **recurred 2-of-3**, and on Repo-C in the new
   form of a competing half-started self-migration — a dirty tree is a **stop**
   condition with no runbook step covering it: the operator decides (discard,
   commit, or abort) and the decision is recorded verbatim. Do not stash around it
@@ -231,7 +231,7 @@ pairmode CLIs or an operator-approved edit):**
   what must be *true afterwards*.
 - The operator is present. Beyond the unblock confirmation, canary note 7's
   auto-mode permission classifier block on the first out-of-repo `sync-all
-  --apply` is unsettled (1-of-3: fired on meander, not on lumin or caddy), and the
+  --apply` is unsettled (1-of-3: fired on Repo-B, not on Repo-J or Repo-C), and the
   E9 prune decision and E5 proving-story selection are operator calls.
 - Known flex-side environmental failure inside fresh worktrees:
   `tests/pairmode/test_observability_ui.py::test_ui_build_emits_dist_index_html`
@@ -267,10 +267,10 @@ not assumed.**
 pre-migration `binding`, `signal1` (scripts path) and `signal2`
 (`pairmode_version`), plus the run's `Projects with duplicate hooks:` line.
 `## Evidence` also records:
-- `git -C /mnt/work/forqsite.help log --oneline -5` and
-  `git -C /mnt/work/forqsite.help status --porcelain`;
-- an explicit line confirming the target is `/mnt/work/forqsite.help` and **not**
-  `/mnt/work/forqsite`;
+- `git -C /mnt/work/Repo-D log --oneline -5` and
+  `git -C /mnt/work/Repo-D status --porcelain`;
+- an explicit line confirming the target is `/mnt/work/Repo-D` and **not**
+  `/mnt/work/Repo-E`;
 - one line stating which starting shape the target is in — bound-0.2.x,
   bound-other-version, declared-but-unstamped, or never-bootstrapped — and
   therefore which branch of `## Instructions` step 5 applies.
@@ -297,7 +297,7 @@ hooks, unprunable by `audit-hooks --apply` by design). `## Evidence` records:
   **exactly one pairmode hook block and one command per event** for the pairmode
   events (`PreToolUse`, `UserPromptSubmit`, `SessionStart`, `PostToolUse`), each
   pointing at `/mnt/work/flex-harness/hooks/...`;
-- (b) `pairmode_sync.py audit-hooks --project-dir /mnt/work/forqsite.help`
+- (b) `pairmode_sync.py audit-hooks --project-dir /mnt/work/Repo-D`
   (dry-run), showing that any remaining `DUPLICATE:` lines are **plugin-sourced
   and non-pairmode**, and that nothing pairmode-owned is prunable;
 - (c) the fleet-wide `Projects with duplicate hooks: N` line from the E2 run,
@@ -312,7 +312,7 @@ right — the point is to prove `pairmode_sync.py` produces this state on its ow
 **E4. The bootstrapped loop is the 0.3.0 thin-harness template, and the synced
 agent bodies carry the *new* result grammar.**
 `## Evidence` records:
-- (a) the result of inspecting `/mnt/work/forqsite.help/CLAUDE.build.md` and
+- (a) the result of inspecting `/mnt/work/Repo-D/CLAUDE.build.md` and
   confirms it is the thin dispatch-loop template, not the pre-flip 0.2.x prose
   loop. Use the same checks all three prior runs used so the four are comparable:
   `grep -c "flex_build.py next-action" <path>` (all prior runs printed `2`) plus a
@@ -322,7 +322,7 @@ agent bodies carry the *new* result grammar.**
   surviving 0.2-era plain-text result-grammar example** — i.e. `grep -rn
   'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS'` over the target's agent files returns
   nothing, or returns only occurrences that are explicitly part of the new
-  legacy-tolerance documentation. RELEASE-065 found caddy's `builder.md:106` still
+  legacy-tolerance documentation. RELEASE-065 found Repo-C's `builder.md:106` still
   carrying the literal `BUILD-RESULT: DONE` example *alongside* the newly-merged
   JSON-schema reference, and the workers followed the old example. Record the grep
   and its output either way. A surviving stale example is a **predictor of E6b
@@ -331,7 +331,7 @@ agent bodies carry the *new* result grammar.**
 - (c) the observed state of any `SKILL.md` content `sync-all` wrote into the
   target — whether the skill `name:` values are the **bare** cp-111 names rather
   than the old namespaced ones. If `sync-all` copies no SKILL.md into this target
-  (caddy had no `skills/` dir), record that fact instead.
+  (Repo-C had no `skills/` dir), record that fact instead.
 
 **E5. A proving story cycle completed inside the target — or its absence is
 recorded as an explicit, operator-owned deferral.**
@@ -362,7 +362,7 @@ correctly, including `outcome`.**
 Applies when E5 took the preferred path; when E5 took the fallback, E6 is recorded
 as *not run* with the consequence stated and is **not** claimed as passed. All
 three parts are verified from recorded queries against the target's `effort.db`
-(locate it; do not assume the path — meander's, lumin's and caddy's were
+(locate it; do not assume the path — Repo-B's, Repo-J's and Repo-C's were
 `.companion/effort.db`). Verify the live schema before querying: the `attempts`
 table uses `agent_role`/`ts`, **not** `role`/`created_at` (RELEASE-064 E10;
 confirmed by RELEASE-065's recorded schema
@@ -372,13 +372,13 @@ outcome, notes, ts, …, agent_id, output_file)`).
 - **E6a — attribution (CER-103).** At least one attempt row exists for the E5
   story ID **in the target's own db**, not flex's. `## Evidence` also records the
   complementary check that flex's `effort.db` contains **no** rows for the E5 story
-  ID. PROVEN downstream on caddy; this run re-confirms it rather than establishing
+  ID. PROVEN downstream on Repo-C; this run re-confirms it rather than establishing
   it.
 - **E6b — content (CER-101). This is the assertion this story exists to settle.**
   Those rows have a **non-null, non-placeholder `outcome`** and a non-zero
   token/cost field. `outcome NULL` / `tokens_total NULL` persisting after both the
   in-session and an explicit reconciliation sweep is the exact pattern that failed
-  on caddy and is a **fail** here. `## Evidence` must record: the raw row values;
+  on Repo-C and is a **fail** here. `## Evidence` must record: the raw row values;
   the result after an explicit sweep if the rows are pending at first read; and,
   if the rows resolve, the fact that **this is the campaign's first downstream
   proof of the CER-101 content half** — in those words. If they do not resolve,
@@ -388,7 +388,7 @@ outcome, notes, ts, …, agent_id, output_file)`).
 - **E6c — no duplicates (CER-104).** Each attempt appears **once**. Record a
   grouped count (e.g. `SELECT story_id, agent_role, COUNT(*) … GROUP BY …`)
   showing no perfect pairs with near-identical timestamps. PROVEN downstream on
-  caddy (paired `recorded` + `recorded:deduped` log decisions); this run
+  Repo-C (paired `recorded` + `recorded:deduped` log decisions); this run
   re-confirms.
 
 Any of E6a/E6b/E6c failing is a stop condition (see `## Instructions` step 11).
@@ -410,7 +410,7 @@ command (RELEASE-065 used `flex_build.py checkpoint-report --project-dir <target
 confirm against `--help` before running).
 
 **E8. The target's git history shows the migration as its own commit(s).**
-`## Evidence` records `git -C /mnt/work/forqsite.help log --oneline` covering the
+`## Evidence` records `git -C /mnt/work/Repo-D log --oneline` covering the
 migration commit(s) and, if E5 ran, the proving-story commit(s), so a later
 auditor can see exactly what the sync wrote and roll it back if needed. Per canary
 playbook note 3 — **recurred 3-of-3** — the migration commit **precedes** the
@@ -418,9 +418,9 @@ proving cycle in history. Record the file/insertion/deletion counts for the
 migration commit.
 
 **E9. The target's `settings.local.json` sediment is handled deliberately.**
-Per canary playbook note 9 (**recurred 2-of-3**: meander 133 rules / 91 stale;
-lumin had no such file; caddy 48 stale rules pruned with a backup),
-`## Evidence` records: whether `/mnt/work/forqsite.help/.claude/settings.local.json`
+Per canary playbook note 9 (**recurred 2-of-3**: Repo-B 133 rules / 91 stale;
+Repo-J had no such file; Repo-C 48 stale rules pruned with a backup),
+`## Evidence` records: whether `/mnt/work/Repo-D/.claude/settings.local.json`
 exists; if it does, the pre-migration count of `Write(`/`Edit(` allow rules, the
 operator's decision (prune or keep), and — if pruned — the post-prune count and the
 backup location. If the file does not exist or carries no such rules, record that
@@ -430,17 +430,17 @@ fact. "Not mentioned" is a fail.
 `## Evidence` records the current position across the fleet as of this run,
 explicitly separating the three CERs:
 
-- **CER-103 (attribution)** and **CER-104 (dedupe)** — PROVEN downstream by caddy
+- **CER-103 (attribution)** and **CER-104 (dedupe)** — PROVEN downstream by Repo-C
   story PAIRMODE-002 (RELEASE-065 E6a/E6c). Cite; do not re-derive.
 - **CER-101 (content/outcome)** — record whether this run's E6b supplies the first
   downstream proof, or whether it remains outstanding. If outstanding, list the
   projects checked and carry the follow-up forward under E13 rather than letting
   it silently age out.
-- **meander and lumin** — RELEASE-064 determined meander needs no re-sync to pick
+- **Repo-B and Repo-J** — RELEASE-064 determined Repo-B needs no re-sync to pick
   up cp-110 (the fixes live in channel scripts it invokes by path). Cp-112's
   `sync-agents` legacy-heading replacement **changes that determination**, because
-  agent bodies *are* copied into consumer repos at sync time and meander's and
-  lumin's bodies predate the JSON grammar. State the revised determination and its
+  agent bodies *are* copied into consumer repos at sync time and Repo-B's and
+  Repo-J's bodies predate the JSON grammar. State the revised determination and its
   basis. Performing any re-sync is **not** this story's work (see
   `## Out of scope`); naming it is.
 
@@ -481,14 +481,14 @@ Four specific comparisons are required:
   stale grammar. If cp-112's `sync-agents` replacement works, the WARN should
   either not fire or should no longer correspond to a real stale example — state
   which.
-- **note 7** (auto-mode classifier block) — fired on meander, not on lumin, not on
-  caddy (1-of-3, unsettled). State which happened here.
-- **note 6 / CER-111** (`expected_step_tokens`) — meander kept its custom value
-  with a WARN, caddy kept `53416` with a WARN, lumin was silently rewritten
+- **note 7** (auto-mode classifier block) — fired on Repo-B, not on Repo-J, not on
+  Repo-C (1-of-3, unsettled). State which happened here.
+- **note 6 / CER-111** (`expected_step_tokens`) — Repo-B kept its custom value
+  with a WARN, Repo-C kept `53416` with a WARN, Repo-J was silently rewritten
   `53000 → 5000`. `## Evidence` must record this target's **pre-`to-030` value**,
   the **post-`to-030` value**, and whether a keep/WARN or a silent rewrite
   occurred. Reading the value only afterwards makes the delta unrecoverable.
-- **RELEASE-065 new-3 / CER-guard placeholder (unblocker 3)** — caddy's first
+- **RELEASE-065 new-3 / CER-guard placeholder (unblocker 3)** — Repo-C's first
   post-migration checkpoint was blocked by `_check_cer_do_now` reading the
   scaffolded `(none)` placeholder row as an unresolved Do-Now item. If this
   target's proving cycle reaches a checkpoint, record whether that false positive
@@ -523,7 +523,7 @@ means something ran that should not have.
 You are executing this story **at orchestrator level with the operator present**,
 not as a sandboxed builder subagent in a flex worktree. Do not create a story
 worktree. Do not attempt to have a builder subagent write to
-`/mnt/work/forqsite.help` — `scope_guard.py` will block it, correctly, and working
+`/mnt/work/Repo-D` — `scope_guard.py` will block it, correctly, and working
 around the block is itself a violation. Read `## Cross-repo scope boundaries`
 before the first write and treat it as the complete permission list.
 
@@ -563,7 +563,7 @@ before the first write and treat it as the complete permission list.
    ```bash
    PATH=$HOME/.local/bin:$PATH uv run python \
      /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
-     --candidate-dir /mnt/work/forqsite.help --no-snapshot
+     --candidate-dir /mnt/work/Repo-D --no-snapshot
    ```
    `--no-snapshot` is **mandatory on every discovery invocation in this story**,
    including any run the target's own session makes: RELEASE-065's E11 caught the
@@ -571,17 +571,17 @@ before the first write and treat it as the complete permission list.
    `--help` before running — cp-112 landed since the last run — and do not guess
    flags.
 
-   Explicitly confirm the resolved path is `/mnt/work/forqsite.help` and not the
-   sibling `/mnt/work/forqsite`, and record that confirmation. Save the full
+   Explicitly confirm the resolved path is `/mnt/work/Repo-D` and not the
+   sibling `/mnt/work/Repo-E`, and record that confirmation. Save the full
    output; you will compare it against the post-migration run. Also capture
-   `git -C /mnt/work/forqsite.help log --oneline -5` and `… status --porcelain`.
+   `git -C /mnt/work/Repo-D log --oneline -5` and `… status --porcelain`.
 
    Then **state the target's starting shape in one line** and pick the step-5
    branch.
 
 5. **Branch on the baseline before running the mechanic.**
    - **Bound 0.2.x consumer** (`signal2: 0.2.x`, any `binding`) — the ordinary
-     path; run the six-step mechanic as lumin and caddy did.
+     path; run the six-step mechanic as Repo-J and Repo-C did.
    - **Bound but version-absent, or bound to a non-0.2.x version** — the mechanic
      still applies, but `to-030`'s assumptions about a 0.2.x starting state may not
      hold. Run `--dry-run` first, show the operator, and record any step whose
@@ -640,11 +640,11 @@ before the first write and treat it as the complete permission list.
 
 9. **Handle the `settings.local.json` sediment (E9, canary note 9).** Before
    handing the target to a native session, check whether
-   `/mnt/work/forqsite.help/.claude/settings.local.json` exists and count the stale
+   `/mnt/work/Repo-D/.claude/settings.local.json` exists and count the stale
    `Write(`/`Edit(` allow rules. `sync-all` correctly does not touch that file, so
    any sediment survives migration and floods the first post-migration session with
    warnings. Present the count to the operator and let the operator decide
-   prune-or-keep. If pruning: back the file up first (caddy's backup convention:
+   prune-or-keep. If pruning: back the file up first (Repo-C's backup convention:
    `<file>.bak-pre-030-prune`), remove the stale `Write(path)` and per-file
    `Edit(path)` rules (obsolete under 0.3 story-scoped permissions), and record
    before/after counts and the backup path. This is an operator decision — do not
@@ -653,19 +653,19 @@ before the first write and treat it as the complete permission list.
 10. **Verify the stamp before proving (E2, E3, E4).** Re-run the exact step-4
     `fleet_discovery.py --no-snapshot` command and confirm the target now reports
     `0.3.0`, `binding: both` with `signal1` pointing at the channel. Then run
-    `audit-hooks --project-dir /mnt/work/forqsite.help` as a dry-run and inspect
+    `audit-hooks --project-dir /mnt/work/Repo-D` as a dry-run and inspect
     the target's `.claude/settings.json` for the per-event pairmode hook blocks —
     **assert single-block pairmode hooks, not `Projects with duplicate hooks: 0`**;
     per CER-110 that number will be non-zero fleet-wide on a plugin-sourced,
     non-pairmode basis, and chasing it to zero here would mean editing files
     `audit-hooks` deliberately never writes. Then inspect
-    `/mnt/work/forqsite.help/CLAUDE.build.md` for the thin-harness template and
+    `/mnt/work/Repo-D/CLAUDE.build.md` for the thin-harness template and
     record the cp-111 SKILL.md name state per E4(c). Do not proceed until
     E2/E3/E4 hold — a proving cycle run against a half-migrated project produces
     uninterpretable evidence.
 
 11. **Run the proving story cycle (E5, E6, E7) — this is the most valuable output
-    of this story.** This is mechanic step 6. Caddy's cycle proved CER-103 and
+    of this story.** This is mechanic step 6. Repo-C's cycle proved CER-103 and
     CER-104 downstream but failed CER-101's content half; phase 112 was built to
     clear that failure. **A passing E6b here is the campaign's first downstream
     proof of the CER-101 content half and the field validation of unblockers 1
@@ -738,7 +738,7 @@ before the first write and treat it as the complete permission list.
     and why step 7 forbids hand-editing the agent bodies to make the grep clean:
     the rule's purpose is to detect stale grammar, and satisfying it by editing
     would destroy the signal. *"Decision fidelity over convenience"* is why the
-    two-sibling path ambiguity (`forqsite` vs `forqsite.help`) is a recorded
+    two-sibling path ambiguity (`Repo-E` vs `Repo-D`) is a recorded
     confirmation rather than an assumption. On accepted constraints: *"Hooks are
     thin relays only"* is adjacent, since the mechanic rewrites the target's hook
     block — the rationale is that hooks must not block or write state, so E3
@@ -770,42 +770,42 @@ git -C /mnt/work/flex-harness log --oneline -5
 # (RELEASE-065 E11); the runbook's step-5 form is wrong, 3-of-3 (note 2).
 PATH=$HOME/.local/bin:$PATH uv run python \
   /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
-  --candidate-dir /mnt/work/forqsite.help --no-snapshot
+  --candidate-dir /mnt/work/Repo-D --no-snapshot
 ```
 
 ```bash
 # E3 — pairmode-scoped hook assertion (CER-110: fleet-wide count will NOT be 0)
 PATH=$HOME/.local/bin:$PATH uv run python \
   /mnt/work/flex-harness/skills/pairmode/scripts/pairmode_sync.py \
-  audit-hooks --project-dir /mnt/work/forqsite.help
+  audit-hooks --project-dir /mnt/work/Repo-D
 ```
 
 ```bash
 # E4(a) — thin-harness template
-grep -c "flex_build.py next-action" /mnt/work/forqsite.help/CLAUDE.build.md
-head -5 /mnt/work/forqsite.help/CLAUDE.build.md
+grep -c "flex_build.py next-action" /mnt/work/Repo-D/CLAUDE.build.md
+head -5 /mnt/work/Repo-D/CLAUDE.build.md
 
 # E4(b) — UNBLOCKER-2 CHECK: no surviving 0.2-era result grammar in agent bodies.
 # Run this BEFORE the proving cycle. Empty output is the pass.
-grep -rn 'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS' /mnt/work/forqsite.help/.claude/agents/ \
+grep -rn 'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS' /mnt/work/Repo-D/.claude/agents/ \
   || echo "clean — no legacy plain-text grammar examples survived sync-agents"
 
 # E4(c) — cp-111 bare skill names as landed in the target (may not exist)
-grep -rn '^name:' /mnt/work/forqsite.help/.claude/skills/*/SKILL.md 2>/dev/null || \
+grep -rn '^name:' /mnt/work/Repo-D/.claude/skills/*/SKILL.md 2>/dev/null || \
   echo "no SKILL.md copied into target — record this"
 ```
 
 ```bash
 # CER-111 — expected_step_tokens, BEFORE and AFTER to-030
-grep -n 'expected_step_tokens' /mnt/work/forqsite.help/.companion/state.json
+grep -n 'expected_step_tokens' /mnt/work/Repo-D/.companion/state.json
 # ... run to-030 --apply ...
-grep -n 'expected_step_tokens' /mnt/work/forqsite.help/.companion/state.json
+grep -n 'expected_step_tokens' /mnt/work/Repo-D/.companion/state.json
 ```
 
 ```bash
 # E6 — proving-cycle attempt rows in the target's own effort.db.
 # Locate the db first; do not assume a path. Schema uses agent_role/ts.
-find /mnt/work/forqsite.help -name 'effort.db' -not -path '*/node_modules/*'
+find /mnt/work/Repo-D -name 'effort.db' -not -path '*/node_modules/*'
 sqlite3 <target-effort.db> ".schema attempts"
 
 # E6a attribution: rows present in the target, absent in flex
@@ -830,30 +830,30 @@ sqlite3 <target-effort.db> \
 # (RELEASE-065 used this command; confirm the subcommand via --help)
 PATH=$HOME/.local/bin:$PATH uv run python \
   /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
-  checkpoint-report --project-dir /mnt/work/forqsite.help
+  checkpoint-report --project-dir /mnt/work/Repo-D
 ```
 
 ```bash
 # E9 — settings.local.json sediment, before and after
-ls /mnt/work/forqsite.help/.claude/settings.local.json 2>/dev/null || echo "no settings.local.json"
-grep -c 'Write(' /mnt/work/forqsite.help/.claude/settings.local.json
-grep -c 'Edit('  /mnt/work/forqsite.help/.claude/settings.local.json
+ls /mnt/work/Repo-D/.claude/settings.local.json 2>/dev/null || echo "no settings.local.json"
+grep -c 'Write(' /mnt/work/Repo-D/.claude/settings.local.json
+grep -c 'Edit('  /mnt/work/Repo-D/.claude/settings.local.json
 ```
 
 ```bash
 # E10 — proof-position re-check across the fleet
 # cp-110 promotion timestamp recorded in RELEASE-064 E10: 2026-07-28T15:57:54Z
-sqlite3 /mnt/work/meander/.companion/effort.db \
+sqlite3 /mnt/work/Repo-B/.companion/effort.db \
   "SELECT id, story_id, agent_role, tokens_total, outcome, ts
      FROM attempts WHERE ts > '2026-07-28T15:57:54Z'"
-sqlite3 /mnt/work/caddy/.companion/effort.db \
+sqlite3 /mnt/work/Repo-C/.companion/effort.db \
   "SELECT id, story_id, agent_role, tokens_total, outcome, ts
      FROM attempts WHERE story_id='PAIRMODE-002'"   # RELEASE-065's pending rows
 ```
 
 ```bash
 # E8 — migration visible in the target's history, migration commit before proving
-git -C /mnt/work/forqsite.help log --oneline -10
+git -C /mnt/work/Repo-D log --oneline -10
 
 # E11 — flex-side diff is this story file only; channel untouched (unblocker-4)
 git -C /mnt/work/flex diff --name-only
@@ -872,8 +872,8 @@ Acceptance:
   a fail;
 - E0(c) records the operator's confirmation that RELEASE-065's block is discharged
   by phase 112, verbatim, and states what remains unproven;
-- E1 records an explicit confirmation that the target is `/mnt/work/forqsite.help`
-  and not `/mnt/work/forqsite`;
+- E1 records an explicit confirmation that the target is `/mnt/work/Repo-D`
+  and not `/mnt/work/Repo-E`;
 - the target shows `binding: both` and `0.3.0`, with single-block **pairmode**
   hooks per event; the fleet-wide `Projects with duplicate hooks: N` line is
   recorded informationally and is **not** required to be `0` (CER-110);
@@ -900,8 +900,8 @@ Acceptance:
 Note for `spec-preflight`: this spec references a `## Evidence` section and its
 **Playbook notes** / **Follow-ups** subsections, which do not exist in this file yet
 — they are created by this story, and any preflight finding naming them is expected.
-It also references `/mnt/work/forqsite.help`, `/mnt/work/forqsite`,
-`/mnt/work/caddy`, `/mnt/work/meander`,
+It also references `/mnt/work/Repo-D`, `/mnt/work/Repo-E`,
+`/mnt/work/Repo-C`, `/mnt/work/Repo-B`,
 `/mnt/work/flex-harness/skills/pairmode/scripts`, the
 `cp-105`/`cp-110`/`cp-111`/`cp-112` tags, CER-101/103/104/110/111, INFRA-289, and
 `docs/harness-cutover-runbook.md` § *Per-project mechanic* / § *Rollback
@@ -911,22 +911,22 @@ from `docs/phases/phase-106.md` § *Execution model*, from `docs/eras/003-*.md`
 the campaign context supplied with this story. All concrete paths inside the target
 (`.companion/state.json`, `.companion/effort.db`, `.claude/settings.local.json`,
 `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`) are **expected** shapes taken
-from meander, lumin and caddy, not verified for this target — locate each before
+from Repo-B, Repo-J and Repo-C, not verified for this target — locate each before
 using it, and record what you actually find. The `--candidate-dir` /
 `--no-snapshot` flags, the `audit-hooks` subcommand and `checkpoint-report` come
 from the prior runs' recorded invocations; confirm via `--help`.
 
 ## Out of scope
 
-- **Migrating any project other than `/mnt/work/forqsite.help`.** halfhorse, pokus,
-  base56 and cora are RELEASE-067..070. Do not run the mechanic against a second
+- **Migrating any project other than `/mnt/work/Repo-D`.** Repo-F, Repo-K,
+  base56 and Repo-G are RELEASE-067..070. Do not run the mechanic against a second
   project "while the environment is warm" — the campaign wants each data point
   separable, and this run is carrying a regression test for phase 112.
-- **`/mnt/work/forqsite`.** The similarly-named sibling repo is not this target and
+- **`/mnt/work/Repo-E`.** The similarly-named sibling repo is not this target and
   is not in the campaign under this story. Do not scan it, sync it, or migrate it.
-- **Re-syncing or re-migrating meander, lumin or caddy.** E10 requires *re-checking*
-  the proof position and *naming* the revised meander/lumin re-sync determination
-  under cp-112. Performing any re-sync, or re-running caddy's PAIRMODE-002
+- **Re-syncing or re-migrating Repo-B, Repo-J or Repo-C.** E10 requires *re-checking*
+  the proof position and *naming* the revised Repo-B/Repo-J re-sync determination
+  under cp-112. Performing any re-sync, or re-running Repo-C's PAIRMODE-002
   reconciliation to see whether the grammar fix retro-resolves its pending rows, is
   separate work — mixing a remediation of an earlier project into this migration
   would make it impossible to tell which project's evidence proved what.
@@ -975,7 +975,7 @@ from the prior runs' recorded invocations; confirm via `--help`.
 
 - (c) Operator confirmation, quoted verbatim from the live AskUserQuestion exchange: asked
   *"RELEASE-066 E0(c) requires a live, quoted operator confirmation that RELEASE-065's block on
-  RELEASE-066..070 is discharged by phase 112 (cp-112 + F3 PASS on caddy rows 33/34). Do you
+  RELEASE-066..070 is discharged by phase 112 (cp-112 + F3 PASS on Repo-C rows 33/34). Do you
   confirm?"* — operator answered **"Confirmed — block discharged"**.
 - Tags in flex: `git tag -l` → `cp-105`, `cp-110`, `cp-111`, `cp-112` all present.
 - Channel content: `git -C /mnt/work/flex-harness log --oneline -1` → `90ff183d chore(phase-112): mark phase complete in index and era ledger (cp-112)` — the cp-112 commit itself; channel clean (`status --porcelain` empty).
@@ -990,24 +990,24 @@ Command (corrected Signal-1 form, flags confirmed against `--help` post-cp-112):
 
 ```
 uv run python /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
-  --candidate-dir /mnt/work/forqsite.help --no-snapshot
+  --candidate-dir /mnt/work/Repo-D --no-snapshot
 ```
 
 Baseline output (target block):
 
 ```
-/mnt/work/forqsite.help
+/mnt/work/Repo-D
   binding: version
   signal1 (scripts path): absent — no-declaration
   signal2 (pairmode_version): 0.2.0
-  DUPLICATE HOOKS: /mnt/work/forqsite.help — events: SessionStart, PostToolUse
+  DUPLICATE HOOKS: /mnt/work/Repo-D — events: SessionStart, PostToolUse
 ```
 
-- Path disambiguation: `readlink -f /mnt/work/forqsite.help` → `/mnt/work/forqsite.help` (no symlink games);
-  the sibling `/mnt/work/forqsite` appears separately in the same scan already at `binding: both` / `0.3.0`.
+- Path disambiguation: `readlink -f /mnt/work/Repo-D` → `/mnt/work/Repo-D` (no symlink games);
+  the sibling `/mnt/work/Repo-E` appears separately in the same scan already at `binding: both` / `0.3.0`.
   Confirmed the migration target is the `.help` docs-site repo, not the sibling source repo.
 - `git log --oneline -5` at baseline: `cfe0f1b` (pre-migration snapshot, above), `669b281`, `809aca3`, `3aab61c`, `192410a`; `status --porcelain` empty after cfe0f1b.
-- **Starting shape (one line): bound 0.2.x consumer (`binding: version`, signal1 absent, signal2 0.2.0) — ordinary path, same branch as lumin and caddy.**
+- **Starting shape (one line): bound 0.2.x consumer (`binding: version`, signal1 absent, signal2 0.2.0) — ordinary path, same branch as Repo-J and Repo-C.**
 
 ### Mechanic run
 
@@ -1019,18 +1019,18 @@ Baseline output (target block):
 - Apply: `sync-all --apply --yes` exit 0. Auto-mode classifier did **not** block (note 7: still 1-of-4 overall).
 - `state.json.lock` left behind by apply: **recurred (4-of-4)** — removed, not committed (note 5).
 - **CER-111 pre/post:** `expected_step_tokens` read **before** `to-030`: `53416`; after: `53416` — **keep + WARN**
-  (`[WARN] custom expected_step_tokens=53416 — value kept (not the Era 2 stamp).`), the meander/caddy behaviour, not lumin's silent rewrite.
+  (`[WARN] custom expected_step_tokens=53416 — value kept (not the Era 2 stamp).`), the Repo-B/Repo-C behaviour, not Repo-J's silent rewrite.
 - `to-030 --apply` exit 0; `pairmode_version` 0.2.0 → 0.3.0. Agent-cleanup WARN fired on all five synced files (note 4, 4-of-4) — paired with the E4(b) grep below rather than dismissed.
 
 **E4(b) — the unblocker-2 check (run before the proving cycle, no hand-edits):**
 
 ```
-$ grep -rn 'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS' /mnt/work/forqsite.help/.claude/agents/
+$ grep -rn 'BUILD-RESULT: DONE\|REVIEW-RESULT: PASS' /mnt/work/Repo-D/.claude/agents/
 (no matches — exit 1)
 ```
 
 **CLEAN.** Baseline had the stale grammar in `builder.md` and `reviewer.md` (grep count 1 each pre-sync). cp-112's
-`sync-agents` replacement removed it; on caddy (pre-fix) the same content survived sync and killed E6b. This is the first
+`sync-agents` replacement removed it; on Repo-C (pre-fix) the same content survived sync and killed E6b. This is the first
 field observation of unblocker 2 working.
 
 - Migration committed **before** the proving cycle (note 3, 4-of-4): target commit `c2485d6`
@@ -1041,13 +1041,13 @@ field observation of unblocker 2 working.
 Same discovery command re-run; target block now:
 
 ```
-/mnt/work/forqsite.help
+/mnt/work/Repo-D
   binding: both
   signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
   signal2 (pairmode_version): 0.3.0
 ```
 
-`audit-hooks --project-dir /mnt/work/forqsite.help` (dry-run) reports duplicates only for **plugin-sourced,
+`audit-hooks --project-dir /mnt/work/Repo-D` (dry-run) reports duplicates only for **plugin-sourced,
 non-pairmode** entries (`session-start.sh` ×2, `security_reminder_hook.py` ×6) — the CER-110 pattern, deliberately not
 chased. Direct inspection of `.claude/settings.json`: **exactly one pairmode hook entry per event**
 (PreToolUse/UserPromptSubmit/SessionStart/PostToolUse), all pointing at `/mnt/work/flex-harness/hooks/*.py`. E3 asserted
@@ -1056,22 +1056,22 @@ as single-block pairmode hooks, not `duplicate hooks: 0`, per spec.
 ### E4 — thin-harness template and SKILL.md state
 
 - (a) `grep -c "flex_build.py next-action" CLAUDE.build.md` → **2** (matches all three prior runs); `head -5` shows the
-  0.3.0 thin dispatch-loop header (`# CLAUDE.build.md — forqsite.help Build Orchestrator`, delegation to
+  0.3.0 thin dispatch-loop header (`# CLAUDE.build.md — Repo-D Build Orchestrator`, delegation to
   `/mnt/work/flex-harness/.../flex_build.py next-action`).
-- (c) `sync-all` wrote **no SKILL.md** into this target (no `skills/` dir — caddy-like); recorded as such.
+- (c) `sync-all` wrote **no SKILL.md** into this target (no `skills/` dir — Repo-C-like); recorded as such.
 
 ### E5 — proving story cycle
 
 **Mode (operator-chosen, quoted): "Drive from this session (Recommended)"** — this flex session drove the target's own
-loop, exercising INFRA-289 `resolve_recording_project` cross-project attribution (caddy already proved the native mode;
-this run proves the flex-session branch). Story (operator-chosen, quoted): **"Drift re-sweep vs forqsite (Recommended)"**.
+loop, exercising INFRA-289 `resolve_recording_project` cross-project attribution (Repo-C already proved the native mode;
+this run proves the flex-session branch). Story (operator-chosen, quoted): **"Drift re-sweep vs Repo-E (Recommended)"**.
 
 - Target-side story: **CONTENT-005** (phase 3, target's own numbering), scaffolded with the target's own tooling
   (`phase_new.py` / `story_new.py`), specced by an opus spec-writer, built (opus, operator-selected at the resolver's
   `model-upgrade` handoff), reviewed (opus, PASS, zero findings), merged via the target's own
   `create-story-worktree`/`merge-story-worktree` — the full spec-writer → builder → reviewer → merge cycle inside the
   target's `CLAUDE.build.md` loop. Real work, genuinely wanted: corrected the docs site's stale pnpm prereq (`8+` →
-  pinned `9.15.9` per upstream `forqsite@b1e6ee73`) with a byte-exact bundle re-encode; regression guards confirmed
+  pinned `9.15.9` per upstream `Repo-E@b1e6ee73`) with a byte-exact bundle re-encode; regression guards confirmed
   scheduler count, GAP ledger, and ENV claims unchanged. Story commit `186a0f9` on target main.
 
 ### E6 — attempt rows in the target's effort.db
@@ -1087,11 +1087,11 @@ outcome, notes, ts, …, agent_id, output_file)` — `agent_role`/`ts` as expect
   ```
 
   Flex complement: `SELECT … FROM attempts WHERE story_id LIKE '%CONTENT-005%'` against `/mnt/work/flex/.companion/effort.db` → `[]`.
-  This is the first proof of INFRA-289 attribution from a **flex-session** drive (caddy proved native; worktree-path precedence
-  routed these rows to `/mnt/work/forqsite.help`).
+  This is the first proof of INFRA-289 attribution from a **flex-session** drive (Repo-C proved native; worktree-path precedence
+  routed these rows to `/mnt/work/Repo-D`).
 
 - **E6b — content: SPLIT (see gate statement).** First read: both rows pending (`tokens_total NULL, outcome NULL`).
-  Explicit sweep (`subagent_transcript.py reconcile --project-dir /mnt/work/forqsite.help --limit 200 --json`) →
+  Explicit sweep (`subagent_transcript.py reconcile --project-dir /mnt/work/Repo-D --limit 200 --json`) →
   `{"reconciled": 1}`:
 
   ```
@@ -1107,7 +1107,7 @@ outcome, notes, ts, …, agent_id, output_file)` — `agent_role`/`ts` as expect
   re-serializes the task output file during the session (observed: same path flapping 236 KB ↔ 125 B with mtime moving
   both directions), so mtime never ages 900 s. Decisive content check run directly:
   `parse_worker_outcome(<builder final text>)` → **`('PASS', None)`** — the parser reads the row's outcome; nothing about
-  this is the caddy grammar failure. Expected to reconcile via any post-session sweep (well inside the 14-day
+  this is the Repo-C grammar failure. Expected to reconcile via any post-session sweep (well inside the 14-day
   `RECONCILE_MAX_AGE_DAYS` window); resolution to be recorded here when observed.
 
 - **E6c — no duplicates: PASS (re-confirmed).**
@@ -1115,7 +1115,7 @@ outcome, notes, ts, …, agent_id, output_file)` — `agent_role`/`ts` as expect
 
 ### E7 — report path
 
-`flex_build.py checkpoint-report --project-dir /mnt/work/forqsite.help`:
+`flex_build.py checkpoint-report --project-dir /mnt/work/Repo-D`:
 
 ```
 === checkpoint cost rollup — phase 3 ===
@@ -1150,17 +1150,17 @@ Migration precedes the proving cycle (note 3 applied, 4-of-4).
 ### E9 — settings.local.json sediment
 
 File exists. Pre-migration: **55** allow rules, of which **3** `Write(` + **26** per-file `Edit(` = 29 stale. Operator
-decision, quoted: **"Prune (Recommended)"**. Backup: `/mnt/work/forqsite.help/.claude/settings.local.json.bak-pre-030-prune`.
-Post-prune: **26** rules (29 removed). (Fleet tally: meander 91 pruned, lumin n/a, caddy 48, forqsite.help 29.)
+decision, quoted: **"Prune (Recommended)"**. Backup: `/mnt/work/Repo-D/.claude/settings.local.json.bak-pre-030-prune`.
+Post-prune: **26** rules (29 removed). (Fleet tally: Repo-B 91 pruned, Repo-J n/a, Repo-C 48, Repo-D 29.)
 
 ### E10 — downstream-proof position restated
 
-As of this run: **attribution (CER-103)** proven downstream twice — caddy native (worktree-path precedence) and now
-forqsite.help flex-session-driven (both INFRA-289 branches). **Dedupe (CER-104)** re-confirmed (caddy, forqsite.help).
-**Content (CER-101)** — the half the campaign was re-blocked on — now has its **first downstream proof**: forqsite.help
+As of this run: **attribution (CER-103)** proven downstream twice — Repo-C native (worktree-path precedence) and now
+Repo-D flex-session-driven (both INFRA-289 branches). **Dedupe (CER-104)** re-confirmed (Repo-C, Repo-D).
+**Content (CER-101)** — the half the campaign was re-blocked on — now has its **first downstream proof**: Repo-D
 row 14 (reviewer) reconciled to a parsed `PASS` with real tokens through the cp-112 parser, and the cp-112 sync-agents
 replacement demonstrably removed the stale grammar before the cycle (E4b). Builder row 13 pending on a
-termination-detection artifact, not grammar (diagnosis above); its reconciliation completes the pair. Meander's
+termination-detection artifact, not grammar (diagnosis above); its reconciliation completes the pair. Repo-B's
 post-cp-110 E6 re-verification remains outstanding (its agent bodies were synced pre-cp-112; its next sync+cycle should
 now succeed).
 
@@ -1170,7 +1170,7 @@ now succeed).
 - Unblocker-4 snapshot observation: every discovery invocation in this story passed `--no-snapshot`; no snapshot write
   occurred anywhere. `/mnt/work/flex-harness/docs/fleet-snapshot.md` exists but is a **tracked historical artifact**
   (committed by INFRA-249 / DP8 baseline, last touched `2c2683fa`), unchanged this run — not RELEASE-065-style pollution.
-- `/mnt/work/forqsite` (source repo): read-only throughout; builder verified `status --porcelain` byte-identical to its
+- `/mnt/work/Repo-E` (source repo): read-only throughout; builder verified `status --porcelain` byte-identical to its
   pre-build snapshot (its pre-existing dirty `.claude/agents/*.md` files untouched).
 
 ### E14 — flex suite
@@ -1180,14 +1180,14 @@ now succeed).
 ### Playbook notes (E12 — delta against the three prior runs)
 
 1. Dirty tree: **recurred (3-of-4)** — new form again: live companion runtime state (`effort.db`/`state.json` mid-write
-   sediment). Operator chose **commit** (first time; meander/caddy discarded) — pre-migration snapshot `cfe0f1b`.
+   sediment). Operator chose **commit** (first time; Repo-B/Repo-C discarded) — pre-migration snapshot `cfe0f1b`.
 2. Runbook step-5 command form: **recurred (4-of-4)**; corrected form used. Runbook § Per-project mechanic still says
    `discover --project-dir`; still unamended.
 3. Commit-before-proving: **recurred / applied (4-of-4)**.
 4. Agent-cleanup WARN: **recurred (4-of-4)** — fired on all five synced files. Post-cp-112 it is survivable noise *when
    paired with a clean E4(b) grep*; the runbook amendment should say exactly that.
 5. `state.json.lock`: **recurred (4-of-4)**; removed, not committed.
-6. `expected_step_tokens`: **keep+WARN (53416)** — 3-of-4 keep+WARN vs lumin's 1-of-4 silent rewrite; CER-111's
+6. `expected_step_tokens`: **keep+WARN (53416)** — 3-of-4 keep+WARN vs Repo-J's 1-of-4 silent rewrite; CER-111's
    value-dependence hypothesis further supported.
 7. Auto-mode classifier block: **did not recur (1-of-4, unsettled).**
 8. Recording/session-binding: INFRA-289 **both branches now proven** (see E10).
@@ -1221,12 +1221,12 @@ New this run:
   actually amending the runbook before RELEASE-067 rather than filing a fifth identical note): plus note-4 wording
   ("accurate warning; pair with the E4b grep") and a dirty-tree precondition step covering live companion-state sediment.
 - **Row-13 completion record:** when a later sweep reconciles builder row 13, append the observed values here.
-- **Meander E6 re-verification** (outstanding since RELEASE-063): now expected to pass post-cp-112; schedule its
+- **Repo-B E6 re-verification** (outstanding since RELEASE-063): now expected to pass post-cp-112; schedule its
   re-sync + one-story cycle.
 
 ### Campaign gate statement (Instructions step 13)
 
-**The campaign's first downstream proof of the CER-101 content half now exists — supplied by forqsite.help, story
+**The campaign's first downstream proof of the CER-101 content half now exists — supplied by Repo-D, story
 CONTENT-005, reviewer attempt row 14 (`outcome='PASS'`, `tokens_total=9187`), parsed by the cp-112 grammar from a
 sync-agents-replaced agent body (E4b clean).** Builder row 13's outcome is proven parseable (`parse_worker_outcome` →
 `('PASS', None)`) but the row itself remains pending on a termination-detection artifact (new-1), not on grammar; it
@@ -1241,7 +1241,7 @@ stays open as a deferred observation under E13. **RELEASE-067..070 are unblocked
 that basis.**
 
 **Row-13 completion record (2026-07-29, per E13):** a later explicit sweep
-(`reconcile --project-dir /mnt/work/forqsite.help --limit 200`) returned
+(`reconcile --project-dir /mnt/work/Repo-D --limit 200`) returned
 `{"reconciled": 1}`; row 13 now reads `('CONTENT-005', 'builder', 11875, 'PASS')`,
 joining row 14 (`9187, 'PASS'`). The CER-114 in-session artifact resolved exactly
 as diagnosed — quiescence reached once the driving session stopped rewriting the

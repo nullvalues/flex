@@ -10,7 +10,7 @@ era: "003"
      file paths, implementation guidance, test instructions, codebase recon)
      belongs in docs/stories/<RAIL>/<ID>.md — not here. -->
 **Parent phase:** Phase 106 (fleet migration campaign). The RELEASE-063 canary
-completed the meander migration but failed E6 (effort recording), gating
+completed the Repo-B migration but failed E6 (effort recording), gating
 RELEASE-064..070. This phase remediates the recording cluster; phase 106 resumes
 after cp-110.
 
@@ -62,7 +62,7 @@ One insert per hook invocation, but **two hook invocations per spawn** in migrat
 consumer projects: the project's `.claude/settings.json` PostToolUse entry
 (`/mnt/work/flex-harness/hooks/post_tool_use.py`) AND the user-installed flex
 plugin's own `hooks.json` (`PostToolUse: Task|Agent|SendMessage →
-${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py`). Verified in meander's
+${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py`). Verified in Repo-B's
 `effort_recording.log`: same `tool_use_id`, `decision=recorded` twice, 15-30ms
 apart. flex sessions single-insert only because flex's settings.json lacks a
 Task|Agent PostToolUse entry. INFRA-269's dedupe, `audit-hooks`, and
@@ -80,11 +80,11 @@ settings-level Task|Agent PostToolUse entry.
 - `hooks/post_tool_use.py` ~line 65: `project_dir = Path(data.get("cwd") or ".")` —
   session cwd, so spawns targeting another project (worktree path in prompt,
   `--project-dir`) record into the session project's db (canary: LEGAL-001 rows in
-  flex's db, zero in meander's). Resolve the recording target from the spawn itself
+  flex's db, zero in Repo-B's). Resolve the recording target from the spawn itself
   (worktree cwd / explicit target), fall back to session cwd — same precedence
   shape as `scope_guard.resolve_call_story`.
 - `_derive_phase_key` (~lines 495-518) bare `Phase\s+(\w+)` fallback captured
-  `phase:key` (flex row 416) and `phase:checkpoint` (meander rows 233-236). Parse
+  `phase:key` (flex row 416) and `phase:checkpoint` (Repo-B rows 233-236). Parse
   strictly or take an explicit field.
 - FAIL-bump: insert-time bump (`record_attempt_from_transcript` ~lines 1439-1443)
   requires outcome==FAIL at PostToolUse time — but async spawns' tool_response is
@@ -104,7 +104,7 @@ settings-level Task|Agent PostToolUse entry.
   (to-030 normalizer strips it); to-030 deletes stale legacy-shape
   `attempt_counter.json`; merged/discarded stories' `docs/phases/permissions/*.json`
   artifacts deleted on merge/discard plus a GC pass for the ~120 (flex) / ~150
-  (meander) already stranded.
+  (Repo-B) already stranded.
 - Consolidation direction (document in architecture.md): keyed `current_stories`
   is truth; retire flat `current_story` from readers (`_derive_story_id` ~line 480
   last), then writers.

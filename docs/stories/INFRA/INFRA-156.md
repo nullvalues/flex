@@ -26,7 +26,7 @@ the Observability SPA (Phase 63). It is the foundation all other Phase 63
 stories build on top of.
 
 The workspace uses the same pnpm monorepo split (`api/` + `ui/`) used by
-cora, asp, aab, and radar. The API server uses Fastify 5, matching those
+Repo-G, Repo-I, Repo-H, and Repo-L. The API server uses Fastify 5, matching those
 projects. Phase 1 is read-only; no write routes exist.
 
 The registry at `~/.config/flex-observability/registry.json` is the source of

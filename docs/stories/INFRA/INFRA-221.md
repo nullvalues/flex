@@ -41,7 +41,7 @@ touches: []
 3. If any write site is a bootstrap path or an agent-session path (not the explicit
    `register` CLI command): either route it through the register logic, or add an inline
    comment `# intentional direct write: <reason>`.
-4. If the investigation finds that `meander` appeared due to a specific code path, fix
+4. If the investigation finds that `Repo-B` appeared due to a specific code path, fix
    that path.
 
 ## Tests

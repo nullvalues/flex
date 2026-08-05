@@ -62,8 +62,8 @@ for the full implementation context.
   sessions running slow (large stories, opus builder). The static threshold was
   simultaneously too aggressive (blocking early) for high-cost sessions and too
   permissive (missing the warning) for low-cost ones.
-- **New project cold-start problem:** When flex was applied to a new project (e.g. cora,
-  aab), the per-phase median had no data. The orchestrator had to guess or use an
+- **New project cold-start problem:** When flex was applied to a new project (e.g. Repo-G,
+  Repo-H), the per-phase median had no data. The orchestrator had to guess or use an
   arbitrary fallback constant. The seed file solves this: even a brand-new project gets
   a defensible starting estimate from 524 observed attempts (261 builder, 263 reviewer).
 - **CER-027 (2026-05-29):** The context budget check fired only when the orchestrator

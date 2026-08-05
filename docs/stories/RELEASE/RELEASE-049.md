@@ -1,7 +1,7 @@
 ---
 id: RELEASE-049
 rail: RELEASE
-title: Fleet migration — sync forqsite.help to pairmode 0.3.0
+title: Fleet migration — sync Repo-D to pairmode 0.3.0
 status: deferred
 phase: "97"
 story_class: code

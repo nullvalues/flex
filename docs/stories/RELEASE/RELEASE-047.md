@@ -1,7 +1,7 @@
 ---
 id: RELEASE-047
 rail: RELEASE
-title: Fleet migration — sync coherra to pairmode 0.3.0
+title: Fleet migration — sync Repo-A to pairmode 0.3.0
 status: deferred
 phase: "97"
 story_class: code

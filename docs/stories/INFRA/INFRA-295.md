@@ -20,7 +20,7 @@ touches:
 
 ## Context
 
-Phase 112 defect 3. During the caddy migration (RELEASE-065), a native caddy
+Phase 112 defect 3. During the Repo-C migration (RELEASE-065), a native Repo-C
 session ran `fleet_discovery.py` from the channel checkout without
 `--no-snapshot`. The `--snapshot` default is resolved as
 `_FLEX_ROOT / "docs" / "fleet-snapshot.md"` — `_FLEX_ROOT` being derived from

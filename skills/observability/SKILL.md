@@ -139,7 +139,7 @@ flex_observability.py register --project-dir .
 flex_observability.py register --project-dir /mnt/work/flex --name "flex" --color "#7aa2f7"
 
 # Register another project
-flex_observability.py register --project-dir /mnt/work/forqsite --name "forqsite" --color "#e0af68"
+flex_observability.py register --project-dir /mnt/work/Repo-E --name "Repo-E" --color "#e0af68"
 ```
 
 ---
@@ -167,7 +167,7 @@ flex_observability.py register --project-dir /mnt/work/forqsite --name "forqsite
 flex_observability.py unregister --project-dir /mnt/work/flex
 
 # Unregister by registered name
-flex_observability.py unregister --name forqsite
+flex_observability.py unregister --name Repo-E
 ```
 
 ---
@@ -188,7 +188,7 @@ flex_observability.py unregister --name forqsite
 ```
 Registered projects:
   flex        — /mnt/work/flex (#7aa2f7)
-  forqsite    — /mnt/work/forqsite (#e0af68)
+  Repo-E    — /mnt/work/Repo-E (#e0af68)
 ```
 
 ---

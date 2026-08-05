@@ -938,12 +938,12 @@ class TestLegacyStateCompat:
         fake_flex_root = tmp_path / "legacy_flex"
         (fake_flex_root / ".companion").mkdir(parents=True)
         (fake_flex_root / ".companion" / "state.json").write_text(
-            json.dumps({"registered_projects": ["/mnt/work/coherra", "/mnt/work/caddy"]}),
+            json.dumps({"registered_projects": ["/mnt/work/Repo-A", "/mnt/work/Repo-C"]}),
             encoding="utf-8",
         )
         monkeypatch.setattr(fd, "_FLEX_ROOT", fake_flex_root)
         projects = fd._read_registered_projects()
-        assert [str(p) for p in projects] == ["/mnt/work/coherra", "/mnt/work/caddy"]
+        assert [str(p) for p in projects] == ["/mnt/work/Repo-A", "/mnt/work/Repo-C"]
 
 
 class TestSnapshotDuplicateHooksSection:

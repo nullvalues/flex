@@ -127,14 +127,14 @@ Use the `next_phase_id` captured in step 7 to populate the closing line:
 
 ### Manual propagation (orchestrator post-commit — not builder acceptance)
 
-After the reviewer commits, the orchestrator syncs forqsite:
+After the reviewer commits, the orchestrator syncs Repo-E:
 
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/pairmode_sync.py \
-  sync-build --project-dir /mnt/work/forqsite --apply --yes
+  sync-build --project-dir /mnt/work/Repo-E --apply --yes
 ```
 
-Verify `CLAUDE.build.md` in forqsite contains `next-phase --after` and the
+Verify `CLAUDE.build.md` in Repo-E contains `next-phase --after` and the
 conditional closing prompt. The builder does NOT attempt this step; the reviewer
 does NOT block on it.
 

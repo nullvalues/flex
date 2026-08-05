@@ -49,7 +49,7 @@ re-issues `spawn-builder` for the same story at attempt 2, discarding a
 finished build. The loop only works if the orchestrator treats one poll as one
 whole story: builder → reviewer → merge/discard inside a single iteration.
 Nothing in `CLAUDE.build.md`, its `.j2` template, or `docs/architecture.md`
-says so. forqsite's Era-3 build inferred the contract correctly on 2026-07-22
+says so. Repo-E's Era-3 build inferred the contract correctly on 2026-07-22
 across six stories; flex's own orchestrator hit the trap again on 2026-07-25.
 
 **The decision this story records (so it is not re-litigated): document the
@@ -75,7 +75,7 @@ quietly start emitting it without noticing this contract.
 `check_stub_gate` (`skills/pairmode/scripts/flex_build.py`, helper at ~1483,
 regex `_STUB_DELEGATION_RE` at ~1397) searches the whole story body for three
 delegation phrases and blocks the story when any matches. It does not
-distinguish prose from quoted text. forqsite's HOME-006 instructed its builder
+distinguish prose from quoted text. Repo-E's HOME-006 instructed its builder
 to append a backlog resolution note whose *content* contained one of those
 phrases; the gate blocked the story until the deliverable text was reworded —
 the gate corrupted a deliverable to satisfy itself. The fix is to mask fenced
@@ -486,6 +486,6 @@ PATH=$HOME/.local/bin:$PATH uv run python skills/pairmode/scripts/flex_build.py 
   projects. This story changes the template; propagating it to consumers is a
   separate, deliberate operation.
 - **CER-075** (worktree build-environment provisioning), which sits in the
-  same forqsite report but is tracked separately (see also CER-090/Phase 103).
+  same Repo-E report but is tracked separately (see also CER-090/Phase 103).
 - **Anything in `docs/agreements/`** — those are historical records of
   settled decisions and are read, not edited, by this story.

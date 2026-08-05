@@ -51,7 +51,7 @@ to stay consistent with the flex tooling convention.
      ```
      ID          PROJECT_DIR              COLOR
      flex        /mnt/work/flex           #7aa2f7
-     forqsite    /mnt/work/forqsite       #e0af68
+     Repo-E    /mnt/work/Repo-E       #e0af68
      ```
    - If registry empty or absent: `No repos registered.`
 

@@ -7,7 +7,7 @@ p75 + p90 + n, and writes a JSON seed file.
 Usage:
     PATH=$HOME/.local/bin:$PATH uv run python \\
         skills/pairmode/scripts/refresh_effort_baseline.py \\
-        --project-dirs /mnt/work/forqsite /mnt/work/radar \\
+        --project-dirs /mnt/work/Repo-E /mnt/work/Repo-L \\
         --output skills/pairmode/seed/effort_baseline.json
 
 Missing or empty effort.dbs are skipped silently. Output is idempotent:

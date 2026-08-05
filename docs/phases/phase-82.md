@@ -11,7 +11,7 @@ era: "003"
      belongs in docs/stories/<RAIL>/<ID>.md — not here. -->
 ## Goal
 
-Update the security-auditor agent template and live agent file to enumerate the documented pairmode thin-delegation hook exceptions and add an audit-scope rule so upstream plugin infrastructure findings are not counted against a downstream project's checkpoint PASS/FAIL. Eliminates false CRITICAL/HIGH findings that block radar and other era-002 projects.
+Update the security-auditor agent template and live agent file to enumerate the documented pairmode thin-delegation hook exceptions and add an audit-scope rule so upstream plugin infrastructure findings are not counted against a downstream project's checkpoint PASS/FAIL. Eliminates false CRITICAL/HIGH findings that block Repo-L and other era-002 projects.
 
 ## Stories
 

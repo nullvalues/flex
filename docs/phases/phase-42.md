@@ -22,7 +22,7 @@ after the first new story, even though there is no real context pressure. The
 orchestrator is then forced to re-acknowledge the gate after every story for the
 rest of the phase — a false positive that trains it to dismiss the signal.
 
-Observed in the radar project Phase 75: after 155k tokens from session 1, every
+Observed in the Repo-L project Phase 75: after 155k tokens from session 1, every
 story in session 2 triggered the gate. The useful signal (approach the context limit)
 became noise (always over after a clear).
 

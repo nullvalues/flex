@@ -32,7 +32,7 @@ concrete before/after location:
 1. **`docs/ideology.md`** still carries unstripped template scaffolding — `<!-- -->` guidance/
    example comments meant to guide populating the doc once, left in after population (5 HTML
    comment blocks currently, at approximately lines 22, 54, 85, 157, 263). A sibling repo's
-   ideology.md (cora, out of this repo's scope to edit, cited here only as evidence) has already
+   ideology.md (Repo-G, out of this repo's scope to edit, cited here only as evidence) has already
    stripped the same class of scaffolding and reads tighter as a result.
 2. **`docs/architecture.md` § "(a) Four-point additive contract (DP4)"** (currently lines
    2726–~2790, under § Era 003 additive contract): scoped explicitly to a migration window
@@ -130,7 +130,7 @@ number or exact text.)
   file's ~18% estimated total) are real findings but are not bounded enough yet to build against
   without their own dedicated audit — do not fold them into this story's scope.
 - Any change to `CLAUDE.build.md` in this or any sibling repo (already leaned out and holding; the
-  source analysis found only ~5-10% further headroom there, and flagged cora's and anchor's
+  source analysis found only ~5-10% further headroom there, and flagged Repo-G's and anchor's
   CLAUDE.build.md as needing a re-sync to the already-proven thin-dispatch template rather than a
   fresh trim — that is separate repo-level work, not in scope for a flex-only story).
 - Any change to `skills/pairmode/SKILL.md` in flex-harness or anchor (separate repos; flex-harness

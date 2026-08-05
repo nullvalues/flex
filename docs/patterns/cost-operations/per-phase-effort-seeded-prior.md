@@ -179,7 +179,7 @@ The seed file carries role-stratified statistics. `source_projects` is an empty 
 
 - **Pre-INFRA-127 (all phases before Phase 47):** The context budget threshold was a static constant (120,000 tokens). Sessions running small stories with fast models hit the threshold at a very different real-cost point than sessions running large stories with expensive models. The static threshold was simultaneously too aggressive for high-cost sessions (blocking too early) and too permissive for low-cost ones (missing the warning entirely).
 
-- **New-project cold-start problem:** When pairmode was applied to a new project (e.g., cora, aab), the per-phase median had no data. The orchestrator had to guess or reuse a constant from the previous project. In one case this meant reusing a threshold calibrated to Sonnet on a project that ran Opus, resulting in mid-phase context compaction and lost orchestrator state.
+- **New-project cold-start problem:** When pairmode was applied to a new project (e.g., Repo-G, Repo-H), the per-phase median had no data. The orchestrator had to guess or reuse a constant from the previous project. In one case this meant reusing a threshold calibrated to Sonnet on a project that ran Opus, resulting in mid-phase context compaction and lost orchestrator state.
 
 - **CER-027 enforcement gap (2026-05-29):** The context budget check was documented but not mechanically enforced. A static constant in a prompt is not self-enforcing. CER-027 captured this: the check existed as a step the orchestrator was supposed to remember, but under load it was skipped. The per-phase median combined with hook enforcement made the estimate dynamic and the check mechanical — neither depends on the orchestrator's attention.
 
@@ -234,7 +234,7 @@ _Every pattern has security considerations. This section is mandatory._
 
 | Organization | Context | Scale |
 |-------------|---------|-------|
-| flex project (cloudnirvana) | effort.db used across Phases 22–47; effort_baseline.json seeded from 524 attempts (261 builder, 263 reviewer); source project list not captured at generation time; pattern active in production on 5 downstream projects: forqsite, radar, asp, aab, cora | Team |
+| flex project (cloudnirvana) | effort.db used across Phases 22–47; effort_baseline.json seeded from 524 attempts (261 builder, 263 reviewer); source project list not captured at generation time; pattern active in production on 5 downstream projects: Repo-E, Repo-L, Repo-I, Repo-H, Repo-G | Team |
 
 ---
 

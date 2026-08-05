@@ -22,7 +22,7 @@ touches:
 
 ## Context
 
-Cora item A#2 (AG-6): run the intent reviewer on a phase spec **before the
+Repo-G item A#2 (AG-6): run the intent reviewer on a phase spec **before the
 first builder spawn**, not only at checkpoint — spec-level drift caught
 pre-build costs one edit; caught at checkpoint it costs every token already
 spent. The 2026-07-29 cold-eyes pass is itself the live demonstration: it

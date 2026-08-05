@@ -362,7 +362,7 @@ merge at spec time. The CLI-surface freeze test (RELEASE-003) must continue to p
 
 ## Open questions / backlog ties
 
-- **CER-058** (`meander` in `registered_projects`) — unrelated to resolver foundation; leave
+- **CER-058** (`Repo-B` in `registered_projects`) — unrelated to resolver foundation; leave
   in backlog.
 - **CER-059** / **CER-054** — HARNESS006 / Phase G; not pulled forward here.
 - `state.json` non-atomic write (ante1 DP7 pre-existing note) — the resolver tolerates a

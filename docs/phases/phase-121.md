@@ -17,7 +17,7 @@ phase_class: production
 <!-- State this phase's single purpose in one or two sentences (docs/architecture.md
      § Phase-authoring convention, INFRA-243). If the work naturally splits into more
      than one purpose, that's a signal to open a sibling phase, not to widen this one. -->
-Fold the to-030 stale-flex-harness hook repair into sync-all as an idempotent, order-independent step, then apply it across the 13 remaining fleet repos (coherra, meander, caddy, forqsite.help, halfhorse, cora, aab, asp, lumin, pokus, radar, rockue, stackabid) still carrying duplicate/stale settings.json hook entries per fleet_discovery.py's 2026-08-04 scan.
+Fold the to-030 stale-flex-harness hook repair into sync-all as an idempotent, order-independent step, then apply it across the 13 remaining fleet repos (Repo-A, Repo-B, Repo-C, Repo-D, Repo-F, Repo-G, Repo-H, Repo-I, Repo-J, Repo-K, Repo-L, Repo-M, Repo-N) still carrying duplicate/stale settings.json hook entries per fleet_discovery.py's 2026-08-04 scan.
 
 ## Stories
 

@@ -32,7 +32,7 @@ file(s) are relevant to a given stub, without unbounded scanning of `docs/narrat
 The mechanism: a story's frontmatter gains an optional `narrative_roles: []` field (empty list is
 valid — not every story concerns a build-loop role narratively, e.g. a pure internal refactor with
 no role-facing behavior change). When non-empty, the spec-writer reads exactly the cited
-`<ROLE>-000-ideology.md` file(s) as its sixth bounded input, and — mirroring coherra's own two-way
+`<ROLE>-000-ideology.md` file(s) as its sixth bounded input, and — mirroring Repo-A's own two-way
 trace convention (`stories:` frontmatter on the narrative file, backfilled as specs cite it) —
 appends the story's own ID to each cited narrative's `stories:` frontmatter list once the spec is
 drafted.

@@ -125,3 +125,43 @@ is present).
 - Renaming real directories on disk under `/mnt/work/` — this story edits
   only the text content of committed docs/source, never filesystem layout
   outside the repo.
+
+## Evidence
+
+- `.pairmode-fleet.local.json` maps 15 real names to `Repo-A`..`Repo-O`
+  (verified one-to-one at runtime by `_validate_one_to_one`, which raises
+  before any file is written on a collision).
+- `email`/URL-host exclusion (`_is_domain_context`, keyed on a trailing
+  domain-suffix pattern, not any hardcoded name) verified to correctly leave
+  the operator's real, legitimately-public contact-email domain untouched
+  everywhere it appears in prose (README.md's Contact line, docs/brief.md's
+  Contact line, and a dozen other mentions), and likewise leaves the
+  matching `$id` URL host in `tests/pairmode/fixtures/next_action.schema.json`
+  untouched — while still substituting every occurrence of the same
+  directory-name string used in its `/mnt/work/...` fleet-repo sense
+  (`Repo-F`'s real name) with `Repo-F`. This is the exact corruption class a
+  prior attempt on this story introduced and review caught; grep confirms
+  zero occurrences of `Repo-F`'s real name remain unlabeled outside a
+  domain-suffix context anywhere in the tracked tree.
+- Spot-checked multi-repo comparison passages
+  (`docs/patterns/agentic-architecture/builder-reviewer-sub-agent-loop.md`,
+  `docs/cer/backlog.md` CER-064/CER-067/CER-081 rows, `docs/fleet-snapshot.md`,
+  `docs/phases/phase-HARNESS016-main.md`) — each retains distinct,
+  readable `Repo-X` labels per real repo; no collapse to a generic term.
+- `skills/pairmode/scripts/scrub_fleet_names.py` also excludes
+  `lessons/lessons.json` (declared `protected_paths` in `CLAUDE.build.md`,
+  and independently barred by the builder procedure's "Lessons integrity"
+  rule — append-only, existing entries never modified except `status`) and
+  its generated rendering `lessons/LESSONS.md`. This is a **known,
+  deliberate exception**, not an oversight: at least 6 distinct real
+  fleet-repo names remain in these two committed, public, git-tracked
+  files as of this build. Filed as **CER-173** (Do Later) for a follow-up
+  decision (a scoped append-only exception, or an explicit operator
+  carve-out on CER-172's own row) rather than silently modifying a
+  protected, append-only file or silently under-reporting `--verify`'s
+  scope.
+- `base56` (a pre-existing anonymized/decommissioned-project name already
+  used in prose, e.g. `docs/fleet-snapshot.md`, `CHANGELOG.md`) is **not**
+  in `.pairmode-fleet.local.json` and is correctly left untouched — nothing
+  in the runtime mapping names it, so per Instructions item 1 the script
+  never invents or re-derives a mapping for it.

@@ -8,12 +8,12 @@ era: "001"
 
 ## Goal
 
-The pokus project prototyped `scripts/context_budget_check.py` — a script that sums
+The Repo-K project prototyped `scripts/context_budget_check.py` — a script that sums
 accumulated phase tokens from `effort.db` and blocks story advancement when a threshold
 is exceeded. The intent is to surface the risk of context compaction mid-story before
 it silently degrades builder coherence.
 
-The script (and its 6 tests) exist only in pokus. Flex has no equivalent and
+The script (and its 6 tests) exist only in Repo-K. Flex has no equivalent and
 `CLAUDE.build.md.j2` has no context budget check step.
 
 Two stories:
@@ -47,8 +47,8 @@ template references it).
 #### Requires
 
 - `skills/pairmode/scripts/context_budget_check.py` does not exist.
-- Prototype at `/mnt/work/pokus/scripts/context_budget_check.py` and
-  `/mnt/work/pokus/tests/test_context_budget_check.py` are the reference implementation.
+- Prototype at `/mnt/work/Repo-K/scripts/context_budget_check.py` and
+  `/mnt/work/Repo-K/tests/test_context_budget_check.py` are the reference implementation.
 - `tests/pairmode/` exists and uses pytest (not unittest).
 
 #### Ensures
@@ -79,14 +79,14 @@ template references it).
 
 **`skills/pairmode/scripts/context_budget_check.py`**
 
-Copy the logic from the pokus prototype verbatim. No changes needed to the
+Copy the logic from the Repo-K prototype verbatim. No changes needed to the
 script's logic — it has no pairmode imports and is standalone. The only
 difference from the prototype is its location (`skills/pairmode/scripts/`
 instead of `scripts/`).
 
 **`tests/pairmode/test_context_budget_check.py`**
 
-Convert the 6 unittest cases from the pokus prototype to pytest style:
+Convert the 6 unittest cases from the Repo-K prototype to pytest style:
 
 - Replace `unittest.TestCase` classes with plain functions or a pytest class.
 - Replace `setUp`/`tearDown` with a `tmp_path` fixture (pytest provides this).
@@ -130,7 +130,7 @@ handling completes — after permission cleanup and status update, before advanc
 next story or the checkpoint sequence. The check is **blocking** on exit 1: no further
 story may start without a user response.
 
-The section content (adapt from the pokus prototype, updating `scripts/` → `{{ pairmode_scripts_dir }}/`):
+The section content (adapt from the Repo-K prototype, updating `scripts/` → `{{ pairmode_scripts_dir }}/`):
 
 ```
 ## Context budget check (between stories)

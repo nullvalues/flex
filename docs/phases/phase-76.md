@@ -12,7 +12,7 @@ that cause false-positive hard blocks on every agent spawn:
 1. **Missing `context_session_reset_at`** — projects that predate Phase 68 (SessionStart
    hook) have no reset boundary key. A stale high `context_current_tokens` value (from a
    session weeks or months ago) looks fresh to `decide()` and can trigger blocks at
-   well below actual context usage. Cora: 117,500 tokens recorded on 2026-06-13,
+   well below actual context usage. Repo-G: 117,500 tokens recorded on 2026-06-13,
    blocking at 68k actual context.
 
 2. **Missing `context_current_tokens`** — projects with no prior PostToolUse history

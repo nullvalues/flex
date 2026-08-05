@@ -24,7 +24,7 @@ and exact `phase-{phase}.md`. Suffixed phase manifests of the form `phase-<phase
 (the naming convention `phase_new.py --phase-id --suffix` produces, per CER-038) match neither
 glob, so `story_new.py --phase MU020` silently returns `False` from `_append_to_phase` and the new
 story is never added to the phase's Stories table — with no error surfaced to the caller. This was
-confirmed live on the radar project (fable-orchestrated build), where the operator had to add the
+confirmed live on the Repo-L project (fable-orchestrated build), where the operator had to add the
 Stories table rows by hand. Fix: add a third glob `phase-{phase}-*.md` (or generalize to
 `*{phase}*.md`) alongside the two existing globs, and consider surfacing a warning when
 auto-registration falls through to `False` instead of failing silently. Story files are still
@@ -95,7 +95,7 @@ warning-on-no-match tests.
 ## Out of scope
 
 - Retroactively reconciling any phase manifest whose Stories table already drifted under this bug
-  (including the radar project's) — this story fixes the lookup, not existing drift.
+  (including the Repo-L project's) — this story fixes the lookup, not existing drift.
 - Changing `phase_new.py`'s suffixed-filename naming convention (CER-038) or the Stories-table row
   format itself.
 - The `--create-rail`/`--yes` non-interactive flags in the same file (INFRA-367).

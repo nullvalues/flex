@@ -15,7 +15,7 @@ primary_files:
 
 CER-030 (Do Later) diagnosed phase-spec drift as "no canonical source of truth /
 template gap." The diagnosis is correct but incomplete. The primary driver,
-confirmed 2026-06-01 across forqsite, radar, and cora, is **boundary collapse**:
+confirmed 2026-06-01 across Repo-E, Repo-L, and Repo-G, is **boundary collapse**:
 orchestrators embed story-level implementation specs (file paths, test instructions,
 acceptance criteria) and codebase recon prose directly in the phase doc during
 plan time. The template being thin is a secondary contributing factor.

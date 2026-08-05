@@ -29,9 +29,9 @@ touches:
 
 ## Context
 
-Cora item A#6 plus the reconciliation's T5 (AG-6): "the deferral protocol is
+Repo-G item A#6 plus the reconciliation's T5 (AG-6): "the deferral protocol is
 what makes phase docs trustworthy forensic records instead of optimistic
-fiction" — and cora's own caveat was that disposition verification "is NOT
+fiction" — and Repo-G's own caveat was that disposition verification "is NOT
 currently enforced by the 0.3.0 tooling and is a real gap." The cold-eyes
 review is the incident report at both boundaries: 13 deferred-without-section
 violations in `phase-97.md` (story→phase), and era 003 left active with

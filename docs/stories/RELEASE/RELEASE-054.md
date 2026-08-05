@@ -1,7 +1,7 @@
 ---
 id: RELEASE-054
 rail: RELEASE
-title: Fleet migration — sync radar to pairmode 0.3.0
+title: Fleet migration — sync Repo-L to pairmode 0.3.0
 status: deferred
 phase: "97"
 story_class: code

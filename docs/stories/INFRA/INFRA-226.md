@@ -19,7 +19,7 @@ touches:
 
 ## Context
 
-Discovered live: forqsite's own build session hit a model-upgrade prompt and
+Discovered live: Repo-E's own build session hit a model-upgrade prompt and
 the operator wanted to key in `fable` as the upgrade choice, but `fable`
 doesn't exist anywhere in `model_selector.py`'s vocabulary — the module only
 knows a strict three-rung ladder (`haiku` < `sonnet` < `opus`), and the

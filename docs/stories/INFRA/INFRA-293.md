@@ -24,7 +24,7 @@ touches:
 ## Context
 
 This story unblocks the fleet migration campaign (RELEASE-066..070), which
-re-blocked at RELEASE-065 evidence point E6b. Caddy — the first fully migrated
+re-blocked at RELEASE-065 evidence point E6b. Repo-C — the first fully migrated
 0.3.0 consumer — ran a real proving cycle (PAIRMODE-002) and produced two
 `effort.db` attempt rows (33 and 34) that can never leave the pending state.
 The spawns completed, the transcripts are readable, the usage is parseable, and
@@ -45,7 +45,7 @@ absent from the target (`_merge_body_sections`, `pairmode_sync.py:321`). The
 (`skills/pairmode/templates/agents/builder.md.j2:43`,
 `reviewer.md.j2:43`). Those are different concept keys, so sync appends
 `## Return` at the **end** of the file and leaves the stale block — containing
-the literal `BUILD-RESULT: DONE` example at caddy's
+the literal `BUILD-RESULT: DONE` example at Repo-C's
 `.claude/agents/builder.md:106` — sitting **earlier** in the file. A worker
 reading top-down follows the first return contract it meets. The merge function
 is structurally incapable of fixing this: it can add a heading, never replace
@@ -54,16 +54,16 @@ the whole sync half of the fix is unreachable code.
 
 Both halves are needed, and this story builds both — the same two-ended
 treatment Phase 110 gave CER-104. The parser half makes every already-stranded
-row on every 0.2-era fleet project (forqsite.help, halfhorse, pokus, base56,
-cora at minimum) reconcilable retroactively. The sync half stops new consumers
+row on every 0.2-era fleet project (Repo-D, Repo-F, Repo-K, base56,
+Repo-G at minimum) reconcilable retroactively. The sync half stops new consumers
 from emitting the legacy grammar at all. Neither alone closes E6b.
 
 **Time bound.** `RECONCILE_MAX_AGE_DAYS` is 14
 (`subagent_transcript.py:156`, single-sourced from
-`effort_db.PENDING_MAX_AGE_DAYS`). Caddy's rows 33/34 were written 2026-07-28,
+`effort_db.PENDING_MAX_AGE_DAYS`). Repo-C's rows 33/34 were written 2026-07-28,
 so they leave the sweep window permanently on **2026-08-11**. The fix must
 reach the `/mnt/work/flex-harness` release channel and a sweep must run against
-caddy before that date. § Ensures F carries this as a first-class, dated
+Repo-C before that date. § Ensures F carries this as a first-class, dated
 acceptance obligation, not a nice-to-have.
 
 **Backlog drained into this story** (operator-approved at the Phase 112
@@ -155,7 +155,7 @@ immediately above the mapping states, in substance: the 0.2-era builder had no
 plain-text FAIL form — a stuck builder emitted the prose `BUILDER STUCK — …`,
 which produces no verdict line at all — so `DONE` is unambiguously the 0.2
 success token and nothing is lost by normalizing it to the `worker_result.py`
-BUILD enum's `PASS`. Rejecting `DONE` instead would leave caddy rows 33/34 (and
+BUILD enum's `PASS`. Rejecting `DONE` instead would leave Repo-C rows 33/34 (and
 every equivalent fleet row) permanently unreconcilable, which is the defect
 this story exists to close. The comment names `worker_result.py`'s
 `{"PASS", "FAIL"}` enum as the reason `DONE` cannot simply be stored verbatim.
@@ -365,27 +365,27 @@ owes no row for this story.
 **E5. The full suite is green** (`tests/pairmode/`), run once **without `-x`**
 so a pre-existing failure cannot mask a new one.
 
-### F — field acceptance: caddy rows 33/34 reconcile before 2026-08-11
+### F — field acceptance: Repo-C rows 33/34 reconcile before 2026-08-11
 
 This is the acceptance the whole story is for, and it cannot complete inside
 the story worktree — it needs the fix on the `/mnt/work/flex-harness` release
-channel and a live sweep against caddy's `effort.db`. It is therefore split
+channel and a live sweep against Repo-C's `effort.db`. It is therefore split
 into a build-time half the reviewer verifies and an operator-run half that
 gates the CP-112 checkpoint.
 
 **F1 (build-time, reviewer-verifiable). A transcript-shaped regression test
-pins the exact caddy failure.** `tests/pairmode/test_subagent_transcript.py`
+pins the exact Repo-C failure.** `tests/pairmode/test_subagent_transcript.py`
 contains a test that constructs a spawn-output entry whose final assistant
 message text is the 0.2-era builder return — a line reading exactly
 `BUILD-RESULT: DONE` — feeds it through the same path the sweep uses
 (`read_completed_spawn`, or `parse_worker_outcome` on the flattened final
 message, whichever the builder can drive from a fixture), and asserts the
 resulting `outcome` is `"PASS"`. A sibling test does the same for
-`REVIEW-RESULT: PASS` asserting `"PASS"`. The tests' docstrings name caddy rows
+`REVIEW-RESULT: PASS` asserting `"PASS"`. The tests' docstrings name Repo-C rows
 33/34 and PAIRMODE-002.
 
 **F2 (build-time). The acceptance does NOT assert a "tokens present, outcome
-NULL" row shape.** Caddy rows 33/34 are fully NULL except `model` (set at
+NULL" row shape.** Repo-C rows 33/34 are fully NULL except `model` (set at
 insert); tokens are parseable at sweep time but the refuse-partial branch skips
 the whole row, so nothing partial is ever written. No test in this diff asserts
 that a pending row has non-NULL tokens with a NULL outcome. `grep` the new
@@ -393,12 +393,12 @@ tests: no such assertion exists.
 
 **F3 (operator-run, post-channel-release, deadline 2026-08-11).** After this
 story merges to `main` and the change reaches `/mnt/work/flex-harness`, an
-explicit sweep is run against caddy:
+explicit sweep is run against Repo-C:
 
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python \
   /mnt/work/flex-harness/skills/pairmode/scripts/subagent_transcript.py \
-  reconcile --project-dir <caddy-project-dir> --limit 200 --json
+  reconcile --project-dir <Repo-C-project-dir> --limit 200 --json
 ```
 
 and rows 33 and 34 are confirmed to have non-NULL `outcome`. Both the
@@ -407,7 +407,7 @@ oldest-first fetch reach them; the explicit run is used rather than waiting for
 a hook-path sweep so the result is observed, not assumed. The row check:
 
 ```bash
-sqlite3 <caddy-project-dir>/.companion/effort.db \
+sqlite3 <Repo-C-project-dir>/.companion/effort.db \
   "SELECT id, model, tokens_total, outcome FROM attempts WHERE id IN (33,34);"
 ```
 
@@ -479,7 +479,7 @@ Preserve position (B2). The reason is the whole defect: the stale block sits
 earlier in the file than the appended `## Return`, and a top-down reader
 follows the first contract it meets. A fix that deletes the legacy section and
 appends the template one at the end passes a naive `count("## Return") == 1`
-check and does not fix caddy.
+check and does not fix Repo-C.
 
 Update `_merge_body_sections`'s docstring (B4) — it currently promises
 project-specific sections are never removed, and after this change that promise
@@ -565,7 +565,7 @@ New test coverage required (names indicative; the assertions are what matter):
 - `TestParseWorkerOutcome::test_json_beats_legacy_plain_text` (A5)
 - `TestParseWorkerOutcome::test_last_legacy_match_wins` (A6)
 - `TestParseWorkerOutcome::test_legacy_review_fail_with_fail_cause_line` (A7)
-- a `read_completed_spawn`-level test reproducing caddy rows 33/34 (F1)
+- a `read_completed_spawn`-level test reproducing Repo-C rows 33/34 (F1)
 - an uncontained-path quiescent-retirement test (C3)
 - `pairmode_sync`: legacy heading replaced in place, no duplicate `## Return`
   (B3); bespoke section survives (B4); second sync is a no-op (B5)

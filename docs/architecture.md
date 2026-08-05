@@ -1153,7 +1153,7 @@ so a claim never overrides commit evidence (CER-095.1).
     genuinely open rows through. `cer.is_resolution_marked` is the single implementation of this
     grammar; no consumer re-derives its own test.
 
-    **CER backlog gate and groom (INFRA-313, cora agreement A#1).** The Do Now scan behind the
+    **CER backlog gate and groom (INFRA-313, Repo-G agreement A#1).** The Do Now scan behind the
     guard above is a single shared function, `cer.find_open_do_now_rows(text)` — pure, no I/O,
     returning `{"id", "text"}` for every open row — consumed by both
     `next_action._check_cer_do_now` (the resolver's soft `cer-do-now` guard) and `cer.py gate`
@@ -1169,7 +1169,7 @@ so a claim never overrides commit evidence (CER-095.1).
     `docs/cer/backlog.md` fails open on both paths, matching the resolver's own guard — a project
     that has never run `cer.py` is never blocked by it.
 
-    **Deferral/disposition gates at both boundaries (INFRA-314, cora A#6/AG-6).** Two more
+    **Deferral/disposition gates at both boundaries (INFRA-314, Repo-G A#6/AG-6).** Two more
     refusals compose at the same `checkpoint-tag` seam as the CER gate above, plus one at the
     era-close seam — one shared predicate (`index_integrity.is_formally_deferred`: status
     `deferred` AND named in the phase doc's `## Deferred stories` section), so the two never
@@ -1199,7 +1199,7 @@ so a claim never overrides commit evidence (CER-095.1).
     **read-only**: it never writes `docs/cer/backlog.md` and never promotes a row to Do Now
     automatically. Pulling an arrived-gate row forward is always an operator decision, recorded in
     the promotion ledger (`docs/phases/index.md` § backlog promotions, which this story does not
-    rebuild) — this is the preserved do-not-do from cora agreement A#1/AG-6. Per the global
+    rebuild) — this is the preserved do-not-do from Repo-G agreement A#1/AG-6. Per the global
     backlog-grooming policy, every cold-eyes review should run `cer.py groom` and surface any
     arrived-gate rows as "ready to pull forward" for the operator; the pull itself is never
     automated.
@@ -1824,7 +1824,7 @@ just the software it produces. When a phase doc is read cold with no access to c
 referenced narratives let a reader verify that story Ensures and role expectations align, and
 catch gaps the diff alone wouldn't surface (a story that passes review but violates an
 intent-reviewer's alignment check is a signal, not a passing grade). This is the same reasoning
-that led to narrative-first design in other fleet projects (coherra, stackabid); flex is the
+that led to narrative-first design in other fleet projects (Repo-A, Repo-N); flex is the
 first to wire narrative-checking into live procedures rather than stating it as intent.
 
 **`story_new.py` scaffold** adds `narrative_roles: []` to new story stubs. The decision of which
@@ -2064,7 +2064,7 @@ Reason: high-scope code story; opus reduces rework risk
 Say "upgrade" to use opus, or "continue" to proceed with sonnet.
 ```
 
-**Spec-time model override: `model:` / `reviewer_model:` (INFRA-318, Cora
+**Spec-time model override: `model:` / `reviewer_model:` (INFRA-318, Repo-G
 A#7/AG-6).** Optional story frontmatter fields, one shared vocabulary
 (`schema_validator.VALID_MODEL_TIERS = {haiku, sonnet, opus}`; `fable` is the
 loop-breaker's escalation tier only and is never declarable). Asymmetric by
@@ -2347,7 +2347,7 @@ have always finished loading by the time any validator function actually runs.
 `story_new.py`'s stub scaffold gains `narrative_roles: []` to the frontmatter
 template — empty by default, never auto-inferred from title or rail.
 
-**The `stories:` two-way trace (Step 4c).** Mirroring coherra's own two-way
+**The `stories:` two-way trace (Step 4c).** Mirroring Repo-A's own two-way
 trace convention (a narrative file's `stories:` frontmatter lists which
 stories cite it), the spec-writer backfills its own story's `id` into each
 cited narrative's `stories:` list once the draft is complete — a new Step 4c,
@@ -2739,7 +2739,7 @@ module constant `REGISTERED_PROJECTS_WRITERS`. The invariant is enforced by
 `test_registered_projects_has_a_single_writer`, which walks every `.py` file under
 `skills/`/`hooks/` and fails if any file besides those named in
 `REGISTERED_PROJECTS_WRITERS` assigns the key. Entries predating this story (including
-the `meander` entry that prompted CER-058) carry `source: unknown` in the
+the `Repo-B` entry that prompted CER-058) carry `source: unknown` in the
 `registered_projects_provenance` sidecar because their provenance is genuinely
 unrecoverable — the audit found no in-repo writer bypasses `register`, so an
 out-of-band edit of `state.json` remains the only explanation, and the invariant
@@ -2789,7 +2789,7 @@ as-is rather than parameterized.
 
 The Build standards line also carries `intent_review` (default rendered value:
 `(unset)`). This is a **behaviour switch**, not a per-project fact like the four keys
-above — it turns on the resolver's pre-build intent-review emission (Cora item A#2,
+above — it turns on the resolver's pre-build intent-review emission (Repo-G item A#2,
 AG-6: catch spec-level drift before the first builder spawn of a fresh phase, not only
 at checkpoint). The only value that opts a project in is the literal string
 `pre-build`; absent, or any other value, leaves `next_action.resolve_next_action`'s
@@ -2825,7 +2825,7 @@ A **covered contract** is a structured payload whose shape no database enforces 
 a JSON blob, a markdown table read by a parser, a wire format between scripts —
 where a canonical doc section describes the shape and a source file implements it.
 Without a gate, the doc drifts to aspirational and the code becomes the only truth
-(Cora item A#5, AG-6). `covered_contracts` is a Build standards key (INFRA-240
+(Repo-G item A#5, AG-6). `covered_contracts` is a Build standards key (INFRA-240
 per-project-facts pattern): a list of `doc-section::source-file` pairs, `::`-joined
 (the separator cannot appear in a heading or a repo-relative path, unlike `/` or `:`
 alone) and `, `-joined across pairs, same encoding style as `protected_paths`.
@@ -3602,7 +3602,7 @@ remaining companion/sidebar blocks (`Stop`, `PermissionRequest`/
 `ExitPlanMode`, `PostToolUse` `Write|Edit|MultiEdit`, `SessionEnd`) remain
 opt-in. Phase 95 (INFRA-208/INFRA-209) shipped this registrar generalization
 and verified the fleet rollout — 13 of 14 in-scope projects already carried
-the three registrations by the time INFRA-209 ran (no commits needed); `cora`
+the three registrations by the time INFRA-209 ran (no commits needed); `Repo-G`
 is formally excluded as a known carve-out, `anchor` remains excluded as a
 non-pairmode-consumer sibling plugin repo. Phase 95's INFRA-222 additionally
 fixed an escaped-pipe parsing bug in `next_action.py`'s checkpoint guard
@@ -3671,7 +3671,7 @@ plugin `hooks/hooks.json` into one provenance-tagged list, grouped by command
 basename (never by resolved path — a plugin's `${CLAUDE_PLUGIN_ROOT}` command
 must keep matching the settings entry's absolute path). The settings-only read
 was structurally blind to a hook registered once in settings and once by an
-installed plugin — the exact shape that doubled every effort row on meander
+installed plugin — the exact shape that doubled every effort row on Repo-B
 while fleet discovery reported 0 duplicates.
 
 Fleet rule: a project that receives a hook from an installed flex plugin must
@@ -4440,7 +4440,7 @@ plain-text FAIL form (a stuck builder emitted the prose `BUILDER STUCK —
 `REVIEW-RESULT` verdict is recognised only when it is a member of the same
 `RECOGNISED_REVIEW_VERDICTS` frozenset the JSON path uses — no second copy
 of the verdict vocabulary. This exists so already-stranded 0.2-era fleet
-rows (e.g. caddy's `effort.db` rows 33/34, PAIRMODE-002) remain reconcilable
+rows (e.g. Repo-C's `effort.db` rows 33/34, PAIRMODE-002) remain reconcilable
 inside the `RECONCILE_MAX_AGE_DAYS` (14-day) window, without a tolerant
 parser ever writing a guessed outcome for an unrecognised verdict token.
 
@@ -4666,9 +4666,9 @@ value `hooks/post_tool_use.py` reads from `data["cwd"]` names the *session*
 that spawned a Task/Agent — the project whose `effort.db` gets the row is a
 different question the moment a spawn is dispatched *from* one flex session
 *against* another project (a fleet campaign's `--project-dir
-/mnt/work/meander` in the prompt, or a cwd under that project's own
+/mnt/work/Repo-B` in the prompt, or a cwd under that project's own
 `.pairmode-worktrees/`). Merging the two was the RELEASE-063 canary's root
-cause: `LEGAL-001` rows landed in flex's db while meander's held zero.
+cause: `LEGAL-001` rows landed in flex's db while Repo-B's held zero.
 `subagent_transcript.resolve_recording_project` now resolves the row's
 actual target from the spawn itself, mirroring `scope_guard
 .resolve_call_story`'s shape (per-call resolution, not one global slot) —

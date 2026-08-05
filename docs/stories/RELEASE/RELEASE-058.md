@@ -138,9 +138,9 @@ regenerated fleet snapshot and blocks until every project reports `0.3.0`.
 The gate's fresh-snapshot check was run **manually** on 2026-07-23 — see
 `docs/fleet-snapshot.md` (committed 2026-07-23). The verdict was **BLOCK**:
 only **8 of 16** discovered fleet projects report pairmode `0.3.0`.
-Un-migrated projects: **base56, caddy, cora (0.1.0), forqsite.help, halfhorse,
-lumin, meander, pokus** (all at 0.2.0 except cora as noted). Discovery deltas:
-`anchor` no longer appears in discovery; `stackabid` is newly discovered,
+Un-migrated projects: **base56, Repo-C, Repo-G (0.1.0), Repo-D, Repo-F,
+Repo-J, Repo-B, Repo-K** (all at 0.2.0 except Repo-G as noted). Discovery deltas:
+`anchor` no longer appears in discovery; `Repo-N` is newly discovered,
 already at `0.3.0`.
 
 The operator (David) **explicitly overrode the block**: the per-project

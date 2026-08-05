@@ -685,14 +685,14 @@ class TestSyncUsesContextWhenCreatingFiles:
     def test_sync_creates_claude_md_with_rendered_content_not_raw_j2(
         self, tmp_path: Path
     ) -> None:
-        """When pairmode_context.json exists with project_name='cora', sync creates
-        CLAUDE.md with rendered content (contains 'cora', not '{{ project_name }}')."""
+        """When pairmode_context.json exists with project_name='Repo-G', sync creates
+        CLAUDE.md with rendered content (contains 'Repo-G', not '{{ project_name }}')."""
         import json as _json
 
         companion = tmp_path / ".companion"
         companion.mkdir(parents=True, exist_ok=True)
         ctx = {
-            "project_name": "cora",
+            "project_name": "Repo-G",
             "project_description": "a test project",
             "stack": "Python / pytest",
             "build_command": "uv run pytest",
@@ -716,7 +716,7 @@ class TestSyncUsesContextWhenCreatingFiles:
 
         content = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
         # Should contain rendered project name, not raw Jinja2
-        assert "cora" in content, "Created CLAUDE.md should contain rendered project name"
+        assert "Repo-G" in content, "Created CLAUDE.md should contain rendered project name"
         assert "{{ project_name }}" not in content, (
             "Created CLAUDE.md should not contain raw Jinja2 syntax"
         )

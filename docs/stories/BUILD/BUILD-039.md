@@ -25,7 +25,7 @@ This blanket stage is intentional — it captures orchestrator-side methodology
 edits (phase-doc annotations, CER entries) made during a session before the
 reviewer fires, protecting them from the reviewer's revert path.
 
-The bug (L018, sourced from meander INFRA-008): when a story's declared
+The bug (L018, sourced from Repo-B INFRA-008): when a story's declared
 `primary_file` is under `docs/phases/` — which is normal for doc stories and
 spec stories whose deliverable *is* a phase file — the blanket `git add`
 sweeps it up and commits it under the chore message before the reviewer runs.

@@ -66,7 +66,7 @@ The agreements walk is DONE. Two things to remember, both important:
   fleet — diagnose before the pre-fold gate (it gates fold blast-radius); + add a Signal-1
   verification step to the runbook; + HARNESS006 needs an explicit AC to reconcile
   RELEASE-002 `deferred → complete` on main at the fold.
-- **CER-058** (Do Later): `meander` appeared in `registered_projects` without the operator
+- **CER-058** (Do Later): `Repo-B` appeared in `registered_projects` without the operator
   running registration — investigate which bootstrap path writes it.
 
 ## Housekeeping notes

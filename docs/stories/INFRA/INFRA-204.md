@@ -33,7 +33,7 @@ This is a live, reproduced data-corruption bug (CER-064, "Do Now"):
   collision. A single `--status complete` call flipped **both** rows.
 - Real collision precedent in this repo (CER-063): `INFRA-203` collides between
   `main`'s phase 91 and the unmerged `fold-prep` branch's `HARNESS011-main`.
-- Reported externally by the `ud` migration repo, whose Phase 24 and Phase 29
+- Reported externally by the `Repo-O` migration repo, whose Phase 24 and Phase 29
   both carried an unrelated `REF-106` row; a status update on one leaked into
   the other. That repo cannot fix shared pairmode tooling directly.
 

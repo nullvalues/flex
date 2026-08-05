@@ -109,7 +109,7 @@ dogfood removes risk from canary selection.
 
 **Timing:** after Phase 1 acceptance.
 
-**Candidate:** a mid-size, lower-criticality project already using pairmode (e.g., radar, lumin, forqsite).
+**Candidate:** a mid-size, lower-criticality project already using pairmode (e.g., Repo-L, Repo-J, Repo-E).
 **Executor:** the flex repo owner + canary project owner (joint verification).
 
 **Steps:**

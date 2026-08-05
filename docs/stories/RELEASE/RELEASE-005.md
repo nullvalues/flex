@@ -31,8 +31,8 @@ lists projects bound to THIS flex checkout, detecting **both** binding signals:
    signal).
 
 The known fleet is uncertain: `registered_projects` lists only
-`/mnt/work/coherra`; docs additionally name forqsite, radar, asp, aab, cora,
-lumin, halfhorse. The true `FLEX_DIR`-consumer set is not enumerable from
+`/mnt/work/Repo-A`; docs additionally name Repo-E, Repo-L, Repo-I, Repo-H, Repo-G,
+Repo-J, Repo-F. The true `FLEX_DIR`-consumer set is not enumerable from
 config alone — hence a scanning tool.
 
 The tool records a current snapshot. The docs must state that **the

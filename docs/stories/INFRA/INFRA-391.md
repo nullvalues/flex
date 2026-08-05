@@ -29,7 +29,7 @@ and `_normalise()` only lowercases/collapses whitespace — it never strips the 
 overrides` membership check therefore compares a `'## foo'`-shaped key against a
 `'foo'`-shaped override entry and can never match (CER-170): the suppression mechanism
 silently never fires for any project using it in the documented format. Found while
-investigating an unrelated issue in the `cora` project; confirmed as a bug native to
+investigating an unrelated issue in the `Repo-G` project; confirmed as a bug native to
 this repo's own `audit.py`.
 
 ## Requires
@@ -124,7 +124,7 @@ sections` key-format change — any other test that keys off a section-key strin
 - Changing the `.pairmode-overrides` file format itself, or SKILL.md's documented
   entry style — this story makes the code match the documented format, not the
   reverse.
-- Fixing the `cora` project's own issue that surfaced this bug — that investigation is
+- Fixing the `Repo-G` project's own issue that surfaced this bug — that investigation is
   out of scope for this repo's story.
 - Any other CER-170-adjacent cleanup not required to close the specific key-mismatch
   bug (e.g. broader refactoring of `_split_sections`/`_normalise`).

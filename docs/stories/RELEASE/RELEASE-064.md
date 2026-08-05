@@ -1,7 +1,7 @@
 ---
 id: RELEASE-064
 rail: RELEASE
-title: Migrate lumin to pairmode 0.3.0
+title: Migrate Repo-J to pairmode 0.3.0
 status: complete
 phase: "106"
 auth_gated: false
@@ -21,7 +21,7 @@ touches:
      `status: "revised"` for the operator to populate. The only file inside this
      repository that this story writes is *this file* (the `## Evidence` section
      added by the executor). Every other write target is outside the repo, under
-     `/mnt/work/lumin`, and therefore cannot appear in `touches:` at all — which
+     `/mnt/work/Repo-J`, and therefore cannot appear in `touches:` at all — which
      is the point of the phase's § Execution model deviation. Suggested value for
      both keys:
        - docs/stories/RELEASE/RELEASE-064.md
@@ -32,28 +32,28 @@ touches:
 Phase 106 drives the remaining pairmode 0.3.0 fleet migrations centrally from
 flex, using the six-step mechanic in `docs/harness-cutover-runbook.md`
 § *Per-project mechanic* as the unit of work. RELEASE-063 was the campaign
-canary (meander) and RELEASE-064 is the **first follow-on** — the first migration
+canary (Repo-B) and RELEASE-064 is the **first follow-on** — the first migration
 run against a playbook that has already been exercised once, with the canary's
 findings in hand.
 
-**Target repo: `/mnt/work/lumin`.** Its pre-canary state, recorded verbatim in
+**Target repo: `/mnt/work/Repo-J`.** Its pre-canary state, recorded verbatim in
 RELEASE-063's `## Evidence` § E1 baseline, is:
 
 ```
-  /mnt/work/lumin
+  /mnt/work/Repo-J
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
 ```
 
-So lumin is a plain 0.2.x consumer with no release-channel declaration: the
+So Repo-J is a plain 0.2.x consumer with no release-channel declaration: the
 migration must both stamp `0.3.0` **and** bind signal1 to
 `/mnt/work/flex-harness/skills/pairmode/scripts`. `binding: both` is the
 post-condition, not `binding: version`.
 
 **Why this story was blocked, and why it is unblocked now.** RELEASE-063 passed
 E1–E5 and E7–E12 but **failed E6**: the proving cycle's attempt rows did not land
-in meander's `effort.db` with usable content. The canary's Instructions step 8
+in Repo-B's `effort.db` with usable content. The canary's Instructions step 8
 made that a campaign gate, and phase 106 § *Paused (2026-07-28)* records
 RELEASE-064..071 as blocked pending the effort-recording cluster
 CER-101/102/103/104. Those were root-caused and remediated in Phase 110
@@ -62,7 +62,7 @@ to the `/mnt/work/flex-harness` release channel. The gate is cleared — but "th
 fix shipped" and "the fix works downstream" are different claims, and this story
 is where the second one gets tested. That is why the E-check sequence below adds
 two checks the canary did not have: a **duplicate-row** assertion (E6c, CER-104)
-and a **canary re-verification** (E10, meander's E6 re-run against the
+and a **canary re-verification** (E10, Repo-B's E6 re-run against the
 post-cp-110 channel). A migration that stamps 0.3.0 while recording is still
 broken is a *failed* migration even though `pairmode_status.py` would report
 success — the same trap the canary fell into.
@@ -82,7 +82,7 @@ Two things about how this story runs are unusual and are settled by phase 106
 should read before acting:
 
 1. **No sandboxed builder subagent, no flex worktree.** The write targets live at
-   `/mnt/work/lumin`, outside this repo. The standard worktree loop and
+   `/mnt/work/Repo-J`, outside this repo. The standard worktree loop and
    `scope_guard.py` forbid writes there — correctly. Execution is
    orchestrator-level with the operator present.
 2. **Acceptance is evidence-shaped, not diff-shaped.** The flex-side diff is one
@@ -119,7 +119,7 @@ about whether the recording fix reaches consumers.
   RELEASE-065..071 must still be `draft` when this story begins.
 - `/mnt/work/flex-harness` exists and is the release channel described in
   `docs/architecture.md` § *Release channel — flex-harness*.
-- `/mnt/work/lumin` exists, is a git repository, and its working tree is **clean**
+- `/mnt/work/Repo-J` exists, is a git repository, and its working tree is **clean**
   at the moment the mechanic begins. Per canary playbook note 1, a dirty tree is a
   **stop** condition with no runbook step covering it: the operator decides
   (discard, commit, or abort) and the decision is recorded. Do not stash around it
@@ -153,55 +153,55 @@ channel is not this story's work (see `## Out of scope`).
 
 **E1. A pre-migration baseline exists.**
 `## Evidence` contains the verbatim output of a `fleet_discovery.py` run captured
-**before** any write to `/mnt/work/lumin`, showing lumin's pre-migration
+**before** any write to `/mnt/work/Repo-J`, showing Repo-J's pre-migration
 `binding`, `signal1` (scripts path) and `signal2` (`pairmode_version`), plus the
 run's `Projects with duplicate hooks:` line. Without this, "the migration changed
 something" is unverifiable. `## Evidence` also records
-`git -C /mnt/work/lumin log --oneline -5` and
-`git -C /mnt/work/lumin status --porcelain` for the pre-state.
+`git -C /mnt/work/Repo-J log --oneline -5` and
+`git -C /mnt/work/Repo-J status --porcelain` for the pre-state.
 
-**E2. lumin reports pairmode 0.3.0 and binds the release channel.**
+**E2. Repo-J reports pairmode 0.3.0 and binds the release channel.**
 A post-migration `fleet_discovery.py` run, recorded in `## Evidence` and using the
-**same command form as E1** so the two are directly comparable, shows lumin with:
+**same command form as E1** so the two are directly comparable, shows Repo-J with:
 - `signal2 (pairmode_version): 0.3.0`
 - `signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts`
 - `binding: both`
 
 All three. `binding: version` post-migration is a fail: it means the stamp landed
-but the channel declaration did not, and lumin would still be consuming an
+but the channel declaration did not, and Repo-J would still be consuming an
 unknown copy of the scripts.
 
-**E3. lumin's hooks are a single block.**
-The same post-migration discovery output reports lumin with a single pairmode
+**E3. Repo-J's hooks are a single block.**
+The same post-migration discovery output reports Repo-J with a single pairmode
 hook block — the `single-block hooks` condition named in phase 106 § Checkpoint
-proves — and `Projects with duplicate hooks: 0`. Do not hand-edit lumin's
+proves — and `Projects with duplicate hooks: 0`. Do not hand-edit Repo-J's
 settings to make the number come out right: the point is to prove
 `pairmode_sync.py` produces this state on its own. If it does not, that is a real
 defect and it gets recorded under E12.
 
-**E4. lumin's bootstrapped loop is the 0.3.0 thin-harness template.**
-`## Evidence` records the result of inspecting `/mnt/work/lumin/CLAUDE.build.md`
+**E4. Repo-J's bootstrapped loop is the 0.3.0 thin-harness template.**
+`## Evidence` records the result of inspecting `/mnt/work/Repo-J/CLAUDE.build.md`
 and confirms it is the thin dispatch-loop template, not the pre-flip 0.2.x prose
 loop. Record the command and its output; the canary used
 `grep -c "flex_build.py next-action" <path>` (printed `2`) plus a `head -5`, and
 using the same checks makes the two runs comparable.
 
-**E5. A proving story cycle completed inside lumin.**
-`## Evidence` names the lumin-side story ID that was built as the proving cycle
-(mechanic step 6), states that it ran inside lumin's **own** `CLAUDE.build.md`
-loop with lumin's own story numbering, states the full cycle it traversed
+**E5. A proving story cycle completed inside Repo-J.**
+`## Evidence` names the Repo-J-side story ID that was built as the proving cycle
+(mechanic step 6), states that it ran inside Repo-J's **own** `CLAUDE.build.md`
+loop with Repo-J's own story numbering, states the full cycle it traversed
 (spec-writer → builder → reviewer → merge), and states its outcome. The story is
-a real, small, genuinely-wanted piece of lumin work — not a throwaway. Per canary
-playbook note 8, the cycle runs in a **native lumin session**, not driven from
+a real, small, genuinely-wanted piece of Repo-J work — not a throwaway. Per canary
+playbook note 8, the cycle runs in a **native Repo-J session**, not driven from
 this flex session; `## Evidence` states explicitly which session mode was used.
 
-**E6. The proving cycle's attempt rows landed in lumin's effort.db — correctly.**
+**E6. The proving cycle's attempt rows landed in Repo-J's effort.db — correctly.**
 This is the load-bearing check and it has three parts, all verified from a
-recorded query against `/mnt/work/lumin`'s `effort.db` (locate it; do not assume
+recorded query against `/mnt/work/Repo-J`'s `effort.db` (locate it; do not assume
 the path — the canary's was `.companion/effort.db`):
 
 - **E6a — attribution (CER-103).** At least one attempt row exists for the E5
-  story ID **in lumin's own db**, not flex's. `## Evidence` also records the
+  story ID **in Repo-J's own db**, not flex's. `## Evidence` also records the
   complementary check that flex's `effort.db` contains **no** rows for the E5
   story ID; the canary failed precisely by having the rows in the wrong database
   while every other signal looked healthy.
@@ -217,49 +217,49 @@ the path — the canary's was `.companion/effort.db`):
 Record the exact queries and their exact output. Any of E6a/E6b/E6c failing is a
 stop condition (see `## Instructions` step 9).
 
-**E7. lumin's checkpoint/report path sees the attempts.**
+**E7. Repo-J's checkpoint/report path sees the attempts.**
 `## Evidence` records the output of the pairmode checkpoint or attempt-report CLI
-run against `/mnt/work/lumin` for the phase containing the E5 story, showing the
+run against `/mnt/work/Repo-J` for the phase containing the E5 story, showing the
 attempts (not "no attempts recorded"). The canary's native re-test found rows
 present in the db yet the report printing *"no attempts recorded"* — so a raw-row
 query alone does not prove the read path works. Record the exact command
 (discover it from `flex_build.py --help` / the checkpoint sequence; do not guess
 a subcommand name) and its output.
 
-**E8. lumin's git history shows the migration as its own commit(s).**
-`## Evidence` records `git -C /mnt/work/lumin log --oneline` covering the
+**E8. Repo-J's git history shows the migration as its own commit(s).**
+`## Evidence` records `git -C /mnt/work/Repo-J log --oneline` covering the
 migration commit(s) and the proving-story commit(s), so a later auditor can see
-exactly what the sync wrote into lumin and roll it back if needed. Per canary
+exactly what the sync wrote into Repo-J and roll it back if needed. Per canary
 playbook note 3, the migration commit precedes the proving cycle in history.
 
-**E9. lumin's `settings.local.json` sediment is handled deliberately.**
-Per canary playbook note 9 (meander carried 133 accumulated allow rules, 91 of
+**E9. Repo-J's `settings.local.json` sediment is handled deliberately.**
+Per canary playbook note 9 (Repo-B carried 133 accumulated allow rules, 91 of
 them stale `Write(path)`/per-file `Edit(path)` entries that flood the first
 post-migration session with warnings), `## Evidence` records: the pre-migration
-count of `Write(`/`Edit(` allow rules in `/mnt/work/lumin`'s
+count of `Write(`/`Edit(` allow rules in `/mnt/work/Repo-J`'s
 `.claude/settings.local.json`; the operator's decision (prune or keep); and, if
-pruned, the post-prune count and the backup location. If lumin has no such file
+pruned, the post-prune count and the backup location. If Repo-J has no such file
 or no such rules, record that fact. "Not mentioned" is a fail — this is the
 findings-become-procedure step and skipping it silently is what the canary's
 notes exist to prevent.
 
 **E10. The canary's E6 is re-verified against the post-cp-110 channel.**
 RELEASE-063's E6 verdict stands as FAIL on pre-cp-110 evidence; cp-110 does not
-retroactively repair meander's historical NULL/duplicate rows, so re-reading the
+retroactively repair Repo-B's historical NULL/duplicate rows, so re-reading the
 old rows proves nothing. `## Evidence` therefore records **one** of:
 
-- **(a) preferred —** a query against `/mnt/work/meander`'s `effort.db` filtered
+- **(a) preferred —** a query against `/mnt/work/Repo-B`'s `effort.db` filtered
   to attempt rows created **after** the cp-110 channel promotion, showing correct
   attribution, populated `outcome`/tokens, and no duplicate pairs — i.e. the
-  E6a/E6b/E6c checks re-run on fresh meander rows; **or**
-- **(b) fallback —** an explicit statement that meander has had no post-cp-110
-  build activity, that no fresh rows exist to query, and that lumin's own E6 is
+  E6a/E6b/E6c checks re-run on fresh Repo-B rows; **or**
+- **(b) fallback —** an explicit statement that Repo-B has had no post-cp-110
+  build activity, that no fresh rows exist to query, and that Repo-J's own E6 is
   therefore the sole downstream evidence for the CER-101/103/104 fixes — together
-  with a named follow-up under E13 to re-verify meander on its next cycle.
+  with a named follow-up under E13 to re-verify Repo-B on its next cycle.
 
-`## Evidence` also records the determination of **whether meander needs a re-sync**
-to pick up cp-110 (i.e. whether the fix lives in channel scripts meander already
-invokes by path, or in hook/template content that was copied into meander at
+`## Evidence` also records the determination of **whether Repo-B needs a re-sync**
+to pick up cp-110 (i.e. whether the fix lives in channel scripts Repo-B already
+invokes by path, or in hook/template content that was copied into Repo-B at
 migration time and is now stale). State the determination and the basis for it.
 Performing that re-sync is **not** this story's work (see `## Out of scope`);
 naming it is.
@@ -279,7 +279,7 @@ them — those are tool-written, not hand-written). No file under `skills/`,
 **E12. Playbook findings are recorded as a delta against the canary's.**
 This file's `## Evidence` section ends with a **Playbook notes** subsection that,
 for each of RELEASE-063's nine numbered notes, states whether it **recurred**,
-**did not recur**, or **was not applicable** on lumin — and then lists any *new*
+**did not recur**, or **was not applicable** on Repo-J — and then lists any *new*
 deviation, manual intervention, or ambiguity this run produced. A flat list that
 does not reference the canary's notes fails this Ensure: the campaign's value is
 in learning whether the canary's findings generalize, and RELEASE-065..070 are
@@ -287,7 +287,7 @@ specced against that answer. If the mechanic ran exactly as written with no
 intervention, say exactly that.
 
 **E13. Runbook or CER follow-ups are filed, not fixed here.**
-Every defect surfaced under E12, plus any E10(b) meander re-verification
+Every defect surfaced under E12, plus any E10(b) Repo-B re-verification
 follow-up, is *named* in `## Evidence` as a follow-up with its intended
 destination (runbook amendment or CER). This story does **not** edit
 `docs/harness-cutover-runbook.md` or `docs/cer/backlog.md` (see `## Out of
@@ -306,14 +306,14 @@ something ran that should not have.
 
 You are executing this story **at orchestrator level with the operator present**,
 not as a sandboxed builder subagent in a flex worktree. Do not create a story
-worktree. Do not attempt to have a builder subagent write to `/mnt/work/lumin` —
+worktree. Do not attempt to have a builder subagent write to `/mnt/work/Repo-J` —
 `scope_guard.py` will block it, correctly, and working around the block is itself
 a violation.
 
 0. **Populate the frontmatter gap.** `primary_files:` is absent and `touches:` is
    `[]` (see the spec-writer note at the top of this file). Set both to
    `docs/stories/RELEASE/RELEASE-064.md` — the single in-repo write target. The
-   out-of-repo targets under `/mnt/work/lumin` are deliberately *not* listed;
+   out-of-repo targets under `/mnt/work/Repo-J` are deliberately *not* listed;
    `touches:` is a within-repo declaration and listing external paths there would
    misrepresent the diff surface to every gate that reads it.
 
@@ -328,7 +328,7 @@ a violation.
 2. **Confirm the remaining preconditions before touching anything.** Verify every
    bullet in `## Requires` and record the checks: cp-105 tagged; RELEASE-063
    complete with its `## Evidence` and *Playbook notes* present; no sibling
-   phase-106 story beyond the canary started; lumin's working tree clean. If any
+   phase-106 story beyond the canary started; Repo-J's working tree clean. If any
    fails, stop and hand back to the operator.
 
 3. **Read the canary's notes, then the mechanic.** Read RELEASE-063's
@@ -348,15 +348,15 @@ a violation.
    ```bash
    PATH=$HOME/.local/bin:$PATH uv run python \
      /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
-     --candidate-dir /mnt/work/lumin --no-snapshot
+     --candidate-dir /mnt/work/Repo-J --no-snapshot
    ```
    Confirm against `--help` before running — cp-110 or phase 105 may have changed
    the surface — and do not guess flags. Save the full output; you will compare it
    against the post-migration run. Also capture
-   `git -C /mnt/work/lumin log --oneline -5` and
-   `git -C /mnt/work/lumin status --porcelain`.
+   `git -C /mnt/work/Repo-J log --oneline -5` and
+   `git -C /mnt/work/Repo-J status --porcelain`.
 
-5. **Run the mechanic against lumin.** Follow the runbook's six steps in order,
+5. **Run the mechanic against Repo-J.** Follow the runbook's six steps in order,
    invoking `pairmode_migrate.py` and `pairmode_sync.py` from
    `/mnt/work/flex-harness/skills/pairmode/scripts` — never from
    `/mnt/work/flex/skills/...`. Expect, from the canary:
@@ -376,20 +376,20 @@ a violation.
      the value and leave it unless the operator says otherwise.
 
    Show the operator the output of each step before proceeding to the next. If a
-   step fails, **stop** — do not improvise a fix into lumin. Report to the
+   step fails, **stop** — do not improvise a fix into Repo-J. Report to the
    operator, and if the failure is unrecoverable, execute the runbook's rollback
    procedure and record what happened under E12.
 
 6. **Commit the migration before the proving cycle (canary note 3).** The runbook
    orders the commit after step 6; that is wrong for the 0.3.0 loop, because the
    proving story's worktree snapshots git HEAD and would not see the migration.
-   Commit the sync/migration changes into lumin as their **own** commit first
+   Commit the sync/migration changes into Repo-J as their **own** commit first
    (the canary used `sync: migrate to pairmode 0.3.0 thin-harness loop`), then run
    the proving cycle. Record the discrepancy under E12 as a recurrence of note 3.
 
 7. **Handle the `settings.local.json` sediment (E9, canary note 9).** Before
-   handing lumin to a native session, count the stale `Write(`/`Edit(` allow rules
-   in `/mnt/work/lumin/.claude/settings.local.json`. `sync-all` correctly does not
+   handing Repo-J to a native session, count the stale `Write(`/`Edit(` allow rules
+   in `/mnt/work/Repo-J/.claude/settings.local.json`. `sync-all` correctly does not
    touch that file, so the sediment survives migration and floods the first
    post-migration session with warnings. Present the count to the operator and let
    the operator decide prune-or-keep. If pruning: back the file up first, remove
@@ -398,20 +398,20 @@ a violation.
    This is an operator decision — do not prune unilaterally.
 
 8. **Verify the stamp before proving (E2, E3, E4).** Re-run the exact step-4
-   `fleet_discovery.py` command and confirm lumin now reports `0.3.0`, `binding:
+   `fleet_discovery.py` command and confirm Repo-J now reports `0.3.0`, `binding:
    both` with `signal1` pointing at the channel, and single-block hooks. Then
-   inspect `/mnt/work/lumin/CLAUDE.build.md` and confirm the thin-harness
+   inspect `/mnt/work/Repo-J/CLAUDE.build.md` and confirm the thin-harness
    template. Do not proceed until all of E2/E3/E4 hold — a proving cycle run
    against a half-migrated project produces uninterpretable evidence.
 
-9. **Run the proving story cycle in a native lumin session (E5, E6, E7).** This is
+9. **Run the proving story cycle in a native Repo-J session (E5, E6, E7).** This is
    mechanic step 6. Per canary playbook note 8, attempt recording is
    session-bound: a cycle driven from *this* flex session may attribute rows to
    flex's `effort.db` regardless of how correct everything else is. Unless cp-110
    demonstrably changed that (E0's inspection will tell you), the operator runs
-   the proving cycle **natively in lumin**, in lumin's own `CLAUDE.build.md` loop,
-   with lumin's own story numbering. Do not create a flex story for it. Pick a
-   small, real, already-wanted piece of lumin work — the point is to exercise the
+   the proving cycle **natively in Repo-J**, in Repo-J's own `CLAUDE.build.md` loop,
+   with Repo-J's own story numbering. Do not create a flex story for it. Pick a
+   small, real, already-wanted piece of Repo-J work — the point is to exercise the
    full loop (gate → spec → builder → reviewer → record → merge) on genuine work,
    so a no-op story defeats it.
 
@@ -424,7 +424,7 @@ a violation.
     file*, containing, in order: the E0 gate proof; the E1 baseline; the E2/E3
     post-migration discovery output; the E4 template check; the E5 proving-story
     ID, session mode and outcome; the E6a/E6b/E6c queries and their output; the E7
-    report output; the E8 lumin git log; the E9 settings hygiene record; the E10
+    report output; the E8 Repo-J git log; the E9 settings hygiene record; the E10
     canary re-verification; the E11 cleanliness checks; a **Playbook notes**
     subsection per E12; and a **Follow-ups** subsection per E13. Paste command
     output verbatim inside fenced blocks — do not summarize it into prose, because
@@ -447,11 +447,11 @@ a violation.
     NULL-outcome rows. *"Rationale-bearing decisions over bare rules"* is why E12
     requires a **delta** against the canary's nine notes rather than a fresh list:
     a second migration that records only "it worked" leaves RELEASE-065..070 with a
-    bare rule and no way to tell which canary findings were meander-specific. On
+    bare rule and no way to tell which canary findings were Repo-B-specific. On
     accepted constraints: *"Hooks are thin relays only"* is adjacent, since the
-    mechanic rewrites lumin's hook block and cp-110 touched the recording path —
+    mechanic rewrites Repo-J's hook block and cp-110 touched the recording path —
     the constraint's rationale is that hooks must not block or write state, so E3
-    forbids hand-editing lumin's settings to satisfy the single-block assertion,
+    forbids hand-editing Repo-J's settings to satisfy the single-block assertion,
     and step 5 forbids routing around the permission classifier. *"Sidebar owns all
     state writes"* is why E6 is asserted against the db as written by the normal
     path, with no manual repair of rows permitted to make an assertion pass. No
@@ -472,41 +472,41 @@ git -C /mnt/work/flex-harness log --oneline -5
 ```
 
 ```bash
-# E1/E2/E3 — lumin baseline and post-migration state (confirm flags via --help first;
+# E1/E2/E3 — Repo-J baseline and post-migration state (confirm flags via --help first;
 # the runbook's step-5 form is wrong per RELEASE-063 playbook note 2)
 PATH=$HOME/.local/bin:$PATH uv run python \
   /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
-  --candidate-dir /mnt/work/lumin --no-snapshot
+  --candidate-dir /mnt/work/Repo-J --no-snapshot
 ```
 
 ```bash
 # E4 — thin-harness template
-grep -c "flex_build.py next-action" /mnt/work/lumin/CLAUDE.build.md
-head -5 /mnt/work/lumin/CLAUDE.build.md
+grep -c "flex_build.py next-action" /mnt/work/Repo-J/CLAUDE.build.md
+head -5 /mnt/work/Repo-J/CLAUDE.build.md
 ```
 
 ```bash
-# E6 — proving-cycle attempt rows in lumin's own effort.db.
+# E6 — proving-cycle attempt rows in Repo-J's own effort.db.
 # Locate the db first; do not assume a path.
-find /mnt/work/lumin -name 'effort.db' -not -path '*/node_modules/*'
+find /mnt/work/Repo-J -name 'effort.db' -not -path '*/node_modules/*'
 
-# E6a attribution: rows present in lumin, absent in flex
-sqlite3 <lumin-effort.db> "SELECT * FROM attempts WHERE story_id='<E5-STORY-ID>'"
+# E6a attribution: rows present in Repo-J, absent in flex
+sqlite3 <Repo-J-effort.db> "SELECT * FROM attempts WHERE story_id='<E5-STORY-ID>'"
 sqlite3 <flex-effort.db>  "SELECT * FROM attempts WHERE story_id='<E5-STORY-ID>'"  # must be empty
 
 # E6b content: outcome and tokens populated (adjust column names to the schema)
-sqlite3 <lumin-effort.db> \
+sqlite3 <Repo-J-effort.db> \
   "SELECT id, story_id, role, model, tokens_total, outcome, created_at
      FROM attempts WHERE story_id='<E5-STORY-ID>'"
 
 # E6c duplicates: one row per attempt, no perfect pairs
-sqlite3 <lumin-effort.db> \
+sqlite3 <Repo-J-effort.db> \
   "SELECT story_id, role, COUNT(*) FROM attempts
     WHERE story_id='<E5-STORY-ID>' GROUP BY story_id, role"
 ```
 
 ```bash
-# E7 — lumin's checkpoint/attempt report sees the rows (discover the exact
+# E7 — Repo-J's checkpoint/attempt report sees the rows (discover the exact
 # subcommand from --help; it must not print "no attempts recorded")
 PATH=$HOME/.local/bin:$PATH uv run python \
   /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py --help
@@ -514,20 +514,20 @@ PATH=$HOME/.local/bin:$PATH uv run python \
 
 ```bash
 # E9 — settings.local.json sediment, before and after
-grep -c 'Write(' /mnt/work/lumin/.claude/settings.local.json
-grep -c 'Edit('  /mnt/work/lumin/.claude/settings.local.json
+grep -c 'Write(' /mnt/work/Repo-J/.claude/settings.local.json
+grep -c 'Edit('  /mnt/work/Repo-J/.claude/settings.local.json
 ```
 
 ```bash
-# E10 — canary re-verification: fresh (post-cp-110) meander rows only
-sqlite3 /mnt/work/meander/.companion/effort.db \
+# E10 — canary re-verification: fresh (post-cp-110) Repo-B rows only
+sqlite3 /mnt/work/Repo-B/.companion/effort.db \
   "SELECT id, story_id, role, tokens_total, outcome, created_at
      FROM attempts WHERE created_at > '<CP-110-PROMOTION-TIMESTAMP>'"
 ```
 
 ```bash
-# E8 — migration visible in lumin's history, migration commit before proving commit
-git -C /mnt/work/lumin log --oneline -10
+# E8 — migration visible in Repo-J's history, migration commit before proving commit
+git -C /mnt/work/Repo-J log --oneline -10
 
 # E11 — flex-side diff is this story file only; channel untouched
 git -C /mnt/work/flex diff --name-only
@@ -544,8 +544,8 @@ Acceptance:
 - E0–E13 are verified by the reviewer **from the `## Evidence` section of this
   file**, not from a diff. An Ensure whose evidence is missing from that section
   is a fail;
-- lumin shows `binding: both`, `0.3.0`, and `Projects with duplicate hooks: 0`;
-- E6a, E6b and E6c all pass — rows in lumin's db, populated `outcome`/tokens, one
+- Repo-J shows `binding: both`, `0.3.0`, and `Projects with duplicate hooks: 0`;
+- E6a, E6b and E6c all pass — rows in Repo-J's db, populated `outcome`/tokens, one
   row per attempt — and E7's report does not print "no attempts recorded";
 - `git -C /mnt/work/flex-harness status --porcelain` prints nothing;
 - the flex suite is green except
@@ -557,7 +557,7 @@ Acceptance:
 Note for `spec-preflight`: this spec references a `## Evidence` section and its
 **Playbook notes** / **Follow-ups** subsections, which do not exist in this file
 yet — they are created by this story, and any preflight finding naming them is
-expected. It also references `/mnt/work/lumin`, `/mnt/work/meander`,
+expected. It also references `/mnt/work/Repo-J`, `/mnt/work/Repo-B`,
 `/mnt/work/flex-harness/skills/pairmode/scripts`, the `cp-110` tag and
 `docs/harness-cutover-runbook.md` § *Per-project mechanic* / § *Rollback
 procedure*, none of which the input-bound spec-writer could open; they are sourced
@@ -571,13 +571,13 @@ invocation; confirm via `--help`.
 
 ## Out of scope
 
-- **Migrating any project other than lumin.** caddy, forqsite.help, halfhorse,
-  pokus, base56 and cora are RELEASE-065..070. Do not run the mechanic against a
+- **Migrating any project other than Repo-J.** Repo-C, Repo-D, Repo-F,
+  Repo-K, base56 and Repo-G are RELEASE-065..070. Do not run the mechanic against a
   second project "while the environment is warm" — this is the first run after a
   failed canary, and the campaign wants a second clean data point before it
   batches.
-- **Re-syncing or re-migrating meander.** E10 requires *determining* whether
-  meander needs a re-sync to pick up cp-110, and *recording* the determination.
+- **Re-syncing or re-migrating Repo-B.** E10 requires *determining* whether
+  Repo-B needs a re-sync to pick up cp-110, and *recording* the determination.
   Performing it is a separate story: mixing a remediation of the canary into the
   first follow-on migration would make it impossible to tell which project's
   evidence proved what.
@@ -595,8 +595,8 @@ invocation; confirm via `--help`.
 - **The full-fleet DP8 gate and the phase-97 close.** Both are RELEASE-071
   (phase 106 § Ordering, strictly last). This story asserts nothing about the
   16/16 fleet snapshot.
-- **Building lumin's proving story to a flex-side spec.** The proving cycle is
-  lumin's own work, in lumin's numbering, under lumin's loop. It gets no flex
+- **Building Repo-J's proving story to a flex-side spec.** The proving cycle is
+  Repo-J's own work, in Repo-J's numbering, under Repo-J's loop. It gets no flex
   story ID and no row in `docs/phases/phase-106.md`.
 - **Any change to flex's own code, tests, templates, or plugin manifest.** This
   story is evidence-producing. `schema_introduces: false` stands and no
@@ -632,40 +632,40 @@ $ git -C /mnt/work/flex rev-parse cp-110 ; git -C /mnt/work/flex-harness rev-par
 
 Preconditions: cp-105 tagged; RELEASE-063 `## Evidence` + *Playbook notes (E10)* +
 *Follow-ups filed (E11)* present (lines 364/638/677); RELEASE-065..071 all `draft`;
-lumin tree clean.
+Repo-J tree clean.
 
 ### E1 — pre-migration baseline
 
 ```
 $ PATH=$HOME/.local/bin:$PATH uv run python \
     /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
-    --candidate-dir /mnt/work/lumin --no-snapshot
+    --candidate-dir /mnt/work/Repo-J --no-snapshot
 Flex checkout: /mnt/work/flex-harness
 Candidates scanned: 16
 Bound projects found: 16
-[14 sibling project blocks elided — lumin block verbatim:]
-  /mnt/work/lumin
+[14 sibling project blocks elided — Repo-J block verbatim:]
+  /mnt/work/Repo-J
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
-    DUPLICATE HOOKS: /mnt/work/lumin — events: SessionStart, PostToolUse
+    DUPLICATE HOOKS: /mnt/work/Repo-J — events: SessionStart, PostToolUse
 Projects with duplicate hooks: 16
 ```
 
-Matches RELEASE-063's recorded E1 baseline for lumin exactly. NOTE: the
+Matches RELEASE-063's recorded E1 baseline for Repo-J exactly. NOTE: the
 duplicate-hooks line is 16/16 fleet-wide — the canary run printed 0 from the
 settings-only view; cp-110's merged view (INFRA-288 `hook_view.py`) now sees
 plugin-sourced entries. See Playbook notes (new-1).
 
 ```
-$ git -C /mnt/work/lumin log --oneline -5
+$ git -C /mnt/work/Repo-J log --oneline -5
 e4cb3b0 fix(phase-proposed): correct pairmode tooling path to flex-harness, not flex
 9766197 docs(phase-proposed): propose pairmode 0.3.0 migration
 7fcfa5e chore(orchestrator): pairmode fleet rollout — wire context-budget-gate hooks (INFRA-209)
 5ab420a chore(pairmode): commit bootstrap scaffold, with corrected PreToolUse matcher
 bad490f Phase 1 MVP scaffold: FCA RSS → Claude analyst → markdown digest
 
-$ git -C /mnt/work/lumin status --porcelain
+$ git -C /mnt/work/Repo-J status --porcelain
 (no output — clean)
 ```
 
@@ -674,7 +674,7 @@ $ git -C /mnt/work/lumin status --porcelain
 - `sync-all --dry-run`: methodology skip + 5 agent-file re-renders +
   `CLAUDE.build.md` 0.2.x prose loop (1088 lines) → 0.3.0 thin-harness template.
   Reviewed by operator; approved.
-- `sync-all --project-dir /mnt/work/lumin --apply --yes`: exit 0. **Canary note 7
+- `sync-all --project-dir /mnt/work/Repo-J --apply --yes`: exit 0. **Canary note 7
   did NOT recur** — no permission-classifier block; no auto-mode toggle needed.
 - `.companion/state.json.lock` (0 bytes) left behind — **note 5 recurred**;
   removed, not committed.
@@ -698,19 +698,19 @@ here to-030 silently REWROTE 53000 → 5000. See Playbook notes (6) and Follow-u
 ```
 $ PATH=$HOME/.local/bin:$PATH uv run python \
     /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py \
-    --candidate-dir /mnt/work/lumin --no-snapshot
-[header + 14 sibling blocks elided — lumin block verbatim:]
-  /mnt/work/lumin
+    --candidate-dir /mnt/work/Repo-J --no-snapshot
+[header + 14 sibling blocks elided — Repo-J block verbatim:]
+  /mnt/work/Repo-J
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
-    DUPLICATE HOOKS: /mnt/work/lumin — events: SessionStart, PostToolUse
+    DUPLICATE HOOKS: /mnt/work/Repo-J — events: SessionStart, PostToolUse
 Projects with duplicate hooks: 16
 ```
 
 E2: all three conditions hold (`0.3.0`, signal1 → channel, `binding: both`).
 
-E3: lumin's own settings hook state, from `.claude/settings.json`:
+E3: Repo-J's own settings hook state, from `.claude/settings.json`:
 
 ```
 PreToolUse: 1 block(s), 1 command(s)     uv run python /mnt/work/flex-harness/hooks/pre_tool_use.py
@@ -724,7 +724,7 @@ nothing was hand-edited. The persisting DUPLICATE flag is **plugin-side and
 non-pairmode**, per `audit-hooks` (dry-run; nothing prunable in settings):
 
 ```
-$ pairmode_sync.py audit-hooks --project-dir /mnt/work/lumin
+$ pairmode_sync.py audit-hooks --project-dir /mnt/work/Repo-J
 DUPLICATE: event=SessionStart basename=session-start.sh" sources=['plugin', 'plugin'] ...
 DUPLICATE: event=PostToolUse basename=security_reminder_hook.py" sources=['plugin', 'plugin', 'plugin', 'plugin', 'plugin', 'plugin'] ...
 ```
@@ -732,45 +732,45 @@ DUPLICATE: event=PostToolUse basename=security_reminder_hook.py" sources=['plugi
 `Projects with duplicate hooks: 0` is **unattainable this run**: the merged view
 flags all 16 fleet projects on the same plugin-sourced basis. Adjudication: E3's
 substance (sync produces single-block pairmode hooks) holds; the fleet-wide
-plugin-duplicate signal is a new cp-110-era finding, not a lumin migration
+plugin-duplicate signal is a new cp-110-era finding, not a Repo-J migration
 defect. See Playbook notes (new-1) and Follow-ups.
 
 ### E4 — thin-harness template
 
 ```
-$ grep -c "flex_build.py next-action" /mnt/work/lumin/CLAUDE.build.md
+$ grep -c "flex_build.py next-action" /mnt/work/Repo-J/CLAUDE.build.md
 2
-$ head -5 /mnt/work/lumin/CLAUDE.build.md
-# CLAUDE.build.md — lumin Build Orchestrator
+$ head -5 /mnt/work/Repo-J/CLAUDE.build.md
+# CLAUDE.build.md — Repo-J Build Orchestrator
 
-You are the build orchestrator for the lumin project. Drive the build loop by
+You are the build orchestrator for the Repo-J project. Drive the build loop by
 delegating to `/mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py next-action` and the appropriate leaf worker. Do not write code,
 review code, or commit directly — those are leaf-worker responsibilities.
 ```
 
 ### E5 / E6 / E7 — proving cycle: **NOT RUN (operator deferral)**
 
-Operator statement, recorded at the decision point: *"Lumin isn't in a spot to
+Operator statement, recorded at the decision point: *"Repo-J isn't in a spot to
 build, we'll just have to mark it complete and continue on. I'll have to prove
 it out later. Understood and acknowledged that we're not really doing proper
-checkout on lumin."*
+checkout on Repo-J."*
 
 Consequences, stated per Instructions step 11:
 
-- No lumin proving story was built; no session mode to record (E5 unevidenced).
+- No Repo-J proving story was built; no session mode to record (E5 unevidenced).
 - E6a/E6b/E6c were not queried — there are no proving-cycle rows to query. The
   downstream proof that the CER-101/103/104 remediation works in a consumer
-  project **does not exist yet**, from lumin or (per E10 below) from meander.
+  project **does not exist yet**, from Repo-J or (per E10 below) from Repo-B.
 - E7's report-path check was likewise not run.
 - **Campaign gate: E5/E6/E7 unevidenced = not passed.** Per this spec's own
   acceptance, RELEASE-065..070 remain gated pending a completed proving cycle on
-  lumin (deferred follow-up below) or equivalent downstream E6 evidence.
+  Repo-J (deferred follow-up below) or equivalent downstream E6 evidence.
   The operator has acknowledged this deferral explicitly.
 
-### E8 — lumin git history
+### E8 — Repo-J git history
 
 ```
-$ git -C /mnt/work/lumin log --oneline -3
+$ git -C /mnt/work/Repo-J log --oneline -3
 433593d sync: migrate to pairmode 0.3.0 thin-harness loop
 e4cb3b0 fix(phase-proposed): correct pairmode tooling path to flex-harness, not flex
 9766197 docs(phase-proposed): propose pairmode 0.3.0 migration
@@ -783,19 +783,19 @@ No proving-story commit exists (see E5–E7).
 ### E9 — settings.local.json sediment
 
 ```
-$ ls /mnt/work/lumin/.claude/settings.local.json
+$ ls /mnt/work/Repo-J/.claude/settings.local.json
 (does not exist)
 ```
 
-Lumin carries no `settings.local.json` and therefore no Write()/Edit() sediment.
+Repo-J carries no `settings.local.json` and therefore no Write()/Edit() sediment.
 Canary note 9 not applicable; no prune decision required.
 
-### E10 — canary (meander) E6 re-verification
+### E10 — canary (Repo-B) E6 re-verification
 
 Fallback **(b)** applies. cp-110 promotion: 2026-07-28T11:57:54-04:00 (=15:57:54Z).
 
 ```
-$ python3 sqlite query — /mnt/work/meander/.companion/effort.db
+$ python3 sqlite query — /mnt/work/Repo-B/.companion/effort.db
 post-cp-110 rows (ts > 2026-07-28T15:57:54Z): 0
 latest 3 rows overall:
    (282, 'SEC-006', 'builder', '2026-07-28T14:09:53.396917+00:00')
@@ -803,17 +803,17 @@ latest 3 rows overall:
    (280, 'TEST-005', 'reviewer', '2026-07-28T13:12:12.820181+00:00')
 ```
 
-Meander has had **no post-cp-110 build activity**; no fresh rows exist to re-run
+Repo-B has had **no post-cp-110 build activity**; no fresh rows exist to re-run
 E6a/b/c against. (Rows 281/282 are incidentally a pre-cp-110 CER-104 duplicate
 pair — same story, same role, 10 ms apart — confirming the historical failure
-shape.) With lumin's proving cycle also deferred, **no downstream E6 evidence
+shape.) With Repo-J's proving cycle also deferred, **no downstream E6 evidence
 exists at all yet**; follow-up filed below. Schema note: the live `attempts`
 schema uses `agent_role`/`ts`, not the spec's `role`/`created_at` (taken from
 RELEASE-063's output) — queries adjusted accordingly.
 
-**Re-sync determination: meander does NOT need a re-sync.** Basis: the
+**Re-sync determination: Repo-B does NOT need a re-sync.** Basis: the
 CER-101/103/104 fixes live in channel scripts (`effort_db.py`,
-`subagent_transcript.py`, `hook_view.py`, `flex_build.py`) which meander invokes
+`subagent_transcript.py`, `hook_view.py`, `flex_build.py`) which Repo-B invokes
 by path via its channel-bound hooks (`/mnt/work/flex-harness/hooks/*`); cp-110
 changed no hook or agent template content of the kind copied into consumer repos
 at migration time (phase-110's `phase.md.j2` change affects newly scaffolded
@@ -842,7 +842,7 @@ from the main checkout, not a worktree).
 
 ### Playbook notes (E12 — delta against RELEASE-063's nine)
 
-1. Dirty-tree stop: **did not recur** — lumin's tree was clean at start.
+1. Dirty-tree stop: **did not recur** — Repo-J's tree was clean at start.
 2. Runbook step-5 command form wrong: **recurred** (runbook still unamended);
    used the canary's corrected `--candidate-dir` form, confirmed via `--help`.
 3. Commit-before-proving reorder: **recurred / applied** — migration committed
@@ -852,7 +852,7 @@ from the main checkout, not a worktree).
    template; no action needed.
 5. `state.json.lock` residue: **recurred** — removed by hand, not committed.
 6. Custom `expected_step_tokens`: **DEVIATED** — canary kept its custom value
-   with a WARN; on lumin `to-030` silently **rewrote 53000 → 5000** with no
+   with a WARN; on Repo-J `to-030` silently **rewrote 53000 → 5000** with no
    keep/WARN path. Behavior change vs. the canary run (possibly from the
    phase-110 `pairmode_migrate.py` changes); operator not prompted. Follow-up
    filed.
@@ -862,13 +862,13 @@ from the main checkout, not a worktree).
    added target-project attribution (`resolve_recording_project`,
    registered_projects-allowlisted), which may make flex-driven cycles attribute
    correctly; unproven downstream because the proving cycle was deferred.
-9. `settings.local.json` sediment: **not applicable** — lumin has no such file.
+9. `settings.local.json` sediment: **not applicable** — Repo-J has no such file.
 
 New findings this run:
 
 - **(new-1) Fleet-wide plugin-sourced duplicate-hook signal.** The cp-110 merged
   hook view reports `Projects with duplicate hooks: 16` (was 0 pre-cp-110 from
-  settings-only blindness). For lumin the duplicates are exclusively
+  settings-only blindness). For Repo-J the duplicates are exclusively
   plugin-sourced (`session-start.sh` ×2, `security_reminder_hook.py` ×6),
   non-pairmode, and unprunable by `audit-hooks --apply` (which by design never
   writes plugin files). Either genuine multi-plugin duplication or a
@@ -878,12 +878,12 @@ New findings this run:
 
 ### Follow-ups (E13 — filed, not fixed here)
 
-- **Lumin proving cycle (E5/E6/E7) deferred by operator** — must run natively in
-  lumin (or via the INFRA-289 attribution path) before lumin's migration can be
+- **Repo-J proving cycle (E5/E6/E7) deferred by operator** — must run natively in
+  Repo-J (or via the INFRA-289 attribution path) before Repo-J's migration can be
   called proven; until then the CER-101/103/104 downstream proof is outstanding
   and RELEASE-065..070 remain gated per Instructions step 11.
-- **Meander post-cp-110 E6 re-verification** (E10(b)) — re-run E6a/b/c on
-  meander's next build cycle; no re-sync needed (determination above).
+- **Repo-B post-cp-110 E6 re-verification** (E10(b)) — re-run E6a/b/c on
+  Repo-B's next build cycle; no re-sync needed (determination above).
 - **CER to file: fleet-wide plugin-sourced duplicate-hook signal** (new-1) —
   diagnose hook_view plugin discovery (genuine duplication vs. double-count);
   decide the E3 assertion's future form.

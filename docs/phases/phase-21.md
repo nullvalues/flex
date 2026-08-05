@@ -10,7 +10,7 @@ era: "001"
 ## Goal
 
 Phase 21 reflects the methodology improvements that surfaced during cross-project dogfooding
-(cora, radar, forqsite) into the canonical pairmode templates so future bootstraps inherit
+(Repo-G, Repo-L, Repo-E) into the canonical pairmode templates so future bootstraps inherit
 them, and lands a README/PAIRMODE.md update that makes the companion-vs-pairmode boundary
 explicit. This is a documentation- and template-heavy phase — fast, low-risk, no new
 runtime surfaces. Effort tracking (Phase 22) and drift detection (Phase 23) build on this
@@ -98,9 +98,9 @@ reproduced verbatim in the body below for reference.
 
 **Acceptance criterion:** All four reviewer-class agent templates carry an explicit
 `model: opus` field. Builder remains pinned to `sonnet`. A bootstrap into a fresh
-project produces agent files matching the cora/radar/forqsite convergence pattern.
+project produces agent files matching the Repo-G/Repo-L/Repo-E convergence pattern.
 
-**Background:** Cross-project audit (cora, radar, forqsite as of 2026-05-04) shows
+**Background:** Cross-project audit (Repo-G, Repo-L, Repo-E as of 2026-05-04) shows
 all three converge on builder=sonnet, reviewer/intent-reviewer/loop-breaker/
 security-auditor=opus. Pairmode templates currently only pin builder; reviewers
 inherit the orchestrator's model. If the orchestrator runs sonnet, the entire
@@ -137,7 +137,7 @@ across **all four** reviewer templates to still work via Bash. A doc note in
 `docs/architecture.md` records the two-layer rationale (read-only tools +
 pre-reviewer commit discipline).
 
-**Background:** Forqsite (only) restricts reviewer tools. The pattern hasn't
+**Background:** Repo-E (only) restricts reviewer tools. The pattern hasn't
 propagated, but the rationale is sound: removing Edit/Write prevents the
 reviewer from "fixing" code instead of reverting (a real failure mode), while
 preserving Bash keeps git revert/checkout/commit available so the
@@ -235,7 +235,7 @@ methodology change.
 
 Append a new entry (id auto-assigned by lesson_utils):
 
-- **trigger:** Cross-project audit (cora, radar, forqsite) of `.claude/agents/`
+- **trigger:** Cross-project audit (Repo-G, Repo-L, Repo-E) of `.claude/agents/`
   configurations.
 - **problem:** Pairmode templates pinned only the builder to sonnet, leaving
   reviewer-class agents to inherit the orchestrator's model. If the orchestrator
@@ -266,8 +266,8 @@ restriction methodology and its rationale.
 
 **Instructions:**
 
-- **trigger:** Forqsite restricted reviewer tools to `[Read, Grep, Glob, Bash]`;
-  cora and radar did not. Cross-project audit surfaced the divergence.
+- **trigger:** Repo-E restricted reviewer tools to `[Read, Grep, Glob, Bash]`;
+  Repo-G and Repo-L did not. Cross-project audit surfaced the divergence.
 - **problem:** Reviewers with full tool access can "fix" failing code (edit a
   test until it passes, edit production until the test passes) instead of
   reverting, hiding the real failure. Concrete example: a reviewer faced with

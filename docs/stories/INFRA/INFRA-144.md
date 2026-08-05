@@ -43,7 +43,7 @@ can adopt it and so orchestrators know when to use each suffix type.
 
 4. `templates/docs/phases/index.md.j2` updated:
    - Adds a `**Naming convention:**` block immediately after the project name heading (mirrors
-     the structure forqsite uses in its own index.md).
+     the structure Repo-E uses in its own index.md).
    - Block documents: predicate, 3-digit zero-pad, suffix system with sort-order note, and
      checkpoint tag format. Template text uses generic placeholders (`<PRED>`) since projects
      choose their own predicates.
@@ -58,4 +58,4 @@ can adopt it and so orchestrators know when to use each suffix type.
 - Updating existing flex-project `docs/phases/index.md` (flex itself uses integer IDs; no
   change needed there).
 - Renaming any existing phase files.
-- Updating forqsite's docs (they already have the convention, this is the flex canon record).
+- Updating Repo-E's docs (they already have the convention, this is the flex canon record).

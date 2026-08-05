@@ -153,7 +153,7 @@ _PHASE_BARE_RE = re.compile(r"\bPhase\s+(" + _PHASE_KEY_CHARS + r")")
 # INFRA-289 (CER-103(b)): the bare-mention pattern above matches the word
 # after "Phase" in ordinary prose, not just a real phase key — observed live:
 # flex row 416 recorded `story_id = "phase:key"` (from "...Phase key: see the
-# phase doc...") and meander rows 233-236 recorded `story_id =
+# phase doc...") and Repo-B rows 233-236 recorded `story_id =
 # "phase:checkpoint"` (from "...Phase checkpoint step 3..."). Neither is a
 # phase; both are synthetic ids invisible to `query_by_phase` and to no
 # per-story rollup's exclusion. This shape gate closes that: a whole
@@ -1087,10 +1087,10 @@ def resolve_recording_project(
     A single ``project_dir`` (the session's own cwd) answers "where does
     this row go?" correctly for a native session, but not for a spawn
     dispatched *from* one flex session *against* another project — a fleet
-    campaign's ``--project-dir /mnt/work/meander`` in the prompt, or a cwd
+    campaign's ``--project-dir /mnt/work/Repo-B`` in the prompt, or a cwd
     living under that project's own ``.pairmode-worktrees/``. The RELEASE-063
     canary is the proof: those spawns recorded into flex's db while
-    meander's held nothing. This mirrors
+    Repo-B's held nothing. This mirrors
     ``scope_guard.resolve_call_story``'s shape — resolve the answer from the
     call itself, in a documented precedence, rather than trusting one global
     slot that now has more than one live answer.

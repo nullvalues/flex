@@ -29,7 +29,7 @@ The fleet migration campaign re-blocks on a detector, not on a defect.
 `RELEASE-064` evidence point **E3** asserts that a migrated project's hooks are
 a single block per event, and its mechanical form is
 `fleet_discovery.py`'s `Projects with duplicate hooks: 0`. Post-cp-110 that
-line reads **16 of 16** — every fleet project — while lumin's own
+line reads **16 of 16** — every fleet project — while Repo-J's own
 `.claude/settings.json` is provably clean (`RELEASE-064.md:713-720`: one block,
 one command per event, produced by the sync itself). CER-110 was filed to
 decide whether that signal is genuine duplication or a discovery artefact, and

@@ -22,8 +22,8 @@ The 2026-08-04 `fleet_discovery.py` scan found 13 fleet repos still on pairmode
 /mnt/work/flex-harness/hooks/*.py` for PreToolUse/PostToolUse/UserPromptSubmit/
 SessionStart — four duplicate hook groups per repo, each duplicating the correct
 `${CLAUDE_PLUGIN_ROOT}/hooks/*.py` entry the marketplace-installed plugin already
-provides. The operator has already repaired two repos by hand (`/mnt/work/forqsite`,
-`/mnt/work/ud`) with a `to-030` + `audit-hooks` sequence; both now report 0.3.1 with
+provides. The operator has already repaired two repos by hand (`/mnt/work/Repo-E`,
+`/mnt/work/Repo-O`) with a `to-030` + `audit-hooks` sequence; both now report 0.3.1 with
 zero duplicate/machine-absolute groups. This story formalises that manual precedent
 at fleet scale using the mechanism INFRA-386 folds into `sync-all`. It writes no
 flex source code: its whole output is 13 other repos' repaired `settings.json` plus
@@ -67,8 +67,8 @@ a per-repo log of what happened.
 
 ### Target repos (13)
 
-`/mnt/work/` + each of: `coherra`, `meander`, `caddy`, `forqsite.help`, `halfhorse`,
-`cora`, `aab`, `asp`, `lumin`, `pokus`, `radar`, `rockue`, `stackabid`.
+`/mnt/work/` + each of: `Repo-A`, `Repo-B`, `Repo-C`, `Repo-D`, `Repo-F`,
+`Repo-G`, `Repo-H`, `Repo-I`, `Repo-J`, `Repo-K`, `Repo-L`, `Repo-M`, `Repo-N`.
 
 ## Instructions
 
@@ -129,7 +129,7 @@ omission.
 
 ## Out of scope
 
-- **`/mnt/work/forqsite` and `/mnt/work/ud`** — already repaired manually by the
+- **`/mnt/work/Repo-E` and `/mnt/work/Repo-O`** — already repaired manually by the
   operator and confirmed clean. Do not re-touch them; they appear in the final scan
   only as evidence, never as targets.
 - The `sync-all` fold-in itself — INFRA-386 owns that change. This story only runs

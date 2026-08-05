@@ -16,7 +16,7 @@ touches:
 
 ## Context
 
-Forqsite uses a `PM-NNN-main` / `PM-NNN-post1` / `PM-NNN-ante1` naming scheme for phase files
+Repo-E uses a `PM-NNN-main` / `PM-NNN-post1` / `PM-NNN-ante1` naming scheme for phase files
 so that remediation or preflight phases sort correctly next to their parent on disk without
 breaking the sort order. The convention is: alphabetical suffix order mirrors build order
 (`-ante` < `-main` < `-post`). Currently `phase_new.py` only accepts an integer `--phase-id`

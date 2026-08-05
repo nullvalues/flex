@@ -23,7 +23,7 @@ touches:
 
 ## Context
 
-Cora item A#1 (`/mnt/work/cora/docs/agreements/flex-upstream-candidates.md`,
+Repo-G item A#1 (`/mnt/work/Repo-G/docs/agreements/flex-upstream-candidates.md`,
 the doc's own priority item; AG-6): the CER quadrants only work if something
 re-reads them — "Do Later is where findings go to die." Today `cer.py` is
 capture-only (`append_finding`, `cer.py:223`); the only reader is

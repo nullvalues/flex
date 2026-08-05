@@ -34,7 +34,7 @@ despite Layer 1 already enforcing the scope correctly.
 
 CLAUDE.build.md does not call `write-permissions` or `clear-permissions`
 anywhere. This is the root cause of the "toggle auto-mode on/off every story"
-symptom observed in upstream era-002 projects (e.g. rockue). The SKILL.md
+symptom observed in upstream era-002 projects (e.g. Repo-M). The SKILL.md
 for `/flex:pairmode` already documents the intended behaviour (`write_story_permissions`
 before the builder, `clear_story_permissions` after the reviewer) — the
 orchestrator instructions just never implemented it.

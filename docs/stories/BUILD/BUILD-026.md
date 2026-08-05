@@ -103,14 +103,14 @@ grep -c "does not authorize proceeding" skills/pairmode/templates/CLAUDE.build.m
 
 ### Manual propagation (orchestrator post-commit)
 
-After the reviewer commits, sync forqsite:
+After the reviewer commits, sync Repo-E:
 
 ```bash
 PATH=$HOME/.local/bin:$PATH uv run python /mnt/work/flex/skills/pairmode/scripts/pairmode_sync.py \
-  sync-build --project-dir /mnt/work/forqsite --apply --yes
+  sync-build --project-dir /mnt/work/Repo-E --apply --yes
 ```
 
-Verify `CLAUDE.build.md` in forqsite contains `"does not authorize proceeding"`.
+Verify `CLAUDE.build.md` in Repo-E contains `"does not authorize proceeding"`.
 
 ## Out of scope
 

@@ -28,7 +28,7 @@ touches:
 (Phase 65 design, CER-045). Dead-reckoning has no signal for "the window was
 just wiped." After `/clear`, `state.json` retains the previous session's
 accumulated total; the context gate then blocks the next builder spawn on a
-phantom number. Confirmed in production (coherra, 2026-06-12): a clear at
+phantom number. Confirmed in production (Repo-A, 2026-06-12): a clear at
 212,492 tokens left the counter intact and blocked the next story.
 
 Existing mitigations don't cover this:

@@ -1,7 +1,7 @@
 ---
 id: RELEASE-044
 rail: RELEASE
-title: Fleet migration — sync asp to pairmode 0.3.0
+title: Fleet migration — sync Repo-I to pairmode 0.3.0
 status: deferred
 phase: "97"
 story_class: code

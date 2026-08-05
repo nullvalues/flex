@@ -383,7 +383,7 @@ def _sections_to_add(
 # `## Final output to orchestrator`; the 0.3 template's equivalent section is
 # `## Return`. Those are different concept keys, so the additive-only merge
 # below is structurally incapable of ever replacing the stale one — it can
-# only add a heading the target doesn't have. This is what stranded caddy's
+# only add a heading the target doesn't have. This is what stranded Repo-C's
 # effort.db rows 33/34: a worker reading top-down followed the first (stale)
 # return contract it met, sitting earlier in the file than the appended
 # `## Return`.

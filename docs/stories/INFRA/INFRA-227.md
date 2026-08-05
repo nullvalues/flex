@@ -17,7 +17,7 @@ touches: []
 INFRA-226 added a "Model-upgrade prompts" subsection to flex-harness's own
 root `CLAUDE.build.md` (mandating that any `await-user` model-choice gate
 leave a free-text/"Other" path so an operator can key in a model not in
-`model_selector.py`'s enumerated tiers — the fable/forqsite incident).
+`model_selector.py`'s enumerated tiers — the fable/Repo-E incident).
 Confirmed this session: that subsection was **never ported** into
 `skills/pairmode/templates/CLAUDE.build.md.j2` — the Jinja2 template
 `sync-all` actually renders into every downstream fleet project's
@@ -29,7 +29,7 @@ otherwise an exact match modulo Jinja2 placeholders — only the seven-line
 
 Practical consequence: every fleet project that syncs to pairmode 0.3.0
 (before or after this story) gets a `CLAUDE.build.md` missing this rule,
-until this story lands. forqsite (already migrated, `PM065-main`/
+until this story lands. Repo-E (already migrated, `PM065-main`/
 `INFRA-020`) is a live instance of exactly this gap and needs its own
 already-rendered `CLAUDE.build.md` patched directly as a separate,
 out-of-band fix — not part of this story's scope (this story only fixes
@@ -77,7 +77,7 @@ the source template for future syncs).
 ## Out of scope
 
 - Patching any already-synced downstream project's `CLAUDE.build.md`
-  (e.g. forqsite) — that is separate, direct, per-project remediation, not
+  (e.g. Repo-E) — that is separate, direct, per-project remediation, not
   part of this template fix.
 - Adding a test that asserts the template and root file stay in sync
   (worth a future story, not required here — flagged as a follow-on

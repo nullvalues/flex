@@ -22,7 +22,7 @@ load-bearing for the rest of Phase 55:
 **Problem 1 — Sync regression:** `sync.py`'s apply path calls
 `_register_pretooluse_hook` but not `_merge_deny_list`. The deny list set at
 bootstrap time is therefore not maintained by subsequent syncs — the regression
-the user observed on forqsite.
+the user observed on Repo-E.
 
 **Problem 2 — Deny-list gap blocks Phase 55:** Claude Code fires deny rules
 *before* PreToolUse hooks. Files in the current `DEFAULT_DENY` (including
@@ -43,7 +43,7 @@ DEFAULT_DENY becomes scope_guard's responsibility: a builder can only write to
 a path if that path is declared in the story's `primary_files` or `touches`.
 
 Removing entries from DEFAULT_DENY requires a `_prune_superseded_deny_entries`
-migration in sync.py so existing downstream projects (like forqsite) have their
+migration in sync.py so existing downstream projects (like Repo-E) have their
 stale deny entries cleaned up on next sync, rather than accumulating dead rules
 indefinitely.
 

@@ -136,5 +136,5 @@ retirement prune rather than reporting up to date (item 6).
   invoked directly; only the wrapper's reachability of it is in scope.
 - Any broader rewrite of `docs/pairmode/PAIRMODE.md` or `skills/pairmode/SKILL.md` beyond the
   specific stale claims named in Ensures 1, 4, 5, and 6.
-- Sibling-repo copies (flex-harness, anchor, cora) of any of these files — they receive changes via
+- Sibling-repo copies (flex-harness, anchor, Repo-G) of any of these files — they receive changes via
   the existing release-promotion/sync mechanism, not a parallel manual edit here.

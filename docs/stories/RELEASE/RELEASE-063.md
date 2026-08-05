@@ -1,7 +1,7 @@
 ---
 id: RELEASE-063
 rail: RELEASE
-title: Migrate meander to pairmode 0.3.0 (campaign canary)
+title: Migrate Repo-B to pairmode 0.3.0 (campaign canary)
 status: complete
 phase: "106"
 auth_gated: false
@@ -20,7 +20,7 @@ touches:
      `status: "revised"` for the operator to populate. The only file inside this
      repository that this story writes is *this file* (the `## Evidence` section
      added by the executor). Every other write target is outside the repo, under
-     `/mnt/work/meander`, and therefore cannot appear in `touches:` at all —
+     `/mnt/work/Repo-B`, and therefore cannot appear in `touches:` at all —
      which is the point of the phase's § Execution model deviation. Suggested
      value for both keys:
        - docs/stories/RELEASE/RELEASE-063.md
@@ -37,9 +37,9 @@ written down in `docs/harness-cutover-runbook.md` § *Per-project mechanic*
 (six steps) as the unit of work.
 
 This story is the **canary**. Phase 106 § Ordering makes it strictly first:
-RELEASE-064..070 do not start until meander has gone through the full mechanic
+RELEASE-064..070 do not start until Repo-B has gone through the full mechanic
 and come out the other side with a proving story cycle whose attempt rows landed
-correctly in its `effort.db`. The purpose is not only to migrate meander — it is
+correctly in its `effort.db`. The purpose is not only to migrate Repo-B — it is
 to prove the campaign playbook end to end on one project while the operator is
 watching, so that the seven follow-on stories can run with less scrutiny. If the
 mechanic is wrong, it is wrong here, once, on the smallest blast radius, rather
@@ -57,7 +57,7 @@ doc's § *Execution model (cross-repo — deviation from the standard loop)*, wh
 you should read before acting:
 
 1. **No sandboxed builder subagent, no flex worktree.** The write targets live
-   at `/mnt/work/meander`, outside this repo. The standard worktree loop and
+   at `/mnt/work/Repo-B`, outside this repo. The standard worktree loop and
    `scope_guard.py` forbid writes there — correctly. Execution is
    orchestrator-level with the operator present.
 2. **Acceptance is evidence-shaped, not diff-shaped.** The flex-side diff for
@@ -83,7 +83,7 @@ scripts than the fleet uses would prove nothing.
   RELEASE-064..071 must all still be `draft` when this story begins.
 - `/mnt/work/flex-harness` exists and is the release channel described in
   `docs/architecture.md` § *Release channel — flex-harness*.
-- `/mnt/work/meander` exists, is a git repository, and its working tree is clean
+- `/mnt/work/Repo-B` exists, is a git repository, and its working tree is clean
   at the moment the mechanic begins. A dirty tree is a **stop** condition, not
   something to stash around — the operator resolves it first.
 - `docs/harness-cutover-runbook.md` contains a `## Per-project mechanic` section
@@ -99,46 +99,46 @@ exact command and its exact output, not a paraphrase.
 
 **E1. A pre-migration baseline exists.**
 `## Evidence` contains the verbatim output of a `fleet_discovery.py` run captured
-**before** any write to `/mnt/work/meander`, showing meander's pre-migration
+**before** any write to `/mnt/work/Repo-B`, showing Repo-B's pre-migration
 `pairmode_version` and its pre-migration hook-block state. Without this, "the
 migration changed something" is unverifiable.
 
-**E2. meander reports pairmode 0.3.0.**
+**E2. Repo-B reports pairmode 0.3.0.**
 A post-migration `fleet_discovery.py` run recorded in `## Evidence` shows
-meander at pairmode version `0.3.0`. The recorded output is from the same
+Repo-B at pairmode version `0.3.0`. The recorded output is from the same
 command form as E1 so the two are directly comparable.
 
-**E3. meander's hooks are a single block.**
-The same post-migration discovery output shows meander with a single pairmode
+**E3. Repo-B's hooks are a single block.**
+The same post-migration discovery output shows Repo-B with a single pairmode
 hook block — the `single-block hooks` condition named in phase 106 § Checkpoint
 proves. If discovery reports duplicate or split blocks, this Ensure fails; do
-not hand-edit meander's settings to make the number come out right, because the
+not hand-edit Repo-B's settings to make the number come out right, because the
 canary's job is to prove `pairmode_sync.py` produces this state on its own.
 
-**E4. meander's bootstrapped loop is the 0.3.0 thin-harness template.**
-`## Evidence` records the result of inspecting `/mnt/work/meander`'s bootstrapped
+**E4. Repo-B's bootstrapped loop is the 0.3.0 thin-harness template.**
+`## Evidence` records the result of inspecting `/mnt/work/Repo-B`'s bootstrapped
 `CLAUDE.build.md` and confirms it is the thin dispatch-loop template, not the
 pre-flip 0.2.x prose loop. Record the command used (e.g. a `grep -c` for a
 string that exists only in the 0.3.0 template) and its output.
 
-**E5. A proving story cycle completed inside meander.**
-`## Evidence` names the meander-side story ID that was built as the proving cycle
-(mechanic step 6), states that it ran inside meander's **own**
-`CLAUDE.build.md` loop with meander's own story numbering, and states its
-outcome. The story is a real, small, genuinely-wanted piece of meander work — not
+**E5. A proving story cycle completed inside Repo-B.**
+`## Evidence` names the Repo-B-side story ID that was built as the proving cycle
+(mechanic step 6), states that it ran inside Repo-B's **own**
+`CLAUDE.build.md` loop with Repo-B's own story numbering, and states its
+outcome. The story is a real, small, genuinely-wanted piece of Repo-B work — not
 a throwaway.
 
-**E6. The proving cycle's attempt rows landed in meander's effort.db.**
-`## Evidence` records a query against `/mnt/work/meander`'s `effort.db` showing
+**E6. The proving cycle's attempt rows landed in Repo-B's effort.db.**
+`## Evidence` records a query against `/mnt/work/Repo-B`'s `effort.db` showing
 at least one attempt row for the E5 story ID, with a non-null, non-placeholder
 `outcome` and a non-zero token/cost field. This is the CER-091/INFRA-264
 downstream validation. Record the exact query and its exact output. Zero rows is
 a **fail**, and a fail here blocks RELEASE-064..070 (see `## Instructions`
 step 8).
 
-**E7. meander's git history shows the migration as its own commit(s).**
-`## Evidence` records `git -C /mnt/work/meander log --oneline` for the migration
-commits, so a later auditor can see exactly what the sync wrote into meander and
+**E7. Repo-B's git history shows the migration as its own commit(s).**
+`## Evidence` records `git -C /mnt/work/Repo-B log --oneline` for the migration
+commits, so a later auditor can see exactly what the sync wrote into Repo-B and
 roll it back if needed.
 
 **E8. The flex-side diff is this file only.**
@@ -179,19 +179,19 @@ something ran that should not have.
 
 You are executing this story **at orchestrator level with the operator present**,
 not as a sandboxed builder subagent in a flex worktree. Do not create a story
-worktree. Do not attempt to have a builder subagent write to `/mnt/work/meander`
+worktree. Do not attempt to have a builder subagent write to `/mnt/work/Repo-B`
 — `scope_guard.py` will block it, correctly, and working around the block is
 itself a violation.
 
 0. **Populate the frontmatter gap.** `primary_files:` is absent and `touches:` is
    `[]` (see the spec-writer note at the top of this file). Set both to
    `docs/stories/RELEASE/RELEASE-063.md` — the single in-repo write target. The
-   out-of-repo targets under `/mnt/work/meander` are deliberately *not* listed;
+   out-of-repo targets under `/mnt/work/Repo-B` are deliberately *not* listed;
    `touches:` is a within-repo declaration and listing external paths there would
    misrepresent the diff surface to every gate that reads it.
 
 1. **Confirm the preconditions before touching anything.** Verify every bullet in
-   `## Requires` and record the checks. In particular: cp-105 tagged; meander's
+   `## Requires` and record the checks. In particular: cp-105 tagged; Repo-B's
    working tree clean; no sibling phase-106 story already started. If any fails,
    stop and hand back to the operator — a canary run on an unprepared fleet
    proves nothing.
@@ -212,33 +212,33 @@ itself a violation.
    ```
    Consult the script's `--help` for the exact flag set — do not guess flags.
    Save the full output; you will diff it against the post-migration run. Also
-   capture `git -C /mnt/work/meander log --oneline -5` and
-   `git -C /mnt/work/meander status --porcelain` so the pre-state is on record.
+   capture `git -C /mnt/work/Repo-B log --oneline -5` and
+   `git -C /mnt/work/Repo-B status --porcelain` so the pre-state is on record.
 
-4. **Run the mechanic against meander.** Follow the runbook's six steps in order,
+4. **Run the mechanic against Repo-B.** Follow the runbook's six steps in order,
    invoking `pairmode_migrate.py` and `pairmode_sync.py` from
    `/mnt/work/flex-harness/skills/pairmode/scripts` — never from
    `/mnt/work/flex/skills/...`. Run one step at a time and show the operator the
    output of each before proceeding to the next; this is a canary, and the value
    is in catching a wrong step at step 2 rather than at step 6. If a step fails,
-   **stop** — do not improvise a fix into meander. Report to the operator, and if
+   **stop** — do not improvise a fix into Repo-B. Report to the operator, and if
    the failure is unrecoverable, execute the runbook's rollback procedure and
    record what happened under E10.
 
 5. **Verify the stamp before proving (E2, E3, E4).** Re-run the same
-   `fleet_discovery.py` command from step 3 and confirm meander now reports
-   `0.3.0` with single-block hooks. Then inspect meander's bootstrapped
+   `fleet_discovery.py` command from step 3 and confirm Repo-B now reports
+   `0.3.0` with single-block hooks. Then inspect Repo-B's bootstrapped
    `CLAUDE.build.md` and confirm it is the thin-harness template. Do not proceed
    to step 6 until all three hold — a proving cycle run against a half-migrated
    project produces uninterpretable evidence.
 
 6. **Run the proving story cycle (E5, E6).** This is mechanic step 6 and it runs
-   **inside meander**, in meander's own `CLAUDE.build.md` loop, with meander's own
+   **inside Repo-B**, in Repo-B's own `CLAUDE.build.md` loop, with Repo-B's own
    story numbering. Do not create a flex story for it and do not run it from this
-   session's loop. Pick a small, real, already-wanted piece of meander work — the
+   session's loop. Pick a small, real, already-wanted piece of Repo-B work — the
    point is to exercise the full build loop (gate → builder → reviewer → record)
    on genuine work, so a no-op story defeats it. When it completes, query
-   meander's `effort.db` for that story's attempt rows and confirm the `outcome`
+   Repo-B's `effort.db` for that story's attempt rows and confirm the `outcome`
    and token/cost fields are populated. **Zero rows, or rows with a placeholder
    outcome, is the CER-091 regression reappearing downstream** — treat it as a
    stop condition and report it as such.
@@ -246,7 +246,7 @@ itself a violation.
 7. **Record the evidence (E1–E9, E10, E11).** Append a `## Evidence` section to
    *this file*, containing, in order: the E1 baseline output; the E2/E3
    post-migration discovery output; the E4 template check; the E5 proving-story
-   ID and outcome; the E6 effort.db query and its output; the E7 meander git log;
+   ID and outcome; the E6 effort.db query and its output; the E7 Repo-B git log;
    the E8/E9 cleanliness checks; and a final **Playbook notes** subsection per
    E10. Paste command output verbatim inside fenced blocks — do not summarize it
    into prose, because RELEASE-064..070 are specced against what actually
@@ -268,9 +268,9 @@ itself a violation.
    than a nicety — a canary that migrates a project but records no reasoning
    leaves the seven follow-on stories with a bare rule ("run the six steps") and
    none of the why. On accepted constraints: *"Hooks are thin relays only"* is
-   adjacent here, since the mechanic rewrites meander's hook block. The
+   adjacent here, since the mechanic rewrites Repo-B's hook block. The
    constraint's rationale is that hooks must not block or write state, so the
-   instruction above (E3) forbids hand-editing meander's settings to satisfy the
+   instruction above (E3) forbids hand-editing Repo-B's settings to satisfy the
    single-block assertion — the sync tool must produce a compliant thin-relay
    block on its own, or the defect is real and gets recorded under E10. No
    constraint is overridden and nothing required an operator decision, so this
@@ -283,21 +283,21 @@ changes no flex code, and its subject is the state of another repository. The
 checks below are the acceptance surface. Run them from `/mnt/work/flex`.
 
 ```bash
-# E2/E3 — meander at 0.3.0 with single-block hooks (see --help for exact flags)
+# E2/E3 — Repo-B at 0.3.0 with single-block hooks (see --help for exact flags)
 PATH=$HOME/.local/bin:$PATH uv run python \
   /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py
 ```
 
 ```bash
-# E6 — proving-cycle attempt rows landed in meander's effort.db.
+# E6 — proving-cycle attempt rows landed in Repo-B's effort.db.
 # Locate the db first; do not assume a path.
-find /mnt/work/meander -name 'effort.db' -not -path '*/node_modules/*'
+find /mnt/work/Repo-B -name 'effort.db' -not -path '*/node_modules/*'
 # then query the attempt rows for the proving story ID recorded under E5
 ```
 
 ```bash
-# E7 — migration visible in meander's history
-git -C /mnt/work/meander log --oneline -10
+# E7 — migration visible in Repo-B's history
+git -C /mnt/work/Repo-B log --oneline -10
 
 # E8 — flex-side diff is this story file only
 git -C /mnt/work/flex diff --name-only
@@ -326,7 +326,7 @@ Acceptance:
 Note for `spec-preflight`: this spec references `## Evidence` and its
 **Playbook notes** subsection, which do not exist in the tree yet — they are
 created by this story, and any preflight finding naming them is expected. It also
-references `/mnt/work/meander`, `/mnt/work/flex-harness/skills/pairmode/scripts`
+references `/mnt/work/Repo-B`, `/mnt/work/flex-harness/skills/pairmode/scripts`
 and `docs/harness-cutover-runbook.md` § *Per-project mechanic*, none of which the
 input-bound spec-writer could open; they are sourced from
 `docs/phases/phase-106.md` § Execution model and from RELEASE-062. Verify them at
@@ -334,8 +334,8 @@ step 1 rather than trusting this note.
 
 ## Out of scope
 
-- **Migrating any project other than meander.** lumin, caddy, forqsite.help,
-  halfhorse, pokus, base56 and cora are RELEASE-064..070. Do not run the mechanic
+- **Migrating any project other than Repo-B.** Repo-J, Repo-C, Repo-D,
+  Repo-F, Repo-K, base56 and Repo-G are RELEASE-064..070. Do not run the mechanic
   against a second project "while the environment is warm" — the canary's whole
   value is that exactly one project moves before the playbook is reviewed.
 - **Amending the runbook.** If the mechanic is wrong, record it under E10 and name
@@ -349,8 +349,8 @@ step 1 rather than trusting this note.
   16/16 fleet snapshot.
 - **Superseding RELEASE-043..057.** Also RELEASE-071. Leave the phase-97 stubs
   exactly as they are.
-- **Building meander's proving story to a flex-side spec.** The proving cycle is
-  meander's own work, in meander's numbering, under meander's loop. It gets no
+- **Building Repo-B's proving story to a flex-side spec.** The proving cycle is
+  Repo-B's own work, in Repo-B's numbering, under Repo-B's loop. It gets no
   flex story ID and no row in `docs/phases/phase-106.md`.
 - **Any change to flex's own code, tests, templates, or plugin manifest.** This
   story is evidence-producing. `schema_introduces: false` stands and no
@@ -369,27 +369,27 @@ Recorded live during orchestrator-level execution with the operator present,
 
 ### Precondition resolution (operator, pre-E1)
 
-meander's tree was dirty at step 1 (stop condition): `D .companion/attempt_counter.json`,
+Repo-B's tree was dirty at step 1 (stop condition): `D .companion/attempt_counter.json`,
 `M .companion/effort.db`, `M .companion/state.json`, `M docs/phases/index.md`, untracked
 `docs/phases/phase-MN030-main.md` + `docs/stories/INFRA/INFRA-012.md`. Operator chose
 discard (`git checkout -- . && git clean -fd`); committed index verified free of
-references to the removed files, leaving meander as-if rolled back to `12a967d`.
+references to the removed files, leaving Repo-B as-if rolled back to `12a967d`.
 
 ### E1 — pre-migration baseline
 
-Command: `uv run python /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py --candidate-dir /mnt/work/meander --no-snapshot`
-(plus `git -C /mnt/work/meander log --oneline -5` and `status --porcelain`; status printed nothing = clean)
+Command: `uv run python /mnt/work/flex-harness/skills/pairmode/scripts/fleet_discovery.py --candidate-dir /mnt/work/Repo-B --no-snapshot`
+(plus `git -C /mnt/work/Repo-B log --oneline -5` and `status --porcelain`; status printed nothing = clean)
 
 ```
 Flex checkout: /mnt/work/flex-harness
 Candidates scanned: 16
 Bound projects found: 16
 
-  /mnt/work/aab
+  /mnt/work/Repo-H
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
-  /mnt/work/asp
+  /mnt/work/Repo-I
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
@@ -397,55 +397,55 @@ Bound projects found: 16
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
-  /mnt/work/caddy
+  /mnt/work/Repo-C
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
-  /mnt/work/coherra
+  /mnt/work/Repo-A
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
-  /mnt/work/cora
+  /mnt/work/Repo-G
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.1.0
-  /mnt/work/forqsite
+  /mnt/work/Repo-E
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
-  /mnt/work/forqsite.help
+  /mnt/work/Repo-D
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
-  /mnt/work/halfhorse
+  /mnt/work/Repo-F
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
-  /mnt/work/lumin
+  /mnt/work/Repo-J
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
-  /mnt/work/meander
+  /mnt/work/Repo-B
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
-  /mnt/work/pokus
+  /mnt/work/Repo-K
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
-  /mnt/work/radar
+  /mnt/work/Repo-L
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
-  /mnt/work/rockue
+  /mnt/work/Repo-M
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
-  /mnt/work/stackabid
+  /mnt/work/Repo-N
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
-  /mnt/work/ud
+  /mnt/work/Repo-O
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
@@ -464,11 +464,11 @@ Flex checkout: /mnt/work/flex-harness
 Candidates scanned: 16
 Bound projects found: 16
 
-  /mnt/work/aab
+  /mnt/work/Repo-H
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
-  /mnt/work/asp
+  /mnt/work/Repo-I
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
@@ -476,73 +476,73 @@ Bound projects found: 16
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
-  /mnt/work/caddy
+  /mnt/work/Repo-C
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
-  /mnt/work/coherra
+  /mnt/work/Repo-A
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
-  /mnt/work/cora
+  /mnt/work/Repo-G
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.1.0
-  /mnt/work/forqsite
+  /mnt/work/Repo-E
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
-  /mnt/work/forqsite.help
+  /mnt/work/Repo-D
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
-  /mnt/work/halfhorse
+  /mnt/work/Repo-F
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
-  /mnt/work/lumin
+  /mnt/work/Repo-J
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
-  /mnt/work/meander
+  /mnt/work/Repo-B
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
-  /mnt/work/pokus
+  /mnt/work/Repo-K
     binding: version
     signal1 (scripts path): absent — no-declaration
     signal2 (pairmode_version): 0.2.0
-  /mnt/work/radar
+  /mnt/work/Repo-L
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
-  /mnt/work/rockue
+  /mnt/work/Repo-M
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
-  /mnt/work/stackabid
+  /mnt/work/Repo-N
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
-  /mnt/work/ud
+  /mnt/work/Repo-O
     binding: both
     signal1 (scripts path): /mnt/work/flex-harness/skills/pairmode/scripts
     signal2 (pairmode_version): 0.3.0
 Projects with duplicate hooks: 0
 ```
 
-meander: `binding: both`, signal1 `/mnt/work/flex-harness/skills/pairmode/scripts`,
+Repo-B: `binding: both`, signal1 `/mnt/work/flex-harness/skills/pairmode/scripts`,
 signal2 `0.3.0`; `Projects with duplicate hooks: 0` (E3 single-block).
 
 ### E4 — thin-harness template check
 
 ```
-$ grep -c "flex_build.py next-action" /mnt/work/meander/CLAUDE.build.md
+$ grep -c "flex_build.py next-action" /mnt/work/Repo-B/CLAUDE.build.md
 2
-$ head -5 /mnt/work/meander/CLAUDE.build.md
-# CLAUDE.build.md — meander Build Orchestrator
+$ head -5 /mnt/work/Repo-B/CLAUDE.build.md
+# CLAUDE.build.md — Repo-B Build Orchestrator
 
-You are the build orchestrator for the meander project. Drive the build loop by
+You are the build orchestrator for the Repo-B project. Drive the build loop by
 delegating to `/mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py next-action` and the appropriate leaf worker. Do not write code,
 review code, or commit directly — those are leaf-worker responsibilities.
 ```
@@ -552,19 +552,19 @@ sync-build diff replaced the 1054-line 0.2 prose loop with the 13-line thin disp
 
 ### E5 — proving story cycle
 
-Story: **LEGAL-001** ("Commit project LICENSE"), meander's own numbering, resolved by
-meander's own loop (`flex_build.py next-action --project-dir /mnt/work/meander` →
+Story: **LEGAL-001** ("Commit project LICENSE"), Repo-B's own numbering, resolved by
+Repo-B's own loop (`flex_build.py next-action --project-dir /mnt/work/Repo-B` →
 `spawn-spec-writer LEGAL-001`, then `spawn-builder LEGAL-001 sonnet auto-baseline`).
 Full cycle ran: spec-writer (returned `revised` — operator license decision required;
 operator decided AGPL-3.0 whole-repo live, recorded in the spec) → story worktree →
 builder PASS → reviewer PASS (10/10 checks, worker suite 726 passed / 0 failed) →
-`merge-story-worktree` landed `5af2cb5 feat(story-LEGAL-001)` on meander main.
-Real, genuinely-wanted work: closes the legal gate skipped before meander Era 003.
+`merge-story-worktree` landed `5af2cb5 feat(story-LEGAL-001)` on Repo-B main.
+Real, genuinely-wanted work: closes the legal gate skipped before Repo-B Era 003.
 
 ### E6 — effort.db attempt rows: **FAIL (stop condition)**
 
 ```
-$ sqlite3 /mnt/work/meander/.companion/effort.db \
+$ sqlite3 /mnt/work/Repo-B/.companion/effort.db \
     "SELECT * FROM attempts WHERE story_id='LEGAL-001'"
 rows for LEGAL-001: 0
 ```
@@ -577,18 +577,18 @@ The rows exist — but in **flex's** effort.db (session-project misattribution):
 ```
 
 Both rows also show `tokens_total`/`outcome` NULL (CER-101 pending-reconciliation
-pattern). Zero rows in meander's db = E6 fail as specified. Caveat recorded under
+pattern). Zero rows in Repo-B's db = E6 fail as specified. Caveat recorded under
 Playbook notes: the proving cycle was executed from the flex orchestrator session,
-so the recording hooks in play were flex's session hooks; a native meander session
+so the recording hooks in play were flex's session hooks; a native Repo-B session
 may record correctly — untested in this run.
 
 ### E6 addendum — native-session re-test (operator, same day)
 
-The operator ran meander's own loop natively (LEGAL-002..005, OPS-001..004,
+The operator ran Repo-B's own loop natively (LEGAL-002..005, OPS-001..004,
 INFRA-011, two checkpoints). Result: split verdict.
 
 ```
-== rows from today in /mnt/work/meander/.companion/effort.db ==
+== rows from today in /mnt/work/Repo-B/.companion/effort.db ==
 62 rows, e.g.:
 (211, 'LEGAL-002', None, 'builder', 'sonnet', None, None, '2026-07-27T18:50:33.789186+00:00')
 (212, 'LEGAL-002', None, 'builder', 'sonnet', None, None, '2026-07-27T18:50:33.810665+00:00')
@@ -597,20 +597,20 @@ INFRA-011, two checkpoints). Result: split verdict.
 (272, 'phase:MN028-main', 'MN028-main', 'intent-reviewer', None, None, None, '2026-07-27T23:56:50.548546+00:00')
 ```
 
-- Attribution works natively (rows land in meander's db) → the zero-rows result in
+- Attribution works natively (rows land in Repo-B's db) → the zero-rows result in
   the primary E6 run was the flex-session execution-mode artifact (CER-103).
 - Every attempt is double-inserted (perfect pairs, near-identical ts) → CER-104.
-- All 62 rows have NULL tokens_total/outcome; meander's checkpoint-report printed
+- All 62 rows have NULL tokens_total/outcome; Repo-B's checkpoint-report printed
   "no attempts recorded" for phase MN028-main → CER-101 confirmed downstream (CER-104).
 
 E6 verdict stands as FAIL (placeholder outcomes = CER-091-class regression per this
 spec). Campaign gate: RELEASE-064..070 remain blocked pending CER-101/102/103/104
 remediation in flex.
 
-### E7 — meander migration commits
+### E7 — Repo-B migration commits
 
 ```
-$ git -C /mnt/work/meander log --oneline -4
+$ git -C /mnt/work/Repo-B log --oneline -4
 5af2cb5 feat(story-LEGAL-001): commit project LICENSE (AGPL-3.0, whole repo)
 221313a spec(LEGAL-001): elaborate spec; record operator license decision (AGPL-3.0 whole repo)
 1adb2ac sync: migrate to pairmode 0.3.0 thin-harness loop
@@ -638,11 +638,11 @@ $ uv run pytest tests/pairmode/ -q
 ### Playbook notes (E10)
 
 1. **Dirty-tree stop condition is real and the runbook has no step for it.** The
-   mechanic assumes a clean tree; meander had uncommitted session residue. Resolution
+   mechanic assumes a clean tree; Repo-B had uncommitted session residue. Resolution
    (discard + verify index consistency) was an operator call outside the runbook.
 2. **Runbook step-5 command form is wrong**: it says `fleet_discovery.py discover
    --project-dir P`; the actual CLI has no `discover` subcommand and takes
-   `--candidate-dir` (repeatable). Used `--candidate-dir /mnt/work/meander`.
+   `--candidate-dir` (repeatable). Used `--candidate-dir /mnt/work/Repo-B`.
 3. **Runbook step-6 commit ordering conflicts with the 0.3.0 worktree loop**: the
    proving story's worktree snapshots git HEAD, so the sync/migration changes must be
    committed *before* the proving cycle, not after as written. Migration committed as
@@ -659,13 +659,13 @@ $ uv run pytest tests/pairmode/ -q
    write from the flex session); operator toggled auto mode off and the retry ran with
    normal prompting. Follow-on stories driven from flex sessions will hit the same wall.
 8. **E6 execution-mode ambiguity**: attempt recording is session-hook-bound, so a
-   canary driven from a flex session cannot land rows in meander's effort.db even
+   canary driven from a flex session cannot land rows in Repo-B's effort.db even
    when everything works. Either the campaign accepts flex-side attribution, or the
-   proving cycle must run in a native meander session, or the recorder must key on
+   proving cycle must run in a native Repo-B session, or the recorder must key on
    the spawn's target project. Operator decision needed before RELEASE-064..070.
 
 9. **Legacy `settings.local.json` permission sediment survives migration and floods
-   the first post-migration session with warnings.** meander carried 133 accumulated
+   the first post-migration session with warnings.** Repo-B carried 133 accumulated
    allow rules (42 stale `Write(path)` — now warned dead by Claude Code, 49 per-file
    `Edit(path)`, obsolete under 0.3 story-scoped permissions). sync-all correctly does
    not touch `settings.local.json`, so the operator's first native session opened with
@@ -679,7 +679,7 @@ $ uv run pytest tests/pairmode/ -q
 - **CER follow-up (to file): effort-recording attribution** — hook records attempt rows
   into the session project's effort.db, keyed neither on the spawn's cwd nor
   `--project-dir`; cross-repo campaign work is therefore invisible to the consumer
-  project's db (this canary: LEGAL-001 rows 419/420 in flex's db, zero in meander's).
+  project's db (this canary: LEGAL-001 rows 419/420 in flex's db, zero in Repo-B's).
   Related: CER-101 (NULL tokens/outcome pending reconciliation), CER-102 (dead FAIL
   escalation), and the row-416 curiosity (`story_id='phase:key'` — phase-attribution
   parses the spawn prompt loosely).

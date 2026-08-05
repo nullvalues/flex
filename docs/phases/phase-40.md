@@ -8,7 +8,7 @@ era: "001"
 
 ## Goal
 
-forqsite's `CLAUDE.build.md` has a "pre-story table gate" that blocks the build
+Repo-E's `CLAUDE.build.md` has a "pre-story table gate" that blocks the build
 loop before spawning a builder if a story introduces a new database table with no
 management UI story in the same phase. This prevents incomplete features — schema
 changes that produce persistent data with no way for a human to inspect or manage
@@ -16,11 +16,11 @@ it — from reaching a checkpoint.
 
 flex's `CLAUDE.build.md.j2` has no equivalent. The global `~/.claude/CLAUDE.md`
 has a "Conceptual rebuild completeness" policy, but that is a spec-writing guideline
-enforced at checkpoint review time. forqsite's check fires at build time — before
+enforced at checkpoint review time. Repo-E's check fires at build time — before
 the builder is spawned — giving a much earlier signal.
 
 This phase ports the concept into flex's template, generalized from
-forqsite's PostgreSQL/Drizzle-specific wording to be stack-agnostic.
+Repo-E's PostgreSQL/Drizzle-specific wording to be stack-agnostic.
 
 **One story:** INFRA-105 — Add pre-story schema gate to `CLAUDE.build.md.j2`.
 

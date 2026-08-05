@@ -15,7 +15,7 @@ touches:
      flow-style `[a, b]` parses as a string and crashes create-story-worktree's
      `generate_permissions_artifact`. This story's real write targets are all
      outside this repo, under `/mnt/work/base56` — see § Cross-repo scope
-     boundaries below, same execution model as RELEASE-068 (pokus). -->
+     boundaries below, same execution model as RELEASE-068 (Repo-K). -->
 
 ## Context
 
@@ -59,7 +59,7 @@ decision: `docs/phases/phase-proposed-pairmode-030-migration-20260722-001.md`
 Two pieces of real content currently live **only** in the gitignored,
 untracked surface and would be permanently lost if simply deleted:
 - `docs/brief.md` — base56's one-page project brief (what it produces, why
-  it exists, who depends on it: cora/forqsite/radar/aab). Genuine product
+  it exists, who depends on it: Repo-G/Repo-E/Repo-L/Repo-H). Genuine product
   content, never committed.
 - `docs/phases/phase-1.md` — "Phase 1 — Core Library", the actual first
   build phase (package scaffold, encoding/decoding layer, full Dart-parity
@@ -245,7 +245,7 @@ commit/push confirmation.
   register) — this story is a one-way removal, not a partial migration.
 - Re-seeding pairmode into base56 — explicitly deferred to a future,
   separate effort per the operator's "re-seed later" framing.
-- RELEASE-070 (cora) and RELEASE-071 (campaign close) — untouched by this
+- RELEASE-070 (Repo-G) and RELEASE-071 (campaign close) — untouched by this
   story.
 
 ## Evidence
@@ -287,4 +287,4 @@ Backup of the about-to-be-deleted untracked surface (`.claude/`, `.companion/`, 
 `grep -rln base56 /mnt/work/flex-harness/.companion/` returned no hits at spec time and was not re-checked at build time since nothing in the strip touches the release channel — no fleet-registry entry exists to clean up.
 
 ### Outcome
-base56 is fully decommissioned from pairmode: all local build-loop machinery removed (no git impact, confirmed), real product content (brief.md, phase-1.md) rescued into git history, the one moot pairmode-process doc (proposed 0.3.0 migration) removed, and all other tracked product/history docs verified byte-identical. No proving cycle applies here (this is a removal, not a migration) — RELEASE-071 (campaign close) should note base56 as **decommissioned, not migrated**, distinct from pokus's proof-deferred status.
+base56 is fully decommissioned from pairmode: all local build-loop machinery removed (no git impact, confirmed), real product content (brief.md, phase-1.md) rescued into git history, the one moot pairmode-process doc (proposed 0.3.0 migration) removed, and all other tracked product/history docs verified byte-identical. No proving cycle applies here (this is a removal, not a migration) — RELEASE-071 (campaign close) should note base56 as **decommissioned, not migrated**, distinct from Repo-K's proof-deferred status.

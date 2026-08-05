@@ -27,7 +27,7 @@ hardcoded hook commands left in a downstream repo's committed
 `.claude/settings.json`. That repair lives in a different script entirely —
 `pairmode_migrate.py`'s `to-030` — so every fleet repo needs a second, manual,
 easily-forgotten command (the manual `to-030 --apply` runs already done on
-forqsite and ud). This story folds the repair into `sync-all` so one command
+Repo-E and Repo-O). This story folds the repair into `sync-all` so one command
 leaves a repo fully current. `to-030` is a full 0.2.x→0.3.0 normalizer, not a
 narrow hook fixer, so folding the *whole* command in would fire unrelated
 side-effects (`expected_step_tokens` rewrite, `context_story_tokens` removal,

@@ -43,7 +43,7 @@ pieces of flex's own tooling still reflect the pre-fold world:
    `"0.2.0"` instead of importing `PAIRMODE_VERSION` from `_version.py`, and
    `SKILL.md`'s migration table still documents 0.2.0 as the target.
 
-**Scope boundary:** fleet projects (coherra, meander, caddy, forqsite.help,
+**Scope boundary:** fleet projects (Repo-A, Repo-B, Repo-C, Repo-D,
 and the wider phase-97 migration list) are explicitly out of scope here.
 Phase-95/INFRA-209 already verified fleet hook registrations; fleet 0.3.0
 re-sync belongs to phase-97 when it resumes. This phase must leave flex itself

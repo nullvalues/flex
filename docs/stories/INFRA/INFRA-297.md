@@ -41,7 +41,7 @@ is next* from text it parses too loosely.
 a commit's `git log --oneline` line, word-boundary matched, with commits
 prefixed `spec(` skipped (RELEASE-041). That whole-subject search cannot tell
 "this commit built X" from "this commit mentions X." Commit `e83ce900` —
-`story(RELEASE-066): forqsite.help migrated; ... RELEASE-067+ held for operator
+`story(RELEASE-066): Repo-D migrated; ... RELEASE-067+ held for operator
 ruling` — therefore marked **RELEASE-067** as built while it was still `draft`
 and unbuilt, and `find_next_story` silently skipped past it to RELEASE-068. The
 resolver's failure mode is silent skipping, which is the worst shape a build
@@ -227,7 +227,7 @@ conflicting hunks.
 14. **C5.** **The live regression is pinned as a unit test on a synthetic git
     log.** Given a one-line log whose subject is exactly `e83ce900`'s:
 
-    `story(RELEASE-066): forqsite.help migrated; E6 split verdict — E4b grammar replacement PROVEN in field, CER-101 content half PROVEN via reviewer row 14, builder row 13 pending on termination-detection artifact (new-1); RELEASE-067+ held for operator ruling`
+    `story(RELEASE-066): Repo-D migrated; E6 split verdict — E4b grammar replacement PROVEN in field, CER-101 content half PROVEN via reviewer row 14, builder row 13 pending on termination-detection artifact (new-1); RELEASE-067+ held for operator ruling`
 
     `_has_story_commit("RELEASE-067", log)` is **False** and
     `_has_story_commit("RELEASE-066", log)` is **True**. The test must build
@@ -284,7 +284,7 @@ channel.
     PATH=$HOME/.local/bin:$PATH uv run python - <<'PY'
     import sys; sys.path.insert(0, "/mnt/work/flex-harness/skills/pairmode/scripts")
     from next_story import _has_story_commit
-    log = ("e83ce900 story(RELEASE-066): forqsite.help migrated; E6 split verdict "
+    log = ("e83ce900 story(RELEASE-066): Repo-D migrated; E6 split verdict "
            "— ...; RELEASE-067+ held for operator ruling")
     print(_has_story_commit("RELEASE-067", log), _has_story_commit("RELEASE-066", log))
     PY

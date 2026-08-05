@@ -1,7 +1,7 @@
 ---
 id: RELEASE-051
 rail: RELEASE
-title: Fleet migration — sync lumin to pairmode 0.3.0
+title: Fleet migration — sync Repo-J to pairmode 0.3.0
 status: deferred
 phase: "97"
 story_class: code

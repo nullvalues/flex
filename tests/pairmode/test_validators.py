@@ -3,7 +3,7 @@
 Covers:
 - Python stack + Python test_command → no warnings
 - Python stack + Node test_command → no warnings (inverse not gated)
-- Node stack + Python test_command (AAB case) → one warning
+- Node stack + Python test_command (Repo-H case) → one warning
 - Node stack + Node test_command → no warnings
 """
 
@@ -35,7 +35,7 @@ def test_python_stack_node_test_command_no_warnings() -> None:
 
 
 def test_node_stack_python_test_command_one_warning() -> None:
-    """Node stack with pytest command should produce exactly one warning (the AAB case)."""
+    """Node stack with pytest command should produce exactly one warning (the Repo-H case)."""
     warnings = _validate_test_command(
         "PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/ -x -q",
         "TypeScript / pnpm workspaces / Fastify v5 / Drizzle ORM / Postgres / Vite / React 19 / Tailwind v4 / better-auth / zod / vitest",

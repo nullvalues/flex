@@ -22,13 +22,13 @@ touches:
 ## Context
 
 This is Phase 112's defect 2 — the cheapest of the three campaign unblockers and
-the one that fires on *every* migrated repo. Caddy's first 0.3.0 checkpoint was
+the one that fires on *every* migrated repo. Repo-C's first 0.3.0 checkpoint was
 blocked by `next_action._check_cer_do_now` (`skills/pairmode/scripts/next_action.py:383`)
 treating the scaffolded CER-backlog empty-state placeholder row
 (`| — | *(none)* | — | — | — |`) as an unresolved Do Now item, so
 `check_checkpoint_guards` returned `{"ok": False, "failed_guard": "cer-do-now"}`
 and the resolver emitted `await-user:checkpoint-guard-failed:cer-do-now`
-forever. The caddy operator worked around it by hand-deleting the row (caddy
+forever. The Repo-C operator worked around it by hand-deleting the row (Repo-C
 commit `f234915`, filed there as CER-C004). Every repo bootstrapped from
 `skills/pairmode/templates/docs/cer/backlog.md.j2` — which emits that row
 whenever a quadrant is empty (`:23`, `:40`, `:57`, and the six-column Do Never
@@ -63,7 +63,7 @@ Recon already performed for the builder (do not redo it):
   Extracting the predicate is therefore behaviour-preserving for `cer.py` — do
   not "fix" the regex or change parse behaviour there; this story only makes the
   rule reusable and gives it a test.
-- Caddy's real-world row had four cells (`| — | *(none)* | — | — |`) while the
+- Repo-C's real-world row had four cells (`| — | *(none)* | — | — |`) while the
   template emits five (Do Now) and six (Do Never). The predicate must be
   column-count agnostic.
 - `next_action.py` imports siblings function-locally after inserting its own
@@ -80,8 +80,8 @@ Recon already performed for the builder (do not redo it):
   renders the real template — the round-trip regression test uses it rather than
   hand-writing a placeholder fixture.
 - No CER backlog item is assigned to this story (Phase 112's backlog pulls route
-  CER-033/CER-099 to INFRA-293 and CER-059a to INFRA-295). Caddy's CER-C004
-  lives in caddy's own backlog and is closed there by the operator, not here.
+  CER-033/CER-099 to INFRA-293 and CER-059a to INFRA-295). Repo-C's CER-C004
+  lives in Repo-C's own backlog and is closed there by the operator, not here.
 
 ## Requires
 
@@ -105,7 +105,7 @@ Recon already performed for the builder (do not redo it):
 2. `is_placeholder_row` returns `True` for each of: `["—", "*(none)*", "—", "—", "—"]`
    (template Do Now shape), `["—", "*(none)*", "—", "—", "—", "—"]` (template
    Do Never shape), and `["—", "*(none)*", "—", "—"]` (the four-cell shape
-   observed in caddy). It returns `False` for
+   observed in Repo-C). It returns `False` for
    `["CER-999", "An unresolved finding", "some-source", "2026-01-01", "1"]` and
    for `[]`.
 3. `cer.py`'s `_parse_entries_from_backlog` calls `is_placeholder_row` in place
@@ -133,7 +133,7 @@ Recon already performed for the builder (do not redo it):
    and asserts `check_checkpoint_guards(tmp_path, phase_file, gate_fn=lambda: True)`
    returns `{"ok": True}`. The test fails if the placeholder skip is reverted.
 9. `tests/pairmode/test_checkpoint_routing.py` gains a second regression test
-   using the literal four-cell caddy row `| — | *(none)* | — | — |` under
+   using the literal four-cell Repo-C row `| — | *(none)* | — | — |` under
    `## Do Now`, also asserting `{"ok": True}`.
 10. `docs/architecture.md` line ~768's checkpoint entry (the
     "Pre-checkpoint guards (phase-completion, CER Do Now, build gate)" sentence)
@@ -167,7 +167,7 @@ Recon already performed for the builder (do not redo it):
    Write a rationale-bearing docstring (this project prefers rationale-bearing
    rules over bare ones): state that the row is the Jinja template's empty-state
    marker emitted by `docs/cer/backlog.md.j2` when a quadrant has no entries,
-   that it is not a finding, and that treating it as one blocked caddy's first
+   that it is not a finding, and that treating it as one blocked Repo-C's first
    0.3.0 checkpoint.
 
 2. **Rewire `cer._parse_entries_from_backlog`** to call
@@ -231,7 +231,7 @@ Recon already performed for the builder (do not redo it):
      *real template output*, so a future template edit that changes the
      placeholder shape breaks here rather than in a consumer's first checkpoint.
    - `test_check_guards_cer_do_now_four_cell_placeholder_passes` — hand-write
-     the caddy-observed `| — | *(none)* | — | — |` row under `## Do Now`, assert
+     the Repo-C-observed `| — | *(none)* | — | — |` row under `## Do Now`, assert
      `{"ok": True}`.
 
    Leave `tests/pairmode/test_harness004_isolation.py:270` untouched — its
@@ -298,8 +298,8 @@ if and only if that failure also reproduces on clean HEAD.
   CER append/ID-sequencing path and belongs in its own story.
 - **The other two pre-checkpoint guards.** `_check_phase_completion` and
   `_run_build_gate_subprocess` are untouched.
-- **Caddy's CER-C004 and any consumer-repo remediation.** Caddy's operator
-  already deleted the row by hand; closing C004 in caddy's backlog and
+- **Repo-C's CER-C004 and any consumer-repo remediation.** Repo-C's operator
+  already deleted the row by hand; closing C004 in Repo-C's backlog and
   re-syncing the fleet is Phase 106 campaign work, not this story.
 - **INFRA-293's grammar reconciliation and INFRA-295's snapshot targeting** —
   sibling Phase 112 stories, disjoint files.

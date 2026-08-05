@@ -20,8 +20,8 @@ touches:
 
 ## Context
 
-Operator decision (this era): OPERATOR should not be purely project-authored the way a coherra
-PATIENT or stackabid SELLER narrative is — pairmode should **lead** its construction the same way
+Operator decision (this era): OPERATOR should not be purely project-authored the way a Repo-A
+PATIENT or Repo-N SELLER narrative is — pairmode should **lead** its construction the same way
 bootstrap leads every other part of project setup, seeding a "typical operator" baseline and then
 inviting project-specific extension, rather than leaving the file entirely to whoever happens to
 author it later (or never). This makes OPERATOR a **tenth** templated/scaffolded narrative

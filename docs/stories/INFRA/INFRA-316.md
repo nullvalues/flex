@@ -31,7 +31,7 @@ touches:
 
 ## Context
 
-Cora item A#4 (AG-6): "between-story cadence … is where long phases actually
+Repo-G item A#4 (AG-6): "between-story cadence … is where long phases actually
 die." The 0.3.0 harness checks context health at *checkpoint* time and gates
 via the PostToolUse JSONL hook continuously, but the resolver itself never
 looks at the orchestrator's context budget when deciding to hand out the next
@@ -51,7 +51,7 @@ when over, instead of the next `spawn-builder`.
 (await-user-class action naming the measured sum, the threshold, and the
 handoff instruction) instead of `spawn-builder`. Forbidden proxy: a warning
 string attached to a still-emitted `spawn-builder` — a warned dispatch is a
-dispatch; cora's whole point is that the *default* must flip to pausing.**
+dispatch; Repo-G's whole point is that the *default* must flip to pausing.**
 
 Important boundary honored from the operator's standing guidance: the
 context-budget gate applies to pairmode build-loop work only — this seam is
@@ -158,5 +158,5 @@ shared with the hook gate.
 - Measuring true orchestrator context (transcript-side; the hook gate owns
   that surface).
 - Any change to the PostToolUse/UserPromptSubmit hook gates.
-- The `/context`-driven manual etiquette cora practiced — the CLI check is
+- The `/context`-driven manual etiquette Repo-G practiced — the CLI check is
   the mechanized form; prose habits are not specced.

@@ -22,7 +22,7 @@ inject relevant lessons via a PreToolUse hook keyed on file path, add an
 silently drift onto stale lessons.
 
 A fable-model review against this codebase and the 9-project fleet
-(coherra, forqsite, radar, asp, aab, cora, lumin, halfhorse, meander) found:
+(Repo-A, Repo-E, Repo-L, Repo-I, Repo-H, Repo-G, Repo-J, Repo-F, Repo-B) found:
 ~3,300 build attempts / ~1,350 stories fleet-wide with zero recorded
 incidents of an orchestrator failing to consume an applied lesson; the
 unenforced backlog is real but small (~5-7 of 15 applied lessons); and the

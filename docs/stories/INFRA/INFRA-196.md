@@ -31,7 +31,7 @@ touches:
     reviewer reads its own story spec cold." Neither role's spawn step
     instructs the orchestrator to `Read` `docs/stories/**` or
     `.claude/agents/**` itself first.
-  - Confirmed externally (caddy project, live incident): the orchestrator
+  - Confirmed externally (Repo-C project, live incident): the orchestrator
     `Read` `docs/phases/phase-1-edge-host-bootstrap.md`,
     `docs/stories/EDGE/EDGE-001.md`, `docs/architecture.md`, and both
     `.claude/agents/builder.md` / `.claude/agents/reviewer.md` role files
@@ -106,7 +106,7 @@ touches:
   canonical template other pairmode projects sync from), so projects that
   run `pairmode sync` after this story pick up the documentation update.
   `hooks/pre_tool_use.py` itself is referenced by other projects via
-  absolute path (e.g. caddy's `.claude/settings.json` points at
+  absolute path (e.g. Repo-C's `.claude/settings.json` points at
   `/mnt/work/flex/hooks/pre_tool_use.py`), so the enforcement itself is live
   for every pairmode project immediately on merge — this story's `CLAUDE.md`
   changes are catching the documentation up to already-live behavior, not

@@ -207,7 +207,7 @@ note to `## Instructions` describing the adjustment and the conviction/constrain
 it was made to preserve; if flagged, describe the unresolved conflict in the
 `reason` you return.
 
-### Step 4b — Model proposal: asymmetric raise/lower (INFRA-318, Cora A#7/AG-6)
+### Step 4b — Model proposal: asymmetric raise/lower (INFRA-318, Repo-G A#7/AG-6)
 
 Optional per-story override of the default model selection tables
 (`model_selector.py`'s `select_builder_model`/`select_reviewer_model`). Most
@@ -248,7 +248,7 @@ Otherwise, once the story draft (Step 4) is complete, for each role cited in
 file read as input 6 (§ Input contract) and append this story's own `id` (from
 the stub's frontmatter) to that file's `stories:` frontmatter list — creating the
 `stories:` list if the narrative file does not yet have one. This mirrors
-coherra's own two-way trace convention: the narrative records which stories cite
+Repo-A's own two-way trace convention: the narrative records which stories cite
 it, the same way Step 4b's model-proposal write-back records a decision back
 into frontmatter.
 

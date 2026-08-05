@@ -426,15 +426,15 @@ def test_migrate_state_json_custom_project_name_preserved(tmp_path: Path) -> Non
     # Overwrite state.json with a non-anchor project name
     state_file = project / ".companion" / "state.json"
     state_file.write_text(
-        json.dumps({"pairmode_version": "anchor-0.1.0", "project_name": "cora"}),
+        json.dumps({"pairmode_version": "anchor-0.1.0", "project_name": "Repo-G"}),
         encoding="utf-8",
     )
 
     _run_migrate_no_subprocess(project, apply=True, yes=True)
 
     state = json.loads(state_file.read_text())
-    assert state["project_name"] == "cora", (
-        f"project_name was changed from 'cora' to {state['project_name']!r}"
+    assert state["project_name"] == "Repo-G", (
+        f"project_name was changed from 'Repo-G' to {state['project_name']!r}"
     )
 
 

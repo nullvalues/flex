@@ -39,14 +39,14 @@ step 5c (spec-mode commit) and Step 1.5 (pre-reviewer methodology commit) —
 `CLAUDE.build.md` and its `.j2` to the ~20-line dispatch loop and neither
 retains any staging-path list. So the current harness does not omit
 `docs/eras/` from a list; it has no list, which is the same drift with fewer
-places to fix it. Observed live in forqsite (2026-07-22): three uncommitted
+places to fix it. Observed live in Repo-E (2026-07-22): three uncommitted
 ledger rows spanning PM064-main, PM064-post1, PM065-main, two from prior
 sessions, discovered as an "unexplained" modified era doc.
 
 **Half 2 — the status column is write-once.** `flex_build.py`'s
 `_mark_phase_complete_in_index` flips `docs/phases/index.md` only. Nothing ever
 advances the ledger's third cell, so every checkpointed phase reads `planned`
-in the era doc forever. Both forqsite PM064 rows were complete-and-tagged while
+in the era doc forever. Both Repo-E PM064 rows were complete-and-tagged while
 still reading `planned`.
 
 **Half 3 (found while verifying this story) — on *this* repo the appender has
@@ -541,7 +541,7 @@ headline evidence and belongs in the BUILD-RESULT notes.
   alternative fix direction (b). Rejected: `check-index` check 2c already
   exists to guard that column, so maintaining it costs one write and buys
   live enforcement, while deleting it discards a working checker.
-- **Retro-committing forqsite's three drifted ledger rows.** Cross-repo; this
+- **Retro-committing Repo-E's three drifted ledger rows.** Cross-repo; this
   story fixes the mechanism, not other projects' working trees.
 - **Teaching `era_new.py` / `bootstrap.py` a richer ledger template** (they
   already emit the canonical `## Phases` + `| Phase | Title | Status |` shape;

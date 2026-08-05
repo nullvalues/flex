@@ -56,8 +56,8 @@ real row.**
 ## Requires
 
 1. `.companion/state.json`'s `registered_projects` lists six sibling repos
-   today (`/mnt/work/coherra`, `/mnt/work/meander`, `/mnt/work/caddy`,
-   `/mnt/work/forqsite.help`, `/mnt/work/halfhorse`, `/mnt/work/cora`) — at
+   today (`/mnt/work/Repo-A`, `/mnt/work/Repo-B`, `/mnt/work/Repo-C`,
+   `/mnt/work/Repo-D`, `/mnt/work/Repo-F`, `/mnt/work/Repo-G`) — at
    least 3 of these must have a `.companion/effort.db` with rows to audit;
    skip (and name) any that don't, do not fail the story over a sibling with
    no build history.
@@ -171,24 +171,24 @@ carried over from a prior attempt or from memory.
 ### Requires 1 — registered siblings and effort.db presence
 
 `.companion/state.json`'s `registered_projects` (read directly, not
-recalled): `/mnt/work/coherra`, `/mnt/work/meander`, `/mnt/work/caddy`,
-`/mnt/work/forqsite.help`, `/mnt/work/halfhorse`, `/mnt/work/cora`. All six
+recalled): `/mnt/work/Repo-A`, `/mnt/work/Repo-B`, `/mnt/work/Repo-C`,
+`/mnt/work/Repo-D`, `/mnt/work/Repo-F`, `/mnt/work/Repo-G`. All six
 have a `.companion/effort.db` with rows — none is skipped for absence:
 
 | Sibling | rows (`attempts`) | min `ts` | max `ts` |
 |---|---|---|---|
-| coherra | 744 | 2026-06-11T15:01:48Z | 2026-07-22T19:45:53Z |
-| meander | 299 | 2026-06-26T21:39:47Z | 2026-07-29T04:26:27Z |
-| caddy | 37 | 2026-07-16T05:58:30Z | 2026-07-28T20:59:56Z |
-| forqsite.help | 14 | 2026-07-13T21:13:35Z | 2026-07-29T02:43:55Z |
-| halfhorse | 2 | 2026-07-29T03:50:14Z | 2026-07-29T03:53:27Z |
-| cora | 130 | 2026-05-15T02:37:58Z | 2026-06-25T00:54:26Z |
+| Repo-A | 744 | 2026-06-11T15:01:48Z | 2026-07-22T19:45:53Z |
+| Repo-B | 299 | 2026-06-26T21:39:47Z | 2026-07-29T04:26:27Z |
+| Repo-C | 37 | 2026-07-16T05:58:30Z | 2026-07-28T20:59:56Z |
+| Repo-D | 14 | 2026-07-13T21:13:35Z | 2026-07-29T02:43:55Z |
+| Repo-F | 2 | 2026-07-29T03:50:14Z | 2026-07-29T03:53:27Z |
+| Repo-G | 130 | 2026-05-15T02:37:58Z | 2026-06-25T00:54:26Z |
 
 ### Fix-boundary timestamps (Requires 3 / Instructions 3)
 
 Every sibling's `.claude/settings.json` `PreToolUse`/`PostToolUse` hooks
 invoke `/mnt/work/flex-harness/hooks/*.py` **by absolute path** (verified
-directly in `meander/.claude/settings.json` and `caddy/.claude/settings.json`)
+directly in `Repo-B/.claude/settings.json` and `Repo-C/.claude/settings.json`)
 — the fix is a single shared, non-vendored checkout, not something copied
 per-repo on a per-sibling schedule. There is therefore one shared boundary
 timestamp per fix, not six independent per-sibling sync dates:
@@ -201,7 +201,7 @@ timestamp per fix, not six independent per-sibling sync dates:
 (`git -C /mnt/work/flex-harness for-each-ref --format='%(refname)
 %(creatordate:iso-strict)' refs/tags | grep -E "cp-110|cp-113"`.)
 
-Two siblings (coherra, cora) have **no rows at all after the CP-110
+Two siblings (Repo-A, Repo-G) have **no rows at all after the CP-110
 boundary** — their most recent recorded activity (2026-07-22 and 2026-06-25
 respectively) predates the fix landing. They are named here, not silently
 dropped: they have build history, just none of it post-dates the fixes being
@@ -213,12 +213,12 @@ audited, so Ensures 1–4 have nothing to query for them.
 
 | Sibling | `agent_id` | `output_file` | Note |
 |---|---|---|---|
-| coherra | absent | absent | pre-INFRA-288/289 schema shape — never gained these columns |
-| meander | present | present | |
-| caddy | present | present | |
-| forqsite.help | present | present | |
-| halfhorse | present | present | |
-| cora | absent | absent | pre-INFRA-288/289 schema shape — never gained these columns |
+| Repo-A | absent | absent | pre-INFRA-288/289 schema shape — never gained these columns |
+| Repo-B | present | present | |
+| Repo-C | present | present | |
+| Repo-D | present | present | |
+| Repo-F | present | present | |
+| Repo-G | absent | absent | pre-INFRA-288/289 schema shape — never gained these columns |
 
 `story_id`, `agent_role`, `outcome`, `tokens_total` exist in all six (all
 share the common base schema).
@@ -233,12 +233,12 @@ group by agent_id, agent_role having c > 1;
 
 | Sibling | Result |
 |---|---|
-| meander | 0 groups |
-| caddy | 0 groups |
-| forqsite.help | 0 groups |
-| halfhorse | 0 groups |
-| coherra | N/A — no `agent_id` column (Requires 2) |
-| cora | N/A — no `agent_id` column (Requires 2) |
+| Repo-B | 0 groups |
+| Repo-C | 0 groups |
+| Repo-D | 0 groups |
+| Repo-F | 0 groups |
+| Repo-A | N/A — no `agent_id` column (Requires 2) |
+| Repo-G | N/A — no `agent_id` column (Requires 2) |
 
 Zero duplicates in all four siblings where the check is computable.
 
@@ -248,22 +248,22 @@ Post-CP110 row count and non-NULL `tokens_total` count per sibling:
 
 | Sibling | post-CP110 rows | non-NULL `tokens_total` | % |
 |---|---|---|---|
-| meander | 17 | 13 | 76.5% |
-| caddy | 6 | 5 | 83.3% |
-| forqsite.help | 2 | 2 | 100% |
-| halfhorse | 2 | 2 | 100% |
-| coherra | 0 | — | N/A (no post-CP110 activity) |
-| cora | 0 | — | N/A (no post-CP110 activity) |
+| Repo-B | 17 | 13 | 76.5% |
+| Repo-C | 6 | 5 | 83.3% |
+| Repo-D | 2 | 2 | 100% |
+| Repo-F | 2 | 2 | 100% |
+| Repo-A | 0 | — | N/A (no post-CP110 activity) |
+| Repo-G | 0 | — | N/A (no post-CP110 activity) |
 
 The four shortfall rows were individually classified with the live
 `classify_pending_reason()` helper (`subagent_transcript.py:1439`, confirmed
 present — Ensures 5 uses the same helper):
 
-- meander id 283 (`SEC-006`, builder) → `no-outcome`
-- meander id 284 (`INFRA-012`, builder) → `no-outcome`
-- meander id 297 (`OPS-006`, reviewer) → `reconcilable`
-- meander id 299 (`phase:MN029-main`, intent-reviewer) → `reconcilable`
-- caddy id 32 (`PAIRMODE-001`, builder) → `not-terminated`
+- Repo-B id 283 (`SEC-006`, builder) → `no-outcome`
+- Repo-B id 284 (`INFRA-012`, builder) → `no-outcome`
+- Repo-B id 297 (`OPS-006`, reviewer) → `reconcilable`
+- Repo-B id 299 (`phase:MN029-main`, intent-reviewer) → `reconcilable`
+- Repo-C id 32 (`PAIRMODE-001`, builder) → `not-terminated`
 
 All five are recent in-flight/awaiting-reconciliation spawns (the tail end of
 each sibling's activity), not lost or dropped reconciliation — none is a
@@ -281,11 +281,11 @@ order by id;
 
 | Sibling | Rows | Detail |
 |---|---|---|
-| meander | 2 | id **298** `unattributed:security-auditor` (`ts` 2026-07-29T04:19:26Z, `agent_role`=security-auditor); id **299** `phase:MN029-main` (`agent_role`=intent-reviewer) |
-| caddy | 3 | id **35** `phase:EH005-main` (`agent_role`=security-auditor); id **36** `phase:EH005-main` (`agent_role`=intent-reviewer); id **37** `unattributed:reviewer` (`agent_role`=reviewer) |
-| forqsite.help | 0 | |
-| halfhorse | 0 | |
-| coherra / cora | N/A | no post-CP110 rows |
+| Repo-B | 2 | id **298** `unattributed:security-auditor` (`ts` 2026-07-29T04:19:26Z, `agent_role`=security-auditor); id **299** `phase:MN029-main` (`agent_role`=intent-reviewer) |
+| Repo-C | 3 | id **35** `phase:EH005-main` (`agent_role`=security-auditor); id **36** `phase:EH005-main` (`agent_role`=intent-reviewer); id **37** `unattributed:reviewer` (`agent_role`=reviewer) |
+| Repo-D | 0 | |
+| Repo-F | 0 | |
+| Repo-A / Repo-G | N/A | no post-CP110 rows |
 
 **Total: 3 `phase:%` rows, 2 `unattributed:%` rows (5 rows total)** — this
 matches the reviewer's independent re-run cited in the prior attempt's
@@ -296,7 +296,7 @@ rejection, not the prior attempt's miscounted 4/1 split.
 frozenset({"security-auditor", "intent-reviewer"})` (`:118`): these spawns
 carry no individual story, so a phase key is derived from the checkpoint
 prompt. When a phase key **is** derivable the row is stamped
-`phase:<key>` — caddy 35/36 (`phase:EH005-main`) and meander 299
+`phase:<key>` — Repo-C 35/36 (`phase:EH005-main`) and Repo-B 299
 (`phase:MN029-main`) are exactly this, the corrected INFRA-289/CER-102/103
 behaviour that replaced the pre-fix defect the docstring itself names
 (first-match story-id regex mis-stamping an entire phase's checkpoint cost
@@ -305,19 +305,19 @@ effort.db ids 339-340 stamped INFRA-256"). When no phase key is derivable,
 the same branch returns `unattributed:<subagent_type>` as an explicitly
 documented **honest** fallback — the docstring's own words: "rejection is
 honest, not a plausible-looking `phase:<English word>` lie" (CER-103(b)).
-Meander's id 298 (`unattributed:security-auditor`) is exactly this path: a
+Repo-B's id 298 (`unattributed:security-auditor`) is exactly this path: a
 `CHECKPOINT_ROLES` spawn for which no valid phase doc/key could be resolved
 at record time, so the recorder refused to guess rather than fabricate a
 `phase:` value.
 
-Caddy's id 37 (`unattributed:reviewer`) is **not** a `CHECKPOINT_ROLES` row
+Repo-C's id 37 (`unattributed:reviewer`) is **not** a `CHECKPOINT_ROLES` row
 — `reviewer` is not in that frozenset. For every other role,
 `_derive_attribution` falls through to the ordinary path (prompt-embedded
 story-id regex → `state.json["current_story"]` → `None`), and the caller
 applies the same `unattributed:<role>` string when nothing is derivable
 (`subagent_transcript.py:822-824`, caller-side fallback at
 `effective_story_id = story_id or f"unattributed:{subagent_type}"`, `:2551`).
-This row landed at `2026-07-28T20:59:56Z`, immediately after caddy's own
+This row landed at `2026-07-28T20:59:56Z`, immediately after Repo-C's own
 `phase:EH005-main` checkpoint pair (35/36) and PAIRMODE-002's builder/reviewer
 merge (33/34) — consistent with a phase-closeout-adjacent reviewer spawn run
 after `current_story` had already been cleared by the just-completed merge,
@@ -328,7 +328,7 @@ documented fallback string rather than inventing a story id.
 defect Ensures 3 was written to catch** (a garbled id, casing drift, or a
 truncated/mis-parsed value). All 5 are the deliberate, documented output
 shapes `_derive_attribution` produces for context-free `CHECKPOINT_ROLES`
-spawns (and, for caddy id 37, the same documented fallback applied by a
+spawns (and, for Repo-C id 37, the same documented fallback applied by a
 non-checkpoint role that genuinely had no story context at spawn time). This
 is INFRA-289 working as designed, not a regression. Ensures 3's literal
 zero-tolerance wording does not distinguish this designed fallback category
@@ -345,7 +345,7 @@ and outcome is not null and outcome not in ('PASS','FAIL');
 ```
 
 **Zero rows on every sibling — but not because conformance was verified.**
-The latest row on *any* of the six siblings is meander id 299 at
+The latest row on *any* of the six siblings is Repo-B id 299 at
 `2026-07-29T04:26:27Z`, roughly 20.5 hours **before** the CP-113/INFRA-299
 boundary (`2026-07-30T01:06:19Z`). No sibling has recorded a single
 `attempts` row since INFRA-299 landed. The query trivially returns zero
@@ -360,15 +360,15 @@ used directly (not a NULL-column-only classification) for every row with
 
 | Sibling | pending rows | breakdown |
 |---|---|---|
-| coherra | 378 | `no-output-file`: 378 |
-| meander | 151 | `no-output-file`: 100, `no-outcome`: 10, `reconcilable`: 41 |
-| caddy | 18 | `no-output-file`: 17, `not-terminated`: 1 |
-| forqsite.help | 6 | `no-output-file`: 6 |
-| halfhorse | 0 | — |
-| cora | 56 | `no-output-file`: 56 |
+| Repo-A | 378 | `no-output-file`: 378 |
+| Repo-B | 151 | `no-output-file`: 100, `no-outcome`: 10, `reconcilable`: 41 |
+| Repo-C | 18 | `no-output-file`: 17, `not-terminated`: 1 |
+| Repo-D | 6 | `no-output-file`: 6 |
+| Repo-F | 0 | — |
+| Repo-G | 56 | `no-output-file`: 56 |
 
 `no-output-file` rows are historical rows recorded before that sibling's
-schema carried `output_file` tracking at all (coherra/cora never gained the
+schema carried `output_file` tracking at all (Repo-A/Repo-G never gained the
 column — Requires 2) or predate the column being populated in the other four
 siblings' own tables. These are pre-fix legacy rows, not evidence of ongoing
 reconciliation failure — see Ensures 6.
@@ -376,7 +376,7 @@ reconciliation failure — see Ensures 6.
 ### Ensures 6 — what is not recoverable
 
 Pre-fix rows (dated before each fix's boundary above, or recorded under a
-schema shape — coherra/cora — that never gained the `agent_id`/`output_file`
+schema shape — Repo-A/Repo-G — that never gained the `agent_id`/`output_file`
 columns INFRA-288/289 introduced) are **not** backfilled by INFRA-287, 288,
 289 or 299. This audit does not attempt to reconstruct or reclassify them.
 This is by design — all four fixes are explicitly forward-only, per this
@@ -399,7 +399,7 @@ Era 003's "effort recording sound on real campaign data" exit criterion is
 **partially, not fully, verified** by this audit:
 
 - Ensures 1–3 were checked against real post-fix rows on 4 of 6 siblings
-  (meander, caddy, forqsite.help, halfhorse) and found no defect.
+  (Repo-B, Repo-C, Repo-D, Repo-F) and found no defect.
 - Ensures 4 (INFRA-299 conformance) has **zero real rows to check on any
   sibling** — INFRA-299 has not yet been exercised in the field as of this
   audit (2026-07-31). Its "pass" above is vacuous, not a verification.

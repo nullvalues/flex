@@ -14,9 +14,9 @@ touches: []
 
 ## Context
 
-Discovered during RELEASE-043's fleet-migration retry against `aab`. `aab`'s
+Discovered during RELEASE-043's fleet-migration retry against `Repo-H`. `Repo-H`'s
 `docs/phases/index.md` carries annotated status strings on phases 15/16/17:
-`complete (superseded — all 4 stories already implemented ...)`. Once `aab`
+`complete (superseded — all 4 stories already implemented ...)`. Once `Repo-H`
 migrated onto the Era 3 thin dispatch loop, `next_action.py`'s
 `_resolve_active_phase` (the helper `infer_position` uses to pick the active
 phase) treated phase 15 as **active** rather than complete, because it calls
@@ -46,7 +46,7 @@ sibling function, not a new bug class.
 
 This is a fleet-wide hazard: any project migrated onto the Era 3 loop whose
 `docs/phases/index.md` carries an annotated `complete (...)` row (a common,
-legitimate pattern for documenting superseded/partial phases — see `aab`'s
+legitimate pattern for documenting superseded/partial phases — see `Repo-H`'s
 own history) will hit the same infinite checkpoint loop the moment it's
 migrated. RELEASE-044 through RELEASE-057 (the remaining fleet migrations in
 this phase) are all at risk.
@@ -69,7 +69,7 @@ this phase) are all at risk.
   matching `resolve_current_phase`'s existing fallback exactly.
 - A phase row with status `"complete (superseded — all 4 stories already
   implemented via later rebuild phases; confirmed 2026-07-07)"` (the exact
-  `aab` phase-15 shape) is treated as inactive by `_resolve_active_phase`,
+  `Repo-H` phase-15 shape) is treated as inactive by `_resolve_active_phase`,
   and the resolver's `infer_position`/`resolve_next_action` skip past it to
   the next non-inactive row (or return `active_phase_file: None` /
   action `"done"` if no other row is active).
@@ -77,7 +77,7 @@ this phase) are all at risk.
   status row behaves identically to current behavior (no regression) —
   covered by existing passing tests in `tests/pairmode/test_next_action.py`.
 - A new regression test in `tests/pairmode/test_next_action.py` reproduces
-  the exact `aab` shape: an index with one phase row whose status is
+  the exact `Repo-H` shape: an index with one phase row whose status is
   `"complete (superseded — ...)"` and a second, later phase row that is
   genuinely `"planned"`; asserts `infer_position` resolves the active phase
   to the second (planned) row, not the first (annotated-complete) one.
@@ -107,8 +107,8 @@ this phase) are all at risk.
 
 ## Out of scope
 
-- Fixing `aab`'s own `docs/phases/index.md` content — that is a separate,
-  aab-side concern (already resolved for phases 15/16/17 as an unrelated
+- Fixing `Repo-H`'s own `docs/phases/index.md` content — that is a separate,
+  Repo-H-side concern (already resolved for phases 15/16/17 as an unrelated
   matter; this story is the flex-harness tooling fix only).
 - Any change to `is_phase_inactive`'s own contract or its other call sites.
 - Re-attempting RELEASE-043 — that happens after this story merges, as its
