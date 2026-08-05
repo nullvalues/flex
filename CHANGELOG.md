@@ -6,6 +6,11 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Fixed [pairmode] — Phases 123/128/129 (.pairmode-overrides key-format fix + fleet-wide migration)
+- Fixed CER-170: `audit.py`'s `_normalise()`/`_load_overrides()` key-format mismatch (a leading `##` marker was stripped on one side but not the other) meant a `.pairmode-overrides` entry never actually suppressed a MISSING/INCONSISTENT finding for any project (INFRA-391).
+- The checkpoint found the fix under-scoped for its own blast radius: the operator-facing `.pairmode-overrides.j2` template still documented the old, now-broken key format with no migration path, silently defeating both audit suppression and `sync.py`'s destructive-write protection fleet-wide (CER-180) — fixed by a forked Phase 128 (INFRA-398) with dual-shape acceptance and a stale-shape diagnostic.
+- A second gap surfaced: `pairmode_drift_report.py` carried an independent, undeduped copy of the same section-key logic, so `drift-report` kept silently ignoring correctly-formatted overrides (CER-181) — fixed by a forked Phase 129 (INFRA-399), which now reuses `audit.py`'s logic directly. Two non-blocking findings (a stale-persisted-rejection edge case, a cross-tool case-sensitivity divergence) filed to backlog as CER-184/185.
+
 ### Fixed [pairmode] — Phases 122/126/127 (shadow-reviewer write capability + security remediation)
 - Restored shadow-reviewer write capability and enabled `shadow_review=concurrent` (INFRA-388, CER-164); scrubbed real fleet repo names from `lessons.json`/`LESSONS.md` via a scoped append-only exception (INFRA-395, CER-173).
 - Phase 122's own checkpoint-security gate found the shipped compensating controls bypassable: a shell-chaining/substitution bypass in `reviewer_bash_guard.py`'s shadow-reviewer allowlist and an unscoped `scope_guard.py` Write grant (CER-174) — fixed by a forked Phase 126 (INFRA-396), which also added an `agent_type` parameter to `check_path` and threaded it through `hooks/pre_tool_use.py`'s `Edit`/`Write` dispatch.
