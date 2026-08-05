@@ -172,3 +172,71 @@ def test_shadow_reviewer_redirection_bearing_command_blocked():
     allowed, reason = guard.check_command("git log > x", "shadow-reviewer")
     assert allowed is False
     assert reason
+
+
+# ---------------------------------------------------------------------------
+# CER-174 — shadow-reviewer Bash-guard shell-chaining bypass (INFRA-396).
+# Every one of these strings was verified live to ALLOW before this story's
+# fix: the old `_check_shadow_reviewer_command` validated only the *first git
+# invocation found anywhere* in the token list via `_find_git_invocation`,
+# which stops collecting tokens at `&&`/`||`/`;`/`|` but still returned allow
+# for the whole command string regardless of what preceded/followed.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git status && rm -rf docs",
+        "git log ; touch /tmp/x",
+        "git status\nrm -rf docs",
+        "rm -rf docs && git log",
+        "git diff --stat $(rm -rf docs)",
+        "git log --format=`touch /tmp/x`",
+        "git status && git reset --hard",
+        "git log && git push origin main",
+    ],
+)
+def test_shadow_reviewer_chaining_and_substitution_bypass_denied(command):
+    allowed, reason = guard.check_command(command, "shadow-reviewer")
+    assert allowed is False
+    assert reason
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git log",
+        "git status --porcelain",
+        "git diff",
+    ],
+)
+def test_shadow_reviewer_legitimate_commands_still_allowed(command):
+    allowed, reason = guard.check_command(command, "shadow-reviewer")
+    assert allowed is True
+    assert reason
+
+
+# ---------------------------------------------------------------------------
+# CER-174 follow-up (INFRA-396) — untokenizable command must fail CLOSED for
+# agent_type="shadow-reviewer" only; reviewer/default must be unchanged
+# (fail open), asserted per agent type so the narrowing is provably scoped.
+# ---------------------------------------------------------------------------
+
+
+def test_shadow_reviewer_untokenizable_command_fails_closed():
+    allowed, reason = guard.check_command('git log "unterminated', "shadow-reviewer")
+    assert allowed is False
+    assert reason
+
+
+def test_reviewer_untokenizable_command_still_fails_open():
+    allowed, reason = guard.check_command('git log "unterminated', "reviewer")
+    assert allowed is True
+    assert reason
+
+
+def test_default_agent_type_untokenizable_command_still_fails_open():
+    allowed, reason = guard.check_command('git log "unterminated', None)
+    assert allowed is True
+    assert reason

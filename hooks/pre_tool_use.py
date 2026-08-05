@@ -211,6 +211,7 @@ def main():
             allowed, reason = scope_guard.check_path(
                 file_path=file_path,
                 project_dir=Path(data.get("cwd") or "."),
+                agent_type=data.get("agent_type"),
             )
         except Exception:
             sys.exit(0)

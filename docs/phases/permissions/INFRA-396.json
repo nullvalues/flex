@@ -1,0 +1,21 @@
+{
+  "story_id": "INFRA-396",
+  "story_spec": "docs/stories/INFRA/INFRA-396.md",
+  "allowed_paths": [
+    "skills/pairmode/scripts/reviewer_bash_guard.py",
+    "skills/pairmode/scripts/scope_guard.py",
+    "hooks/pre_tool_use.py",
+    "tests/pairmode/test_reviewer_bash_guard.py",
+    "tests/pairmode/test_scope_guard.py",
+    "tests/pairmode/test_pre_tool_use_scope_guard.py"
+  ],
+  "standing_paths": [
+    "docs/cer/backlog.md",
+    "docs/architecture.md",
+    ".pairmode-suggestions.md",
+    "docs/stories/INFRA/INFRA-396.md",
+    "docs/phases/phase-126.md"
+  ],
+  "story_phase": "126",
+  "generated_at": "2026-08-05T19:38:09Z"
+}

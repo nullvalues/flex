@@ -82,16 +82,48 @@ _DISCARD_POINTER = (
 # STANDING_SURFACES entry, INFRA-365).
 _SHADOW_REVIEWER_ALLOWED_SUBCOMMANDS = frozenset({"log", "status", "diff"})
 
+# CER-174: shell control/substitution tokens that must be rejected before any
+# git-subcommand matching runs for agent_type="shadow-reviewer" — independent
+# of where in the string they appear (leading, trailing, embedded) and
+# independent of whether a valid git invocation is also present. Covers the
+# chaining/substitution classes the prior naive "first git invocation found
+# anywhere" check missed: `&&`, `||`, `;`, a literal newline, `$(`, a
+# backtick, a bare `&`, plus the pre-existing `>`/`<`/`|` redirection check.
+_SHADOW_REVIEWER_CONTROL_TOKENS = (
+    "&&", "||", ";", "\n", "$(", "`", "&", ">", "<", "|",
+)
+
+
+def _has_control_token(command: str) -> bool:
+    return any(tok in command for tok in _SHADOW_REVIEWER_CONTROL_TOKENS)
+
 
 def check_command(command: str, agent_type: "str | None") -> tuple[bool, str]:
     try:
         if agent_type == "shadow-reviewer":
             if not command or not isinstance(command, str):
                 return True, "empty or non-string command — allowing"
+            # Instruction 4 (CER-174 follow-up): the shadow-reviewer has no
+            # legitimate Bash write path at all, so an untokenizable command
+            # must fail CLOSED for this agent type — unlike the `reviewer`
+            # branch below, which deliberately fails open on the same
+            # ValueError. Run the control-token substring check against the
+            # raw string first: if shlex.split then fails, deny outright
+            # rather than falling back to the (permissive) reviewer default.
+            if _has_control_token(command):
+                return False, (
+                    "shell control/substitution tokens are blocked for the "
+                    "shadow-reviewer role — it has no legitimate write path "
+                    "via Bash at all"
+                )
             try:
                 tokens = shlex.split(command)
             except ValueError:
-                return True, "command did not tokenize — allowing"
+                return False, (
+                    "command did not tokenize — denied for the "
+                    "shadow-reviewer role, which has no legitimate write "
+                    "path via Bash at all"
+                )
             return _check_shadow_reviewer_command(command, tokens)
 
         if agent_type != "reviewer":
@@ -155,23 +187,48 @@ def check_command(command: str, agent_type: "str | None") -> tuple[bool, str]:
 def _check_shadow_reviewer_command(command: str, tokens: list[str]) -> tuple[bool, str]:
     """Strict, default-deny check for `agent_type="shadow-reviewer"`.
 
-    Only bare `git log`/`git status`/`git diff` (with ordinary read-only
-    flags) are sanctioned. No other git subcommand and no non-git command is
-    allowed — the shadow-reviewer has no legitimate write path via Bash at
-    all (INFRA-388).
+    Two-phase shape, mirroring the existing `reviewer` agent_type branch's
+    own default-deny pattern (CER-174): (a) reject on any shell
+    control/substitution token — before any subcommand matching runs; (b)
+    only after that check passes, require the `git` token be the *first*
+    token of the command — no scanning the remainder of the token list for
+    "any" git invocation (the exact `_find_git_invocation`-based bypass class
+    this story closes). Only bare `git log`/`git status`/`git diff` (with
+    ordinary read-only flags) are sanctioned. No other git subcommand and no
+    non-git command is allowed — the shadow-reviewer has no legitimate write
+    path via Bash at all (INFRA-388).
     """
-    # Defense-in-depth against _find_git_invocation's known non-handling of
-    # redirection tokens (it only breaks on &&/||/;/|, not >/>>/<), so a
-    # `git log > file` would otherwise be treated as a plain `git log` args
-    # list and pass the subcommand check below.
-    if any(op in command for op in (">", "<", "|")):
+    # Phase (a): control/substitution tokens, checked against the raw string
+    # so no tokenization step can be used to smuggle one past this check.
+    # Kept here (in addition to check_command's own pre-tokenize check) so
+    # this function stays independently safe for any other caller.
+    if _has_control_token(command):
         return False, (
-            "shell redirection/pipe tokens are blocked for the "
+            "shell control/substitution tokens are blocked for the "
             "shadow-reviewer role — it has no legitimate write path via "
             "Bash at all"
         )
 
-    subcommand, _flags = _find_git_invocation(tokens)
+    if not tokens:
+        return False, (
+            "not a git invocation — blocked for the shadow-reviewer role, "
+            "which has no legitimate write path via Bash at all"
+        )
+
+    # Phase (b): the git token must be the FIRST token — no scanning the
+    # rest of the token list for "any" git invocation (INFRA-324 pattern).
+    if tokens[0] != "git":
+        return False, (
+            "not a git invocation — blocked for the shadow-reviewer role, "
+            "which has no legitimate write path via Bash at all"
+        )
+
+    subcommand = None
+    for arg in tokens[1:]:
+        if not arg.startswith("-"):
+            subcommand = arg
+            break
+
     if subcommand is None:
         return False, (
             "not a git invocation — blocked for the shadow-reviewer role, "

@@ -1239,3 +1239,85 @@ class TestOutOfRootAllowList:
             allowed, reason = scope_guard.check_path(target, project)
         assert allowed is True
         assert "harness-owned" in reason
+
+
+# ---------------------------------------------------------------------------
+# CER-174 (INFRA-396) — agent_type-scoped write confinement for the
+# shadow-reviewer role. `check_path`'s `agent_type` parameter must confine
+# agent_type="shadow-reviewer" to exactly `.pairmode-suggestions.md`,
+# independent of the active story's own declared scope — even a path that
+# IS in that story's `primary_files`/`touches` or a STANDING_SURFACES entry
+# must still be denied for the shadow-reviewer.
+# ---------------------------------------------------------------------------
+
+
+def test_shadow_reviewer_denied_on_path_inside_builders_own_scope(tmp_path: Path) -> None:
+    """Ensures 5: a shadow-reviewer-attributed write to a path that IS in
+    the concurrently-running builder's own declared scope for the same
+    story (a primary_files/touches entry) is still denied. The same path
+    remains allowed for agent_type="builder" on the same story, proving the
+    scopes are genuinely different, not both narrowed."""
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions(tmp_path, STORY_ID, ["skills/foo.py"])
+
+    shadow_allowed, shadow_reason = scope_guard.check_path(
+        "skills/foo.py", tmp_path, agent_type="shadow-reviewer"
+    )
+    assert shadow_allowed is False
+    assert shadow_reason
+
+    builder_allowed, builder_reason = scope_guard.check_path(
+        "skills/foo.py", tmp_path, agent_type="builder"
+    )
+    assert builder_allowed is True
+    assert builder_reason == "allowed"
+
+
+def test_shadow_reviewer_denied_on_standing_surface(tmp_path: Path) -> None:
+    """Ensures 5: a shadow-reviewer-attributed write to a STANDING_SURFACES
+    entry (docs/architecture.md) — normally allowed for the builder as a
+    standing shared surface — is denied for the shadow-reviewer."""
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions(tmp_path, STORY_ID, ["skills/foo.py"])
+
+    allowed, reason = scope_guard.check_path(
+        "docs/architecture.md", tmp_path, agent_type="shadow-reviewer"
+    )
+    assert allowed is False
+    assert reason
+
+
+def test_shadow_reviewer_allowed_on_suggestions_file(tmp_path: Path) -> None:
+    """Ensures 6: check_path allows a shadow-reviewer-attributed write to
+    .pairmode-suggestions.md for the active story."""
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions(tmp_path, STORY_ID, ["skills/foo.py"])
+
+    allowed, reason = scope_guard.check_path(
+        ".pairmode-suggestions.md", tmp_path, agent_type="shadow-reviewer"
+    )
+    assert allowed is True
+    assert reason
+
+
+def test_shadow_reviewer_denied_with_no_active_story(tmp_path: Path) -> None:
+    """The shadow-reviewer short-circuit runs before story resolution and
+    never falls through to the no-active-story fail-open path either."""
+    _write_state(tmp_path, story_id=None)
+
+    allowed, reason = scope_guard.check_path(
+        "docs/architecture.md", tmp_path, agent_type="shadow-reviewer"
+    )
+    assert allowed is False
+    assert reason
+
+
+def test_default_agent_type_unaffected_by_shadow_reviewer_scoping(tmp_path: Path) -> None:
+    """Existing callers that never pass agent_type keep today's behavior
+    (Ensures 8) — the new parameter defaults to preserving builder/unspecified
+    behavior."""
+    _write_state(tmp_path, STORY_ID)
+    _write_permissions(tmp_path, STORY_ID, ["skills/foo.py"])
+    allowed, reason = scope_guard.check_path("skills/foo.py", tmp_path)
+    assert allowed is True
+    assert reason == "allowed"

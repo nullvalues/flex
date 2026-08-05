@@ -394,3 +394,76 @@ def test_hook_still_blocks_neighbouring_undeclared_paths(tmp_path):
         payload = json.loads(stdout.strip())
         assert payload["decision"] == "block", f"expected block for {undeclared_path}"
         assert "not in story scope" in payload["reason"]
+
+
+# ---------------------------------------------------------------------------
+# CER-174 (INFRA-396), Ensures 9 — the agent_type-scoped shadow-reviewer
+# write confinement must actually reach `scope_guard.check_path` through the
+# hook's real Edit/Write dispatch, not just via a direct check_path() call
+# (Ensures 5/6 already cover that — this is exactly the coverage gap that
+# let the fix ship inert-in-production in the first attempt). Driven through
+# the real (unmocked) `main()` and real `check_path`, following the same
+# pattern as `test_hook_allows_write_to_suggestions_file_in_active_story_worktree`
+# above.
+# ---------------------------------------------------------------------------
+
+
+def test_hook_blocks_shadow_reviewer_write_outside_suggestions_file(tmp_path):
+    """A payload with agent_type="shadow-reviewer", tool_name Edit/Write, and
+    a file_path other than .pairmode-suggestions.md emits a decision:block
+    payload — proving agent_type reached check_path through the real
+    dispatch, not merely a direct check_path() call."""
+    story_id = "INFRA-964"
+    worktree_dir = _make_worktree_with_active_story(tmp_path, story_id)
+
+    for tool_name in ("Edit", "Write"):
+        exit_code, stdout = _run_main(
+            {
+                "tool_name": tool_name,
+                "tool_input": {"file_path": "skills/foo.py"},
+                "cwd": str(worktree_dir),
+                "agent_type": "shadow-reviewer",
+            }
+        )
+        assert exit_code == 0
+        payload = json.loads(stdout.strip())
+        assert payload["decision"] == "block", f"expected block for {tool_name}"
+        assert payload["reason"]
+
+
+def test_hook_allows_shadow_reviewer_write_to_suggestions_file(tmp_path):
+    """The same real dispatch, for the one path the shadow-reviewer IS
+    permitted to write — no block emitted."""
+    story_id = "INFRA-965"
+    worktree_dir = _make_worktree_with_active_story(tmp_path, story_id)
+
+    exit_code, stdout = _run_main(
+        {
+            "tool_name": "Write",
+            "tool_input": {"file_path": ".pairmode-suggestions.md"},
+            "cwd": str(worktree_dir),
+            "agent_type": "shadow-reviewer",
+        }
+    )
+    assert exit_code == 0
+    assert stdout.strip() == ""
+
+
+def test_hook_allows_builder_write_to_same_path_shadow_reviewer_is_denied(tmp_path):
+    """Same path, same story, agent_type="builder" (the same shape the hook
+    forwards for a real builder call) — still allowed, proving the two
+    scopes genuinely differ through the real dispatch, not just at the
+    check_path() unit level."""
+    story_id = "INFRA-966"
+    worktree_dir = _make_worktree_with_active_story(tmp_path, story_id)
+
+    exit_code, stdout = _run_main(
+        {
+            "tool_name": "Edit",
+            "tool_input": {"file_path": "skills/foo.py"},
+            "cwd": str(worktree_dir),
+            "agent_type": "builder",
+        }
+    )
+    assert exit_code == 0
+    assert stdout.strip() == ""

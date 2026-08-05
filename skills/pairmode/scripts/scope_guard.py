@@ -98,9 +98,13 @@ def standing_paths_for(
     return tuple(paths)
 
 
+_SHADOW_REVIEWER_ONLY_PATH = ".pairmode-suggestions.md"
+
+
 def check_path(
     file_path: str | Path,
     project_dir: str | Path,
+    agent_type: "str | None" = None,
 ) -> tuple[bool, str]:
     # INFRA-238: *project_dir* is the tool call's cwd, which for a story-build
     # spawn is the per-story worktree (<main>/.pairmode-worktrees/<story-id>/),
@@ -108,6 +112,26 @@ def check_path(
     # ever live in the main checkout — resolve it here so scope enforcement
     # works regardless of the spawn's cwd.
     project = _resolve_main_project_root(Path(project_dir).resolve())
+
+    # CER-174 (HIGH): a shadow-reviewer-attributed write is confined to
+    # exactly `.pairmode-suggestions.md`, independent of resolve_call_story's
+    # primary_files/touches/STANDING_SURFACES resolution for the active
+    # story — the shadow-reviewer never inherits the builder's write scope,
+    # even for a path that IS in that scope (e.g. docs/architecture.md, or a
+    # story's own primary_files entry). This short-circuit runs before any
+    # story resolution and never falls through to the builder-scope logic
+    # below, even as a fallback.
+    if agent_type == "shadow-reviewer":
+        relative_path = _normalise(file_path, project)
+        if relative_path is None:
+            return _out_of_root_decision(file_path, project, project_dir)
+        if relative_path == _SHADOW_REVIEWER_ONLY_PATH:
+            return True, "allowed (shadow-reviewer suggestions file)"
+        return (
+            False,
+            f"{relative_path} is outside the shadow-reviewer role's write "
+            f"scope — confined to exactly {_SHADOW_REVIEWER_ONLY_PATH}",
+        )
 
     # INFRA-281 (CER-095.2): resolve_call_story is handed the *raw*
     # project_dir, not `project` — the worktree identity `project` just
