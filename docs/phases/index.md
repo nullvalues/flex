@@ -145,6 +145,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 121 | sync-all to-030 fold-in and fleet stale-hook remediation | planned | [phase-121.md](phase-121.md) |
 | 122 | shadow-reviewer write capability (CER-164) and shadow_review enablement | planned | [phase-122.md](phase-122.md) |
 | 123 | Fix audit.py override-key normalisation mismatch (CER-170) | planned | [phase-123.md](phase-123.md) |
+| 124 | Scaffold EXEMPLAR-000.md for downstream projects (CER-171) | planned | [phase-124.md](phase-124.md) |
 
 ---
 
