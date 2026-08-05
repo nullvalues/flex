@@ -2,7 +2,7 @@
 id: INFRA-396
 rail: INFRA
 title: Fix shadow-reviewer Bash-guard shell-chaining bypass and scope its Write grant (CER-174)
-status: draft
+status: complete
 phase: "126"
 story_class: code
 auth_gated: false

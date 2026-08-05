@@ -23,7 +23,7 @@ Fix CER-174: reviewer_bash_guard.py's shadow-reviewer allowlist is bypassable vi
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-396 | Fix shadow-reviewer Bash-guard shell-chaining bypass and scope its Write grant (CER-174) | draft |
+| INFRA-396 | Fix shadow-reviewer Bash-guard shell-chaining bypass and scope its Write grant (CER-174) | complete |
 
 ## Schema delivery
 
