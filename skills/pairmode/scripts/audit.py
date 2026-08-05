@@ -62,6 +62,14 @@ CANONICAL_FILES: list[tuple[str, str]] = [
     (".claude/agents/docs-reviewer.md", "agents/docs-reviewer.md.j2"),
     (".claude/agents/spec-writer.md", "agents/spec-writer.md.j2"),
     (".claude/agents/shadow-reviewer.md", "agents/shadow-reviewer.md.j2"),
+    # EXEMPLAR-000.md (INFRA-392/CER-171): the spec-writer procedure's frozen
+    # bounded input 4 (skills/pairmode/skills/spec-writer/procedure.md §
+    # Input contract item 4, INFRA-363). Not a SCAFFOLD_FILES entry — its
+    # content is harness-owned and frozen, not project-specific prose a
+    # project should freely diverge on — so it gets the same full body
+    # comparison as every other CANONICAL_FILES entry. Must stay mirrored
+    # with EXEMPLAR_FILES in bootstrap.py.
+    ("docs/exemplars/EXEMPLAR-000.md", "docs/exemplars/EXEMPLAR-000.md.j2"),
 ]
 
 # Scaffold files: Phase 7 docs that receive full section-level comparison.

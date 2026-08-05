@@ -113,6 +113,19 @@ AGENT_FILES: list[tuple[str, str]] = [
     (".claude/agents/shadow-reviewer.md", "agents/shadow-reviewer.md.j2"),
 ]
 
+# EXEMPLAR-000.md (INFRA-392/CER-171): harness-owned, frozen exemplar the
+# spec-writer procedure's bounded input 4 reads for structural format
+# (skills/pairmode/skills/spec-writer/procedure.md § Input contract item 4,
+# INFRA-363). Deliberately kept out of AGENT_FILES — it is not a dispatch
+# shell and does not belong in the restart-notice surface (written_agent_shells,
+# below) that AGENT_FILES feeds — but reuses the exact same skip-if-exists-
+# unless-force write treatment and the existing --force-agents flag, since
+# its "project-owned after first write" contract is identical. Must stay
+# mirrored with CANONICAL_FILES in audit.py.
+EXEMPLAR_FILES: list[tuple[str, str]] = [
+    ("docs/exemplars/EXEMPLAR-000.md", "docs/exemplars/EXEMPLAR-000.md.j2"),
+]
+
 # INFRA-351: the nine harness-role narratives (the build-loop roles themselves —
 # BUILDER, REVIEWER, LOOP-BREAKER, SECURITY-AUDITOR, INTENT-REVIEWER,
 # DOCS-REVIEWER, GATE-WORKER, SPEC-WRITER, ORCHESTRATOR) describe the harness,
@@ -1741,6 +1754,32 @@ def bootstrap(
             wrote = _write_file(dest, content, dry_run=dry_run, yes=yes)
             if wrote and not dry_run:
                 written_agent_shells.append(dest_rel)
+
+    # ------------------------------------------------------------------
+    # 4a-2. Write EXEMPLAR-000.md (INFRA-392/CER-171)
+    # ------------------------------------------------------------------
+    # Same skip-if-exists-unless-force treatment as AGENT_FILES, reusing
+    # --force-agents — but not appended to written_agent_shells: this is not
+    # an agent dispatch shell, so it does not belong in the restart-notice
+    # surface below.
+    for dest_rel, template_name in EXEMPLAR_FILES:
+        dest = project_path / dest_rel
+        if not dry_run and dest.exists() and not force_agents:
+            click.echo(
+                f"  skipped (project-owned): {dest} — use --force-agents to overwrite"
+            )
+            continue
+        try:
+            content = _render_template(template_name, context)
+        except jinja2.TemplateError as exc:
+            click.echo(f"  ERROR rendering {template_name}: {exc}", err=True)
+            sys.exit(1)
+        if force_agents and not dry_run:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content, encoding="utf-8")
+            click.echo(f"  wrote: {dest}")
+        else:
+            _write_file(dest, content, dry_run=dry_run, yes=yes)
 
     # ------------------------------------------------------------------
     # 4b. Write the nine harness-role narrative files (INFRA-351)

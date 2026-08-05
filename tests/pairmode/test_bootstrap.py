@@ -368,6 +368,85 @@ class TestShadowReviewerDispatch:
 
 
 # ---------------------------------------------------------------------------
+# EXEMPLAR-000.md scaffold tests (INFRA-392/CER-171)
+# ---------------------------------------------------------------------------
+
+class TestExemplarFileScaffold:
+    """Bootstrap deploys docs/exemplars/EXEMPLAR-000.md — the spec-writer
+    procedure's frozen bounded input 4 — like AGENT_FILES: skipped if already
+    present unless --force-agents is passed."""
+
+    def test_exemplar_file_created_on_fresh_bootstrap(self, tmp_path):
+        """Bootstrap must create docs/exemplars/EXEMPLAR-000.md."""
+        run_bootstrap(tmp_path)
+        assert (tmp_path / "docs/exemplars/EXEMPLAR-000.md").exists(), (
+            "EXEMPLAR-000.md missing; not scaffolded"
+        )
+
+    def test_exemplar_file_content_matches_source(self, tmp_path):
+        """Rendered content must be byte-identical to the harness's own
+        docs/exemplars/EXEMPLAR-000.md (literal copy, no Jinja variables)."""
+        run_bootstrap(tmp_path)
+        source_path = (
+            pathlib.Path(__file__).parent.parent.parent
+            / "docs" / "exemplars" / "EXEMPLAR-000.md"
+        )
+        expected = source_path.read_text(encoding="utf-8")
+        actual = (tmp_path / "docs/exemplars/EXEMPLAR-000.md").read_text(encoding="utf-8")
+        assert actual == expected
+
+    def test_exemplar_file_skipped_when_already_exists(self, tmp_path):
+        """Second bootstrap without --force-agents must not overwrite an
+        existing EXEMPLAR-000.md."""
+        run_bootstrap(tmp_path)
+        (tmp_path / "docs/exemplars/EXEMPLAR-000.md").write_text(
+            "# project-owned sentinel", encoding="utf-8"
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+            ],
+            input="n\n" * 25,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs/exemplars/EXEMPLAR-000.md").read_text(encoding="utf-8")
+        assert content == "# project-owned sentinel", (
+            "EXEMPLAR-000.md was overwritten on second bootstrap without --force-agents"
+        )
+
+    def test_exemplar_file_overwritten_with_force_agents(self, tmp_path):
+        """--force-agents causes an existing EXEMPLAR-000.md to be overwritten."""
+        run_bootstrap(tmp_path)
+        (tmp_path / "docs/exemplars/EXEMPLAR-000.md").write_text(
+            "# project-owned sentinel", encoding="utf-8"
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            bootstrap,
+            [
+                "--project-dir", str(tmp_path),
+                "--project-name", "testproject",
+                "--stack", "Python / pytest",
+                "--build-command", "uv run pytest",
+                "--force-agents",
+            ],
+            input="n\n" * 25,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        content = (tmp_path / "docs/exemplars/EXEMPLAR-000.md").read_text(encoding="utf-8")
+        assert "# project-owned sentinel" not in content
+
+
+# ---------------------------------------------------------------------------
 # Build-cycle subagent dispatch tests (INFRA-241)
 # ---------------------------------------------------------------------------
 

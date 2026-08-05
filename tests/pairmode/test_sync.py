@@ -546,6 +546,74 @@ class TestSyncCreatesMissingClaudeMd:
         )
 
 
+class TestSyncCreatesMissingExemplar:
+    """When docs/exemplars/EXEMPLAR-000.md doesn't exist, sync backfills it
+    from canonical (INFRA-392/CER-171), via the existing generic
+    CANONICAL_FILES/_dest_to_template backfill path — no bespoke sync logic."""
+
+    def test_sync_creates_exemplar_file(self, tmp_path: Path) -> None:
+        # All canonical files except EXEMPLAR-000.md
+        for dest_rel, template_rel in CANONICAL_FILES:
+            if dest_rel == "docs/exemplars/EXEMPLAR-000.md":
+                continue
+            template_path = TEMPLATES_DIR / template_rel
+            dest_path = tmp_path / dest_rel
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            if template_path.exists():
+                dest_path.write_text(template_path.read_text(encoding="utf-8"), encoding="utf-8")
+            else:
+                dest_path.write_text("# placeholder\n", encoding="utf-8")
+
+        assert not (tmp_path / "docs" / "exemplars" / "EXEMPLAR-000.md").exists()
+
+        sync_project(tmp_path, yes=True)
+
+        assert (tmp_path / "docs" / "exemplars" / "EXEMPLAR-000.md").exists(), (
+            "sync should create docs/exemplars/EXEMPLAR-000.md"
+        )
+
+    def test_created_exemplar_content_matches_canonical(self, tmp_path: Path) -> None:
+        for dest_rel, template_rel in CANONICAL_FILES:
+            if dest_rel == "docs/exemplars/EXEMPLAR-000.md":
+                continue
+            template_path = TEMPLATES_DIR / template_rel
+            dest_path = tmp_path / dest_rel
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            if template_path.exists():
+                dest_path.write_text(template_path.read_text(encoding="utf-8"), encoding="utf-8")
+            else:
+                dest_path.write_text("# placeholder\n", encoding="utf-8")
+
+        sync_project(tmp_path, yes=True)
+
+        expected = (TEMPLATES_DIR / "docs" / "exemplars" / "EXEMPLAR-000.md.j2").read_text(
+            encoding="utf-8"
+        )
+        actual = (tmp_path / "docs" / "exemplars" / "EXEMPLAR-000.md").read_text(
+            encoding="utf-8"
+        )
+        assert actual == expected
+
+    def test_applied_records_exemplar_creation(self, tmp_path: Path) -> None:
+        for dest_rel, template_rel in CANONICAL_FILES:
+            if dest_rel == "docs/exemplars/EXEMPLAR-000.md":
+                continue
+            template_path = TEMPLATES_DIR / template_rel
+            dest_path = tmp_path / dest_rel
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            if template_path.exists():
+                dest_path.write_text(template_path.read_text(encoding="utf-8"), encoding="utf-8")
+            else:
+                dest_path.write_text("# placeholder\n", encoding="utf-8")
+
+        result = sync_project(tmp_path, yes=True)
+
+        applied_text = " ".join(result.applied)
+        assert "docs/exemplars/EXEMPLAR-000.md" in applied_text, (
+            f"EXEMPLAR-000.md creation should appear in applied list, got: {result.applied}"
+        )
+
+
 class TestSyncPreservesProjectSpecificSections:
     """Project-specific checklist items / extra sections survive sync."""
 

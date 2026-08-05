@@ -297,6 +297,34 @@ class TestAuditProjectMissingClaudeMd:
                 break
 
 
+class TestAuditProjectMissingExemplar:
+    """Project missing docs/exemplars/EXEMPLAR-000.md → reported MISSING
+    (INFRA-392/CER-171), via the existing generic CANONICAL_FILES pass."""
+
+    def test_missing_exemplar_produces_missing_items(self, tmp_path: Path) -> None:
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        (tmp_path / "docs" / "exemplars" / "EXEMPLAR-000.md").unlink()
+
+        result = audit_project(tmp_path)
+
+        exemplar_missing = [
+            i for i in result.missing if i.file == "docs/exemplars/EXEMPLAR-000.md"
+        ]
+        assert exemplar_missing, "Expected MISSING items for EXEMPLAR-000.md"
+
+    def test_present_and_identical_exemplar_is_not_missing(self, tmp_path: Path) -> None:
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+
+        result = audit_project(tmp_path)
+
+        exemplar_missing = [
+            i for i in result.missing if i.file == "docs/exemplars/EXEMPLAR-000.md"
+        ]
+        assert exemplar_missing == []
+
+
 class TestAuditProjectNoPairmodeVersion:
     """Project with no pairmode_version in state.json → pairmode_version is None."""
 
@@ -2510,6 +2538,28 @@ class TestCanonicalFilesAgentFilesConsistency:
         assert not missing_from_canonical, (
             f"AGENT_FILES entries not tracked by CANONICAL_FILES: {missing_from_canonical}. "
             "Add them to CANONICAL_FILES in audit.py so sync keeps them current."
+        )
+
+    def test_exemplar_file_in_canonical_files(self) -> None:
+        """docs/exemplars/EXEMPLAR-000.md must appear in CANONICAL_FILES
+        (INFRA-392/CER-171) — modeled on test_gate_worker_in_canonical_files."""
+        from skills.pairmode.scripts import audit as _a
+        canonical_dests = {dest for dest, _ in _a.CANONICAL_FILES}
+        assert "docs/exemplars/EXEMPLAR-000.md" in canonical_dests, (
+            "EXEMPLAR-000.md missing from CANONICAL_FILES; audit/sync will not track it"
+        )
+
+    def test_exemplar_files_subset_of_canonical_files(self) -> None:
+        """Every EXEMPLAR_FILES entry (bootstrap.py) must appear in CANONICAL_FILES."""
+        from skills.pairmode.scripts import audit as _a
+        from skills.pairmode.scripts import bootstrap as _b
+
+        canonical_dests = {dest for dest, _ in _a.CANONICAL_FILES}
+        exemplar_dests = {dest for dest, _ in _b.EXEMPLAR_FILES}
+
+        missing_from_canonical = exemplar_dests - canonical_dests
+        assert not missing_from_canonical, (
+            f"EXEMPLAR_FILES entries not tracked by CANONICAL_FILES: {missing_from_canonical}."
         )
 
 
