@@ -11,6 +11,8 @@ primary_files:
   - skills/pairmode/scripts/audit.py
 touches:
   - tests/pairmode/test_audit.py
+  - skills/pairmode/scripts/sync.py
+  - tests/pairmode/test_sync.py
 narrative_roles: []
 ---
 
@@ -34,6 +36,14 @@ this repo's own `audit.py`.
 
 - CER-170 filed in `docs/cer/backlog.md` (done as part of this story's spec-writing).
 
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| skills/pairmode/scripts/sync.py | CER-170 header-key strip in _split_sections ripples into sync.py's own header/RETIRED_SECTIONS key comparisons, which independently assumed the pre-fix ##-prefixed key shape; must be corrected in the same story or sync.py silently mis-locates/mis-appends sections and the RETIRED_SECTIONS registry stops matching | 2026-08-05T02:50:00Z |
+
+| tests/pairmode/test_sync.py | sync.py's own tests hardcode the pre-fix ##-prefixed section-key format in RETIRED_SECTIONS/override assertions; must update alongside the sync.py fix to stay meaningful post CER-170 | 2026-08-05T02:51:57Z |
 ## Ensures
 
 1. `_split_sections`'s section-key construction strips a leading `#+\s*` marker from

@@ -397,7 +397,7 @@ class TestFormatAuditOutput:
             extra=[
                 AuditItem(
                     file=".claude/agents/reviewer.md",
-                    section="## review checklist",
+                    section="review checklist",
                     description="EXTRA section",
                 )
             ]
@@ -406,7 +406,7 @@ class TestFormatAuditOutput:
         assert "RECOMMENDATION" in output
         assert "Pending retirement prune" in output
         assert ".claude/agents/reviewer.md" in output.split("RECOMMENDATION")[1]
-        assert "## review checklist" in output.split("RECOMMENDATION")[1]
+        assert "review checklist" in output.split("RECOMMENDATION")[1]
         assert "INFRA-241" in output.split("RECOMMENDATION")[1]
 
     def test_recommendation_generic_when_no_pending_prune(self) -> None:
@@ -587,9 +587,10 @@ class TestAuditExtraCustomSections:
         _write_state(tmp_path)
         _copy_canonical_files(tmp_path)
 
+        import re as _re
         from skills.pairmode.scripts.audit import _normalise
         custom_header = "## My Unique Project Section"
-        normalised_custom = _normalise(custom_header)
+        normalised_custom = _normalise(_re.sub(r"^#+\s*", "", custom_header))
 
         claude_md = tmp_path / "CLAUDE.md"
         existing = claude_md.read_text(encoding="utf-8")
@@ -1515,8 +1516,8 @@ class TestAuditCoreBeliefsSection:
 
         missing_sections = {i.section for i in result.missing if i.file == "docs/brief.md"}
         from skills.pairmode.scripts.audit import _normalise
-        assert _normalise("## Core beliefs") in missing_sections, (
-            f"Expected '## core beliefs' in missing sections, got: {missing_sections}"
+        assert _normalise("Core beliefs") in missing_sections, (
+            f"Expected 'core beliefs' in missing sections, got: {missing_sections}"
         )
 
     def test_core_beliefs_with_placeholder_produces_stale_placeholder(self, tmp_path: Path) -> None:
@@ -1581,7 +1582,7 @@ class TestAuditCoreBeliefsSection:
 
         missing_sections = {i.section for i in result.missing if i.file == "docs/brief.md"}
         from skills.pairmode.scripts.audit import _normalise
-        assert _normalise("## What a second implementation must preserve") in missing_sections, (
+        assert _normalise("What a second implementation must preserve") in missing_sections, (
             f"Expected 'what a second implementation must preserve' in missing sections, "
             f"got: {missing_sections}"
         )
@@ -2101,13 +2102,16 @@ class TestAuditOverridesSuppress:
     """Integration: .pairmode-overrides suppresses INCONSISTENT and MISSING findings."""
 
     def _get_first_canonical_section_key(self) -> str:
-        """Return the normalised key for the first ## header in CLAUDE.md.j2."""
+        """Return the normalised, ##-stripped key for the first ## header in
+        CLAUDE.md.j2 — this matches both the real internal `_split_sections`
+        key shape (post-CER-170/INFRA-391 fix) and the SKILL.md-documented
+        `.pairmode-overrides` entry format (##-free)."""
         import re
         canonical_text = (_audit_mod.TEMPLATES_DIR / "CLAUDE.md.j2").read_text(encoding="utf-8")
         headers = re.findall(r"^## .+", canonical_text, re.MULTILINE)
         assert headers, "CLAUDE.md.j2 must have at least one ## header"
         from skills.pairmode.scripts.audit import _normalise
-        return _normalise(headers[0])
+        return _normalise(re.sub(r"^#+\s*", "", headers[0]))
 
     def test_inconsistent_finding_suppressed_when_in_overrides(self, tmp_path: Path) -> None:
         """An INCONSISTENT finding for a section declared in .pairmode-overrides is suppressed."""
@@ -2246,6 +2250,132 @@ class TestAuditOverridesSuppress:
         claude_missing = [i for i in result.missing if i.file == "CLAUDE.md"]
         assert len(claude_missing) > 0, (
             "Expected MISSING items for CLAUDE.md when no .pairmode-overrides file"
+        )
+
+    def test_documented_format_override_suppresses_missing_and_inconsistent(
+        self, tmp_path: Path
+    ) -> None:
+        """CER-170/INFRA-391 regression: a `.pairmode-overrides` entry written in the
+        exact SKILL.md-documented form (lowercased, ``##``-stripped header text, e.g.
+        ``CLAUDE.md: review checklist``) suppresses both a MISSING and an INCONSISTENT
+        finding for that section — without deriving the expected key via
+        ``_normalise("## " + header)``, the way the mismatched pre-fix internal
+        section-key format would require. Before the CER-170 fix, `_split_sections`
+        keyed sections as ``'## foo'`` while overrides entries are stored as ``'foo'``,
+        so this exact documented-format entry could never match and this test would
+        have failed (both findings below would still surface after declaring the
+        override). A sibling section not named in the override must still surface.
+        """
+        import json as _json
+        import re
+
+        # A real pairmode_context.json is required so INCONSISTENT body
+        # comparison (which renders the template with the saved project
+        # context) is meaningful — audit_project suppresses body-diff
+        # findings when context is missing (mirrors TestAuditOverridesSuppress's
+        # other tests in this class).
+        companion = tmp_path / ".companion"
+        companion.mkdir(parents=True, exist_ok=True)
+        ctx = {
+            "project_name": "testproject",
+            "project_description": "",
+            "stack": "",
+            "build_command": "",
+            "test_command": "",
+            "migration_command": "",
+            "domain_model": "",
+            "domain_isolation_rule": "",
+            "checklist_items": [],
+            "protected_paths": [],
+            "non_negotiables": [],
+            "module_structure": [],
+            "layer_rules": [],
+        }
+        (companion / "pairmode_context.json").write_text(_json.dumps(ctx), encoding="utf-8")
+
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+
+        canonical_text = (_audit_mod.TEMPLATES_DIR / "CLAUDE.md.j2").read_text(encoding="utf-8")
+        headers = re.findall(r"^## .+", canonical_text, re.MULTILINE)
+        assert len(headers) >= 2, "CLAUDE.md.j2 must have at least two ## headers"
+        first_header_text = headers[0][3:].strip()  # strip leading "## "
+        second_header_text = headers[1][3:].strip()
+
+        # Documented format (SKILL.md): lowercased, ##-stripped header text — no
+        # re-derivation via `_normalise("## " + header)`.
+        documented_key = re.sub(r"\s+", " ", first_header_text.lower()).strip()
+        sibling_key = re.sub(r"\s+", " ", second_header_text.lower()).strip()
+
+        # (a) Alter the first section's body to produce an INCONSISTENT finding.
+        claude_md = tmp_path / "CLAUDE.md"
+        existing = claude_md.read_text(encoding="utf-8")
+        altered = re.sub(
+            rf"({re.escape(headers[0])}\n+)(.+?)(\n##|\Z)",
+            lambda m: m.group(1) + "COMPLETELY DIFFERENT CONTENT\n" + m.group(3),
+            existing,
+            count=1,
+            flags=re.DOTALL,
+        )
+        claude_md.write_text(altered, encoding="utf-8")
+
+        result_without = audit_project(tmp_path)
+        inconsistent_without = [
+            i for i in result_without.inconsistent
+            if i.file == "CLAUDE.md" and i.section == documented_key
+        ]
+        assert len(inconsistent_without) > 0, (
+            f"Expected INCONSISTENT for section '{documented_key}' without overrides"
+        )
+
+        # (b) Declare the override in the exact documented format.
+        _write_overrides(tmp_path, [f"CLAUDE.md: {documented_key}"])
+
+        # (c) The INCONSISTENT finding for the overridden section is now absent.
+        result_with = audit_project(tmp_path)
+        inconsistent_with = [
+            i for i in result_with.inconsistent
+            if i.file == "CLAUDE.md" and i.section == documented_key
+        ]
+        assert inconsistent_with == [], (
+            f"Expected INCONSISTENT for '{documented_key}' to be suppressed by a "
+            f"documented-format .pairmode-overrides entry, got: {inconsistent_with}"
+        )
+
+        # Also verify MISSING suppression in the documented format: remove CLAUDE.md
+        # entirely (and the override, so we can first observe the un-suppressed
+        # baseline) and confirm the same documented-format override suppresses the
+        # corresponding MISSING finding.
+        claude_md.unlink()
+        (tmp_path / ".pairmode-overrides").unlink()
+        result_missing_without = audit_project(tmp_path)
+        missing_without = [
+            i for i in result_missing_without.missing
+            if i.file == "CLAUDE.md" and i.section == documented_key
+        ]
+        assert len(missing_without) > 0, (
+            f"Expected MISSING for section '{documented_key}' without overrides"
+        )
+
+        _write_overrides(tmp_path, [f"CLAUDE.md: {documented_key}"])
+        result_missing_with = audit_project(tmp_path)
+        missing_with = [
+            i for i in result_missing_with.missing
+            if i.file == "CLAUDE.md" and i.section == documented_key
+        ]
+        assert missing_with == [], (
+            f"Expected MISSING for '{documented_key}' to be suppressed by a "
+            f"documented-format .pairmode-overrides entry, got: {missing_with}"
+        )
+
+        # (d) A sibling section NOT named in the override still surfaces as MISSING.
+        sibling_missing = [
+            i for i in result_missing_with.missing
+            if i.file == "CLAUDE.md" and i.section == sibling_key
+        ]
+        assert len(sibling_missing) > 0, (
+            f"Expected sibling section '{sibling_key}' (not in overrides) to still "
+            f"surface as MISSING, got: {result_missing_with.missing}"
         )
 
 
@@ -2423,13 +2553,13 @@ class TestSplitSectionsBoldMarkers:
 
     def test_enclosing_h2_section_ends_at_first_bold_marker(self) -> None:
         sections = _audit_mod._split_sections(self._sample_text())
-        assert sections["## review checklist"] == (
+        assert sections["review checklist"] == (
             "Some preamble text before any checklist item."
         )
 
     def test_next_h2_section_unaffected(self) -> None:
         sections = _audit_mod._split_sections(self._sample_text())
-        assert sections["## next section"] == "Content after the checklist entirely."
+        assert sections["next section"] == "Content after the checklist entirely."
 
     def test_no_bold_markers_unchanged_behaviour(self) -> None:
         """Files with no bold-marker items split identically to before this story."""
@@ -2438,8 +2568,8 @@ class TestSplitSectionsBoldMarkers:
             "## Build rules\n\nOther content.\n"
         )
         sections = _audit_mod._split_sections(text)
-        assert sections["## session modes"] == "Some content."
-        assert sections["## build rules"] == "Other content."
+        assert sections["session modes"] == "Some content."
+        assert sections["build rules"] == "Other content."
         assert len(sections) == 2
 
 
@@ -2574,7 +2704,7 @@ class TestExtraOnCanonicalIsFinding:
         result = audit_project(tmp_path)
         records = _reviewer_records(result)
 
-        assert records["## review checklist"] == ("ERROR", "INFRA-241")
+        assert records["review checklist"] == ("ERROR", "INFRA-241")
         assert records["**1. protected files**"] == ("ERROR", "INFRA-241")
 
     def test_unregistered_extra_is_warn(self, tmp_path: Path) -> None:
@@ -2583,7 +2713,7 @@ class TestExtraOnCanonicalIsFinding:
         result = audit_project(tmp_path)
         records = _reviewer_records(result)
 
-        assert records["## project extension notes"] == ("WARN", None)
+        assert records["project extension notes"] == ("WARN", None)
 
     def test_stale_fleet_fixture_has_nonzero_finding_count(
         self, tmp_path: Path
@@ -2610,7 +2740,7 @@ class TestExtraOnCanonicalIsFinding:
 
         assert "EXTRA (canonical file — findings)" in report
         assert (
-            "ERROR .claude/agents/reviewer.md: section '## review checklist'"
+            "ERROR .claude/agents/reviewer.md: section 'review checklist'"
             in report
         )
         # The keep-as-is blessing must not name the canonical-file sections.
@@ -2635,7 +2765,7 @@ class TestExtraOnCanonicalIsFinding:
             for item, severity, _retired_by in classify_extra(result)
             if item.file == "docs/brief.md"
         }
-        assert scaffold_records["## local operating notes"] == "KEEP"
+        assert scaffold_records["local operating notes"] == "KEEP"
 
         report = format_audit_output(result)
         assert "EXTRA (project-specific, keep as-is)" in report
@@ -2649,22 +2779,22 @@ class TestExtraOverrideVisibility:
     def test_override_suppresses_warn_as_overridden(self, tmp_path: Path) -> None:
         _make_stale_fleet_fixture(tmp_path)
         (tmp_path / ".pairmode-overrides").write_text(
-            f"{_REVIEWER_DEST}: ## project extension notes\n",
+            f"{_REVIEWER_DEST}: project extension notes\n",
             encoding="utf-8",
         )
 
         result = audit_project(tmp_path)
         records = _reviewer_records(result)
 
-        assert records["## project extension notes"] == ("OVERRIDDEN", None)
+        assert records["project extension notes"] == ("OVERRIDDEN", None)
 
         report = format_audit_output(result)
         assert (
             "OVERRIDDEN .claude/agents/reviewer.md: section "
-            "'## project extension notes'" in report
+            "'project extension notes'" in report
         )
         assert (
-            "WARN .claude/agents/reviewer.md: section '## project extension notes'"
+            "WARN .claude/agents/reviewer.md: section 'project extension notes'"
             not in report
         )
 
@@ -2673,21 +2803,21 @@ class TestExtraOverrideVisibility:
     ) -> None:
         _make_stale_fleet_fixture(tmp_path)
         (tmp_path / ".pairmode-overrides").write_text(
-            f"{_REVIEWER_DEST}: ## review checklist\n",
+            f"{_REVIEWER_DEST}: review checklist\n",
             encoding="utf-8",
         )
 
         result = audit_project(tmp_path)
         records = _reviewer_records(result)
 
-        assert records["## review checklist"] == ("OVERRIDE-KEPT", "INFRA-241")
+        assert records["review checklist"] == ("OVERRIDE-KEPT", "INFRA-241")
         # The bold-marker sibling has no override and stays ERROR.
         assert records["**1. protected files**"] == ("ERROR", "INFRA-241")
 
         report = format_audit_output(result)
         assert (
             "OVERRIDE-KEPT .claude/agents/reviewer.md: section "
-            "'## review checklist'" in report
+            "'review checklist'" in report
         )
         assert "kept by project override" in report
 
@@ -3000,24 +3130,24 @@ class TestAuditSeededDocDriftIntegration:
         )
         arch_path.write_text(drifted, encoding="utf-8")
 
-        # Without the override, DRIFTED for '## stack' is reported.
+        # Without the override, DRIFTED for 'stack' is reported.
         result_without = audit_project(tmp_path)
         drifted_without = [
             i
             for i in result_without.inconsistent
-            if i.file == "docs/architecture.md" and i.section == "## stack"
+            if i.file == "docs/architecture.md" and i.section == "stack"
         ]
         assert len(drifted_without) == 1
 
-        _write_overrides(tmp_path, ["docs/architecture.md:## stack"])
+        _write_overrides(tmp_path, ["docs/architecture.md:stack"])
         result_with = audit_project(tmp_path)
         drifted_with = [
             i
             for i in result_with.inconsistent
-            if i.file == "docs/architecture.md" and i.section == "## stack"
+            if i.file == "docs/architecture.md" and i.section == "stack"
         ]
         assert drifted_with == [], (
-            f"Expected DRIFTED for '## stack' to be suppressed by .pairmode-overrides, "
+            f"Expected DRIFTED for 'stack' to be suppressed by .pairmode-overrides, "
             f"got: {drifted_with}"
         )
 
