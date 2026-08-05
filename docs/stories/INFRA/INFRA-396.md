@@ -11,8 +11,10 @@ primary_files:
   - skills/pairmode/scripts/reviewer_bash_guard.py
   - skills/pairmode/scripts/scope_guard.py
 touches:
+  - hooks/pre_tool_use.py
   - tests/pairmode/test_reviewer_bash_guard.py
   - tests/pairmode/test_scope_guard.py
+  - tests/pairmode/test_pre_tool_use_scope_guard.py
 narrative_roles: []
 ---
 
@@ -68,6 +70,25 @@ Goal and this story's own title):
 enabled while this fix is built rather than disable it first. This story does
 not touch that flag or `CLAUDE.build.md`; it closes the two gaps the flag's own
 compensating controls were supposed to provide.
+
+**Scope widened after attempt 1 (operator-approved).** The first build got the
+two guard scripts right but the reviewer FAILed it: `hooks/pre_tool_use.py`'s
+`Edit`/`Write` dispatch branch (roughly lines 207-219) is the only production
+caller of `scope_guard.check_path`, and it never passes `agent_type` — so the
+new shadow-reviewer write-scoping was correct but *inert in production*. The
+same file's `Read` and `Bash` branches already pass
+`agent_type=data.get("agent_type")`; only the `Edit`/`Write` branch omits it.
+`hooks/` is a protected path, so the prior builder correctly refused to touch it
+without this story's scope being widened first — it now is (`hooks/pre_tool_use.py`
+is in `touches:`, as plumbing, not a `primary_files:` entry). Folded in at the
+same time: a second, related finding from the shadow-reviewer's advisory notes —
+`reviewer_bash_guard.py`'s `check_command` calls `shlex.split(command)` *before*
+dispatching to `_check_shadow_reviewer_command`, and on `ValueError` (unbalanced
+quote) it fails **open** ("command did not tokenize -- allowing"). That fail-open
+sits outside `_check_shadow_reviewer_command`, so this story's new control-token
+check never runs on a command that fails to tokenize. The shadow-reviewer has no
+legitimate Bash write path at all, so for that agent type the untokenizable case
+must fail **closed**.
 
 ## Requires
 
@@ -130,6 +151,23 @@ compensating controls were supposed to provide.
    `shadow-reviewer` branch's behavior and adds an `agent_type` parameter to
    `check_path`, it does not change `reviewer`/`builder` outcomes for any
    existing test case.
+9. Driven end-to-end through `hooks/pre_tool_use.py`'s real `main()` with the
+   real (unmocked) `scope_guard.check_path` — matching the existing end-to-end
+   pattern in `tests/pairmode/test_pre_tool_use_scope_guard.py` (e.g.
+   `test_hook_allows_write_to_suggestions_file_in_active_story_worktree`) — a
+   payload with `agent_type="shadow-reviewer"`, `tool_name` `Edit` or `Write`,
+   and a `file_path` other than `.pairmode-suggestions.md` emits a
+   `decision: block` payload. Correct signal: the block comes out of the hook's
+   own stdout, proving `agent_type` reached `check_path` through the real
+   dispatch. Forbidden proxy: a test that calls `check_path` directly with
+   `agent_type="shadow-reviewer"` — Ensures 5 already covers that, and it is
+   exactly the coverage that let the inert-in-production gap ship.
+10. For `agent_type="shadow-reviewer"`, a command `shlex.split` cannot parse
+    (e.g. `git log "unterminated`) is DENIED by `reviewer_bash_guard.py`. The
+    same malformed command's outcome for `agent_type="reviewer"` and for the
+    default/builder case is unchanged from today (fail open / allow), asserted
+    by a test case for each so the narrowing is provably scoped to one agent
+    type.
 
 ## Instructions
 
@@ -153,25 +191,40 @@ compensating controls were supposed to provide.
    `resolve_call_story`'s `primary_files`/`touches`/`STANDING_SURFACES`
    resolution for that story. Do not fall through to the builder-scope logic
    for this agent type even as a fallback.
-3. Find the hook/caller that invokes `check_path` today (`pre_tool_use.py` or
-   equivalent) and determine how it currently identifies which agent is
-   calling (e.g. an existing `agent_type`/role signal already available at the
-   hook layer, per this project's Hooks-are-thin-relays constraint — hooks may
-   read/relay a signal but must not add blocking logic beyond passing it
-   through). Thread that signal into the new `check_path` parameter. If no
-   such signal exists yet at the hook layer, add the minimal plumbing to carry
-   it through (e.g. from the same place the shadow-reviewer's own bash-guard
-   `agent_type` is already known) — do not invent a second, parallel mechanism
-   for identifying the agent type between the two guard scripts.
-4. Add the adversarial and legitimate-command test cases from `## Ensures` 1
-   and 4 to `tests/pairmode/test_reviewer_bash_guard.py`, and the scope-denial
-   and scope-allow cases from `## Ensures` 5 and 6 to
-   `tests/pairmode/test_scope_guard.py`.
+3. In `hooks/pre_tool_use.py`'s `Edit`/`Write` dispatch branch (roughly lines
+   207-219 — the sole production caller of `check_path`), pass
+   `agent_type=data.get("agent_type")` into the `scope_guard.check_path(...)`
+   call, mirroring the existing `Read` and `Bash` branches in the same file
+   verbatim. This is a **thin pass-through only** — no new logic, no branching,
+   no defaulting, no validation in the hook. (Ideology check, resolved inline:
+   `docs/ideology.md` § "Hooks are thin relays only" permits no override, so the
+   hook relays the already-present `agent_type` field and nothing more; all
+   decision logic stays in `scope_guard.py`. Without this one line the Step-2
+   scoping is inert in production — the attempt-1 review FAIL.) Do not touch any
+   other part of `hooks/pre_tool_use.py`; it is a protected path and this story's
+   grant covers exactly this one call-site argument.
+4. In `reviewer_bash_guard.py`'s `check_command`, change the `shlex.split`
+   `ValueError` path from fail-open to fail-closed **for
+   `agent_type == "shadow-reviewer"` only**: either run the Instruction-1(a)
+   control-token substring check against the raw command string before the
+   `shlex.split` step for that agent type, or deny outright when `shlex.split`
+   raises for that agent type. Leave the existing "command did not tokenize --
+   allowing" behavior exactly as-is for `agent_type == "reviewer"` and for the
+   default/builder case — the reviewer agent has legitimate reasons to fail
+   open; the shadow-reviewer has no legitimate Bash write path at all.
+5. Add the adversarial and legitimate-command test cases from `## Ensures` 1
+   and 4 plus the untokenizable-command cases from `## Ensures` 10 to
+   `tests/pairmode/test_reviewer_bash_guard.py`; the scope-denial and
+   scope-allow cases from `## Ensures` 5 and 6 to
+   `tests/pairmode/test_scope_guard.py`; and the end-to-end hook case from
+   `## Ensures` 9 to `tests/pairmode/test_pre_tool_use_scope_guard.py`,
+   following that file's existing real-`main()`-plus-real-`check_path` pattern
+   rather than adding a mocked one.
 
 ## Tests
 
 ```bash
-PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/test_reviewer_bash_guard.py tests/pairmode/test_scope_guard.py -q
+PATH=$HOME/.local/bin:$PATH uv run pytest tests/pairmode/test_reviewer_bash_guard.py tests/pairmode/test_scope_guard.py tests/pairmode/test_pre_tool_use_scope_guard.py -q
 ```
 Acceptance: green, including every new adversarial/allow/deny case above.
 
@@ -194,6 +247,12 @@ agent_type behavior in either guard.
   cross-file corruption risk the HIGH finding raised; intra-file concurrency
   control on `.pairmode-suggestions.md` itself is a separate concern, not
   covered here.
+- Any change to `hooks/pre_tool_use.py` beyond adding the single `agent_type=`
+  argument to the existing `Edit`/`Write` `check_path` call — no refactor of the
+  dispatch branch, no new hook-layer logic, no touching the `Read`/`Bash`/`Task`
+  branches (protected path; the grant is one argument wide).
+- Changing the `shlex.split` fail-open behavior for `agent_type="reviewer"` or
+  the default/builder case — the narrowing is strictly shadow-reviewer-only.
 - Extending agent-type-aware scoping in `check_path` to any agent type other
   than `builder`/`shadow-reviewer` (e.g. a future third concurrent role) —
   this story adds exactly the one new branch needed to close CER-174.
