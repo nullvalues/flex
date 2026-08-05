@@ -23,7 +23,7 @@ Fix CER-175: the shadow-reviewer Bash allowlist still permits an arbitrary-file 
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-397 | Close shadow-reviewer git-flag write bypass and worktree-path scope_guard gap (CER-175) | draft |
+| INFRA-397 | Close shadow-reviewer git-flag write bypass and worktree-path scope_guard gap (CER-175) | complete |
 
 ## Schema delivery
 

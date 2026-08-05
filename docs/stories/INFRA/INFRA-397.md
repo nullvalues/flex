@@ -2,7 +2,7 @@
 id: INFRA-397
 rail: INFRA
 title: Close shadow-reviewer git-flag write bypass and worktree-path scope_guard gap (CER-175)
-status: draft
+status: complete
 phase: "127"
 story_class: code
 auth_gated: false
