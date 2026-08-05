@@ -23,3 +23,4 @@ Placeholder era opened at 0.3.1 sealing; real scope to be defined as maintenance
 | 124 | Scaffold EXEMPLAR-000.md for downstream projects (CER-171) | planned |
 | 125 | De-identify fleet repo references from the public repo (CER-172) | planned |
 | 126 | Close shadow-reviewer Bash-guard bypass and scope its Write grant (CER-174) | planned |
+| 127 | Close shadow-reviewer git-flag write bypass and worktree-path scope_guard gap (CER-175) | planned |
