@@ -75,7 +75,7 @@ flex/
         gate_verdict.py           ← WORKER-001 gate verdict grammar: VERBS (clean/block/flag), JUDGED_GATES (schema/auth; stub excluded), parse_verdict (string → (verb, reason)), validate_verdict_map (dict → violation list); stdlib-only, no I/O; the WORKER-rail contract analogue of next_action.py's action grammar
         worker_result.py          ← generalized worker return contract (WORKER-004, HARNESS003-main): four result types (BUILD-RESULT, REVIEW-RESULT, ADVICE, SPEC-RESULT), parse_worker_result (text → dict, validated), validate_worker_result (dict → violation list); stdlib-only, no I/O; parallel to gate_verdict.py for all non-gate workers
         next_action.py            ← next-action resolver: action grammar (make_action, validate_action, ACTIONS), position read-model (infer_position), 9-state DP2 machine (resolve_next_action); HARNESS002-main adds spawn-gate-worker to ACTIONS, Row-4 DP2 split (stub→await-user directly; schema/auth→spawn-gate-worker), parse_worker_verdict_json (worker text return → per-gate verdict map), route_gate_verdict (DP3.2 aggregation: block→await-user, flag→proceed+warnings, clean→proceed); the live sequencing core since the flip (HARNESS006), pure-read; HARNESS003-main adds spawn-reviewer, spawn-security-auditor, spawn-intent-reviewer to ACTIONS and _SPAWN_ACTIONS; SCHEMA_VERSION bumped to 2; HARNESS004-main adds checkpoint-security, checkpoint-intent, checkpoint-docs, checkpoint-tag to ACTIONS; removes monolithic checkpoint from ACTIONS (constant retained for import compat); adds check_checkpoint_guards (pre-checkpoint guards: phase-completion, CER Do Now, build-gate via injectable gate_fn); checkpoint step sequencing via _CHECKPOINT_SEQUENCE; SCHEMA_VERSION bumped to 3; HARNESS005-main adds spawn-spec-writer to ACTIONS and _SPAWN_ACTIONS; adds needs_spec bool to infer_position Position (True when ## Ensures absent or &lt; 5 non-blank lines — stub heuristic; fail-safe: unreadable story file → True); Row-2 split: needs_spec True → spawn-spec-writer (model=opus, reason=needs-spec), needs_spec False → spawn-builder as before; _count_ensures_nonblank_lines private helper (pure, no I/O); SPEC-RESULT{revised} routing lives in CLAUDE.build.md orchestrator prose (not in resolve_next_action); canonical reason string: spec-revised-awaiting-review; SCHEMA_VERSION bumped to 4; spawn-reviewer is in ACTIONS/_SPAWN_ACTIONS for orchestrator dispatch but is never emitted by resolve_next_action (CER-074); INFRA-328 Row 6 (double-fail → spawn-loop-breaker) now queries `effort_db.query_by_story` for the story's most recent `outcome == "FAIL"` attempt and surfaces its `notes` (fail_cause) column as the action's `reason` — replacing the prior bare `reason=""` — so CLAUDE.build.md's orchestrator loop can construct the `LOOP-BREAKER: [error] | FILE: [file:line] | TRIED: [what failed]` prompt CLAUDE.md's loop-breaker mode requires; fails open unchanged (any lookup error, missing effort.db, no FAIL rows, or a FAIL row with no notes still returns spawn-loop-breaker with reason=""); 2026-08-01 INFRA-341: closes the F8 livelock (`spawn-gate-worker` re-emitting identically on every poll since nothing consumed its verdict) — `infer_position` gains `gate_verdict` (`dict[str, str] | None`, read from `state.json["gate_verdict"][next_story_id]`, mirrors `pre_build_intent_verdict`'s fail-open read shape exactly); Row 4b now calls `route_gate_verdict(position["gate_verdict"], next_story_id, meta_base=meta)` — the existing DP3.2 aggregation, called from a real production path for the first time — whenever a verdict has been recorded, falling back to (re-)emitting `spawn-gate-worker` (unchanged) only when none has; `flex_build.py record-gate-verdict` is the new CLI writer (reads the worker's raw stdout from stdin, injects `"stub": "clean"` when absent to reconcile the live worker's two-key contract with `parse_worker_verdict_json`'s three-key requirement, then persists to `state.json["gate_verdict"][story_id]` via `_atomic_write_json`); `merge-story-worktree`/`discard-story-worktree` both clear the recorded verdict for their story_id, mirroring the existing attempt-counter/active-story/permissions clears; grammar-unchanged (no new action type, no `ACTIONS`/`_SPAWN_ACTIONS` membership change, no `SCHEMA_VERSION` bump)
-        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); add missing harness-role narrative files (sync-narratives subcommand, INFRA-352); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all four sync operations in fixed order (sync-all subcommand); also registers register/unregister/list-projects in the top-level CLI group
+        pairmode_sync.py          ← re-render agent file frontmatter from canonical templates (sync-agents subcommand); add missing harness-role narrative files (sync-narratives subcommand, INFRA-352); propagate CLAUDE.build.md template changes (sync-build subcommand); sequence all five sync operations in fixed order (sync-all subcommand, fifth step — stale-hook repair — added INFRA-386); also registers register/unregister/list-projects in the top-level CLI group
         pairmode_register.py      ← manage registered_projects in .companion/state.json (register/unregister/list-projects subcommands)
         pairmode_migrate.py       ← one-shot migration of an anchor-bootstrapped sibling project to flex naming (migrate-from-anchor subcommand)
         global_session_check.py   ← global SessionStart hook; detects pairmode, prints status block or bootstrap prompt; stdlib-only (runs as bare python3)
@@ -2680,16 +2680,19 @@ Behaviour:
 - Applies a depth guard on `--project-dir` (fewer than 3 path components are rejected).
 
 **`pairmode_sync.py` — `sync-all` subcommand.**
-Sequences all four sync operations in a single CLI call: `sync.py` (methodology files)
+Sequences all five sync operations in a single CLI call: `sync.py` (methodology files)
 → `sync-agents` (agent frontmatter) → `sync-narratives` (harness narrative backfill,
-INFRA-352) → `sync-build` (CLAUDE.build.md). `sync-narratives` sits immediately after
-`sync-agents` — both are add-missing-file backfills against a `bootstrap.py`-owned template
-contract, run before `sync-build`'s content-rewrite step. Safe by default: without `--apply`,
-all four commands are invoked, `sync.py` included — `sync.py` runs with its own `--dry-run`
-flag (INFRA-371; it has always had a working `--dry-run` flag, the wrapper previously never
-reached it in dry-run mode) and the remaining three run in dry-run mode. With `--apply`, all
-four are invoked without `--dry-run`. Fail-fast: if any downstream command exits non-zero, the
-wrapper emits an error and exits with the same status code; remaining commands are not invoked.
+INFRA-352) → `sync-build` (CLAUDE.build.md) → `to-030 --hooks-only` (stale-flex-harness
+hook repair, INFRA-386, Phase 121 — folds the operator's `to-030` + `audit-hooks`
+precedent into `sync-all` as an idempotent, order-independent fifth step). `sync-narratives`
+sits immediately after `sync-agents` — both are add-missing-file backfills against a
+`bootstrap.py`-owned template contract, run before `sync-build`'s content-rewrite step.
+Safe by default: without `--apply`, all five commands are invoked, `sync.py` included —
+`sync.py` runs with its own `--dry-run` flag (INFRA-371; it has always had a working
+`--dry-run` flag, the wrapper previously never reached it in dry-run mode) and the remaining
+four run in dry-run mode. With `--apply`, all five are invoked without `--dry-run`. Fail-fast:
+if any downstream command exits non-zero, the wrapper emits an error and exits with the same
+status code; remaining commands are not invoked.
 
 CLI:
 ```bash
@@ -2698,11 +2701,12 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}/../../.." uv run python "${CLAUDE_SKILL_DIR}/scr
 ```
 
 Behaviour:
-- `--dry-run` (default True): runs all four commands, `sync.py` included, with `sync.py`
-  and `sync-agents`/`sync-narratives` passed `--dry-run` and `sync-build` also run without
-  `--apply` (its own dry-run default).
-- `--apply`: runs all four; `sync.py`, `sync-agents`, and `sync-narratives` without
-  `--dry-run`; `sync-build` with `--apply`.
+- `--dry-run` (default True): runs all five commands, `sync.py` included, with `sync.py`
+  and `sync-agents`/`sync-narratives` passed `--dry-run`, `sync-build` also run without
+  `--apply` (its own dry-run default), and the fifth step (`to-030 --hooks-only`) run
+  without `--apply`.
+- `--apply`: runs all five; `sync.py`, `sync-agents`, and `sync-narratives` without
+  `--dry-run`; `sync-build` and the fifth step (`to-030 --hooks-only`) with `--apply`.
 - `--yes` / `-y`: propagated to every downstream invocation.
 - Depth guard (`_depth_guard_sync_build`) runs against `--project-dir` before any subprocess call.
 - Per-command output is preceded by a `=== <label> ===` separator line.
