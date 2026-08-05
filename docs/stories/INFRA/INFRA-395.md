@@ -2,7 +2,7 @@
 id: INFRA-395
 rail: INFRA
 title: Scrub real fleet repo names from lessons.json/LESSONS.md via scoped append-only exception (CER-173)
-status: draft
+status: complete
 phase: "122"
 story_class: code
 auth_gated: false

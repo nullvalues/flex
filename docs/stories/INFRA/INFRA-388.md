@@ -2,7 +2,7 @@
 id: INFRA-388
 rail: INFRA
 title: Restore shadow-reviewer write capability (CER-164) and enable shadow_review=concurrent
-status: draft
+status: complete
 phase: "122"
 story_class: code
 auth_gated: false

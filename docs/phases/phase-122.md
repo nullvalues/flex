@@ -23,8 +23,8 @@ Fix CER-164 — restore the shadow-reviewer role's ability to read git state and
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-388 | Restore shadow-reviewer write capability (CER-164) and enable shadow_review=concurrent | draft |
-| INFRA-395 | Scrub real fleet repo names from lessons.json/LESSONS.md via scoped append-only exception (CER-173) | draft |
+| INFRA-388 | Restore shadow-reviewer write capability (CER-164) and enable shadow_review=concurrent | complete |
+| INFRA-395 | Scrub real fleet repo names from lessons.json/LESSONS.md via scoped append-only exception (CER-173) | complete |
 
 ## Schema delivery
 
