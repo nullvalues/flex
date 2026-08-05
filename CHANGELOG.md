@@ -6,6 +6,12 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Fixed [pairmode] — Phase 121 (sync-all to-030 fold-in and fleet stale-hook remediation)
+- Folded the operator's `to-030` + `audit-hooks` stale-flex-harness hook repair precedent into `sync-all` as an idempotent, order-independent fifth step (INFRA-386), invoked via a new `to-030 --hooks-only` mode.
+- Fixed CER-169: both `bootstrap.py` hook registrars (`_register_pretooluse_hook`, `_register_context_budget_hooks`) were returning before reaching their own A7 stale-committed-entry eviction on the plugin-sourced-skip branch, making the eviction unreachable whenever a plugin already provided the hook event — the case for every repo in the current fleet (INFRA-389).
+- Trimmed `CHANGELOG.md` from 200 to 88 lines to clear the `<200`-line test gate, replacing pre-Phase-111 history with a git-history pointer (INFRA-390).
+- INFRA-387 (fleet-wide application of the repair) formally deferred — all 13 target repos had dirty working trees at every build attempt, correctly blocking the write per the story's own no-write-to-dirty-tree rule; resumes once the operator's fleet-repo working trees are clean.
+
 ### Fixed [pairmode] — Phase 120 (CER-159 hook-firing fix: marketplace install migration, era-004 stable close)
 - Root-caused and fixed CER-159: flex's own dogfooding install (`flex@inline`, an implicit self-referential plugin registration) never populated `${CLAUDE_PLUGIN_ROOT}`, silently failing every `hooks/hooks.json` command since 2026-07-31. Migrated flex's own build sessions to a real marketplace-installed copy (`flex@nullvalues-flex`), confirmed live to restore hook firing; documented the setup procedure, the version-bump-before-reinstall discipline the version-keyed plugin cache requires, and the accepted `flex@inline`/marketplace dual-registration limitation (INFRA-383/384).
 - Isolated `test_pairmode_migrate.py`/`test_sync.py`'s PreToolUse-registration tests from real `~/.claude/plugins/` state (INFRA-385, CER-168) — a test-fixture-isolation gap the marketplace-install migration itself exposed for the first time on a dev machine with a real flex plugin installed; threaded an additive `home=` parameter through `bootstrap.py`'s hook-registration helpers.

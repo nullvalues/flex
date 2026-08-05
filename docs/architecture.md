@@ -11,6 +11,8 @@ way.
 
 This document is the source of truth for the flex codebase itself. Read it before any task.
 
+Current era: `005` — Post-0.3.1 maintenance (`docs/eras/005-post-0-3-1-maintenance.md`).
+
 ---
 
 ## Module structure
