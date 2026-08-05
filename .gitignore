@@ -35,6 +35,13 @@ Thumbs.db
 # Ephemeral notes and screenshots (not record-keeping)
 flex_eph/
 
+# Local fleet map (CER-172) — a fleet-local, per-operator JSON file mapping
+# stable anonymized labels to real sibling-repo absolute paths, read by
+# fleet_discovery.py's _load_local_fleet_map(). This repo is public; real
+# repo names must never be committed. Copy .pairmode-fleet.local.json.example
+# and fill it with your own fleet paths — that template IS tracked.
+.pairmode-fleet.local.json
+
 # Vendored dependency payload (CER-090 / INFRA-261) — deliberate override of the
 # global dist/ and build/ patterns above. Those target *our* build output; inside a
 # vendored node_modules they also exclude shipped package payload (compiled JS and

@@ -4951,8 +4951,18 @@ A project matched by either signal is reported; the report distinguishes "bound 
 path", "bound by version only", and "both".
 
 **Default candidate set:** `registered_projects` from this checkout's `.companion/state.json`,
-merged with the documented candidate names under the parent of the flex root. Overridable via
-`--candidate-dir` (repeatable) or `--candidates-file`.
+merged with the real absolute paths from `_load_local_fleet_map()` (CER-172, INFRA-393). This
+repo is public, so real sibling-repo directory names are never committed as source string
+literals — they used to live in a hardcoded `_DOCUMENTED_CANDIDATES` name list, removed in
+INFRA-393. The mechanism now is a local, gitignored `<flex-root>/.pairmode-fleet.local.json`
+file mapping a stable anonymized label (e.g. `"repo-a"`) to a real absolute path (e.g.
+`"repo-a": "/mnt/work/<real-name>"`); `_load_local_fleet_map()` reads it and returns `{}` when
+the file is missing, unreadable, or not valid JSON (same never-raise contract as
+`_read_registered_projects()`). A tracked `.pairmode-fleet.local.json.example` at the repo root
+holds fake placeholder entries as the template a fresh operator copies and fills with their own
+fleet paths; the same local file is also the real→anonymized-label mapping INFRA-394 uses to
+scrub already-committed docs. Overridable via `--candidate-dir` (repeatable) or
+`--candidates-file`.
 
 **Read-only contract:** the tool never opens any scanned project file for write. The only file
 it writes is a snapshot at `docs/fleet-snapshot.md`, and only **inside the repo the tool was

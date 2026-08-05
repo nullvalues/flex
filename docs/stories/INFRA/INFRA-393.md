@@ -12,6 +12,7 @@ primary_files:
   - .gitignore
 touches:
   - tests/pairmode/test_fleet_discovery.py
+  - .pairmode-fleet.local.json.example
 narrative_roles: []
 ---
 
@@ -31,6 +32,13 @@ it depends on the local config file and its loader existing.
 ## Requires
 
 None — first story in Phase 125, no story prerequisite.
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| .pairmode-fleet.local.json.example | story requires creating tracked example template file at repo root, not declared in primary_files/touches | 2026-08-05T11:55:41Z |
 
 ## Ensures
 
