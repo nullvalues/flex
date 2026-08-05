@@ -25,7 +25,7 @@ flex/
     exit_plan_mode.py             ← relay plan content for impact analysis
     post_tool_use.py              ← pair partner: relay file changes; Task/Agent branch: reads JSONL via context_budget.read_current_tokens() and writes context_current_tokens to state.json (INFRA-182); also calls subagent_transcript.record_attempt_from_transcript() to write one effort.db attempt row per spawn (INFRA-236)
     session_end.py                ← signal sidebar to summarize and exit
-    pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename; INFRA-199 scoped to tool_input.subagent_type ∈ build-cycle agents only); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement); Read → cold_read_guard.py (INFRA-196 cold-read enforcement, registered/reachable since INFRA-205/INFRA-206, CER-065); Bash → reviewer_bash_guard.py (INFRA-324 reviewer-role git-subcommand allowlist enforcement, fails open for non-reviewer agent_type)
+    pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename; INFRA-199 scoped to tool_input.subagent_type ∈ build-cycle agents only); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement); Read → cold_read_guard.py (INFRA-196 cold-read enforcement, registered/reachable since INFRA-205/INFRA-206, CER-065); Bash → reviewer_bash_guard.py (INFRA-324 reviewer-role git-subcommand allowlist enforcement; INFRA-388/396/397 add a separate, stricter shadow-reviewer default-deny branch; fails open for any other agent_type)
     session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write (context_current_tokens + context_current_tokens_recorded_at + context_session_reset_at on clear/startup — INFRA-180); also calls session_lifecycle.agent_staleness_notice() on clear/compact (INFRA-323 — see § Session-lifecycle contract)
 
   skills/
@@ -3546,14 +3546,28 @@ resolution and no new dispatch branch is added.
 - **`Edit`/`Write` → `scope_guard.py` (Phase 55):** decides whether to block
   a file write based on the active story's declared `primary_files`/`touches`.
   Read-only; no state writes. Fails open when state or permissions file absent.
+  **INFRA-396/INFRA-397 (CER-174/CER-175, Phase 122's forked remediation):**
+  `check_path` also takes an `agent_type` parameter, threaded through by
+  `pre_tool_use.py`'s `Edit`/`Write` branch (`agent_type=data.get("agent_type")`,
+  mirroring the `Read`/`Bash` branches). When `agent_type == "shadow-reviewer"`,
+  `check_path` short-circuits before any `primary_files`/`touches`/
+  `STANDING_SURFACES` resolution: the target path is resolved via
+  `resolve_call_story()` and `_strip_worktree_prefix()` (the same worktree-path
+  normalization the builder path uses) and allowed only when it is exactly
+  `.pairmode-suggestions.md` — every other path, including one inside the
+  concurrently-running builder's own declared scope, is denied regardless of
+  that scope. INFRA-396 shipped this confinement; INFRA-397 fixed a bug where
+  the missing worktree-prefix strip denied the shadow-reviewer's own real
+  absolute-path write to `.pairmode-suggestions.md`, leaving the confinement
+  unreachable in production despite passing unit tests.
 - **`Read` → `cold_read_guard.py` (INFRA-196):** blocks a top-level orchestrator
   Read (`agent_type` absent from the payload) targeting `docs/stories/**` or
   `.claude/agents/**`, directing the orchestrator to pass the story ID to a
   builder/reviewer subagent instead of reading it cold. Read-only; no state
   writes. `docs/phases/**` and `docs/architecture.md` reads are never blocked.
-- **`Bash` → `reviewer_bash_guard.py` (INFRA-324):** governs the reviewer
-  role only — fails open (`True`, no command inspection) whenever
-  `agent_type != "reviewer"`. For a reviewer-issued command, parses whether
+- **`Bash` → `reviewer_bash_guard.py` (INFRA-324):** fails open (`True`, no
+  command inspection) whenever `agent_type` is neither `"reviewer"` nor
+  `"shadow-reviewer"`. For a reviewer-issued command, parses whether
   it invokes `git` and, if so, which subcommand; blocks any subcommand
   outside `skills/pairmode/skills/reviewer/procedure.md`'s "On FAIL, revert"
   sanctioned set (`git checkout -- <path>` / whole-tree `git checkout .`,
@@ -3562,6 +3576,34 @@ resolution and no new dispatch branch is added.
   --hard` and `git revert`, the exact commands a reviewer subagent was
   observed improvising on a FAIL verdict (see the story's Context). Read-only;
   no state writes.
+  **INFRA-388/INFRA-396/INFRA-397 (CER-164/CER-174/CER-175, Phase 122 and its
+  forked remediation):** `agent_type == "shadow-reviewer"` is a separate,
+  strictly narrower default-deny branch — the role has no legitimate write
+  path via Bash at all, unlike the reviewer role. It denies (in order): any
+  shell control/substitution token (`&&`, `||`, `;`, a literal newline, `$(`,
+  a backtick, a bare `&`, plus the existing `>`/`<`/`|` redirection check)
+  anywhere in the token list, independent of position (INFRA-396, closing
+  CER-174's chaining/substitution bypass); a command that fails to tokenize
+  via `shlex.split` (fails closed here, unlike the reviewer/default branches,
+  which still fail open on a tokenizer `ValueError` — INFRA-396); a git flag
+  with write/redirect/read-escape side effects — `--output`/`-o`,
+  `--exec-path`, `-c`/`--config-env`, `-C`, `--git-dir`, `--work-tree`,
+  `--namespace`, in both attached and separated forms, anywhere in the token
+  list (`_SHADOW_REVIEWER_DENIED_GIT_FLAGS`, INFRA-397, closing CER-175's
+  arbitrary-file-write bypass); and any command whose first token is not
+  literally `git` (no scanning the remainder of the token list for "any" git
+  invocation, mirroring the reviewer branch's own anti-bypass shape). Only
+  `git log`, `git status [--porcelain]`, and `git diff` (without a denied
+  flag) are allowed. **Known residual gap (CER-176, Do Later, unresolved):**
+  `git diff --no-index <path> <path>` is not yet screened and can read/print
+  an arbitrary file outside the worktree — not raised to HIGH because
+  `cold_read_guard.py` already grants the shadow-reviewer role unconditional
+  Read access, so this is a second path to an already-granted capability, not
+  a new one. **Anyone extending either shadow-reviewer branch should check
+  new allowlist entries against three verified gap classes, each found by a
+  separate checkpoint-security pass on this same phase: shell chaining/
+  substitution (CER-174), subcommand flags with write/redirect/read-escape
+  side effects (CER-175/CER-176), and tokenizer-failure fail-open (CER-174).**
 
 **Documented exception — `hooks/subagent_stop.py` (INFRA-298, CER-114):**
 registered against the `SubagentStop` event — the one event the harness

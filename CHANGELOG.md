@@ -6,6 +6,11 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Fixed [pairmode] — Phases 122/126/127 (shadow-reviewer write capability + security remediation)
+- Restored shadow-reviewer write capability and enabled `shadow_review=concurrent` (INFRA-388, CER-164); scrubbed real fleet repo names from `lessons.json`/`LESSONS.md` via a scoped append-only exception (INFRA-395, CER-173).
+- Phase 122's own checkpoint-security gate found the shipped compensating controls bypassable: a shell-chaining/substitution bypass in `reviewer_bash_guard.py`'s shadow-reviewer allowlist and an unscoped `scope_guard.py` Write grant (CER-174) — fixed by a forked Phase 126 (INFRA-396), which also added an `agent_type` parameter to `check_path` and threaded it through `hooks/pre_tool_use.py`'s `Edit`/`Write` dispatch.
+- A re-check of that fix found two more gaps: a git-flag arbitrary-write bypass (`--output`/`--exec-path`/etc.) and a worktree-path-prefix bug that wrongly denied the shadow-reviewer's own legitimate write (CER-175) — fixed by a further forked Phase 127 (INFRA-397). A third pass found the mechanism sound with only non-blocking LOW/MEDIUM residuals filed to backlog (CER-176..179), including a known `git diff --no-index` read-escape gap.
+
 ### Fixed [pairmode] — Phase 121 (sync-all to-030 fold-in and fleet stale-hook remediation)
 - Folded the operator's `to-030` + `audit-hooks` stale-flex-harness hook repair precedent into `sync-all` as an idempotent, order-independent fifth step (INFRA-386), invoked via a new `to-030 --hooks-only` mode.
 - Fixed CER-169: both `bootstrap.py` hook registrars (`_register_pretooluse_hook`, `_register_context_budget_hooks`) were returning before reaching their own A7 stale-committed-entry eviction on the plugin-sourced-skip branch, making the eviction unreachable whenever a plugin already provided the hook event — the case for every repo in the current fleet (INFRA-389).
