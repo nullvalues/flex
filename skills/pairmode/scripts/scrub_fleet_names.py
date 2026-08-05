@@ -1,5 +1,20 @@
 """scrub_fleet_names.py — scrub real fleet-repo names from committed docs (CER-172).
 
+Lessons-scoped mode (CER-173): the general ``apply()``/``verify()`` loop
+above deliberately excludes ``lessons/lessons.json``/``lessons/LESSONS.md``
+(both a declared ``protected_path``), because rewriting an existing lesson
+entry's field content would otherwise violate the append-only integrity
+rule those files are held to. ``apply_lessons()``/``verify_lessons()`` are a
+narrow, explicitly-scoped exception to that exclusion: a real-name-only text
+substitution within a fixed set of existing entries' free-text fields
+(``source_project``, ``trigger``, ``problem``, ``learning``,
+``methodology_change.description``, ``value_framing``), never touching
+``id``, ``date``, ``status``, ``enforced_by``, ``applies_to``,
+``methodology_change.affects``, ``validation_phase``, or entry count/order.
+This path is never invoked by the general ``apply()``/``verify()`` loop —
+it is only reachable via ``--lessons``/``--verify --lessons`` or by calling
+``apply_lessons()``/``verify_lessons()`` directly.
+
 This project is public; ~150 already-committed files (phase docs, story
 specs, docs/architecture.md, the CER backlog, etc.) mention real sibling-repo
 names in prose. This script mechanically replaces every occurrence of a real
@@ -343,8 +358,195 @@ def verify(root: Path = _FLEX_ROOT) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Lessons-scoped mode (CER-173)
+# ---------------------------------------------------------------------------
+
+_LESSONS_JSON_REL = "lessons/lessons.json"
+_LESSONS_MD_REL = "lessons/LESSONS.md"
+
+# The only fields eligible for a real-name substitution, per lesson entry.
+# `methodology_change.description` and `value_framing` are nested/optional
+# and handled separately from this flat list.
+_LESSON_TEXT_FIELDS = ("source_project", "trigger", "problem", "learning")
+
+
+def _substitute_lesson_entry(
+    entry: dict, pattern: re.Pattern, names_to_labels: dict[str, str]
+) -> int:
+    """Substitute real-name matches in one lesson entry's free-text fields,
+    in place. Returns the number of replacements made across this entry.
+    """
+    total = 0
+
+    for field in _LESSON_TEXT_FIELDS:
+        if field in entry and isinstance(entry[field], str):
+            new_text, count = _substitute(entry[field], pattern, names_to_labels)
+            if count:
+                entry[field] = new_text
+                total += count
+
+    methodology_change = entry.get("methodology_change")
+    if isinstance(methodology_change, dict) and isinstance(
+        methodology_change.get("description"), str
+    ):
+        new_text, count = _substitute(
+            methodology_change["description"], pattern, names_to_labels
+        )
+        if count:
+            methodology_change["description"] = new_text
+            total += count
+
+    if isinstance(entry.get("value_framing"), str):
+        new_text, count = _substitute(entry["value_framing"], pattern, names_to_labels)
+        if count:
+            entry["value_framing"] = new_text
+            total += count
+
+    return total
+
+
+def apply_lessons(root: Path = _FLEX_ROOT) -> int:
+    """Apply the scrub to lessons/lessons.json's existing entries' free-text
+    fields only (CER-173), then regenerate lessons/LESSONS.md from the
+    result. Never invoked by the general apply() loop. Returns the total
+    number of replacements made across all entries.
+
+    Raises ValueError if entry count or ordered id list would change — this
+    path must never add, remove, or reorder entries.
+    """
+    fleet_map = _load_local_fleet_map(root)
+    if not fleet_map:
+        print(f"{_NO_LOCAL_CONFIG_MESSAGE} (apply --lessons: nothing to do)")
+        return 0
+
+    names_to_labels = _real_names_to_labels(fleet_map)
+    _validate_one_to_one(names_to_labels)
+    expanded = _expand_case_variants(names_to_labels)
+    pattern = _build_pattern(expanded)
+    if pattern is None:
+        print(f"{_NO_LOCAL_CONFIG_MESSAGE} (apply --lessons: nothing to do)")
+        return 0
+
+    lessons_path = root / _LESSONS_JSON_REL
+    lessons_md_path = root / _LESSONS_MD_REL
+
+    with lessons_path.open(encoding="utf-8") as f:
+        data = json.load(f)
+
+    entries = data.get("lessons", [])
+    original_ids = [entry.get("id") for entry in entries]
+    original_count = len(entries)
+
+    total_replacements = 0
+    for entry in entries:
+        total_replacements += _substitute_lesson_entry(entry, pattern, expanded)
+
+    new_ids = [entry.get("id") for entry in entries]
+    if len(entries) != original_count or new_ids != original_ids:
+        raise ValueError(
+            "lessons-scoped apply would change entry count or id order — "
+            f"before: {original_count} entries {original_ids}, "
+            f"after: {len(entries)} entries {new_ids}"
+        )
+
+    if total_replacements == 0:
+        print("apply --lessons complete: 0 replacement(s), no write performed")
+        return 0
+
+    if str(_SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(_SCRIPTS_DIR))
+    import lesson_utils  # sibling module in this same scripts/ directory
+
+    with lessons_path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+
+    lessons_md_path.write_text(
+        lesson_utils.generate_lessons_md(data), encoding="utf-8"
+    )
+
+    print(
+        f"apply --lessons complete: {total_replacements} replacement(s) "
+        f"across {original_count} entries"
+    )
+    return total_replacements
+
+
+def verify_lessons(root: Path = _FLEX_ROOT) -> int:
+    """Re-read lessons/lessons.json and lessons/LESSONS.md and report any
+    remaining real-name hit in either file, using the same domain-context-
+    aware matching as verify(). Never scans the rest of the tracked tree.
+    """
+    fleet_map = _load_local_fleet_map(root)
+    if not fleet_map:
+        print(_NO_LOCAL_CONFIG_MESSAGE)
+        return 0
+
+    names_to_labels = _real_names_to_labels(fleet_map)
+    expanded = _expand_case_variants(names_to_labels)
+    pattern = _build_pattern(expanded)
+    if pattern is None:
+        print(_NO_LOCAL_CONFIG_MESSAGE)
+        return 0
+
+    hits: list[str] = []
+
+    lessons_path = root / _LESSONS_JSON_REL
+    if lessons_path.exists():
+        with lessons_path.open(encoding="utf-8") as f:
+            data = json.load(f)
+        for entry in data.get("lessons", []):
+            entry_id = entry.get("id", "?")
+            texts: list[tuple[str, str]] = []
+            for field in _LESSON_TEXT_FIELDS:
+                if isinstance(entry.get(field), str):
+                    texts.append((field, entry[field]))
+            methodology_change = entry.get("methodology_change")
+            if isinstance(methodology_change, dict) and isinstance(
+                methodology_change.get("description"), str
+            ):
+                texts.append(
+                    ("methodology_change.description", methodology_change["description"])
+                )
+            if isinstance(entry.get("value_framing"), str):
+                texts.append(("value_framing", entry["value_framing"]))
+
+            for field_name, text in texts:
+                for match in pattern.finditer(text):
+                    if _is_domain_context(text, match):
+                        continue
+                    hits.append(
+                        f"{_LESSONS_JSON_REL}: entry {entry_id} field "
+                        f"{field_name!r}: {match.group(0)!r}"
+                    )
+
+    lessons_md_path = root / _LESSONS_MD_REL
+    if lessons_md_path.exists():
+        lines = lessons_md_path.read_text(encoding="utf-8").splitlines()
+        for lineno, line in enumerate(lines, start=1):
+            for match in pattern.finditer(line):
+                if _is_domain_context(line, match):
+                    continue
+                hits.append(f"{_LESSONS_MD_REL}:{lineno}: {match.group(0)!r}")
+
+    if hits:
+        print(f"verify --lessons FAILED: {len(hits)} remaining real-name hit(s):")
+        for hit in hits:
+            print(f"  {hit}")
+        return 1
+
+    print("verify --lessons OK: zero remaining real-name hits")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
+    if "--lessons" in args:
+        if "--verify" in args:
+            return verify_lessons()
+        apply_lessons()
+        return 0
     if "--verify" in args:
         return verify()
     apply()

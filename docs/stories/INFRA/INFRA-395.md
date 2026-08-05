@@ -16,6 +16,7 @@ touches:
   - skills/pairmode/scripts/lesson_utils.py
   - skills/pairmode/skills/builder/procedure.md
   - skills/pairmode/skills/reviewer/procedure.md
+  - docs/architecture.md
 narrative_roles: []
 ---
 

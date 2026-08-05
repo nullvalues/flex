@@ -2851,6 +2851,15 @@ deliberately out of scope for this story — see the phase-116 stories list.
   for `ideology.md.j2`. Do not merge these back into a single key.
 
 - Lessons are append-only. Existing lesson entries may only have their `status` field updated.
+  CER-173 narrow exception: `skills/pairmode/scripts/scrub_fleet_names.py`'s lessons-scoped
+  mode (`apply_lessons()`/`verify_lessons()`, `--lessons` CLI flag) performs a real-name-only
+  text substitution within an existing entry's free-text fields (`source_project`, `trigger`,
+  `problem`, `learning`, `methodology_change.description`, `value_framing`), sourced entirely
+  from the runtime-loaded local fleet map (INFRA-393/CER-172). It never touches `id`, `date`,
+  `status`, `enforced_by`, `applies_to`, `methodology_change.affects`, `validation_phase`, or
+  entry count/ordering. This is the only authorized route around `lesson_utils.save_lessons`'s
+  append-only guard; the guard itself is unchanged, and no other field change, addition,
+  removal, or reorder is permitted under this exception.
 - Two optional lesson fields were introduced in Phase 24 (L012) and are not yet supported by
   the `lesson.py` CLI — write them directly when appending:
   - `value_framing` (string) — the durable metric framing for efficiency-based lessons (e.g.,

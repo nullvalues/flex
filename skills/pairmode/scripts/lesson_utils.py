@@ -28,6 +28,15 @@ def save_lessons(data: dict) -> None:
     append-only like any other field (only ``status`` may change after that).
     Any other attempt to modify a field of an existing entry raises
     ValueError. New entries may be freely appended.
+
+    CER-173 exception: ``skills/pairmode/scripts/scrub_fleet_names.py``'s
+    lessons-scoped mode (``apply_lessons()``/``verify_lessons()``) performs a
+    narrow, real-name-only text substitution on existing entries' free-text
+    fields (``source_project``, ``trigger``, ``problem``, ``learning``,
+    ``methodology_change.description``, ``value_framing``) by writing
+    ``lessons.json`` directly, deliberately bypassing this function and its
+    append-only guard. That is the one authorized route around this guard;
+    this function's own enforcement is unchanged and unweakened by it.
     """
     existing = load_lessons()
     existing_by_id = {entry["id"]: entry for entry in existing.get("lessons", [])}

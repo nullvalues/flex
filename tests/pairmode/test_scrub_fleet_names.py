@@ -440,6 +440,154 @@ def test_apply_idempotent_on_already_anonymized_text(repo: Path) -> None:
 # No real repo name literal in this test file or the script itself
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Lessons-scoped mode (CER-173)
+# ---------------------------------------------------------------------------
+
+FAKE_LESSONS_DATA = {
+    "lessons": [
+        {
+            "id": "L001",
+            "date": "2026-04-20",
+            "source_project": "flex",
+            "trigger": "Ran audit against example-repo-a — a project with pairmode scaffold",
+            "problem": "Something went wrong in example-repo-a's config.",
+            "learning": "Fix the config.",
+            "methodology_change": {
+                "affects": ["audit.py"],
+                "description": "Add a warning referencing example-repo-a's setup.",
+            },
+            "applies_to": ["all"],
+            "status": "applied",
+            "enforced_by": "lint",
+        },
+        {
+            "id": "L002",
+            "date": "2026-04-21",
+            "source_project": "flex",
+            "trigger": "Unrelated trigger with no fleet name",
+            "problem": "No mention here.",
+            "learning": "Nothing to scrub in this entry.",
+            "methodology_change": {
+                "affects": ["other.py"],
+                "description": "No name here either.",
+            },
+            "applies_to": ["all"],
+            "status": "applied",
+            "enforced_by": "lint",
+            "value_framing": "efficiency ratio unaffected by example-repo-a mention? no.",
+            "validation_phase": "3",
+        },
+    ]
+}
+
+
+def _write_lessons_fixture(root: Path, data: dict) -> None:
+    _write(root, "lessons/lessons.json", json.dumps(data, indent=2) + "\n")
+
+
+@pytest.fixture
+def lessons_repo(tmp_path: Path) -> Path:
+    _init_git_repo(tmp_path)
+    _write(tmp_path, ".pairmode-fleet.local.json", json.dumps(FAKE_MAP))
+    _write_lessons_fixture(tmp_path, json.loads(json.dumps(FAKE_LESSONS_DATA)))
+    _git_add(tmp_path)
+    return tmp_path
+
+
+def test_apply_lessons_substitutes_matched_free_text_fields(lessons_repo: Path) -> None:
+    sfn.apply_lessons(lessons_repo)
+
+    data = json.loads((lessons_repo / "lessons/lessons.json").read_text())
+    l001 = data["lessons"][0]
+    assert "example-repo-a" not in l001["trigger"]
+    assert "Repo-A" in l001["trigger"]
+    assert "example-repo-a" not in l001["problem"]
+    assert "Repo-A" in l001["problem"]
+    assert "example-repo-a" not in l001["methodology_change"]["description"]
+    assert "Repo-A" in l001["methodology_change"]["description"]
+
+
+def test_apply_lessons_leaves_unmatched_entry_unchanged(lessons_repo: Path) -> None:
+    sfn.apply_lessons(lessons_repo)
+
+    data = json.loads((lessons_repo / "lessons/lessons.json").read_text())
+    l002 = data["lessons"][1]
+    assert l002["trigger"] == FAKE_LESSONS_DATA["lessons"][1]["trigger"]
+    assert l002["learning"] == FAKE_LESSONS_DATA["lessons"][1]["learning"]
+
+
+def test_apply_lessons_preserves_structural_fields(lessons_repo: Path) -> None:
+    before = json.loads((lessons_repo / "lessons/lessons.json").read_text())
+
+    sfn.apply_lessons(lessons_repo)
+
+    after = json.loads((lessons_repo / "lessons/lessons.json").read_text())
+
+    assert len(after["lessons"]) == len(before["lessons"])
+    assert [e["id"] for e in after["lessons"]] == [e["id"] for e in before["lessons"]]
+    for b, a in zip(before["lessons"], after["lessons"]):
+        assert b["date"] == a["date"]
+        assert b["status"] == a["status"]
+        assert b["enforced_by"] == a["enforced_by"]
+        assert b["applies_to"] == a["applies_to"]
+        assert b["methodology_change"]["affects"] == a["methodology_change"]["affects"]
+        assert b.get("validation_phase") == a.get("validation_phase")
+
+
+def test_apply_lessons_regenerates_lessons_md(lessons_repo: Path) -> None:
+    sfn.apply_lessons(lessons_repo)
+
+    md_text = (lessons_repo / "lessons/LESSONS.md").read_text()
+    assert "example-repo-a" not in md_text
+    assert "Repo-A" in md_text
+
+
+def test_verify_lessons_reports_zero_after_apply(lessons_repo: Path) -> None:
+    sfn.apply_lessons(lessons_repo)
+
+    assert sfn.verify_lessons(lessons_repo) == 0
+
+
+def test_verify_lessons_reports_nonzero_before_apply(lessons_repo: Path) -> None:
+    assert sfn.verify_lessons(lessons_repo) == 1
+
+
+def test_apply_lessons_missing_local_config_is_noop(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
+    _write_lessons_fixture(tmp_path, json.loads(json.dumps(FAKE_LESSONS_DATA)))
+    _git_add(tmp_path)
+
+    before = (tmp_path / "lessons/lessons.json").read_text()
+    changed = sfn.apply_lessons(tmp_path)
+    after = (tmp_path / "lessons/lessons.json").read_text()
+
+    assert changed == 0
+    assert before == after
+
+
+def test_apply_lessons_general_apply_still_excludes_lessons_json(lessons_repo: Path) -> None:
+    """The general apply()/verify() loop must remain unchanged by this
+    story: lessons/lessons.json stays excluded from it (CLAUDE.build.md
+    protected_paths), even though the repo fixture has no CLAUDE.build.md
+    (falling back to the hardcoded _GENERATED_FROM_PROTECTED exclusion for
+    LESSONS.md only) — so exercise the exclusion explicitly via a
+    CLAUDE.build.md declaring lessons/lessons.json as protected.
+    """
+    _write(
+        lessons_repo,
+        "CLAUDE.build.md",
+        "**Build standards**: protected_paths=`lessons/lessons.json` | test_command=`pytest`\n",
+    )
+    _git_add(lessons_repo)
+
+    before = (lessons_repo / "lessons/lessons.json").read_text()
+    sfn.apply(lessons_repo)
+    after = (lessons_repo / "lessons/lessons.json").read_text()
+
+    assert before == after
+
+
 def test_script_source_contains_no_real_fleet_name() -> None:
     """Structural guard: the script must source all real names from the
     runtime-loaded local config, never as a hardcoded literal."""

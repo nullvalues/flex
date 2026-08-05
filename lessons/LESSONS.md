@@ -3,13 +3,13 @@
 This file is auto-generated from `lessons.json`. Edit `lessons.json` directly
 or use `/flex:pairmode lesson` to capture a new lesson.
 
-## L001 — Ran audit against cora — a project with pairmode scaffold but no pairmode_context.json
+## L001 — Ran audit against Repo-G — a project with pairmode scaffold but no pairmode_context.json
 **Date:** 2026-04-20
 **Status:** applied
 **Enforced by:** lint
 **Learning:** When audit detects no pairmode_context.json, it should emit a prominent warning: 'No pairmode_context.json found — template body comparison will show false INCONSISTENT for all variable-bearing sections. Bootstrap this project with /flex:pairmode to fix.' MISSING and EXTRA findings remain reliable; INCONSISTENT findings require a context file to be meaningful.
 
-## L002 — Ran audit against radar and forqsite — projects with pairmode scaffold
+## L002 — Ran audit against Repo-L and Repo-E — projects with pairmode scaffold
 **Date:** 2026-04-20
 **Status:** applied
 **Enforced by:** lint
@@ -39,7 +39,7 @@ or use `/flex:pairmode lesson` to capture a new lesson.
 **Enforced by:** lint
 **Learning:** Audit needs a way to mark sections as intentionally overridden. Without that signal, any project that customises its scaffold will permanently live in a noisy INCONSISTENT state, eroding trust in the tool.
 
-## L007 — Dogfood pairmode on multiple projects simultaneously — flex + ud running at same time
+## L007 — Dogfood pairmode on multiple projects simultaneously — flex + Repo-O running at same time
 **Date:** 2026-04-21
 **Status:** applied
 **Enforced by:** hook
@@ -51,13 +51,13 @@ or use `/flex:pairmode lesson` to capture a new lesson.
 **Enforced by:** skill
 **Learning:** Running a cold-eyes review on the phase spec itself (not just on built code) catches architectural and correctness errors before any builder time is spent. The CER agent reading actual source files alongside the spec finds mismatches the spec author missed. This is more valuable than a post-build reviewer alone.
 
-## L009 — Cross-project audit (cora, radar, forqsite) of .claude/agents/ configurations
+## L009 — Cross-project audit (Repo-G, Repo-L, Repo-E) of .claude/agents/ configurations
 **Date:** 2026-05-04
 **Status:** applied
 **Enforced by:** hook
 **Learning:** Model selection should be explicit per role, not inherited. Volume work (builder) -> sonnet for compute efficiency. Judgment work (reviewer, intent-reviewer, loop-breaker, security-auditor) -> opus for judgment quality. Inheritance from the orchestrator is a silent capability leak. Add a documented fallback policy: if the preferred model is rate-limited, fall back one tier (Opus -> Sonnet on reviewers; Sonnet -> Haiku on builder), never below Haiku.
 
-## L010 — Forqsite restricted reviewer tools to [Read, Grep, Glob, Bash]; cora and radar did not. Cross-project audit surfaced the divergence.
+## L010 — Repo-E restricted reviewer tools to [Read, Grep, Glob, Bash]; Repo-G and Repo-L did not. Cross-project audit surfaced the divergence.
 **Date:** 2026-05-04
 **Status:** applied
 **Enforced by:** hook
@@ -75,7 +75,7 @@ or use `/flex:pairmode lesson` to capture a new lesson.
 **Enforced by:** none
 **Learning:** A methodology lifecycle worth codifying: (1) Ship the change under intuition. (2) Capture the rationale as a lesson. (3) Instrument the relevant signal. (4) Wait for data to accrue (≥ 2 phases). (5) Validate the methodology against the data. (6) Formalize, refine, or reverse based on findings. The goal is not minimum cost (that sacrifices quality and causes rework) and not maximum intelligence (that wastes budget on trivial work). It is best outcome per token — optimising the efficiency ratio: PASS rate / cost. This framing is stable even as model prices and capabilities shift; the thresholds in the decision table are the thing that changes, not the objective.
 
-## L013 — Phase 24 session start revealed that flex's own `.claude/agents/` files had no `model:` frontmatter, and forqsite/radar still carried pre-INFRA-044 opus reviewer assignments — despite INFRA-044 having updated the templates.
+## L013 — Phase 24 session start revealed that flex's own `.claude/agents/` files had no `model:` frontmatter, and Repo-E/Repo-L still carried pre-INFRA-044 opus reviewer assignments — despite INFRA-044 having updated the templates.
 **Date:** 2026-05-07
 **Status:** applied
 **Enforced by:** hook
@@ -87,13 +87,13 @@ or use `/flex:pairmode lesson` to capture a new lesson.
 **Enforced by:** none
 **Learning:** When a utility module has no __main__ block, running it as a script is a no-op. To call generate_lessons_md and write LESSONS.md: import the function directly and write the output in the same Python invocation. Always use json.dumps(..., ensure_ascii=True) when writing lessons.json to preserve existing \uXXXX escape sequences byte-for-byte. Never confirm success with a shell echo after &&; verify by reading the output file.
 
-## L015 — External CER on forqsite 2026-05-18 surfaced multiple doc/code mismatches accumulated over many phases: architecture.md claimed 58 role_permissions rows but actual seed produces 56 (migration 0050 was tightened by 0052 with no doc update); three additional backlog items pointed to docs that no longer matched code. None caught by per-story or checkpoint reviews. Pairmode's existing DOCUMENTATION CURRENCY check in reviewer.md.j2 covers only README.md; checkpoint Documentation review covers only README + brief.
+## L015 — External CER on Repo-E 2026-05-18 surfaced multiple doc/code mismatches accumulated over many phases: architecture.md claimed 58 role_permissions rows but actual seed produces 56 (migration 0050 was tightened by 0052 with no doc update); three additional backlog items pointed to docs that no longer matched code. None caught by per-story or checkpoint reviews. Pairmode's existing DOCUMENTATION CURRENCY check in reviewer.md.j2 covers only README.md; checkpoint Documentation review covers only README + brief.
 **Date:** 2026-05-18
 **Status:** applied
 **Enforced by:** skill
 **Learning:** Documentation reliability across builds is what preserves project context across sessions and compactions. The reviewer's doc check should expand from README-only to any non-history doc in docs/ whose content references code the story touched. The fix is builder-remediable inline: the builder updates the relevant doc as part of the same story commit, not a doc-rebuild phase. The check is approximate but cheap — grep the doc surface for references to changed files/symbols, flag candidates, let the reviewer judge. Severity HIGH when the doc statement is now factually wrong, MEDIUM for missing README user-facing change.
 
-## L016 — Reviewing L005 marker hygiene during forqsite session 2026-05-18. Found that L005's marker in CLAUDE.md.j2 points at the wrong file — the actual implementation correctly landed in agents/reviewer.md.j2. Also realized L015 was implemented directly (template edits written outside the /flex:pairmode review flow), leaving its status as 'captured' despite the change being live in the canonical templates.
+## L016 — Reviewing L005 marker hygiene during Repo-E session 2026-05-18. Found that L005's marker in CLAUDE.md.j2 points at the wrong file — the actual implementation correctly landed in agents/reviewer.md.j2. Also realized L015 was implemented directly (template edits written outside the /flex:pairmode review flow), leaving its status as 'captured' despite the change being live in the canonical templates.
 **Date:** 2026-05-18
 **Status:** captured
 **Enforced by:** none
@@ -105,13 +105,13 @@ or use `/flex:pairmode lesson` to capture a new lesson.
 **Enforced by:** none
 **Learning:** A git-tracked permission-config file is part of the working tree the reviewer reverts. Authorized changes to it must be committed BEFORE the reviewer fires (the same protection Step 1.5 gives methodology files), or they are silently destroyed on any FAIL. Two corollaries: (1) maintain an EXPLICIT allow block for the files in active scope rather than relying on absence-from-deny ('implicit approval'), so authorizations are legible in the diff and reviewable; (2) when the harness self-modification guard bars the agent from editing a permission file, write the proposed valid file to a tmp path for the operator to mv into place instead of abandoning the change.
 
-## L018 — Orchestrator post-build note from meander INFRA-008: the pre-reviewer git add docs/phases/ swept up a story deliverable whose primary_file lived under docs/phases/, committing it unreviewed under the chore(orchestrator) message.
+## L018 — Orchestrator post-build note from Repo-B INFRA-008: the pre-reviewer git add docs/phases/ swept up a story deliverable whose primary_file lived under docs/phases/, committing it unreviewed under the chore(orchestrator) message.
 **Date:** 2026-06-29
 **Status:** applied
 **Enforced by:** none
 **Learning:** The pre-reviewer git add must exclude files declared as primary_files (and touches) in the active story's spec. Correct pattern: (1) blanket 'git add docs/phases/ docs/cer/', then (2) 'git reset HEAD -- <file>' for each primary_file/touch that falls under a staged directory. This preserves the reviewer's ability to diff the story deliverable while still protecting methodology files. Applies any time a story's deliverable lives under a directory covered by the blanket add.
 
-## L019 — sync-all on aab surfaced a stale pytest test_command despite a TypeScript/pnpm stack
+## L019 — sync-all on Repo-H surfaced a stale pytest test_command despite a TypeScript/pnpm stack
 **Date:** 2026-07-09
 **Status:** reviewed
 **Enforced by:** 
@@ -123,13 +123,13 @@ or use `/flex:pairmode lesson` to capture a new lesson.
 **Enforced by:** 
 **Learning:** Faithfully reproducing a template's content format does not guarantee the side effects that the generating script performs. Phase registration (index.md row, era Phases table row) is a script side effect, not something derivable from a phase file's own content, so an agent that hand-writes a phase doc — even a well-formed one — will silently leave the index and era tracking stale. This class of drift is only caught by explicitly diffing phase-N.md files against index.md/era rows, not by reviewing the phase file in isolation.
 
-## L021 — cora 0.3.0 sync: security-auditor procedure skill audited for project parameterization
+## L021 — Repo-G 0.3.0 sync: security-auditor procedure skill audited for project parameterization
 **Date:** 2026-07-29
 **Status:** captured
 **Enforced by:** none
 **Learning:** Checkpoint procedures must consume Build standards parameters the same way the reviewer procedure consumes protected_paths and test_command.
 
-## L022 — cora 0.3.0 sync: .pairmode-overrides declared CLAUDE.md:review checklist before running sync-all --apply
+## L022 — Repo-G 0.3.0 sync: .pairmode-overrides declared CLAUDE.md:review checklist before running sync-all --apply
 **Date:** 2026-07-29
 **Status:** captured
 **Enforced by:** none

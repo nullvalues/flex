@@ -139,6 +139,12 @@ You are given a story ID (e.g. `BUILD-012`). Before taking any other action:
 
 **Lessons integrity:**
 - `lessons/lessons.json` is append-only. Never modify existing entries except to update `status`.
+- CER-173 exception: `skills/pairmode/scripts/scrub_fleet_names.py`'s lessons-scoped mode
+  (`apply_lessons()`/`verify_lessons()`, or its `--lessons` CLI flag) performs a real-name-only
+  text substitution on existing entries' free-text fields (`source_project`, `trigger`,
+  `problem`, `learning`, `methodology_change.description`, `value_framing`) — this is not an
+  append-only violation. Any other field change, addition, removal, or reorder via that path
+  or any other still is.
 
 ---
 
