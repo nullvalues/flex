@@ -15,6 +15,7 @@ Coverage:
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -43,6 +44,14 @@ _PROCEDURE_PATH = (
     / "security-auditor"
     / "procedure.md"
 )
+
+# INFRA-409/CER-208: the guard below must flag the bare orchestrator-state key
+# `context_current_tokens` (a forbidden *read* instruction, per this test
+# class's docstring intent) without also flagging `context_current_tokens_source`
+# — a distinct, static write-enumeration key (INFRA-374/CER-166) that merely
+# happens to contain the guarded substring. Word-boundary-aware: matches
+# `context_current_tokens` only when NOT immediately followed by `_source`.
+_BARE_CONTEXT_CURRENT_TOKENS_RE = re.compile(r"context_current_tokens(?!_source)")
 
 # ---------------------------------------------------------------------------
 # Procedure file existence
@@ -137,12 +146,35 @@ class TestBoundedInputs:
         )
 
     def test_procedure_does_not_reference_context_current_tokens(self):
-        """context_current_tokens is an orchestrator-owned state key; must not appear."""
+        """context_current_tokens is an orchestrator-owned state key; must not
+        appear as a bare read instruction. Narrowed to a word-boundary-aware
+        check (CER-208): `context_current_tokens_source` is a distinct,
+        legitimate write-enumeration key (INFRA-374/CER-166) and must not
+        trip this guard."""
         content = self._content()
-        assert "context_current_tokens" not in content.lower(), (
-            "Security-auditor procedure must not reference context_current_tokens — "
-            "it is an orchestrator-owned state key outside the DP1.3 bounded inputs"
+        match = _BARE_CONTEXT_CURRENT_TOKENS_RE.search(content.lower())
+        assert match is None, (
+            "Security-auditor procedure must not reference the bare key "
+            "context_current_tokens — it is an orchestrator-owned state key "
+            "outside the DP1.3 bounded inputs "
+            f"(matched at position {match.start() if match else -1})"
         )
+
+    def test_procedure_bare_context_current_tokens_key_still_disallowed(self):
+        """Regression (CER-208): the narrowed regex must still flag the bare
+        key itself, and any suffix other than `_source`, so the narrowing
+        does not silently widen the guard into a no-op."""
+        assert _BARE_CONTEXT_CURRENT_TOKENS_RE.search("context_current_tokens")
+        assert _BARE_CONTEXT_CURRENT_TOKENS_RE.search(
+            "the raw context_current_tokens value"
+        )
+        assert _BARE_CONTEXT_CURRENT_TOKENS_RE.search(
+            "context_current_tokens_recorded_at"
+        )
+        # the one permitted exception (INFRA-374/CER-166):
+        assert _BARE_CONTEXT_CURRENT_TOKENS_RE.search(
+            "context_current_tokens_source"
+        ) is None
 
 
 # ---------------------------------------------------------------------------
