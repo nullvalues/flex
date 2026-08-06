@@ -2,7 +2,7 @@
 id: INFRA-402
 rail: INFRA
 title: Add excluded-siblings mechanism to the fleet-name reconciliation gate (CER-195)
-status: draft
+status: complete
 phase: "132"
 story_class: code
 auth_gated: false

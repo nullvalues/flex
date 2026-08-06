@@ -23,7 +23,7 @@ Fix CER-195: scrub_fleet_names.py's --verify reconciliation check (INFRA-400/401
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-402 | Add excluded-siblings mechanism to the fleet-name reconciliation gate (CER-195) | draft |
+| INFRA-402 | Add excluded-siblings mechanism to the fleet-name reconciliation gate (CER-195) | complete |
 
 ## Schema delivery
 
