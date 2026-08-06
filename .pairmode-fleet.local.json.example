@@ -1,5 +1,12 @@
+// "_excluded" (INFRA-402/CER-195): directory basenames of fleet-root siblings
+// that are deliberately out of anonymization scope — never added to the
+// {label: real_path} map below, and never rewritten by the text scrub. A
+// name that is both mapped and excluded is a configuration error. Copy this
+// file to .pairmode-fleet.local.json and remove these comment lines (this
+// is a template, not consumed directly).
 {
   "_fleet_root": "/path/to/fleet-root",
+  "_excluded": ["excluded-legacy-tool"],
   "example-repo-1": "/path/to/example-repo-1",
   "example-repo-2": "/path/to/example-repo-2",
   "example-repo-3": "/path/to/example-repo-3"

@@ -775,6 +775,176 @@ def test_reconcile_skipped_with_stderr_notice_when_map_absent(
 
 
 # ---------------------------------------------------------------------------
+# Excluded-siblings reconciliation (Ensures, INFRA-402/CER-195)
+# ---------------------------------------------------------------------------
+
+def test_excluded_sibling_absent_from_unmapped_and_verify_passes(tmp_path: Path) -> None:
+    import fleet_map as fleet_map_lib
+
+    fleet_root = tmp_path / "fleet"
+    fleet_root.mkdir()
+    _make_fake_repo_dir(fleet_root, "Fakeproject-Excluded")
+
+    project_root = fleet_root / "flex"
+    project_root.mkdir()
+    _init_git_repo(project_root)
+    fleet_map = {
+        "_fleet_root": str(fleet_root),
+        "_excluded": ["Fakeproject-Excluded"],
+    }
+    _write_map(project_root, fleet_map)
+    _git_add(project_root)
+
+    unmapped = fleet_map_lib.unmapped_sibling_repos(fleet_map, project_root)
+    assert unmapped == []
+
+    assert sfn.verify(project_root) == 0
+
+
+def test_excluded_sibling_accepts_full_path_entry(tmp_path: Path) -> None:
+    """excluded_repo_names normalises via Path(entry).name, so a full path
+    entry works the same as a bare basename."""
+    import fleet_map as fleet_map_lib
+
+    fleet_root = tmp_path / "fleet"
+    fleet_root.mkdir()
+    excluded_dir = _make_fake_repo_dir(fleet_root, "Fakeproject-Excluded")
+
+    fleet_map = {"_excluded": [str(excluded_dir)]}
+    assert fleet_map_lib.excluded_repo_names(fleet_map) == {"Fakeproject-Excluded"}
+
+
+def test_excluded_repo_names_tolerates_missing_or_malformed_key() -> None:
+    import fleet_map as fleet_map_lib
+
+    assert fleet_map_lib.excluded_repo_names({}) == set()
+    assert fleet_map_lib.excluded_repo_names({"_excluded": "not-a-list"}) == set()
+    assert fleet_map_lib.excluded_repo_names({"_excluded": [1, None, "ok-name"]}) == {
+        "ok-name"
+    }
+
+
+def test_unexcluded_unmapped_sibling_still_fails(tmp_path: Path) -> None:
+    """A sibling that is neither mapped nor excluded is still returned by
+    unmapped_sibling_repos and still fails verify() (Ensures 2)."""
+    import fleet_map as fleet_map_lib
+
+    fleet_root = tmp_path / "fleet"
+    fleet_root.mkdir()
+    _make_fake_repo_dir(fleet_root, "Fakeproject-Excluded")
+    _make_fake_repo_dir(fleet_root, "Fakeproject-Unmapped")
+
+    project_root = fleet_root / "flex"
+    project_root.mkdir()
+    _init_git_repo(project_root)
+    fleet_map = {
+        "_fleet_root": str(fleet_root),
+        "_excluded": ["Fakeproject-Excluded"],
+    }
+    _write_map(project_root, fleet_map)
+    _git_add(project_root)
+
+    unmapped = fleet_map_lib.unmapped_sibling_repos(fleet_map, project_root)
+    assert [d.name for d in unmapped] == ["Fakeproject-Unmapped"]
+
+    assert sfn.verify(project_root) == 1
+
+
+def test_excluded_name_in_tracked_text_neither_rewritten_nor_reported(
+    tmp_path: Path,
+) -> None:
+    """Ensures 3: an excluded name occurring in a tracked file's text is
+    neither rewritten by apply() nor reported as a hit by verify() — the
+    substitution pattern is built solely from mapped entries, so an
+    excluded-only name has no label to be replaced with."""
+    fleet_root = tmp_path / "fleet"
+    fleet_root.mkdir()
+
+    project_root = fleet_root / "flex"
+    project_root.mkdir()
+    _init_git_repo(project_root)
+    fleet_map = {
+        "_fleet_root": str(fleet_root),
+        "_excluded": ["Fakeproject-Excluded"],
+    }
+    _write_map(project_root, fleet_map)
+    _write(project_root, "docs/notes.md", "mentions Fakeproject-Excluded in prose")
+    _git_add(project_root)
+
+    assert sfn.verify(project_root) == 0
+
+    sfn.apply(project_root)
+    after = (project_root / "docs/notes.md").read_text()
+    assert after == "mentions Fakeproject-Excluded in prose"
+
+
+def test_mapped_and_excluded_conflict_fails_naming_label_not_real_name(
+    tmp_path: Path, capsys
+) -> None:
+    """Ensures 4: a name present both as a mapped entry and in the exclusion
+    list makes verify() fail, naming the mapped label — never the real
+    name."""
+    fleet_root = tmp_path / "fleet"
+    fleet_root.mkdir()
+    _make_fake_repo_dir(fleet_root, "Fakeproject-Conflict")
+
+    project_root = fleet_root / "flex"
+    project_root.mkdir()
+    _init_git_repo(project_root)
+    fleet_map = {
+        "_fleet_root": str(fleet_root),
+        "Repo-Conflict": str(fleet_root / "Fakeproject-Conflict"),
+        "_excluded": ["Fakeproject-Conflict"],
+    }
+    _write_map(project_root, fleet_map)
+    _git_add(project_root)
+
+    result = sfn.verify(project_root)
+    assert result == 1
+    captured = capsys.readouterr()
+    assert "Repo-Conflict" in captured.err
+    assert "Fakeproject-Conflict" not in captured.err
+
+
+def test_repo_entries_excludes_excluded_key_as_well_as_fleet_root() -> None:
+    import fleet_map as fleet_map_lib
+
+    fleet_map = {
+        "_fleet_root": "/path/to/root",
+        "_excluded": ["some-name"],
+        "Repo-X": "/path/to/repo-x",
+    }
+    assert fleet_map_lib.repo_entries(fleet_map) == {"Repo-X": "/path/to/repo-x"}
+
+
+def test_verify_success_line_reports_mapped_excluded_unmapped_counts(
+    tmp_path: Path, capsys
+) -> None:
+    fleet_root = tmp_path / "fleet"
+    fleet_root.mkdir()
+    _make_fake_repo_dir(fleet_root, "Fakeproject-Mapped")
+    _make_fake_repo_dir(fleet_root, "Fakeproject-Excluded")
+
+    project_root = fleet_root / "flex"
+    project_root.mkdir()
+    _init_git_repo(project_root)
+    fleet_map = {
+        "_fleet_root": str(fleet_root),
+        "Repo-Mapped": str(fleet_root / "Fakeproject-Mapped"),
+        "_excluded": ["Fakeproject-Excluded"],
+    }
+    _write_map(project_root, fleet_map)
+    _git_add(project_root)
+
+    assert sfn.verify(project_root) == 0
+    captured = capsys.readouterr()
+    assert "verify OK: zero remaining real-name hits" in captured.out
+    assert "mapped=1" in captured.out
+    assert "excluded=1" in captured.out
+    assert "unmapped=0" in captured.out
+
+
+# ---------------------------------------------------------------------------
 # Leak-free hit reporting (Ensures 5, INFRA-400)
 # ---------------------------------------------------------------------------
 

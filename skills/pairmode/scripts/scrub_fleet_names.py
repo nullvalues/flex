@@ -343,6 +343,27 @@ def verify(root: Path = _FLEX_ROOT) -> int:
         return 0
 
     reconciliation_failed = False
+
+    # Mapped/excluded conflict check (Ensures 4, INFRA-402/CER-195): a name
+    # that is both mapped and excluded is a configuration contradiction, not
+    # a precedence question, and must fail loudly rather than resolve to one
+    # side. Report the mapped label only — never the real name (leak-free
+    # reporting, same contract as the rest of this function).
+    names_to_labels_for_conflict = _real_names_to_labels(fleet_map)
+    excluded_names = _fleet_map_lib.excluded_repo_names(fleet_map)
+    conflicting = sorted(
+        set(names_to_labels_for_conflict) & excluded_names
+    )
+    if conflicting:
+        reconciliation_failed = True
+        for real_name in conflicting:
+            label = names_to_labels_for_conflict[real_name]
+            print(
+                f"verify FAILED: label {label!r} is both mapped and listed "
+                "in the exclusion list — a name cannot be both",
+                file=sys.stderr,
+            )
+
     unmapped = _reconcile_fleet_root(fleet_map, root)
     if unmapped:
         reconciliation_failed = True
@@ -399,7 +420,11 @@ def verify(root: Path = _FLEX_ROOT) -> int:
     if reconciliation_failed:
         return 1
 
-    print("verify OK: zero remaining real-name hits")
+    print(
+        "verify OK: zero remaining real-name hits "
+        f"(mapped={len(names_to_labels)}, excluded={len(excluded_names)}, "
+        f"unmapped={len(unmapped)})"
+    )
     return 0
 
 

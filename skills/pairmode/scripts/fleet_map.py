@@ -27,6 +27,19 @@ LOCAL_FLEET_CONFIG_FILENAME = ".pairmode-fleet.local.json"
 # `{label: real_path}` repo entries. Never treated as a repo entry itself.
 FLEET_ROOT_CONFIG_KEY = "_fleet_root"
 
+# Reserved key (INFRA-402/CER-195): an optional entry in the same JSON file
+# holding a list of sibling-directory basenames deliberately out of
+# anonymization scope for the sibling-directory reconciliation `--verify`
+# performs (see `excluded_repo_names`). Never treated as a repo entry itself.
+EXCLUDED_REPOS_CONFIG_KEY = "_excluded"
+
+# All reserved keys inside `.pairmode-fleet.local.json` that are
+# configuration, not a `{label: real_path}` repo entry (INFRA-402). Kept as a
+# single frozenset so `repo_entries` filters every reserved key uniformly —
+# `fleet_discovery.py` also calls `repo_entries`, and a list value (e.g. the
+# `_excluded` array) reaching `real_names_to_labels` would raise.
+RESERVED_CONFIG_KEYS = frozenset({FLEET_ROOT_CONFIG_KEY, EXCLUDED_REPOS_CONFIG_KEY})
+
 # Stable, non-identifying placeholder for a discovered repo path with no
 # fleet-map entry (Ensures 4, INFRA-400). `{n}` is a 1-based per-snapshot
 # counter, not derived from anything about the real path.
@@ -46,18 +59,33 @@ def load_local_fleet_map(root: Path) -> dict[str, str]:
 
 
 def repo_entries(fleet_map: dict[str, str]) -> dict[str, str]:
-    """The ``{label: real_path}`` entries only, excluding the reserved
-    ``_fleet_root`` key (which is configuration, not a repo mapping).
+    """The ``{label: real_path}`` entries only, excluding every reserved key
+    (``_fleet_root``, ``_excluded``, ...) — configuration, not a repo mapping.
     """
-    return {k: v for k, v in fleet_map.items() if k != FLEET_ROOT_CONFIG_KEY}
+    return {k: v for k, v in fleet_map.items() if k not in RESERVED_CONFIG_KEYS}
+
+
+def excluded_repo_names(fleet_map: dict[str, str]) -> set[str]:
+    """Basenames of sibling directories deliberately out of anonymization
+    scope for the sibling-directory reconciliation (INFRA-402/CER-195).
+
+    Reads the reserved ``_excluded`` key. Never raises: a missing key or a
+    non-list value both yield an empty set (the loader's never-raises
+    contract). Each entry is normalised via ``Path(entry).name`` so a full
+    path also works, not just a bare basename.
+    """
+    raw = fleet_map.get(EXCLUDED_REPOS_CONFIG_KEY)
+    if not isinstance(raw, list):
+        return set()
+    return {Path(entry).name for entry in raw if isinstance(entry, str) and Path(entry).name}
 
 
 def real_names_to_labels(fleet_map: dict[str, str]) -> dict[str, str]:
     """Derive ``{real_name: label}`` from ``{label: real_path}``.
 
     The real name to match is the leaf/basename of the real absolute path
-    (e.g. ``/mnt/work/<name>`` -> ``<name>``). The reserved ``_fleet_root``
-    key is excluded via ``repo_entries`` before this derivation runs.
+    (e.g. ``/mnt/work/<name>`` -> ``<name>``). Every reserved key is excluded
+    via ``repo_entries`` before this derivation runs.
     """
     names: dict[str, str] = {}
     for label, real_path in repo_entries(fleet_map).items():
@@ -122,18 +150,26 @@ def sibling_repo_dirs(fleet_root: Path) -> list[Path]:
 
 def unmapped_sibling_repos(fleet_map: dict[str, str], project_root: Path) -> list[Path]:
     """On-disk sibling repos under the fleet root with no entry in
-    ``fleet_map`` (Ensures 1/2, INFRA-400) — the map/disk reconciliation.
+    ``fleet_map`` and not deliberately excluded (Ensures 1/2, INFRA-400;
+    exclusion subtraction added by INFRA-402/CER-195) — the map/disk
+    reconciliation.
 
     Excludes ``project_root`` itself: when the fleet root is the parent
     directory of the project running the reconciliation (the default), the
     project's own checkout is one of the fleet root's immediate
-    subdirectories but is never a "sibling" the map needs to cover.
+    subdirectories but is never a "sibling" the map needs to cover. Also
+    excludes any sibling whose basename is listed in the reserved
+    ``_excluded`` key (see ``excluded_repo_names``) — those are deliberately
+    out of anonymization scope and must never be reported as unmapped.
     """
     mapped_names = set(real_names_to_labels(fleet_map))
+    excluded_names = excluded_repo_names(fleet_map)
     fleet_root = resolve_fleet_root(fleet_map, project_root)
     resolved_project_root = Path(project_root).resolve()
     return [
         d
         for d in sibling_repo_dirs(fleet_root)
-        if d.name not in mapped_names and d.resolve() != resolved_project_root
+        if d.name not in mapped_names
+        and d.name not in excluded_names
+        and d.resolve() != resolved_project_root
     ]
