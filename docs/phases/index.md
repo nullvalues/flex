@@ -150,7 +150,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 126 | Close shadow-reviewer Bash-guard bypass and scope its Write grant (CER-174) | complete | [phase-126.md](phase-126.md) |
 | 127 | Close shadow-reviewer git-flag write bypass and worktree-path scope_guard gap (CER-175) | complete | [phase-127.md](phase-127.md) |
 | 128 | Fix .pairmode-overrides template/migration gap from audit.py key-format change (CER-180) | complete | [phase-128.md](phase-128.md) |
-| 129 | De-duplicate pairmode_drift_report.py's stale override-key parser (CER-181) | planned | [phase-129.md](phase-129.md) |
+| 129 | De-duplicate pairmode_drift_report.py's stale override-key parser (CER-181) | complete | [phase-129.md](phase-129.md) |
 | 130 | Close CER-172 scrub completeness and regression gaps (CER-188) | planned | [phase-130.md](phase-130.md) |
 | 131 | Fix scrub_fleet_names crash, incomplete anonymization coverage, and unwired gate (CER-194) | planned | [phase-131.md](phase-131.md) |
 | 132 | Add excluded-siblings mechanism to the fleet-name reconciliation gate (CER-195) | planned | [phase-132.md](phase-132.md) |
