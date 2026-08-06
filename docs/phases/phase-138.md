@@ -21,7 +21,7 @@ Close the remaining shadow-reviewer confinement gaps in scope_guard/reviewer_bas
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-408 | Close shadow-reviewer scope_guard cwd-resolution gap (CER-176/177/201) | draft |
+| INFRA-408 | Close shadow-reviewer scope_guard cwd-resolution gap (CER-176/177/201) | complete |
 
 ## Schema delivery
 

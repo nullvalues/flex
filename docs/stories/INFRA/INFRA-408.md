@@ -2,7 +2,7 @@
 id: INFRA-408
 rail: INFRA
 title: Close shadow-reviewer scope_guard cwd-resolution gap (CER-176/177/201)
-status: draft
+status: complete
 phase: "138"
 story_class: code
 auth_gated: false
