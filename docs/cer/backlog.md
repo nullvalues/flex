@@ -374,6 +374,8 @@ Important, not urgent. Quality improvements, architectural refinements.
 
 | CER-200 | MEDIUM: scope_guard.py's _out_of_root_decision (skills/pairmode/scripts/scope_guard.py:126-127) lets a shadow-reviewer-attributed write that resolves outside the project root land in the harness-owned allow-list prefixes (~/.claude/projects/<key>/memory, ~/.claude/plans, the session scratchpad) despite the shadow-reviewer role's documented 'confined to exactly .pairmode-suggestions.md' promise -- the out-of-root branch does not distinguish agent_type before applying the allow-list. Found by the Phase 126 checkpoint security-auditor run (INFRA-396 re-audit). skills/pairmode/scripts/scope_guard.py. | security-auditor | 2026-08-06 | 126 |
 
+| CER-206 | MEDIUM: fleet_discovery.py's _load_local_fleet_map (skills/pairmode/scripts/fleet_discovery.py:130-134) swallows the new FleetMapConfigError back to {} to preserve its own never-raises contract (INFRA-403), but doing so also discards a custom _fleet_root key from a malformed-but-present local config -- _anonymize_results_for_output then falls back to the default parent-of-flex-root sibling scan, and free-text signal1_value/signal1_absent_detail paths under a non-default fleet root can survive un-placeholdered on that degraded path. Distinct from CER-197 (nested --json path leak under normal operation). Found by the Phase 133 checkpoint security-auditor run (INFRA-403 re-audit). skills/pairmode/scripts/fleet_discovery.py. | security-auditor | 2026-08-06 | 133 |
+
 
 
 ---
