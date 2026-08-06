@@ -56,6 +56,20 @@ RESERVED_CONFIG_KEYS = frozenset(
 UNMAPPED_PLACEHOLDER_TEMPLATE = "<unmapped-repo-{n}>"
 
 
+def normalize_name(name: str) -> str:
+    """The single, shared case-fold used by every case-insensitive fleet-name
+    comparison (CER-205).
+
+    ``scrub_fleet_names.py``'s substitution pattern already matches a real
+    name's as-written/Capitalized/UPPERCASE forms (``_expand_case_variants``)
+    — a case-exact comparison elsewhere (e.g. the mapped/excluded conflict
+    check) disagrees with that and can miss a genuine case-variant conflict.
+    Every such comparison site normalizes through this one function rather
+    than each re-deriving its own ``.lower()``, so they can never drift.
+    """
+    return name.lower()
+
+
 class FleetMapConfigError(RuntimeError):
     """Raised by ``load_local_fleet_map`` when
     ``.pairmode-fleet.local.json`` exists but its contents are not valid
@@ -80,7 +94,16 @@ def load_local_fleet_map(root: Path) -> dict[str, str]:
     behaviour is unchanged. A file that exists and is readable but is not
     valid JSON raises ``FleetMapConfigError`` (CER-196, INFRA-403) instead
     of degrading to ``{}``: a malformed config must never be silently read
-    as "no fleet names configured".
+    as "no fleet names configured". A file that is valid JSON but whose
+    top-level value is not an object (e.g. a list, string, number, or
+    ``null``) raises the same ``FleetMapConfigError`` (CER-198) rather than
+    returning that non-dict value as-is — every caller here and in
+    ``scrub_fleet_names.py`` treats the return value as a ``{label:
+    real_path}`` mapping, and a non-dict value reaching ``repo_entries()``
+    (which calls ``.items()``) would previously either raise an unrelated
+    ``AttributeError`` or, worse, fail a truthiness check the same way an
+    absent file does — silently degrading to "no fleet names configured"
+    for a config that is present but wrong-shaped.
     """
     local_path = Path(root) / LOCAL_FLEET_CONFIG_FILENAME
     try:
@@ -89,11 +112,17 @@ def load_local_fleet_map(root: Path) -> dict[str, str]:
     except (FileNotFoundError, OSError):
         return {}
     try:
-        return json.loads(text)
+        data = json.loads(text)
     except json.JSONDecodeError as e:
         raise FleetMapConfigError(
             f"{local_path}: invalid JSON ({e})"
         ) from e
+    if not isinstance(data, dict):
+        raise FleetMapConfigError(
+            f"{local_path}: expected a JSON object at the top level, got "
+            f"{type(data).__name__}"
+        )
+    return data
 
 
 def repo_entries(fleet_map: dict[str, str]) -> dict[str, str]:

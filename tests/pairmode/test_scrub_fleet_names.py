@@ -6,6 +6,7 @@ All fixtures use fake placeholder repo names — never real fleet repo names.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -104,7 +105,33 @@ def test_example_template_is_valid_json() -> None:
     )
     loaded = json.loads(example_path.read_text(encoding="utf-8"))
     assert isinstance(loaded, dict)
-    assert "example-repo-1" in loaded
+    assert "Repo-A" in loaded
+
+
+def test_example_template_keys_are_labels_not_plausible_repo_names() -> None:
+    """CER-189: the template's example keys must be anonymized-label-shaped
+    (Repo-A-style), not a repo-like name equal to the value's basename — the
+    prior 'example-repo-1' shape made key == real-name basename, which is a
+    self-substitution no-op that then reports every mention as an unfixable
+    hit forever once an operator copies the shape verbatim. The values
+    themselves must also read as self-evidently placeholder (angle-bracket
+    form), not a plausible real fleet-repo name."""
+    example_path = (
+        Path(__file__).resolve().parents[2] / ".pairmode-fleet.local.json.example"
+    )
+    loaded = json.loads(example_path.read_text(encoding="utf-8"))
+    repo_keys = [
+        k for k in loaded if k not in ("_fleet_root", "_excluded", "_comment")
+    ]
+    assert repo_keys
+    for key in repo_keys:
+        assert key.startswith("Repo-"), key
+        value = loaded[key]
+        basename = value.rsplit("/", 1)[-1]
+        assert basename.startswith("<") and basename.endswith(">"), basename
+        # The key must never equal the value's basename (the self-
+        # substitution no-op CER-189 guards against).
+        assert key != basename
 
 
 def test_verify_on_malformed_config_exits_nonzero(tmp_path: Path) -> None:
@@ -952,6 +979,36 @@ def test_mapped_and_excluded_conflict_fails_naming_label_not_real_name(
     assert "Fakeproject-Conflict" not in captured.err
 
 
+def test_mapped_and_excluded_conflict_detected_across_case_variant(
+    tmp_path: Path, capsys
+) -> None:
+    """CER-205: the conflict check must use the same case handling the
+    scrub's substitution pattern applies (`_expand_case_variants`) — a name
+    differing only in case between the mapped entry and the exclusion list
+    is still a conflict, not a case-exact miss that silently passes both
+    through unflagged."""
+    fleet_root = tmp_path / "fleet"
+    fleet_root.mkdir()
+    _make_fake_repo_dir(fleet_root, "Fakeproject-CaseConflict")
+
+    project_root = fleet_root / "flex"
+    project_root.mkdir()
+    _init_git_repo(project_root)
+    fleet_map = {
+        "_fleet_root": str(fleet_root),
+        "Repo-CaseConflict": str(fleet_root / "Fakeproject-CaseConflict"),
+        "_excluded": ["FAKEPROJECT-CASECONFLICT"],
+    }
+    _write_map(project_root, fleet_map)
+    _git_add(project_root)
+
+    result = sfn.verify(project_root)
+
+    assert result == 1
+    captured = capsys.readouterr()
+    assert "Repo-CaseConflict" in captured.err
+
+
 def test_repo_entries_excludes_excluded_key_as_well_as_fleet_root() -> None:
     import fleet_map as fleet_map_lib
 
@@ -988,6 +1045,31 @@ def test_verify_success_line_reports_mapped_excluded_unmapped_counts(
     assert "mapped=1" in captured.out
     assert "excluded=1" in captured.out
     assert "unmapped=0" in captured.out
+
+
+def test_verify_reconciliation_summary_reports_nonzero_unmapped_and_names_it(
+    tmp_path: Path, capsys
+) -> None:
+    """CER-204: the reconciliation summary is printed unconditionally, not
+    only on a clean run — its `unmapped=` count can be nonzero, and the
+    offending directory is separately named in the FAILED detail. Before
+    this fix, the summary print only ran on the success path, where
+    `unmapped` is structurally always zero (any non-empty unmapped set
+    already made the run fail before reaching that print)."""
+    fleet_root = tmp_path / "fleet"
+    fleet_root.mkdir()
+    unmapped_dir = _make_fake_repo_dir(fleet_root, "Fakeproject-Unmapped")
+
+    project_root = fleet_root / "flex"
+    project_root.mkdir()
+    _init_git_repo(project_root)
+    _write_map(project_root, {"_fleet_root": str(fleet_root)})
+    _git_add(project_root)
+
+    assert sfn.verify(project_root) == 1
+    captured = capsys.readouterr()
+    assert "unmapped=1" in captured.out
+    assert str(unmapped_dir) in captured.err
 
 
 # ---------------------------------------------------------------------------
@@ -1161,3 +1243,70 @@ def test_install_hook_cli_exits_zero_on_installed(tmp_path: Path) -> None:
 def test_install_hook_cli_exits_nonzero_on_not_a_git_repo(tmp_path: Path) -> None:
     exit_code = sfn.main(["install-hook", str(tmp_path)])
     assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# Shell-safe hook interpolation (Ensures 3, CER-199)
+# ---------------------------------------------------------------------------
+
+def test_install_hook_shell_quotes_repo_root(tmp_path: Path) -> None:
+    """CER-199: repo_root is interpolated via `shlex.quote` — the rendered
+    hook body contains the exact shlex.quote()-escaped form, not the raw
+    value."""
+    tricky_name = "weird $(touch INJECTED) it's got a space"
+    tricky_root = tmp_path / tricky_name
+    tricky_root.mkdir()
+    _init_git_repo(tricky_root)
+
+    status, hook_path = sfn.install_hook(tricky_root)
+
+    assert status == sfn.HOOK_STATUS_INSTALLED
+    rendered = hook_path.read_text()
+    assert shlex.quote(str(tricky_root)) in rendered
+
+
+def test_installed_hook_root_with_shell_metacharacters_never_executes_injection(
+    tmp_path: Path,
+) -> None:
+    """CER-199: a `--root` value containing `$(...)`, a space, and a single
+    quote must survive into the hook body as an inert literal rather than
+    executable shell syntax — running the hook must never execute the
+    injected command."""
+    tricky_name = "weird $(touch INJECTED) it's got a space"
+    tricky_root = tmp_path / tricky_name
+    tricky_root.mkdir()
+    _init_git_repo(tricky_root)
+    _write(tricky_root, "docs/notes.md", "nothing to scrub here")
+    _git_add(tricky_root)
+
+    status, hook_path = sfn.install_hook(tricky_root)
+    assert status == sfn.HOOK_STATUS_INSTALLED
+
+    _run_hook(hook_path, tricky_root)
+
+    assert not (tricky_root / "INJECTED").exists()
+    assert not (tmp_path / "INJECTED").exists()
+    assert not (Path.cwd() / "INJECTED").exists()
+
+
+# ---------------------------------------------------------------------------
+# --root fallback safety (Ensures 4, CER-203)
+# ---------------------------------------------------------------------------
+
+def test_parse_root_missing_value_raises() -> None:
+    with pytest.raises(sfn._RootArgError):
+        sfn._parse_root(["--verify", "--root"])
+
+
+def test_parse_root_absent_flag_falls_back_to_flex_root() -> None:
+    # Control case: --root simply not supplied at all is the normal,
+    # intended default — unaffected by the CER-203 fix.
+    assert sfn._parse_root(["--verify"]) == sfn._FLEX_ROOT
+
+
+def test_main_exits_nonzero_when_root_flag_has_no_value(capsys) -> None:
+    exit_code = sfn.main(["--verify", "--root"])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "--root" in captured.err

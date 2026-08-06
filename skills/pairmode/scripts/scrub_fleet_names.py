@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import stat
 import subprocess
 import sys
@@ -344,6 +345,14 @@ def verify(root: Path = _FLEX_ROOT) -> int:
     reporting, Ensures 5) — only the mapped label, `file:line`, or (for
     reconciliation only, which is inherently about a name absent from the
     map and therefore has no label yet) the unmapped directory path itself.
+
+    The `mapped=`/`excluded=`/`unmapped=` reconciliation summary is printed
+    unconditionally, once the local map is loaded — not only on a clean run
+    (CER-204). Gating it behind the success path made the printed
+    `unmapped=` count structurally always zero wherever it was visible: any
+    non-empty unmapped set already sets the run to fail before reaching a
+    success-only print. Printing it before the pass/fail determination
+    means the count is meaningful in both outcomes.
     """
     fleet_map = _load_local_fleet_map(root)
     if not fleet_map:
@@ -356,11 +365,21 @@ def verify(root: Path = _FLEX_ROOT) -> int:
     # that is both mapped and excluded is a configuration contradiction, not
     # a precedence question, and must fail loudly rather than resolve to one
     # side. Report the mapped label only — never the real name (leak-free
-    # reporting, same contract as the rest of this function).
+    # reporting, same contract as the rest of this function). Matched
+    # case-insensitively via the shared `fleet_map.normalize_name` (CER-205)
+    # so a name differing only in case from a mapped entry is still caught —
+    # the substitution pattern itself (`_expand_case_variants`) already
+    # treats case variants of the same real name as equivalent, and this
+    # check must agree with that rather than compare case-exactly.
     names_to_labels_for_conflict = _real_names_to_labels(fleet_map)
     excluded_names = _fleet_map_lib.excluded_repo_names(fleet_map)
+    normalized_excluded = {
+        _fleet_map_lib.normalize_name(n) for n in excluded_names
+    }
     conflicting = sorted(
-        set(names_to_labels_for_conflict) & excluded_names
+        name
+        for name in names_to_labels_for_conflict
+        if _fleet_map_lib.normalize_name(name) in normalized_excluded
     )
     if conflicting:
         reconciliation_failed = True
@@ -373,6 +392,21 @@ def verify(root: Path = _FLEX_ROOT) -> int:
             )
 
     unmapped = _reconcile_fleet_root(fleet_map, root)
+
+    # Reconciliation summary (Ensures, CER-204): printed unconditionally,
+    # not only on a clean run — the unmapped count is exactly the signal
+    # that names a failing reconciliation, so gating this print behind
+    # "only prints on success" made the number structurally always zero
+    # wherever it was visible (any non-empty `unmapped` already sets
+    # `reconciliation_failed = True`, and every path to the old
+    # success-only print returned 1 before reaching it). Printing it here,
+    # before the pass/fail determination, makes the count carry real
+    # information in both outcomes.
+    print(
+        f"reconciliation: mapped={len(names_to_labels_for_conflict)}, "
+        f"excluded={len(excluded_names)}, unmapped={len(unmapped)}"
+    )
+
     if unmapped:
         reconciliation_failed = True
         print(
@@ -428,11 +462,7 @@ def verify(root: Path = _FLEX_ROOT) -> int:
     if reconciliation_failed:
         return 1
 
-    print(
-        "verify OK: zero remaining real-name hits "
-        f"(mapped={len(names_to_labels)}, excluded={len(excluded_names)}, "
-        f"unmapped={len(unmapped)})"
-    )
+    print("verify OK: zero remaining real-name hits")
     return 0
 
 
@@ -642,7 +672,7 @@ _PRE_COMMIT_HOOK_TEMPLATE = """#!/bin/sh
 # Blocks a commit whenever `scrub_fleet_names.py --verify` fails, so a real
 # fleet-repo name (or an unmapped on-disk sibling repo) can never land in a
 # tracked file, or drift silently uncovered, without the commit failing.
-exec uv run python "{script_path}" --verify --root "{repo_root}"
+exec uv run python {script_path} --verify --root {repo_root}
 """
 
 
@@ -696,8 +726,14 @@ def install_hook(repo_root: Path) -> tuple[str, Path | None]:
     hooks_dir = git_path / "hooks"
     hook_path = hooks_dir / "pre-commit"
     script_path = Path(__file__).resolve()
+    # Both interpolated values are shell-quoted via `shlex.quote` (CER-199):
+    # the template's `/bin/sh exec` line is otherwise unescaped shell
+    # interpolation, and either value could contain a space, a single quote,
+    # or `$(...)` command-substitution syntax that would otherwise execute
+    # as shell rather than survive as an inert literal path.
     rendered = _PRE_COMMIT_HOOK_TEMPLATE.format(
-        script_path=script_path, repo_root=repo_root
+        script_path=shlex.quote(str(script_path)),
+        repo_root=shlex.quote(str(repo_root)),
     )
 
     if hook_path.exists():
@@ -716,16 +752,36 @@ def install_hook(repo_root: Path) -> tuple[str, Path | None]:
     return HOOK_STATUS_INSTALLED, hook_path
 
 
+class _RootArgError(ValueError):
+    """Raised by `_parse_root` when `--root` is passed with no following
+    value (CER-203) — a mistyped invocation (a trailing `--root` with
+    nothing after it) that must not silently fall back to `_FLEX_ROOT` and
+    run `apply()`/`verify()` against a tree the operator did not ask for.
+    """
+
+
 def _parse_root(args: list[str]) -> Path:
     """Read an optional `--root PATH` from args, defaulting to `_FLEX_ROOT`
-    — used by the installed pre-commit hook (which always passes `--root`
-    explicitly) and available to any other caller that needs to point
-    `--verify`/apply at a repo other than this script's own checkout.
+    when `--root` is absent entirely — used by the installed pre-commit hook
+    (which always passes `--root` explicitly) and available to any other
+    caller that needs to point `--verify`/apply at a repo other than this
+    script's own checkout.
+
+    Raises `_RootArgError` (CER-203) when `--root` is present but has no
+    following value, rather than falling back to `_FLEX_ROOT` — that
+    fallback is only correct when the operator genuinely did not ask for a
+    specific root; a present-but-empty `--root` means they did ask and the
+    value was lost, which the tool must never guess past silently, since
+    `apply()` rewrites tracked files in whatever root it resolves.
     """
     if "--root" in args:
         idx = args.index("--root")
         if idx + 1 < len(args):
             return Path(args[idx + 1])
+        raise _RootArgError(
+            "--root was passed with no value — refusing to fall back to "
+            "this script's own checkout root for a mistyped invocation"
+        )
     return _FLEX_ROOT
 
 
@@ -759,7 +815,15 @@ def main(argv: list[str] | None = None) -> int:
         # actually in place" outcomes exit 0.
         return 0 if status in (HOOK_STATUS_INSTALLED, HOOK_STATUS_ALREADY_INSTALLED) else 1
 
-    root = _parse_root(args)
+    try:
+        root = _parse_root(args)
+    except _RootArgError as e:
+        # CER-203: a mistyped `--root` with no following value must fail
+        # loudly rather than silently falling back to `_FLEX_ROOT` and
+        # running against the wrong tree.
+        print(f"scrub_fleet_names: {e}", file=sys.stderr)
+        return 1
+
     try:
         if "--lessons" in args:
             if "--verify" in args:

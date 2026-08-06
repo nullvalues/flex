@@ -2,7 +2,7 @@
 id: INFRA-405
 rail: INFRA
 title: Fleet-gate trivial quality fixes (CER-189/198/199/203/204/205)
-status: draft
+status: complete
 phase: "135"
 story_class: code
 auth_gated: false
@@ -14,6 +14,7 @@ primary_files:
 touches:
   - tests/pairmode/test_scrub_fleet_names.py
   - tests/pairmode/test_fleet_map.py
+  - docs/architecture.md
 narrative_roles: []
 ---
 
@@ -105,3 +106,15 @@ failure does not mask a new one.
   in-fleet; this story fixes handling of the existing shape only.
 - Wiring the gate into any additional hook or CI surface — the gate's
   invocation points are unchanged.
+
+## Evidence
+
+- CER-204's fix (moving `scrub_fleet_names.py verify()`'s mapped/excluded/
+  unmapped reconciliation print from success-only to unconditional) changes
+  observable output behavior that `docs/architecture.md` § Fleet discovery
+  described ("`scrub_fleet_names.py verify()`'s success line reports
+  mapped/excluded/unmapped counts"). Updated that section (and added
+  `docs/architecture.md` to this story's `touches:`) to describe the new
+  unconditional-print behavior instead, so the doc stays current with the
+  code (a prior attempt at this story was reverted for exactly this
+  documentation-currency gap).

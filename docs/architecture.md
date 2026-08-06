@@ -3788,9 +3788,33 @@ work). `fleet_map.py` now recognises a reserved `_excluded` config key
 `excluded_repo_names()`) whose entries are subtracted from
 `unmapped_sibling_repos`; a directory listed in both the anonymized map and
 the exclusion list is a conflict, reported by name (not by real path).
-`scrub_fleet_names.py verify()`'s success line reports mapped/excluded/unmapped
-counts. `.pairmode-fleet.local.json.example` documents the mechanism's shape
-using only a synthetic name.
+`.pairmode-fleet.local.json.example` documents the mechanism's shape using
+only a synthetic name.
+
+**Trivial fleet-gate quality fixes (Phase 135, INFRA-405, CER-189/198/199/203/204/205):**
+`scrub_fleet_names.py verify()`'s `mapped=`/`excluded=`/`unmapped=`
+reconciliation summary is printed **unconditionally**, immediately after the
+unmapped-sibling reconciliation runs and before the pass/fail determination
+— not only on the clean-run success line, as it was originally (CER-204).
+Gating it behind success made the printed `unmapped=` count structurally
+always zero wherever an operator could see it: any non-empty unmapped set
+already sets the run to fail before reaching a success-only print, so the
+number carried no information. Printing it unconditionally means the count
+is meaningful in both outcomes; the failing-reconciliation detail block
+(naming each unmapped directory) still prints separately, to stderr, as
+before. Four smaller quality fixes shipped in the same story: `fleet_map.py`
+now raises `FleetMapConfigError` on a present-but-non-dict top-level JSON
+value (e.g. a list or string), same as the CER-196 malformed-JSON case,
+rather than letting a wrong-shaped-but-parseable config fall through to a
+false "no config" clean pass (CER-198); `scrub_fleet_names.py`'s generated
+pre-commit hook shell-quotes its two interpolated values via `shlex.quote`
+(CER-199); `_parse_root` raises rather than silently falling back to
+`_FLEX_ROOT` when `--root` is passed with no following value — `--root`
+absent entirely is unaffected and still defaults to `_FLEX_ROOT` as intended
+(CER-203); and the mapped/excluded conflict check now compares through the
+shared `fleet_map.normalize_name` case-fold, matching the case-expanding
+scrub pattern (`_expand_case_variants`) instead of a case-exact comparison
+(CER-205).
 
 **Fail-loud local fleet config (INFRA-403, CER-196):** INFRA-402's own shipped
 `.pairmode-fleet.local.json.example` was itself invalid JSON (leading `//`
