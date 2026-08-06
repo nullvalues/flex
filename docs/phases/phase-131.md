@@ -23,7 +23,7 @@ Fix CER-194: fleet_map.py's sibling_repo_dirs() crashes with an unhandled Permis
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-401 | Fix scrub_fleet_names crash, incomplete anonymization coverage, and unwired gate (CER-194) | draft |
+| INFRA-401 | Fix scrub_fleet_names crash, incomplete anonymization coverage, and unwired gate (CER-194) | complete |
 
 ## Schema delivery
 

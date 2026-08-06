@@ -2,7 +2,7 @@
 id: INFRA-401
 rail: INFRA
 title: Fix scrub_fleet_names crash, incomplete anonymization coverage, and unwired gate (CER-194)
-status: draft
+status: complete
 phase: "131"
 story_class: code
 auth_gated: false
