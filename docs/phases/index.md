@@ -154,6 +154,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 130 | Close CER-172 scrub completeness and regression gaps (CER-188) | planned | [phase-130.md](phase-130.md) |
 | 131 | Fix scrub_fleet_names crash, incomplete anonymization coverage, and unwired gate (CER-194) | planned | [phase-131.md](phase-131.md) |
 | 132 | Add excluded-siblings mechanism to the fleet-name reconciliation gate (CER-195) | planned | [phase-132.md](phase-132.md) |
+| 133 | Fix invalid-JSON fleet-config example causing silent fail-open verify (CER-196) | planned | [phase-133.md](phase-133.md) |
 
 ---
 
