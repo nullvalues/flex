@@ -1133,6 +1133,114 @@ class TestRunDriftPromotion:
         assert "## section two" in content
 
 
+class TestLegacyRejectedPatternFallback:
+    """CER-184: a rejection persisted under the pre-CER-181 section-key shape
+    (with the leading ``#+\\s*`` marker still attached) is still honoured, and
+    is migrated to the current shape on the next read so the fallback is not
+    needed again for that pattern."""
+
+    def test_legacy_shaped_rejection_is_still_honoured(self, tmp_path, capsys):
+        """A candidate whose current-shape pattern id misses is still
+        recognised via the legacy (marker-carrying) shape, and is not
+        re-prompted."""
+        import skills.pairmode.scripts.lesson_review as lr
+
+        candidate = _make_convergence_candidate(
+            file="CLAUDE.build.md", section="build loop"
+        )
+        current_pattern_id = lr._candidate_pattern_id(candidate)
+        legacy_pattern_id = lr._legacy_candidate_pattern_id(candidate)
+        assert legacy_pattern_id != current_pattern_id
+
+        # Persist the rejection under the pre-CER-181 shape only.
+        (tmp_path / ".pairmode-drift-rejected").write_text(
+            legacy_pattern_id + "\n", encoding="utf-8"
+        )
+
+        prompted = []
+
+        def fake_drift_report(project_dirs, convergent, output_format):
+            return _make_drift_report_response([candidate])
+
+        def fake_input(prompt):
+            prompted.append(prompt)
+            return "y"
+
+        lr.run_drift_promotion(
+            project_dirs=[tmp_path],
+            project_dir=tmp_path,
+            drift_report_fn=fake_drift_report,
+            input_fn=fake_input,
+        )
+
+        # Not re-prompted: the legacy-shaped record still suppresses it.
+        assert len(prompted) == 0
+
+    def test_legacy_shaped_rejection_is_rewritten_under_current_shape(
+        self, tmp_path
+    ):
+        """On a legacy-shape hit, the record is re-persisted under the
+        current shape so a future read no longer needs the fallback."""
+        import skills.pairmode.scripts.lesson_review as lr
+
+        candidate = _make_convergence_candidate(
+            file="CLAUDE.build.md", section="build loop"
+        )
+        current_pattern_id = lr._candidate_pattern_id(candidate)
+        legacy_pattern_id = lr._legacy_candidate_pattern_id(candidate)
+
+        (tmp_path / ".pairmode-drift-rejected").write_text(
+            legacy_pattern_id + "\n", encoding="utf-8"
+        )
+
+        def fake_drift_report(project_dirs, convergent, output_format):
+            return _make_drift_report_response([candidate])
+
+        def fake_input(prompt):
+            raise AssertionError("should not prompt for an already-rejected pattern")
+
+        lr.run_drift_promotion(
+            project_dirs=[tmp_path],
+            project_dir=tmp_path,
+            drift_report_fn=fake_drift_report,
+            input_fn=fake_input,
+        )
+
+        content = (tmp_path / ".pairmode-drift-rejected").read_text(encoding="utf-8")
+        lines = {ln for ln in content.splitlines() if ln.strip()}
+        assert current_pattern_id in lines, (
+            f"Expected the current-shape pattern id to be re-persisted, got: {lines}"
+        )
+
+    def test_never_persisted_pattern_is_not_invented(self, tmp_path):
+        """A candidate with no legacy record either is prompted normally —
+        the fallback must never fabricate a hit for a pattern that was
+        never actually rejected."""
+        import skills.pairmode.scripts.lesson_review as lr
+
+        candidate = _make_convergence_candidate(
+            file="CLAUDE.build.md", section="a totally new section"
+        )
+
+        def fake_drift_report(project_dirs, convergent, output_format):
+            return _make_drift_report_response([candidate])
+
+        prompted = []
+
+        def fake_input(prompt):
+            prompted.append(prompt)
+            return "n"
+
+        lr.run_drift_promotion(
+            project_dirs=[tmp_path],
+            project_dir=tmp_path,
+            drift_report_fn=fake_drift_report,
+            input_fn=fake_input,
+        )
+
+        assert len(prompted) == 1
+
+
 # ---------------------------------------------------------------------------
 # --drift-only flag tests
 # ---------------------------------------------------------------------------

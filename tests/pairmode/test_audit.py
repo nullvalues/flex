@@ -23,6 +23,9 @@ from skills.pairmode.scripts.audit import (
     _check_overrides_health,
     _check_seeded_doc_drift,
     _load_overrides,
+    _load_overrides_with_diagnostics,
+    _normalise,
+    _normalise_override_key,
     SCAFFOLD_FILES,
     SEEDED_COLD_START_DOCS,
 )
@@ -451,6 +454,51 @@ class TestFormatAuditOutput:
         )
         output = format_audit_output(result)
         assert "Pending retirement prune" not in output
+
+    def test_overrides_only_finding_gets_specific_remediation(self) -> None:
+        """CER-202: when the only INCONSISTENT finding is on
+        .pairmode-overrides itself, RECOMMENDATION must not tell the operator
+        to run sync — sync cannot rewrite the project-owned overrides file —
+        and must instead describe an action that actually resolves it."""
+        result = self._make_result(
+            inconsistent=[
+                AuditItem(
+                    file=".pairmode-overrides",
+                    section="__content__",
+                    description="stale key shape in 'CLAUDE.md': '## X' should be 'x'",
+                )
+            ]
+        )
+        output = format_audit_output(result)
+        recommendation = output.split("RECOMMENDATION")[1]
+        assert "Run /flex:pairmode sync to apply missing/inconsistent items" not in (
+            recommendation
+        )
+        assert ".pairmode-overrides" in recommendation
+        assert "sync cannot" in recommendation or "not fixed by sync" in recommendation
+
+    def test_overrides_finding_alongside_other_findings_keeps_generic_advice_too(
+        self,
+    ) -> None:
+        """When other findings are present alongside the overrides-shape one,
+        the generic sync advice for the other findings is preserved, with the
+        overrides-specific note added rather than substituted."""
+        result = self._make_result(
+            missing=[AuditItem(file="CLAUDE.md", section="intro", description="Missing intro")],
+            inconsistent=[
+                AuditItem(
+                    file=".pairmode-overrides",
+                    section="__content__",
+                    description="stale key shape",
+                )
+            ],
+        )
+        output = format_audit_output(result)
+        recommendation = output.split("RECOMMENDATION")[1]
+        assert "Run /flex:pairmode sync to apply missing/inconsistent items" in (
+            recommendation
+        )
+        assert ".pairmode-overrides" in recommendation
 
     def test_empty_sections_omitted(self) -> None:
         result = self._make_result()  # no items anywhere
@@ -2131,6 +2179,114 @@ class TestLoadOverrides:
             ("CLAUDE.md", "review checklist"),
             (".claude/agents/reviewer.md", "checklist"),
         }
+
+    def test_mixed_case_key_is_lowercased(self, tmp_path: Path) -> None:
+        """CER-185: audit.py's loader must lowercase/whitespace-collapse the
+        section key the same way ``_split_sections`` does internally, or a
+        mixed-case override entry silently fails to match — the same bug
+        that made drift-report and audit disagree on the same file."""
+        _write_overrides(tmp_path, ["CLAUDE.build.md:Build Loop"])
+        assert _load_overrides(tmp_path) == {("CLAUDE.build.md", "build loop")}
+
+    def test_legacy_hash_prefixed_mixed_case_key_is_fully_normalised(
+        self, tmp_path: Path
+    ) -> None:
+        """A legacy ``##``-prefixed, mixed-case key gets both the marker
+        stripped (CER-180) and the case/whitespace normalised (CER-185) —
+        the two fixes compose."""
+        _write_overrides(tmp_path, ["CLAUDE.md:##   Review   Checklist"])
+        assert _load_overrides(tmp_path) == {("CLAUDE.md", "review checklist")}
+
+
+class TestNormaliseOverrideKey:
+    """Unit tests for the shared _normalise_override_key helper (CER-182/185)."""
+
+    def test_strips_marker_and_lowercases(self) -> None:
+        assert _normalise_override_key("## Review Checklist") == "review checklist"
+
+    def test_already_normalised_key_is_unchanged(self) -> None:
+        assert _normalise_override_key("review checklist") == "review checklist"
+
+    def test_matches_split_sections_key_derivation(self) -> None:
+        """The helper must produce exactly the same key _split_sections
+        derives for the same raw header text (CER-182's round-trip
+        requirement) — verified against the real first CLAUDE.md.j2 header."""
+        canonical_text = (TEMPLATES_DIR / "CLAUDE.md.j2").read_text(encoding="utf-8")
+        headers = re.findall(r"^## .+", canonical_text, re.MULTILINE)
+        assert headers
+        raw_header = headers[0]
+        expected = _normalise(re.sub(r"^#+\s*", "", raw_header))
+        assert _normalise_override_key(raw_header) == expected
+
+
+class TestStaleShapeDiagnosticRoundTrips:
+    """CER-182: the corrected key named in the stale-shape diagnostic must
+    itself be a key the current parser accepts — not merely marker-stripped,
+    still-cased text that fails to match the real (lowercased) internal key."""
+
+    def test_corrected_key_matches_real_split_sections_key(
+        self, tmp_path: Path
+    ) -> None:
+        canonical_text = (TEMPLATES_DIR / "CLAUDE.md.j2").read_text(encoding="utf-8")
+        headers = re.findall(r"^## .+", canonical_text, re.MULTILINE)
+        assert headers
+        raw_header = headers[0]
+        real_key = _normalise(re.sub(r"^#+\s*", "", raw_header))
+
+        # Write the override entry in the legacy shape: marker attached,
+        # original (possibly mixed) case preserved.
+        _write_overrides(tmp_path, [f"CLAUDE.md:{raw_header}"])
+
+        pairs, _diagnostics, stale_entries = _load_overrides_with_diagnostics(tmp_path)
+        assert ("CLAUDE.md", real_key) in pairs
+
+        matching = [s for s in stale_entries if s[0] == "CLAUDE.md"]
+        assert matching
+        _file_path, _raw_key, corrected_key = matching[0]
+        assert corrected_key == real_key, (
+            f"Suggested corrected key {corrected_key!r} must equal the real "
+            f"parser-accepted key {real_key!r}"
+        )
+
+    def test_corrected_key_suppresses_finding_when_reapplied(
+        self, tmp_path: Path
+    ) -> None:
+        """End-to-end: an operator who follows the diagnostic's advice and
+        rewrites the entry using the suggested corrected key ends up with a
+        working override, not a still-broken one."""
+        _write_state(tmp_path)
+        _copy_canonical_files(tmp_path)
+        (tmp_path / "CLAUDE.md").unlink()
+
+        result = audit_project(tmp_path)
+        claude_missing = [i for i in result.missing if i.file == "CLAUDE.md"]
+        assert claude_missing
+        real_key = claude_missing[0].section
+
+        # Simulate the legacy, mixed-case entry that would previously have
+        # produced a "corrected form" that still failed to match.
+        legacy_raw = "## " + real_key.title()
+        _write_overrides(tmp_path, [f"CLAUDE.md:{legacy_raw}"])
+
+        _pairs, _diagnostics, stale_entries = _load_overrides_with_diagnostics(
+            tmp_path
+        )
+        matching = [s for s in stale_entries if s[0] == "CLAUDE.md"]
+        assert matching
+        corrected_key = matching[0][2]
+
+        # Re-apply the entry using exactly the suggested corrected form.
+        _write_overrides(tmp_path, [f"CLAUDE.md:{corrected_key}"])
+        result_after = audit_project(tmp_path)
+        still_missing = [
+            i
+            for i in result_after.missing
+            if i.file == "CLAUDE.md" and i.section == real_key
+        ]
+        assert still_missing == [], (
+            f"Following the diagnostic's own corrected-key advice must suppress "
+            f"the finding, got: {still_missing}"
+        )
 
 
 class TestAuditOverridesSuppress:

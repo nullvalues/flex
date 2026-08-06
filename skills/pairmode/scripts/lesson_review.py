@@ -253,6 +253,24 @@ def _candidate_pattern_id(candidate: dict) -> str:
     return f"{candidate['file']}::{candidate['section']}"
 
 
+def _legacy_candidate_pattern_id(candidate: dict) -> str:
+    """Return the pre-CER-181 section-key-shaped identifier for *candidate*.
+
+    Before INFRA-399 (CER-181) de-duplicated pairmode_drift_report.py's
+    section-key parser, its own stale ``_split_sections`` copy normalised
+    the raw header line without first stripping the leading ``#+\\s*``
+    marker, so a candidate's ``section`` value there carried the marker
+    (e.g. ``## build loop``) rather than today's marker-free form
+    (``build loop``). A ``.pairmode-drift-rejected`` record persisted while
+    that stale parser was live is keyed on the old, marker-carrying shape
+    (CER-184). This is a read-only reconstruction of that old shape from
+    today's already-normalised ``candidate['section']`` — used only as a
+    lookup fallback, never to invent a key for a pattern that was never
+    persisted.
+    """
+    return f"{candidate['file']}::## {candidate['section']}"
+
+
 def _safe_registered_project(raw: str) -> Path | None:
     """Validate a registered project path with depth guard.
 
@@ -326,6 +344,18 @@ def run_drift_promotion(
 
         # Skip previously rejected patterns
         if pattern_id in rejected:
+            continue
+
+        # CER-184: a rejection persisted before INFRA-399/CER-181 changed the
+        # section-key shape is stranded under the old, marker-carrying key.
+        # Fall back to that legacy shape on a miss under the current shape;
+        # on a hit, re-persist under the current shape so this fallback is
+        # not needed again for this pattern. Read-only in the miss case: no
+        # key is invented for a pattern that was never actually persisted.
+        legacy_pattern_id = _legacy_candidate_pattern_id(candidate)
+        if legacy_pattern_id in rejected:
+            _append_rejected_pattern(project_dir, pattern_id)
+            rejected.add(pattern_id)
             continue
 
         # Surface the candidate

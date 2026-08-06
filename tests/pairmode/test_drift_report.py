@@ -225,6 +225,31 @@ def test_load_overrides_ignores_lines_without_colon(tmp_path: Path) -> None:
     assert result == set()
 
 
+def test_load_overrides_is_audit_module_shared_helper(tmp_path: Path) -> None:
+    """CER-185/INFRA-407: drift-report must not maintain its own independent
+    re-normalizing wrapper around audit.py's loader — it delegates to
+    audit.py's ``_load_overrides`` directly, which is now itself the single
+    shared, case-insensitive normalization helper (audit.py, sync.py, and
+    pairmode_drift_report.py all resolve to the exact same function object)."""
+    from skills.pairmode.scripts import audit as audit_mod
+
+    assert _load_overrides is audit_mod._load_overrides
+
+
+def test_load_overrides_mixed_case_key_matches_without_local_wrapper(
+    tmp_path: Path,
+) -> None:
+    """A mixed-case, marker-free override key still normalises correctly
+    purely via the shared audit.py helper — no local re-lowercasing needed."""
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    (project_dir / ".pairmode-overrides").write_text(
+        "CLAUDE.build.md: Build Loop\n", encoding="utf-8"
+    )
+    result = _load_overrides(project_dir)
+    assert ("CLAUDE.build.md", "build loop") in result
+
+
 # ---------------------------------------------------------------------------
 # Classification: MISSING
 # ---------------------------------------------------------------------------
