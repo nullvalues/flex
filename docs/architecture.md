@@ -3791,7 +3791,7 @@ the exclusion list is a conflict, reported by name (not by real path).
 `.pairmode-fleet.local.json.example` documents the mechanism's shape using
 only a synthetic name.
 
-**Trivial fleet-gate quality fixes (INFRA-405, CER-189/198/199/203/204/205):**
+**Trivial fleet-gate quality fixes (Phase 135, INFRA-405, CER-189/198/199/203/204/205):**
 `scrub_fleet_names.py verify()`'s `mapped=`/`excluded=`/`unmapped=`
 reconciliation summary is printed **unconditionally**, immediately after the
 unmapped-sibling reconciliation runs and before the pass/fail determination

@@ -2,7 +2,7 @@
 id: INFRA-405
 rail: INFRA
 title: Fleet-gate trivial quality fixes (CER-189/198/199/203/204/205)
-status: draft
+status: complete
 phase: "135"
 story_class: code
 auth_gated: false
