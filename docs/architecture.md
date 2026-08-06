@@ -1567,8 +1567,8 @@ registry-matched keys ("canon-retired content still present; run sync"), and
 OVERRIDDEN / OVERRIDE-KEPT under a project override — while `SCAFFOLD_FILES` EXTRA keeps
 the keep-as-is rendering (scaffold bodies are inherently project-specific).
 
-**`.pairmode-overrides` section-key format (INFRA-391/398/399, CER-170/180/181, Phase
-123):** a section key is the header text with any leading `#+\s*` marker stripped, then
+**`.pairmode-overrides` section-key format (INFRA-391 Phase 123 / INFRA-398 Phase 128 /
+INFRA-399 Phase 129, CER-170/180/181):** a section key is the header text with any leading `#+\s*` marker stripped, then
 lowercased and whitespace-collapsed (`_split_sections`/`_normalise`, `audit.py`) — e.g.
 `## Review Checklist` → `review checklist`. An operator's `.pairmode-overrides` entry is
 written as `file_path: section_key` in this same marker-free form (documented in
