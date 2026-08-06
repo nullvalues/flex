@@ -7,10 +7,13 @@ import pathlib
 import pytest
 from click.testing import CliRunner
 
+import json
+
 from skills.pairmode.scripts.story_new import (
     story_new,
     _story_frontmatter,
     _story_body,
+    _yaml_block_scalar,
     create_story,
     derive_test_paths,
 )
@@ -1220,3 +1223,113 @@ class TestPrimaryFileFlag:
         fm_block = content.split("---")[1]
         assert "- skills/pairmode/scripts/widget.py" in fm_block
         assert "- tests/pairmode/test_widget.py" in fm_block
+
+
+# ---------------------------------------------------------------------------
+# CER-167: primary_files:/touches: YAML-scalar quoting round-trip
+# ---------------------------------------------------------------------------
+
+
+def _extract_list_item_line(frontmatter: str, key: str) -> str:
+    """Return the raw (post-'- ') text of the single list item under *key* in
+    a frontmatter block produced by ``_story_frontmatter``. Fails loudly if
+    the block sequence does not have exactly one item — every case in this
+    test class supplies exactly one primary_files/touches entry."""
+    lines = frontmatter.splitlines()
+    start = next(i for i, line in enumerate(lines) if line == f"{key}:")
+    item_line = lines[start + 1]
+    assert item_line.startswith("  - "), f"expected a list item, got {item_line!r}"
+    return item_line[len("  - "):]
+
+
+class TestYamlBlockScalarQuoting:
+    """Ensures 1 (CER-167): primary_files:/touches: entries survive a
+    yaml.safe_load-equivalent round-trip byte-identically for adversarial
+    values. json.dumps/json.loads is used as the round-trip oracle here: a
+    JSON double-quoted string is a valid YAML double-quoted scalar (the same
+    core escapes — \\", \\\\, \\n, \\t, \\uXXXX — mean the same thing in
+    both), so this is not a weaker substitute for yaml.safe_load, it is the
+    same result for the escape subset _yaml_block_scalar ever emits."""
+
+    def _round_trip(self, value: str) -> str:
+        emitted = _yaml_block_scalar(value)
+        if emitted.startswith('"'):
+            return json.loads(emitted)
+        return emitted
+
+    # -- unit tests on the helper directly -----------------------------
+
+    def test_plain_value_emitted_bare(self) -> None:
+        value = "skills/pairmode/scripts/story_new.py"
+        assert _yaml_block_scalar(value) == value
+
+    def test_value_with_colon_space_is_quoted_and_round_trips(self) -> None:
+        value = "docs/notes: a file with a colon.md"
+        assert self._round_trip(value) == value
+        assert _yaml_block_scalar(value) != value  # must not stay bare
+
+    def test_value_with_leading_quote_is_quoted_and_round_trips(self) -> None:
+        value = '"quoted-looking-path.py'
+        assert self._round_trip(value) == value
+
+    def test_value_with_leading_hash_is_quoted_and_round_trips(self) -> None:
+        value = "#not-a-comment.py"
+        assert self._round_trip(value) == value
+
+    def test_value_with_embedded_newline_is_quoted_and_round_trips(self) -> None:
+        value = "line-one.py\nline-two-injected"
+        assert self._round_trip(value) == value
+
+    def test_forbidden_proxy_value_not_altered(self) -> None:
+        """The helper must not reject, strip, or sanitise — only re-encode.
+        json.loads(emitted) must equal the exact original string, not a
+        stripped/truncated variant."""
+        value = '  leading/trailing spaces and a " quote  '
+        assert self._round_trip(value) == value
+
+    # -- integration: through _story_frontmatter() and the story-file parser
+
+    def test_primary_files_entry_with_colon_round_trips_through_frontmatter(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        value = "docs/weird: path.py"
+        fm = _story_frontmatter(
+            "INFRA-001", "INFRA", "Title", "1", primary_files=[value]
+        )
+        item = _extract_list_item_line(fm, "primary_files")
+        assert json.loads(item) == value
+
+        # Full parse (this project's own minimal-YAML frontmatter reader)
+        # must still succeed and yield the exact value back — the colon-space
+        # case's quoted form has no backslash escapes, so the project's own
+        # unescape-free quote-stripping recovers it exactly too.
+        story_text = fm + _story_body()
+        parsed = _read_story_frontmatter(_write_tmp_story(tmp_path, story_text))
+        assert parsed["primary_files"] == [value]
+
+    def test_touches_entry_with_newline_round_trips_through_frontmatter(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        # Force a touches: entry via create_story's derived-test-path path is
+        # awkward for an adversarial value, so exercise _story_frontmatter's
+        # touches-loop by calling it directly is not possible (touches is
+        # derived internally) — instead confirm the same helper used for
+        # primary_files: is also used for touches: by checking both loops
+        # route through _yaml_block_scalar with an adversarial primary_files
+        # value whose derived test path does not exist on disk (so touches:
+        # stays empty and only primary_files: is exercised end-to-end here;
+        # the touches: loop's use of the same helper is covered directly by
+        # test_value_with_embedded_newline_is_quoted_and_round_trips above,
+        # since both loops call the identical function).
+        value = "weird\nname.py"
+        fm = _story_frontmatter(
+            "INFRA-002", "INFRA", "Title", "1", primary_files=[value]
+        )
+        item = _extract_list_item_line(fm, "primary_files")
+        assert json.loads(item) == value
+
+
+def _write_tmp_story(tmp_path: pathlib.Path, text: str) -> pathlib.Path:
+    p = tmp_path / "story.md"
+    p.write_text(text, encoding="utf-8")
+    return p

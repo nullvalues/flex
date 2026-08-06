@@ -9,6 +9,7 @@ is prompted before it is created.  Optionally appends a row to a phase manifest.
 from __future__ import annotations
 
 import glob
+import json
 import re
 import sys
 from pathlib import Path
@@ -21,6 +22,46 @@ import click
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+# CER-167: characters/prefixes that make a value unsafe to emit as a bare
+# (unquoted) YAML scalar inside a block-sequence list item.
+_YAML_PLAIN_UNSAFE_START = (
+    '"', "'", "#", "-", "?", ":", ",", "[", "]", "{", "}",
+    "&", "*", "!", "|", ">", "%", "@", "`",
+)
+
+
+def _yaml_block_scalar(value: str) -> str:
+    """Return *value* rendered as a single-line YAML scalar (CER-167).
+
+    Emits *value* bare when it is a "plain" scalar safe to embed unquoted in
+    a block-sequence list item (no leading indicator character, no embedded
+    ``: ``, no trailing ``:``, no embedded newline/tab, no leading/trailing
+    whitespace); otherwise emits it via ``json.dumps``, whose escaping
+    (``\\"``, ``\\\\``, ``\\n``, ``\\t``, ``\\uXXXX``, ...) is a valid subset
+    of YAML's double-quoted scalar syntax, so the result is never malformed
+    YAML and a real ``yaml.safe_load`` (or ``json.loads`` on the same quoted
+    text) recovers *value* byte-identically — including an embedded newline,
+    which is escaped as ``\\n`` rather than emitted as a literal line break.
+
+    Never rejects, strips, or otherwise alters *value* itself (INFRA-409
+    Ensures 1's forbidden proxy) — only the on-disk representation changes.
+    Does not touch the CER-092 title-quoting branch above; that branch's
+    ``#``-detection rule is for a top-level scalar (``title:``), not a
+    block-sequence list item, and is left as-is.
+    """
+    is_plain = (
+        bool(value)
+        and value == value.strip()
+        and "\n" not in value
+        and "\t" not in value
+        and ": " not in value
+        and not value.endswith(":")
+        and not value.startswith(_YAML_PLAIN_UNSAFE_START)
+    )
+    if is_plain:
+        return value
+    return json.dumps(value)
 
 
 def derive_test_paths(primary_files: list[str], project_dir: Path | str) -> list[str]:
@@ -111,7 +152,7 @@ def _story_frontmatter(
     if primary_files_list:
         lines.append("primary_files:")
         for pf in primary_files_list:
-            lines.append(f"  - {pf}")
+            lines.append(f"  - {_yaml_block_scalar(pf)}")
 
     # INFRA-370: derive each primary file's conventional test path and merge
     # into touches:, deduped against primary_files: and touches: itself.
@@ -130,7 +171,7 @@ def _story_frontmatter(
     if touches_entries:
         lines.append("touches:")
         for t in touches_entries:
-            lines.append(f"  - {t}")
+            lines.append(f"  - {_yaml_block_scalar(t)}")
     else:
         lines.append("touches: []")
 

@@ -99,7 +99,8 @@ state.json writes. They do not violate the thin-relay contract.
   `subagent_transcript` (INFRA-236) — the hook never parses or stores
   transcript content itself, it only forwards the call to that module.
   Authorized state.json writes: the live context-token count and its
-  recorded-at timestamp, plus `context_step_growth_samples` and
+  recorded-at timestamp, `context_current_tokens_source` (INFRA-374 — records
+  which code path produced the count), plus `context_step_growth_samples` and
   `expected_step_tokens` (INFRA-254).
 - `hooks/session_start.py` — dispatches source `clear`/`startup` →
   `session_reset.py` (CER-047/INFRA-175); reads and writes session-scoped

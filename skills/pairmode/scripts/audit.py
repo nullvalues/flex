@@ -504,6 +504,25 @@ def _find_lesson_for_file(lessons: list[dict], file_path: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _normalise_override_key(raw_key: str) -> str:
+    """Normalise a raw ``.pairmode-overrides`` section-key string into the
+    exact key shape ``_split_sections`` produces internally.
+
+    Strips a legacy leading ``#+\\s*`` marker (CER-170/INFRA-391), then
+    lowercases and collapses whitespace via ``_normalise`` — the same two
+    steps ``_split_sections`` applies (in the same order) when it derives a
+    heading key from a raw ``##`` header line. This is the single shared
+    normalization audit.py, sync.py (via ``_load_overrides``), and
+    pairmode_drift_report.py (CER-185) all rely on for override-key
+    matching, and it is also what the stale-shape migration diagnostic uses
+    to name a *corrected* key (CER-182) — so the suggested corrected form is
+    guaranteed to be exactly what this codebase's own parser accepts,
+    rather than an inline string built to the old (marker-stripped-only,
+    still-cased) shape.
+    """
+    return _normalise(re.sub(r"^#+\s*", "", raw_key))
+
+
 def _load_overrides_with_diagnostics(
     project_dir: Path,
 ) -> tuple[set[tuple[str, str]], list[str], list[tuple[str, str, str]]]:
@@ -520,18 +539,21 @@ def _load_overrides_with_diagnostics(
     reported (with their 1-based line number) rather than silently dropped
     (CER-132) but do not contribute a pair to the returned set.
 
-    Dual-shape acceptance (CER-180/INFRA-398): a ``section_key`` that still
-    carries a leading ``#+\\s*`` marker (the pre-CER-170 documented shape,
-    e.g. ``## review checklist``) has that marker stripped before it is
-    added to the returned pair set — this is the same ``^#+\\s*`` strip
-    ``_split_sections`` already applies to derive its own keys, so a legacy
+    Dual-shape acceptance (CER-180/INFRA-398) plus case/whitespace
+    normalisation (CER-185): a ``section_key`` is passed through
+    ``_normalise_override_key`` — which strips a legacy leading ``#+\\s*``
+    marker (the pre-CER-170 documented shape, e.g. ``## review checklist``)
+    and lowercases/collapses whitespace — before it is added to the
+    returned pair set. This is the same transform ``_split_sections``
+    already applies to derive its own keys, so a legacy or mixed-case
     override entry matches the current internal key shape rather than
-    silently stopping suppression/protection. Each entry that required this
-    strip is also recorded in the third return value as
-    ``(file_path, raw_key, corrected_key)`` so callers (``_check_overrides_health``)
-    can surface a migration diagnostic — acceptance alone would make the
-    stale shape permanent and invisible (docs/ideology.md § Never silently
-    pass contradictions).
+    silently stopping suppression/protection (and rather than matching in
+    one consumer but not another, CER-185). Each entry whose raw form
+    differs from its normalised form is also recorded in the third return
+    value as ``(file_path, raw_key, corrected_key)`` so callers
+    (``_check_overrides_health``) can surface a migration diagnostic —
+    acceptance alone would make the stale shape permanent and invisible
+    (docs/ideology.md § Never silently pass contradictions).
     """
     overrides_path = project_dir / ".pairmode-overrides"
     if not overrides_path.exists():
@@ -562,7 +584,7 @@ def _load_overrides_with_diagnostics(
                 f"line {line_number}: empty file-path or section-key after splitting on ':'"
             )
             continue
-        corrected_key = re.sub(r"^#+\s*", "", section_key)
+        corrected_key = _normalise_override_key(section_key)
         if corrected_key != section_key:
             stale_entries.append((file_path, section_key, corrected_key))
         result.add((file_path, corrected_key))
@@ -594,11 +616,16 @@ def _check_overrides_health(project_dir: Path) -> list[str] | None:
     the tracking surface instead.
 
     Since CER-180/INFRA-398, the returned list also carries one warning-level,
-    non-fatal diagnostic per entry whose key still begins with a stripped
-    ``#`` marker (the pre-CER-170 documented shape) — naming the offending
-    file, the offending raw key, and its corrected form — so a whole file of
-    now-silently-accepted stale keys is still visible as a migration signal.
-    A file whose keys are all in the current shape gets no such diagnostic.
+    non-fatal diagnostic per entry whose raw key differs from its
+    ``_normalise_override_key`` form (a stripped ``#`` marker, CER-180; or a
+    case/whitespace mismatch, CER-185) — naming the offending file, the
+    offending raw key, and its corrected form. The corrected form named here
+    is produced by the same helper ``_load_overrides_with_diagnostics`` uses
+    to build the returned pair set, so it is guaranteed to be a key the
+    current parser actually accepts (CER-182) — never an inline string built
+    to the old shape. A file whose keys are all already in the current
+    (marker-free, lowercase, whitespace-collapsed) shape gets no such
+    diagnostic.
     """
     overrides_path = project_dir / ".pairmode-overrides"
     if not overrides_path.exists():
@@ -606,8 +633,8 @@ def _check_overrides_health(project_dir: Path) -> list[str] | None:
     _pairs, diagnostics, stale_entries = _load_overrides_with_diagnostics(project_dir)
     stale_diagnostics = [
         f"stale key shape in {file_path!r}: {raw_key!r} should be {corrected_key!r} "
-        f"(leading '#' markers are no longer part of the section key format — "
-        f"see .pairmode-overrides.j2)"
+        f"(section keys must be lowercase, whitespace-collapsed, and free of any "
+        f"leading '#' marker — see .pairmode-overrides.j2)"
         for file_path, raw_key, corrected_key in stale_entries
     ]
     return diagnostics + stale_diagnostics
@@ -1135,6 +1162,20 @@ def format_audit_output(result: AuditResult) -> str:
                 lines.append(f"  \u2713 {item.file}: {item.description}")
             lines.append("")
 
+    # CER-202: an INCONSISTENT finding on .pairmode-overrides itself (malformed
+    # line or stale key shape) cannot be resolved by /flex:pairmode sync — sync
+    # never rewrites the project-owned .pairmode-overrides file. Track it
+    # separately so the RECOMMENDATION never tells an operator to run sync for
+    # a finding sync cannot fix.
+    overrides_content_findings = [
+        i for i in result.inconsistent if i.file == ".pairmode-overrides"
+    ]
+    other_findings_present = (
+        bool(result.missing)
+        or bool(pending_prunes)
+        or len(result.inconsistent) > len(overrides_content_findings)
+    )
+
     lines.append("RECOMMENDATION")
     if pending_prunes:
         # INFRA-371 (CER-133 item 6): a registry-matched retired section
@@ -1153,10 +1194,24 @@ def format_audit_output(result: AuditResult) -> str:
             "  Run /flex:pairmode sync to prune the above and apply any other missing/"
             "inconsistent items"
         )
+    elif overrides_content_findings and not other_findings_present:
+        # The overrides-shape finding is the only finding — do not print the
+        # generic sync advice at all, since it describes an action that
+        # cannot resolve this finding (CER-202).
+        lines.append(
+            "  Edit .pairmode-overrides directly to correct the key(s) named "
+            "above — .pairmode-overrides is project-owned, so /flex:pairmode "
+            "sync cannot rewrite it"
+        )
     else:
         lines.append(
             "  Run /flex:pairmode sync to apply missing/inconsistent items"
         )
+        if overrides_content_findings:
+            lines.append(
+                "  The .pairmode-overrides finding(s) above are not fixed by sync — "
+                "edit .pairmode-overrides directly to correct the key(s) named above"
+            )
     lines.append("  Project-specific items will be preserved")
 
     return "\n".join(lines)

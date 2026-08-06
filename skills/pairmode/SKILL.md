@@ -137,7 +137,7 @@ whenever this applies; a re-bootstrap that changed nothing prints no notice.
 - `--phase-title TEXT` — title for the initial `docs/phases/phase-1.md` (prompted in TTY if omitted; blank allowed)
 - `--phase-goal TEXT` — goal for the initial `docs/phases/phase-1.md` (prompted in TTY if omitted; blank allowed)
 - `--dry-run` — print what would be written without writing anything
-- `--force-agents` — overwrite existing agent files in `.claude/agents/` (default: skip if present)
+- `--force-agents` — overwrite existing agent files in `.claude/agents/` (default: skip if present); also unconditionally overwrites `docs/exemplars/EXEMPLAR-000.md` (CER-187)
 - `--ideology-skip` — skip guided ideology capture; write placeholder `docs/ideology.md`
 - `--conviction TEXT` — core conviction (repeatable); bypasses TTY prompt, populates ideology.md directly
 - `--constraint TEXT` — key constraint rule (repeatable); bypasses TTY prompt, populates ideology.md directly

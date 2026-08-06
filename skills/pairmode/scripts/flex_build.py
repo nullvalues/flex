@@ -3901,8 +3901,15 @@ def _cer_do_now_gate_message(project_dir: Path) -> "str | None":
     resolver's own soft ``cer-do-now`` guard: a missing or unreadable
     backlog.md returns ``None`` (nothing to refuse over), never blocking a
     checkpoint the resolver itself would have let through.
+
+    The refusal message names the resolution-marker keyword set from
+    ``cer.RESOLUTION_MARKERS`` (CER-207) rather than a hardcoded literal, so
+    this call site cannot drift out of sync with the shared grammar the way
+    it did before CER-207 (it independently named only
+    ``RESOLVED``/``SUPERSEDED`` and was never updated when ``OBSOLETE`` was
+    added to the shared marker set).
     """
-    from cer import find_open_do_now_rows  # noqa: PLC0415
+    from cer import RESOLUTION_MARKERS, find_open_do_now_rows  # noqa: PLC0415
 
     backlog_path = project_dir / "docs" / "cer" / "backlog.md"
     if not backlog_path.exists():
@@ -3917,10 +3924,11 @@ def _cer_do_now_gate_message(project_dir: Path) -> "str | None":
         return None
 
     listed = "; ".join(f"{row['id']}: {row['text'][:80]}" for row in open_rows)
+    markers = "/".join(RESOLUTION_MARKERS)
     return (
         "record-checkpoint-step: checkpoint-tag refused — "
         f"{len(open_rows)} open CER Do Now row(s): {listed}. Clear each row "
-        "with a RESOLVED/SUPERSEDED annotation or a written re-triage to "
+        f"with a {markers} annotation or a written re-triage to "
         "another quadrant — never by deletion — then retry."
     )
 

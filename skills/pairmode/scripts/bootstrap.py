@@ -1404,7 +1404,10 @@ def _hook_status_message(status: str, hook_path, project_path: pathlib.Path) -> 
     "--force-agents",
     is_flag=True,
     default=False,
-    help="Overwrite existing agent files in .claude/agents/ even if already present.",
+    help=(
+        "Overwrite existing agent files in .claude/agents/ even if already present. "
+        "Also unconditionally overwrites docs/exemplars/EXEMPLAR-000.md (CER-187)."
+    ),
 )
 @click.option(
     "--ideology-skip",

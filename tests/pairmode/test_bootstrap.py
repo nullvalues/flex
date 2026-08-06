@@ -1236,6 +1236,15 @@ class TestAgentFileSkipByDefault:
         assert result.exit_code == 0
         assert "force-agents" in result.output
 
+    def test_force_agents_help_mentions_exemplar_000(self):
+        """CER-187: --force-agents also unconditionally overwrites
+        docs/exemplars/EXEMPLAR-000.md (INFRA-392) — the help text must say
+        so, not just cover .claude/agents/."""
+        runner = CliRunner()
+        result = runner.invoke(bootstrap, ["--help"])
+        assert result.exit_code == 0
+        assert "EXEMPLAR-000.md" in result.output
+
 
 # ---------------------------------------------------------------------------
 # CER backlog bootstrap tests (Story 7.3)

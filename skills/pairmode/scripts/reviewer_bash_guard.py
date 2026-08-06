@@ -102,6 +102,12 @@ _SHADOW_REVIEWER_CONTROL_TOKENS = (
 # subcommand), matching a token that equals the flag exactly (covers the
 # separated `--output <path>` form, where `<path>` is a distinct token) or
 # that starts with `<flag>=` (covers the attached `--output=<path>` form).
+#
+# CER-176: `--no-index` makes `git diff` accept two arbitrary filesystem
+# paths outside any repository entirely, bypassing every repo-scoped
+# assumption the rest of this module's path reasoning relies on — denied on
+# its own terms here rather than via any repo-relative path check, which
+# `--no-index` mode makes inapplicable in the first place.
 _SHADOW_REVIEWER_DENIED_GIT_FLAGS = frozenset({
     "--output",
     "-o",
@@ -112,6 +118,7 @@ _SHADOW_REVIEWER_DENIED_GIT_FLAGS = frozenset({
     "--git-dir",
     "--work-tree",
     "--namespace",
+    "--no-index",
 })
 
 

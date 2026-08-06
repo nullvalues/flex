@@ -56,9 +56,9 @@ You read **only**:
 4. `docs/architecture.md` (the architecture reference — must mention the current
    era and phase).
 5. `docs/cer/backlog.md` (CER backlog — Do Now section must be empty or every item
-   marked with a resolution marker: `RESOLVED` or `SUPERSEDED`, any case, beginning
-   an annotation segment — optionally bolded, italicised, parenthesised or
-   bracketed; see checklist item 3 below).
+   marked with a resolution marker: `RESOLVED`, `SUPERSEDED`, or `OBSOLETE`, any
+   case, beginning an annotation segment — optionally bolded, italicised,
+   parenthesised or bracketed; see checklist item 3 below).
 6. Story files referenced by the phase doc: `docs/stories/<RAIL>/<RAIL>-NNN.md`
    (existence check and status field only).
 7. `CHANGELOG.md` (if the file exists at the project root — checked for a phase entry).
@@ -99,14 +99,15 @@ Run every item. Record each failure as a finding string.
 
 3. **CER Do Now is clear.** In `docs/cer/backlog.md`, the `## Do Now` section (or
    equivalent top-priority section) must be empty or every item must carry a
-   resolution marker: the keyword `RESOLVED` or `SUPERSEDED` (any case — upper,
-   title or lower all count) beginning an annotation segment — at the start of the
-   item, right after a sentence-ending `.`/`;`/`:`/em-dash plus a space, or inside
-   an emphasis/bracket opener (`**`, `(`, `[`). A keyword appearing mid-clause (e.g.
-   `UNRESOLVED`, `should be RESOLVED`, `partially resolved`) does not count as a
-   marker and the item remains unresolved (`cer.is_resolution_marked`,
-   INFRA-322/CER-130). Report any unresolved Do Now item (e.g. "CER Do Now contains
-   unresolved item: [item text]").
+   resolution marker: the keyword `RESOLVED`, `SUPERSEDED`, or `OBSOLETE` (any
+   case — upper, title or lower all count) beginning an annotation segment — at
+   the start of the item, right after a sentence-ending `.`/`;`/`:`/em-dash plus
+   a space, or inside an emphasis/bracket opener (`**`, `(`, `[`). A keyword
+   appearing mid-clause (e.g. `UNRESOLVED`, `should be RESOLVED`, `partially
+   resolved`) does not count as a marker and the item remains unresolved
+   (`cer.is_resolution_marked`, INFRA-322/CER-130, extended to accept `OBSOLETE`
+   by CER-207/INFRA-404). Report any unresolved Do Now item (e.g. "CER Do Now
+   contains unresolved item: [item text]").
 
 4. **`docs/architecture.md` mentions the current era.** The file must contain a
    reference to the current era name or ID (as identified from `docs/phases/index.md`).

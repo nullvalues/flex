@@ -170,7 +170,17 @@ def is_placeholder_row(cells) -> bool:
     return False
 
 
-# Anchored, case-insensitive resolution-marker grammar (INFRA-322/CER-130).
+# Resolution-marker keyword set (CER-207). The single definition of which
+# keywords close a backlog row — `_RESOLUTION_MARKER_RE` below is built from
+# this constant, and any other consumer that needs to name the set (e.g. a
+# refusal/gate message) must import and use this constant rather than
+# hardcoding its own copy of the keyword list.
+RESOLUTION_MARKERS = ("RESOLVED", "SUPERSEDED", "OBSOLETE")
+
+# Anchored, case-insensitive resolution-marker grammar (INFRA-322/CER-130;
+# CER-207 added OBSOLETE to RESOLUTION_MARKERS above because this project's
+# own CER backlog already closes rows with that annotation, 19+ times, and
+# the grammar did not recognize it).
 #
 # The keyword must *begin* an annotation segment: the start of the scanned
 # text, a newline, a `|` cell boundary or a sentence-ending punctuation mark
@@ -191,7 +201,7 @@ def is_placeholder_row(cells) -> bool:
 _RESOLUTION_MARKER_RE = re.compile(
     r"(?:^|\n|[.!?;:—–|)][ \t]+|[*(\[])"  # segment start
     r"[*(\[]*"                            # optional emphasis/bracket openers
-    r"(?:RESOLVED|SUPERSEDED)"            # keyword
+    rf"(?:{'|'.join(RESOLUTION_MARKERS)})"  # keyword
     r"(?![A-Za-z0-9_])",                  # close boundary (not \b: excludes "_")
     re.IGNORECASE,
 )
@@ -200,7 +210,9 @@ _RESOLUTION_MARKER_RE = re.compile(
 def is_resolution_marked(text: str) -> bool:
     """Return True when ``text`` contains at least one resolution marker.
 
-    A **resolution marker** is the keyword ``RESOLVED`` or ``SUPERSEDED``
+    A **resolution marker** is one of the keywords in ``RESOLUTION_MARKERS``
+    (``RESOLVED``, ``SUPERSEDED``, ``OBSOLETE`` — CER-207 added ``OBSOLETE``
+    because this project's own CER backlog already used it)
     (ASCII case-insensitive — ``RESOLVED``, ``Resolved`` and ``resolved`` all
     match) beginning an annotation segment: the start of the text, a
     newline, a ``|`` table-cell boundary, a sentence-ending
@@ -367,8 +379,9 @@ def find_groomable_rows(text: str) -> list[dict]:
 
     An **open** row is neither the scaffolded placeholder row nor
     resolution-marked (the same two exemptions ``find_open_do_now_rows``
-    applies to Do Now) — a row already closed by a ``RESOLVED``/
-    ``SUPERSEDED`` annotation has nothing left to groom. ``gate`` is the
+    applies to Do Now) — a row already closed by a ``RESOLUTION_MARKERS``
+    annotation (``RESOLVED``/``SUPERSEDED``/``OBSOLETE``) has nothing left
+    to groom. ``gate`` is the
     row's ``gate:`` condition text (``extract_gate_condition``) or ``None``
     when the row carries no such token.
 
@@ -726,8 +739,8 @@ def cmd_gate(project_dir: str) -> None:
     for row in open_rows:
         click.echo(f"  {row['id']}: {row['text'][:80]}")
     click.echo(
-        "Clear each row with a RESOLVED/SUPERSEDED annotation or a written "
-        "re-triage to another quadrant — never by deletion."
+        f"Clear each row with a {'/'.join(RESOLUTION_MARKERS)} annotation or "
+        "a written re-triage to another quadrant — never by deletion."
     )
     raise SystemExit(1)
 
