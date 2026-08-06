@@ -13,6 +13,7 @@ primary_files:
 touches:
   - tests/pairmode/test_reviewer_bash_guard.py
   - tests/pairmode/test_scope_guard.py
+  - docs/architecture.md
 narrative_roles: []
 ---
 

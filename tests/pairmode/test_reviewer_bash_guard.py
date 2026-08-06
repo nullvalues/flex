@@ -302,3 +302,35 @@ def test_reviewer_agent_type_denied_flags_unaffected(command):
     allowed, reason = guard.check_command(command, "reviewer")
     assert allowed is True
     assert reason
+
+
+# ---------------------------------------------------------------------------
+# CER-176 (INFRA-408) — `git diff --no-index` accepts two arbitrary
+# filesystem paths outside any repository, which slips past the
+# repo-relative path reasoning the rest of this module relies on. Denied on
+# its own terms (token match and `--no-index=...` form), not via a
+# repo-relative path check.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git diff --no-index /etc/passwd /tmp/evil",
+        "git diff --no-index=true /etc/passwd /tmp/evil",
+        "git --no-index diff /etc/passwd /tmp/evil",
+        "git diff /etc/passwd /tmp/evil --no-index",
+    ],
+)
+def test_shadow_reviewer_no_index_denied(command):
+    allowed, reason = guard.check_command(command, "shadow-reviewer")
+    assert allowed is False
+    assert reason
+
+
+def test_shadow_reviewer_plain_git_diff_still_allowed_after_no_index_fix():
+    """Regression: an ordinary allowed `git diff` invocation (no --no-index)
+    is unaffected by the new flag."""
+    allowed, reason = guard.check_command("git diff", "shadow-reviewer")
+    assert allowed is True
+    assert reason

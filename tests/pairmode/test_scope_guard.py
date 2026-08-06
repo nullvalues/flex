@@ -1289,12 +1289,19 @@ def test_shadow_reviewer_denied_on_standing_surface(tmp_path: Path) -> None:
 
 def test_shadow_reviewer_allowed_on_suggestions_file(tmp_path: Path) -> None:
     """Ensures 6: check_path allows a shadow-reviewer-attributed write to
-    .pairmode-suggestions.md for the active story."""
-    _write_state(tmp_path, STORY_ID)
-    _write_permissions(tmp_path, STORY_ID, ["skills/foo.py"])
+    .pairmode-suggestions.md for the active story, when cwd is genuinely the
+    story's own linked worktree (INFRA-408: the cwd-only derivation requires
+    real worktree evidence — a bare tmp_path with no linked-worktree .git
+    pointer is exactly the CER-177 ambiguous-cwd case and is covered by the
+    denial tests below, not this one)."""
+    main_root = tmp_path / "main"
+    main_root.mkdir()
+    worktree_dir = _make_linked_worktree(main_root, STORY_ID)
+    _write_state(main_root, STORY_ID)
+    _write_permissions(main_root, STORY_ID, ["skills/foo.py"])
 
     allowed, reason = scope_guard.check_path(
-        ".pairmode-suggestions.md", tmp_path, agent_type="shadow-reviewer"
+        ".pairmode-suggestions.md", worktree_dir, agent_type="shadow-reviewer"
     )
     assert allowed is True
     assert reason
@@ -1354,17 +1361,21 @@ def test_shadow_reviewer_allowed_on_suggestions_file_absolute_worktree_path(
     assert reason
 
 
-def test_shadow_reviewer_still_allowed_on_plain_relative_suggestions_file(
+def test_shadow_reviewer_denied_on_relative_path_with_cwd_at_main_checkout(
     tmp_path: Path,
 ) -> None:
-    """Ensures 6 (regression): the plain relative form
-    `.pairmode-suggestions.md` — never worktree-prefixed — keeps working
-    exactly as before this story's fix."""
+    """INFRA-408 (CER-177/201): a relative `.pairmode-suggestions.md`
+    evaluated with cwd at the main checkout — no linked-worktree evidence at
+    all — must now be denied. Before this story, this fell through to a
+    cwd-relative match against the bare filename and was allowed; that is
+    exactly the confinement escape this story closes (Instruction 3(c)):
+    the cwd-only derivation requires cwd to carry genuine per-story worktree
+    evidence, and a plain relative filename can never manufacture that."""
     _write_state(tmp_path, STORY_ID)
     allowed, reason = scope_guard.check_path(
         ".pairmode-suggestions.md", tmp_path, agent_type="shadow-reviewer"
     )
-    assert allowed is True
+    assert allowed is False
     assert reason
 
 
@@ -1398,6 +1409,31 @@ def test_shadow_reviewer_denied_on_absolute_worktree_architecture_doc(
     allowed, reason = scope_guard.check_path(
         abs_path, worktree_dir, agent_type="shadow-reviewer"
     )
+    assert allowed is False
+    assert reason
+
+
+def test_shadow_reviewer_denied_on_harness_owned_allow_list_prefix(
+    tmp_path: Path,
+) -> None:
+    """INFRA-408 (Instruction 3(b)): a path that IS allow-listed for
+    out-of-root harness writes (the orchestrator memory directory,
+    `harness_owned_prefixes`) is still denied for the shadow-reviewer — the
+    cwd-only derivation never consults the harness allow-list at all, so a
+    harness-owned prefix carries no special standing for this role."""
+    main_root = tmp_path / "main"
+    main_root.mkdir()
+    worktree_dir = _make_linked_worktree(main_root, STORY_ID)
+    home = _harness_home(tmp_path)
+    key = str(main_root.resolve()).replace("/", "-")
+    memory_dir = home / ".claude" / "projects" / key / "memory"
+    memory_dir.mkdir(parents=True)
+    target = memory_dir / "note.md"
+
+    with patch.object(scope_guard.Path, "home", staticmethod(lambda: home)):
+        allowed, reason = scope_guard.check_path(
+            target, worktree_dir, agent_type="shadow-reviewer"
+        )
     assert allowed is False
     assert reason
 

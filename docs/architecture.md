@@ -3613,21 +3613,40 @@ resolution and no new dispatch branch is added.
 - **`Edit`/`Write` → `scope_guard.py` (Phase 55):** decides whether to block
   a file write based on the active story's declared `primary_files`/`touches`.
   Read-only; no state writes. Fails open when state or permissions file absent.
-  **INFRA-396/INFRA-397 (CER-174/CER-175, Phase 122's forked remediation — closed by
-  Phase 126 and Phase 127 respectively):**
+  **INFRA-396/INFRA-397/INFRA-408 (CER-174/CER-175/CER-177/CER-201, Phase 122's
+  forked remediation — Phase 126, Phase 127, and Phase 138 respectively):**
   `check_path` also takes an `agent_type` parameter, threaded through by
   `pre_tool_use.py`'s `Edit`/`Write` branch (`agent_type=data.get("agent_type")`,
   mirroring the `Read`/`Bash` branches). When `agent_type == "shadow-reviewer"`,
   `check_path` short-circuits before any `primary_files`/`touches`/
-  `STANDING_SURFACES` resolution: the target path is resolved via
-  `resolve_call_story()` and `_strip_worktree_prefix()` (the same worktree-path
-  normalization the builder path uses) and allowed only when it is exactly
-  `.pairmode-suggestions.md` — every other path, including one inside the
-  concurrently-running builder's own declared scope, is denied regardless of
-  that scope. INFRA-396 shipped this confinement; INFRA-397 fixed a bug where
-  the missing worktree-prefix strip denied the shadow-reviewer's own real
-  absolute-path write to `.pairmode-suggestions.md`, leaving the confinement
-  unreachable in production despite passing unit tests.
+  `STANDING_SURFACES` resolution and applies a **cwd-only derivation**
+  (INFRA-408): the permitted worktree root is derived strictly by walking the
+  tool call's own `project_dir` (its real cwd) against
+  `<main>/.pairmode-worktrees/<ID>/` — never from `file_path`'s own
+  worktree-shaped spelling and never from a `state.json` fallback. When cwd
+  carries no such worktree signal at all (including cwd at the main
+  checkout), there is no permitted root and the call is denied outright,
+  before any path comparison runs. When cwd does resolve to a story's own
+  worktree, the target path (resolved absolute, joined onto that same cwd
+  when relative) is allowed only when it is exactly
+  `<that-worktree>/.pairmode-suggestions.md` — every other path, including
+  one inside the concurrently-running builder's own declared scope, another
+  story's worktree, or a harness-owned allow-list prefix, is denied
+  regardless of that scope. INFRA-396 shipped this confinement; INFRA-397
+  fixed a bug where the missing worktree-prefix strip denied the
+  shadow-reviewer's own real absolute-path write to `.pairmode-suggestions.md`,
+  leaving the confinement unreachable in production despite passing unit
+  tests. The prior implementation (INFRA-397) resolved the active story via
+  `resolve_call_story()` and `_strip_worktree_prefix()` (the same
+  worktree-path normalization the builder path uses) — but
+  `resolve_call_story()`'s `worktree-path` and `state-single`/`state-legacy`
+  fallback steps let a call whose cwd carried no worktree signal still
+  resolve a story from `file_path`'s own spelling or from whatever story
+  happened to be "current" in `state.json`, letting a shadow-reviewer write
+  land in a different story's worktree or a harness path instead of being
+  confined to exactly `.pairmode-suggestions.md` (CER-177, duplicated as
+  CER-201). INFRA-408 replaced that resolution with the cwd-only derivation
+  described above, closing both duplicates with one fix.
 - **`Read` → `cold_read_guard.py` (INFRA-196):** blocks a top-level orchestrator
   Read (`agent_type` absent from the payload) targeting `docs/stories/**` or
   `.claude/agents/**`, directing the orchestrator to pass the story ID to a
@@ -3656,18 +3675,21 @@ resolution and no new dispatch branch is added.
   which still fail open on a tokenizer `ValueError` — INFRA-396); a git flag
   with write/redirect/read-escape side effects — `--output`/`-o`,
   `--exec-path`, `-c`/`--config-env`, `-C`, `--git-dir`, `--work-tree`,
-  `--namespace`, in both attached and separated forms, anywhere in the token
+  `--namespace`, `--no-index` (INFRA-408, see below), in both attached and
+  separated forms, anywhere in the token
   list (`_SHADOW_REVIEWER_DENIED_GIT_FLAGS`, INFRA-397, closing CER-175's
   arbitrary-file-write bypass); and any command whose first token is not
   literally `git` (no scanning the remainder of the token list for "any" git
   invocation, mirroring the reviewer branch's own anti-bypass shape). Only
   `git log`, `git status [--porcelain]`, and `git diff` (without a denied
-  flag) are allowed. **Known residual gap (CER-176, Do Later, unresolved):**
-  `git diff --no-index <path> <path>` is not yet screened and can read/print
-  an arbitrary file outside the worktree — not raised to HIGH because
-  `cold_read_guard.py` already grants the shadow-reviewer role unconditional
-  Read access, so this is a second path to an already-granted capability, not
-  a new one. **Anyone extending either shadow-reviewer branch should check
+  flag) are allowed. **CER-176 closed (INFRA-408, Phase 138):**
+  `git diff --no-index <path> <path>` takes two filesystem paths outside any
+  repository entirely, which slips past every repo-scoped path check in this
+  module — denied on its own terms by adding `--no-index` to
+  `_SHADOW_REVIEWER_DENIED_GIT_FLAGS` (matched as a bare token or in
+  `--no-index=...` form), rather than via any repo-relative path reasoning,
+  which `--no-index` mode makes inapplicable. **Anyone extending
+  either shadow-reviewer branch should check
   new allowlist entries against three verified gap classes, each found by a
   separate checkpoint-security pass on this same phase: shell chaining/
   substitution (CER-174), subcommand flags with write/redirect/read-escape

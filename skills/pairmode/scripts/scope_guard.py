@@ -122,30 +122,59 @@ def check_path(
     # story resolution and never falls through to the builder-scope logic
     # below, even as a fallback.
     if agent_type == "shadow-reviewer":
-        relative_path = _normalise(file_path, project)
-        if relative_path is None:
-            return _out_of_root_decision(file_path, project, project_dir)
-        # INFRA-397 (CER-175): the shadow-reviewer's real Write call carries
-        # an absolute path (it is dispatched into the per-story worktree),
-        # which `_normalise` turns into a worktree-prefixed repo-relative
-        # path (`.pairmode-worktrees/<story-id>/.pairmode-suggestions.md`) —
-        # that never equals the bare `_SHADOW_REVIEWER_ONLY_PATH` literal
-        # without stripping the prefix first, same as the builder path does
-        # via `_strip_worktree_prefix`. `resolve_call_story` is handed the
-        # *raw* project_dir (as the builder branch does above) purely for
-        # prefix identity here — the allowed set stays exactly one filename;
-        # this does NOT inherit the builder's primary_files/touches/
-        # STANDING_SURFACES scope (INFRA-396's Ensures 5, still asserted).
-        # When no active story resolves, `_strip_worktree_prefix` returns the
-        # path unchanged and the write is denied — fail-closed is correct.
-        active_story_id, _source = resolve_call_story(project_dir, file_path)
-        candidate = _strip_worktree_prefix(relative_path, active_story_id)
-        if candidate == _SHADOW_REVIEWER_ONLY_PATH:
+        # INFRA-408 (CER-176/177/201): a cwd-only derivation. The prior
+        # implementation handed `resolve_call_story` both `project_dir` AND
+        # `file_path`, which meant a call whose cwd carried no worktree
+        # signal (e.g. cwd at the main checkout) could still resolve an
+        # active story from *file_path*'s own worktree-shaped spelling
+        # (`resolve_call_story`'s `worktree-path` step) or from whichever
+        # story happened to be "current" in state.json (`state-single` /
+        # `state-legacy`) — either lets a write land in a different story's
+        # worktree, or in a harness allow-list prefix, once
+        # `_strip_worktree_prefix` or a bare filename match let it through.
+        # Here only the process's own real cwd (INFRA-280's claim) is ever
+        # trusted to name a story: the worktree root is derived by walking
+        # `project_dir` itself against `.pairmode-worktrees/<ID>/`, with no
+        # fallback to file_path content or to state.json. When cwd carries
+        # no such signal — including cwd at the main checkout — there is no
+        # permitted worktree root at all, and the call is denied outright,
+        # regardless of what *file_path* is, before any path comparison.
+        raw_cwd = Path(project_dir).resolve()
+        try:
+            rel_parts = raw_cwd.relative_to(project).parts
+        except ValueError:
+            rel_parts = ()
+        if (
+            len(rel_parts) >= 2
+            and rel_parts[0] == _WORKTREE_PREFIX.rstrip("/")
+            and _STORY_ID_RE.match(rel_parts[1])
+        ):
+            worktree_root = project / _WORKTREE_PREFIX.rstrip("/") / rel_parts[1]
+        else:
+            return (
+                False,
+                "shadow-reviewer write denied — cwd carries no per-story "
+                f"worktree signal, so no path can resolve to "
+                f"{_SHADOW_REVIEWER_ONLY_PATH}",
+            )
+
+        try:
+            p = Path(file_path)
+            candidate_path = (p if p.is_absolute() else raw_cwd / p).resolve()
+        except Exception:
+            return (
+                False,
+                "shadow-reviewer write denied — could not resolve the "
+                "write target path",
+            )
+
+        permitted = (worktree_root / _SHADOW_REVIEWER_ONLY_PATH).resolve()
+        if candidate_path == permitted:
             return True, "allowed (shadow-reviewer suggestions file)"
         return (
             False,
-            f"{relative_path} is outside the shadow-reviewer role's write "
-            f"scope — confined to exactly {_SHADOW_REVIEWER_ONLY_PATH}",
+            f"{candidate_path} is outside the shadow-reviewer role's write "
+            f"scope — confined to exactly {permitted}",
         )
 
     # INFRA-281 (CER-095.2): resolve_call_story is handed the *raw*
