@@ -439,6 +439,8 @@ Not urgent, marginal value. Style, cosmetics, speculative improvements.
 
 | CER-201 | LOW: a shadow-reviewer call whose cwd is the main checkout (not a per-story worktree) resolves the active story from the target path via resolve_call_story(), so it could write .pairmode-suggestions.md inside another existing story's worktree rather than its own. Advisory-only (gitignored, out of any story's declared scope, not a real leak). Found by the Phase 127 checkpoint security-auditor run (INFRA-397 re-audit). skills/pairmode/scripts/scope_guard.py. | security-auditor | 2026-08-06 | 127 |
 
+| CER-202 | LOW: audit.py's stale-override-key-shape diagnostic (INFRA-398) lands in result.inconsistent, but the audit summary's generic remediation line (skills/pairmode/scripts/audit.py:1157-1159) tells the operator to run 'pairmode sync' -- which cannot rewrite project-owned .pairmode-overrides keys, so following the printed advice will not clear the finding. Pre-existing shape shared with the CER-132 parse-error diagnostic, not introduced by this story. Found by the Phase 128 checkpoint security-auditor run (INFRA-398 re-audit). skills/pairmode/scripts/audit.py. | security-auditor | 2026-08-06 | 128 |
+
 
 
 ---

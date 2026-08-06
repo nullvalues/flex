@@ -24,7 +24,7 @@ Placeholder era opened at 0.3.1 sealing; real scope to be defined as maintenance
 | 125 | De-identify fleet repo references from the public repo (CER-172) | complete |
 | 126 | Close shadow-reviewer Bash-guard bypass and scope its Write grant (CER-174) | complete |
 | 127 | Close shadow-reviewer git-flag write bypass and worktree-path scope_guard gap (CER-175) | complete |
-| 128 | Fix .pairmode-overrides template/migration gap from audit.py key-format change (CER-180) | planned |
+| 128 | Fix .pairmode-overrides template/migration gap from audit.py key-format change (CER-180) | complete |
 | 129 | De-duplicate pairmode_drift_report.py's stale override-key parser (CER-181) | planned |
 | 130 | Close CER-172 scrub completeness and regression gaps (CER-188) | planned |
 | 131 | Fix scrub_fleet_names crash, incomplete anonymization coverage, and unwired gate (CER-194) | planned |
