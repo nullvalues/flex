@@ -12,6 +12,7 @@ primary_files:
   - docs/architecture.md
 touches:
   - tests/pairmode/test_cer.py
+  - skills/pairmode/scripts/flex_build.py
 narrative_roles: []
 ---
 
@@ -31,6 +32,13 @@ markers are recorded as one set rather than re-derived per consumer.
 
 None — the change is contained to `cer.py`'s resolution-marker recognition and
 the architecture doc that publishes the grammar.
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| skills/pairmode/scripts/flex_build.py | reviewer FAIL-cause: _cer_do_now_gate_message (flex_build.py:3923) independently hardcodes RESOLVED/SUPERSEDED literal, never updated for OBSOLETE; must derive from cer.RESOLUTION_MARKERS to make architecture.md's single-implementation claim true | 2026-08-06T16:38:53Z |
 
 ## Ensures
 
@@ -80,3 +88,36 @@ Acceptance: no new failures.
   one marker this project demonstrably already uses is added here.
 - Changing what groom/gate/next-action do with a resolved row — this story only
   changes which rows are recognized as resolved.
+
+## Evidence
+
+Covered-contracts gate (INFRA-317): `cer.py` intersects the
+`## Pairmode build loop::skills/pairmode/scripts/cer.py` pair. Both halves
+read before editing:
+
+- `docs/architecture.md` § Pairmode build loop (pre-edit text): "The guard
+  classifies every other Do Now row as resolved or unresolved via
+  `cer.is_resolution_marked` (INFRA-322/CER-130): a row is resolved when the
+  keyword `RESOLVED` or `SUPERSEDED` ... `cer.is_resolution_marked` is the
+  single implementation of this grammar; no consumer re-derives its own
+  test." — this is the exact claim attempt 1 left false: it asserts no
+  consumer re-derives the marker list, but `flex_build.py`'s
+  `_cer_do_now_gate_message` (checkpoint-tag refusal message) hardcoded the
+  literal `"RESOLVED/SUPERSEDED"` independently of `cer.py`, and `cer.py
+  gate`'s own CLI refusal message (`cli`, ~line 739) hardcoded the same
+  literal a second time.
+- `skills/pairmode/scripts/cer.py` (pre-edit): `_RESOLUTION_MARKER_RE` inlined
+  `(?:RESOLVED|SUPERSEDED)` directly in the compiled pattern with no shared
+  constant, and both the checkpoint-tag message (`flex_build.py`) and the
+  `cer.py gate` CLI message independently wrote out `"RESOLVED/SUPERSEDED"`
+  as prose.
+
+Resolution: lifted the keyword tuple to `cer.RESOLUTION_MARKERS = ("RESOLVED",
+"SUPERSEDED", "OBSOLETE")`, built `_RESOLUTION_MARKER_RE` from it, and updated
+**both** call sites that named the marker set in a user-facing message —
+`cer.py`'s own `gate` CLI message and `flex_build.py`'s
+`_cer_do_now_gate_message` — to format `cer.RESOLUTION_MARKERS` instead of a
+hardcoded literal, so `docs/architecture.md`'s "single implementation ... no
+consumer re-derives its own copy of the marker list" claim is true across both
+call sites, not just the regex. `docs/architecture.md` updated to name both
+call sites explicitly and to record the CER-207 fix to the prior drift.

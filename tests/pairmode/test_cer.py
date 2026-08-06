@@ -15,6 +15,7 @@ from skills.pairmode.scripts.cer import (
     find_open_do_now_rows,
     is_placeholder_row,
     is_resolution_marked,
+    RESOLUTION_MARKERS,
     _escape_table_cell,
     _load_or_create_backlog,
     _next_cer_id,
@@ -658,6 +659,21 @@ def test_superseded_keyword_is_recognised() -> None:
     assert is_resolution_marked("… **SUPERSEDED by CER-9**") is True
 
 
+def test_obsolete_keyword_is_recognised() -> None:
+    # CER-207: this project's own CER backlog closes rows with OBSOLETE,
+    # not just RESOLVED/SUPERSEDED — the grammar must recognize it too.
+    assert is_resolution_marked("… **OBSOLETE — superseded by INFRA-404**") is True
+    assert is_resolution_marked("Obsolete cp-134 — INFRA-1") is True
+    assert is_resolution_marked("… (OBSOLETE)") is True
+
+
+def test_obsolete_still_matches_same_anchoring_rules_as_others() -> None:
+    # OBSOLETE must be held to the same mid-clause exclusion as RESOLVED and
+    # SUPERSEDED — not a looser, caller-side special case.
+    assert is_resolution_marked("this looks OBSOLETE to me") is False
+    assert is_resolution_marked("_OBSOLETE_RE") is False
+
+
 def test_marker_at_cell_boundary_is_recognised() -> None:
     assert is_resolution_marked("| Resolved cp-34 — INFRA-1 |") is True
 
@@ -695,6 +711,27 @@ def test_empty_and_non_string_inputs_return_false() -> None:
     assert is_resolution_marked("") is False
     assert is_resolution_marked(None) is False  # type: ignore[arg-type]
     assert is_resolution_marked(0) is False  # type: ignore[arg-type]
+
+
+def test_resolution_markers_constant_holds_all_three_keywords() -> None:
+    # CER-207: RESOLUTION_MARKERS is the single definition of the keyword
+    # set — the regex is built from it, and any caller-facing message must
+    # format this constant rather than hardcoding its own copy.
+    assert RESOLUTION_MARKERS == ("RESOLVED", "SUPERSEDED", "OBSOLETE")
+
+
+def test_find_open_do_now_rows_treats_obsolete_row_as_resolved() -> None:
+    text = (
+        "## Do Now\n\n"
+        "| ID | Finding | Source | Date | Phase |\n"
+        "|----|---------|--------|------|-------|\n"
+        "| CER-900 | A finding. **OBSOLETE — superseded** | src | 2026-08-05 | 134 |\n"
+        "| CER-901 | Still open. | src | 2026-08-05 | 134 |\n"
+    )
+    open_rows = find_open_do_now_rows(text)
+    ids = [row["id"] for row in open_rows]
+    assert "CER-900" not in ids
+    assert "CER-901" in ids
 
 
 # ---------------------------------------------------------------------------

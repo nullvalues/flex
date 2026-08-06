@@ -1142,18 +1142,27 @@ so a claim never overrides commit evidence (CER-095.1).
     scaffolded empty-state placeholder row via the shared `cer.is_placeholder_row` predicate
     (INFRA-294), so a freshly bootstrapped repo's empty backlog does not fail its first checkpoint.
     The guard classifies every other Do Now row as resolved or unresolved via
-    `cer.is_resolution_marked` (INFRA-322/CER-130): a row is resolved when the keyword `RESOLVED`
-    or `SUPERSEDED` (ASCII case-insensitive — `RESOLVED`, `Resolved` and `resolved` all match)
-    *begins* an annotation segment — the start of the row text, right after a `|` cell boundary or
-    a sentence-ending `.`/`!`/`?`/`;`/`:`/em-dash plus one or more spaces, or inside an
-    emphasis/bracket opener (`*`, `(`, `[`). A keyword appearing mid-clause, preceded by a plain
-    space and a word, is never a marker — this anchoring is what keeps `UNRESOLVED …` and
-    `this should be RESOLVED before cp` from being read as closures. The grammar replaced a bare,
-    case-sensitive substring test (`"RESOLVED" not in stripped and "SUPERSEDED" not in stripped`)
-    that was wrong in both directions: it permanently blocked title-case conventions
-    (`Resolved cp-34 — …`, hit live on a consuming repo's checkpoint) while silently waving
-    genuinely open rows through. `cer.is_resolution_marked` is the single implementation of this
-    grammar; no consumer re-derives its own test.
+    `cer.is_resolution_marked` (INFRA-322/CER-130): a row is resolved when one of the keywords in
+    `cer.RESOLUTION_MARKERS` — `RESOLVED`, `SUPERSEDED`, `OBSOLETE` (ASCII case-insensitive —
+    `RESOLVED`, `Resolved` and `resolved` all match; `OBSOLETE` added by CER-207 because this
+    project's own CER backlog already closed rows with that annotation, 19+ times, and the
+    grammar did not recognize it) — *begins* an annotation segment — the start of the row text,
+    right after a `|` cell boundary or a sentence-ending `.`/`!`/`?`/`;`/`:`/em-dash plus one or
+    more spaces, or inside an emphasis/bracket opener (`*`, `(`, `[`). A keyword appearing
+    mid-clause, preceded by a plain space and a word, is never a marker — this anchoring is what
+    keeps `UNRESOLVED …` and `this should be RESOLVED before cp` from being read as closures. The
+    grammar replaced a bare, case-sensitive substring test
+    (`"RESOLVED" not in stripped and "SUPERSEDED" not in stripped`) that was wrong in both
+    directions: it permanently blocked title-case conventions (`Resolved cp-34 — …`, hit live on
+    a consuming repo's checkpoint) while silently waving genuinely open rows through.
+    `cer.is_resolution_marked` is the single implementation of this grammar, built from the one
+    `cer.RESOLUTION_MARKERS` keyword tuple; no consumer re-derives its own test or its own copy
+    of the marker list — including `_cer_do_now_gate_message` (`flex_build.py`, the
+    checkpoint-tag refusal message described below) and `cer.py gate`'s own refusal message,
+    both of which name the marker set by formatting `cer.RESOLUTION_MARKERS` rather than
+    hardcoding a literal (CER-207 fixed a prior drift where `_cer_do_now_gate_message`
+    independently hardcoded `RESOLVED/SUPERSEDED` and had not been updated when `OBSOLETE` was
+    added).
 
     **CER backlog gate and groom (INFRA-313, Repo-G agreement A#1).** The Do Now scan behind the
     guard above is a single shared function, `cer.find_open_do_now_rows(text)` — pure, no I/O,
@@ -1166,7 +1175,8 @@ so a claim never overrides commit evidence (CER-095.1).
     step of `record-checkpoint-step` calls this same scan directly (`_cer_do_now_gate_message`)
     before any state.json read or write: an open row makes the call return 3 (a new exit code,
     distinct from 1 = unknown step_id and 2 = phase-key ambiguity, CER-077) and record nothing —
-    the message states that an open row is cleared by a `RESOLVED`/`SUPERSEDED` annotation or a
+    the message states that an open row is cleared by a `RESOLVED`/`SUPERSEDED`/`OBSOLETE`
+    annotation (named by formatting `cer.RESOLUTION_MARKERS`, not a hardcoded literal) or a
     written re-triage to another quadrant, **never by deletion**. A missing or unreadable
     `docs/cer/backlog.md` fails open on both paths, matching the resolver's own guard — a project
     that has never run `cer.py` is never blocked by it.
