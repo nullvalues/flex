@@ -151,6 +151,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 127 | Close shadow-reviewer git-flag write bypass and worktree-path scope_guard gap (CER-175) | planned | [phase-127.md](phase-127.md) |
 | 128 | Fix .pairmode-overrides template/migration gap from audit.py key-format change (CER-180) | planned | [phase-128.md](phase-128.md) |
 | 129 | De-duplicate pairmode_drift_report.py's stale override-key parser (CER-181) | planned | [phase-129.md](phase-129.md) |
+| 130 | Close CER-172 scrub completeness and regression gaps (CER-188) | planned | [phase-130.md](phase-130.md) |
 
 ---
 
