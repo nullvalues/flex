@@ -2,7 +2,7 @@
 id: INFRA-409
 rail: INFRA
 title: Bootstrap/scaffold doc and quoting quality fixes (CER-166/167/187)
-status: draft
+status: complete
 phase: "139"
 story_class: code
 auth_gated: false

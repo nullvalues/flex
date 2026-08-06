@@ -21,7 +21,7 @@ Close three small documentation/quoting quality gaps: security-auditor procedure
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-409 | Bootstrap/scaffold doc and quoting quality fixes (CER-166/167/187) | draft |
+| INFRA-409 | Bootstrap/scaffold doc and quoting quality fixes (CER-166/167/187) | complete |
 
 ## Schema delivery
 
