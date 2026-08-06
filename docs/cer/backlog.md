@@ -443,6 +443,10 @@ Not urgent, marginal value. Style, cosmetics, speculative improvements.
 
 | CER-203 | LOW: scrub_fleet_names.py's _parse_root silently falls back to _FLEX_ROOT when --root is passed with no value (a trailing --root with nothing after it), instead of erroring -- a mistyped invocation can run apply() (which rewrites tracked files) against the wrong root with no signal. Found by the Phase 130 checkpoint security-auditor run (INFRA-400 re-audit). skills/pairmode/scripts/scrub_fleet_names.py. | security-auditor | 2026-08-06 | 130 |
 
+| CER-204 | LOW: scrub_fleet_names.py's verify() success line (skills/pairmode/scripts/scrub_fleet_names.py:423-427) prints an 'unmapped=' count that is structurally always zero -- any non-empty unmapped set already sets reconciliation_failed=True, and every path to the success print is guarded by 'if reconciliation_failed: return 1', so the printed unmapped count carries no information and could mislead an operator into reading it as an affirmative zero-unmapped confirmation. Found by the Phase 132 checkpoint security-auditor run (INFRA-402 re-audit). skills/pairmode/scripts/scrub_fleet_names.py. | security-auditor | 2026-08-06 | 132 |
+
+| CER-205 | LOW: scrub_fleet_names.py's mapped/excluded conflict check (skills/pairmode/scripts/scrub_fleet_names.py:359-364) is a case-exact set intersection, while the actual scrub substitution pattern is built via _expand_case_variants (case-expanding). An _excluded entry differing only in case from a mapped real name is neither flagged as a conflict nor effective as an exclusion (sibling matching in unmapped_sibling_repos is likewise case-exact, so it cannot silently suppress a real leak -- just a silent no-op config entry). Found by the Phase 132 checkpoint security-auditor run (INFRA-402 re-audit). skills/pairmode/scripts/scrub_fleet_names.py. | security-auditor | 2026-08-06 | 132 |
+
 
 
 ---
