@@ -441,6 +441,8 @@ Not urgent, marginal value. Style, cosmetics, speculative improvements.
 
 | CER-202 | LOW: audit.py's stale-override-key-shape diagnostic (INFRA-398) lands in result.inconsistent, but the audit summary's generic remediation line (skills/pairmode/scripts/audit.py:1157-1159) tells the operator to run 'pairmode sync' -- which cannot rewrite project-owned .pairmode-overrides keys, so following the printed advice will not clear the finding. Pre-existing shape shared with the CER-132 parse-error diagnostic, not introduced by this story. Found by the Phase 128 checkpoint security-auditor run (INFRA-398 re-audit). skills/pairmode/scripts/audit.py. | security-auditor | 2026-08-06 | 128 |
 
+| CER-203 | LOW: scrub_fleet_names.py's _parse_root silently falls back to _FLEX_ROOT when --root is passed with no value (a trailing --root with nothing after it), instead of erroring -- a mistyped invocation can run apply() (which rewrites tracked files) against the wrong root with no signal. Found by the Phase 130 checkpoint security-auditor run (INFRA-400 re-audit). skills/pairmode/scripts/scrub_fleet_names.py. | security-auditor | 2026-08-06 | 130 |
+
 
 
 ---
