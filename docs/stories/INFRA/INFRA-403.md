@@ -13,6 +13,7 @@ primary_files:
   - .pairmode-fleet.local.json.example
 touches:
   - tests/pairmode/test_scrub_fleet_names.py
+  - skills/pairmode/scripts/fleet_discovery.py
 narrative_roles: []
 ---
 
@@ -35,6 +36,13 @@ of degrading to empty on a parse error.
 
 None — the fix is contained to the template, its loader, and the one caller that
 misreads the loader's degraded return.
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| skills/pairmode/scripts/fleet_discovery.py | fleet_map.load_local_fleet_map now raises FleetMapConfigError on malformed JSON (CER-196); fleet_discovery.py's own wrapper must catch it locally to preserve its documented never-raises contract, which is out of this story's scope to change and has its own existing tests asserting it | 2026-08-06T03:24:37Z |
 
 ## Ensures
 

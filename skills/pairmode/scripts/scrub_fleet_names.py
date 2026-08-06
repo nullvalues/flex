@@ -142,10 +142,18 @@ def _is_protected(rel_path: str, protected_paths: tuple[str, ...]) -> bool:
 
 
 def _load_local_fleet_map(root: Path = _FLEX_ROOT) -> dict[str, str]:
-    """Read the local, gitignored fleet map (CER-172). Never raises.
+    """Read the local, gitignored fleet map (CER-172).
 
     Delegates to ``fleet_map.py`` (INFRA-400) — the same loader
     ``fleet_discovery.py`` uses — so both callers agree on file shape.
+
+    Never raises on a genuinely absent config file (returns ``{}``, "no
+    config"). Raises ``fleet_map.FleetMapConfigError`` when the file exists
+    but is not valid JSON (CER-196, INFRA-403) — every caller in this module
+    (``apply``, ``verify``, ``apply_lessons``, ``verify_lessons``) lets that
+    propagate rather than catching it and reinstating an empty-map
+    fallback; only ``main()`` catches it, to turn it into a non-zero exit
+    with a message identifying the unparseable file.
     """
     return _fleet_map_lib.load_local_fleet_map(root)
 
@@ -752,15 +760,25 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if status in (HOOK_STATUS_INSTALLED, HOOK_STATUS_ALREADY_INSTALLED) else 1
 
     root = _parse_root(args)
-    if "--lessons" in args:
+    try:
+        if "--lessons" in args:
+            if "--verify" in args:
+                return verify_lessons(root)
+            apply_lessons(root)
+            return 0
         if "--verify" in args:
-            return verify_lessons(root)
-        apply_lessons(root)
+            return verify(root)
+        apply(root)
         return 0
-    if "--verify" in args:
-        return verify(root)
-    apply(root)
-    return 0
+    except _fleet_map_lib.FleetMapConfigError as e:
+        # CER-196/INFRA-403: a malformed local fleet-config file must fail
+        # the gate loudly, not be swallowed into an empty-map "nothing
+        # configured" pass. Every caller above (apply/verify/apply_lessons/
+        # verify_lessons) let this propagate rather than catching it
+        # locally — this is the one place it's converted into a process
+        # exit code.
+        print(f"scrub_fleet_names: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

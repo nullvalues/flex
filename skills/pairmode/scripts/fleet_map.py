@@ -33,12 +33,22 @@ FLEET_ROOT_CONFIG_KEY = "_fleet_root"
 # performs (see `excluded_repo_names`). Never treated as a repo entry itself.
 EXCLUDED_REPOS_CONFIG_KEY = "_excluded"
 
+# Reserved key (INFRA-403/CER-196): an optional free-text string or list of
+# strings carrying operator-facing explanatory text (e.g. what `_excluded`
+# means). Introduced so `.pairmode-fleet.local.json.example` can hold its
+# guidance prose in a JSON-legal field instead of the `//` comment lines
+# that made the shipped template invalid JSON. Never treated as a repo entry
+# itself; harmless if an operator forgets to strip it from their copied file.
+COMMENT_CONFIG_KEY = "_comment"
+
 # All reserved keys inside `.pairmode-fleet.local.json` that are
 # configuration, not a `{label: real_path}` repo entry (INFRA-402). Kept as a
 # single frozenset so `repo_entries` filters every reserved key uniformly —
 # `fleet_discovery.py` also calls `repo_entries`, and a list value (e.g. the
 # `_excluded` array) reaching `real_names_to_labels` would raise.
-RESERVED_CONFIG_KEYS = frozenset({FLEET_ROOT_CONFIG_KEY, EXCLUDED_REPOS_CONFIG_KEY})
+RESERVED_CONFIG_KEYS = frozenset(
+    {FLEET_ROOT_CONFIG_KEY, EXCLUDED_REPOS_CONFIG_KEY, COMMENT_CONFIG_KEY}
+)
 
 # Stable, non-identifying placeholder for a discovered repo path with no
 # fleet-map entry (Ensures 4, INFRA-400). `{n}` is a 1-based per-snapshot
@@ -46,16 +56,44 @@ RESERVED_CONFIG_KEYS = frozenset({FLEET_ROOT_CONFIG_KEY, EXCLUDED_REPOS_CONFIG_K
 UNMAPPED_PLACEHOLDER_TEMPLATE = "<unmapped-repo-{n}>"
 
 
+class FleetMapConfigError(RuntimeError):
+    """Raised by ``load_local_fleet_map`` when
+    ``.pairmode-fleet.local.json`` exists but its contents are not valid
+    JSON (CER-196, INFRA-403).
+
+    A genuinely absent config file is a different answer than a present-but-
+    malformed one — a fresh clone with no local fleet map configured means
+    "no fleet names are configured, nothing to scrub/reconcile", while a
+    present file that fails to parse means the operator's configuration is
+    broken and the leak-prevention gate cannot be trusted to have actually
+    checked anything. Collapsing both into an empty-map return let
+    ``scrub_fleet_names.verify()`` report a broken config as a clean pass
+    (CER-196) — this exception exists so that can never happen again.
+    """
+
+
 def load_local_fleet_map(root: Path) -> dict[str, str]:
-    """Read ``<root>/.pairmode-fleet.local.json``. Never raises: a missing
-    file, an unreadable file, or invalid JSON all yield ``{}``.
+    """Read ``<root>/.pairmode-fleet.local.json``.
+
+    A genuinely absent file, or one this process cannot read (permissions,
+    the path being a directory, etc.), yields ``{}`` — the "no config"
+    behaviour is unchanged. A file that exists and is readable but is not
+    valid JSON raises ``FleetMapConfigError`` (CER-196, INFRA-403) instead
+    of degrading to ``{}``: a malformed config must never be silently read
+    as "no fleet names configured".
     """
     local_path = Path(root) / LOCAL_FLEET_CONFIG_FILENAME
     try:
         with local_path.open() as f:
-            return json.load(f)
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
+            text = f.read()
+    except (FileNotFoundError, OSError):
         return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise FleetMapConfigError(
+            f"{local_path}: invalid JSON ({e})"
+        ) from e
 
 
 def repo_entries(fleet_map: dict[str, str]) -> dict[str, str]:

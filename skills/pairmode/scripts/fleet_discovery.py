@@ -119,8 +119,19 @@ def _load_local_fleet_map() -> dict[str, str]:
     ``scrub_fleet_names.py`` uses — bound to this module's own ``_FLEX_ROOT``
     global (read at call time, not import time, so tests that monkeypatch
     ``_FLEX_ROOT`` still take effect).
+
+    A malformed config file now makes the shared loader raise
+    ``FleetMapConfigError`` instead of degrading to ``{}`` (CER-196,
+    INFRA-403), so ``scrub_fleet_names.verify()`` — the leak-prevention gate
+    — cannot mistake a broken config for "nothing configured". This
+    module's own discovery/candidate-listing use of the map is not a gate;
+    that error is caught here and folded back into this function's
+    documented never-raises contract, unchanged from before INFRA-403.
     """
-    return fleet_map_lib.load_local_fleet_map(_FLEX_ROOT)
+    try:
+        return fleet_map_lib.load_local_fleet_map(_FLEX_ROOT)
+    except fleet_map_lib.FleetMapConfigError:
+        return {}
 
 
 def _default_candidates() -> list[Path]:

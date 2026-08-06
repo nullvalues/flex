@@ -85,8 +85,54 @@ def test_load_local_fleet_map_missing(tmp_path: Path) -> None:
 
 
 def test_load_local_fleet_map_malformed(tmp_path: Path) -> None:
+    """CER-196/INFRA-403: a present-but-malformed config must raise, not
+    silently degrade to an empty map — collapsing "malformed" into "absent"
+    is exactly what let scrub_fleet_names.verify() report a broken config
+    as a clean pass."""
     _write(tmp_path, ".pairmode-fleet.local.json", "{not valid json")
-    assert sfn._load_local_fleet_map(tmp_path) == {}
+    with pytest.raises(sfn._fleet_map_lib.FleetMapConfigError):
+        sfn._load_local_fleet_map(tmp_path)
+
+
+def test_example_template_is_valid_json() -> None:
+    """CER-196/INFRA-403: the committed template an operator copies to
+    create their local fleet map must itself parse as JSON — the original
+    `//`-comment-prefixed template silently produced an unusable, always-
+    empty-map config once copied."""
+    example_path = (
+        Path(__file__).resolve().parents[2] / ".pairmode-fleet.local.json.example"
+    )
+    loaded = json.loads(example_path.read_text(encoding="utf-8"))
+    assert isinstance(loaded, dict)
+    assert "example-repo-1" in loaded
+
+
+def test_verify_on_malformed_config_exits_nonzero(tmp_path: Path) -> None:
+    """CER-196/INFRA-403: verify() must let a malformed config's parse
+    failure propagate rather than reinstating an empty-map fallback
+    locally — main() is what turns it into a gate-failing exit code."""
+    _write(tmp_path, ".pairmode-fleet.local.json", "{not valid json")
+    with pytest.raises(sfn._fleet_map_lib.FleetMapConfigError):
+        sfn.verify(tmp_path)
+
+
+def test_main_verify_on_malformed_config_exits_nonzero(tmp_path: Path, capsys) -> None:
+    """CER-196/INFRA-403: at the CLI boundary, a malformed config must
+    surface as a non-zero exit with a message naming the offending file —
+    never a silent pass."""
+    _init_git_repo(tmp_path)
+    _write(tmp_path, ".pairmode-fleet.local.json", "{not valid json")
+    exit_code = sfn.main(["--verify", "--root", str(tmp_path)])
+    assert exit_code != 0
+    captured = capsys.readouterr()
+    assert ".pairmode-fleet.local.json" in captured.err
+
+
+def test_main_verify_on_valid_config_still_verifies_as_before(repo: Path) -> None:
+    """Control case (INFRA-403): a valid config is unaffected by the
+    malformed-config handling above and still verifies exactly as before."""
+    exit_code = sfn.main(["--verify", "--root", str(repo)])
+    assert exit_code == 0
 
 
 # ---------------------------------------------------------------------------
