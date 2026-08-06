@@ -1584,9 +1584,11 @@ entry, naming the corrected form. `sync.py` imports `audit.py`'s `_load_override
 exactly this kind of duplication, after `drift_report.py`'s prior stale copy silently
 ignored a correctly-formatted override. `audit.py` is the sole owner of this parsing
 logic; a future change to the section-key contract must audit every consumer (`audit.py`
-itself, `sync.py`, `pairmode_drift_report.py`, and the `.pairmode-overrides.j2` template
+itself, `sync.py`, `pairmode_drift_report.py`, `lesson_review.py`'s
+`.pairmode-drift-rejected` persistence keys, and the `.pairmode-overrides.j2` template
 operators read) rather than assuming a single call site, per the CER-170/180/181 chain's
-own lesson.
+own lesson — `lesson_review.py`'s dependency on this same key shape was missed by
+INFRA-399's own touches/out-of-scope declaration and only surfaced later as CER-184.
 
 ### Rails and eras
 
