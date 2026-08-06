@@ -29,3 +29,4 @@ Placeholder era opened at 0.3.1 sealing; real scope to be defined as maintenance
 | 130 | Close CER-172 scrub completeness and regression gaps (CER-188) | planned |
 | 131 | Fix scrub_fleet_names crash, incomplete anonymization coverage, and unwired gate (CER-194) | planned |
 | 132 | Add excluded-siblings mechanism to the fleet-name reconciliation gate (CER-195) | planned |
+| 133 | Fix invalid-JSON fleet-config example causing silent fail-open verify (CER-196) | planned |
