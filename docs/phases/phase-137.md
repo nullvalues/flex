@@ -21,7 +21,7 @@ Close four residual gaps in the .pairmode-overrides section-key handling chain (
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-407 | Overrides/audit key-shape quality fixes (CER-182/184/185/202) | draft |
+| INFRA-407 | Overrides/audit key-shape quality fixes (CER-182/184/185/202) | complete |
 
 ## Schema delivery
 

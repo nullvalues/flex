@@ -2,7 +2,7 @@
 id: INFRA-407
 rail: INFRA
 title: Overrides/audit key-shape quality fixes (CER-182/184/185/202)
-status: draft
+status: complete
 phase: "137"
 story_class: code
 auth_gated: false
