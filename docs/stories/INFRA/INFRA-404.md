@@ -2,7 +2,7 @@
 id: INFRA-404
 rail: INFRA
 title: Recognize OBSOLETE as a CER resolution marker (CER-207)
-status: draft
+status: complete
 phase: "134"
 story_class: code
 auth_gated: false

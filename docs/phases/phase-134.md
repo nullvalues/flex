@@ -21,7 +21,7 @@ Fix CER-207: cer.is_resolution_marked only recognizes RESOLVED/SUPERSEDED as clo
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-404 | Recognize OBSOLETE as a CER resolution marker (CER-207) | draft |
+| INFRA-404 | Recognize OBSOLETE as a CER resolution marker (CER-207) | complete |
 
 ## Schema delivery
 
