@@ -23,7 +23,7 @@ Fix CER-188: the CER-172 fleet-name scrub (INFRA-393/394) is incomplete (a real 
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-400 | Close CER-172 scrub completeness and regression gaps (CER-188) | draft |
+| INFRA-400 | Close CER-172 scrub completeness and regression gaps (CER-188) | complete |
 
 ## Schema delivery
 

@@ -2,7 +2,7 @@
 id: INFRA-400
 rail: INFRA
 title: Close CER-172 scrub completeness and regression gaps (CER-188)
-status: draft
+status: complete
 phase: "130"
 story_class: code
 auth_gated: false
