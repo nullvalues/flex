@@ -14,6 +14,7 @@ touches:
   - tests/pairmode/test_story_new.py
   - tests/pairmode/test_bootstrap.py
   - skills/pairmode/skills/security-auditor/procedure.md
+  - tests/pairmode/test_security_auditor_worker.py
   - skills/pairmode/SKILL.md
 narrative_roles: []
 ---
@@ -69,6 +70,20 @@ story.
 3. **CER-166** — in `security-auditor/procedure.md`, add `context_current_tokens_source`
    to the `hooks/post_tool_use.py` entry's "Authorized state.json writes" list,
    citing INFRA-374.
+   **Known conflict and resolution (found by INFRA-409 attempt 1, CER-208):**
+   `tests/pairmode/test_security_auditor_worker.py::test_procedure_does_not_reference_context_current_tokens`
+   asserts the bare substring `context_current_tokens` never appears anywhere in
+   the procedure file — a DP1.3 bounded-input guard whose actual intent (per its
+   own docstring) is that the security-auditor must never be told to *read*
+   `context_current_tokens` as accumulated orchestrator state. `context_current_tokens_source`
+   is a distinct key (a static write-enumeration entry for Check 1, not a read
+   instruction) that happens to contain the guarded substring. Resolution: narrow
+   the guard assertion in `test_security_auditor_worker.py` to flag the bare key
+   `context_current_tokens` (e.g. via a regex asserting it is not present unless
+   immediately followed by `_source`, or an equivalent word-boundary-aware check)
+   rather than the raw substring, and add a case to that same test asserting the
+   bare key is still disallowed. This is now in this story's scope — add
+   `tests/pairmode/test_security_auditor_worker.py` to `touches:`.
 4. Tests: extend `tests/pairmode/test_story_new.py` with the Ensures-1 round-trip
    cases, and `tests/pairmode/test_bootstrap.py` with an assertion that the
    `--force-agents` help output mentions `EXEMPLAR-000.md`. The two Markdown-only
