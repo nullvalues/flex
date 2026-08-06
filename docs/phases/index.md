@@ -152,7 +152,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 128 | Fix .pairmode-overrides template/migration gap from audit.py key-format change (CER-180) | complete | [phase-128.md](phase-128.md) |
 | 129 | De-duplicate pairmode_drift_report.py's stale override-key parser (CER-181) | complete | [phase-129.md](phase-129.md) |
 | 130 | Close CER-172 scrub completeness and regression gaps (CER-188) | complete | [phase-130.md](phase-130.md) |
-| 131 | Fix scrub_fleet_names crash, incomplete anonymization coverage, and unwired gate (CER-194) | planned | [phase-131.md](phase-131.md) |
+| 131 | Fix scrub_fleet_names crash, incomplete anonymization coverage, and unwired gate (CER-194) | complete | [phase-131.md](phase-131.md) |
 | 132 | Add excluded-siblings mechanism to the fleet-name reconciliation gate (CER-195) | planned | [phase-132.md](phase-132.md) |
 | 133 | Fix invalid-JSON fleet-config example causing silent fail-open verify (CER-196) | planned | [phase-133.md](phase-133.md) |
 
