@@ -7,9 +7,9 @@
     "file to .pairmode-fleet.local.json and remove this _comment field (this",
     "is a template, not consumed directly)."
   ],
-  "_fleet_root": "/path/to/fleet-root",
-  "_excluded": ["excluded-legacy-tool"],
-  "example-repo-1": "/path/to/example-repo-1",
-  "example-repo-2": "/path/to/example-repo-2",
-  "example-repo-3": "/path/to/example-repo-3"
+  "_fleet_root": "/path/to/<fleet-root>",
+  "_excluded": ["<excluded-legacy-tool>"],
+  "Repo-A": "/path/to/<repo-a>",
+  "Repo-B": "/path/to/<repo-b>",
+  "Repo-C": "/path/to/<repo-c>"
 }
