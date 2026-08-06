@@ -372,6 +372,8 @@ Important, not urgent. Quality improvements, architectural refinements.
 
 | CER-198 | LOW: fleet_map.load_local_fleet_map returns whatever JSON parses without a dict-shape check, so a valid-JSON-but-non-dict config (list/string/null) falls through verify()'s 'if not fleet_map' to a 'no local fleet config' exit 0 -- the same fail-open shape CER-196 closed for the unparseable case, now reopened for the wrong-shape case. Found by Phase 125 checkpoint security-auditor (retry run, post-CER-196). skills/pairmode/scripts/fleet_map.py. | security-auditor | 2026-08-06 | 133 |
 
+| CER-200 | MEDIUM: scope_guard.py's _out_of_root_decision (skills/pairmode/scripts/scope_guard.py:126-127) lets a shadow-reviewer-attributed write that resolves outside the project root land in the harness-owned allow-list prefixes (~/.claude/projects/<key>/memory, ~/.claude/plans, the session scratchpad) despite the shadow-reviewer role's documented 'confined to exactly .pairmode-suggestions.md' promise -- the out-of-root branch does not distinguish agent_type before applying the allow-list. Found by the Phase 126 checkpoint security-auditor run (INFRA-396 re-audit). skills/pairmode/scripts/scope_guard.py. | security-auditor | 2026-08-06 | 126 |
+
 
 
 ---

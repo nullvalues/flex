@@ -3601,7 +3601,8 @@ resolution and no new dispatch branch is added.
 - **`Edit`/`Write` → `scope_guard.py` (Phase 55):** decides whether to block
   a file write based on the active story's declared `primary_files`/`touches`.
   Read-only; no state writes. Fails open when state or permissions file absent.
-  **INFRA-396/INFRA-397 (CER-174/CER-175, Phase 122's forked remediation):**
+  **INFRA-396/INFRA-397 (CER-174/CER-175, Phase 122's forked remediation — closed by
+  Phase 126 and Phase 127 respectively):**
   `check_path` also takes an `agent_type` parameter, threaded through by
   `pre_tool_use.py`'s `Edit`/`Write` branch (`agent_type=data.get("agent_type")`,
   mirroring the `Read`/`Bash` branches). When `agent_type == "shadow-reviewer"`,
@@ -3632,7 +3633,7 @@ resolution and no new dispatch branch is added.
   observed improvising on a FAIL verdict (see the story's Context). Read-only;
   no state writes.
   **INFRA-388/INFRA-396/INFRA-397 (CER-164/CER-174/CER-175, Phase 122 and its
-  forked remediation):** `agent_type == "shadow-reviewer"` is a separate,
+  forked remediation — Phase 126 and Phase 127):** `agent_type == "shadow-reviewer"` is a separate,
   strictly narrower default-deny branch — the role has no legitimate write
   path via Bash at all, unlike the reviewer role. It denies (in order): any
   shell control/substitution token (`&&`, `||`, `;`, a literal newline, `$(`,
