@@ -3732,6 +3732,17 @@ The four remaining companion/sidebar blocks (`Stop`, `PermissionRequest`/
 `ExitPlanMode`, `PostToolUse` matcher `Write|Edit|MultiEdit`, `SessionEnd`)
 remain opt-in and are not registered by this path.
 
+**Scrub pre-commit gate (INFRA-401, CER-194):** alongside the Claude-Code
+hook registration above, `bootstrap.py` also installs a *git* pre-commit
+hook — `scrub_fleet_names.py install_hook`'s five-outcome
+(`installed`/`already-installed`/`not-a-git-repo`/`worktree`/`foreign-hook`)
+wiring — as part of every normal bootstrap run. This closes the gap the
+INFRA-400 gate shipped with but never had wired to any operational
+touchpoint: `install-hook` existed as a manual subcommand only, invoked by
+nothing. The gate can be re-applied to a checkout at any time, independent
+of a bootstrap run, via `uv run python
+skills/pairmode/scripts/scrub_fleet_names.py install-hook [REPO_ROOT]`.
+
 **INFRA-298 (CER-114) addendum:** `CONTEXT_BUDGET_HOOK_SPECS` gained a fourth
 entry, `SubagentStop` (`hooks/subagent_stop.py`, matcher `None`) — despite
 the tuple's "context-budget" name, added here rather than to a new tuple

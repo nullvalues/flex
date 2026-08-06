@@ -690,6 +690,54 @@ def test_reconcile_failure_names_count_and_unmapped_path_only(
     assert str(unmapped_dir) in captured.err
 
 
+def test_sibling_repo_dirs_skips_unreadable_candidate(tmp_path: Path) -> None:
+    """fleet_map.sibling_repo_dirs() never raises on an unreadable candidate
+    (INFRA-401) — it skips it and returns the readable repos. Exercised here
+    (rather than only in a fleet_map-local test module) because the
+    forbidden proxy this story guards against is specifically
+    scrub_fleet_names.py's own --verify aborting on it."""
+    import os
+
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory mode bits")
+
+    import fleet_map as fleet_map_lib
+
+    fleet_root = tmp_path / "fleet"
+    fleet_root.mkdir()
+    readable = _make_fake_repo_dir(fleet_root, "repo-alpha")
+    unreadable = fleet_root / "repo-locked"
+    unreadable.mkdir()
+    (unreadable / ".git").mkdir()
+    unreadable.chmod(0o000)
+
+    try:
+        dirs = fleet_map_lib.sibling_repo_dirs(fleet_root)
+        assert dirs == [readable]
+
+        project_root = fleet_root / "flex"
+        project_root.mkdir()
+        _init_git_repo(project_root)
+        _write_map(
+            project_root,
+            {
+                "_fleet_root": str(fleet_root),
+                "Repo-Alpha": str(readable),
+            },
+        )
+        _git_add(project_root)
+
+        # verify() must run to completion (not raise) against a fleet root
+        # containing an unreadable candidate. It still fails because
+        # repo-locked is unmapped and unreadable-but-present — the
+        # completion-without-raising is the acceptance criterion, not the
+        # exit code.
+        result = sfn.verify(project_root)
+        assert result in (0, 1)
+    finally:
+        unreadable.chmod(0o755)
+
+
 def test_reconcile_not_a_silent_warning_while_still_exiting_zero(
     tmp_path: Path,
 ) -> None:
@@ -780,8 +828,9 @@ def _run_hook(hook_path: Path, cwd: Path) -> subprocess.CompletedProcess:
 
 def test_install_hook_writes_executable_pre_commit(tmp_path: Path) -> None:
     _init_git_repo(tmp_path)
-    hook_path = sfn.install_hook(tmp_path)
+    status, hook_path = sfn.install_hook(tmp_path)
 
+    assert status == sfn.HOOK_STATUS_INSTALLED
     assert hook_path == tmp_path / ".git" / "hooks" / "pre-commit"
     assert hook_path.exists()
     assert hook_path.stat().st_mode & 0o111  # some execute bit set
@@ -793,9 +842,10 @@ def test_installed_hook_blocks_commit_on_failing_verify(tmp_path: Path) -> None:
     _write_map(tmp_path, FAKE_MAP)
     _git_add(tmp_path)
 
-    hook_path = sfn.install_hook(tmp_path)
+    status, hook_path = sfn.install_hook(tmp_path)
     result = _run_hook(hook_path, tmp_path)
 
+    assert status == sfn.HOOK_STATUS_INSTALLED
     assert result.returncode != 0
 
 
@@ -807,9 +857,10 @@ def test_installed_hook_allows_commit_on_passing_verify(tmp_path: Path) -> None:
     _write_map(tmp_path, {**FAKE_MAP, "_fleet_root": str(isolated_fleet_root)})
     _git_add(tmp_path)
 
-    hook_path = sfn.install_hook(tmp_path)
+    status, hook_path = sfn.install_hook(tmp_path)
     result = _run_hook(hook_path, tmp_path)
 
+    assert status == sfn.HOOK_STATUS_INSTALLED
     assert result.returncode == 0
 
 
@@ -821,7 +872,76 @@ def test_install_hook_is_not_a_silent_warning(tmp_path: Path) -> None:
     _write_map(tmp_path, FAKE_MAP)
     _git_add(tmp_path)
 
-    hook_path = sfn.install_hook(tmp_path)
+    status, hook_path = sfn.install_hook(tmp_path)
     result = _run_hook(hook_path, tmp_path)
 
+    assert status == sfn.HOOK_STATUS_INSTALLED
     assert result.returncode != 0
+
+
+# ---------------------------------------------------------------------------
+# install_hook status branches (Ensures 3, Instructions 3, INFRA-401)
+# ---------------------------------------------------------------------------
+
+def test_install_hook_not_a_git_repo(tmp_path: Path) -> None:
+    """No `.git` at all: reported, nothing created."""
+    status, hook_path = sfn.install_hook(tmp_path)
+
+    assert status == sfn.HOOK_STATUS_NOT_A_GIT_REPO
+    assert hook_path is None
+    assert not (tmp_path / ".git").exists()
+
+
+def test_install_hook_worktree_pointer(tmp_path: Path) -> None:
+    """`.git` is a file (worktree/submodule pointer): the hook belongs to the
+    main checkout, so nothing is written here."""
+    (tmp_path / ".git").write_text("gitdir: /somewhere/else/.git/worktrees/x\n")
+
+    status, hook_path = sfn.install_hook(tmp_path)
+
+    assert status == sfn.HOOK_STATUS_WORKTREE
+    assert hook_path is None
+    assert not (tmp_path / ".git" / "hooks").exists()
+
+
+def test_install_hook_already_installed_is_idempotent(tmp_path: Path) -> None:
+    """A second `install_hook` call against an unchanged target reports
+    already-installed and does not rewrite the file."""
+    _init_git_repo(tmp_path)
+    first_status, hook_path = sfn.install_hook(tmp_path)
+    assert first_status == sfn.HOOK_STATUS_INSTALLED
+    before_mtime = hook_path.stat().st_mtime_ns
+
+    second_status, second_hook_path = sfn.install_hook(tmp_path)
+
+    assert second_status == sfn.HOOK_STATUS_ALREADY_INSTALLED
+    assert second_hook_path == hook_path
+    assert hook_path.stat().st_mtime_ns == before_mtime
+
+
+def test_install_hook_foreign_hook_left_untouched(tmp_path: Path) -> None:
+    """A pre-existing, unrelated pre-commit hook is left alone, never
+    overwritten."""
+    _init_git_repo(tmp_path)
+    hooks_dir = tmp_path / ".git" / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    foreign_hook = hooks_dir / "pre-commit"
+    foreign_content = "#!/bin/sh\necho 'some other tool installed this'\n"
+    foreign_hook.write_text(foreign_content)
+
+    status, hook_path = sfn.install_hook(tmp_path)
+
+    assert status == sfn.HOOK_STATUS_FOREIGN_HOOK
+    assert hook_path == foreign_hook
+    assert foreign_hook.read_text() == foreign_content
+
+
+def test_install_hook_cli_exits_zero_on_installed(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
+    exit_code = sfn.main(["install-hook", str(tmp_path)])
+    assert exit_code == 0
+
+
+def test_install_hook_cli_exits_nonzero_on_not_a_git_repo(tmp_path: Path) -> None:
+    exit_code = sfn.main(["install-hook", str(tmp_path)])
+    assert exit_code == 1

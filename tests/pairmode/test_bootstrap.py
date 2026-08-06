@@ -5493,3 +5493,105 @@ class TestOperatorExtensionOverwriteGuard:
         )
         assert result.exit_code == 0, result.output
         assert dest.read_text(encoding="utf-8") == original_content
+
+
+# ---------------------------------------------------------------------------
+# scrub_fleet_names.py pre-commit gate wiring (INFRA-401, CER-194)
+# ---------------------------------------------------------------------------
+
+import subprocess  # noqa: E402
+
+import scrub_fleet_names as _sfn  # noqa: E402
+
+
+def _init_git_repo(root: pathlib.Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=root, check=True)
+
+
+class TestBootstrapInstallsScrubPreCommitGate:
+    def test_bootstrap_installs_executable_pre_commit_hook(self, tmp_path):
+        _init_git_repo(tmp_path)
+        result = run_bootstrap(tmp_path)
+
+        assert result.exit_code == 0, result.output
+        hook_path = tmp_path / ".git" / "hooks" / "pre-commit"
+        assert hook_path.exists()
+        assert hook_path.stat().st_mode & 0o111
+        assert "Installed scrub_fleet_names.py pre-commit hook" in result.output
+
+    def test_bootstrap_reports_already_installed_on_rerun_without_rewrite(self, tmp_path):
+        _init_git_repo(tmp_path)
+        run_bootstrap(tmp_path)
+        hook_path = tmp_path / ".git" / "hooks" / "pre-commit"
+        before_mtime = hook_path.stat().st_mtime_ns
+
+        result = run_bootstrap(tmp_path, extra_args=["--force-agents", "--yes"])
+
+        assert result.exit_code == 0, result.output
+        assert "already installed" in result.output
+        assert hook_path.stat().st_mtime_ns == before_mtime
+
+    def test_bootstrap_reports_not_a_git_repo_and_writes_nothing(self, tmp_path):
+        # No `git init` — tmp_path has no .git at all.
+        result = run_bootstrap(tmp_path)
+
+        assert result.exit_code == 0, result.output
+        assert "is not a git repository" in result.output
+        assert not (tmp_path / ".git").exists()
+
+    def test_bootstrap_reports_worktree_and_writes_nothing(self, tmp_path):
+        (tmp_path / ".git").write_text("gitdir: /somewhere/else/.git/worktrees/x\n")
+
+        result = run_bootstrap(tmp_path)
+
+        assert result.exit_code == 0, result.output
+        assert "worktree pointer" in result.output
+        assert not (tmp_path / ".git" / "hooks").exists()
+
+    def test_bootstrap_reports_foreign_hook_and_leaves_it_untouched(self, tmp_path):
+        _init_git_repo(tmp_path)
+        hooks_dir = tmp_path / ".git" / "hooks"
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+        foreign_content = "#!/bin/sh\necho 'some other tool installed this'\n"
+        (hooks_dir / "pre-commit").write_text(foreign_content)
+
+        result = run_bootstrap(tmp_path)
+
+        assert result.exit_code == 0, result.output
+        assert "pre-existing pre-commit hook" in result.output
+        assert (hooks_dir / "pre-commit").read_text() == foreign_content
+
+    def test_dry_run_never_writes_the_hook(self, tmp_path):
+        _init_git_repo(tmp_path)
+        result = run_bootstrap(tmp_path, extra_args=["--dry-run"])
+
+        assert result.exit_code == 0, result.output
+        assert not (tmp_path / ".git" / "hooks" / "pre-commit").exists()
+        assert "[dry-run] would install scrub_fleet_names.py pre-commit hook" in result.output
+
+    def test_bootstrap_installed_hook_actually_verifies_via_scrub_fleet_names(
+        self, tmp_path
+    ):
+        """The hook bootstrap installs is the real thing, not a stub: it
+        actually invokes scrub_fleet_names.py --verify and blocks a commit
+        on failure (forbidden-proxy guard, mirrors
+        test_install_hook_is_not_a_silent_warning)."""
+        _init_git_repo(tmp_path)
+        run_bootstrap(tmp_path)
+        hook_path = tmp_path / ".git" / "hooks" / "pre-commit"
+
+        (tmp_path / "docs").mkdir(exist_ok=True)
+        (tmp_path / "docs" / "notes.md").write_text(
+            "See /tmp/example-repo-a for details.", encoding="utf-8"
+        )
+        (tmp_path / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"Repo-A": "/tmp/example-repo-a"}), encoding="utf-8"
+        )
+        subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+
+        result = subprocess.run(
+            [str(hook_path)], cwd=tmp_path, capture_output=True, text=True
+        )
+        assert result.returncode != 0

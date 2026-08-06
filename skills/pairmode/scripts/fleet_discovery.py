@@ -485,15 +485,32 @@ def _default_snapshot_destination(
 # composed, so a raw real path is never even briefly present in the string
 # this function builds, let alone the file it writes.
 
-def _anonymize_results_for_snapshot(
+def _anonymize_results_for_output(
     results: list[dict], fleet_map: dict[str, str]
 ) -> list[dict]:
-    """Return a copy of ``results`` with every ``"path"`` mapped through
-    ``fleet_map`` to its label, or a stable non-identifying placeholder
-    (``<unmapped-repo-N>``) when the path has no map entry (Ensures 4). Each
-    unmapped gap is reported once on stderr. The same real path always maps
-    to the same placeholder within one call, so the composed document stays
-    internally consistent.
+    """Return a copy of ``results`` with every path-shaped field mapped
+    through ``fleet_map`` to its label, or a stable non-identifying
+    placeholder (``<unmapped-repo-N>``) when a path has no map entry
+    (Ensures 4). Each unmapped gap is reported once on stderr. The same real
+    path always maps to the same placeholder within one call, so the
+    composed document / CLI output stays internally consistent.
+
+    Covers the bare ``"path"`` key (exact match) and the free-text
+    ``"signal1_value"``/``"signal1_absent_detail"`` fields (Ensures 2,
+    INFRA-401): the latter two are absolute-path-bearing prose/shell-command
+    strings, not bare repo paths, so a fleet-root child repo path occurring
+    *within* the string is substituted in place — resolved through the same
+    ``_resolve`` used for ``"path"`` — rather than the whole field being
+    replaced. Candidate substrings to look for come from the fleet map's own
+    mapped entries plus any on-disk sibling under the fleet root (mapped or
+    not), so an unmapped sibling repo path mentioned in free text still
+    yields the ``<unmapped-repo-N>`` placeholder rather than surviving
+    verbatim.
+
+    Called at the output boundary — before snapshot composition and again at
+    the CLI print boundary — never at collection: ``discover()``'s own
+    return value stays real for programmatic callers (Instructions 2,
+    INFRA-401).
     """
     placeholders: dict[str, str] = {}
 
@@ -508,13 +525,37 @@ def _anonymize_results_for_snapshot(
             placeholders[real_path] = placeholder
             print(
                 "fleet_discovery: no fleet-map label for a discovered repo "
-                f"path — writing {placeholder} to the snapshot instead of "
-                "the real path",
+                f"path — writing {placeholder} instead of the real path",
                 file=sys.stderr,
             )
         return placeholders[real_path]
 
-    return [{**r, "path": _resolve(r["path"])} for r in results]
+    # Known fleet-root child repo paths to scan free-text fields for:
+    # mapped fleet-map entries plus any on-disk sibling under the fleet root
+    # (mapped or not) — an unmapped sibling still needs to be found so its
+    # mention in prose resolves to a placeholder rather than surviving raw.
+    fleet_root = fleet_map_lib.resolve_fleet_root(fleet_map, _FLEX_ROOT)
+    known_paths = set(fleet_map_lib.repo_entries(fleet_map).values())
+    known_paths.update(str(p) for p in fleet_map_lib.sibling_repo_dirs(fleet_root))
+    ordered_known_paths = sorted((p for p in known_paths if p), key=len, reverse=True)
+
+    def _resolve_in_text(text: Optional[str]) -> Optional[str]:
+        if text is None:
+            return None
+        for real_path in ordered_known_paths:
+            if real_path in text:
+                text = text.replace(real_path, _resolve(real_path))
+        return text
+
+    return [
+        {
+            **r,
+            "path": _resolve(r["path"]),
+            "signal1_value": _resolve_in_text(r.get("signal1_value")),
+            "signal1_absent_detail": _resolve_in_text(r.get("signal1_absent_detail")),
+        }
+        for r in results
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -534,7 +575,7 @@ def _write_snapshot(results: list[dict], snapshot_path: Path) -> None:
     — write-time anonymization, not a post-hoc scrub.
     """
     fleet_map = _load_local_fleet_map()
-    results = _anonymize_results_for_snapshot(results, fleet_map)
+    results = _anonymize_results_for_output(results, fleet_map)
 
     now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines = [
@@ -721,16 +762,23 @@ def cli(
             unique_candidates.append(c)
 
     results = discover(unique_candidates)
+    # Anonymize at the output boundary (Ensures 2/Instructions 2, INFRA-401):
+    # `results` itself stays real (used below for the snapshot writer, which
+    # anonymizes its own copy independently); every CLI print path — human
+    # and --json — reads only `output_results`.
+    output_results = _anonymize_results_for_output(results, _load_local_fleet_map())
 
     if output_json:
-        click.echo(json.dumps({"flex_root": str(_FLEX_ROOT), "fleet": results}, indent=2))
+        click.echo(
+            json.dumps({"flex_root": str(_FLEX_ROOT), "fleet": output_results}, indent=2)
+        )
     else:
         click.echo(f"Flex checkout: {_FLEX_ROOT}")
         click.echo(f"Candidates scanned: {len(unique_candidates)}")
-        click.echo(f"Bound projects found: {len(results)}")
-        if results:
+        click.echo(f"Bound projects found: {len(output_results)}")
+        if output_results:
             click.echo("")
-            for r in results:
+            for r in output_results:
                 click.echo(f"  {r['path']}")
                 click.echo(f"    binding: {r['binding']}")
                 if r["signal1"]:

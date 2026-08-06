@@ -613,28 +613,74 @@ exec uv run python "{script_path}" --verify --root "{repo_root}"
 """
 
 
-def install_hook(repo_root: Path) -> Path:
+#: The five statuses `install_hook` can report (INFRA-401). Each is a
+#: distinct, visible outcome — no branch below is a silent no-op.
+HOOK_STATUS_INSTALLED = "installed"
+HOOK_STATUS_ALREADY_INSTALLED = "already-installed"
+HOOK_STATUS_NOT_A_GIT_REPO = "not-a-git-repo"
+HOOK_STATUS_WORKTREE = "worktree"
+HOOK_STATUS_FOREIGN_HOOK = "foreign-hook"
+
+
+def install_hook(repo_root: Path) -> tuple[str, Path | None]:
     """Write an executable `.git/hooks/pre-commit` into `repo_root` that
     invokes this script's `--verify` (bound to `repo_root` explicitly, via
     `--root`, so the hook works correctly even when `repo_root` is not this
     script's own checkout) and aborts the commit on nonzero exit.
 
-    Returns the path written. Never invoked automatically — an operator (or
-    a checkpoint runbook step) runs `install-hook` explicitly once per
-    checkout.
+    Returns `(status, path_or_none)` rather than assuming success
+    (INFRA-401) — five distinct, visible outcomes:
+
+    - `HOOK_STATUS_NOT_A_GIT_REPO`: `repo_root/.git` does not exist. Nothing
+      is created; `path` is `None`.
+    - `HOOK_STATUS_WORKTREE`: `repo_root/.git` exists but is a file (a
+      worktree or submodule pointer, not a directory) — the real hooks
+      directory belongs to the main checkout the pointer references, so
+      nothing is written here; `path` is `None`.
+    - `HOOK_STATUS_ALREADY_INSTALLED`: `repo_root/.git/hooks/pre-commit`
+      already exists and is byte-identical to the template this call would
+      render — no write performed (idempotent re-run).
+    - `HOOK_STATUS_FOREIGN_HOOK`: `repo_root/.git/hooks/pre-commit` already
+      exists with different content — a pre-existing hook this call did not
+      install. Left untouched; never overwritten.
+    - `HOOK_STATUS_INSTALLED`: the hook did not exist (or did not match) and
+      was written.
+
+    Invoked automatically by `bootstrap.py` as part of its normal run
+    (INFRA-401) — bootstrap is this project's only "apply pairmode's
+    machinery to a checkout" touchpoint and runs once per checkout, which is
+    the lifecycle this function's contract assumes. Also invokable directly
+    via the `install-hook` CLI subcommand to re-apply the gate to a checkout
+    outside a bootstrap run.
     """
     repo_root = Path(repo_root)
-    hooks_dir = repo_root / ".git" / "hooks"
-    hooks_dir.mkdir(parents=True, exist_ok=True)
+    git_path = repo_root / ".git"
+    if not git_path.exists():
+        return HOOK_STATUS_NOT_A_GIT_REPO, None
+    if git_path.is_file():
+        return HOOK_STATUS_WORKTREE, None
+
+    hooks_dir = git_path / "hooks"
     hook_path = hooks_dir / "pre-commit"
     script_path = Path(__file__).resolve()
-    hook_path.write_text(
-        _PRE_COMMIT_HOOK_TEMPLATE.format(script_path=script_path, repo_root=repo_root),
-        encoding="utf-8",
+    rendered = _PRE_COMMIT_HOOK_TEMPLATE.format(
+        script_path=script_path, repo_root=repo_root
     )
+
+    if hook_path.exists():
+        try:
+            existing = hook_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            existing = None
+        if existing == rendered:
+            return HOOK_STATUS_ALREADY_INSTALLED, hook_path
+        return HOOK_STATUS_FOREIGN_HOOK, hook_path
+
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    hook_path.write_text(rendered, encoding="utf-8")
     mode = hook_path.stat().st_mode
     hook_path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    return hook_path
+    return HOOK_STATUS_INSTALLED, hook_path
 
 
 def _parse_root(args: list[str]) -> Path:
@@ -656,9 +702,29 @@ def main(argv: list[str] | None = None) -> int:
     if args and args[0] == "install-hook":
         rest = args[1:]
         repo_root = Path(rest[0]) if rest else _FLEX_ROOT
-        hook_path = install_hook(repo_root)
-        print(f"pre-commit hook installed at {hook_path}")
-        return 0
+        status, hook_path = install_hook(repo_root)
+        _INSTALL_HOOK_CLI_MESSAGES = {
+            HOOK_STATUS_INSTALLED: f"pre-commit hook installed at {hook_path}",
+            HOOK_STATUS_ALREADY_INSTALLED: (
+                f"pre-commit hook already installed at {hook_path}"
+            ),
+            HOOK_STATUS_NOT_A_GIT_REPO: (
+                f"{repo_root} is not a git repository — pre-commit hook not installed"
+            ),
+            HOOK_STATUS_WORKTREE: (
+                f"{repo_root}'s .git is a worktree pointer — pre-commit hook belongs "
+                "to the main checkout, not installed here"
+            ),
+            HOOK_STATUS_FOREIGN_HOOK: (
+                f"a pre-existing pre-commit hook is present at {hook_path} — left "
+                "untouched, not overwritten"
+            ),
+        }
+        print(_INSTALL_HOOK_CLI_MESSAGES[status])
+        # An explicit `install-hook` request that could not be fulfilled is a
+        # failure (Instructions 3, INFRA-401): only the two "the gate is
+        # actually in place" outcomes exit 0.
+        return 0 if status in (HOOK_STATUS_INSTALLED, HOOK_STATUS_ALREADY_INSTALLED) else 1
 
     root = _parse_root(args)
     if "--lessons" in args:

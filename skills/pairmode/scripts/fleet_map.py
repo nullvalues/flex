@@ -95,14 +95,29 @@ def sibling_repo_dirs(fleet_root: Path) -> list[Path]:
     """Immediate subdirectories of ``fleet_root`` that look like git repos
     (contain a ``.git`` entry). Returns ``[]`` when ``fleet_root`` doesn't
     exist or isn't a directory — never raises.
+
+    An unreadable candidate (e.g. a directory chmod'd to deny access, or one
+    that disappears mid-scan) is skipped rather than aborting the whole scan
+    (INFRA-401): both the top-level ``iterdir()`` and the per-candidate
+    ``is_dir()``/``.git`` probe are guarded, since either can raise
+    ``PermissionError`` (a subclass of ``OSError``) on a candidate this
+    process cannot stat or list.
     """
     fleet_root = Path(fleet_root)
     if not fleet_root.exists() or not fleet_root.is_dir():
         return []
-    return sorted(
-        (p for p in fleet_root.iterdir() if p.is_dir() and (p / ".git").exists()),
-        key=lambda p: p.name,
-    )
+    try:
+        candidates = list(fleet_root.iterdir())
+    except OSError:
+        return []
+    repos: list[Path] = []
+    for p in candidates:
+        try:
+            if p.is_dir() and (p / ".git").exists():
+                repos.append(p)
+        except OSError:
+            continue
+    return sorted(repos, key=lambda p: p.name)
 
 
 def unmapped_sibling_repos(fleet_map: dict[str, str], project_root: Path) -> list[Path]:
