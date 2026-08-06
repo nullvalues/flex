@@ -1162,7 +1162,7 @@ so a claim never overrides commit evidence (CER-095.1).
     both of which name the marker set by formatting `cer.RESOLUTION_MARKERS` rather than
     hardcoding a literal (CER-207 fixed a prior drift where `_cer_do_now_gate_message`
     independently hardcoded `RESOLVED/SUPERSEDED` and had not been updated when `OBSOLETE` was
-    added).
+    added; landed in Phase 134, story INFRA-404).
 
     **CER backlog gate and groom (INFRA-313, Repo-G agreement A#1).** The Do Now scan behind the
     guard above is a single shared function, `cer.find_open_do_now_rows(text)` — pure, no I/O,

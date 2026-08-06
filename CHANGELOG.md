@@ -6,6 +6,9 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Fixed [pairmode] — Phase 134 (Recognize OBSOLETE as a CER resolution marker, CER-207)
+- CER-207: `cer.is_resolution_marked` only recognized `RESOLVED`/`SUPERSEDED` as closing a backlog row, but this project's own convention (used 19+ times) closes rows with `OBSOLETE` instead — causing already-fixed rows to report as permanently open. Fixed by INFRA-404: resolution-marker keywords lifted into a single `cer.RESOLUTION_MARKERS` constant that every consumer (`cer.py`'s gate CLI message, `flex_build.py`'s `_cer_do_now_gate_message`, `is_resolution_marked` itself) derives from, closing a prior drift where the gate message independently hardcoded the two-keyword list; `docs/architecture.md`, `skills/pairmode/skills/checkpoint-docs/procedure.md`, and the `docs/cer/backlog.md.j2` scaffold template updated to document all three markers.
+
 ### Fixed [pairmode] — Phases 125/130/131/132/133 (De-identify fleet repo references from the public repo + closure chain)
 - Fixed CER-172: externalized `fleet_discovery.py`'s hardcoded sibling-repo-name list into a local gitignored `.pairmode-fleet.local.json` config, and scrubbed ~200 already-committed docs to reference repos only via a stable anonymized `Repo-A`..`Repo-O` label sourced from that config (INFRA-393/394).
 - Phase 125's own checkpoint security-auditor found the scrub incomplete (dropped/never-added map entries, a real-path leak in the tracked fleet snapshot writer, CER-188) — fixed by a forked Phase 130 (INFRA-400) closing scrub completeness and adding a regression gate.
