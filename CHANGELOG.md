@@ -6,6 +6,13 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Fixed [pairmode] — Phases 125/130/131/132/133 (De-identify fleet repo references from the public repo + closure chain)
+- Fixed CER-172: externalized `fleet_discovery.py`'s hardcoded sibling-repo-name list into a local gitignored `.pairmode-fleet.local.json` config, and scrubbed ~200 already-committed docs to reference repos only via a stable anonymized `Repo-A`..`Repo-O` label sourced from that config (INFRA-393/394).
+- Phase 125's own checkpoint security-auditor found the scrub incomplete (dropped/never-added map entries, a real-path leak in the tracked fleet snapshot writer, CER-188) — fixed by a forked Phase 130 (INFRA-400) closing scrub completeness and adding a regression gate.
+- A further pass found `sibling_repo_dirs()` crashing on `PermissionError`, two more unanonymized fields, and the scrub gate unwired to any operational touchpoint (CER-194) — fixed by a forked Phase 131 (INFRA-401), which wires `scrub_fleet_names.py install-hook` into every normal `bootstrap.py` run as a git pre-commit hook.
+- CER-195: the `--verify` reconciliation had no way to mark a sibling directory as intentionally excluded from anonymization (this project's own history, or the operator's already-published work), so it could never report a clean pass — fixed by a forked Phase 132 (INFRA-402), adding a reserved `_excluded` config key with a mapped/excluded conflict check.
+- CER-196: INFRA-402's own shipped `.pairmode-fleet.local.json.example` was invalid JSON, and the loader silently swallowed the parse error exactly like an absent file — so `verify()` silently passed instead of catching a broken gate — fixed by a forked Phase 133 (INFRA-403), which makes the template valid JSON and the loader fail loudly (`FleetMapConfigError`) on malformed-but-present config. Three non-blocking LOW/MEDIUM residuals from the closing security-auditor pass filed to backlog as CER-197/198/199.
+
 ### Added [pairmode] — Phase 124 (Scaffold EXEMPLAR-000.md for downstream projects)
 - Fixed CER-171: `docs/exemplars/EXEMPLAR-000.md` — the spec-writer procedure's frozen exemplar — was never scaffolded, synced, or audited for any flex-bootstrapped project other than flex itself. Registered it as a `CANONICAL_FILES` entry and a new `bootstrap.py` `EXEMPLAR_FILES` scaffold entry with a literal-copy template; `sync.py` needed no change (confirmed by regression test) (INFRA-392). Checkpoint passed clean on the first security-auditor/intent-reviewer attempt; one non-blocking MEDIUM residual (frontmatter drift invisible to audit/sync) filed as CER-186.
 

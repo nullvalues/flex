@@ -28,6 +28,7 @@ from skills.pairmode.scripts.context_model import THIN_HARNESS_STEP_TOKENS
 import ideology_parser as _ideology_parser
 import hook_view  # INFRA-288: merged hook view (stdlib-only, cheap) — see _register_context_budget_hooks
 import session_lifecycle  # INFRA-323: RESTART REQUIRED notice + agent-surface stamp
+import scrub_fleet_names as _scrub_fleet_names  # INFRA-401: pre-commit gate install
 from schema_validator import _parse_frontmatter
 from state_utils import _atomic_write_json
 
@@ -1318,6 +1319,37 @@ def _initialize_rails(
 
 
 # ---------------------------------------------------------------------------
+# scrub_fleet_names.py pre-commit gate install (INFRA-401)
+# ---------------------------------------------------------------------------
+#
+# bootstrap is this project's only existing "apply pairmode's machinery to a
+# checkout" touchpoint — it already owns hook registration (5b above) and
+# runs once per checkout, exactly the lifecycle `install_hook`'s docstring
+# assumes but never got wired to before this story (CER-194). Never fails
+# the bootstrap on a skip: `scrub_fleet_names.verify()` itself returns 0
+# immediately when no `.pairmode-fleet.local.json` exists, so this is safe
+# for every consuming project, not just this checkout.
+
+_HOOK_STATUS_MESSAGE_TEMPLATES = {
+    _scrub_fleet_names.HOOK_STATUS_INSTALLED: "Installed scrub_fleet_names.py pre-commit hook at {hook_path}",
+    _scrub_fleet_names.HOOK_STATUS_ALREADY_INSTALLED: "scrub_fleet_names.py pre-commit hook already installed at {hook_path}",
+    _scrub_fleet_names.HOOK_STATUS_NOT_A_GIT_REPO: "Skipped scrub_fleet_names.py pre-commit hook: {project_path} is not a git repository",
+    _scrub_fleet_names.HOOK_STATUS_WORKTREE: "Skipped scrub_fleet_names.py pre-commit hook: {project_path}'s .git is a worktree pointer (hook belongs to the main checkout)",
+    _scrub_fleet_names.HOOK_STATUS_FOREIGN_HOOK: "Skipped scrub_fleet_names.py pre-commit hook: a pre-existing pre-commit hook is present at {hook_path} (left untouched)",
+}
+
+
+def _hook_status_message(status: str, hook_path, project_path: pathlib.Path) -> str:
+    """A distinct, visible status line for each of `install_hook`'s five
+    outcomes (Ensures 3, INFRA-401) — never a silent `return` on any branch.
+    """
+    template = _HOOK_STATUS_MESSAGE_TEMPLATES.get(
+        status, "scrub_fleet_names.py pre-commit hook status: {status}"
+    )
+    return template.format(hook_path=hook_path, project_path=project_path, status=status)
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -1912,6 +1944,21 @@ def bootstrap(
         pretooluse_changed = _register_pretooluse_hook(settings_path, plugin_root)
         context_budget_changed = _register_context_budget_hooks(settings_path, plugin_root)
         hook_registration_changed = bool(pretooluse_changed or context_budget_changed)
+
+    # ------------------------------------------------------------------
+    # 5c. Install the scrub_fleet_names.py pre-commit gate (INFRA-401,
+    #     CER-194) — see the module comment above `_hook_status_message`
+    #     for why bootstrap is the wiring point. Never fails the bootstrap
+    #     on a skip.
+    # ------------------------------------------------------------------
+    if dry_run:
+        click.echo(
+            "  [dry-run] would install scrub_fleet_names.py pre-commit hook in: "
+            f"{project_path / '.git' / 'hooks' / 'pre-commit'}"
+        )
+    else:
+        scrub_hook_status, scrub_hook_path = _scrub_fleet_names.install_hook(project_path)
+        click.echo(_hook_status_message(scrub_hook_status, scrub_hook_path, project_path))
 
     # ------------------------------------------------------------------
     # 5a. Merge allow rules into .claude/settings.local.json

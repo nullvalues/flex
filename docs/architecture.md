@@ -3732,6 +3732,49 @@ The four remaining companion/sidebar blocks (`Stop`, `PermissionRequest`/
 `ExitPlanMode`, `PostToolUse` matcher `Write|Edit|MultiEdit`, `SessionEnd`)
 remain opt-in and are not registered by this path.
 
+**Scrub pre-commit gate (INFRA-401, CER-194):** alongside the Claude-Code
+hook registration above, `bootstrap.py` also installs a *git* pre-commit
+hook — `scrub_fleet_names.py install_hook`'s five-outcome
+(`installed`/`already-installed`/`not-a-git-repo`/`worktree`/`foreign-hook`)
+wiring — as part of every normal bootstrap run. This closes the gap the
+INFRA-400 gate shipped with but never had wired to any operational
+touchpoint: `install-hook` existed as a manual subcommand only, invoked by
+nothing. The gate can be re-applied to a checkout at any time, independent
+of a bootstrap run, via `uv run python
+skills/pairmode/scripts/scrub_fleet_names.py install-hook [REPO_ROOT]`.
+
+**Excluded-siblings reconciliation (INFRA-402, CER-195):** `scrub_fleet_names.py`'s
+`--verify` reconciliation (added by INFRA-400/401) originally treated every
+on-disk sibling directory absent from `.pairmode-fleet.local.json` as an
+unmapped-and-failing entry, with no way to mark a sibling as deliberately out
+of scope (this project's own history, or the operator's already-published
+work). `fleet_map.py` now recognises a reserved `_excluded` config key
+(`EXCLUDED_REPOS_CONFIG_KEY`, `RESERVED_CONFIG_KEYS`,
+`excluded_repo_names()`) whose entries are subtracted from
+`unmapped_sibling_repos`; a directory listed in both the anonymized map and
+the exclusion list is a conflict, reported by name (not by real path).
+`scrub_fleet_names.py verify()`'s success line reports mapped/excluded/unmapped
+counts. `.pairmode-fleet.local.json.example` documents the mechanism's shape
+using only a synthetic name.
+
+**Fail-loud local fleet config (INFRA-403, CER-196):** INFRA-402's own shipped
+`.pairmode-fleet.local.json.example` was itself invalid JSON (leading `//`
+comment lines), and `fleet_map.load_local_fleet_map` silently swallowed the
+resulting `json.JSONDecodeError`, returning `{}` exactly as it does for an
+absent file — so `scrub_fleet_names.verify()` reported "no local fleet config
+found, skipping verification" and exited 0 for anyone who copied the template
+verbatim, defeating the gate. The template is now valid JSON (guidance moved
+into a `_comment` reserved key, filtered out of `repo_entries`), and
+`load_local_fleet_map` now raises `FleetMapConfigError` on malformed-but-present
+JSON while keeping the absent-file case as `{}`; every `scrub_fleet_names.py`
+caller (`apply`/`verify`/`apply_lessons`/`verify_lessons`) propagates the
+failure, and only `main()` converts it to a non-zero exit. `fleet_discovery.py`
+keeps its own documented never-raises contract via a narrowly-scoped local
+catch of the new exception type — this is the same forked-remediation chain
+as Phase 122's shadow-reviewer fixes: each phase's checkpoint security-auditor
+found a real, scoped gap in the phase immediately before it (Phase 125 →
+Phase 130 → Phase 131 → Phase 132 → Phase 133), and the next phase closed it.
+
 **INFRA-298 (CER-114) addendum:** `CONTEXT_BUDGET_HOOK_SPECS` gained a fourth
 entry, `SubagentStop` (`hooks/subagent_stop.py`, matcher `None`) — despite
 the tuple's "context-budget" name, added here rather than to a new tuple

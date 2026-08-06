@@ -40,6 +40,10 @@ import click
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hook_view  # noqa: E402
 
+# Shared fleet-map loader (INFRA-400): the same module scrub_fleet_names.py
+# uses, so both callers agree on what "real name" and "label" mean.
+import fleet_map as fleet_map_lib  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Path resolution — no hardcoded absolute paths; everything relative to __file__
 # ---------------------------------------------------------------------------
@@ -110,12 +114,23 @@ def _load_local_fleet_map() -> dict[str, str]:
     contract as ``_read_registered_projects()``. This file is per-operator
     and gitignored; only ``.pairmode-fleet.local.json.example`` (fake
     placeholder entries) is committed.
+
+    Delegates to ``fleet_map.py`` (INFRA-400) — the same loader
+    ``scrub_fleet_names.py`` uses — bound to this module's own ``_FLEX_ROOT``
+    global (read at call time, not import time, so tests that monkeypatch
+    ``_FLEX_ROOT`` still take effect).
+
+    A malformed config file now makes the shared loader raise
+    ``FleetMapConfigError`` instead of degrading to ``{}`` (CER-196,
+    INFRA-403), so ``scrub_fleet_names.verify()`` — the leak-prevention gate
+    — cannot mistake a broken config for "nothing configured". This
+    module's own discovery/candidate-listing use of the map is not a gate;
+    that error is caught here and folded back into this function's
+    documented never-raises contract, unchanged from before INFRA-403.
     """
-    local_path = _FLEX_ROOT / _LOCAL_FLEET_CONFIG_FILENAME
     try:
-        with local_path.open() as f:
-            return json.load(f)
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return fleet_map_lib.load_local_fleet_map(_FLEX_ROOT)
+    except fleet_map_lib.FleetMapConfigError:
         return {}
 
 
@@ -127,8 +142,10 @@ def _default_candidates() -> list[Path]:
     candidates.extend(_read_registered_projects())
 
     # From the local, gitignored fleet map (CER-172) — real absolute paths,
-    # never committed source string literals.
-    for real_path in _load_local_fleet_map().values():
+    # never committed source string literals. Excludes the reserved
+    # `_fleet_root` config key (INFRA-400) — it's configuration, not a repo
+    # candidate.
+    for real_path in fleet_map_lib.repo_entries(_load_local_fleet_map()).values():
         candidates.append(Path(real_path))
 
     # Deduplicate while preserving order
@@ -468,6 +485,91 @@ def _default_snapshot_destination(
 
 
 # ---------------------------------------------------------------------------
+# Write-time anonymization (Ensures 3/4, INFRA-400)
+# ---------------------------------------------------------------------------
+#
+# CER-188 finding: this module used to write real absolute repo paths
+# straight into the tracked docs/fleet-snapshot.md on every default run — a
+# live re-leak channel that a later scrub_fleet_names.py pass only cleaned
+# up after the fact (a forbidden proxy per this story's Ensures 3). The fix
+# maps every repo path through the fleet map *before* any snapshot line is
+# composed, so a raw real path is never even briefly present in the string
+# this function builds, let alone the file it writes.
+
+def _anonymize_results_for_output(
+    results: list[dict], fleet_map: dict[str, str]
+) -> list[dict]:
+    """Return a copy of ``results`` with every path-shaped field mapped
+    through ``fleet_map`` to its label, or a stable non-identifying
+    placeholder (``<unmapped-repo-N>``) when a path has no map entry
+    (Ensures 4). Each unmapped gap is reported once on stderr. The same real
+    path always maps to the same placeholder within one call, so the
+    composed document / CLI output stays internally consistent.
+
+    Covers the bare ``"path"`` key (exact match) and the free-text
+    ``"signal1_value"``/``"signal1_absent_detail"`` fields (Ensures 2,
+    INFRA-401): the latter two are absolute-path-bearing prose/shell-command
+    strings, not bare repo paths, so a fleet-root child repo path occurring
+    *within* the string is substituted in place — resolved through the same
+    ``_resolve`` used for ``"path"`` — rather than the whole field being
+    replaced. Candidate substrings to look for come from the fleet map's own
+    mapped entries plus any on-disk sibling under the fleet root (mapped or
+    not), so an unmapped sibling repo path mentioned in free text still
+    yields the ``<unmapped-repo-N>`` placeholder rather than surviving
+    verbatim.
+
+    Called at the output boundary — before snapshot composition and again at
+    the CLI print boundary — never at collection: ``discover()``'s own
+    return value stays real for programmatic callers (Instructions 2,
+    INFRA-401).
+    """
+    placeholders: dict[str, str] = {}
+
+    def _resolve(real_path: str) -> str:
+        label = fleet_map_lib.label_for_path(fleet_map, real_path)
+        if label is not None:
+            return label
+        if real_path not in placeholders:
+            placeholder = fleet_map_lib.UNMAPPED_PLACEHOLDER_TEMPLATE.format(
+                n=len(placeholders) + 1
+            )
+            placeholders[real_path] = placeholder
+            print(
+                "fleet_discovery: no fleet-map label for a discovered repo "
+                f"path — writing {placeholder} instead of the real path",
+                file=sys.stderr,
+            )
+        return placeholders[real_path]
+
+    # Known fleet-root child repo paths to scan free-text fields for:
+    # mapped fleet-map entries plus any on-disk sibling under the fleet root
+    # (mapped or not) — an unmapped sibling still needs to be found so its
+    # mention in prose resolves to a placeholder rather than surviving raw.
+    fleet_root = fleet_map_lib.resolve_fleet_root(fleet_map, _FLEX_ROOT)
+    known_paths = set(fleet_map_lib.repo_entries(fleet_map).values())
+    known_paths.update(str(p) for p in fleet_map_lib.sibling_repo_dirs(fleet_root))
+    ordered_known_paths = sorted((p for p in known_paths if p), key=len, reverse=True)
+
+    def _resolve_in_text(text: Optional[str]) -> Optional[str]:
+        if text is None:
+            return None
+        for real_path in ordered_known_paths:
+            if real_path in text:
+                text = text.replace(real_path, _resolve(real_path))
+        return text
+
+    return [
+        {
+            **r,
+            "path": _resolve(r["path"]),
+            "signal1_value": _resolve_in_text(r.get("signal1_value")),
+            "signal1_absent_detail": _resolve_in_text(r.get("signal1_absent_detail")),
+        }
+        for r in results
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Snapshot writer
 # ---------------------------------------------------------------------------
 
@@ -478,7 +580,14 @@ def _write_snapshot(results: list[dict], snapshot_path: Path) -> None:
     ``_default_snapshot_destination`` and ``_invoking_repo_is_scripts_checkout``
     for the default-target refusal rule); this function writes wherever it
     is told, with no refusal branch of its own — one rule, one guard site.
+
+    Every repo path is mapped through the local fleet map to its label (or a
+    placeholder, Ensures 4) before any snapshot line is composed (INFRA-400)
+    — write-time anonymization, not a post-hoc scrub.
     """
+    fleet_map = _load_local_fleet_map()
+    results = _anonymize_results_for_output(results, fleet_map)
+
     now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines = [
         "# Fleet Snapshot",
@@ -664,16 +773,23 @@ def cli(
             unique_candidates.append(c)
 
     results = discover(unique_candidates)
+    # Anonymize at the output boundary (Ensures 2/Instructions 2, INFRA-401):
+    # `results` itself stays real (used below for the snapshot writer, which
+    # anonymizes its own copy independently); every CLI print path — human
+    # and --json — reads only `output_results`.
+    output_results = _anonymize_results_for_output(results, _load_local_fleet_map())
 
     if output_json:
-        click.echo(json.dumps({"flex_root": str(_FLEX_ROOT), "fleet": results}, indent=2))
+        click.echo(
+            json.dumps({"flex_root": str(_FLEX_ROOT), "fleet": output_results}, indent=2)
+        )
     else:
         click.echo(f"Flex checkout: {_FLEX_ROOT}")
         click.echo(f"Candidates scanned: {len(unique_candidates)}")
-        click.echo(f"Bound projects found: {len(results)}")
-        if results:
+        click.echo(f"Bound projects found: {len(output_results)}")
+        if output_results:
             click.echo("")
-            for r in results:
+            for r in output_results:
                 click.echo(f"  {r['path']}")
                 click.echo(f"    binding: {r['binding']}")
                 if r["signal1"]:

@@ -261,12 +261,19 @@ class TestSnapshot:
         assert "hard gate" in content.lower() or "pre-fold" in content.lower()
 
     def test_snapshot_contains_project_paths(self, fleet: dict) -> None:
+        """INFRA-400: write-time anonymization maps every path through the
+        fleet map before composing the snapshot document. This fixture has
+        no `.pairmode-fleet.local.json` at `fake_flex_root`, so none of the
+        discovered paths has a label — every one gets the stable
+        non-identifying placeholder instead, and the snapshot never
+        contains a raw discovered path."""
         dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
         results = fd.discover(fleet["candidates"])
         fd._write_snapshot(results, dest)
         content = dest.read_text()
         for r in results:
-            assert r["path"] in content
+            assert r["path"] not in content
+        assert content.count("<unmapped-repo-") == len(results)
 
     def test_snapshot_mentions_both_signals(self, fleet: dict) -> None:
         dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
@@ -578,7 +585,7 @@ class TestJsonAndTextOutputDuplicateHooks:
             fd.cli, [*self._candidate_dir_argv(fleet), "--json", "--no-snapshot"], catch_exceptions=False
         )
         assert result.exit_code == 0
-        payload = json.loads(result.output)
+        payload = json.loads(result.stdout)
         assert "flex_root" in payload
         assert "fleet" in payload
         for entry in payload["fleet"]:
@@ -898,7 +905,7 @@ class TestCliSignal1AbsentReason:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        payload = json.loads(result.output)
+        payload = json.loads(result.stdout)
         entry = payload["fleet"][0]
         assert "signal1_absent_reason" in entry
         assert "signal1_absent_detail" in entry
@@ -1122,3 +1129,317 @@ class TestLocalFleetConfig:
         never resurface in source."""
         source = Path(fd.__file__).read_text(encoding="utf-8")
         assert "_DOCUMENTED_CANDIDATES" not in source
+
+    def test_default_candidates_excludes_reserved_fleet_root_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """INFRA-400: the reserved `_fleet_root` config key must never be
+        treated as a repo candidate."""
+        flex_root = tmp_path / "fake_flex_root"
+        flex_root.mkdir()
+        (flex_root / ".pairmode-fleet.local.json").write_text(
+            json.dumps({
+                "_fleet_root": "/fake/fleet-root",
+                "example-repo-1": "/fake/example-repo-1",
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(fd, "_FLEX_ROOT", flex_root)
+        candidates = fd._default_candidates()
+        assert Path("/fake/example-repo-1") in candidates
+        assert Path("/fake/fleet-root") not in candidates
+
+
+# ---------------------------------------------------------------------------
+# INFRA-400 (CER-188): write-time anonymization of the snapshot writer.
+# `fleet_discovery.py` must map every repo path through the fleet map to its
+# label *before* any snapshot text is composed, never rely on a later scrub
+# pass. Unmapped paths get a stable, non-identifying placeholder.
+# ---------------------------------------------------------------------------
+
+class TestSnapshotWriteTimeAnonymization:
+    def test_mapped_path_is_written_as_its_label(
+        self, fleet: dict, tmp_path: Path
+    ) -> None:
+        synthetic_repo = tmp_path / "Fakeproject-Z"
+        synthetic_repo.mkdir()
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"Repo-Z": str(synthetic_repo)}), encoding="utf-8"
+        )
+
+        results = [{
+            "path": str(synthetic_repo),
+            "signal1": True,
+            "signal1_value": "x",
+            "signal2": False,
+            "signal2_value": None,
+            "binding": "scripts",
+            "signal1_absent_reason": None,
+            "signal1_absent_detail": None,
+            "duplicate_hooks": [],
+            "machine_absolute_hooks": [],
+        }]
+        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+        fd._write_snapshot(results, dest)
+        content = dest.read_text()
+
+        assert "Repo-Z" in content
+        assert str(synthetic_repo) not in content
+        assert synthetic_repo.name not in content
+
+    def test_unmapped_path_gets_placeholder_and_is_never_written(
+        self, fleet: dict, tmp_path: Path
+    ) -> None:
+        synthetic_repo = tmp_path / "Fakeproject-Unmapped"
+        synthetic_repo.mkdir()
+        # No .pairmode-fleet.local.json at all — every path is unmapped.
+
+        results = [{
+            "path": str(synthetic_repo),
+            "signal1": True,
+            "signal1_value": "x",
+            "signal2": False,
+            "signal2_value": None,
+            "binding": "scripts",
+            "signal1_absent_reason": None,
+            "signal1_absent_detail": None,
+            "duplicate_hooks": [],
+            "machine_absolute_hooks": [],
+        }]
+        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+        fd._write_snapshot(results, dest)
+        content = dest.read_text()
+
+        assert str(synthetic_repo) not in content
+        assert synthetic_repo.name not in content
+        assert "<unmapped-repo-1>" in content
+
+    def test_unmapped_path_gap_reported_on_stderr(
+        self, fleet: dict, tmp_path: Path, capsys
+    ) -> None:
+        synthetic_repo = tmp_path / "Fakeproject-Unmapped2"
+        synthetic_repo.mkdir()
+
+        results = [{
+            "path": str(synthetic_repo),
+            "signal1": True,
+            "signal1_value": "x",
+            "signal2": False,
+            "signal2_value": None,
+            "binding": "scripts",
+            "signal1_absent_reason": None,
+            "signal1_absent_detail": None,
+            "duplicate_hooks": [],
+            "machine_absolute_hooks": [],
+        }]
+        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+        fd._write_snapshot(results, dest)
+        captured = capsys.readouterr()
+
+        assert "no fleet-map label" in captured.err
+        assert str(synthetic_repo) not in captured.err
+
+    def test_anonymize_results_returns_new_list_not_mutating_input(
+        self, fleet: dict, tmp_path: Path
+    ) -> None:
+        synthetic_repo = tmp_path / "Fakeproject-Q"
+        synthetic_repo.mkdir()
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"Repo-Q": str(synthetic_repo)}), encoding="utf-8"
+        )
+        fleet_map = fd._load_local_fleet_map()
+        original = [{"path": str(synthetic_repo)}]
+
+        anonymized = fd._anonymize_results_for_output(original, fleet_map)
+
+        assert original[0]["path"] == str(synthetic_repo)
+        assert anonymized[0]["path"] == "Repo-Q"
+
+
+# ---------------------------------------------------------------------------
+# signal1_value / signal1_absent_detail anonymization (Ensures 2, INFRA-401)
+# ---------------------------------------------------------------------------
+
+class TestSignal1FieldAnonymization:
+    """CER-194: fleet_discovery used to anonymize only `path`, leaving a
+    fleet-root repo path embedded in `signal1_value`/`signal1_absent_detail`
+    (free text, not a bare path) to reach the snapshot and CLI verbatim."""
+
+    def _result_with_absent_detail(self, detail: str) -> dict:
+        return {
+            "path": "/irrelevant/for/this/test",
+            "signal1": False,
+            "signal1_value": None,
+            "signal2": True,
+            "signal2_value": "0.3.0",
+            "binding": "version",
+            "signal1_absent_reason": fd.SIGNAL1_ABSENT_FOREIGN_CHECKOUT,
+            "signal1_absent_detail": detail,
+            "duplicate_hooks": [],
+            "machine_absolute_hooks": [],
+        }
+
+    def test_mapped_repo_path_substituted_within_absent_detail(
+        self, fleet: dict
+    ) -> None:
+        zeta = fleet["fake_flex_root"].parent / "repo-zeta"
+        zeta.mkdir()
+        (zeta / ".git").mkdir()
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"Repo-Z": str(zeta)}), encoding="utf-8"
+        )
+        fleet_map = fd._load_local_fleet_map()
+
+        detail = f"{zeta}/skills/pairmode/scripts"
+        result = self._result_with_absent_detail(detail)
+
+        anonymized = fd._anonymize_results_for_output([result], fleet_map)
+
+        assert "repo-zeta" not in anonymized[0]["signal1_absent_detail"]
+        assert "Repo-Z" in anonymized[0]["signal1_absent_detail"]
+        assert anonymized[0]["signal1_absent_detail"].endswith(
+            "/skills/pairmode/scripts"
+        )
+
+    def test_mapped_repo_path_substituted_within_signal1_value(
+        self, fleet: dict
+    ) -> None:
+        zeta = fleet["fake_flex_root"].parent / "repo-zeta"
+        zeta.mkdir()
+        (zeta / ".git").mkdir()
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"Repo-Z": str(zeta)}), encoding="utf-8"
+        )
+        fleet_map = fd._load_local_fleet_map()
+
+        value = f"{zeta}/skills/pairmode/scripts"
+        result = {
+            "path": "/irrelevant/for/this/test",
+            "signal1": True,
+            "signal1_value": value,
+            "signal2": False,
+            "signal2_value": None,
+            "binding": "scripts",
+            "signal1_absent_reason": None,
+            "signal1_absent_detail": None,
+            "duplicate_hooks": [],
+            "machine_absolute_hooks": [],
+        }
+
+        anonymized = fd._anonymize_results_for_output([result], fleet_map)
+
+        assert "repo-zeta" not in anonymized[0]["signal1_value"]
+        assert "Repo-Z" in anonymized[0]["signal1_value"]
+
+    def test_unmapped_sibling_path_in_absent_detail_gets_placeholder(
+        self, fleet: dict
+    ) -> None:
+        """A fleet-root sibling repo mentioned in free text but absent from
+        the fleet map still resolves to the stable placeholder, never the
+        real name."""
+        fleet_root = fleet["fake_flex_root"].parent
+        omega = fleet_root / "repo-omega"
+        omega.mkdir()
+        (omega / ".git").mkdir()
+        # No .pairmode-fleet.local.json at all: repo-omega is unmapped, but
+        # is still discoverable as an on-disk fleet-root sibling.
+        fleet_map: dict = {}
+
+        detail = f"{omega}/skills/pairmode/scripts"
+        result = self._result_with_absent_detail(detail)
+
+        anonymized = fd._anonymize_results_for_output([result], fleet_map)
+
+        assert "repo-omega" not in anonymized[0]["signal1_absent_detail"]
+        assert "<unmapped-repo-" in anonymized[0]["signal1_absent_detail"]
+
+    def test_none_fields_pass_through_unchanged(self, fleet: dict) -> None:
+        result = self._result_with_absent_detail(None)  # type: ignore[arg-type]
+        result["signal1_absent_detail"] = None
+
+        anonymized = fd._anonymize_results_for_output([result], {})
+
+        assert anonymized[0]["signal1_absent_detail"] is None
+        assert anonymized[0]["signal1_value"] is None
+
+    def test_snapshot_never_contains_real_name_from_absent_detail(
+        self, fleet: dict
+    ) -> None:
+        zeta = fleet["fake_flex_root"].parent / "repo-zeta"
+        zeta.mkdir()
+        (zeta / ".git").mkdir()
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"Repo-Z": str(zeta)}), encoding="utf-8"
+        )
+
+        detail = f"{zeta}/skills/pairmode/scripts"
+        result = self._result_with_absent_detail(detail)
+        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+
+        fd._write_snapshot([result], dest)
+        content = dest.read_text()
+
+        assert "repo-zeta" not in content
+        assert "Repo-Z" in content
+
+    def test_cli_text_output_never_contains_real_name_from_absent_detail(
+        self, fleet: dict
+    ) -> None:
+        from click.testing import CliRunner
+
+        zeta = fleet["fake_flex_root"].parent / "repo-zeta"
+        zeta.mkdir()
+        (zeta / ".git").mkdir()
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"Repo-Z": str(zeta)}), encoding="utf-8"
+        )
+
+        proj = fleet["proj_c"]
+        # Make proj_c's binding fire only Signal 2 with a synthetic absent
+        # detail carrying the mapped repo path, by writing a build.md whose
+        # declared value resolves outside this checkout (foreign-checkout).
+        (proj / "CLAUDE.build.md").write_text(
+            f"# Build file\n\npairmode_scripts_dir = {zeta}/skills/pairmode/scripts\n",
+            encoding="utf-8",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli,
+            ["--candidate-dir", str(proj), "--no-snapshot"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert "repo-zeta" not in result.stdout
+        assert "Repo-Z" in result.stdout
+
+    def test_cli_json_output_never_contains_real_name_from_absent_detail(
+        self, fleet: dict
+    ) -> None:
+        from click.testing import CliRunner
+
+        zeta = fleet["fake_flex_root"].parent / "repo-zeta"
+        zeta.mkdir()
+        (zeta / ".git").mkdir()
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"Repo-Z": str(zeta)}), encoding="utf-8"
+        )
+
+        proj = fleet["proj_c"]
+        (proj / "CLAUDE.build.md").write_text(
+            f"# Build file\n\npairmode_scripts_dir = {zeta}/skills/pairmode/scripts\n",
+            encoding="utf-8",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli,
+            ["--candidate-dir", str(proj), "--json", "--no-snapshot"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert "repo-zeta" not in result.stdout
+        payload = json.loads(result.stdout)
+        joined = json.dumps(payload)
+        assert "repo-zeta" not in joined
+        assert "Repo-Z" in joined
