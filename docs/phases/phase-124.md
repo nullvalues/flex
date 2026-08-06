@@ -36,9 +36,9 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-124 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
+- [x] written-never-read — does anything this phase persists have no reader? No. `docs/exemplars/EXEMPLAR-000.md` is scaffolded by `bootstrap.py`'s `EXEMPLAR_FILES`, read by the spec-writer procedure, and compared by both `audit.py`'s `CANONICAL_FILES` and `sync.py`'s backfill path — all three paths verified reachable end-to-end by the checkpoint's security-auditor.
+- [x] required-never-written — does any read path depend on a value no writer produces? No new required-read path was introduced; the spec-writer's pre-existing graceful fallback (built-in section-list) still covers the case where the file is absent for any reason.
+- [x] duplicate state — is any fact now stored twice with independent writers? Yes, but reconciled: the canonical content lives at both `docs/exemplars/EXEMPLAR-000.md` and `skills/pairmode/templates/docs/exemplars/EXEMPLAR-000.md.j2`, kept in sync by `test_exemplar_file_content_matches_source` (fails CI on drift) rather than a single writer — a deliberate, test-enforced duplication, same pattern as every other `CANONICAL_FILES` template pair.
+- [x] half-implementation — is any branch unreachable, or any producer without its consumer? One real gap found and filed (CER-186, Do Later): the file's YAML frontmatter falls under `_split_sections`' skipped separator key, so both `audit.py` and `sync.py` are structurally blind to frontmatter drift (proven empirically — an `id:` edit produced zero audit findings and survived a sync run). The file-absent case CER-171 set out to fix is closed; the file-present-and-frontmatter-drifted case is a known, tracked residual, not a silent one.
 
-— developer fills in after phase completion —
+Filled at Phase 124 checkpoint per the security-auditor's first-pass report (PASS, zero CRITICAL/HIGH; CER-186/CER-187 filed to Do Later for the two non-blocking findings above and the `--force-agents` docs staleness).

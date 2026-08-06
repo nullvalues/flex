@@ -6,6 +6,9 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Added [pairmode] — Phase 124 (Scaffold EXEMPLAR-000.md for downstream projects)
+- Fixed CER-171: `docs/exemplars/EXEMPLAR-000.md` — the spec-writer procedure's frozen exemplar — was never scaffolded, synced, or audited for any flex-bootstrapped project other than flex itself. Registered it as a `CANONICAL_FILES` entry and a new `bootstrap.py` `EXEMPLAR_FILES` scaffold entry with a literal-copy template; `sync.py` needed no change (confirmed by regression test) (INFRA-392). Checkpoint passed clean on the first security-auditor/intent-reviewer attempt; one non-blocking MEDIUM residual (frontmatter drift invisible to audit/sync) filed as CER-186.
+
 ### Fixed [pairmode] — Phases 123/128/129 (.pairmode-overrides key-format fix + fleet-wide migration)
 - Fixed CER-170: `audit.py`'s `_normalise()`/`_load_overrides()` key-format mismatch (a leading `##` marker was stripped on one side but not the other) meant a `.pairmode-overrides` entry never actually suppressed a MISSING/INCONSISTENT finding for any project (INFRA-391).
 - The checkpoint found the fix under-scoped for its own blast radius: the operator-facing `.pairmode-overrides.j2` template still documented the old, now-broken key format with no migration path, silently defeating both audit suppression and `sync.py`'s destructive-write protection fleet-wide (CER-180) — fixed by a forked Phase 128 (INFRA-398) with dual-shape acceptance and a stale-shape diagnostic.

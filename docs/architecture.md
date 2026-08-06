@@ -2342,6 +2342,40 @@ nine `docs/narratives/<ROLE>/<ROLE>-000-ideology.md` files with rendered (not
 raw Jinja2) content — the forbidden-proxy check confirming the list isn't
 merely declared but is actually wired into the scaffold-time render loop.
 
+### Frozen spec-writer exemplar: `EXEMPLAR_FILES` (INFRA-392, CER-171, Phase 124)
+
+`docs/exemplars/EXEMPLAR-000.md` — the spec-writer procedure's frozen bounded
+input 4 (`skills/pairmode/skills/spec-writer/procedure.md` § Input contract
+item 4) — was hand-authored directly in flex's own repo by INFRA-363 but was
+never registered in any of the three registries that make a canonical file
+reproducible fleet-wide (`bootstrap.py`'s `SCAFFOLD_FILES`/`AGENT_FILES`,
+`audit.py`'s `CANONICAL_FILES`/`SCAFFOLD_FILES`), so no downstream
+flex-bootstrapped project ever received it — the spec-writer procedure's own
+graceful degrade (a built-in section-list fallback) masked the gap rather than
+failing outright. INFRA-392 closed it by treating the file as a
+`CANONICAL_FILES` entry, not a `SCAFFOLD_FILES` one — its content is
+harness-owned and meant to stay identical fleet-wide (a frozen structural
+exemplar, per INFRA-363's own framing), mirroring the `AGENT_FILES`→
+`CANONICAL_FILES` mirroring convention `NARRATIVE_FILES` above does not need
+(narratives are `SCAFFOLD_FILES`-shaped, project-divergent prose by design;
+the exemplar is not). `bootstrap.py`'s `EXEMPLAR_FILES` list (same
+`(dest_rel, template_name)` tuple shape as `AGENT_FILES`) scaffolds
+`skills/pairmode/templates/docs/exemplars/EXEMPLAR-000.md.j2` — a literal,
+non-parameterised copy of the current frozen content, no per-project Jinja
+variables — skip-if-exists like the agent shells, overwritten under
+`--force-agents` via the same reused flag rather than a second one.
+`sync.py` needed no code change: its generic `CANONICAL_FILES` backfill path
+already covers any registered entry, confirmed by regression test rather than
+asserted by claim.
+
+**Known residual (CER-186, Do Later):** the file's YAML frontmatter (`id:`,
+`rail:`, `title:`, etc.) falls under `_split_sections`' skipped separator key,
+so both `audit.py`'s comparison and `sync.py`'s backfill are structurally
+blind to frontmatter drift once the file exists — proven empirically: editing
+the `id:` field produced zero audit findings and survived a sync run. The
+file-absent case CER-171 set out to fix is closed; frontmatter drift on an
+already-scaffolded copy is a known, tracked gap, not a silent one.
+
 ### Narrative-of-record as spec-writer's sixth bounded input (INFRA-355)
 
 The spec-writer's input contract (DP1.3, `spec-writer/procedure.md` § Input contract)
