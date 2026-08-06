@@ -53,7 +53,16 @@ FAKE_MAP = {
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     _init_git_repo(tmp_path)
-    _write(tmp_path, ".pairmode-fleet.local.json", json.dumps(FAKE_MAP))
+    # INFRA-400: point `_fleet_root` at an empty, isolated directory (never
+    # `tmp_path`'s real parent, which under pytest holds unrelated sibling
+    # git repos from other tests in the same run) so the reconciliation step
+    # `verify()` now performs never fires against tests that aren't
+    # exercising it. Reconciliation itself is covered by its own dedicated
+    # tests below.
+    isolated_fleet_root = tmp_path / "_isolated_fleet_root"
+    isolated_fleet_root.mkdir()
+    fleet_map = {**FAKE_MAP, "_fleet_root": str(isolated_fleet_root)}
+    _write(tmp_path, ".pairmode-fleet.local.json", json.dumps(fleet_map))
     return tmp_path
 
 
@@ -62,7 +71,13 @@ def repo(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 def test_load_local_fleet_map_present(repo: Path) -> None:
-    assert sfn._load_local_fleet_map(repo) == FAKE_MAP
+    loaded = sfn._load_local_fleet_map(repo)
+    # The `repo` fixture adds a reserved `_fleet_root` key (INFRA-400) beyond
+    # FAKE_MAP's plain repo entries; the loader must return it unfiltered
+    # (filtering it out is `_real_names_to_labels`'s job, not the loader's).
+    assert loaded["_fleet_root"] == str(repo / "_isolated_fleet_root")
+    for k, v in FAKE_MAP.items():
+        assert loaded[k] == v
 
 
 def test_load_local_fleet_map_missing(tmp_path: Path) -> None:
@@ -596,3 +611,217 @@ def test_script_source_contains_no_real_fleet_name() -> None:
     # so real names are sourced only from the runtime-loaded local config.
     assert "_load_local_fleet_map" in source
     assert ".pairmode-fleet.local.json" in source
+
+
+# ---------------------------------------------------------------------------
+# Map/disk reconciliation (Ensures 1/2, INFRA-400)
+# ---------------------------------------------------------------------------
+
+def _write_map(root: Path, fleet_map: dict) -> None:
+    _write(root, ".pairmode-fleet.local.json", json.dumps(fleet_map))
+
+
+def _make_fake_repo_dir(root: Path, name: str) -> Path:
+    d = root / name
+    d.mkdir(parents=True)
+    (d / ".git").mkdir()
+    return d
+
+
+def test_reconcile_fails_when_a_sibling_repo_is_unmapped(tmp_path: Path) -> None:
+    fleet_root = tmp_path / "fleet"
+    fleet_root.mkdir()
+    _make_fake_repo_dir(fleet_root, "Fakeproject-X")
+    _make_fake_repo_dir(fleet_root, "Fakeproject-Y")
+
+    project_root = fleet_root / "flex"
+    project_root.mkdir()
+    _init_git_repo(project_root)
+    _write_map(
+        project_root,
+        {
+            "_fleet_root": str(fleet_root),
+            "Repo-X": str(fleet_root / "Fakeproject-X"),
+        },
+    )
+    _git_add(project_root)
+
+    assert sfn.verify(project_root) == 1
+
+
+def test_reconcile_passes_when_map_covers_every_sibling(tmp_path: Path) -> None:
+    fleet_root = tmp_path / "fleet"
+    fleet_root.mkdir()
+    _make_fake_repo_dir(fleet_root, "Fakeproject-X")
+    _make_fake_repo_dir(fleet_root, "Fakeproject-Y")
+
+    project_root = fleet_root / "flex"
+    project_root.mkdir()
+    _init_git_repo(project_root)
+    _write_map(
+        project_root,
+        {
+            "_fleet_root": str(fleet_root),
+            "Repo-X": str(fleet_root / "Fakeproject-X"),
+            "Repo-Y": str(fleet_root / "Fakeproject-Y"),
+        },
+    )
+    _git_add(project_root)
+
+    assert sfn.verify(project_root) == 0
+
+
+def test_reconcile_failure_names_count_and_unmapped_path_only(
+    tmp_path: Path, capsys
+) -> None:
+    fleet_root = tmp_path / "fleet"
+    fleet_root.mkdir()
+    unmapped_dir = _make_fake_repo_dir(fleet_root, "Fakeproject-X")
+
+    project_root = fleet_root / "flex"
+    project_root.mkdir()
+    _init_git_repo(project_root)
+    _write_map(project_root, {"_fleet_root": str(fleet_root)})
+    _git_add(project_root)
+
+    assert sfn.verify(project_root) == 1
+    captured = capsys.readouterr()
+    assert "1 unmapped" in captured.err
+    assert str(unmapped_dir) in captured.err
+
+
+def test_reconcile_not_a_silent_warning_while_still_exiting_zero(
+    tmp_path: Path,
+) -> None:
+    """Forbidden-proxy guard (Ensures 1): an unmapped sibling must fail the
+    run, never just print a warning while still returning 0."""
+    fleet_root = tmp_path / "fleet"
+    fleet_root.mkdir()
+    _make_fake_repo_dir(fleet_root, "Fakeproject-X")
+
+    project_root = fleet_root / "flex"
+    project_root.mkdir()
+    _init_git_repo(project_root)
+    _write_map(project_root, {"_fleet_root": str(fleet_root)})
+    _git_add(project_root)
+
+    result = sfn.verify(project_root)
+    assert result != 0
+
+
+def test_reconcile_skipped_with_stderr_notice_when_map_absent(
+    tmp_path: Path, capsys
+) -> None:
+    fleet_root = tmp_path / "fleet"
+    fleet_root.mkdir()
+    _make_fake_repo_dir(fleet_root, "Fakeproject-X")
+
+    project_root = fleet_root / "flex"
+    project_root.mkdir()
+    _init_git_repo(project_root)
+    _write(project_root, "docs/notes.md", "nothing to scrub")
+    _git_add(project_root)
+
+    # No .pairmode-fleet.local.json at all — a clean clone. Must still exit 0.
+    assert sfn.verify(project_root) == 0
+
+
+# ---------------------------------------------------------------------------
+# Leak-free hit reporting (Ensures 5, INFRA-400)
+# ---------------------------------------------------------------------------
+
+def test_verify_hit_report_never_embeds_the_matched_literal(
+    repo: Path, capsys
+) -> None:
+    _write(repo, "docs/notes.md", "See /tmp/example-repo-a for details.")
+    _git_add(repo)
+
+    exit_code = sfn.verify(repo)
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert exit_code == 1
+    assert "example-repo-a" not in combined
+    assert "Repo-A" in combined
+    assert "docs/notes.md" in combined
+
+
+def test_validate_one_to_one_error_never_embeds_either_real_name() -> None:
+    collision = {"example-repo-x": "Repo-A", "example-repo-y": "Repo-A"}
+    with pytest.raises(ValueError) as excinfo:
+        sfn._validate_one_to_one(collision)
+    message = str(excinfo.value)
+    assert "example-repo-x" not in message
+    assert "example-repo-y" not in message
+    assert "Repo-A" in message
+
+
+def test_verify_lessons_hit_report_never_embeds_the_matched_literal(
+    lessons_repo: Path, capsys
+) -> None:
+    exit_code = sfn.verify_lessons(lessons_repo)
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert exit_code == 1
+    assert "example-repo-a" not in combined
+    assert "Repo-A" in combined
+
+
+# ---------------------------------------------------------------------------
+# Mechanical gate: git pre-commit hook (Ensures 6, INFRA-400)
+# ---------------------------------------------------------------------------
+
+def _run_hook(hook_path: Path, cwd: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [str(hook_path)], cwd=cwd, capture_output=True, text=True
+    )
+
+
+def test_install_hook_writes_executable_pre_commit(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
+    hook_path = sfn.install_hook(tmp_path)
+
+    assert hook_path == tmp_path / ".git" / "hooks" / "pre-commit"
+    assert hook_path.exists()
+    assert hook_path.stat().st_mode & 0o111  # some execute bit set
+
+
+def test_installed_hook_blocks_commit_on_failing_verify(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
+    _write(tmp_path, "docs/notes.md", "See /tmp/example-repo-a for details.")
+    _write_map(tmp_path, FAKE_MAP)
+    _git_add(tmp_path)
+
+    hook_path = sfn.install_hook(tmp_path)
+    result = _run_hook(hook_path, tmp_path)
+
+    assert result.returncode != 0
+
+
+def test_installed_hook_allows_commit_on_passing_verify(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
+    isolated_fleet_root = tmp_path / "_isolated_fleet_root"
+    isolated_fleet_root.mkdir()
+    _write(tmp_path, "docs/notes.md", "nothing to scrub here")
+    _write_map(tmp_path, {**FAKE_MAP, "_fleet_root": str(isolated_fleet_root)})
+    _git_add(tmp_path)
+
+    hook_path = sfn.install_hook(tmp_path)
+    result = _run_hook(hook_path, tmp_path)
+
+    assert result.returncode == 0
+
+
+def test_install_hook_is_not_a_silent_warning(tmp_path: Path) -> None:
+    """Forbidden-proxy guard (Ensures 6): the generated hook must actually
+    fail the commit, never just print a warning while exiting 0."""
+    _init_git_repo(tmp_path)
+    _write(tmp_path, "docs/notes.md", "See /tmp/example-repo-a for details.")
+    _write_map(tmp_path, FAKE_MAP)
+    _git_add(tmp_path)
+
+    hook_path = sfn.install_hook(tmp_path)
+    result = _run_hook(hook_path, tmp_path)
+
+    assert result.returncode != 0

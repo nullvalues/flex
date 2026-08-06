@@ -261,12 +261,19 @@ class TestSnapshot:
         assert "hard gate" in content.lower() or "pre-fold" in content.lower()
 
     def test_snapshot_contains_project_paths(self, fleet: dict) -> None:
+        """INFRA-400: write-time anonymization maps every path through the
+        fleet map before composing the snapshot document. This fixture has
+        no `.pairmode-fleet.local.json` at `fake_flex_root`, so none of the
+        discovered paths has a label — every one gets the stable
+        non-identifying placeholder instead, and the snapshot never
+        contains a raw discovered path."""
         dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
         results = fd.discover(fleet["candidates"])
         fd._write_snapshot(results, dest)
         content = dest.read_text()
         for r in results:
-            assert r["path"] in content
+            assert r["path"] not in content
+        assert content.count("<unmapped-repo-") == len(results)
 
     def test_snapshot_mentions_both_signals(self, fleet: dict) -> None:
         dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
@@ -1122,3 +1129,128 @@ class TestLocalFleetConfig:
         never resurface in source."""
         source = Path(fd.__file__).read_text(encoding="utf-8")
         assert "_DOCUMENTED_CANDIDATES" not in source
+
+    def test_default_candidates_excludes_reserved_fleet_root_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """INFRA-400: the reserved `_fleet_root` config key must never be
+        treated as a repo candidate."""
+        flex_root = tmp_path / "fake_flex_root"
+        flex_root.mkdir()
+        (flex_root / ".pairmode-fleet.local.json").write_text(
+            json.dumps({
+                "_fleet_root": "/fake/fleet-root",
+                "example-repo-1": "/fake/example-repo-1",
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(fd, "_FLEX_ROOT", flex_root)
+        candidates = fd._default_candidates()
+        assert Path("/fake/example-repo-1") in candidates
+        assert Path("/fake/fleet-root") not in candidates
+
+
+# ---------------------------------------------------------------------------
+# INFRA-400 (CER-188): write-time anonymization of the snapshot writer.
+# `fleet_discovery.py` must map every repo path through the fleet map to its
+# label *before* any snapshot text is composed, never rely on a later scrub
+# pass. Unmapped paths get a stable, non-identifying placeholder.
+# ---------------------------------------------------------------------------
+
+class TestSnapshotWriteTimeAnonymization:
+    def test_mapped_path_is_written_as_its_label(
+        self, fleet: dict, tmp_path: Path
+    ) -> None:
+        synthetic_repo = tmp_path / "Fakeproject-Z"
+        synthetic_repo.mkdir()
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"Repo-Z": str(synthetic_repo)}), encoding="utf-8"
+        )
+
+        results = [{
+            "path": str(synthetic_repo),
+            "signal1": True,
+            "signal1_value": "x",
+            "signal2": False,
+            "signal2_value": None,
+            "binding": "scripts",
+            "signal1_absent_reason": None,
+            "signal1_absent_detail": None,
+            "duplicate_hooks": [],
+            "machine_absolute_hooks": [],
+        }]
+        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+        fd._write_snapshot(results, dest)
+        content = dest.read_text()
+
+        assert "Repo-Z" in content
+        assert str(synthetic_repo) not in content
+        assert synthetic_repo.name not in content
+
+    def test_unmapped_path_gets_placeholder_and_is_never_written(
+        self, fleet: dict, tmp_path: Path
+    ) -> None:
+        synthetic_repo = tmp_path / "Fakeproject-Unmapped"
+        synthetic_repo.mkdir()
+        # No .pairmode-fleet.local.json at all — every path is unmapped.
+
+        results = [{
+            "path": str(synthetic_repo),
+            "signal1": True,
+            "signal1_value": "x",
+            "signal2": False,
+            "signal2_value": None,
+            "binding": "scripts",
+            "signal1_absent_reason": None,
+            "signal1_absent_detail": None,
+            "duplicate_hooks": [],
+            "machine_absolute_hooks": [],
+        }]
+        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+        fd._write_snapshot(results, dest)
+        content = dest.read_text()
+
+        assert str(synthetic_repo) not in content
+        assert synthetic_repo.name not in content
+        assert "<unmapped-repo-1>" in content
+
+    def test_unmapped_path_gap_reported_on_stderr(
+        self, fleet: dict, tmp_path: Path, capsys
+    ) -> None:
+        synthetic_repo = tmp_path / "Fakeproject-Unmapped2"
+        synthetic_repo.mkdir()
+
+        results = [{
+            "path": str(synthetic_repo),
+            "signal1": True,
+            "signal1_value": "x",
+            "signal2": False,
+            "signal2_value": None,
+            "binding": "scripts",
+            "signal1_absent_reason": None,
+            "signal1_absent_detail": None,
+            "duplicate_hooks": [],
+            "machine_absolute_hooks": [],
+        }]
+        dest = fleet["fake_flex_root"] / "docs" / "fleet-snapshot.md"
+        fd._write_snapshot(results, dest)
+        captured = capsys.readouterr()
+
+        assert "no fleet-map label" in captured.err
+        assert str(synthetic_repo) not in captured.err
+
+    def test_anonymize_results_returns_new_list_not_mutating_input(
+        self, fleet: dict, tmp_path: Path
+    ) -> None:
+        synthetic_repo = tmp_path / "Fakeproject-Q"
+        synthetic_repo.mkdir()
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"Repo-Q": str(synthetic_repo)}), encoding="utf-8"
+        )
+        fleet_map = fd._load_local_fleet_map()
+        original = [{"path": str(synthetic_repo)}]
+
+        anonymized = fd._anonymize_results_for_snapshot(original, fleet_map)
+
+        assert original[0]["path"] == str(synthetic_repo)
+        assert anonymized[0]["path"] == "Repo-Q"

@@ -40,6 +40,10 @@ import click
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hook_view  # noqa: E402
 
+# Shared fleet-map loader (INFRA-400): the same module scrub_fleet_names.py
+# uses, so both callers agree on what "real name" and "label" mean.
+import fleet_map as fleet_map_lib  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Path resolution — no hardcoded absolute paths; everything relative to __file__
 # ---------------------------------------------------------------------------
@@ -110,13 +114,13 @@ def _load_local_fleet_map() -> dict[str, str]:
     contract as ``_read_registered_projects()``. This file is per-operator
     and gitignored; only ``.pairmode-fleet.local.json.example`` (fake
     placeholder entries) is committed.
+
+    Delegates to ``fleet_map.py`` (INFRA-400) — the same loader
+    ``scrub_fleet_names.py`` uses — bound to this module's own ``_FLEX_ROOT``
+    global (read at call time, not import time, so tests that monkeypatch
+    ``_FLEX_ROOT`` still take effect).
     """
-    local_path = _FLEX_ROOT / _LOCAL_FLEET_CONFIG_FILENAME
-    try:
-        with local_path.open() as f:
-            return json.load(f)
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
-        return {}
+    return fleet_map_lib.load_local_fleet_map(_FLEX_ROOT)
 
 
 def _default_candidates() -> list[Path]:
@@ -127,8 +131,10 @@ def _default_candidates() -> list[Path]:
     candidates.extend(_read_registered_projects())
 
     # From the local, gitignored fleet map (CER-172) — real absolute paths,
-    # never committed source string literals.
-    for real_path in _load_local_fleet_map().values():
+    # never committed source string literals. Excludes the reserved
+    # `_fleet_root` config key (INFRA-400) — it's configuration, not a repo
+    # candidate.
+    for real_path in fleet_map_lib.repo_entries(_load_local_fleet_map()).values():
         candidates.append(Path(real_path))
 
     # Deduplicate while preserving order
@@ -468,6 +474,50 @@ def _default_snapshot_destination(
 
 
 # ---------------------------------------------------------------------------
+# Write-time anonymization (Ensures 3/4, INFRA-400)
+# ---------------------------------------------------------------------------
+#
+# CER-188 finding: this module used to write real absolute repo paths
+# straight into the tracked docs/fleet-snapshot.md on every default run — a
+# live re-leak channel that a later scrub_fleet_names.py pass only cleaned
+# up after the fact (a forbidden proxy per this story's Ensures 3). The fix
+# maps every repo path through the fleet map *before* any snapshot line is
+# composed, so a raw real path is never even briefly present in the string
+# this function builds, let alone the file it writes.
+
+def _anonymize_results_for_snapshot(
+    results: list[dict], fleet_map: dict[str, str]
+) -> list[dict]:
+    """Return a copy of ``results`` with every ``"path"`` mapped through
+    ``fleet_map`` to its label, or a stable non-identifying placeholder
+    (``<unmapped-repo-N>``) when the path has no map entry (Ensures 4). Each
+    unmapped gap is reported once on stderr. The same real path always maps
+    to the same placeholder within one call, so the composed document stays
+    internally consistent.
+    """
+    placeholders: dict[str, str] = {}
+
+    def _resolve(real_path: str) -> str:
+        label = fleet_map_lib.label_for_path(fleet_map, real_path)
+        if label is not None:
+            return label
+        if real_path not in placeholders:
+            placeholder = fleet_map_lib.UNMAPPED_PLACEHOLDER_TEMPLATE.format(
+                n=len(placeholders) + 1
+            )
+            placeholders[real_path] = placeholder
+            print(
+                "fleet_discovery: no fleet-map label for a discovered repo "
+                f"path — writing {placeholder} to the snapshot instead of "
+                "the real path",
+                file=sys.stderr,
+            )
+        return placeholders[real_path]
+
+    return [{**r, "path": _resolve(r["path"])} for r in results]
+
+
+# ---------------------------------------------------------------------------
 # Snapshot writer
 # ---------------------------------------------------------------------------
 
@@ -478,7 +528,14 @@ def _write_snapshot(results: list[dict], snapshot_path: Path) -> None:
     ``_default_snapshot_destination`` and ``_invoking_repo_is_scripts_checkout``
     for the default-target refusal rule); this function writes wherever it
     is told, with no refusal branch of its own — one rule, one guard site.
+
+    Every repo path is mapped through the local fleet map to its label (or a
+    placeholder, Ensures 4) before any snapshot line is composed (INFRA-400)
+    — write-time anonymization, not a post-hoc scrub.
     """
+    fleet_map = _load_local_fleet_map()
+    results = _anonymize_results_for_snapshot(results, fleet_map)
+
     now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines = [
         "# Fleet Snapshot",

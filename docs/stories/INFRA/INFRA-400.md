@@ -14,6 +14,7 @@ primary_files:
 touches:
   - tests/pairmode/test_fleet_discovery.py
   - tests/pairmode/test_scrub_fleet_names.py
+  - skills/pairmode/scripts/fleet_map.py
 narrative_roles: []
 ---
 
@@ -51,6 +52,13 @@ gitignored map; only counts and pass/fail outcomes are ever spoken aloud.
 - A populated `.pairmode-fleet.local.json` present in the local working tree
   (gitignored; not readable from a clean clone — code must degrade gracefully
   when it is absent rather than crash).
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| skills/pairmode/scripts/fleet_map.py | new shared loader module factoring the fleet-map parser out of scrub_fleet_names.py so fleet_discovery.py's write-time anonymization uses the same implementation (Instructions 3) | 2026-08-06T00:36:05Z |
 
 ## Ensures
 

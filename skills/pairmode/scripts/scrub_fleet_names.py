@@ -26,6 +26,9 @@ source-code literal anywhere in this file.
 Usage:
     uv run python skills/pairmode/scripts/scrub_fleet_names.py           # apply
     uv run python skills/pairmode/scripts/scrub_fleet_names.py --verify  # verify only
+    uv run python skills/pairmode/scripts/scrub_fleet_names.py install-hook [REPO_ROOT]
+        # writes a git pre-commit hook (INFRA-400) that blocks a commit on a
+        # failing --verify; REPO_ROOT defaults to this checkout's own root.
 
 Exclusions (INFRA-394 review finding — a prior attempt corrupted these):
 a real name is skipped when it appears as part of an email address
@@ -50,6 +53,7 @@ from __future__ import annotations
 
 import json
 import re
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -60,7 +64,13 @@ _PAIRMODE_DIR = _SCRIPTS_DIR.parent                      # skills/pairmode
 _SKILLS_DIR = _PAIRMODE_DIR.parent                        # skills
 _FLEX_ROOT = _SKILLS_DIR.parent                            # flex root
 
-_LOCAL_FLEET_CONFIG_FILENAME = ".pairmode-fleet.local.json"
+# fleet_map.py is a sibling module in this same scripts/ directory (INFRA-400)
+# holding the loader/parser both this script and fleet_discovery.py share.
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+import fleet_map as _fleet_map_lib  # noqa: E402
+
+_LOCAL_FLEET_CONFIG_FILENAME = _fleet_map_lib.LOCAL_FLEET_CONFIG_FILENAME
 
 _NO_LOCAL_CONFIG_MESSAGE = (
     "no local fleet config found, skipping verification"
@@ -132,13 +142,12 @@ def _is_protected(rel_path: str, protected_paths: tuple[str, ...]) -> bool:
 
 
 def _load_local_fleet_map(root: Path = _FLEX_ROOT) -> dict[str, str]:
-    """Read the local, gitignored fleet map (CER-172). Never raises."""
-    local_path = root / _LOCAL_FLEET_CONFIG_FILENAME
-    try:
-        with local_path.open() as f:
-            return json.load(f)
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
-        return {}
+    """Read the local, gitignored fleet map (CER-172). Never raises.
+
+    Delegates to ``fleet_map.py`` (INFRA-400) — the same loader
+    ``fleet_discovery.py`` uses — so both callers agree on file shape.
+    """
+    return _fleet_map_lib.load_local_fleet_map(root)
 
 
 def _real_names_to_labels(fleet_map: dict[str, str]) -> dict[str, str]:
@@ -146,15 +155,19 @@ def _real_names_to_labels(fleet_map: dict[str, str]) -> dict[str, str]:
 
     The real name to match is the leaf/basename of the real absolute path
     (e.g. "/mnt/work/<name>" -> "<name>"). Sourced only from the runtime
-    mapping — never re-derived or hardcoded.
+    mapping — never re-derived or hardcoded. Excludes the reserved
+    ``_fleet_root`` config key (INFRA-400) via ``fleet_map.py``.
     """
-    names: dict[str, str] = {}
-    for label, real_path in fleet_map.items():
-        name = Path(real_path).name
-        if not name:
-            continue
-        names[name] = label
-    return names
+    return _fleet_map_lib.real_names_to_labels(fleet_map)
+
+
+def _reconcile_fleet_root(fleet_map: dict[str, str], root: Path) -> list[Path]:
+    """On-disk sibling repos under the fleet root absent from ``fleet_map``
+    (Ensures 1/2, INFRA-400) — the map/disk reconciliation ``--verify``
+    performs. A thin, testable wrapper around ``fleet_map.py`` kept here so
+    it's colocated with the rest of ``verify()``'s logic.
+    """
+    return _fleet_map_lib.unmapped_sibling_repos(fleet_map, root)
 
 
 def _validate_one_to_one(names_to_labels: dict[str, str]) -> None:
@@ -167,9 +180,12 @@ def _validate_one_to_one(names_to_labels: dict[str, str]) -> None:
     labels_seen: dict[str, str] = {}
     for name, label in names_to_labels.items():
         if label in labels_seen and labels_seen[label] != name:
+            # Never interpolate the colliding real names into this message
+            # (INFRA-400 leak-free reporting) — the label alone is enough to
+            # locate the offending entry in the local, gitignored map.
             raise ValueError(
-                f"fleet map is not one-to-one: labels {label!r} claimed by "
-                f"both {labels_seen[label]!r} and {name!r}"
+                f"fleet map is not one-to-one: label {label!r} is claimed by "
+                "more than one distinct real-name entry in the local fleet map"
             )
         labels_seen[label] = name
 
@@ -305,21 +321,46 @@ def apply(root: Path = _FLEX_ROOT) -> int:
 
 
 def verify(root: Path = _FLEX_ROOT) -> int:
-    """Re-scan the tracked tree for any remaining real-name hit.
+    """Re-scan the tracked tree for any remaining real-name hit, and
+    reconcile the local fleet map against the real on-disk sibling-repo set
+    (Ensures 1, INFRA-400).
 
     Returns 0 (and prints the skip message) when no local config is present,
-    per the same graceful-degrade contract INFRA-393 established. Returns 0
-    when clean, non-zero (with file:line hits listed) otherwise.
+    per the same graceful-degrade contract INFRA-393 established — the
+    reconciliation step is skipped in that case too (a clean clone has no
+    fleet root to reconcile against), but is never skipped silently once a
+    local map file exists. Returns 0 when clean, non-zero otherwise: either
+    an unmapped on-disk sibling repo (reconciliation) or a remaining
+    real-name hit in a tracked file fails the run. Hit and reconciliation
+    reporting never embeds the matched real-name literal (leak-free
+    reporting, Ensures 5) — only the mapped label, `file:line`, or (for
+    reconciliation only, which is inherently about a name absent from the
+    map and therefore has no label yet) the unmapped directory path itself.
     """
     fleet_map = _load_local_fleet_map(root)
     if not fleet_map:
         print(_NO_LOCAL_CONFIG_MESSAGE)
         return 0
 
+    reconciliation_failed = False
+    unmapped = _reconcile_fleet_root(fleet_map, root)
+    if unmapped:
+        reconciliation_failed = True
+        print(
+            f"verify FAILED: reconciliation found {len(unmapped)} unmapped "
+            "on-disk sibling repo(s) under the fleet root (present on disk, "
+            "absent from .pairmode-fleet.local.json):",
+            file=sys.stderr,
+        )
+        for d in unmapped:
+            print(f"  {d}", file=sys.stderr)
+
     names_to_labels = _real_names_to_labels(fleet_map)
     expanded = _expand_case_variants(names_to_labels)
     pattern = _build_pattern(expanded)
     if pattern is None:
+        if reconciliation_failed:
+            return 1
         print(_NO_LOCAL_CONFIG_MESSAGE)
         return 0
 
@@ -346,12 +387,16 @@ def verify(root: Path = _FLEX_ROOT) -> int:
             for match in pattern.finditer(line):
                 if _is_domain_context(line, match):
                     continue
-                hits.append(f"{rel_path}:{lineno}: {match.group(0)!r}")
+                label = expanded[match.group(0)]
+                hits.append(f"{label} — {rel_path}:{lineno}")
 
     if hits:
         print(f"verify FAILED: {len(hits)} remaining real-name hit(s):")
         for hit in hits:
             print(f"  {hit}")
+        return 1
+
+    if reconciliation_failed:
         return 1
 
     print("verify OK: zero remaining real-name hits")
@@ -516,9 +561,10 @@ def verify_lessons(root: Path = _FLEX_ROOT) -> int:
                 for match in pattern.finditer(text):
                     if _is_domain_context(text, match):
                         continue
+                    label = expanded[match.group(0)]
                     hits.append(
-                        f"{_LESSONS_JSON_REL}: entry {entry_id} field "
-                        f"{field_name!r}: {match.group(0)!r}"
+                        f"{label} — {_LESSONS_JSON_REL}: entry {entry_id} "
+                        f"field {field_name!r}"
                     )
 
     lessons_md_path = root / _LESSONS_MD_REL
@@ -528,7 +574,8 @@ def verify_lessons(root: Path = _FLEX_ROOT) -> int:
             for match in pattern.finditer(line):
                 if _is_domain_context(line, match):
                     continue
-                hits.append(f"{_LESSONS_MD_REL}:{lineno}: {match.group(0)!r}")
+                label = expanded[match.group(0)]
+                hits.append(f"{label} — {_LESSONS_MD_REL}:{lineno}")
 
     if hits:
         print(f"verify --lessons FAILED: {len(hits)} remaining real-name hit(s):")
@@ -540,16 +587,88 @@ def verify_lessons(root: Path = _FLEX_ROOT) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Mechanical gate: git pre-commit hook (Ensures 6, Instructions 5, INFRA-400)
+# ---------------------------------------------------------------------------
+#
+# Rationale for choosing a *git* pre-commit hook over a flex Claude-Code hook:
+# this project's own hooks (hooks/*.py) are constrained to thin relays with
+# no blocking logic (docs/ideology.md § Accepted constraints, "Hooks are thin
+# relays only") — they emit to the companion pipe and exit, never run
+# blocking checks. A git pre-commit hook is a different layer entirely (git's
+# own commit lifecycle, not the Claude-Code hook/pipe/sidebar pipeline that
+# constraint protects), so routing the "must block a commit on a failing
+# --verify" requirement through git satisfies it without touching, bending,
+# or carving an exception into the thin-relay rule. The hook body itself
+# stays a few lines of versioned logic in this tracked script (via
+# `install-hook`); only the generated `.git/hooks/pre-commit` artifact is
+# local and untracked (git never tracks `.git/hooks/*`).
+
+_PRE_COMMIT_HOOK_TEMPLATE = """#!/bin/sh
+# Installed by `scrub_fleet_names.py install-hook` (INFRA-400).
+# Blocks a commit whenever `scrub_fleet_names.py --verify` fails, so a real
+# fleet-repo name (or an unmapped on-disk sibling repo) can never land in a
+# tracked file, or drift silently uncovered, without the commit failing.
+exec uv run python "{script_path}" --verify --root "{repo_root}"
+"""
+
+
+def install_hook(repo_root: Path) -> Path:
+    """Write an executable `.git/hooks/pre-commit` into `repo_root` that
+    invokes this script's `--verify` (bound to `repo_root` explicitly, via
+    `--root`, so the hook works correctly even when `repo_root` is not this
+    script's own checkout) and aborts the commit on nonzero exit.
+
+    Returns the path written. Never invoked automatically — an operator (or
+    a checkpoint runbook step) runs `install-hook` explicitly once per
+    checkout.
+    """
+    repo_root = Path(repo_root)
+    hooks_dir = repo_root / ".git" / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    hook_path = hooks_dir / "pre-commit"
+    script_path = Path(__file__).resolve()
+    hook_path.write_text(
+        _PRE_COMMIT_HOOK_TEMPLATE.format(script_path=script_path, repo_root=repo_root),
+        encoding="utf-8",
+    )
+    mode = hook_path.stat().st_mode
+    hook_path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return hook_path
+
+
+def _parse_root(args: list[str]) -> Path:
+    """Read an optional `--root PATH` from args, defaulting to `_FLEX_ROOT`
+    — used by the installed pre-commit hook (which always passes `--root`
+    explicitly) and available to any other caller that needs to point
+    `--verify`/apply at a repo other than this script's own checkout.
+    """
+    if "--root" in args:
+        idx = args.index("--root")
+        if idx + 1 < len(args):
+            return Path(args[idx + 1])
+    return _FLEX_ROOT
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
+
+    if args and args[0] == "install-hook":
+        rest = args[1:]
+        repo_root = Path(rest[0]) if rest else _FLEX_ROOT
+        hook_path = install_hook(repo_root)
+        print(f"pre-commit hook installed at {hook_path}")
+        return 0
+
+    root = _parse_root(args)
     if "--lessons" in args:
         if "--verify" in args:
-            return verify_lessons()
-        apply_lessons()
+            return verify_lessons(root)
+        apply_lessons(root)
         return 0
     if "--verify" in args:
-        return verify()
-    apply()
+        return verify(root)
+    apply(root)
     return 0
 
 
