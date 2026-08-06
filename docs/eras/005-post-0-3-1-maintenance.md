@@ -27,3 +27,4 @@ Placeholder era opened at 0.3.1 sealing; real scope to be defined as maintenance
 | 128 | Fix .pairmode-overrides template/migration gap from audit.py key-format change (CER-180) | planned |
 | 129 | De-duplicate pairmode_drift_report.py's stale override-key parser (CER-181) | planned |
 | 130 | Close CER-172 scrub completeness and regression gaps (CER-188) | planned |
+| 131 | Fix scrub_fleet_names crash, incomplete anonymization coverage, and unwired gate (CER-194) | planned |
