@@ -23,7 +23,7 @@ Fix CER-196: .pairmode-fleet.local.json.example is invalid JSON (leading // comm
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-403 | Fix invalid-JSON fleet-config example causing silent fail-open verify (CER-196) | draft |
+| INFRA-403 | Fix invalid-JSON fleet-config example causing silent fail-open verify (CER-196) | complete |
 
 ## Schema delivery
 

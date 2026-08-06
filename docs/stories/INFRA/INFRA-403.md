@@ -2,7 +2,7 @@
 id: INFRA-403
 rail: INFRA
 title: Fix invalid-JSON fleet-config example causing silent fail-open verify (CER-196)
-status: draft
+status: complete
 phase: "133"
 story_class: code
 auth_gated: false
