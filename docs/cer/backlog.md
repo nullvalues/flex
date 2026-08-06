@@ -437,6 +437,8 @@ Not urgent, marginal value. Style, cosmetics, speculative improvements.
 
 | CER-199 | LOW: scrub_fleet_names.py's _PRE_COMMIT_HOOK_TEMPLATE interpolates script_path/repo_root into a double-quoted /bin/sh exec line with no escaping. Operator-controlled input only, not attacker-reachable. Found by Phase 125 checkpoint security-auditor (retry run, post-CER-196). skills/pairmode/scripts/scrub_fleet_names.py. | security-auditor | 2026-08-06 | 133 |
 
+| CER-201 | LOW: a shadow-reviewer call whose cwd is the main checkout (not a per-story worktree) resolves the active story from the target path via resolve_call_story(), so it could write .pairmode-suggestions.md inside another existing story's worktree rather than its own. Advisory-only (gitignored, out of any story's declared scope, not a real leak). Found by the Phase 127 checkpoint security-auditor run (INFRA-397 re-audit). skills/pairmode/scripts/scope_guard.py. | security-auditor | 2026-08-06 | 127 |
+
 
 
 ---
