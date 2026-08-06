@@ -156,7 +156,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 132 | Add excluded-siblings mechanism to the fleet-name reconciliation gate (CER-195) | complete | [phase-132.md](phase-132.md) |
 | 133 | Fix invalid-JSON fleet-config example causing silent fail-open verify (CER-196) | complete | [phase-133.md](phase-133.md) |
 | 134 | Recognize OBSOLETE as a CER resolution marker (CER-207) | complete | [phase-134.md](phase-134.md) |
-| 135 | Fleet-gate trivial quality fixes (CER-189/198/199/203/204/205) | planned | [phase-135.md](phase-135.md) |
+| 135 | Fleet-gate trivial quality fixes (CER-189/198/199/203/204/205) | complete | [phase-135.md](phase-135.md) |
 | 136 | Fleet-gate coverage and leak-closure fixes (CER-190/191/197/206) | planned | [phase-136.md](phase-136.md) |
 | 137 | Overrides/audit key-shape quality fixes (CER-182/184/185/202) | planned | [phase-137.md](phase-137.md) |
 | 138 | Close shadow-reviewer scope_guard cwd-resolution gap (CER-176/177/201) | planned | [phase-138.md](phase-138.md) |
