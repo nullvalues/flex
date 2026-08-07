@@ -116,26 +116,45 @@ recovered value — matches expectation.
    unmodified by this story).
 7. All pre-existing tests in `TestYamlBlockScalarQuoting` (CER-167/CER-211/CER-213
    cases already in `tests/pairmode/test_story_new.py`) pass against the new
-   implementation, WITH TWO NAMED EXCEPTIONS whose *expected output* (not
-   their round-trip correctness) must be corrected, not weakened:
-   `test_value_with_colon_space_is_quoted_and_round_trips` (value
-   `"docs/notes: a file with a colon.md"`) and
-   `test_value_with_leading_quote_is_quoted_and_round_trips` (value
-   `'"quoted-looking-path.py'`). Both values have no leading/trailing
-   whitespace and no real newline, so under the oracle-only design (Ensures
-   1-2) they are legitimately representable bare, and live verification
-   against the real reader confirms bare *does* round-trip byte-identically
-   for both. Their prior "must be quoted" expectation was an artifact of the
-   old denylist (CER-213's `": " not in value` / leading-quote-character
-   checks), not a genuine round-trip requirement — CER-213's own denylist was
-   simply more conservative than the reader actually requires. Update these
-   two tests' assertions to expect bare output (`_yaml_block_scalar(value) ==
-   value`) instead of quoted, and rename them to
-   `test_value_with_colon_space_round_trips_bare` /
-   `test_value_with_leading_quote_round_trips_bare` to reflect the corrected
-   expectation — this is a deliberate, spec-sanctioned correction (found and
-   resolved during INFRA-412's own build attempt 1, which correctly refused
-   to guess and filed CER-217 instead), not silent test-weakening. Every
+   implementation, WITH EXACTLY FOUR NAMED EXCEPTIONS whose *expected output*
+   (not their round-trip correctness) must be corrected, not weakened:
+   - `test_value_with_colon_space_is_quoted_and_round_trips` (value
+     `"docs/notes: a file with a colon.md"`) → rename to
+     `test_value_with_colon_space_round_trips_bare`, assert bare.
+   - `test_value_with_leading_quote_is_quoted_and_round_trips` (value
+     `'"quoted-looking-path.py'`) → rename to
+     `test_value_with_leading_quote_round_trips_bare`, assert bare.
+   - `test_value_with_both_quote_characters_raises` (value
+     `"note: it's a \"quoted\" thing"`) → rename to
+     `test_value_with_both_quote_characters_round_trips_bare`, assert bare
+     instead of `raises(ValueError)`. Preserve Ensures 4's "both quote
+     characters present, unrepresentable" coverage by adding a *new* test
+     with a genuinely-unrepresentable value that also contains whitespace
+     making it non-bare-eligible (e.g. `' \'quoted\' and "double" '`) —
+     confirmed live to still raise under the new implementation.
+   - `test_primary_files_entry_with_colon_round_trips_through_frontmatter`
+     (value `"docs/weird: path.py"`) → update its assertion from
+     `item == f'"{value}"'` to `item == value` (bare), keeping the rest of
+     the integration round-trip check unchanged.
+   All four values were independently verified (build attempt 2's Evidence
+   section, and independently re-verified live by the reviewer against
+   attempt 2) to have no leading/trailing whitespace and no real newline, so
+   under the oracle-only design (Ensures 1-2) they are legitimately
+   representable bare, and bare *does* round-trip byte-identically for all
+   four through the real reader. Their prior "must be quoted"/"must raise"
+   expectations were artifacts of the old denylist (CER-213's `": " not in
+   value` / leading-quote-character / both-quote-character checks), which
+   was simply more conservative than the reader actually requires — not a
+   genuine round-trip requirement. This four-item list is now the complete
+   and final set of sanctioned exceptions (found across build attempts 1 and
+   2, both of which correctly stopped/flagged rather than silently
+   self-authorizing — attempt 1 filed CER-217, attempt 2's extra two were
+   caught by review and required this spec amendment rather than being
+   accepted via the builder's own Evidence-section justification). A THIRD
+   build attempt must not add any further exceptions on its own authority,
+   even with a correct live-verified justification — any additional
+   conflict of this class must stop and report, not self-resolve, exactly as
+   Ensures 7 already required and as the reviewer correctly enforced. Every
    other pre-existing test in the class is unaffected and must keep passing
    exactly as before.
 8. New regression tests exist covering, at minimum and by name: CER-214
