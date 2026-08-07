@@ -13,6 +13,7 @@ primary_files:
 touches:
   - docs/harness-cutover-runbook.md
   - docs/phases/phase-proposed-retire-harness-release-channel-20260804-001.md
+  - tests/pairmode/test_harness_path_audit.py
 narrative_roles: []
 ---
 
@@ -36,6 +37,13 @@ disposition.
   stranded behind docs that already declare the channel retired).
 - `~/flex-marketplace-cache/flex-0.3.1/skills/pairmode/scripts/flex_build.py`
   exists on the build host (verified live at spec time).
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| tests/pairmode/test_harness_path_audit.py | Removing CLAUDE.build.md's flex-harness references (this story's Ensures) leaves the CLAUDE.build.md allowlist entry in this CER-160 audit test stale; the story's own test-suite-green Ensures requires updating it. | 2026-08-07T18:16:48Z |
 
 ## Ensures
 
