@@ -36,9 +36,9 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-141 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
+- [x] written-never-read — N/A: this phase reworks the writer/reader escaping shape (`_yaml_block_scalar`'s quoted-value emission) for the existing `primary_files:`/`touches:` fields; no new field introduced.
+- [x] required-never-written — N/A: no new read path added; `schema_validator._parse_frontmatter` remains the sole reader, unchanged in shape by this phase.
+- [x] duplicate state — no: single write site (`_yaml_block_scalar`), single read site, unchanged from before this phase.
+- [x] half-implementation — no: both quoting branches (literal single-quote wrap, `ValueError` on unrepresentable) are exercised by regression tests routed through the real reader; no unreachable code.
 
-— developer fills in after phase completion —
+— filled in by orchestrator at checkpoint (2026-08-07) —

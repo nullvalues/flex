@@ -6,6 +6,9 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Fixed [pairmode] — Phase 141 (Fix story_new.py writer/reader escaping mismatch, CER-213)
+- INFRA-411 fixed a writer/reader mismatch introduced by CER-167 (Phase 139): `_yaml_block_scalar` quoted non-plain values via `json.dumps`, assuming a `yaml.safe_load`-style reader that unescapes `\"`/`\\`/`\n`/`\t`, but the project's real reader (`schema_validator._parse_frontmatter` via `_strip_inline_comment`) strips one matching pair of outer quotes literally and never unescapes anything — silently corrupting a quoted value with an embedded quote, a real tab, or a real newline on read. Reworked the writer to emit literal single-quote wrapping matched to what the real reader actually does, raising `ValueError` when no representable quoting exists (embedded newline, or both quote characters present) rather than emitting a value that reads back wrong.
+
 ### Fixed [pairmode] — Phase 140 (Fix silent YAML frontmatter truncation on embedded comment introducer, CER-211)
 - INFRA-410 widened `story_new.py`'s `_yaml_block_scalar` is-plain check from "starts with `#`" to "contains ` #` anywhere", closing a silent-truncation gap the CER-167 (Phase 139) denylist missed: an embedded ` #` mid-value was previously emitted bare and truncated on read, the exact data-loss shape CER-167 existed to prevent. Two related MEDIUM gaps (YAML 1.1 bare-value type coercion, raw control-character passthrough) were explicitly scoped out and filed as CER-212.
 
