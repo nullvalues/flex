@@ -36,9 +36,9 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-140 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
+- [x] written-never-read — N/A: this phase widens an existing detection check (`_yaml_block_scalar`'s is-plain test) in `story_new.py`; it introduces no new persistent field or writer.
+- [x] required-never-written — N/A: no new read path was added; the existing `primary_files:`/`touches:` write/read pair is unchanged in shape, only its safety check widened.
+- [x] duplicate state — no: single write site (`_yaml_block_scalar`), single read site (`schema_validator._parse_frontmatter`), unchanged from before this phase.
+- [x] half-implementation — no: both regression tests (helper-level and frontmatter-round-trip) exercise the new detection branch; no unreachable code. Note (non-blocking, downstream-risk only): this fix extends a hand-maintained denylist that Phase 142 (INFRA-412) later replaced with an oracle-based redesign after further gaps surfaced (CER-212, CER-214/215/216) — expected evolution, not an omission in this phase's own scope.
 
-— developer fills in after phase completion —
+— filled in by orchestrator at checkpoint (2026-08-07), per intent-reviewer recommendation —
