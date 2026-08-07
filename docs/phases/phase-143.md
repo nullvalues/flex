@@ -36,9 +36,9 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-143 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
+- [x] written-never-read — N/A: extends the Phase 142 oracle design to `title:`/`source:` scalar fields; no new field or write site introduced.
+- [x] required-never-written — N/A: no new read path added; `schema_validator._parse_frontmatter` remains the sole reader.
+- [x] duplicate state — no: single write site (`_oracle_render`/`_yaml_scalar_field`, shared with the block-sequence oracle), single read site.
+- [x] half-implementation — no: the bracket-prefix carve-out was formally resolved via CER-220 rather than self-resolved by the builder; all Ensures 1-9 covered by regression tests. One CLI-boundary gap (uncaught `ValueError` on an unrepresentable `--title`, can strand a partially-scaffolded rail/era row) filed as CER-232, non-blocking.
 
-— developer fills in after phase completion —
+— filled in by orchestrator at checkpoint (2026-08-07) —
