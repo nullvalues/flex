@@ -166,6 +166,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 142 | Durable oracle-based fix for story_new.py frontmatter round-trip (CER-214/215/216) | complete | [phase-142.md](phase-142.md) |
 | 143 | Extend oracle-based round-trip fix to title/source frontmatter scalars (CER-219) | complete | [phase-143.md](phase-143.md) |
 | 144 | Harden title/path serialization at two live writer gaps (CER-221/222) | complete | [phase-144.md](phase-144.md) |
+| 145 | Retire flex-harness release channel; merge fold-prep to main | planned | [phase-145.md](phase-145.md) |
 
 ---
 
