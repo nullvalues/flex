@@ -1280,6 +1280,26 @@ class TestYamlBlockScalarQuoting:
         value = "line-one.py\nline-two-injected"
         assert self._round_trip(value) == value
 
+    def test_value_with_embedded_space_hash_is_quoted_and_round_trips(
+        self,
+    ) -> None:
+        """CER-211: a ' #' occurring anywhere in the scalar — not only at
+        position 0 — is a YAML comment introducer and must be quoted, or a
+        subsequent yaml.safe_load silently truncates everything from the
+        ' #' onward."""
+        value = "foo bar #baz.py"
+        assert self._round_trip(value) == value
+        assert _yaml_block_scalar(value) != value  # must not stay bare
+
+    def test_value_with_space_hash_followed_by_more_content_round_trips(
+        self,
+    ) -> None:
+        """Confirms nothing after the ' #' introducer is lost on round-trip
+        (not just that quoting occurred)."""
+        value = "notes #123 continues after the hash and more text still"
+        assert self._round_trip(value) == value
+        assert _yaml_block_scalar(value) != value  # must not stay bare
+
     def test_forbidden_proxy_value_not_altered(self) -> None:
         """The helper must not reject, strip, or sanitise — only re-encode.
         json.loads(emitted) must equal the exact original string, not a
@@ -1303,6 +1323,24 @@ class TestYamlBlockScalarQuoting:
         # must still succeed and yield the exact value back — the colon-space
         # case's quoted form has no backslash escapes, so the project's own
         # unescape-free quote-stripping recovers it exactly too.
+        story_text = fm + _story_body()
+        parsed = _read_story_frontmatter(_write_tmp_story(tmp_path, story_text))
+        assert parsed["primary_files"] == [value]
+
+    def test_primary_files_entry_with_embedded_space_hash_round_trips_through_frontmatter(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """CER-211 regression at the file-write/parse level (not just the
+        helper): before this fix, a value with an embedded ' #' was emitted
+        bare and everything from the ' #' onward was silently dropped when
+        the story file was parsed back."""
+        value = "notes #123 more text after the hash"
+        fm = _story_frontmatter(
+            "INFRA-003", "INFRA", "Title", "1", primary_files=[value]
+        )
+        item = _extract_list_item_line(fm, "primary_files")
+        assert json.loads(item) == value
+
         story_text = fm + _story_body()
         parsed = _read_story_frontmatter(_write_tmp_story(tmp_path, story_text))
         assert parsed["primary_files"] == [value]

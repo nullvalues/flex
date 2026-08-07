@@ -49,6 +49,13 @@ def _yaml_block_scalar(value: str) -> str:
     Does not touch the CER-092 title-quoting branch above; that branch's
     ``#``-detection rule is for a top-level scalar (``title:``), not a
     block-sequence list item, and is left as-is.
+
+    CER-211: a ``#`` is a comment introducer per the YAML spec's plain
+    scalar rules not only when it starts the scalar, but anywhere it is
+    preceded by whitespace (a bare ``" #"`` substring) — e.g.
+    ``"foo bar #baz.py"`` would otherwise be emitted unquoted and silently
+    truncated at the ``" #"`` on the next parse. Detected in addition to the
+    leading-``#`` case already covered by ``_YAML_PLAIN_UNSAFE_START``.
     """
     is_plain = (
         bool(value)
@@ -58,6 +65,7 @@ def _yaml_block_scalar(value: str) -> str:
         and ": " not in value
         and not value.endswith(":")
         and not value.startswith(_YAML_PLAIN_UNSAFE_START)
+        and " #" not in value
     )
     if is_plain:
         return value
