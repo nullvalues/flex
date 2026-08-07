@@ -6,7 +6,7 @@ status: draft
 era: "004"
 surfaces: [CLAUDE.build.md]
 rails: [INFRA]
-stories: []
+stories: [INFRA-439]
 ---
 
 ## Narrative
