@@ -14,6 +14,7 @@ primary_files:
 touches:
   - tests/pairmode/test_scrub_fleet_names.py
   - tests/pairmode/test_fleet_discovery.py
+  - docs/architecture.md
 narrative_roles: []
 ---
 
@@ -106,3 +107,43 @@ Acceptance: both green, including the new cases for all four fixes.
   story widens what is matched and reported, not what the output looks like.
 - Re-scrubbing already-published artifacts; the fix is forward-looking on the gate
   itself.
+
+## Evidence
+
+- **CER-190 (retry note, orchestrator redirect):** Instructions item 5's
+  pointer to `test_scrub_fleet_names.py` for fixes 1 and 4 was corrected to
+  fixes 1 and 2 in this build (the CER-190/domain-suffix and case-insensitive
+  matching work lives in `scrub_fleet_names.py`/`test_scrub_fleet_names.py`;
+  CER-206 — the malformed-config fail-loud fix — is entirely in
+  `fleet_discovery.py`/`test_fleet_discovery.py`, not
+  `test_scrub_fleet_names.py`, per `docs/cer/backlog.md`'s CER-206 row
+  naming `fleet_discovery.py:130-134`).
+- **CER-190 domain-suffix design decision:** the existing pre-story
+  `_is_domain_context` exclusion (INFRA-394) protects two real,
+  already-tested cases — an email address (`user@<name>.com`) and a URL
+  host's subdomain component (`https://sub.<name>.com/...`) — both load-
+  bearing per `test_apply_skips_email_address_context`/
+  `test_apply_skips_url_host_context`/`test_verify_skips_excluded_domain_context`,
+  which remained in the pre-story test suite and must stay green. A literal
+  reading of Ensures 1's "replaces ... when carrying a domain suffix" as
+  "never exclude any domain-suffixed match" would delete that protection and
+  fail those three pre-existing tests. Resolved per CER-190's own backlog
+  text (`docs/cer/backlog.md`): the exclusion was "correct for the
+  operator's own contact-domain mentions but unbounded and unlogged" — the
+  defect is that *any* name+domain-suffix match was excluded regardless of
+  whether it was actually in an email/URL-host position. The fix narrows
+  `_is_domain_context` to also require the character immediately preceding
+  the match to be `@` or `.` (the two markers the two protected cases
+  actually have and a bare prose mention does not), so the email/URL-host
+  cases stay excluded while a bare `<name>.io`-shaped prose mention (no
+  preceding `@`/`.`) is now matched, replaced, and reported — satisfying
+  both the forbidden-proxy text and the pre-existing regression tests.
+- **CER-197 nested-vs-path design:** the recursive walk
+  (`_anonymize_value`) substring-scans every string leaf against a known-paths
+  set; the bare top-level `"path"` key is additionally forced through the
+  original exact-match/unconditional-placeholder `_resolve()` after the
+  recursive pass, so the pre-existing guarantee (any path, mapped or not,
+  always becomes a label or placeholder) never depends on the generic
+  recursive walk alone finding it as a substring of itself.
+- Full suite (`uv run pytest tests/pairmode/ -q`, no `-x`, per
+  `feedback_pytest_no_x_before_merge`): 5194 passed, 211 skipped, 0 failed.

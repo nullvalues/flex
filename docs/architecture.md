@@ -3827,12 +3827,27 @@ into a `_comment` reserved key, filtered out of `repo_entries`), and
 `load_local_fleet_map` now raises `FleetMapConfigError` on malformed-but-present
 JSON while keeping the absent-file case as `{}`; every `scrub_fleet_names.py`
 caller (`apply`/`verify`/`apply_lessons`/`verify_lessons`) propagates the
-failure, and only `main()` converts it to a non-zero exit. `fleet_discovery.py`
-keeps its own documented never-raises contract via a narrowly-scoped local
-catch of the new exception type — this is the same forked-remediation chain
-as Phase 122's shadow-reviewer fixes: each phase's checkpoint security-auditor
+failure, and only `main()` converts it to a non-zero exit. `fleet_discovery.py`'s
+internal helpers (`_default_candidates`, `discover`, `_write_snapshot`) keep
+their own documented never-raises contract via a narrowly-scoped local catch
+of the new exception type — this is the same forked-remediation chain as
+Phase 122's shadow-reviewer fixes: each phase's checkpoint security-auditor
 found a real, scoped gap in the phase immediately before it (Phase 125 →
 Phase 130 → Phase 131 → Phase 132 → Phase 133), and the next phase closed it.
+**As of Phase 136 (INFRA-406, CER-206), that never-raises contract is
+library-scoped only — it no longer extends to `fleet_discovery.py`'s `cli()`
+entry point.** The internal catch let a malformed config's parse failure
+fold into "nothing configured" everywhere, including at the CLI boundary,
+which silently discarded a custom `_fleet_root` key and narrowed
+`_anonymize_results_for_output`'s anonymization scope to the default
+sibling scan with no operator-visible signal that anything had degraded.
+`cli()` now performs its own `fleet_map_lib.load_local_fleet_map` call
+before building any candidate list, and exits non-zero with an explicit,
+CER-206-naming message on `FleetMapConfigError` rather than reaching
+`_default_candidates()`/`discover()`/`_write_snapshot()` (and their
+graceful-degrade catches) at all in that case. A genuinely absent config
+file is unaffected — that still resolves to `{}` and a normal run, at both
+the library and CLI layers, exactly as before.
 
 **INFRA-298 (CER-114) addendum:** `CONTEXT_BUDGET_HOOK_SPECS` gained a fourth
 entry, `SubagentStop` (`hooks/subagent_stop.py`, matcher `None`) — despite
@@ -5171,12 +5186,53 @@ literals — they used to live in a hardcoded `_DOCUMENTED_CANDIDATES` name list
 INFRA-393. The mechanism now is a local, gitignored `<flex-root>/.pairmode-fleet.local.json`
 file mapping a stable anonymized label (e.g. `"repo-a"`) to a real absolute path (e.g.
 `"repo-a": "/mnt/work/<real-name>"`); `_load_local_fleet_map()` reads it and returns `{}` when
-the file is missing, unreadable, or not valid JSON (same never-raise contract as
-`_read_registered_projects()`). A tracked `.pairmode-fleet.local.json.example` at the repo root
-holds fake placeholder entries as the template a fresh operator copies and fills with their own
-fleet paths; the same local file is also the real→anonymized-label mapping INFRA-394 uses to
-scrub already-committed docs. Overridable via `--candidate-dir` (repeatable) or
-`--candidates-file`.
+the file is missing or unreadable, and — for internal, non-CLI callers only
+(`_default_candidates`, `discover`, `_write_snapshot`) — also when it exists
+but is not valid JSON (same never-raise contract as `_read_registered_projects()`,
+library-scoped as of Phase 136/INFRA-406/CER-206; see the `cli()` boundary
+override immediately below). A tracked `.pairmode-fleet.local.json.example` at
+the repo root holds fake placeholder entries as the template a fresh operator
+copies and fills with their own fleet paths; the same local file is also the
+real→anonymized-label mapping INFRA-394 uses to scrub already-committed docs.
+Overridable via `--candidate-dir` (repeatable) or `--candidates-file`.
+
+**Reserved-key candidate accounting (Phase 136, INFRA-406, CER-191):**
+`_default_candidates()` derives repo candidates from the local fleet map's
+`{label: real_path}` entries only — the reserved config keys (`_fleet_root`,
+`_excluded`, `_comment`) are legitimate non-candidates, but silently
+filtering them out shrank the candidate count with no record of which key
+was dropped or why. `_default_candidates()` now prints a one-line breakdown
+to stderr on every run with a non-empty local map — total entries found vs.
+repo candidates derived vs. which reserved keys (by name) were present and
+skipped — so a shrinking count is always accounted for, never a bare number.
+
+**Malformed-config CLI boundary (Phase 136, INFRA-406, CER-206):** the
+never-raise contract described above is a library-function guarantee for
+`_default_candidates()`/`discover()`/`_write_snapshot()` only. `cli()` itself
+performs its own `fleet_map_lib.load_local_fleet_map()` call before building
+any candidate list, and exits non-zero with an explicit, CER-206-naming
+message when the local config exists but fails to parse, rather than
+reaching the internal graceful-degrade path at all. Before this fix, a
+malformed-but-present config with a custom `_fleet_root` key silently fell
+back to the default (parent-of-flex-root) sibling scan at the CLI boundary,
+narrowing `_anonymize_results_for_output`'s anonymization scope with no
+operator-visible signal that anything had degraded — the exact "a check
+that reports clean while the thing it checks leaked" failure shape this
+gate exists to prevent. A genuinely absent config file is unaffected at
+either layer — that still resolves to `{}` and a normal run.
+
+**Recursive `--json` anonymization (Phase 136, INFRA-406, CER-197):**
+`_anonymize_results_for_output` used to scrub only the top-level `"path"`,
+`"signal1_value"`, and `"signal1_absent_detail"` fields, leaving a real
+absolute path inside `"duplicate_hooks"`/`"machine_absolute_hooks"`
+list-of-dict entries (`commands`, `paths`, `command`, `path`, ...) to reach
+`--json` output verbatim. It now recurses over the full emitted structure —
+every string leaf at any dict/list nesting depth is substring-scanned
+against the known fleet-root child repo paths (mapped entries, on-disk
+siblings, and the specific result's own `"path"`) and substituted; the bare
+`"path"` key is additionally forced through the exact-match/placeholder
+resolve unconditionally afterward, so that specific guarantee never depends
+on the generic recursive walk alone.
 
 **Read-only contract:** the tool never opens any scanned project file for write. The only file
 it writes is a snapshot at `docs/fleet-snapshot.md`, and only **inside the repo the tool was
