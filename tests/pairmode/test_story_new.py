@@ -13,6 +13,7 @@ from skills.pairmode.scripts.story_new import (
     _story_frontmatter,
     _story_body,
     _yaml_block_scalar,
+    _yaml_scalar_field,
     create_story,
     derive_test_paths,
 )
@@ -1042,6 +1043,100 @@ class TestTitleHashQuoting:
         output = _story_frontmatter("INFRA-001", "INFRA", "Plain title", None)
         assert "title: Plain title" in output
         assert 'title: "Plain title"' not in output
+
+
+class TestScalarFieldOracle:
+    """INFRA-413 (CER-219) Ensures 1/2/5-8 — title:/source: are rendered
+    through the same oracle-verify-or-raise design (`_yaml_scalar_field`)
+    as `primary_files:`/`touches:` list items, instead of the retired
+    CER-092 hand-rolled title-only regex and the previously-always-bare
+    `source:` line."""
+
+    # -- Ensures 8: plain values still emit bare -------------------------
+
+    def test_plain_title_emits_bare(self) -> None:
+        assert _yaml_scalar_field("title", "myproject") == "title: myproject"
+
+    def test_plain_source_emits_bare(self) -> None:
+        assert _yaml_scalar_field("source", "myproject") == "source: myproject"
+
+    def test_story_frontmatter_plain_title_and_source_bare(self) -> None:
+        output = _story_frontmatter(
+            "INFRA-001", "INFRA", "Plain title", None, source="myproject"
+        )
+        assert "title: Plain title" in output
+        assert "source: myproject" in output
+
+    # -- Ensures 5: bracket-prefixed title/source raise -------------------
+
+    def test_bracket_prefixed_title_raises(self) -> None:
+        with pytest.raises(ValueError):
+            _yaml_scalar_field("title", "[WIP] fix thing")
+
+    def test_bracket_prefixed_source_raises(self) -> None:
+        with pytest.raises(ValueError):
+            _yaml_scalar_field("source", "[WIP] fix thing")
+
+    def test_story_frontmatter_bracket_prefixed_title_raises(self) -> None:
+        with pytest.raises(ValueError):
+            _story_frontmatter("INFRA-001", "INFRA", "[WIP] fix thing", None)
+
+    def test_story_frontmatter_bracket_prefixed_source_raises(self) -> None:
+        with pytest.raises(ValueError):
+            _story_frontmatter(
+                "INFRA-001", "INFRA", "Plain title", None, source="[WIP] fix thing"
+            )
+
+    # -- Ensures 6: comma-containing bracketed value raises, not silently
+    #    type-confused into a list ------------------------------------
+
+    def test_comma_bracketed_title_raises(self) -> None:
+        with pytest.raises(ValueError):
+            _yaml_scalar_field("title", "[abc, def] thing")
+
+    def test_comma_bracketed_source_raises(self) -> None:
+        with pytest.raises(ValueError):
+            _yaml_scalar_field("source", "[abc, def] thing")
+
+    def test_comma_bracketed_title_never_parses_as_list(self) -> None:
+        """Confirms the failure mode is 'raise', never a silently-emitted
+        line that the reader then type-confuses into a list on read."""
+        try:
+            rendered = _yaml_scalar_field("title", "[abc, def] thing")
+        except ValueError:
+            return
+        doc = f"---\n{rendered}\nsentinel: end\n---\n"
+        parsed = _parse_frontmatter(doc)
+        assert not isinstance(parsed.get("title"), list)
+
+    # -- Ensures 7: unrepresentable (embedded newline, both quote chars
+    #    plus whitespace) raises -----------------------------------------
+
+    def test_title_with_embedded_newline_raises(self) -> None:
+        with pytest.raises(ValueError):
+            _yaml_scalar_field("title", "line-one\nline-two")
+
+    def test_source_with_embedded_newline_raises(self) -> None:
+        with pytest.raises(ValueError):
+            _yaml_scalar_field("source", "line-one\nline-two")
+
+    def test_title_with_both_quote_chars_and_whitespace_raises(self) -> None:
+        value = " 'quoted' and \"double\" "
+        assert "'" in value and '"' in value
+        assert value != value.strip()
+        with pytest.raises(ValueError):
+            _yaml_scalar_field("title", value)
+
+    # -- Round-trip sanity: a title containing a whitespace-preceded '#'
+    #    (CER-092's original case) still quotes and round-trips under the
+    #    general oracle, matching TestTitleHashQuoting's pinned behaviour.
+
+    def test_title_with_hash_round_trips_through_frontmatter(self) -> None:
+        title = "Story contract sections — ## Requires / ## Ensures"
+        rendered = _yaml_scalar_field("title", title)
+        doc = f"---\n{rendered}\nsentinel: end\n---\n"
+        parsed = _parse_frontmatter(doc)
+        assert parsed == {"title": title, "sentinel": "end"}
 
 
 class TestDeriveTestPaths:
