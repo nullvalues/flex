@@ -37,9 +37,9 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-145 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
+- [x] written-never-read — checked, and one was caught: docs/architecture.md initially described pairmode_scripts_dir as resolving to the installed plugin cache, a directory nothing in this phase wrote to. Fixed same-phase (67dcf734) to describe the actual writer/reader pair (the marketplace source clone, advanced by manual git checkout).
+- [x] required-never-written — no read path in this phase depends on a value with no writer; the marketplace-cache advancement is documented as a manual step, not silently assumed automatic.
+- [x] duplicate state — no: pairmode_scripts_dir has exactly one declaration site (CLAUDE.build.md) after this phase; the old flex-harness worktree path is gone, not duplicated.
+- [x] half-implementation — one caught and fixed: 9 rendered agent-shell fallback paths pointed at the now-deleted flex-harness directory after INFRA-440 removed it, before the checkpoint-security re-audit caught it and it was repointed (durable via the templates' existing {{ pairmode_scripts_dir }} parameterization). Two cosmetic residuals remain, filed as CER-241/CER-242 (Do Much Later, non-blocking).
 
-— developer fills in after phase completion —
+— filled in by orchestrator at checkpoint (2026-08-07) —
