@@ -17,6 +17,7 @@ from flex_build import (  # type: ignore[import]  # noqa: E402
     flex_build,
     widen_story_scope,
 )
+from schema_validator import _parse_frontmatter  # type: ignore[import]  # noqa: E402
 
 
 def _make_story(
@@ -345,3 +346,101 @@ def test_permissions_widen_never_touches_settings_files(tmp_path):
 
     assert settings_path.read_text(encoding="utf-8") == "{}\n"
     assert state_path.read_text(encoding="utf-8") == "{}\n"
+
+
+# ---------------------------------------------------------------------------
+# CER-222/INFRA-415 — oracle-verified touches: writes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "widened_path",
+    [
+        "skills/pairmode/scripts/foo.py",
+        "docs/some dir/notes.md",
+        "skills/pairmode/scripts/pkg#1.py",
+    ],
+    ids=["plain-path", "space-bearing-path", "non-comment-hash-path"],
+)
+def test_permissions_widen_representable_paths_round_trip_in_touches(
+    tmp_path, widened_path
+):
+    """CER-222 Ensures 2: a normal path, a space-bearing path, and a
+    non-comment `#`-bearing path are all still written into touches:
+    exactly as before this story, and recoverable byte-identical via the
+    real frontmatter reader — not a quoted or otherwise mangled form."""
+    story = _make_story(tmp_path, "INFRA-900", primary_files=["a.py"])
+    widen_story_scope("INFRA-900", widened_path, "need it", tmp_path)
+
+    text = story.read_text(encoding="utf-8")
+    parsed = _parse_frontmatter(text)
+    assert parsed["touches"] == [widened_path]
+
+
+def test_permissions_widen_refuses_unrepresentable_path_writes_nothing(tmp_path):
+    """CER-222 Ensures 3/4: a path containing both '\"' and \"'\" cannot be
+    wrapped by either quote form this reader's literal-strip scheme
+    supports, and (having a literal ' #' as well) doesn't round-trip bare
+    either — so widen_story_scope must raise PermissionsWidenError naming
+    the path, and must not write anything — not the story spec (no partial
+    touches: write, no Scope widenings row) and not the permissions
+    artifact (INFRA-314 forbidden-proxy: a write that merely fails a later
+    validation pass is not acceptable)."""
+    unrepresentable = "docs/note \"x'y #1.md"
+    story = _make_story(tmp_path, "INFRA-900", primary_files=["a.py"])
+    before = story.read_text(encoding="utf-8")
+    artifact_path = tmp_path / "docs" / "phases" / "permissions" / "INFRA-900.json"
+
+    with pytest.raises(PermissionsWidenError) as excinfo:
+        widen_story_scope("INFRA-900", unrepresentable, "need it", tmp_path)
+    assert "docs/note" in str(excinfo.value)
+
+    assert story.read_text(encoding="utf-8") == before
+    assert not artifact_path.exists()
+
+
+def test_permissions_widen_refuses_unrepresentable_path_with_embedded_newline(
+    tmp_path,
+):
+    """CER-222 Ensures 3: an embedded real newline is also unrepresentable
+    as a single block-sequence-item line."""
+    unrepresentable = "docs/weird\nname.md"
+    story = _make_story(tmp_path, "INFRA-900", primary_files=["a.py"])
+    before = story.read_text(encoding="utf-8")
+
+    with pytest.raises(PermissionsWidenError):
+        widen_story_scope("INFRA-900", unrepresentable, "need it", tmp_path)
+
+    assert story.read_text(encoding="utf-8") == before
+
+
+def test_permissions_widen_cli_refuses_unrepresentable_path(tmp_path):
+    """CER-222 Ensures 5: the CLI surfaces PermissionsWidenError for an
+    unrepresentable widened path the same way it surfaces every other
+    refusal on this path — non-zero exit, message on stderr/output naming
+    the path, never an uncaught traceback."""
+    runner = CliRunner()
+    unrepresentable = "docs/note \"x'y #1.md"
+    story = _make_story(tmp_path, "INFRA-900", primary_files=["a.py"])
+    before = story.read_text(encoding="utf-8")
+
+    result = runner.invoke(
+        flex_build,
+        [
+            "permissions-widen",
+            "INFRA-900",
+            "--path",
+            unrepresentable,
+            "--reason",
+            "need it",
+            "--project-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "docs/note" in result.output
+    assert story.read_text(encoding="utf-8") == before
+    assert not (
+        tmp_path / "docs" / "phases" / "permissions" / "INFRA-900.json"
+    ).exists()

@@ -90,6 +90,7 @@ from scope_guard import (  # noqa: E402
 )
 from table_utils import split_table_row  # noqa: E402
 from story_update import update_story_status, update_phase_story_status  # noqa: E402
+from story_new import _yaml_block_scalar  # noqa: E402
 
 
 def _stamp_active_story(
@@ -1012,9 +1013,25 @@ def _append_touches_entry(fm_text: str, path: str) -> str:
     when ``primary_files:`` is also absent). Never round-trips through a
     YAML dumper — reformatting unrelated frontmatter or losing comments is
     exactly what a textual edit against the ``touches:`` block avoids.
+
+    The new list item's own text is rendered via
+    ``story_new._yaml_block_scalar`` (CER-222/INFRA-415) — the same
+    oracle-verify-or-raise shared with ``story_new.py``'s create-time
+    ``touches:`` writer (INFRA-412) — instead of bare-interpolating *path*,
+    so this call site can no longer emit a ``touches:`` block that fails to
+    round-trip through ``schema_validator._parse_frontmatter``. When *path*
+    is not representable (e.g. contains an unquoted `` #`` comment
+    introducer or an embedded real newline), raises
+    ``PermissionsWidenError`` naming *path* verbatim instead of writing a
+    corrupted entry.
     """
     blocks = _split_frontmatter_blocks(fm_text)
-    new_item = f"  - {path}"
+    try:
+        new_item = f"  - {_yaml_block_scalar(path)}"
+    except ValueError as exc:
+        raise PermissionsWidenError(
+            f"cannot represent widened path {path!r} in touches: {exc}"
+        ) from exc
     keys = [k for k, _ in blocks]
 
     if "touches" in keys:
