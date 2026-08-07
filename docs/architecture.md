@@ -1731,9 +1731,18 @@ must have at least one entry in `primary_files`.
 `story_new.py`'s `_yaml_block_scalar` helper decides whether a block-sequence item can be emitted
 bare or must be quoted (`json.dumps`-style) before this parser's inline-comment/flow-sequence
 rules above would otherwise mis-read it — a leading quote, a leading `#`, a `: `-bearing value, or
-an embedded newline all force quoting. This CER-167 version was superseded in Phase 142
-(INFRA-412, CER-214/215/216) by an oracle-based redesign: instead of a hand-maintained
-unsafe-character denylist, a candidate rendering is round-tripped through this same
+an embedded newline all force quoting. The CER-167 denylist itself went through two further
+patches on the same hand-maintained-denylist design before being replaced outright: Phase 140
+(INFRA-410, CER-211) widened the leading-`#`-only check to also catch an embedded ` #` comment
+introducer anywhere in an otherwise-plain value (the exact silent-truncation shape CER-167 existed
+to prevent, reopened by a case the original denylist missed); Phase 141 (INFRA-411, CER-213) fixed
+the opposite mismatch on the *quoted* path — `_yaml_block_scalar` quoted via `json.dumps`
+(assuming a `yaml.safe_load`-style reader that unescapes `\"`/`\\`/`\n`/`\t`), but
+`_parse_frontmatter`'s `_strip_inline_comment` only strips one matching pair of outer quote
+characters literally and never unescapes anything, so a quoted value with an embedded quote, a
+real tab, or a real newline round-tripped corrupted. This whole denylist-and-patch lineage was
+superseded in Phase 142 (INFRA-412, CER-214/215/216) by an oracle-based redesign: instead of one
+more hand-maintained unsafe-character rule, a candidate rendering is round-tripped through this same
 `_parse_frontmatter` before being emitted, and `story_new._yaml_block_scalar`/`_oracle_render`
 raises rather than guesses when no candidate reads back byte-identical. Phase 143 (INFRA-413)
 extended the same oracle design to the `title:`/`source:` scalar fields. Phase 144 (INFRA-415,

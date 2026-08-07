@@ -6,6 +6,9 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Fixed [pairmode] — Phase 140 (Fix silent YAML frontmatter truncation on embedded comment introducer, CER-211)
+- INFRA-410 widened `story_new.py`'s `_yaml_block_scalar` is-plain check from "starts with `#`" to "contains ` #` anywhere", closing a silent-truncation gap the CER-167 (Phase 139) denylist missed: an embedded ` #` mid-value was previously emitted bare and truncated on read, the exact data-loss shape CER-167 existed to prevent. Two related MEDIUM gaps (YAML 1.1 bare-value type coercion, raw control-character passthrough) were explicitly scoped out and filed as CER-212.
+
 ### Fixed [pairmode] — Phase 139 (Bootstrap/scaffold doc and quoting quality fixes, CER-166/167/187)
 - INFRA-409 closed three small, independently-scoped quality gaps: `story_new.py` gained a `_yaml_block_scalar` helper (bare-when-safe, `json.dumps`-quoted otherwise) routed through both the `primary_files:` and `touches:` write loops, so a value with a leading quote, a colon-space, a leading `#`, or an embedded newline no longer corrupts story frontmatter (CER-167); `bootstrap.py`'s `--force-agents` help text and the matching `SKILL.md` bullet now name `docs/exemplars/EXEMPLAR-000.md` as also overwritten (CER-187); and `security-auditor/procedure.md`'s `hooks/post_tool_use.py` authorized-writes list now includes `context_current_tokens_source` (INFRA-374), with the existing bare-key guard narrowed from a substring check to a word-boundary-aware regex so it still catches the bare key (CER-166, resolves the CER-208 conflict).
 

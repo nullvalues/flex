@@ -36,7 +36,7 @@ Placeholder era opened at 0.3.1 sealing; real scope to be defined as maintenance
 | 137 | Overrides/audit key-shape quality fixes (CER-182/184/185/202) | complete |
 | 138 | Close shadow-reviewer scope_guard cwd-resolution gap (CER-176/177/201) | complete |
 | 139 | Bootstrap/scaffold doc and quoting quality fixes (CER-166/167/187) | complete |
-| 140 | Fix silent YAML frontmatter truncation on embedded comment introducer (CER-211) | planned |
+| 140 | Fix silent YAML frontmatter truncation on embedded comment introducer (CER-211) | complete |
 | 141 | Fix story_new.py writer/reader escaping mismatch (CER-213) | planned |
 | 142 | Durable oracle-based fix for story_new.py frontmatter round-trip (CER-214/215/216) | planned |
 | 143 | Extend oracle-based round-trip fix to title/source frontmatter scalars (CER-219) | planned |
