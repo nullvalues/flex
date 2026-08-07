@@ -115,9 +115,29 @@ recovered value — matches expectation.
    representation changes (INFRA-409 Ensures 1's forbidden proxy, preserved
    unmodified by this story).
 7. All pre-existing tests in `TestYamlBlockScalarQuoting` (CER-167/CER-211/CER-213
-   cases already in `tests/pairmode/test_story_new.py`) pass unmodified against
-   the new implementation — this story is a rewrite of *how* the safety
-   decision is made, not a change to any of its previously-verified outcomes.
+   cases already in `tests/pairmode/test_story_new.py`) pass against the new
+   implementation, WITH TWO NAMED EXCEPTIONS whose *expected output* (not
+   their round-trip correctness) must be corrected, not weakened:
+   `test_value_with_colon_space_is_quoted_and_round_trips` (value
+   `"docs/notes: a file with a colon.md"`) and
+   `test_value_with_leading_quote_is_quoted_and_round_trips` (value
+   `'"quoted-looking-path.py'`). Both values have no leading/trailing
+   whitespace and no real newline, so under the oracle-only design (Ensures
+   1-2) they are legitimately representable bare, and live verification
+   against the real reader confirms bare *does* round-trip byte-identically
+   for both. Their prior "must be quoted" expectation was an artifact of the
+   old denylist (CER-213's `": " not in value` / leading-quote-character
+   checks), not a genuine round-trip requirement — CER-213's own denylist was
+   simply more conservative than the reader actually requires. Update these
+   two tests' assertions to expect bare output (`_yaml_block_scalar(value) ==
+   value`) instead of quoted, and rename them to
+   `test_value_with_colon_space_round_trips_bare` /
+   `test_value_with_leading_quote_round_trips_bare` to reflect the corrected
+   expectation — this is a deliberate, spec-sanctioned correction (found and
+   resolved during INFRA-412's own build attempt 1, which correctly refused
+   to guess and filed CER-217 instead), not silent test-weakening. Every
+   other pre-existing test in the class is unaffected and must keep passing
+   exactly as before.
 8. New regression tests exist covering, at minimum and by name: CER-214
    (`"x\r  - hooks/pre_tool_use.py"` — asserting the round-tripped parse has
    exactly one list item, not two, i.e. no injected sibling item), CER-215
