@@ -15,89 +15,128 @@ from pathlib import Path
 
 # Insert repo root so sibling imports work when run as CLI
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+# Insert this script's own directory so bare sibling-module imports (e.g.
+# `schema_validator`, matching this file's existing `from schema_validator
+# import validate_story_file as _vsf` local-import precedent) resolve
+# regardless of module import order within the test session — relying on
+# some other module (e.g. flex_build.py) to have already inserted this
+# directory as a side effect of being imported first would be fragile.
+sys.path.insert(0, str(Path(__file__).parent))
 
 import click
+
+from schema_validator import _parse_frontmatter as _pf  # noqa: PLC0415
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-# CER-167: characters/prefixes that make a value unsafe to emit as a bare
-# (unquoted) YAML scalar inside a block-sequence list item.
-_YAML_PLAIN_UNSAFE_START = (
-    '"', "'", "#", "-", "?", ":", ",", "[", "]", "{", "}",
-    "&", "*", "!", "|", ">", "%", "@", "`",
-)
+
+def _reads_back_intact(value: str, rendered: str) -> bool:
+    """Return True iff *rendered* round-trips to *value* through the real
+    reader (``schema_validator._parse_frontmatter``), embedded inside a
+    minimal multi-key frontmatter document with a *trailing* sentinel key
+    (CER-216 — a rendering that truncates the whole frontmatter block must
+    be rejected exactly like one that corrupts the item itself, so the
+    check asserts the *entire* parsed document, not just the recovered list
+    item)."""
+    doc = f"---\ntitle: t\nk:\n  - {rendered}\nsentinel: end\n---\n"
+    try:
+        parsed = _pf(doc)
+    except Exception:
+        return False
+    return parsed == {"title": "t", "k": [value], "sentinel": "end"}
 
 
 def _yaml_block_scalar(value: str) -> str:
-    """Return *value* rendered as a single-line YAML scalar (CER-167/CER-213).
+    """Return *value* rendered as a single-line YAML scalar (CER-167/
+    CER-211/CER-213/CER-214/CER-215/CER-216).
 
-    Emits *value* bare when it is a "plain" scalar safe to embed unquoted in
-    a block-sequence list item (no leading indicator character, no embedded
-    ``: ``, no trailing ``:``, no embedded newline/tab, no leading/trailing
-    whitespace); otherwise wraps it in a single matching pair of quote
-    characters — ``"`` when *value* contains no ``"``, else ``'`` when
-    *value* contains no ``'`` — with *value*'s own bytes emitted literally
-    between them, with no backslash escaping of any kind.
+    Oracle-based, not denylist-based (CER-214/215/216). Earlier versions of
+    this function decided bare-vs-quoted safety by hand-maintaining a
+    denylist of "unsafe" characters/prefixes
+    (``_YAML_PLAIN_UNSAFE_START``) — a description of what this project's
+    real frontmatter reader, ``schema_validator._parse_frontmatter``, does
+    on read. Each audit (CER-167, CER-211, CER-213, CER-214, CER-215,
+    CER-216) found one more character or shape the denylist's author had
+    not thought of, because the denylist was never actually checked against
+    the reader it was trying to describe — it could always drift out of
+    sync again. This function instead renders each representable candidate
+    form of *value* (bare, ``"``-quoted, ``'``-quoted) and feeds it back
+    through the real reader via ``_reads_back_intact``, embedded in a
+    minimal multi-key document with a trailing sentinel key so that
+    frontmatter-*truncation* (CER-216 — a value ending in e.g. ``---`` that
+    silently drops every later key) is caught, not just item-level
+    corruption. Only a candidate whose parsed-back document is byte-identical
+    to the original is ever emitted. This makes the writer's correctness
+    structurally tied to the reader's actual behaviour instead of a
+    hand-maintained approximation of it: a future gap in this function is a
+    gap in the reader itself (or in the sentinel document used to detect
+    truncation), not "one more character to add to a list." A future
+    builder tempted to add a character back onto a denylist here, in
+    response to some new adversarial value, is reintroducing exactly the
+    failure mode this design closes — the fix belongs in strengthening this
+    oracle round-trip, never in resuming a denylist.
 
-    This project's only story-frontmatter reader,
-    ``schema_validator._parse_frontmatter`` (via ``_strip_inline_comment``),
-    strips one matching pair of outer quote characters *literally* and never
-    unescapes anything — it is not a ``yaml.safe_load``-style reader. Running
-    *value* through ``json.dumps`` before quoting it (the pre-CER-213
-    behaviour) therefore corrupted any value containing a quote character, a
-    real tab, or (round-tripped as a literal escape sequence rather than the
-    intended byte) any other backslash-escaped character on read: the
-    backslash sequence came back to the caller unchanged, as literal
-    backslash + letter, not as the character it was meant to represent. This
-    function never does that.
+    Bare is attempted only when *value* has no leading/trailing whitespace
+    and no embedded real newline: those are structurally unrepresentable as
+    a single plain scalar line regardless of what the oracle says (a
+    surrounding-whitespace-stripping or newline-splitting reader could
+    "round-trip" a pathological case by accident; this project's reader
+    does not, but the exclusion is kept as a belt-and-braces structural
+    guard, not a safety decision — the oracle is still what actually gates
+    emission). ``"``-quoted is attempted only when *value* contains no
+    ``"``; ``'``-quoted only when *value* contains no ``'``. Preference
+    order when more than one candidate round-trips: bare, then ``"``, then
+    ``'`` (preserving the pre-existing observable preference,
+    INFRA-409/CER-213's own bare-preferred test case).
 
-    When neither quote character can safely wrap *value* (it contains both
-    ``"`` and ``'``), or *value* contains a real newline (structurally
-    unrepresentable as a single frontmatter line by this project's
-    line-based reader, regardless of quoting), this function raises
-    ``ValueError`` naming the unrepresentable value rather than emitting
-    something that would silently corrupt on read.
+    *value*'s own bytes are emitted literally between quote characters when
+    quoted, with no backslash escaping of any kind — this project's reader
+    strips one matching pair of outer quote characters literally and never
+    unescapes anything, so ``json.dumps``-style escaping (the pre-CER-213
+    behaviour) corrupted any value containing a quote character, a real
+    tab, or any other backslash-escaped character on read.
 
-    Never rejects, strips, or otherwise alters *value* itself in the cases it
-    does emit (INFRA-409 Ensures 1's forbidden proxy) — only the on-disk
+    When no candidate rendering round-trips — including the case where
+    *value* contains both ``"`` and ``'``, so neither quote form is
+    attemptable — this function raises ``ValueError`` naming the
+    unrepresentable value, exactly as before: this changes *how*
+    unrepresentability is detected, not the fact that it still raises
+    rather than silently corrupting.
+
+    Never rejects, strips, or otherwise alters *value* itself in the cases
+    it does emit (INFRA-409 Ensures 1's forbidden proxy) — only the on-disk
     representation changes. Does not touch the CER-092 title-quoting branch
     above; that branch's ``#``-detection rule is for a top-level scalar
     (``title:``), not a block-sequence list item, and is left as-is.
-
-    CER-211: a ``#`` is a comment introducer per the YAML spec's plain
-    scalar rules not only when it starts the scalar, but anywhere it is
-    preceded by whitespace (a bare ``" #"`` substring) — e.g.
-    ``"foo bar #baz.py"`` would otherwise be emitted unquoted and silently
-    truncated at the ``" #"`` on the next parse. Detected in addition to the
-    leading-``#`` case already covered by ``_YAML_PLAIN_UNSAFE_START``.
     """
-    is_plain = (
-        bool(value)
-        and value == value.strip()
-        and "\n" not in value
-        and "\t" not in value
-        and ": " not in value
-        and not value.endswith(":")
-        and not value.startswith(_YAML_PLAIN_UNSAFE_START)
-        and " #" not in value
-    )
-    if is_plain:
-        return value
+    candidates: list[str] = []
+    if value and value == value.strip() and "\n" not in value:
+        candidates.append(value)
+    if '"' not in value:
+        candidates.append(f'"{value}"')
+    if "'" not in value:
+        candidates.append(f"'{value}'")
+
+    for rendered in candidates:
+        if _reads_back_intact(value, rendered):
+            return rendered
+
     if "\n" in value:
         raise ValueError(
             f"cannot represent value with an embedded newline as a single "
             f"frontmatter line: {value!r}"
         )
-    if '"' not in value:
-        return f'"{value}"'
-    if "'" not in value:
-        return f"'{value}'"
+    if '"' in value and "'" in value:
+        raise ValueError(
+            f"cannot represent value containing both '\"' and \"'\" — no "
+            f"single quote character in this reader's literal-strip scheme "
+            f"can wrap it: {value!r}"
+        )
     raise ValueError(
-        f"cannot represent value containing both '\"' and \"'\" — no single "
-        f"quote character in this reader's literal-strip scheme can wrap "
-        f"it: {value!r}"
+        f"value cannot round-trip through schema_validator._parse_frontmatter "
+        f"as a single block-sequence list item: {value!r}"
     )
 
 

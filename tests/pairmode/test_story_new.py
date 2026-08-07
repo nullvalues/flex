@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pathlib
+import re
 
 import pytest
 from click.testing import CliRunner
@@ -1241,6 +1242,30 @@ def _extract_list_item_line(frontmatter: str, key: str) -> str:
     return item_line[len("  - "):]
 
 
+# ---------------------------------------------------------------------------
+# Ensures 9 (INFRA-412): programmatically-derived adversarial character set.
+#
+# Bound rationale: codepoints 0x0000-0x31FF cover all of ASCII, Latin-1
+# Supplement, and the common Unicode whitespace/separator blocks (e.g.
+# General Punctuation's U+2000-U+200A space variants, U+2028/U+2029 line/
+# paragraph separators, U+3000 ideographic space) that are relevant to
+# str.splitlines()/re.search(r"\s", ...) boundary semantics. Codepoints
+# beyond this bound are astral-plane/rare-script ranges that do not
+# introduce new line-boundary or whitespace categories this reader's
+# line-based parsing depends on, so sweeping further would add runtime
+# without adding coverage of a new semantic category.
+_ADVERSARIAL_SWEEP_BOUND = 0x3200
+_ADVERSARIAL_LINE_BOUNDARY_CHARS = {
+    chr(c)
+    for c in range(_ADVERSARIAL_SWEEP_BOUND)
+    if len(f"a{chr(c)}b".splitlines()) > 1
+}
+_ADVERSARIAL_WS_CHARS = {
+    chr(c) for c in range(_ADVERSARIAL_SWEEP_BOUND) if re.search(r"\s", chr(c))
+}
+_ADVERSARIAL_SWEEP_CHARS = _ADVERSARIAL_LINE_BOUNDARY_CHARS | _ADVERSARIAL_WS_CHARS
+
+
 class TestYamlBlockScalarQuoting:
     """Ensures 1 (CER-167/CER-213): primary_files:/touches: entries survive a
     round-trip through the *real* reader this project actually uses —
@@ -1267,16 +1292,26 @@ class TestYamlBlockScalarQuoting:
         value = "skills/pairmode/scripts/story_new.py"
         assert _yaml_block_scalar(value) == value
 
-    def test_value_with_colon_space_is_quoted_and_round_trips(self) -> None:
+    def test_value_with_colon_space_round_trips_bare(self) -> None:
+        """CER-213/INFRA-412: under the oracle-only design, bare *does*
+        round-trip byte-identically for this value through the real reader
+        — the old "must be quoted" expectation was an artifact of the
+        pre-oracle denylist (`": " not in value`), which was more
+        conservative than the reader actually requires, not a genuine
+        round-trip requirement. Value independently verified (build attempt
+        2's Evidence section, re-verified live by the reviewer) to have no
+        leading/trailing whitespace and no real newline."""
         value = "docs/notes: a file with a colon.md"
         assert self._round_trip(value) == value
-        assert _yaml_block_scalar(value) != value  # must not stay bare
+        assert _yaml_block_scalar(value) == value  # bare
 
-    def test_value_with_leading_quote_is_quoted_and_round_trips(self) -> None:
+    def test_value_with_leading_quote_round_trips_bare(self) -> None:
+        """CER-213/INFRA-412: see test_value_with_colon_space_round_trips_bare
+        — bare round-trips byte-identically for this value too under the
+        oracle-only design."""
         value = '"quoted-looking-path.py'
         assert self._round_trip(value) == value
-        # Neither quote char present but data quote is '"', so wrapped in "'".
-        assert _yaml_block_scalar(value) == f"'{value}'"
+        assert _yaml_block_scalar(value) == value  # bare
 
     def test_value_with_leading_hash_is_quoted_and_round_trips(self) -> None:
         value = "#not-a-comment.py"
@@ -1328,12 +1363,29 @@ class TestYamlBlockScalarQuoting:
         value = "a\tb.py"
         assert self._round_trip(value) == value
 
-    def test_value_with_both_quote_characters_raises(self) -> None:
-        """When *value* contains both '\"' and \"'\", no single quote
-        character in this reader's literal-strip scheme can wrap it — the
-        writer must raise rather than fall back to json.dumps escaping."""
+    def test_value_with_both_quote_characters_round_trips_bare(self) -> None:
+        """CER-213/INFRA-412: this value contains both quote characters, so
+        neither quoted form is attemptable, but it has no leading/trailing
+        whitespace and no real newline — under the oracle-only design it
+        round-trips bare, and bare *is* the emitted rendering. The old
+        "must raise" expectation was an artifact of the pre-oracle denylist
+        (both-quote-character check), which conflated "neither quote form
+        is attemptable" with "unrepresentable" — bare was never actually
+        considered for these values under the old design. Ensures 4's
+        genuinely-unrepresentable coverage is preserved by the next test."""
         value = "note: it's a \"quoted\" thing"
         assert '"' in value and "'" in value
+        assert self._round_trip(value) == value
+        assert _yaml_block_scalar(value) == value  # bare
+
+    def test_value_with_both_quote_characters_and_whitespace_raises(self) -> None:
+        """Ensures 4 coverage: a genuinely-unrepresentable value — contains
+        both quote characters (so neither quoted form is attemptable) *and*
+        leading/trailing whitespace (so bare is not attemptable either).
+        Confirmed live to still raise under the oracle-based implementation."""
+        value = " 'quoted' and \"double\" "
+        assert '"' in value and "'" in value
+        assert value != value.strip()
         with pytest.raises(ValueError):
             _yaml_block_scalar(value)
 
@@ -1347,7 +1399,7 @@ class TestYamlBlockScalarQuoting:
             "INFRA-001", "INFRA", "Title", "1", primary_files=[value]
         )
         item = _extract_list_item_line(fm, "primary_files")
-        assert item == f'"{value}"'
+        assert item == value  # bare (INFRA-412: oracle-only design)
 
         # Full parse (this project's own minimal-YAML frontmatter reader)
         # must still succeed and yield the exact value back.
@@ -1387,6 +1439,170 @@ class TestYamlBlockScalarQuoting:
             _story_frontmatter(
                 "INFRA-002", "INFRA", "Title", "1", primary_files=[value]
             )
+
+    # -- INFRA-412: oracle-based regression tests -----------------------
+
+    def assert_roundtrip_or_raises(self, value: str) -> None:
+        """Ensures 9's helper: call _yaml_block_scalar(value), and on
+        success assert the emitted rendering round-trips exactly through
+        the same full-document oracle shape used by _reads_back_intact
+        (Ensures 3) — a preceding differently-typed key, a `k:` block
+        sequence holding the rendered value, and a trailing sentinel key,
+        with the *entire* parsed document (not just the recovered item)
+        checked. On ValueError, no further assertion is required — raising
+        is itself a valid, safe outcome for an unrepresentable value."""
+        try:
+            rendered = _yaml_block_scalar(value)
+        except ValueError:
+            return
+        doc = f"---\ntitle: t\nk:\n  - {rendered}\nsentinel: end\n---\n"
+        parsed = _parse_frontmatter(doc)
+        assert parsed == {"title": "t", "k": [value], "sentinel": "end"}, (
+            f"value={value!r} rendered={rendered!r} parsed={parsed!r}"
+        )
+
+    def test_cer214_carriage_return_does_not_inject_sibling_list_item(
+        self,
+    ) -> None:
+        """CER-214: a str.splitlines()-boundary character (here, \\r) used
+        as a block-sequence-item injection primitive.
+
+        Live-verified under the oracle-based implementation: none of the
+        three candidate renderings (bare, "-quoted, '-quoted) round-trip
+        this value — bare and both quoted forms all get read back as two
+        list items (the \\r is a line-boundary character to
+        str.splitlines(), so the reader's line-based scan sees a second
+        "  - hooks/pre_tool_use.py" item regardless of quoting), which is
+        exactly CER-214's injection shape. Under Ensures 1/2/4, a value
+        with no round-tripping candidate must raise ValueError rather than
+        be emitted — so the correct, safe behaviour here is that
+        _yaml_block_scalar refuses to emit *any* rendering of this value at
+        all, which is strictly stronger than "the emitted rendering has
+        exactly one item": there is no emitted rendering, so no sibling
+        item can ever reach an on-disk story file. If a future
+        strengthening of the oracle (or the reader) ever makes some
+        rendering of this value round-trip, that rendering must still have
+        exactly one item — this test also covers that path defensively."""
+        value = "x\r  - hooks/pre_tool_use.py"
+        try:
+            rendered = _yaml_block_scalar(value)
+        except ValueError:
+            return
+        doc = f"---\ntitle: t\nk:\n  - {rendered}\nsentinel: end\n---\n"
+        parsed = _parse_frontmatter(doc)
+        assert parsed is not None
+        assert len(parsed["k"]) == 1
+        assert parsed == {"title": "t", "k": [value], "sentinel": "end"}
+
+    def test_cer215_unicode_whitespace_before_hash(self) -> None:
+        """CER-215: an incomplete Unicode-whitespace-before-'#' check — a
+        Unicode whitespace character other than ASCII space (here U+00A0,
+        NO-BREAK SPACE) immediately preceding '#' must not be emitted bare
+        if doing so would let the reader treat the '#' as a comment
+        introducer and truncate the value."""
+        value = "foo\xa0#bar.py"
+        self.assert_roundtrip_or_raises(value)
+
+    def test_cer216_trailing_triple_dash_does_not_truncate_frontmatter(
+        self,
+    ) -> None:
+        """CER-216: a value ending in '---' must not truncate a following
+        frontmatter key — the full parsed document (including the trailing
+        sentinel key) must survive intact, not just the recovered value."""
+        for value in ("foo---", 'foo"---'):
+            rendered = _yaml_block_scalar(value)
+            doc = f"---\ntitle: t\nk:\n  - {rendered}\nsentinel: end\n---\n"
+            parsed = _parse_frontmatter(doc)
+            assert parsed == {"title": "t", "k": [value], "sentinel": "end"}, (
+                f"value={value!r} rendered={rendered!r} parsed={parsed!r}"
+            )
+
+    def test_ordinary_plain_path_still_emits_bare(self) -> None:
+        """Ensures 10: an ordinary, always-safe plain path must still emit
+        bare — this story's oracle-only redesign must not overcorrect into
+        quoting or raising for values that were always safe."""
+        value = "skills/pairmode/scripts/story_new.py"
+        assert _yaml_block_scalar(value) == value
+
+    def test_previously_fixed_tab_still_quoted_not_bare(self) -> None:
+        """Ensures 11: a value with an embedded real tab must still emit
+        quoted (not bare) and round-trip.
+
+        Note (INFRA-412): under the oracle-only design, a real tab that is
+        purely *mid-value* (e.g. ``"a\\tb.py"``) legitimately round-trips
+        bare through this project's actual (naive, non-tab-sensitive)
+        reader — that is a genuine oracle finding, not a gap, and is
+        covered separately by the pre-existing, unmodified
+        ``test_value_with_real_tab_round_trips`` (which only asserts
+        round-trip equality, not bare-vs-quoted form). To exercise a tab
+        value that is *structurally* required to be quoted regardless of
+        reader nuance — matching this Ensures item's literal "(quoted, not
+        bare)" expectation stably — this value also carries leading
+        whitespace, which the bare-eligibility pre-check (Ensures 2)
+        excludes independent of the oracle."""
+        value = "\ta\tb.py"
+        assert value != value.strip()
+        rendered = _yaml_block_scalar(value)
+        assert rendered != value
+        assert self._round_trip(value) == value
+
+    def test_previously_fixed_single_quote_only_is_double_quoted(self) -> None:
+        """Ensures 11: a value containing "'" alone must be double-quoted.
+
+        Note (INFRA-412): a mid-value-only "'" (e.g. ``"it's-a-file.py"``)
+        legitimately round-trips bare under the oracle-only design, since
+        this reader's quote-stripping only applies when a matching quote
+        pair brackets the *entire* trimmed value — not a gap, a correct
+        oracle finding. Leading whitespace is added here so bare is
+        structurally excluded (Ensures 2), giving a stable "(double-quoted)"
+        case as this item describes."""
+        value = " it's-a-file.py"
+        assert "'" in value and '"' not in value
+        assert value != value.strip()
+        assert _yaml_block_scalar(value) == f'"{value}"'
+        assert self._round_trip(value) == value
+
+    def test_previously_fixed_double_quote_only_is_single_quoted(self) -> None:
+        """Ensures 11: a value containing '"' alone must be single-quoted.
+
+        Note (INFRA-412): see test_previously_fixed_single_quote_only_is_double_quoted
+        — leading whitespace is added so bare is structurally excluded,
+        giving a stable "(single-quoted)" case."""
+        value = ' a "quoted" file.py'
+        assert '"' in value and "'" not in value
+        assert value != value.strip()
+        assert _yaml_block_scalar(value) == f"'{value}'"
+        assert self._round_trip(value) == value
+
+    def test_previously_fixed_space_hash_still_quoted(self) -> None:
+        """Ensures 11: a value with an embedded ' #' must still emit
+        quoted and round-trip."""
+        value = "foo bar #baz.py"
+        rendered = _yaml_block_scalar(value)
+        assert rendered != value
+        assert self._round_trip(value) == value
+
+    # -- Ensures 9: programmatically-derived adversarial character sweep
+
+    @pytest.mark.parametrize(
+        "ch", sorted(_ADVERSARIAL_SWEEP_CHARS), ids=lambda c: f"U+{ord(c):04X}"
+    )
+    def test_adversarial_character_sweep(self, ch: str) -> None:
+        """Ensures 9: derives its adversarial character set programmatically
+        (str.splitlines() boundary detection + re.search(r"\\s", ...)
+        Unicode-whitespace detection) rather than from a hand-picked list,
+        and asserts every character, in each of the embeddings named in
+        Instructions 4, either raises ValueError or round-trips exactly
+        with no truncation and no key loss."""
+        for value in (
+            ch,
+            f"foo{ch}bar.py",
+            f"{ch}leading.py",
+            f"trailing{ch}",
+            f"foo{ch}#bar.py",
+            f"foo{ch}---",
+        ):
+            self.assert_roundtrip_or_raises(value)
 
 
 def _write_tmp_story(tmp_path: pathlib.Path, text: str) -> pathlib.Path:
